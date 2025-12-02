@@ -258,11 +258,12 @@ async def publish_website(
                 detail="Website has no content to publish"
             )
 
-        # Publish to R2
+        # Publish to Supabase Storage
         public_url = await storage_service.publish_website(
             subdomain=website["subdomain"],
             html_content=website["html_content"],
-            website_id=website_id
+            website_id=website_id,
+            user_id=current_user.get("sub")
         )
 
         # Update website status
@@ -321,7 +322,10 @@ async def delete_website(
 
         # Delete from storage if published
         if website["status"] == WebsiteStatus.PUBLISHED:
-            await storage_service.delete_website(website["subdomain"])
+            await storage_service.delete_website(
+                user_id=current_user.get("sub"),
+                subdomain=website["subdomain"]
+            )
 
         # Delete from database
         await supabase_service.delete_website(website_id)
