@@ -53,19 +53,8 @@ class Settings(BaseSettings):
         env="DEEPSEEK_MODEL"
     )
 
-    # Cloudflare R2
-    R2_ACCOUNT_ID: str = Field(..., env="R2_ACCOUNT_ID")
-    R2_ACCESS_KEY_ID: str = Field(..., env="R2_ACCESS_KEY_ID")
-    R2_SECRET_ACCESS_KEY: str = Field(..., env="R2_SECRET_ACCESS_KEY")
-    R2_BUCKET_NAME: str = Field(default="binaapp-websites", env="R2_BUCKET_NAME")
-    R2_PUBLIC_URL: str = Field(..., env="R2_PUBLIC_URL")
-    R2_ENDPOINT: Optional[str] = None
-
-    @validator("R2_ENDPOINT", pre=True, always=True)
-    def set_r2_endpoint(cls, v, values):
-        if v is None and "R2_ACCOUNT_ID" in values:
-            return f"https://{values['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
-        return v
+    # Supabase Storage
+    STORAGE_BUCKET_NAME: str = Field(default="websites", env="STORAGE_BUCKET_NAME")
 
     # Stripe
     STRIPE_PUBLIC_KEY: str = Field(..., env="STRIPE_PUBLIC_KEY")
