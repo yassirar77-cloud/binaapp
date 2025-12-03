@@ -1,162 +1,261 @@
 /**
- * Dashboard Page - Main app interface
+ * Dashboard Page - Project Management
  */
 
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { getCurrentUser, signOut } from '@/lib/supabase'
-import { apiClient, Website } from '@/lib/api'
-import toast from 'react-hot-toast'
-import { Plus, Globe, LogOut, Sparkles } from 'lucide-react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { getWebsiteStatus } from '@/lib/utils'
+import { Sparkles, Plus, Eye, Edit2, Trash2, ExternalLink, Calendar, Globe } from 'lucide-react'
+
+interface Project {
+  id: string
+  name: string
+  subdomain: string
+  url: string
+  created_at: string
+  published_at?: string
+}
 
 export default function DashboardPage() {
-  const router = useRouter()
-  const [user, setUser] = useState<any>(null)
-  const [websites, setWebsites] = useState<Website[]>([])
+  const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+
+  const userId = 'demo-user' // In production, get from auth
 
   useEffect(() => {
-    checkAuth()
-    loadWebsites()
+    loadProjects()
   }, [])
 
-  const checkAuth = async () => {
-    const currentUser = await getCurrentUser()
-    if (!currentUser) {
-      router.push('/login')
-      return
-    }
-    setUser(currentUser)
-  }
+  const loadProjects = async () => {
+    setLoading(true)
+    setError('')
 
-  const loadWebsites = async () => {
     try {
-      const response = await apiClient.getWebsites()
-      setWebsites(response.data)
-    } catch (error) {
-      toast.error('Gagal memuatkan websites')
+      const response = await fetch(`http://localhost:8000/api/projects/${userId}`)
+
+      if (!response.ok) {
+        throw new Error('Failed to load projects')
+      }
+
+      const data = await response.json()
+      setProjects(data)
+    } catch (err: any) {
+      setError(err.message || 'Failed to load projects')
     } finally {
       setLoading(false)
     }
   }
 
-  const handleLogout = async () => {
-    await signOut()
-    router.push('/')
+  const handleDelete = async (projectId: string) => {
+    setDeleting(projectId)
+    setError('')
+
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/projects/${userId}/${projectId}`,
+        { method: 'DELETE' }
+      )
+
+      if (!response.ok) {
+        throw new Error('Failed to delete project')
+      }
+
+      // Remove from list
+      setProjects(projects.filter(p => p.id !== projectId))
+      setDeleteConfirm(null)
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete project')
+    } finally {
+      setDeleting(null)
+    }
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="loading-dots">
-          <span></span>
-          <span></span>
-          <span></span>
-        </div>
-      </div>
-    )
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString)
+      return date.toLocaleDateString('en-MY', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      })
+    } catch {
+      return 'Unknown'
+    }
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b">
-        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+      <header className="bg-white border-b sticky top-0 z-40">
+        <nav className="container mx-auto px-4 h-16 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2">
             <Sparkles className="w-6 h-6 text-primary-600" />
             <span className="text-xl font-bold">BinaApp</span>
-          </div>
+          </Link>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">{user?.email}</span>
-            <button
-              onClick={handleLogout}
-              className="btn btn-secondary flex items-center gap-2"
-            >
-              <LogOut className="w-4 h-4" />
-              Log Keluar
-            </button>
+            <Link href="/create" className="btn btn-primary">
+              <Plus className="w-4 h-4 mr-2" />
+              Create New Website
+            </Link>
           </div>
-        </div>
+        </nav>
       </header>
 
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold mb-2">Website Saya</h1>
-            <p className="text-gray-600">
-              Anda mempunyai {websites.length} website
-            </p>
+      <div className="container mx-auto px-4 py-8">
+        {/* Title & Stats */}
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold mb-2">My Projects</h1>
+          <p className="text-gray-600">Manage and view all your websites</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
+              <div className="text-3xl font-bold text-primary-600 mb-1">
+                {projects.length}
+              </div>
+              <div className="text-gray-600 text-sm">Total Websites</div>
+            </div>
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
+              <div className="text-3xl font-bold text-green-600 mb-1">
+                {projects.filter(p => p.published_at).length}
+              </div>
+              <div className="text-gray-600 text-sm">Published</div>
+            </div>
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
+              <div className="text-3xl font-bold text-blue-600 mb-1">-</div>
+              <div className="text-gray-600 text-sm">Total Views (Coming Soon)</div>
+            </div>
           </div>
-          <Link href="/dashboard/create" className="btn btn-primary flex items-center gap-2">
-            <Plus className="w-5 h-5" />
-            Cipta Website Baharu
-          </Link>
         </div>
 
-        {/* Websites Grid */}
-        {websites.length === 0 ? (
-          <div className="text-center py-16">
-            <Globe className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold mb-2">Tiada website lagi</h3>
-            <p className="text-gray-600 mb-6">
-              Mula cipta website pertama anda dengan AI
-            </p>
-            <Link href="/dashboard/create" className="btn btn-primary">
-              Cipta Website Sekarang
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+            {error}
+          </div>
+        )}
+
+        {/* Loading State */}
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="bg-white rounded-lg p-6 shadow-sm border border-gray-200 animate-pulse">
+                <div className="h-32 bg-gray-200 rounded mb-4"></div>
+                <div className="h-6 bg-gray-200 rounded mb-2"></div>
+                <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+              </div>
+            ))}
+          </div>
+        ) : projects.length === 0 ? (
+          /* Empty State */
+          <div className="text-center py-20">
+            <div className="text-6xl mb-4">📄</div>
+            <h2 className="text-2xl font-bold mb-2">No websites yet</h2>
+            <p className="text-gray-600 mb-6">Create your first AI-powered website now!</p>
+            <Link href="/create" className="btn btn-primary">
+              <Plus className="w-4 h-4 mr-2" />
+              Create Your First Website
             </Link>
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {websites.map((website) => (
-              <WebsiteCard key={website.id} website={website} />
+          /* Projects Grid */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {projects.map(project => (
+              <div
+                key={project.id}
+                className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-lg transition-shadow overflow-hidden"
+              >
+                {/* Preview Thumbnail */}
+                <div className="relative h-48 bg-gradient-to-br from-primary-100 to-primary-200 flex items-center justify-center">
+                  <Globe className="w-16 h-16 text-primary-600 opacity-50" />
+                  <div className="absolute top-3 right-3">
+                    <a
+                      href={project.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-white rounded-full p-2 shadow-md hover:shadow-lg transition-shadow"
+                      title="View Live"
+                    >
+                      <ExternalLink className="w-4 h-4 text-gray-700" />
+                    </a>
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="p-6">
+                  <h3 className="text-xl font-bold mb-2 truncate" title={project.name}>
+                    {project.name}
+                  </h3>
+
+                  <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
+                    <Globe className="w-4 h-4" />
+                    <span className="truncate">{project.subdomain}.binaapp.my</span>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
+                    <Calendar className="w-4 h-4" />
+                    <span>Created {formatDate(project.created_at)}</span>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-2">
+                    <a
+                      href={project.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 btn btn-outline btn-sm"
+                    >
+                      <Eye className="w-4 h-4 mr-1" />
+                      View
+                    </a>
+                    <Link
+                      href={`/edit/${project.id}`}
+                      className="flex-1 btn btn-outline btn-sm"
+                    >
+                      <Edit2 className="w-4 h-4 mr-1" />
+                      Edit
+                    </Link>
+                    {deleteConfirm === project.id ? (
+                      <button
+                        onClick={() => handleDelete(project.id)}
+                        disabled={deleting === project.id}
+                        className="flex-1 btn bg-red-600 hover:bg-red-700 text-white btn-sm"
+                      >
+                        {deleting === project.id ? '...' : 'Confirm?'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setDeleteConfirm(project.id)}
+                        className="btn btn-outline btn-sm text-red-600 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  {deleteConfirm === project.id && (
+                    <button
+                      onClick={() => setDeleteConfirm(null)}
+                      className="w-full mt-2 text-xs text-gray-500 hover:text-gray-700"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </div>
             ))}
           </div>
         )}
-      </main>
-    </div>
-  )
-}
 
-function WebsiteCard({ website }: { website: Website }) {
-  const status = getWebsiteStatus(website.status)
-
-  return (
-    <div className="card hover:shadow-lg transition-shadow">
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <h3 className="font-bold text-lg mb-1">{website.business_name}</h3>
-          <p className="text-sm text-gray-600">{website.subdomain}.binaapp.my</p>
-        </div>
-        <span className={`text-xs px-2 py-1 rounded-full ${status.color}`}>
-          {status.label}
-        </span>
-      </div>
-
-      <div className="text-sm text-gray-600 mb-4">
-        Dicipta: {new Date(website.created_at).toLocaleDateString('ms-MY')}
-      </div>
-
-      <div className="flex gap-2">
-        {website.status === 'published' && (
-          <a
-            href={website.full_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn btn-primary flex-1 text-sm"
-          >
-            Lihat Website
-          </a>
-        )}
+        {/* Create New Button (Mobile FAB) */}
         <Link
-          href={`/dashboard/website/${website.id}`}
-          className="btn btn-outline flex-1 text-sm"
+          href="/create"
+          className="fixed bottom-6 right-6 md:hidden btn btn-primary rounded-full w-14 h-14 flex items-center justify-center shadow-lg"
         >
-          {website.status === 'draft' ? 'Terbitkan' : 'Urus'}
+          <Plus className="w-6 h-6" />
         </Link>
       </div>
     </div>
