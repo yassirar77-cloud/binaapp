@@ -18,11 +18,11 @@ export default function LandingPage() {
             <span className="text-xl font-bold">BinaApp</span>
           </div>
           <div className="flex items-center gap-4">
-            <Link href="/login" className="text-gray-600 hover:text-gray-900">
-              Log Masuk
+            <Link href="/dashboard" className="text-gray-600 hover:text-gray-900">
+              My Projects
             </Link>
-            <Link href="/register" className="btn btn-primary">
-              Daftar Percuma
+            <Link href="/create" className="btn btn-primary">
+              Create Website
             </Link>
           </div>
         </nav>
@@ -40,11 +40,11 @@ export default function LandingPage() {
             AI kami akan jana website lengkap dengan WhatsApp, shopping cart, dan banyak lagi!
           </p>
           <div className="flex gap-4 justify-center animate-slide-up">
-            <Link href="/register" className="btn btn-primary text-lg px-8 py-3">
+            <Link href="/create" className="btn btn-primary text-lg px-8 py-3">
               Mula Sekarang - Percuma
             </Link>
-            <Link href="#demo" className="btn btn-outline text-lg px-8 py-3">
-              Lihat Demo
+            <Link href="/dashboard" className="btn btn-outline text-lg px-8 py-3">
+              Lihat Projects
             </Link>
           </div>
         </div>
