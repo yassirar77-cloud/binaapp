@@ -7,6 +7,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { Sparkles, Download, Upload, Eye, Copy, Check } from 'lucide-react'
+import ImageUpload from './components/ImageUpload'
 
 const EXAMPLE_DESCRIPTIONS = [
   {
@@ -45,6 +46,7 @@ export default function CreatePage() {
   const [publishing, setPublishing] = useState(false)
   const [publishedUrl, setPublishedUrl] = useState('')
   const [copied, setCopied] = useState(false)
+  const [uploadedImages, setUploadedImages] = useState<string[]>([])
 
   const handleGenerate = async () => {
     if (description.length < 10) {
@@ -64,7 +66,8 @@ export default function CreatePage() {
         },
         body: JSON.stringify({
           description,
-          user_id: 'demo-user'
+          user_id: 'demo-user',
+          images: uploadedImages
         })
       })
 
@@ -178,6 +181,21 @@ export default function CreatePage() {
         {/* Main Content */}
         {!generatedHtml ? (
           <div className="max-w-4xl mx-auto">
+            {/* Menu Designer Link */}
+            <div style={{ marginBottom: '20px' }}>
+              <a href="/menu-designer" style={{
+                display: 'inline-block',
+                padding: '12px 24px',
+                background: '#16a34a',
+                color: 'white',
+                textDecoration: 'none',
+                borderRadius: '8px',
+                fontWeight: 'bold'
+              }}>
+                🍽️ Create Print Menu
+              </a>
+            </div>
+
             {/* Example Buttons */}
             <div className="mb-6">
               <label className="block text-sm font-semibold mb-3 text-gray-700">
@@ -236,6 +254,9 @@ export default function CreatePage() {
                 {description.length} characters
               </div>
             </div>
+
+            {/* Image Upload */}
+            <ImageUpload onImagesUploaded={setUploadedImages} />
 
             {/* Error Message */}
             {error && (
