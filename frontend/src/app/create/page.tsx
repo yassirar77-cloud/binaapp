@@ -168,6 +168,20 @@ export default function CreatePage() {
       </header>
 
       <div className="container mx-auto px-4 py-8">
+        {/* Menu Designer Link */}
+        <a href="/menu-designer" style={{
+          display: 'inline-block',
+          padding: '12px 24px',
+          background: '#16a34a',
+          color: 'white',
+          textDecoration: 'none',
+          borderRadius: '8px',
+          fontWeight: 'bold',
+          marginBottom: '20px'
+        }}>
+          🍽️ Create Print Menu
+        </a>
+
         {/* Title */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold mb-3">
@@ -181,21 +195,6 @@ export default function CreatePage() {
         {/* Main Content */}
         {!generatedHtml ? (
           <div className="max-w-4xl mx-auto">
-            {/* Menu Designer Link */}
-            <div style={{ marginBottom: '20px' }}>
-              <a href="/menu-designer" style={{
-                display: 'inline-block',
-                padding: '12px 24px',
-                background: '#16a34a',
-                color: 'white',
-                textDecoration: 'none',
-                borderRadius: '8px',
-                fontWeight: 'bold'
-              }}>
-                🍽️ Create Print Menu
-              </a>
-            </div>
-
             {/* Example Buttons */}
             <div className="mb-6">
               <label className="block text-sm font-semibold mb-3 text-gray-700">
@@ -235,6 +234,9 @@ export default function CreatePage() {
               </div>
             </div>
 
+            {/* Image Upload */}
+            <ImageUpload onImagesUploaded={setUploadedImages} />
+
             {/* Description Textarea */}
             <div className="mb-6">
               <label className="block text-sm font-semibold mb-2 text-gray-700">
@@ -254,9 +256,6 @@ export default function CreatePage() {
                 {description.length} characters
               </div>
             </div>
-
-            {/* Image Upload */}
-            <ImageUpload onImagesUploaded={setUploadedImages} />
 
             {/* Error Message */}
             {error && (
