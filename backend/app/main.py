@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.logging_config import setup_logging
 from app.api.v1.router import api_router
 from app.api.simple.router import simple_router
+from app.api import upload, menu_designer
 
 # Setup logging
 setup_logging()
@@ -109,6 +110,8 @@ async def root():
 # Include API Routers
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(simple_router, prefix="/api")  # Simple API without auth
+app.include_router(upload.router, prefix="/api", tags=["upload"])
+app.include_router(menu_designer.router, prefix="/api", tags=["menu"])
 
 
 if __name__ == "__main__":
