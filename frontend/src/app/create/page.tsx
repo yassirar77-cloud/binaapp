@@ -6,8 +6,10 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Sparkles, Download, Upload, Eye, Copy, Check, Share2 } from 'lucide-react'
+import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout } from 'lucide-react'
 import ImageUpload from './components/ImageUpload'
+import DevicePreview from './components/DevicePreview'
+import MultiDevicePreview from './components/MultiDevicePreview'
 
 const EXAMPLE_DESCRIPTIONS = [
   {
@@ -61,6 +63,9 @@ export default function CreatePage() {
   const [styleVariations, setStyleVariations] = useState<StyleVariation[]>([])
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null)
   const [generatePreviews, setGeneratePreviews] = useState(false)
+
+  // Preview mode state
+  const [previewMode, setPreviewMode] = useState<'single' | 'multi'>('single')
 
   const handleGenerate = async () => {
     if (description.length < 10) {
@@ -566,6 +571,17 @@ export default function CreatePage() {
                   ← Back to Variations
                 </button>
               )}
+
+              {/* Preview Mode Toggle */}
+              <button
+                onClick={() => setPreviewMode(previewMode === 'single' ? 'multi' : 'single')}
+                className="btn btn-outline"
+                title={previewMode === 'single' ? 'View on all devices' : 'View single device'}
+              >
+                <Layout className="w-4 h-4 mr-2" />
+                {previewMode === 'single' ? 'Multi-Device' : 'Single Device'}
+              </button>
+
               <button
                 onClick={handleDownload}
                 className="btn btn-outline"
@@ -650,21 +666,18 @@ export default function CreatePage() {
               </button>
             </div>
 
-            {/* Preview */}
-            <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-              <div className="bg-gray-800 text-white px-4 py-3 flex items-center justify-between">
-                <span className="font-semibold">Preview</span>
-                <span className="text-sm text-gray-400">Scroll to see full website</span>
-              </div>
-              <div className="relative" style={{ height: '70vh' }}>
-                <iframe
-                  srcDoc={generatedHtml}
-                  className="w-full h-full border-0"
-                  title="Website Preview"
-                  sandbox="allow-same-origin allow-scripts allow-forms"
-                />
-              </div>
-            </div>
+            {/* Responsive Preview with Device Toggle */}
+            {previewMode === 'single' ? (
+              <DevicePreview
+                htmlContent={generatedHtml}
+                title={selectedStyle ? `Preview - ${selectedStyle.toUpperCase()} Style` : "Preview"}
+              />
+            ) : (
+              <MultiDevicePreview
+                htmlContent={generatedHtml}
+                title={selectedStyle ? `Multi-Device Preview - ${selectedStyle.toUpperCase()} Style` : "Multi-Device Preview"}
+              />
+            )}
           </div>
         )}
       </div>
