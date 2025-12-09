@@ -24,6 +24,8 @@ class SimpleGenerateRequest(BaseModel):
         description="User's description in Malay or English"
     )
     user_id: Optional[str] = Field(default="demo-user", description="Optional user ID")
+    images: Optional[List[str]] = Field(default=[], description="Optional list of uploaded image URLs")
+    multi_style: Optional[bool] = Field(default=False, description="Generate multiple style variations")
 
 
 class SimpleGenerateResponse(BaseModel):
@@ -34,7 +36,22 @@ class SimpleGenerateResponse(BaseModel):
     success: bool = True
 
 
-@router.post("/generate", response_model=SimpleGenerateResponse)
+class StyleVariation(BaseModel):
+    """Single style variation"""
+    style: str
+    html: str
+    preview_image: Optional[str] = None
+
+
+class MultiStyleResponse(BaseModel):
+    """Multi-style generation response"""
+    variations: List[StyleVariation]
+    detected_features: List[str]
+    template_used: str
+    success: bool = True
+
+
+@router.post("/generate")
 async def generate_website(request: SimpleGenerateRequest):
     """
     Generate complete website from description
@@ -44,10 +61,12 @@ async def generate_website(request: SimpleGenerateRequest):
     - Detects website type automatically
     - Auto-injects integrations based on detected features
     - Returns complete, functional HTML
+    - Supports multi-style generation (Modern, Minimal, Bold)
     """
     try:
         logger.info(f"Generating website for user: {request.user_id}")
         logger.info(f"Description: {request.description[:100]}...")
+        logger.info(f"Multi-style: {request.multi_style}")
 
         # Detect website type
         website_type = template_service.detect_website_type(request.description)
@@ -84,14 +103,7 @@ async def generate_website(request: SimpleGenerateRequest):
             contact_email=None
         )
 
-        # Generate website using AI
-        logger.info("Calling AI service to generate website...")
-        ai_response = await ai_service.generate_website(ai_request)
-
-        # Get the generated HTML
-        html_content = ai_response.html_content
-
-        # Inject additional integrations
+        # User data for integrations
         user_data = {
             "phone": phone_number if phone_number else "+60123456789",
             "address": address if address else "",
@@ -100,20 +112,61 @@ async def generate_website(request: SimpleGenerateRequest):
             "whatsapp_message": "Hi, I'm interested"
         }
 
-        html_content = template_service.inject_integrations(
-            html_content,
-            features,
-            user_data
-        )
+        # Multi-style generation
+        if request.multi_style:
+            logger.info("Generating multi-style variations...")
+            variations_dict = await ai_service.generate_multi_style(ai_request)
 
-        logger.info("Website generated successfully!")
+            # Process each variation
+            variations = []
+            for style, ai_response in variations_dict.items():
+                html_content = ai_response.html_content
 
-        return SimpleGenerateResponse(
-            html=html_content,
-            detected_features=features,
-            template_used=website_type,
-            success=True
-        )
+                # Inject integrations
+                html_content = template_service.inject_integrations(
+                    html_content,
+                    features,
+                    user_data
+                )
+
+                variations.append(StyleVariation(
+                    style=style,
+                    html=html_content,
+                    preview_image=None  # Can be generated later with screenshot
+                ))
+
+            logger.info(f"Generated {len(variations)} style variations successfully!")
+
+            return MultiStyleResponse(
+                variations=variations,
+                detected_features=features,
+                template_used=website_type,
+                success=True
+            )
+
+        # Single style generation (original behavior)
+        else:
+            logger.info("Calling AI service to generate website...")
+            ai_response = await ai_service.generate_website(ai_request)
+
+            # Get the generated HTML
+            html_content = ai_response.html_content
+
+            # Inject additional integrations
+            html_content = template_service.inject_integrations(
+                html_content,
+                features,
+                user_data
+            )
+
+            logger.info("Website generated successfully!")
+
+            return SimpleGenerateResponse(
+                html=html_content,
+                detected_features=features,
+                template_used=website_type,
+                success=True
+            )
 
     except Exception as e:
         logger.error(f"Error generating website: {e}")

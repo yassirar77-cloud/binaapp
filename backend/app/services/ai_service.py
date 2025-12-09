@@ -24,14 +24,19 @@ class AIService:
 
     async def generate_website(
         self,
-        request: WebsiteGenerationRequest
+        request: WebsiteGenerationRequest,
+        style: Optional[str] = None
     ) -> AIGenerationResponse:
         """
         Generate complete website HTML using DeepSeek V3
+
+        Args:
+            request: Website generation request
+            style: Optional design style (modern, minimal, bold)
         """
         try:
-            # Build the prompt
-            prompt = self._build_generation_prompt(request)
+            # Build the prompt with optional style
+            prompt = self._build_generation_prompt(request, style)
 
             # Call DeepSeek API
             response = await self.client.chat.completions.create(
@@ -39,7 +44,7 @@ class AIService:
                 messages=[
                     {
                         "role": "system",
-                        "content": self._get_system_prompt()
+                        "content": self._get_system_prompt(style)
                     },
                     {
                         "role": "user",
@@ -54,18 +59,59 @@ class AIService:
             content = response.choices[0].message.content
 
             # Extract HTML and metadata
-            result = self._parse_ai_response(content, request)
+            result = self._parse_ai_response(content, request, style)
 
-            logger.info(f"Website generated successfully for {request.business_name}")
+            logger.info(f"Website generated successfully for {request.business_name} (style: {style or 'default'})")
             return result
 
         except Exception as e:
             logger.error(f"Error generating website: {e}")
             raise
 
-    def _get_system_prompt(self) -> str:
-        """Get system prompt for AI"""
-        return """You are an expert web developer specializing in creating beautiful, modern, responsive websites for Malaysian SMEs.
+    async def generate_multi_style(
+        self,
+        request: WebsiteGenerationRequest
+    ) -> Dict[str, AIGenerationResponse]:
+        """
+        Generate 3 design variations simultaneously (Modern, Minimal, Bold)
+
+        Returns:
+            Dict with keys: 'modern', 'minimal', 'bold'
+        """
+        import asyncio
+
+        logger.info(f"Generating multi-style variations for {request.business_name}")
+
+        # Define the 3 styles
+        styles = ['modern', 'minimal', 'bold']
+
+        # Generate all 3 styles in parallel
+        tasks = [
+            self.generate_website(request, style)
+            for style in styles
+        ]
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Build response dictionary
+        variations = {}
+        for style, result in zip(styles, results):
+            if isinstance(result, Exception):
+                logger.error(f"Failed to generate {style} style: {result}")
+                # Continue with other styles
+                continue
+            variations[style] = result
+
+        if not variations:
+            raise Exception("Failed to generate any style variations")
+
+        logger.info(f"Generated {len(variations)} style variations successfully")
+        return variations
+
+    def _get_system_prompt(self, style: Optional[str] = None) -> str:
+        """Get system prompt for AI with optional style modifier"""
+
+        base_prompt = """You are an expert web developer specializing in creating beautiful, modern, responsive websites for Malaysian SMEs.
 
 Your task is to generate complete, production-ready HTML that includes:
 1. Modern, responsive design with mobile-first approach
@@ -83,13 +129,58 @@ Important guidelines:
 - Use modern CSS Grid and Flexbox
 - Support both Bahasa Malaysia and English content
 - Include Malaysian ringgit (RM) for pricing
-- Use Malaysian phone format (+60)
+- Use Malaysian phone format (+60)"""
+
+        # Add style-specific guidelines
+        if style == 'modern':
+            base_prompt += """
+
+DESIGN STYLE: MODERN
+- Use vibrant gradients and bold colors
+- Implement glassmorphism effects (frosted glass backgrounds)
+- Add subtle shadows and depth
+- Use contemporary fonts (Inter, Poppins, Space Grotesk style)
+- Include animated elements and micro-interactions
+- Incorporate geometric shapes and modern illustrations
+- Use vibrant accent colors (purple, cyan, neon green)
+- Add gradient overlays on images"""
+
+        elif style == 'minimal':
+            base_prompt += """
+
+DESIGN STYLE: MINIMAL
+- Use clean, simple layouts with lots of white space
+- Stick to monochromatic or limited color palette (black, white, one accent)
+- Use minimal, thin-line icons
+- Employ subtle, elegant typography (clean sans-serif)
+- Avoid gradients, use solid colors
+- Keep animations subtle or remove entirely
+- Use generous padding and spacing
+- Focus on content hierarchy and readability"""
+
+        elif style == 'bold':
+            base_prompt += """
+
+DESIGN STYLE: BOLD
+- Use high-contrast color combinations
+- Large, attention-grabbing typography
+- Strong call-to-action buttons with bright colors
+- Overlapping elements and creative layouts
+- Use bold, chunky fonts for headings
+- Incorporate vibrant background colors (not just white)
+- Add dramatic shadows and 3D effects
+- Use energetic animations and transitions"""
+
+        base_prompt += """
 
 Return ONLY valid HTML without any markdown code blocks or explanations."""
 
-    def _build_generation_prompt(self, request: WebsiteGenerationRequest) -> str:
-        """Build the generation prompt"""
-        prompt = f"""Create a complete, modern website for a Malaysian business with these specifications:
+        return base_prompt
+
+    def _build_generation_prompt(self, request: WebsiteGenerationRequest, style: Optional[str] = None) -> str:
+        """Build the generation prompt with optional style"""
+        style_label = f" {style.upper()}" if style else ""
+        prompt = f"""Create a complete{style_label} website for a Malaysian business with these specifications:
 
 Business Name: {request.business_name}
 Business Type: {request.business_type or 'General Business'}
@@ -167,7 +258,8 @@ Generate the complete HTML now:"""
     def _parse_ai_response(
         self,
         content: str,
-        request: WebsiteGenerationRequest
+        request: WebsiteGenerationRequest,
+        style: Optional[str] = None
     ) -> AIGenerationResponse:
         """Parse AI response and extract components"""
 
