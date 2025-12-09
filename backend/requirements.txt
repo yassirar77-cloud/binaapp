@@ -35,12 +35,15 @@ bleach==6.1.0
 reportlab==4.0.9
 pillow==10.2.0
 
+# Screenshot Generation
+playwright==1.41.0
+
 # Caching
 redis==5.0.1
 hiredis==2.3.2
 
 # Email
-python-email-validator==2.1.0
+email-validator==2.1.0.post1
 emails==0.6
 
 # Background Tasks

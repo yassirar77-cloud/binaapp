@@ -10,6 +10,7 @@ from loguru import logger
 
 from app.services.ai_service import ai_service
 from app.services.templates import template_service
+from app.services.screenshot_service import screenshot_service
 from app.models.schemas import WebsiteGenerationRequest, Language
 
 router = APIRouter()
@@ -26,6 +27,7 @@ class SimpleGenerateRequest(BaseModel):
     user_id: Optional[str] = Field(default="demo-user", description="Optional user ID")
     images: Optional[List[str]] = Field(default=[], description="Optional list of uploaded image URLs")
     multi_style: Optional[bool] = Field(default=False, description="Generate multiple style variations")
+    generate_previews: Optional[bool] = Field(default=False, description="Generate preview thumbnails (slower)")
 
 
 class SimpleGenerateResponse(BaseModel):
@@ -41,6 +43,8 @@ class StyleVariation(BaseModel):
     style: str
     html: str
     preview_image: Optional[str] = None
+    thumbnail: Optional[str] = None
+    social_preview: Optional[str] = None
 
 
 class MultiStyleResponse(BaseModel):
@@ -129,13 +133,33 @@ async def generate_website(request: SimpleGenerateRequest):
                     user_data
                 )
 
-                variations.append(StyleVariation(
-                    style=style,
-                    html=html_content,
-                    preview_image=None  # Can be generated later with screenshot
-                ))
+                variations.append({
+                    "style": style,
+                    "html": html_content
+                })
 
             logger.info(f"Generated {len(variations)} style variations successfully!")
+
+            # Generate previews if requested
+            if request.generate_previews:
+                logger.info("Generating preview thumbnails...")
+                try:
+                    variations = await screenshot_service.generate_variation_previews(variations)
+                    logger.info("Preview thumbnails generated successfully")
+                except Exception as e:
+                    logger.warning(f"Failed to generate previews: {e}")
+                    # Continue without previews
+
+            # Convert to StyleVariation objects
+            variations = [
+                StyleVariation(
+                    style=v.get("style"),
+                    html=v.get("html"),
+                    thumbnail=v.get("thumbnail"),
+                    social_preview=v.get("social_preview")
+                )
+                for v in variations
+            ]
 
             return MultiStyleResponse(
                 variations=variations,

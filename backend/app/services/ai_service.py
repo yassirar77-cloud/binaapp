@@ -10,6 +10,7 @@ import json
 
 from app.core.config import settings
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
+from app.services.design_system import design_system
 
 
 class AIService:
@@ -109,149 +110,287 @@ class AIService:
         return variations
 
     def _get_system_prompt(self, style: Optional[str] = None) -> str:
-        """Get system prompt for AI with optional style modifier"""
+        """Get enhanced system prompt with design system guidelines"""
 
-        base_prompt = """You are an expert web developer specializing in creating beautiful, modern, responsive websites for Malaysian SMEs.
+        base_prompt = """You are an expert web developer and UI/UX designer specializing in creating beautiful, professional, production-ready websites for Malaysian SMEs.
 
-Your task is to generate complete, production-ready HTML that includes:
-1. Modern, responsive design with mobile-first approach
-2. Professional color schemes and typography
-3. Inline CSS (Tailwind-inspired or custom)
-4. Interactive JavaScript for dynamic features
-5. SEO-optimized meta tags
-6. Integration components (WhatsApp, Maps, Contact Forms, etc.)
+Your expertise includes:
+- Component-based architecture with reusable patterns
+- Professional design systems with consistent visual language
+- Modern web technologies (HTML5, CSS3, JavaScript ES6+)
+- Mobile-first responsive design
+- Accessibility standards (WCAG 2.1)
+- Malaysian business context and cultural understanding
 
-Important guidelines:
-- Use semantic HTML5
-- Ensure mobile responsiveness
-- Include proper accessibility features
-- Add smooth animations and transitions
-- Use modern CSS Grid and Flexbox
-- Support both Bahasa Malaysia and English content
-- Include Malaysian ringgit (RM) for pricing
-- Use Malaysian phone format (+60)"""
+## YOUR TASK
+
+Generate a complete, single-file HTML website that includes:
+1. **Semantic HTML5** - Proper document structure with header, main, sections, footer
+2. **Inline CSS** - Modern, professional styles using CSS Grid, Flexbox, custom properties
+3. **Interactive JavaScript** - Smooth scroll, animations, form handling, dynamic features
+4. **Responsive Design** - Mobile-first approach with breakpoints (640px, 768px, 1024px)
+5. **SEO Optimization** - Meta tags, Open Graph, structured headings
+6. **Accessibility** - ARIA labels, keyboard navigation, color contrast
+7. **Malaysian Context** - RM currency, +60 phone format, local business practices
+
+## DESIGN PRINCIPLES
+
+- **Consistency**: Use a cohesive design system throughout
+- **Hierarchy**: Clear visual hierarchy with typography and spacing
+- **White Space**: Generous spacing for readability and focus
+- **Performance**: Optimize for fast loading and smooth interactions
+- **Quality**: Production-ready code that looks professional"""
+
+        # Add design system guidelines
+        if style:
+            base_prompt += design_system.get_design_system_prompt(style)
+            base_prompt += design_system.get_component_architecture_prompt(style)
 
         # Add style-specific guidelines
         if style == 'modern':
             base_prompt += """
 
-DESIGN STYLE: MODERN
-- Use vibrant gradients and bold colors
-- Implement glassmorphism effects (frosted glass backgrounds)
-- Add subtle shadows and depth
-- Use contemporary fonts (Inter, Poppins, Space Grotesk style)
-- Include animated elements and micro-interactions
-- Incorporate geometric shapes and modern illustrations
-- Use vibrant accent colors (purple, cyan, neon green)
-- Add gradient overlays on images"""
+### MODERN STYLE SPECIFICS
+- **Visual Language**: Contemporary, tech-forward, innovative
+- **Colors**: Vibrant gradients, bold accent colors, depth with shadows
+- **Effects**: Glassmorphism (backdrop-filter: blur), soft shadows, glow effects
+- **Typography**: Contemporary sans-serif (Inter, Poppins style), varied weights
+- **Animations**: Smooth transitions, micro-interactions, hover effects, fade-ins
+- **Layout**: Asymmetric layouts, overlapping elements, creative grids
+- **Imagery**: Gradient overlays, modern illustrations, geometric shapes
+- **Components**: Rounded corners (12px+), floating elements, gradient buttons
+
+**Code Example:**
+```css
+.card {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s ease;
+}
+.card:hover {
+  transform: translateY(-8px);
+}
+```"""
 
         elif style == 'minimal':
             base_prompt += """
 
-DESIGN STYLE: MINIMAL
-- Use clean, simple layouts with lots of white space
-- Stick to monochromatic or limited color palette (black, white, one accent)
-- Use minimal, thin-line icons
-- Employ subtle, elegant typography (clean sans-serif)
-- Avoid gradients, use solid colors
-- Keep animations subtle or remove entirely
-- Use generous padding and spacing
-- Focus on content hierarchy and readability"""
+### MINIMAL STYLE SPECIFICS
+- **Visual Language**: Clean, sophisticated, timeless, elegant
+- **Colors**: Monochromatic (black/white/gray), single accent color
+- **Effects**: Subtle shadows, thin borders, no gradients
+- **Typography**: System fonts or clean sans-serif, generous line spacing
+- **Animations**: Subtle or none, focus on content
+- **Layout**: Grid-based, generous whitespace, perfect alignment
+- **Imagery**: High-quality photos, minimal processing, natural look
+- **Components**: Simple borders, lots of padding, clean lines
+
+**Code Example:**
+```css
+.card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  padding: 48px;
+  transition: border-color 0.2s ease;
+}
+.card:hover {
+  border-color: #3b82f6;
+}
+```"""
 
         elif style == 'bold':
             base_prompt += """
 
-DESIGN STYLE: BOLD
-- Use high-contrast color combinations
-- Large, attention-grabbing typography
-- Strong call-to-action buttons with bright colors
-- Overlapping elements and creative layouts
-- Use bold, chunky fonts for headings
-- Incorporate vibrant background colors (not just white)
-- Add dramatic shadows and 3D effects
-- Use energetic animations and transitions"""
+### BOLD STYLE SPECIFICS
+- **Visual Language**: Energetic, attention-grabbing, confident, dynamic
+- **Colors**: High-contrast combinations, vibrant primaries, saturated colors
+- **Effects**: Dramatic shadows, 3D effects, strong borders
+- **Typography**: Large, chunky fonts, all-caps headings, strong weight contrast
+- **Animations**: Energetic transitions, scale effects, dramatic reveals
+- **Layout**: Asymmetric, overlapping sections, creative compositions
+- **Imagery**: Vibrant colors, high contrast, bold overlays
+- **Components**: Large buttons, thick borders, dramatic hover states
+
+**Code Example:**
+```css
+.card {
+  background: linear-gradient(135deg, #FF3CAC 0%, #784BA0 100%);
+  border: 4px solid #000;
+  padding: 40px;
+  box-shadow: 8px 8px 0px #000;
+  transition: all 0.3s ease;
+}
+.card:hover {
+  transform: translate(-4px, -4px);
+  box-shadow: 12px 12px 0px #000;
+}
+```"""
+
+        # Add quality checklist
+        base_prompt += design_system.get_quality_checklist()
 
         base_prompt += """
 
-Return ONLY valid HTML without any markdown code blocks or explanations."""
+## OUTPUT FORMAT
+
+Generate ONLY the complete HTML code.
+- Start with <!DOCTYPE html>
+- Include ALL styles in <style> tag within <head>
+- Include ALL JavaScript in <script> tag before </body>
+- Do NOT include markdown code blocks (no ```)
+- Do NOT include explanations or comments outside the HTML
+- Ensure the code is ready to save as .html and open in a browser
+
+Begin generation now:"""
 
         return base_prompt
 
     def _build_generation_prompt(self, request: WebsiteGenerationRequest, style: Optional[str] = None) -> str:
-        """Build the generation prompt with optional style"""
-        style_label = f" {style.upper()}" if style else ""
-        prompt = f"""Create a complete{style_label} website for a Malaysian business with these specifications:
+        """Build enhanced generation prompt with business-type templates"""
+        style_label = f" in {style.upper()} style" if style else ""
 
-Business Name: {request.business_name}
-Business Type: {request.business_type or 'General Business'}
-Language: {'Bahasa Malaysia' if request.language == 'ms' else 'English'}
+        prompt = f"""Generate a professional, production-ready website{style_label} for this Malaysian business:
 
-Description:
+## BUSINESS INFORMATION
+
+**Business Name**: {request.business_name}
+**Business Type**: {request.business_type or 'General Business'}
+**Content Language**: {'Bahasa Malaysia' if request.language == 'ms' else 'English'}
+
+**Business Description**:
 {request.description}
+"""
 
-Required Integrations:
+        # Add business-type specific template
+        if request.business_type:
+            prompt += design_system.get_business_template_prompt(request.business_type)
+
+        prompt += """
+
+## INTEGRATION REQUIREMENTS
 """
 
         # WhatsApp integration
         if request.include_whatsapp and request.whatsapp_number:
             prompt += f"""
-- WhatsApp Business Button (floating): {request.whatsapp_number}
-  * Add a floating WhatsApp button (bottom-right corner)
-  * Include quick order/inquiry functionality
-  * Use WhatsApp green color (#25D366)
+### WhatsApp Integration
+- Floating WhatsApp button (bottom-right, fixed position)
+- Phone number: {request.whatsapp_number}
+- Green color (#25D366) with hover effects
+- Click-to-chat functionality
+- Include in hero section CTA as well
 """
 
         # Maps integration
         if request.include_maps and request.location_address:
             prompt += f"""
-- Google Maps Embed: {request.location_address}
-  * Embed interactive Google Maps
-  * Add location marker and address display
+### Google Maps Integration
+- Embed interactive Google Maps in dedicated section
+- Location: {request.location_address}
+- Responsive iframe (aspect-ratio: 16/9)
+- Include address text display
+- "Get Directions" link
 """
 
         # E-commerce features
         if request.include_ecommerce:
             prompt += """
-- Shopping Cart System:
-  * Add product cards with "Add to Cart" buttons
-  * Implement localStorage-based shopping cart
-  * Cart icon with item count in header
-  * Simple checkout flow
-  * Price display in Malaysian Ringgit (RM)
+### E-Commerce Features
+- Product grid with professional cards
+- Each product: image, name, price (RM), description, "Add to Cart" button
+- Shopping cart icon (top-right, fixed)
+- Cart count badge
+- localStorage-based cart (persistent across page refreshes)
+- Sidebar cart panel with checkout
+- WhatsApp checkout integration
+- Price totals in Malaysian Ringgit (RM)
 """
 
         # Always include these
         prompt += f"""
-- Contact Form:
-  * Name, email, phone, message fields
-  * Form validation
-  * Submit to: {request.contact_email or 'contact@' + request.business_name.lower() + '.com'}
+### Contact Form
+- Professional contact form with validation
+- Fields: Name (required), Email (required), Phone, Message (required)
+- Submit button with loading state
+- Success/error messages
+- Email to: {request.contact_email or 'contact@' + request.business_name.lower().replace(' ', '') + '.com'}
+- Alternative: WhatsApp submission if available
 
-- Social Sharing Buttons:
-  * Facebook, WhatsApp, Twitter, LinkedIn
-  * Share current page
+### Additional Features
+- Smooth scroll navigation
+- Mobile-responsive hamburger menu
+- Social sharing buttons (WhatsApp, Facebook, Twitter)
+- Footer with business information
+- QR code for website (in footer)
+- Scroll-to-top button
+- Professional animations (fade-in on scroll)
 
-- QR Code:
-  * Generate QR code for the website URL
-  * Display in footer or contact section
+## WEBSITE STRUCTURE
 
-Design Requirements:
-- Modern, professional design
-- Responsive (mobile, tablet, desktop)
-- Fast loading and optimized
-- Use attractive color scheme matching the business type
-- Include hero section, services/products, about, contact sections
-- Add smooth scroll and animations
-- Include navigation menu with smooth scroll to sections
+Create a single-page website with these sections (in order):
 
-Technical Requirements:
-- Single HTML file with inline CSS and JavaScript
-- No external dependencies (except Google Maps API if needed)
-- SEO optimized with proper meta tags
-- Open Graph tags for social sharing
-- Clean, well-commented code
+1. **Header/Navigation**
+   - Logo/business name
+   - Navigation menu (links to sections)
+   - Mobile hamburger menu
+   - Sticky header on scroll
 
-Generate the complete HTML now:"""
+2. **Hero Section**
+   - Compelling headline about the business
+   - Subheadline with value proposition
+   - Primary CTA button (WhatsApp/Contact)
+   - Background image or gradient
+
+3. **About/Introduction**
+   - Business introduction
+   - Key features or values (3-4 items)
+   - Professional layout with icons
+
+4. **Main Content** (based on business type)
+   - Products/Services/Menu/Portfolio
+   - Grid layout with cards
+   - Images, descriptions, prices (if applicable)
+
+5. **Location** (if maps enabled)
+   - Google Maps embed
+   - Address and directions
+
+6. **Contact**
+   - Contact form
+   - Business contact information
+   - Opening hours (if mentioned)
+
+7. **Footer**
+   - Copyright
+   - Social links
+   - QR code
+   - Quick links
+
+## TECHNICAL SPECIFICATIONS
+
+- **File Format**: Single HTML file
+- **CSS**: All styles in <style> tag within <head>
+- **JavaScript**: All scripts in <script> tag before </body>
+- **No External Dependencies**: Except Google Maps if needed
+- **Meta Tags**: Include comprehensive SEO and Open Graph tags
+- **Viewport**: <meta name="viewport" content="width=device-width, initial-scale=1.0">
+- **Character Set**: UTF-8
+- **Favicon**: Use emoji data URI or default
+
+## QUALITY REQUIREMENTS
+
+✓ Mobile-first responsive design (breakpoints: 640px, 768px, 1024px)
+✓ Professional color scheme with consistent palette
+✓ Clear typography hierarchy
+✓ Smooth animations and transitions
+✓ Accessible (ARIA labels, semantic HTML, keyboard nav)
+✓ Fast loading (optimized code, lazy loading)
+✓ Cross-browser compatible
+✓ Production-ready quality
+
+Generate the complete, professional HTML website now:"""
 
         return prompt
 
