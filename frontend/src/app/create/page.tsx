@@ -6,7 +6,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Sparkles, Download, Upload, Eye, Copy, Check } from 'lucide-react'
+import { Sparkles, Download, Upload, Eye, Copy, Check, Share2 } from 'lucide-react'
 import ImageUpload from './components/ImageUpload'
 
 const EXAMPLE_DESCRIPTIONS = [
@@ -36,6 +36,8 @@ interface StyleVariation {
   style: string
   html: string
   preview_image?: string
+  thumbnail?: string
+  social_preview?: string
 }
 
 export default function CreatePage() {
@@ -58,6 +60,7 @@ export default function CreatePage() {
   const [multiStyle, setMultiStyle] = useState(true)
   const [styleVariations, setStyleVariations] = useState<StyleVariation[]>([])
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null)
+  const [generatePreviews, setGeneratePreviews] = useState(false)
 
   const handleGenerate = async () => {
     if (description.length < 10) {
@@ -81,7 +84,8 @@ export default function CreatePage() {
           description,
           user_id: 'demo-user',
           images: uploadedImages,
-          multi_style: multiStyle
+          multi_style: multiStyle,
+          generate_previews: generatePreviews
         })
       })
 
@@ -117,6 +121,44 @@ export default function CreatePage() {
   const handleBackToVariations = () => {
     setSelectedStyle(null)
     setGeneratedHtml('')
+  }
+
+  const handleShare = async () => {
+    const currentVariation = styleVariations.find(v => v.style === selectedStyle)
+
+    if (navigator.share && currentVariation) {
+      try {
+        await navigator.share({
+          title: `${projectName || 'My Website'} - ${selectedStyle?.toUpperCase()} Style`,
+          text: 'Check out my AI-generated website design!',
+          url: publishedUrl || window.location.href
+        })
+      } catch (err) {
+        console.log('Share cancelled or failed:', err)
+      }
+    } else {
+      // Fallback: copy link to clipboard
+      const shareUrl = publishedUrl || window.location.href
+      navigator.clipboard.writeText(shareUrl)
+      alert('Link copied to clipboard!')
+    }
+  }
+
+  const handleShareSocial = (platform: string) => {
+    const url = publishedUrl || window.location.href
+    const text = `Check out my AI-generated website design!`
+
+    const shareUrls = {
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
+      twitter: `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
+      whatsapp: `https://wa.me/?text=${encodeURIComponent(text + ' ' + url)}`,
+      linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`
+    }
+
+    const shareUrl = shareUrls[platform as keyof typeof shareUrls]
+    if (shareUrl) {
+      window.open(shareUrl, '_blank', 'width=600,height=400')
+    }
   }
 
   const handleDownload = () => {
@@ -270,7 +312,7 @@ export default function CreatePage() {
 
             {/* Multi-Style Toggle */}
             <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg">
-              <label className="flex items-center gap-3 cursor-pointer">
+              <label className="flex items-center gap-3 cursor-pointer mb-3">
                 <input
                   type="checkbox"
                   checked={multiStyle}
@@ -286,6 +328,25 @@ export default function CreatePage() {
                   </p>
                 </div>
               </label>
+
+              {multiStyle && (
+                <label className="flex items-center gap-3 cursor-pointer ml-8">
+                  <input
+                    type="checkbox"
+                    checked={generatePreviews}
+                    onChange={(e) => setGeneratePreviews(e.target.checked)}
+                    className="w-5 h-5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                  />
+                  <div>
+                    <span className="font-medium text-gray-800">
+                      📸 Generate Preview Thumbnails
+                    </span>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      Takes 10-15 seconds longer but shows better previews
+                    </p>
+                  </div>
+                </label>
+              )}
             </div>
 
             {/* Description Textarea */}
@@ -413,12 +474,22 @@ export default function CreatePage() {
 
                     {/* Preview */}
                     <div className="relative bg-gray-100" style={{ height: '400px' }}>
-                      <iframe
-                        srcDoc={variation.html}
-                        className="w-full h-full border-0 pointer-events-none"
-                        title={`${styleInfo.name} Preview`}
-                        sandbox="allow-same-origin"
-                      />
+                      {variation.thumbnail ? (
+                        /* Show generated thumbnail if available */
+                        <img
+                          src={variation.thumbnail}
+                          alt={`${styleInfo.name} Preview`}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        /* Fallback to iframe preview */
+                        <iframe
+                          srcDoc={variation.html}
+                          className="w-full h-full border-0 pointer-events-none"
+                          title={`${styleInfo.name} Preview`}
+                          sandbox="allow-same-origin"
+                        />
+                      )}
                       {/* Overlay on hover */}
                       <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300 flex items-center justify-center">
                         <button className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white text-primary-600 px-6 py-3 rounded-lg font-semibold shadow-lg">
@@ -525,6 +596,46 @@ export default function CreatePage() {
                 <Upload className="w-4 h-4 mr-2" />
                 Publish Website
               </button>
+
+              {/* Share Button with Dropdown */}
+              <div className="relative group">
+                <button
+                  onClick={handleShare}
+                  className="btn btn-outline"
+                >
+                  <Share2 className="w-4 h-4 mr-2" />
+                  Share
+                </button>
+
+                {/* Share dropdown (shows on hover) */}
+                <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-xl border border-gray-200 p-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 min-w-[150px]">
+                  <button
+                    onClick={() => handleShareSocial('whatsapp')}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded flex items-center gap-2"
+                  >
+                    <span className="text-xl">💬</span> WhatsApp
+                  </button>
+                  <button
+                    onClick={() => handleShareSocial('facebook')}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded flex items-center gap-2"
+                  >
+                    <span className="text-xl">📘</span> Facebook
+                  </button>
+                  <button
+                    onClick={() => handleShareSocial('twitter')}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded flex items-center gap-2"
+                  >
+                    <span className="text-xl">🐦</span> Twitter
+                  </button>
+                  <button
+                    onClick={() => handleShareSocial('linkedin')}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded flex items-center gap-2"
+                  >
+                    <span className="text-xl">💼</span> LinkedIn
+                  </button>
+                </div>
+              </div>
+
               <button
                 onClick={() => {
                   setGeneratedHtml('')
