@@ -32,6 +32,12 @@ const EXAMPLE_DESCRIPTIONS = [
   }
 ]
 
+interface StyleVariation {
+  style: string
+  html: string
+  preview_image?: string
+}
+
 export default function CreatePage() {
   const [description, setDescription] = useState('')
   const [language, setLanguage] = useState<'ms' | 'en'>('ms')
@@ -48,6 +54,11 @@ export default function CreatePage() {
   const [copied, setCopied] = useState(false)
   const [uploadedImages, setUploadedImages] = useState<string[]>([])
 
+  // Multi-style generation state
+  const [multiStyle, setMultiStyle] = useState(true)
+  const [styleVariations, setStyleVariations] = useState<StyleVariation[]>([])
+  const [selectedStyle, setSelectedStyle] = useState<string | null>(null)
+
   const handleGenerate = async () => {
     if (description.length < 10) {
       setError('Please provide a more detailed description (at least 10 characters)')
@@ -57,6 +68,8 @@ export default function CreatePage() {
     setLoading(true)
     setError('')
     setGeneratedHtml('')
+    setStyleVariations([])
+    setSelectedStyle(null)
 
     try {
       const response = await fetch('http://localhost:8000/api/generate', {
@@ -67,7 +80,8 @@ export default function CreatePage() {
         body: JSON.stringify({
           description,
           user_id: 'demo-user',
-          images: uploadedImages
+          images: uploadedImages,
+          multi_style: multiStyle
         })
       })
 
@@ -76,14 +90,33 @@ export default function CreatePage() {
       }
 
       const data = await response.json()
-      setGeneratedHtml(data.html)
-      setDetectedFeatures(data.detected_features || [])
-      setTemplateUsed(data.template_used || 'general')
+
+      // Handle multi-style response
+      if (multiStyle && data.variations) {
+        setStyleVariations(data.variations)
+        setDetectedFeatures(data.detected_features || [])
+        setTemplateUsed(data.template_used || 'general')
+      } else {
+        // Single style response (backward compatibility)
+        setGeneratedHtml(data.html)
+        setDetectedFeatures(data.detected_features || [])
+        setTemplateUsed(data.template_used || 'general')
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to generate website. Please try again.')
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSelectVariation = (variation: StyleVariation) => {
+    setSelectedStyle(variation.style)
+    setGeneratedHtml(variation.html)
+  }
+
+  const handleBackToVariations = () => {
+    setSelectedStyle(null)
+    setGeneratedHtml('')
   }
 
   const handleDownload = () => {
@@ -235,6 +268,26 @@ export default function CreatePage() {
               </div>
             </div>
 
+            {/* Multi-Style Toggle */}
+            <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={multiStyle}
+                  onChange={(e) => setMultiStyle(e.target.checked)}
+                  className="w-5 h-5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                />
+                <div>
+                  <span className="font-semibold text-gray-900">
+                    ✨ Generate Multiple Styles (Recommended)
+                  </span>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Get 3 design variations (Modern, Minimal, Bold) and choose your favorite
+                  </p>
+                </div>
+              </label>
+            </div>
+
             {/* Description Textarea */}
             <div className="mb-6">
               <label className="block text-sm font-semibold mb-2 text-gray-700">
@@ -284,6 +337,106 @@ export default function CreatePage() {
               )}
             </button>
           </div>
+        ) : styleVariations.length > 0 && !selectedStyle ? (
+          /* Multi-Style Variations View */
+          <div className="max-w-7xl mx-auto">
+            {/* Success Message */}
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <div className="flex items-center gap-2 text-green-800 font-semibold mb-2">
+                <Check className="w-5 h-5" />
+                3 Design Variations Generated!
+              </div>
+              <p className="text-sm text-green-700">
+                Template: <span className="font-semibold">{templateUsed}</span> •
+                Features: <span className="font-semibold">{detectedFeatures.join(', ')}</span>
+              </p>
+              <p className="text-sm text-green-700 mt-2">
+                Click on any design below to view and customize it
+              </p>
+            </div>
+
+            {/* Back Button */}
+            <button
+              onClick={() => {
+                setStyleVariations([])
+                setError('')
+                setPublishedUrl('')
+              }}
+              className="mb-6 btn btn-outline"
+            >
+              Create Another
+            </button>
+
+            {/* Variations Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              {styleVariations.map((variation, idx) => {
+                const styleInfo = {
+                  modern: {
+                    name: 'Modern',
+                    icon: '🎨',
+                    color: 'from-purple-500 to-blue-500',
+                    description: 'Vibrant gradients, glassmorphism, contemporary design'
+                  },
+                  minimal: {
+                    name: 'Minimal',
+                    icon: '✨',
+                    color: 'from-gray-700 to-gray-900',
+                    description: 'Clean, simple, elegant with lots of white space'
+                  },
+                  bold: {
+                    name: 'Bold',
+                    icon: '⚡',
+                    color: 'from-orange-500 to-red-500',
+                    description: 'High contrast, dramatic, attention-grabbing'
+                  }
+                }[variation.style] || {
+                  name: variation.style,
+                  icon: '🎯',
+                  color: 'from-blue-500 to-indigo-500',
+                  description: 'Custom style'
+                }
+
+                return (
+                  <div
+                    key={idx}
+                    className="group bg-white rounded-xl shadow-lg overflow-hidden border-2 border-transparent hover:border-primary-500 transition-all duration-300 cursor-pointer transform hover:scale-105"
+                    onClick={() => handleSelectVariation(variation)}
+                  >
+                    {/* Header */}
+                    <div className={`bg-gradient-to-r ${styleInfo.color} p-4 text-white`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-2xl">{styleInfo.icon}</span>
+                        <h3 className="text-xl font-bold">{styleInfo.name}</h3>
+                      </div>
+                      <p className="text-sm opacity-90">{styleInfo.description}</p>
+                    </div>
+
+                    {/* Preview */}
+                    <div className="relative bg-gray-100" style={{ height: '400px' }}>
+                      <iframe
+                        srcDoc={variation.html}
+                        className="w-full h-full border-0 pointer-events-none"
+                        title={`${styleInfo.name} Preview`}
+                        sandbox="allow-same-origin"
+                      />
+                      {/* Overlay on hover */}
+                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300 flex items-center justify-center">
+                        <button className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white text-primary-600 px-6 py-3 rounded-lg font-semibold shadow-lg">
+                          <Eye className="w-5 h-5 inline-block mr-2" />
+                          View Full Design
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Footer */}
+                    <div className="p-4 bg-gray-50 text-center">
+                      <p className="text-sm text-gray-600">Click to view and customize</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         ) : (
           <div className="max-w-7xl mx-auto">
             {/* Success Message */}
@@ -295,6 +448,12 @@ export default function CreatePage() {
               <p className="text-sm text-green-700">
                 Template: <span className="font-semibold">{templateUsed}</span> •
                 Features: <span className="font-semibold">{detectedFeatures.join(', ')}</span>
+                {selectedStyle && (
+                  <>
+                    {' • '}
+                    Style: <span className="font-semibold capitalize">{selectedStyle}</span>
+                  </>
+                )}
               </p>
             </div>
 
@@ -328,6 +487,14 @@ export default function CreatePage() {
 
             {/* Action Buttons */}
             <div className="flex flex-wrap gap-3 mb-6">
+              {selectedStyle && styleVariations.length > 0 && (
+                <button
+                  onClick={handleBackToVariations}
+                  className="btn btn-outline"
+                >
+                  ← Back to Variations
+                </button>
+              )}
               <button
                 onClick={handleDownload}
                 className="btn btn-outline"
@@ -361,6 +528,8 @@ export default function CreatePage() {
               <button
                 onClick={() => {
                   setGeneratedHtml('')
+                  setStyleVariations([])
+                  setSelectedStyle(null)
                   setError('')
                   setPublishedUrl('')
                 }}
