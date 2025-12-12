@@ -1,9 +1,7 @@
 /**
  * Create Page - AI Website Generation
  */
-
 'use client'
-
 import { useState } from 'react'
 import Link from 'next/link'
 import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout } from 'lucide-react'
@@ -57,14 +55,12 @@ export default function CreatePage() {
   const [publishedUrl, setPublishedUrl] = useState('')
   const [copied, setCopied] = useState(false)
   const [uploadedImages, setUploadedImages] = useState<string[]>([])
-
-  // Multi-style generation state
+  
   const [multiStyle, setMultiStyle] = useState(true)
   const [styleVariations, setStyleVariations] = useState<StyleVariation[]>([])
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null)
   const [generatePreviews, setGeneratePreviews] = useState(false)
-
-  // Preview mode state
+  
   const [previewMode, setPreviewMode] = useState<'single' | 'multi'>('single')
 
   const handleGenerate = async () => {
@@ -99,19 +95,34 @@ export default function CreatePage() {
       }
 
       const data = await response.json()
-
-      // Handle multi-style response
+      
+      console.log('API Response:', data)
+      console.log('Variations:', data.variations)
+      
       if (multiStyle && data.variations) {
-        setStyleVariations(data.variations)
+        // Convert backend object format to frontend array format
+        const formattedVariations = Object.entries(data.variations).map(([styleName, content]: [string, any]) => {
+          console.log(`Processing style: ${styleName}`, content)
+          return {
+            style: styleName,
+            html: content.html_content || content.html || '',
+            thumbnail: content.thumbnail || null,
+            preview_image: content.preview_image || null,
+            social_preview: content.social_preview || null
+          }
+        })
+        
+        console.log('Formatted variations:', formattedVariations)
+        setStyleVariations(formattedVariations)
         setDetectedFeatures(data.detected_features || [])
         setTemplateUsed(data.template_used || 'general')
       } else {
-        // Single style response (backward compatibility)
-        setGeneratedHtml(data.html)
+        setGeneratedHtml(data.html || data.html_content)
         setDetectedFeatures(data.detected_features || [])
         setTemplateUsed(data.template_used || 'general')
       }
     } catch (err: any) {
+      console.error('Generation error:', err)
       setError(err.message || 'Failed to generate website. Please try again.')
     } finally {
       setLoading(false)
@@ -130,7 +141,6 @@ export default function CreatePage() {
 
   const handleShare = async () => {
     const currentVariation = styleVariations.find(v => v.style === selectedStyle)
-
     if (navigator.share && currentVariation) {
       try {
         await navigator.share({
@@ -142,7 +152,6 @@ export default function CreatePage() {
         console.log('Share cancelled or failed:', err)
       }
     } else {
-      // Fallback: copy link to clipboard
       const shareUrl = publishedUrl || window.location.href
       navigator.clipboard.writeText(shareUrl)
       alert('Link copied to clipboard!')
@@ -152,14 +161,14 @@ export default function CreatePage() {
   const handleShareSocial = (platform: string) => {
     const url = publishedUrl || window.location.href
     const text = `Check out my AI-generated website design!`
-
+    
     const shareUrls = {
       facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`,
       twitter: `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
       whatsapp: `https://wa.me/?text=${encodeURIComponent(text + ' ' + url)}`,
       linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`
     }
-
+    
     const shareUrl = shareUrls[platform as keyof typeof shareUrls]
     if (shareUrl) {
       window.open(shareUrl, '_blank', 'width=600,height=400')
@@ -229,7 +238,6 @@ export default function CreatePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white border-b sticky top-0 z-40">
         <nav className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
@@ -248,7 +256,6 @@ export default function CreatePage() {
       </header>
 
       <div className="container mx-auto px-4 py-8">
-        {/* Title */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold mb-3">
             ✨ Create Your Website with AI
@@ -258,10 +265,8 @@ export default function CreatePage() {
           </p>
         </div>
 
-        {/* Main Content */}
-        {!generatedHtml ? (
+        {!generatedHtml && styleVariations.length === 0 ? (
           <div className="max-w-4xl mx-auto">
-            {/* Menu Designer Link */}
             <div style={{ marginBottom: '20px' }}>
               <a href="/menu-designer" style={{
                 display: 'inline-block',
@@ -276,7 +281,6 @@ export default function CreatePage() {
               </a>
             </div>
 
-            {/* Example Buttons */}
             <div className="mb-6">
               <label className="block text-sm font-semibold mb-3 text-gray-700">
                 Try an example:
@@ -294,7 +298,6 @@ export default function CreatePage() {
               </div>
             </div>
 
-            {/* Language Toggle */}
             <div className="mb-4">
               <label className="block text-sm font-semibold mb-2 text-gray-700">
                 Language:
@@ -315,7 +318,6 @@ export default function CreatePage() {
               </div>
             </div>
 
-            {/* Multi-Style Toggle */}
             <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg">
               <label className="flex items-center gap-3 cursor-pointer mb-3">
                 <input
@@ -333,7 +335,7 @@ export default function CreatePage() {
                   </p>
                 </div>
               </label>
-
+              
               {multiStyle && (
                 <label className="flex items-center gap-3 cursor-pointer ml-8">
                   <input
@@ -354,7 +356,6 @@ export default function CreatePage() {
               )}
             </div>
 
-            {/* Description Textarea */}
             <div className="mb-6">
               <label className="block text-sm font-semibold mb-2 text-gray-700">
                 Describe your business:
@@ -374,17 +375,14 @@ export default function CreatePage() {
               </div>
             </div>
 
-            {/* Image Upload */}
             <ImageUpload onImagesUploaded={setUploadedImages} />
 
-            {/* Error Message */}
             {error && (
               <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
                 {error}
               </div>
             )}
 
-            {/* Generate Button */}
             <button
               onClick={handleGenerate}
               disabled={loading || description.length < 10}
@@ -402,11 +400,63 @@ export default function CreatePage() {
                 </>
               )}
             </button>
+
+            {loading && (
+              <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+                <div className="bg-gray-900 rounded-2xl p-12 max-w-2xl w-full mx-4 text-center">
+                  <div className="mb-8 relative">
+                    <div className="bg-gray-800 rounded-lg p-6 shadow-2xl">
+                      <div className="bg-white rounded h-64 flex items-center justify-center">
+                        <div className="text-gray-400 text-sm">
+                          <div className="animate-pulse space-y-4">
+                            <div className="h-4 bg-gray-300 rounded w-3/4 mx-auto"></div>
+                            <div className="h-4 bg-gray-300 rounded w-1/2 mx-auto"></div>
+                            <div className="h-32 bg-gray-300 rounded"></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-blue-500 rounded-full animate-ping"></div>
+                  </div>
+
+                  <div className="text-white mb-4">
+                    <div className="flex items-center justify-center gap-2 mb-2">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                      <h3 className="text-2xl font-bold">Getting ready...</h3>
+                    </div>
+                    <p className="text-gray-400">
+                      Creating 3 beautiful design variations with Qwen Max 3
+                    </p>
+                  </div>
+
+                  <div className="mt-8 space-y-3 text-left max-w-md mx-auto">
+                    <div className="flex items-center gap-3 text-gray-300">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                      <span className="text-sm">Analyzing your business description...</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-gray-300">
+                      <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                      <span className="text-sm">Generating Modern style...</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-gray-300">
+                      <div className="w-2 h-2 bg-pink-500 rounded-full animate-pulse"></div>
+                      <span className="text-sm">Generating Minimal style...</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-gray-300">
+                      <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                      <span className="text-sm">Generating Bold style...</span>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-gray-500 mt-8">
+                    This usually takes 30-40 seconds ⏱️
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         ) : styleVariations.length > 0 && !selectedStyle ? (
-          /* Multi-Style Variations View */
           <div className="max-w-7xl mx-auto">
-            {/* Success Message */}
             <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
               <div className="flex items-center gap-2 text-green-800 font-semibold mb-2">
                 <Check className="w-5 h-5" />
@@ -421,10 +471,10 @@ export default function CreatePage() {
               </p>
             </div>
 
-            {/* Back Button */}
             <button
               onClick={() => {
                 setStyleVariations([])
+                setGeneratedHtml('')
                 setError('')
                 setPublishedUrl('')
               }}
@@ -433,7 +483,6 @@ export default function CreatePage() {
               Create Another
             </button>
 
-            {/* Variations Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
               {styleVariations.map((variation, idx) => {
                 const styleInfo = {
@@ -466,9 +515,11 @@ export default function CreatePage() {
                   <div
                     key={idx}
                     className="group bg-white rounded-xl shadow-lg overflow-hidden border-2 border-transparent hover:border-primary-500 transition-all duration-300 cursor-pointer transform hover:scale-105"
-                    onClick={() => handleSelectVariation(variation)}
+                    onClick={() => {
+                      console.log('Selecting variation:', variation)
+                      handleSelectVariation(variation)
+                    }}
                   >
-                    {/* Header */}
                     <div className={`bg-gradient-to-r ${styleInfo.color} p-4 text-white`}>
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-2xl">{styleInfo.icon}</span>
@@ -477,25 +528,24 @@ export default function CreatePage() {
                       <p className="text-sm opacity-90">{styleInfo.description}</p>
                     </div>
 
-                    {/* Preview */}
                     <div className="relative bg-gray-100" style={{ height: '400px' }}>
-                      {variation.thumbnail ? (
-                        /* Show generated thumbnail if available */
-                        <img
-                          src={variation.thumbnail}
-                          alt={`${styleInfo.name} Preview`}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        /* Fallback to iframe preview */
+                      {variation.html ? (
                         <iframe
                           srcDoc={variation.html}
                           className="w-full h-full border-0 pointer-events-none"
                           title={`${styleInfo.name} Preview`}
                           sandbox="allow-same-origin"
+                          onLoad={() => console.log(`Iframe loaded for ${variation.style}`)}
                         />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-400">
+                          <div className="text-center">
+                            <p className="text-sm">No preview available</p>
+                            <p className="text-xs mt-2">HTML length: {variation.html?.length || 0}</p>
+                          </div>
+                        </div>
                       )}
-                      {/* Overlay on hover */}
+                      
                       <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300 flex items-center justify-center">
                         <button className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white text-primary-600 px-6 py-3 rounded-lg font-semibold shadow-lg">
                           <Eye className="w-5 h-5 inline-block mr-2" />
@@ -504,9 +554,10 @@ export default function CreatePage() {
                       </div>
                     </div>
 
-                    {/* Footer */}
                     <div className="p-4 bg-gray-50 text-center">
-                      <p className="text-sm text-gray-600">Click to view and customize</p>
+                      <p className="text-sm text-gray-600">
+                        {variation.html ? `Click to view (${Math.round(variation.html.length / 1024)}KB)` : 'No content'}
+                      </p>
                     </div>
                   </div>
                 )
@@ -515,7 +566,6 @@ export default function CreatePage() {
           </div>
         ) : (
           <div className="max-w-7xl mx-auto">
-            {/* Success Message */}
             <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
               <div className="flex items-center gap-2 text-green-800 font-semibold mb-2">
                 <Check className="w-5 h-5" />
@@ -561,7 +611,6 @@ export default function CreatePage() {
               </div>
             )}
 
-            {/* Action Buttons */}
             <div className="flex flex-wrap gap-3 mb-6">
               {selectedStyle && styleVariations.length > 0 && (
                 <button
@@ -571,8 +620,7 @@ export default function CreatePage() {
                   ← Back to Variations
                 </button>
               )}
-
-              {/* Preview Mode Toggle */}
+              
               <button
                 onClick={() => setPreviewMode(previewMode === 'single' ? 'multi' : 'single')}
                 className="btn btn-outline"
@@ -589,6 +637,7 @@ export default function CreatePage() {
                 <Download className="w-4 h-4 mr-2" />
                 Download HTML
               </button>
+
               <button
                 onClick={handleCopyHtml}
                 className="btn btn-outline"
@@ -605,6 +654,7 @@ export default function CreatePage() {
                   </>
                 )}
               </button>
+
               <button
                 onClick={() => setShowPublishModal(true)}
                 className="btn btn-primary"
@@ -613,7 +663,6 @@ export default function CreatePage() {
                 Publish Website
               </button>
 
-              {/* Share Button with Dropdown */}
               <div className="relative group">
                 <button
                   onClick={handleShare}
@@ -622,8 +671,6 @@ export default function CreatePage() {
                   <Share2 className="w-4 h-4 mr-2" />
                   Share
                 </button>
-
-                {/* Share dropdown (shows on hover) */}
                 <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-xl border border-gray-200 p-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 min-w-[150px]">
                   <button
                     onClick={() => handleShareSocial('whatsapp')}
@@ -666,7 +713,6 @@ export default function CreatePage() {
               </button>
             </div>
 
-            {/* Responsive Preview with Device Toggle */}
             {previewMode === 'single' ? (
               <DevicePreview
                 htmlContent={generatedHtml}
@@ -682,12 +728,11 @@ export default function CreatePage() {
         )}
       </div>
 
-      {/* Publish Modal */}
       {showPublishModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
             <h2 className="text-2xl font-bold mb-4">Publish Your Website</h2>
-
+            
             <div className="mb-4">
               <label className="block text-sm font-semibold mb-2">
                 Project Name

@@ -16,7 +16,7 @@ class StorageService:
 
     def __init__(self):
         self.bucket_name = settings.STORAGE_BUCKET_NAME
-        self.supabase = supabase_service.client
+        self.supabase = supabase_service
         logger.info(f"Supabase Storage client initialized with bucket: {self.bucket_name}")
 
     async def upload_website(

@@ -2,7 +2,6 @@
 BinaApp - AI-Powered No-Code Website Builder
 Main FastAPI Application
 """
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -15,11 +14,10 @@ from app.core.config import settings
 from app.core.logging_config import setup_logging
 from app.api.v1.router import api_router
 from app.api.simple.router import simple_router
-from app.api import upload, menu_designer
+from app.api import upload, menu_designer, server
 
 # Setup logging
 setup_logging()
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -28,12 +26,11 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting BinaApp API...")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"API Version: v1")
-
+    
     yield
-
+    
     # Shutdown
     logger.info("👋 Shutting down BinaApp API...")
-
 
 # Create FastAPI application
 app = FastAPI(
@@ -48,7 +45,7 @@ app = FastAPI(
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["*"],  # Allow all origins in development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -56,7 +53,6 @@ app.add_middleware(
 
 # GZip Middleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
-
 
 # Request Timing Middleware
 @app.middleware("http")
@@ -67,7 +63,6 @@ async def add_process_time_header(request: Request, call_next):
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = str(process_time)
     return response
-
 
 # Exception Handlers
 @app.exception_handler(Exception)
@@ -82,7 +77,6 @@ async def global_exception_handler(request: Request, exc: Exception):
         }
     )
 
-
 # Health Check Endpoints
 @app.get("/health")
 async def health_check():
@@ -93,7 +87,6 @@ async def health_check():
         "version": "1.0.0",
         "environment": settings.ENVIRONMENT
     }
-
 
 @app.get("/")
 async def root():
@@ -106,13 +99,12 @@ async def root():
         "version": "1.0.0"
     }
 
-
 # Include API Routers
 app.include_router(api_router, prefix="/api/v1")
 app.include_router(simple_router, prefix="/api")  # Simple API without auth
 app.include_router(upload.router, prefix="/api", tags=["upload"])
 app.include_router(menu_designer.router, prefix="/api", tags=["menu"])
-
+app.include_router(server.router, prefix="/api", tags=["projects"])  # NEW LINE
 
 if __name__ == "__main__":
     import uvicorn

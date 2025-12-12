@@ -19,7 +19,6 @@ cryptography==42.0.0
 # AI Integration
 openai==1.10.0  # DeepSeek uses OpenAI-compatible API
 anthropic==0.18.1  # Backup AI provider
-httpx==0.26.0
 
 # Cloud Storage removed - Using Supabase Storage via supabase client
 

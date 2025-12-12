@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - BinaApp</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0f0f23;
+            color: #e4e4e7;
+            min-height: 100vh;
+        }
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(120, 119, 198, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(124, 58, 237, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 40% 20%, rgba(59, 130, 246, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+        .header {
+            padding: 24px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            background: rgba(15, 15, 35, 0.7);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .stats-section { padding: 48px 0; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            margin-bottom: 48px;
+        }
+        .stat-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 32px;
+            backdrop-filter: blur(20px);
+            transition: all 0.3s ease;
+        }
+        .stat-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(102, 126, 234, 0.5);
+        }
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-bottom: 16px;
+        }
+        .stat-value {
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #ffffff 0%, #a8a8a8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #a1a1aa;
+            font-weight: 500;
+        }
+        .projects-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+        }
+        .projects-title { font-size: 28px; font-weight: 700; }
+        .btn {
+            padding: 14px 28px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: none;
+            outline: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 30px rgba(102, 126, 234, 0.5);
+        }
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 24px;
+            margin-bottom: 48px;
+        }
+        .project-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .project-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(102, 126, 234, 0.5);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+        }
+        .project-preview {
+            width: 100%;
+            height: 180px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        .project-preview::after {
+            content: '👁️';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            opacity: 0.3;
+        }
+        .project-content { padding: 24px; }
+        .project-name {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #ffffff;
+        }
+        .project-meta {
+            display: flex;
+            gap: 16px;
+            font-size: 13px;
+            color: #a1a1aa;
+            margin-bottom: 16px;
+        }
+        .project-actions { display: flex; gap: 8px; }
+        .btn-small {
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.05);
+            color: #e4e4e7;
+        }
+        .btn-small:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(102, 126, 234, 0.5);
+        }
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 2px dashed rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+        }
+        .empty-icon { font-size: 64px; margin-bottom: 24px; opacity: 0.5; }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal.active { display: flex; }
+        .modal-content {
+            background: #1a1a2e;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 90%;
+        }
+        .modal-header { font-size: 24px; font-weight: 700; margin-bottom: 24px; }
+        .form-group { margin-bottom: 24px; }
+        .form-label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: #e4e4e7;
+        }
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.05);
+            color: #e4e4e7;
+            font-size: 15px;
+            font-family: inherit;
+            transition: all 0.3s;
+        }
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            outline: none;
+            border-color: rgba(102, 126, 234, 0.5);
+            background: rgba(255, 255, 255, 0.08);
+        }
+        .modal-actions { display: flex; gap: 12px; justify-content: flex-end; }
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #e4e4e7;
+        }
+        .loading { text-align: center; padding: 60px 20px; color: #a1a1aa; }
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .status-draft { background: rgba(161, 161, 170, 0.2); color: #a1a1aa; }
+        .status-published { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+        @media (max-width: 768px) {
+            .stats-grid { grid-template-columns: 1fr; }
+            .projects-grid { grid-template-columns: 1fr; }
+            .projects-header { flex-direction: column; gap: 16px; align-items: stretch; }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">🚀 BinaApp</div>
+            </div>
+        </div>
+    </header>
+    <main class="container">
+        <section class="stats-section">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-value" id="totalWebsites">0</div>
+                    <div class="stat-label">Total Websites</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🌐</div>
+                    <div class="stat-value" id="publishedCount">0</div>
+                    <div class="stat-label">Published</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">👁️</div>
+                    <div class="stat-value" id="totalViews">0</div>
+                    <div class="stat-label">Total Views</div>
+                </div>
+            </div>
+            <div class="projects-header">
+                <h2 class="projects-title">My Projects</h2>
+                <button class="btn btn-primary" onclick="openCreateModal()">
+                    <span>➕</span>
+                    Create New Website
+                </button>
+            </div>
+            <div id="loadingState" class="loading">
+                <div class="loading-spinner"></div>
+                <p>Loading your projects...</p>
+            </div>
+            <div id="projectsGrid" class="projects-grid" style="display: none;"></div>
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <div class="empty-icon">🎨</div>
+                <h3>No websites yet</h3>
+                <p style="color: #a1a1aa; margin: 16px 0;">Create your first AI-powered website now!</p>
+                <button class="btn btn-primary" onclick="openCreateModal()">
+                    <span>➕</span>
+                    Create Your First Website
+                </button>
+            </div>
+        </section>
+    </main>
+    <div id="createModal" class="modal">
+        <div class="modal-content">
+            <h2 class="modal-header">Create New Website</h2>
+            <form id="createForm" onsubmit="handleCreateProject(event)">
+                <div class="form-group">
+                    <label class="form-label">Website Name</label>
+                    <input type="text" class="form-input" name="name" required placeholder="E.g., My Restaurant">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description (Optional)</label>
+                    <textarea class="form-textarea" name="description" placeholder="Brief description of your website" rows="3"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Template</label>
+                    <select class="form-select" name="template" required>
+                        <option value="blank">Blank Canvas</option>
+                        <option value="fnb">F&B / Restaurant</option>
+                        <option value="salon">Salon / Beauty</option>
+                        <option value="retail">Retail / E-commerce</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeCreateModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Website</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script>
+        const API_URL = 'http://localhost:8000/api';
+        let currentUserId = null;
+
+        async function init() {
+            const user = await getOrCreateUser();
+            currentUserId = user.id;
+            await loadStats();
+            await loadProjects();
+        }
+
+        async function getOrCreateUser() {
+            let userId = localStorage.getItem('userId');
+            if (!userId) {
+                const response = await fetch(`${API_URL}/users`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: 'user@example.com', name: 'User' })
+                });
+                const data = await response.json();
+                localStorage.setItem('userId', data.id);
+                return data;
+            } else {
+                return { id: userId, email: 'user@example.com', name: 'User' };
+            }
+        }
+
+        async function loadStats() {
+            try {
+                const response = await fetch(`${API_URL}/stats/${currentUserId}`);
+                const data = await response.json();
+                document.getElementById('totalWebsites').textContent = data.total_websites;
+                document.getElementById('publishedCount').textContent = data.published;
+                document.getElementById('totalViews').textContent = data.total_views;
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+
+        async function loadProjects() {
+            try {
+                const response = await fetch(`${API_URL}/users/${currentUserId}/projects`);
+                const data = await response.json();
+                document.getElementById('loadingState').style.display = 'none';
+                if (data.projects.length === 0) {
+                    document.getElementById('emptyState').style.display = 'block';
+                    document.getElementById('projectsGrid').style.display = 'none';
+                } else {
+                    document.getElementById('emptyState').style.display = 'none';
+                    document.getElementById('projectsGrid').style.display = 'grid';
+                    renderProjects(data.projects);
+                }
+            } catch (error) {
+                console.error('Failed to load projects:', error);
+                document.getElementById('loadingState').innerHTML = '<p style="color: #ef4444;">Failed to load projects. Please refresh.</p>';
+            }
+        }
+
+        function renderProjects(projects) {
+            const grid = document.getElementById('projectsGrid');
+            grid.innerHTML = projects.map(project => `
+                <div class="project-card">
+                    <div class="project-preview"></div>
+                    <div class="project-content">
+                        <h3 class="project-name">${project.name}</h3>
+                        <div class="project-meta">
+                            <span class="status-badge status-${project.status}">${project.status}</span>
+                            <span>👁️ ${project.views}</span>
+                        </div>
+                        <div class="project-actions" onclick="event.stopPropagation()">
+                            ${project.status === 'published' ? 
+                                `<button class="btn-small" onclick="viewProject('${project.published_url}')">View</button>` : 
+                                `<button class="btn-small" onclick="publishProject('${project.id}')">Publish</button>`
+                            }
+                            <button class="btn-small" onclick="deleteProject('${project.id}')">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function openCreateModal() {
+            document.getElementById('createModal').classList.add('active');
+        }
+
+        function closeCreateModal() {
+            document.getElementById('createModal').classList.remove('active');
+            document.getElementById('createForm').reset();
+        }
+
+        async function handleCreateProject(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = {
+                name: formData.get('name'),
+                description: formData.get('description'),
+                template: formData.get('template')
+            };
+            try {
+                const response = await fetch(`${API_URL}/users/${currentUserId}/projects`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (response.ok) {
+                    closeCreateModal();
+                    await loadStats();
+                    await loadProjects();
+                }
+            } catch (error) {
+                console.error('Failed to create project:', error);
+                alert('Failed to create project. Please try again.');
+            }
+        }
+
+        function viewProject(url) { window.open(url, '_blank'); }
+
+        async function publishProject(projectId) {
+            if (confirm('Publish this website?')) {
+                try {
+                    await fetch(`${API_URL}/projects/${projectId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: 'published' })
+                    });
+                    await loadStats();
+                    await loadProjects();
+                } catch (error) {
+                    console.error('Failed to publish:', error);
+                }
+            }
+        }
+
+        async function deleteProject(projectId) {
+            if (confirm('Are you sure you want to delete this project?')) {
+                try {
+                    await fetch(`${API_URL}/projects/${projectId}`, { method: 'DELETE' });
+                    await loadStats();
+                    await loadProjects();
+                } catch (error) {
+                    console.error('Failed to delete:', error);
+                }
+            }
+        }
+
+        document.getElementById('createModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeCreateModal();
+        });
+
+        init();
+    </script>
+</body>
+</html>
