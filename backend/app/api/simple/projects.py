@@ -61,6 +61,10 @@ async def list_projects(user_id: str):
         # Get projects from database
         websites = await supabase_service.get_user_websites(user_id)
 
+        # FIX: Handle None case
+        if websites is None:
+            websites = []
+
         # Convert to response format
         projects = []
         for website in websites:

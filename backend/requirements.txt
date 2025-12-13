@@ -2,12 +2,12 @@
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
 python-multipart==0.0.6
-pydantic==2.5.3
+pydantic>=2.5.3
 pydantic-settings==2.1.0
 
 # Database and ORM
 supabase==2.3.4
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.11
 sqlalchemy==2.0.25
 
 # Authentication and Security
@@ -32,14 +32,14 @@ aiofiles==23.2.1
 python-slugify==8.0.2
 bleach==6.1.0
 reportlab==4.0.9
-pillow==10.2.0
+pillow==12.0.0
 
 # Screenshot Generation
 playwright==1.41.0
 
 # Caching
 redis==5.0.1
-hiredis==2.3.2
+# hiredis==2.3.2
 
 # Email
 email-validator==2.1.0.post1

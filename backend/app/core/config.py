@@ -21,15 +21,15 @@ class Settings(BaseSettings):
     API_URL: str = Field(default="http://localhost:8000", env="API_URL")
     
     # CORS
-   CORS_ORIGINS: List[str] = [
-    "http://localhost",
-    "http://localhost:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1",
-    "http://127.0.0.1:8000",
-    "null",  # For local file:// protocol
-    "*"  # Allow all for development
-]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost",
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1",
+        "http://127.0.0.1:8000",
+        "null",
+        "*"
+    ]
     
     @validator("CORS_ORIGINS", pre=True)
     def parse_cors_origins(cls, v):
@@ -38,15 +38,15 @@ class Settings(BaseSettings):
         return v
     
     # Supabase
-    SUPABASE_URL: str = Field(..., env="SUPABASE_URL")
-    SUPABASE_ANON_KEY: str = Field(..., env="SUPABASE_ANON_KEY")
-    SUPABASE_SERVICE_ROLE_KEY: str = Field(..., env="SUPABASE_SERVICE_ROLE_KEY")
+    SUPABASE_URL: str = Field(default="", env="SUPABASE_URL")
+    SUPABASE_ANON_KEY: str = Field(default="", env="SUPABASE_ANON_KEY")
+    SUPABASE_SERVICE_ROLE_KEY: str = Field(default="", env="SUPABASE_SERVICE_ROLE_KEY")
     
     # Database
     DATABASE_URL: Optional[str] = Field(None, env="DATABASE_URL")
     
     # AI APIs
-    DEEPSEEK_API_KEY: str = Field(..., env="DEEPSEEK_API_KEY")
+    DEEPSEEK_API_KEY: str = Field(default="", env="DEEPSEEK_API_KEY")
     DEEPSEEK_API_URL: str = Field(
         default="https://api.deepseek.com/v1",
         env="DEEPSEEK_API_URL"
@@ -71,16 +71,16 @@ class Settings(BaseSettings):
     STORAGE_BUCKET_NAME: str = Field(default="websites", env="STORAGE_BUCKET_NAME")
     
     # Stripe
-    STRIPE_PUBLIC_KEY: str = Field(..., env="STRIPE_PUBLIC_KEY")
-    STRIPE_SECRET_KEY: str = Field(..., env="STRIPE_SECRET_KEY")
-    STRIPE_WEBHOOK_SECRET: str = Field(..., env="STRIPE_WEBHOOK_SECRET")
+    STRIPE_PUBLIC_KEY: str = Field(default="", env="STRIPE_PUBLIC_KEY")
+    STRIPE_SECRET_KEY: str = Field(default="", env="STRIPE_SECRET_KEY")
+    STRIPE_WEBHOOK_SECRET: str = Field(default="", env="STRIPE_WEBHOOK_SECRET")
     
     # Domain Configuration
     MAIN_DOMAIN: str = Field(default="binaapp.my", env="MAIN_DOMAIN")
     SUBDOMAIN_SUFFIX: str = Field(default=".binaapp.my", env="SUBDOMAIN_SUFFIX")
     
     # Security
-    JWT_SECRET_KEY: str = Field(..., env="JWT_SECRET_KEY")
+    JWT_SECRET_KEY: str = Field(default="dev-secret-key-change-in-production", env="JWT_SECRET_KEY")
     JWT_ALGORITHM: str = Field(default="HS256", env="JWT_ALGORITHM")
     JWT_EXPIRATION_HOURS: int = Field(default=24, env="JWT_EXPIRATION_HOURS")
     
@@ -109,7 +109,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
-        extra = "allow"  # Allow extra fields without validation errors
+        extra = "allow"
 
 # Create settings instance
 settings = Settings()
