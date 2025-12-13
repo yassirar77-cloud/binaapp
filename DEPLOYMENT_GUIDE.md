@@ -18,17 +18,19 @@ Make sure all your changes are committed and pushed to the `claude/fix-vercel-de
 
 ### Step 2: Create Render Web Service
 
+**IMPORTANT**: Delete your existing Render service and create a new one with the correct configuration.
+
 1. Go to [Render Dashboard](https://dashboard.render.com/)
 2. Click **"New +"** → **"Web Service"**
 3. Connect your GitHub repository: `yassirar77-cloud/binaapp`
-4. Configure the service:
+4. Configure the service with these **EXACT** settings:
    - **Name**: `binaapp-backend`
    - **Region**: Singapore (or closest to your users)
-   - **Branch**: `main` (or your deployment branch)
-   - **Root Directory**: `backend`
+   - **Branch**: `main`
+   - **Root Directory**: `backend` ⚠️ CRITICAL
    - **Runtime**: Python 3
-   - **Build Command**: Leave empty (uses render.yaml)
-   - **Start Command**: Leave empty (uses render.yaml)
+   - **Build Command**: `./build.sh` ⚠️ CRITICAL - Type this exactly
+   - **Start Command**: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
    - **Instance Type**: Starter ($7/month)
 
 ### Step 3: Configure Environment Variables
@@ -52,23 +54,37 @@ PYTHON_VERSION=3.11.7
 ### Step 4: Deploy
 
 1. Click **"Create Web Service"**
-2. Render will automatically:
-   - Detect `render.yaml`
-   - Use `runtime.txt` to install Python 3.11.7
-   - Install dependencies from `requirements.txt`
+2. Render will:
+   - Use `runtime.txt` to install Python 3.11.7 (NOT 3.13!)
+   - Run `build.sh` to install dependencies with pip (NOT Poetry!)
+   - Install Playwright browsers
    - Start your FastAPI app
 
 3. Wait for deployment to complete (5-10 minutes first time)
-4. Your backend will be available at: `https://binaapp-backend.onrender.com`
-5. Test health endpoint: `https://binaapp-backend.onrender.com/health`
+4. **Verify Python version in logs**: Should say `"Installing Python version 3.11.7"`
+5. Your backend will be available at: `https://binaapp-backend.onrender.com`
+6. Test health endpoint: `https://binaapp-backend.onrender.com/health`
 
 ### Troubleshooting Render
 
-If deployment fails:
-- Check the **Logs** tab in Render dashboard
-- Verify Python version: Should show `Python 3.11.7`
-- Ensure all environment variables are set
-- Check that `runtime.txt` contains exactly: `python-3.11.7`
+**❌ Error: "Installing Python version 3.13.4"**
+- **Cause**: `runtime.txt` not found
+- **Fix**: Verify "Root Directory" is set to `backend` in Render settings
+- **Fix**: Check that `backend/runtime.txt` exists in your repo
+
+**❌ Error: "Poetry could not find pyproject.toml"**
+- **Cause**: Render is auto-detecting Poetry instead of pip
+- **Fix**: Verify "Build Command" is set to `./build.sh` (not blank)
+- **Fix**: Make sure `backend/build.sh` exists and is executable
+
+**❌ Error: "greenlet build failed"**
+- **Cause**: Using Python 3.13 instead of 3.11
+- **Fix**: Follow the steps above to force Python 3.11.7
+
+If you see Python 3.11.7 in logs but build still fails:
+- Check the **Logs** tab for specific errors
+- Ensure all environment variables are set correctly
+- Try redeploying: **Manual Deploy** → **Deploy latest commit**
 
 ---
 
