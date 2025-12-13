@@ -17,10 +17,7 @@ python-dotenv==1.0.0
 cryptography==42.0.0
 
 # AI Integration
-openai==1.10.0  # DeepSeek uses OpenAI-compatible API
-anthropic==0.18.1  # Backup AI provider
-
-# Cloud Storage removed - Using Supabase Storage via supabase client
+openai==1.10.0
 
 # Payment Processing
 stripe==8.0.0
@@ -39,15 +36,10 @@ playwright==1.41.0
 
 # Caching
 redis==5.0.1
-# hiredis==2.3.2
 
 # Email
 email-validator==2.1.0.post1
 emails==0.6
-
-# Background Tasks
-celery==5.3.6
-flower==2.0.1
 
 # Monitoring and Logging
 loguru==0.7.2
