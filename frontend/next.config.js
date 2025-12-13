@@ -3,7 +3,25 @@ const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
   images: {
-    domains: ['localhost', 'binaapp.my'],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.supabase.co',
+      },
+      {
+        protocol: 'https',
+        hostname: 'binaapp.my',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.binaapp.my',
+      },
+      {
+        protocol: 'https',
+        hostname: '**.render.com',
+      },
+    ],
+    domains: ['localhost'],
   },
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
