@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # Build script for Render deployment
-# This ensures we use pip, not Poetry
+# Uses pip + Python 3.11 (no Poetry, no sudo)
 
-set -o errexit  # Exit on error
+set -o errexit  # Exit immediately on error
 
-echo "Installing Python dependencies with pip..."
+echo "Upgrading pip..."
 pip install --upgrade pip
+
+echo "Installing Python dependencies..."
 pip install --no-cache-dir -r requirements.txt
 
-echo "Installing Playwright browsers..."
-playwright install chromium
-playwright install-deps chromium
-
+echo "Skipping Playwright browser installation on Render"
 echo "Build completed successfully!"
