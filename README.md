@@ -176,3 +176,4 @@ For support, email support@binaapp.my or join our Telegram group.
 ---
 
 **Built with ❤️ for Malaysian SMEs**
+# BinaApp 
