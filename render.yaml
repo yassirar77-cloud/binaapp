@@ -5,29 +5,49 @@ services:
     plan: starter
     region: singapore
     rootDir: backend
+
     buildCommand: ./build.sh
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+
     envVars:
+      # Force correct Python behavior
       - key: PYTHON_VERSION
-        value: 3.11.7
+        value: "3.11.7"
+
+      # 🔥 FIX: Prevent Playwright from breaking Render build
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: "1"
+
+      # Database
       - key: DATABASE_URL
         sync: false
+
+      # Supabase
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+
+      # Auth / Security
       - key: JWT_SECRET_KEY
         sync: false
+
+      # AI APIs
       - key: QWEN_API_KEY
         sync: false
       - key: DEEPSEEK_API_KEY
         sync: false
+
+      # Payments
       - key: STRIPE_SECRET_KEY
         sync: false
+
+      # App config
       - key: FRONTEND_URL
-        value: https://binaapp.my
+        value: "https://binaapp.my"
       - key: ENVIRONMENT
-        value: production
+        value: "production"
+
     healthCheckPath: /health
