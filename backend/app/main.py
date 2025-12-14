@@ -26,9 +26,9 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting BinaApp API...")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"API Version: v1")
-    
+
     yield
-    
+
     # Shutdown
     logger.info("👋 Shutting down BinaApp API...")
 
@@ -42,10 +42,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS Middleware
+# CORS Middleware - FIX APPLIED HERE
+# We explicitly list all potential origins for maximum reliability in production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins in development
+    allow_origins=[
+        "http://localhost:3000",          # Local Development
+        "https://binaapp.vercel.app",     # Vercel Default Domain
+        "https://binaapp.my",             # Your Custom Domain
+        "https://www.binaapp.my"          # Your Custom Domain (www)
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -104,7 +110,7 @@ app.include_router(api_router, prefix="/api/v1")
 app.include_router(simple_router, prefix="/api")  # Simple API without auth
 app.include_router(upload.router, prefix="/api", tags=["upload"])
 app.include_router(menu_designer.router, prefix="/api", tags=["menu"])
-app.include_router(server.router, prefix="/api", tags=["projects"])  # NEW LINE
+app.include_router(server.router, prefix="/api", tags=["projects"])
 
 if __name__ == "__main__":
     import uvicorn
