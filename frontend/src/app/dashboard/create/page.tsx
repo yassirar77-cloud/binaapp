@@ -9,8 +9,9 @@ import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
 import { ArrowLeft, Sparkles } from 'lucide-react'
 import Link from 'next/link'
-import { apiFetch } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { apiFetch } from '../../../lib/api'
+import { cn } from '../../../lib/utils'
+
 
 /**
  * Types
