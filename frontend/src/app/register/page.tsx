@@ -7,7 +7,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { signUp } from '../../lib/supabase'
+import { signUp } from '../../../lib/supabase'
 import toast from 'react-hot-toast'
 import { Sparkles } from 'lucide-react'
 
