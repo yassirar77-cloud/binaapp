@@ -44,7 +44,11 @@ export default function RegisterPage() {
     setLoading(true)
 
     try {
-      await signUp(formData.email, formData.password, formData.fullName)
+      await signUp(
+        formData.email,
+        formData.password,
+        formData.fullName
+      )
       toast.success('Akaun berjaya didaftar!')
       router.push('/dashboard')
     } catch (error: any) {
@@ -62,77 +66,47 @@ export default function RegisterPage() {
             <Sparkles className="w-7 h-7 text-primary-600" />
             <span>BinaApp</span>
           </Link>
-          <h1 className="text-3xl font-bold mt-6 mb-2">Cipta Akaun Percuma</h1>
-          <p className="text-gray-600">Mula bina website anda sekarang</p>
+          <h1 className="text-3xl font-bold mt-6 mb-2">
+            Cipta Akaun Percuma
+          </h1>
+          <p className="text-gray-600">
+            Mula bina website anda sekarang
+          </p>
         </div>
 
         <div className="card">
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="fullName" className="block text-sm font-medium mb-2">
-                Nama Penuh
-              </label>
-              <input
-                id="fullName"
-                name="fullName"
-                type="text"
-                value={formData.fullName}
-                onChange={handleChange}
-                className="input"
-                placeholder="Ahmad Abdullah"
-                required
-              />
-            </div>
-
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium mb-2">
-                Email
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                value={formData.email}
-                onChange={handleChange}
-                className="input"
-                placeholder="ahmad@email.com"
-                required
-              />
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium mb-2">
-                Kata Laluan
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                value={formData.password}
-                onChange={handleChange}
-                className="input"
-                placeholder="••••••••"
-                minLength={8}
-                required
-              />
-            </div>
-
-            <div>
-              <label htmlFor="confirmPassword" className="block text-sm font-medium mb-2">
-                Sahkan Kata Laluan
-              </label>
-              <input
-                id="confirmPassword"
-                name="confirmPassword"
-                type="password"
-                value={formData.confirmPassword}
-                onChange={handleChange}
-                className="input"
-                placeholder="••••••••"
-                minLength={8}
-                required
-              />
-            </div>
+            <input
+              name="fullName"
+              placeholder="Nama Penuh"
+              className="input"
+              onChange={handleChange}
+              required
+            />
+            <input
+              name="email"
+              type="email"
+              placeholder="Email"
+              className="input"
+              onChange={handleChange}
+              required
+            />
+            <input
+              name="password"
+              type="password"
+              placeholder="Kata Laluan"
+              className="input"
+              onChange={handleChange}
+              required
+            />
+            <input
+              name="confirmPassword"
+              type="password"
+              placeholder="Sahkan Kata Laluan"
+              className="input"
+              onChange={handleChange}
+              required
+            />
 
             <button
               type="submit"
@@ -143,14 +117,12 @@ export default function RegisterPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
-              Sudah ada akaun?{' '}
-              <Link href="/login" className="text-primary-600 hover:underline font-medium">
-                Log masuk
-              </Link>
-            </p>
-          </div>
+          <p className="text-sm text-center mt-6">
+            Sudah ada akaun?{' '}
+            <Link href="/login" className="text-primary-600 font-medium">
+              Log masuk
+            </Link>
+          </p>
         </div>
       </div>
     </div>
