@@ -9,6 +9,9 @@
     "lint": "next lint",
     "type-check": "tsc --noEmit"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
     "@stripe/stripe-js": "^2.4.0",
