@@ -1,5 +1,5 @@
 /**
- * Website Creation Page with Live Preview
+ * Website Creation Page
  */
 
 'use client'
@@ -10,28 +10,19 @@ import toast from 'react-hot-toast'
 import { ArrowLeft, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { apiFetch } from '@/lib/api'
-import { cn } from '@/lib/utils'
-
 
 /**
  * Types
  */
 type WebsiteGenerationRequest = {
   business_name: string
-  business_type: string
   description: string
   language: 'ms' | 'en'
   subdomain: string
-  include_whatsapp: boolean
-  whatsapp_number: string
-  include_maps: boolean
-  location_address: string
-  include_ecommerce: boolean
-  contact_email: string
 }
 
 /**
- * Helpers (LOCAL – safe)
+ * Helpers
  */
 function slugify(text: string) {
   return text
@@ -51,33 +42,22 @@ export default function CreateWebsitePage() {
 
   const [formData, setFormData] = useState<WebsiteGenerationRequest>({
     business_name: '',
-    business_type: '',
     description: '',
     language: 'ms',
     subdomain: '',
-    include_whatsapp: true,
-    whatsapp_number: '',
-    include_maps: true,
-    location_address: '',
-    include_ecommerce: false,
-    contact_email: '',
   })
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
-    const { name, value, type } = e.target
-    const newValue =
-      type === 'checkbox'
-        ? (e.target as HTMLInputElement).checked
-        : value
+    const { name, value } = e.target
 
     setFormData(prev => ({
       ...prev,
-      [name]: newValue,
+      [name]: value,
     }))
 
-    if (name === 'business_name' && value) {
+    if (name === 'business_name') {
       setFormData(prev => ({
         ...prev,
         subdomain: slugify(value),
@@ -93,21 +73,21 @@ export default function CreateWebsitePage() {
       return
     }
 
-    if (formData.include_whatsapp && !formData.whatsapp_number) {
-      toast.error('Sila masukkan nombor WhatsApp')
-      return
-    }
-
     setLoading(true)
 
     try {
-      const response = await apiFetch('/api/generate-website', {
+      // ✅ CORRECT ENDPOINT (FROM SWAGGER)
+      await apiFetch('/api/generate', {
         method: 'POST',
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          business_name: formData.business_name,
+          description: formData.description,
+          language: formData.language,
+        }),
       })
 
       toast.success('Website sedang dijana!')
-      router.push(`/dashboard`)
+      router.push('/dashboard')
     } catch (error: any) {
       toast.error(error.message || 'Gagal menjana website')
     } finally {
@@ -133,10 +113,10 @@ export default function CreateWebsitePage() {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8 max-w-4xl">
+      <main className="container mx-auto px-4 py-8 max-w-2xl">
         <h1 className="text-3xl font-bold mb-6">Cipta Website Baharu</h1>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <input
             name="business_name"
             placeholder="Nama Perniagaan"
