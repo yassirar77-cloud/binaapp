@@ -7,10 +7,13 @@ export async function apiFetch(
   options?: RequestInit
 ) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: options?.method || 'GET',
+    mode: 'cors',
     headers: {
       'Content-Type': 'application/json',
+      ...(options?.headers || {}),
     },
-    ...options,
+    body: options?.body,
   })
 
   if (!res.ok) {
