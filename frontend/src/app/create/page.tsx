@@ -77,7 +77,7 @@ export default function CreatePage() {
     setSelectedStyle(null)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/simple/generate`, {
+      const response = await fetch(`${API_BASE_URL}/api/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -204,7 +204,7 @@ export default function CreatePage() {
     setError('')
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/simple/publish`, {
+      const response = await fetch(`${API_BASE_URL}/api/publish`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
