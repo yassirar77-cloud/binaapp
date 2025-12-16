@@ -11,6 +11,11 @@ echo "Current directory: $(pwd)"
 cd backend || { echo "ERROR: backend directory not found"; exit 1; }
 
 echo "Changed to backend directory: $(pwd)"
+
+# Bootstrap pip if not available
+echo "Ensuring pip is available..."
+python3 -m ensurepip --default-pip 2>/dev/null || echo "ensurepip not needed or unavailable"
+
 echo "Upgrading pip..."
 python3 -m pip install --upgrade pip
 
