@@ -12,21 +12,18 @@ cd backend || { echo "ERROR: backend directory not found"; exit 1; }
 
 echo "Changed to backend directory: $(pwd)"
 
-# Bootstrap pip if not available
-echo "Ensuring pip is available..."
-if ! python3 -m pip --version 2>/dev/null; then
-    echo "pip not found, installing via get-pip.py..."
-    curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-    python3 get-pip.py --user
-    rm get-pip.py
-    export PATH="$HOME/.local/bin:$PATH"
-fi
+# Create and activate virtual environment
+echo "Creating Python virtual environment..."
+python3 -m venv venv
+
+echo "Activating virtual environment..."
+source venv/bin/activate
 
 echo "Upgrading pip..."
-python3 -m pip install --upgrade pip --user
+pip install --upgrade pip
 
 echo "Installing Python dependencies from requirements.txt..."
-python3 -m pip install --no-cache-dir -r requirements.txt --user
+pip install --no-cache-dir -r requirements.txt
 
 echo "Skipping Playwright browser installation (not needed for Railway)"
 echo "Build completed successfully!"
