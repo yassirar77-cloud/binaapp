@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 from typing import Dict, Optional
 from loguru import logger
 import json
+import httpx
 from app.core.config import settings
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
 from app.services.design_system import design_system
@@ -18,17 +19,36 @@ class AIService:
         logger.info("🤖 Initializing AI Service...")
         logger.info("=" * 80)
 
+        # Configure timeout for API calls (critical for Render)
+        # Longer timeouts to handle network latency and API processing
+        timeout = httpx.Timeout(
+            timeout=60.0,      # Total timeout
+            connect=10.0,      # Connection timeout
+            read=50.0,         # Read timeout
+            write=10.0         # Write timeout
+        )
+        logger.info(f"⏱️  Configured API timeout: 60s total, 10s connect")
+
         # Initialize Qwen client (primary)
         if settings.QWEN_API_KEY:
             try:
+                logger.info("🔗 Connecting to Qwen API (dashscope-intl.aliyuncs.com)...")
                 self.qwen_client = AsyncOpenAI(
                     api_key=settings.QWEN_API_KEY,
-                    base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+                    base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                    timeout=timeout,
+                    http_client=httpx.AsyncClient(
+                        verify=True,
+                        timeout=timeout,
+                        follow_redirects=True,
+                        limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+                    )
                 )
                 logger.info("✅ Qwen Max 3 AI client initialized (PRIMARY)")
             except Exception as e:
                 self.qwen_client = None
                 logger.error(f"❌ Failed to initialize Qwen client: {e}")
+                logger.error(f"   Error type: {type(e).__name__}")
         else:
             self.qwen_client = None
             logger.warning("⚠️ Qwen API key not found - Qwen disabled")
@@ -36,14 +56,23 @@ class AIService:
         # Initialize DeepSeek client (fallback)
         if settings.DEEPSEEK_API_KEY:
             try:
+                logger.info("🔗 Connecting to DeepSeek API (api.deepseek.com)...")
                 self.deepseek_client = AsyncOpenAI(
                     api_key=settings.DEEPSEEK_API_KEY,
-                    base_url=settings.DEEPSEEK_API_URL
+                    base_url=settings.DEEPSEEK_API_URL,
+                    timeout=timeout,
+                    http_client=httpx.AsyncClient(
+                        verify=True,
+                        timeout=timeout,
+                        follow_redirects=True,
+                        limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+                    )
                 )
                 logger.info("✅ DeepSeek AI client initialized (FALLBACK)")
             except Exception as e:
                 self.deepseek_client = None
                 logger.error(f"❌ Failed to initialize DeepSeek client: {e}")
+                logger.error(f"   Error type: {type(e).__name__}")
         else:
             self.deepseek_client = None
             logger.warning("⚠️ DeepSeek API key not found - DeepSeek disabled")
