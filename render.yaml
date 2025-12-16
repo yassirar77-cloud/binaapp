@@ -51,3 +51,4 @@ services:
         value: "production"
 
     healthCheckPath: /health
+    autoDeploy: true  # Auto-deploy on git push
