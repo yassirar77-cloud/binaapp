@@ -17,7 +17,7 @@ echo "Creating Python virtual environment..."
 python3 -m venv venv --without-pip
 
 echo "Activating virtual environment..."
-source venv/bin/activate
+. venv/bin/activate
 
 # Manually install pip into the venv
 echo "Installing pip into virtual environment..."
