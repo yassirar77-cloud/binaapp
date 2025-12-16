@@ -2,6 +2,7 @@
 
 [phases.setup]
 nixPkgs = ["python311"]
+aptPkgs = ["python3.11-venv"]
 
 [phases.build]
 cmds = ["chmod +x ./build.sh && ./build.sh"]
