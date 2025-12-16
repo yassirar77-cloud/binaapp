@@ -27,9 +27,34 @@ setup_logging()
 # -------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("=" * 80)
     logger.info("🚀 Starting BinaApp API...")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
+    logger.info(f"Frontend URL: {settings.FRONTEND_URL}")
     logger.info("API Version: v1")
+    logger.info("=" * 80)
+
+    # Validate critical environment variables
+    logger.info("Checking environment variables...")
+    env_checks = {
+        "QWEN_API_KEY": bool(settings.QWEN_API_KEY),
+        "DEEPSEEK_API_KEY": bool(settings.DEEPSEEK_API_KEY),
+        "SUPABASE_URL": bool(settings.SUPABASE_URL),
+        "SUPABASE_ANON_KEY": bool(settings.SUPABASE_ANON_KEY),
+        "JWT_SECRET_KEY": bool(settings.JWT_SECRET_KEY),
+    }
+
+    for key, is_set in env_checks.items():
+        status = "✓ SET" if is_set else "✗ MISSING"
+        logger.info(f"  {key}: {status}")
+
+    missing = [k for k, v in env_checks.items() if not v]
+    if missing:
+        logger.warning(f"⚠️  Missing environment variables: {', '.join(missing)}")
+    else:
+        logger.info("✓ All critical environment variables are set")
+
+    logger.info("=" * 80)
     yield
     logger.info("👋 Shutting down BinaApp API...")
 

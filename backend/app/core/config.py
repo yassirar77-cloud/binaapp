@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     # URLs
     BASE_URL: str = Field(default="http://localhost:3000", env="BASE_URL")
     API_URL: str = Field(default="http://localhost:8000", env="API_URL")
+    FRONTEND_URL: str = Field(default="http://localhost:3000", env="FRONTEND_URL")
     
     # CORS
     CORS_ORIGINS: List[str] = [

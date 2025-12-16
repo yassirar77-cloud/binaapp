@@ -68,29 +68,42 @@ async def generate_website(request: SimpleGenerateRequest):
     - Supports multi-style generation (Modern, Minimal, Bold)
     """
     try:
-        logger.info(f"Generating website for user: {request.user_id}")
-        logger.info(f"Description: {request.description[:100]}...")
+        logger.info("=" * 80)
+        logger.info("🚀 NEW GENERATION REQUEST RECEIVED")
+        logger.info(f"User ID: {request.user_id}")
+        logger.info(f"Description length: {len(request.description)} chars")
+        logger.info(f"Description preview: {request.description[:100]}...")
         logger.info(f"Multi-style: {request.multi_style}")
+        logger.info(f"Generate previews: {request.generate_previews}")
+        logger.info(f"Images: {len(request.images) if request.images else 0}")
+        logger.info("=" * 80)
 
         # Detect website type
+        logger.info("Step 1: Detecting website type...")
         website_type = template_service.detect_website_type(request.description)
-        logger.info(f"Detected website type: {website_type}")
+        logger.info(f"✓ Detected website type: {website_type}")
 
         # Detect required features
+        logger.info("Step 2: Detecting features...")
         features = template_service.detect_features(request.description)
-        logger.info(f"Detected features: {features}")
+        logger.info(f"✓ Detected features: {features}")
 
         # Extract business name from description (simple extraction)
+        logger.info("Step 3: Extracting business information...")
         business_name = extract_business_name(request.description)
+        logger.info(f"✓ Business name: {business_name}")
 
         # Detect language
         language = detect_language(request.description)
+        logger.info(f"✓ Language: {language}")
 
         # Extract phone number if mentioned
         phone_number = extract_phone_number(request.description)
+        logger.info(f"✓ Phone: {phone_number or 'Not found'}")
 
         # Extract address if mentioned
         address = extract_address(request.description)
+        logger.info(f"✓ Address: {address or 'Not found'}")
 
         # Build AI generation request
         ai_request = WebsiteGenerationRequest(
@@ -118,8 +131,12 @@ async def generate_website(request: SimpleGenerateRequest):
 
         # Multi-style generation
         if request.multi_style:
-            logger.info("Generating multi-style variations...")
+            logger.info("=" * 80)
+            logger.info("Step 4: MULTI-STYLE GENERATION")
+            logger.info("Calling AI service to generate 3 style variations...")
+            logger.info("=" * 80)
             variations_dict = await ai_service.generate_multi_style(ai_request)
+            logger.info(f"✓ Received {len(variations_dict)} variations from AI service")
 
             # Process each variation
             variations = []
@@ -170,8 +187,12 @@ async def generate_website(request: SimpleGenerateRequest):
 
         # Single style generation (original behavior)
         else:
+            logger.info("=" * 80)
+            logger.info("Step 4: SINGLE-STYLE GENERATION")
             logger.info("Calling AI service to generate website...")
+            logger.info("=" * 80)
             ai_response = await ai_service.generate_website(ai_request)
+            logger.info("✓ Received response from AI service")
 
             # Get the generated HTML
             html_content = ai_response.html_content
@@ -193,10 +214,17 @@ async def generate_website(request: SimpleGenerateRequest):
             )
 
     except Exception as e:
-        logger.error(f"Error generating website: {e}")
+        import traceback
+        logger.error("=" * 80)
+        logger.error("❌ ERROR GENERATING WEBSITE")
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error message: {str(e)}")
+        logger.error("Full traceback:")
+        logger.error(traceback.format_exc())
+        logger.error("=" * 80)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate website: {str(e)}"
+            detail=f"Failed to generate website: {type(e).__name__}: {str(e)}"
         )
 
 
