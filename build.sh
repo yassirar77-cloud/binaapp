@@ -14,13 +14,19 @@ echo "Changed to backend directory: $(pwd)"
 
 # Bootstrap pip if not available
 echo "Ensuring pip is available..."
-python3 -m ensurepip --default-pip 2>/dev/null || echo "ensurepip not needed or unavailable"
+if ! python3 -m pip --version 2>/dev/null; then
+    echo "pip not found, installing via get-pip.py..."
+    curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+    python3 get-pip.py --user
+    rm get-pip.py
+    export PATH="$HOME/.local/bin:$PATH"
+fi
 
 echo "Upgrading pip..."
-python3 -m pip install --upgrade pip
+python3 -m pip install --upgrade pip --user
 
 echo "Installing Python dependencies from requirements.txt..."
-python3 -m pip install --no-cache-dir -r requirements.txt
+python3 -m pip install --no-cache-dir -r requirements.txt --user
 
 echo "Skipping Playwright browser installation (not needed for Railway)"
 echo "Build completed successfully!"
