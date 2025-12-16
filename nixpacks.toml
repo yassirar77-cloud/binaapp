@@ -2,7 +2,8 @@
 # Ensures Python and pip are properly installed
 
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip"]
+nixPkgs = ["python311", "curl"]
+aptPkgs = ["python3-pip"]
 
 [phases.build]
 cmds = ["chmod +x ./build.sh && ./build.sh"]
