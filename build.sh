@@ -12,10 +12,10 @@ cd backend || { echo "ERROR: backend directory not found"; exit 1; }
 
 echo "Changed to backend directory: $(pwd)"
 echo "Upgrading pip..."
-pip install --upgrade pip
+python3 -m pip install --upgrade pip
 
 echo "Installing Python dependencies from requirements.txt..."
-pip install --no-cache-dir -r requirements.txt
+python3 -m pip install --no-cache-dir -r requirements.txt
 
 echo "Skipping Playwright browser installation (not needed for Railway)"
 echo "Build completed successfully!"
