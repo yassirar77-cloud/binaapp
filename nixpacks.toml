@@ -1,8 +1,7 @@
 # Nixpacks configuration for Railway deployment
 
 [phases.setup]
-nixPkgs = ["python311"]
-aptPkgs = ["python3.11-venv"]
+nixPkgs = ["python311", "curl"]
 
 [phases.build]
 cmds = ["chmod +x ./build.sh && ./build.sh"]
