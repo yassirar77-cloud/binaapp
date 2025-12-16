@@ -14,23 +14,53 @@ class AIService:
     """Service for AI-powered website generation"""
     
     def __init__(self):
+        logger.info("=" * 80)
+        logger.info("🤖 Initializing AI Service...")
+        logger.info("=" * 80)
+
         # Initialize Qwen client (primary)
         if settings.QWEN_API_KEY:
-            self.qwen_client = AsyncOpenAI(
-                api_key=settings.QWEN_API_KEY,
-                base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-            )
-            logger.info("✅ Qwen Max 3 AI client initialized (PRIMARY)")
+            try:
+                self.qwen_client = AsyncOpenAI(
+                    api_key=settings.QWEN_API_KEY,
+                    base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+                )
+                logger.info("✅ Qwen Max 3 AI client initialized (PRIMARY)")
+            except Exception as e:
+                self.qwen_client = None
+                logger.error(f"❌ Failed to initialize Qwen client: {e}")
         else:
             self.qwen_client = None
-            logger.warning("⚠️ Qwen API key not found")
-        
+            logger.warning("⚠️ Qwen API key not found - Qwen disabled")
+
         # Initialize DeepSeek client (fallback)
-        self.deepseek_client = AsyncOpenAI(
-            api_key=settings.DEEPSEEK_API_KEY,
-            base_url=settings.DEEPSEEK_API_URL
-        )
-        logger.info("✅ DeepSeek AI client initialized (FALLBACK)")
+        if settings.DEEPSEEK_API_KEY:
+            try:
+                self.deepseek_client = AsyncOpenAI(
+                    api_key=settings.DEEPSEEK_API_KEY,
+                    base_url=settings.DEEPSEEK_API_URL
+                )
+                logger.info("✅ DeepSeek AI client initialized (FALLBACK)")
+            except Exception as e:
+                self.deepseek_client = None
+                logger.error(f"❌ Failed to initialize DeepSeek client: {e}")
+        else:
+            self.deepseek_client = None
+            logger.warning("⚠️ DeepSeek API key not found - DeepSeek disabled")
+
+        # Validate at least one AI service is available
+        if not self.qwen_client and not self.deepseek_client:
+            logger.error("=" * 80)
+            logger.error("❌ CRITICAL: No AI services available!")
+            logger.error("Please set either QWEN_API_KEY or DEEPSEEK_API_KEY")
+            logger.error("=" * 80)
+            raise RuntimeError("No AI services configured. Set QWEN_API_KEY or DEEPSEEK_API_KEY environment variables.")
+
+        logger.info("=" * 80)
+        logger.info("✅ AI Service initialized successfully")
+        logger.info(f"   Qwen: {'Available' if self.qwen_client else 'Disabled'}")
+        logger.info(f"   DeepSeek: {'Available' if self.deepseek_client else 'Disabled'}")
+        logger.info("=" * 80)
     
     async def generate_website(
         self,
@@ -39,7 +69,7 @@ class AIService:
     ) -> AIGenerationResponse:
         """
         Generate complete website HTML using Qwen Max 3 (primary) or DeepSeek (fallback)
-        
+
         Args:
             request: Website generation request
             style: Optional design style (modern, minimal, bold)
@@ -51,15 +81,24 @@ class AIService:
                 return await self._generate_with_qwen(request, style)
             except Exception as e:
                 logger.error(f"❌ Qwen generation failed: {e}")
-                logger.info("🔄 Falling back to DeepSeek...")
-        
+                if self.deepseek_client:
+                    logger.info("🔄 Falling back to DeepSeek...")
+                else:
+                    logger.error("❌ No fallback available - DeepSeek not configured")
+                    raise
+
         # Fallback to DeepSeek
-        try:
-            logger.info(f"⚡ Generating website with DeepSeek for {request.business_name} (style: {style or 'default'})")
-            return await self._generate_with_deepseek(request, style)
-        except Exception as e:
-            logger.error(f"❌ DeepSeek generation also failed: {e}")
-            raise
+        if self.deepseek_client:
+            try:
+                logger.info(f"⚡ Generating website with DeepSeek for {request.business_name} (style: {style or 'default'})")
+                return await self._generate_with_deepseek(request, style)
+            except Exception as e:
+                logger.error(f"❌ DeepSeek generation also failed: {e}")
+                raise
+
+        # No AI service available
+        logger.error("❌ No AI service is available for generation")
+        raise RuntimeError("No AI service configured. Please check your API keys.")
     
     async def _generate_with_qwen(
         self,
