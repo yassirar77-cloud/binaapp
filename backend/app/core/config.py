@@ -64,7 +64,7 @@ class Settings(BaseSettings):
         env="QWEN_API_URL"
     )
     QWEN_MODEL: str = Field(
-        default="qwen-plus",
+        default="qwen3-max",  # Latest Qwen 3 Max model
         env="QWEN_MODEL"
     )
     
