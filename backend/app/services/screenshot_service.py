@@ -33,6 +33,7 @@ class ScreenshotService:
 
     async def initialize(self):
         """Initialize Playwright browser"""
+        global PLAYWRIGHT_AVAILABLE
         if not PLAYWRIGHT_AVAILABLE:
             logger.warning("Playwright not available, screenshots disabled")
             return
