@@ -306,3 +306,34 @@ def extract_address(description: str) -> Optional[str]:
                 return address
 
     return None
+
+
+@router.get("/test-ai")
+async def test_ai_connectivity():
+    """
+    Test AI API connectivity
+
+    This endpoint tests connection to Qwen and DeepSeek APIs
+    and returns detailed status information for debugging.
+    """
+    try:
+        logger.info("=" * 80)
+        logger.info("🧪 AI CONNECTIVITY TEST REQUESTED")
+        logger.info("=" * 80)
+
+        results = await ai_service.test_api_connectivity()
+
+        return {
+            "success": True,
+            "message": "AI connectivity test completed",
+            "results": results
+        }
+    except Exception as e:
+        import traceback
+        logger.error(f"AI connectivity test failed: {e}")
+        logger.error(traceback.format_exc())
+        return {
+            "success": False,
+            "message": f"Test failed: {str(e)}",
+            "results": {}
+        }

@@ -19,6 +19,15 @@ class AIService:
         logger.info("🤖 Initializing AI Service...")
         logger.info("=" * 80)
 
+        # DEBUG: Log all API configuration
+        logger.info("🔍 API Configuration Debug:")
+        logger.info(f"   QWEN_API_KEY: {settings.QWEN_API_KEY[:15]}..." if settings.QWEN_API_KEY else "   QWEN_API_KEY: NOT SET")
+        logger.info(f"   QWEN_API_URL: {settings.QWEN_API_URL}")
+        logger.info(f"   QWEN_MODEL: {settings.QWEN_MODEL}")
+        logger.info(f"   DEEPSEEK_API_KEY: {settings.DEEPSEEK_API_KEY[:15]}..." if settings.DEEPSEEK_API_KEY else "   DEEPSEEK_API_KEY: NOT SET")
+        logger.info(f"   DEEPSEEK_API_URL: {settings.DEEPSEEK_API_URL}")
+        logger.info(f"   DEEPSEEK_MODEL: {settings.DEEPSEEK_MODEL}")
+
         # Configure timeout for API calls (critical for Render)
         # Longer timeouts to handle network latency and API processing
         timeout = httpx.Timeout(
@@ -106,10 +115,17 @@ class AIService:
         # Try Qwen first
         if self.qwen_client:
             try:
-                logger.info(f"🎨 Generating website with Qwen Max 3 for {request.business_name} (style: {style or 'default'})")
+                logger.info(f"🎨 Generating website with Qwen for {request.business_name} (style: {style or 'default'})")
                 return await self._generate_with_qwen(request, style)
             except Exception as e:
-                logger.error(f"❌ Qwen generation failed: {e}")
+                logger.error(f"❌ Qwen generation failed!")
+                logger.error(f"   Error type: {type(e).__name__}")
+                logger.error(f"   Error message: {str(e)}")
+                if hasattr(e, 'response'):
+                    logger.error(f"   Response status: {getattr(e.response, 'status_code', 'N/A')}")
+                    logger.error(f"   Response body: {getattr(e.response, 'text', 'N/A')[:500]}")
+                if hasattr(e, '__cause__') and e.__cause__:
+                    logger.error(f"   Root cause: {type(e.__cause__).__name__}: {e.__cause__}")
                 if self.deepseek_client:
                     logger.info("🔄 Falling back to DeepSeek...")
                 else:
@@ -122,7 +138,14 @@ class AIService:
                 logger.info(f"⚡ Generating website with DeepSeek for {request.business_name} (style: {style or 'default'})")
                 return await self._generate_with_deepseek(request, style)
             except Exception as e:
-                logger.error(f"❌ DeepSeek generation also failed: {e}")
+                logger.error(f"❌ DeepSeek generation also failed!")
+                logger.error(f"   Error type: {type(e).__name__}")
+                logger.error(f"   Error message: {str(e)}")
+                if hasattr(e, 'response'):
+                    logger.error(f"   Response status: {getattr(e.response, 'status_code', 'N/A')}")
+                    logger.error(f"   Response body: {getattr(e.response, 'text', 'N/A')[:500]}")
+                if hasattr(e, '__cause__') and e.__cause__:
+                    logger.error(f"   Root cause: {type(e.__cause__).__name__}: {e.__cause__}")
                 raise
 
         # No AI service available
@@ -137,9 +160,11 @@ class AIService:
         """Generate website using Qwen Max 3"""
         
         prompt = self._build_generation_prompt(request, style)
-        
+
+        logger.info(f"🔗 Calling Qwen API with model: {settings.QWEN_MODEL}")
+        logger.info(f"   Base URL: https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
         response = await self.qwen_client.chat.completions.create(
-            model="qwen-max-latest",
+            model=settings.QWEN_MODEL,
             messages=[
                 {
                     "role": "system",
@@ -166,9 +191,11 @@ class AIService:
         style: Optional[str] = None
     ) -> AIGenerationResponse:
         """Generate website using DeepSeek V3 (fallback)"""
-        
+
         prompt = self._build_generation_prompt(request, style)
-        
+
+        logger.info(f"🔗 Calling DeepSeek API with model: {settings.DEEPSEEK_MODEL}")
+        logger.info(f"   Base URL: {settings.DEEPSEEK_API_URL}")
         response = await self.deepseek_client.chat.completions.create(
             model=settings.DEEPSEEK_MODEL,
             messages=[
@@ -294,6 +321,69 @@ Include:
             sections=["Hero", "About", "Services", "Contact"],
             integrations_included=["Contact Form", "WhatsApp", "Social Sharing"]
         )
+
+    async def test_api_connectivity(self) -> Dict[str, any]:
+        """Test API connectivity for debugging"""
+        results = {
+            "qwen": {"available": False, "status": "not_configured"},
+            "deepseek": {"available": False, "status": "not_configured"}
+        }
+
+        # Test Qwen
+        if self.qwen_client:
+            try:
+                logger.info("🧪 Testing Qwen API connectivity...")
+                response = await self.qwen_client.chat.completions.create(
+                    model=settings.QWEN_MODEL,
+                    messages=[{"role": "user", "content": "test"}],
+                    max_tokens=10
+                )
+                results["qwen"] = {
+                    "available": True,
+                    "status": "connected",
+                    "model": settings.QWEN_MODEL,
+                    "response": response.choices[0].message.content[:50] if response.choices else "no response"
+                }
+                logger.info("✅ Qwen API test successful!")
+            except Exception as e:
+                error_msg = str(e)
+                results["qwen"] = {
+                    "available": False,
+                    "status": "error",
+                    "error_type": type(e).__name__,
+                    "error_message": error_msg[:200],
+                    "model": settings.QWEN_MODEL
+                }
+                logger.error(f"❌ Qwen API test failed: {error_msg}")
+
+        # Test DeepSeek
+        if self.deepseek_client:
+            try:
+                logger.info("🧪 Testing DeepSeek API connectivity...")
+                response = await self.deepseek_client.chat.completions.create(
+                    model=settings.DEEPSEEK_MODEL,
+                    messages=[{"role": "user", "content": "test"}],
+                    max_tokens=10
+                )
+                results["deepseek"] = {
+                    "available": True,
+                    "status": "connected",
+                    "model": settings.DEEPSEEK_MODEL,
+                    "response": response.choices[0].message.content[:50] if response.choices else "no response"
+                }
+                logger.info("✅ DeepSeek API test successful!")
+            except Exception as e:
+                error_msg = str(e)
+                results["deepseek"] = {
+                    "available": False,
+                    "status": "error",
+                    "error_type": type(e).__name__,
+                    "error_message": error_msg[:200],
+                    "model": settings.DEEPSEEK_MODEL
+                }
+                logger.error(f"❌ DeepSeek API test failed: {error_msg}")
+
+        return results
 
 # Create singleton instance
 ai_service = AIService()
