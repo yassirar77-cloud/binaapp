@@ -2,13 +2,17 @@
 # This tells Nixpacks how to build the Python backend
 
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip"]
+nixPkgs = ["python311", "python311Packages.pip", "python311Packages.virtualenv"]
 
 [phases.install]
-cmds = ["cd backend && pip install -r requirements.txt"]
+cmds = [
+    "python -m venv /app/venv",
+    "/app/venv/bin/pip install --upgrade pip",
+    "/app/venv/bin/pip install -r backend/requirements.txt"
+]
 
 [phases.build]
-cmds = ["cd backend && python -c 'print(\"Build successful\")'"]
+cmds = ["/app/venv/bin/python -c 'print(\"Build successful\")'"]
 
 [start]
-cmd = "cd backend && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+cmd = "cd backend && /app/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
