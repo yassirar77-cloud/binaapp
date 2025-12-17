@@ -152,5 +152,72 @@ class SupabaseService:
             print(f"❌ Get user websites error: {str(e)}")
             return []
 
+    async def create_website(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Create a new website record"""
+        try:
+            return await self.insert_record("websites", data)
+        except Exception as e:
+            print(f"❌ Create website error: {str(e)}")
+            return None
+
+    async def get_website(self, website_id: str) -> Optional[Dict[str, Any]]:
+        """Get a website by ID"""
+        try:
+            url = f"{self.url}/rest/v1/websites"
+            params = {"id": f"eq.{website_id}"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.headers,
+                    params=params
+                )
+
+            if response.status_code == 200:
+                records = response.json()
+                return records[0] if records else None
+            return None
+        except Exception as e:
+            print(f"❌ Get website error: {str(e)}")
+            return None
+
+    async def update_website(self, website_id: str, data: Dict[str, Any]) -> bool:
+        """Update a website record"""
+        try:
+            url = f"{self.url}/rest/v1/websites"
+            params = {"id": f"eq.{website_id}"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.patch(
+                    url,
+                    headers={**self.headers, "Prefer": "return=minimal"},
+                    params=params,
+                    json=data
+                )
+
+            return response.status_code in [200, 204]
+        except Exception as e:
+            print(f"❌ Update website error: {str(e)}")
+            return False
+
+    async def delete_website(self, website_id: str) -> bool:
+        """Delete a website record"""
+        try:
+            url = f"{self.url}/rest/v1/websites"
+            params = {"id": f"eq.{website_id}"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(
+                    url,
+                    headers=self.headers,
+                    params=params
+                )
+
+            return response.status_code in [200, 204]
+        except Exception as e:
+            print(f"❌ Delete website error: {str(e)}")
+            return False
+
+
 # Create singleton instance
 supabase_service = SupabaseService()
