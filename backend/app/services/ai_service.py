@@ -32,18 +32,20 @@ class AIService:
         # Longer timeouts to handle network latency and API processing
         timeout = httpx.Timeout(
             timeout=60.0,      # Total timeout
-            connect=10.0,      # Connection timeout
+            connect=15.0,      # Connection timeout (increased for slow DNS)
             read=50.0,         # Read timeout
             write=10.0         # Write timeout
         )
-        logger.info(f"⏱️  Configured API timeout: 60s total, 10s connect")
+        logger.info(f"⏱️  Configured API timeout: 60s total, 15s connect")
 
         # Initialize Qwen client (primary)
         if settings.QWEN_API_KEY:
             try:
+                # Strip whitespace/newlines from API key (common env var issue)
+                qwen_key = settings.QWEN_API_KEY.strip()
                 logger.info("🔗 Connecting to Qwen API (dashscope.aliyuncs.com)...")
                 self.qwen_client = AsyncOpenAI(
-                    api_key=settings.QWEN_API_KEY,
+                    api_key=qwen_key,
                     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
                     timeout=timeout,
                     http_client=httpx.AsyncClient(
@@ -65,10 +67,12 @@ class AIService:
         # Initialize DeepSeek client (fallback)
         if settings.DEEPSEEK_API_KEY:
             try:
+                # Strip whitespace/newlines from API key (common env var issue)
+                deepseek_key = settings.DEEPSEEK_API_KEY.strip()
                 logger.info("🔗 Connecting to DeepSeek API (api.deepseek.com)...")
                 self.deepseek_client = AsyncOpenAI(
-                    api_key=settings.DEEPSEEK_API_KEY,
-                    base_url=settings.DEEPSEEK_API_URL,
+                    api_key=deepseek_key,
+                    base_url="https://api.deepseek.com",  # Hardcoded to ensure correct URL
                     timeout=timeout,
                     http_client=httpx.AsyncClient(
                         verify=True,
@@ -195,7 +199,7 @@ class AIService:
         prompt = self._build_generation_prompt(request, style)
 
         logger.info(f"🔗 Calling DeepSeek API with model: {settings.DEEPSEEK_MODEL}")
-        logger.info(f"   Base URL: {settings.DEEPSEEK_API_URL}")
+        logger.info(f"   Base URL: https://api.deepseek.com")
         response = await self.deepseek_client.chat.completions.create(
             model=settings.DEEPSEEK_MODEL,
             messages=[
