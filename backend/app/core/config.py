@@ -49,18 +49,18 @@ class Settings(BaseSettings):
     # AI APIs
     DEEPSEEK_API_KEY: str = Field(default="", env="DEEPSEEK_API_KEY")
     DEEPSEEK_API_URL: str = Field(
-        default="https://api.deepseek.com/v1",
+        default="https://api.deepseek.com",  # No /v1 - OpenAI client adds it
         env="DEEPSEEK_API_URL"
     )
     DEEPSEEK_MODEL: str = Field(
         default="deepseek-chat",
         env="DEEPSEEK_MODEL"
     )
-    
+
     # Qwen AI (Optional)
     QWEN_API_KEY: Optional[str] = Field(None, env="QWEN_API_KEY")
     QWEN_API_URL: str = Field(
-        default="https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+        default="https://dashscope.aliyuncs.com/compatible-mode/v1",  # Fixed: removed -intl
         env="QWEN_API_URL"
     )
     QWEN_MODEL: str = Field(
