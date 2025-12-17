@@ -29,14 +29,14 @@ class AIService:
         logger.info(f"   DEEPSEEK_MODEL: {settings.DEEPSEEK_MODEL}")
 
         # Configure timeout for API calls (critical for Render)
-        # Longer timeouts to handle network latency and API processing
+        # 2-minute timeout for AI generation (DeepSeek can be slow)
         timeout = httpx.Timeout(
-            timeout=60.0,      # Total timeout
-            connect=15.0,      # Connection timeout (increased for slow DNS)
-            read=50.0,         # Read timeout
-            write=10.0         # Write timeout
+            timeout=120.0,     # Total timeout (2 minutes)
+            connect=15.0,      # Connection timeout
+            read=120.0,        # Read timeout (match total)
+            write=30.0         # Write timeout
         )
-        logger.info(f"⏱️  Configured API timeout: 60s total, 15s connect")
+        logger.info(f"⏱️  Configured API timeout: 120s total, 15s connect")
 
         # Initialize Qwen client (primary)
         if settings.QWEN_API_KEY:
@@ -179,16 +179,16 @@ class AIService:
                     "content": prompt
                 }
             ],
-            temperature=0.8,
-            max_tokens=8000,
+            temperature=0.7,
+            max_tokens=4000,  # Reduced for faster response
         )
-        
+
         content = response.choices[0].message.content
         result = self._parse_ai_response(content, request, style)
-        
+
         logger.info(f"✅ Website generated successfully with Qwen Max 3 ({len(result.html_content)} chars)")
         return result
-    
+
     async def _generate_with_deepseek(
         self,
         request: WebsiteGenerationRequest,
@@ -213,7 +213,7 @@ class AIService:
                 }
             ],
             temperature=0.7,
-            max_tokens=8000,
+            max_tokens=4000,  # Reduced for faster response
         )
         
         content = response.choices[0].message.content
@@ -256,47 +256,24 @@ class AIService:
     
     def _get_system_prompt(self, style: Optional[str] = None) -> str:
         """Get enhanced system prompt"""
-        
-        return """You are an expert web developer creating beautiful websites for Malaysian businesses.
 
-Generate a complete, single-file HTML website with:
-- Semantic HTML5
-- Inline CSS (modern, responsive)
-- JavaScript for interactivity
-- Mobile-first design
-- Malaysian context (RM currency, Bahasa Malaysia support)
-
-Output ONLY the HTML code, no explanations."""
+        return """You are a web developer. Generate a single-file HTML website with inline CSS. Keep it simple and clean. Output ONLY the HTML code, no explanations."""
     
     def _build_generation_prompt(self, request: WebsiteGenerationRequest, style: Optional[str] = None) -> str:
-        """Build generation prompt"""
-        
-        style_label = f" in {style.upper()} style" if style else ""
-        
-        prompt = f"""Generate a professional website{style_label} for:
+        """Build generation prompt - simplified for faster response"""
 
-Business Name: {request.business_name}
-Business Type: {request.business_type or 'General Business'}
-Description: {request.description}
+        style_label = f" ({style} style)" if style else ""
 
-Include:
-- Navigation header
-- Hero section
-- About section
-- Services/Products
-- Contact form
-- Footer
+        prompt = f"""Create a simple website{style_label}:
+- Business: {request.business_name}
+- Type: {request.business_type or 'Business'}
+- About: {request.description[:200]}
 
-"""
-        
+Include: header, hero, about, services, contact form, footer."""
+
         if request.include_whatsapp and request.whatsapp_number:
-            prompt += f"- WhatsApp button ({request.whatsapp_number})\n"
-        
-        if request.include_maps and request.location_address:
-            prompt += f"- Google Maps ({request.location_address})\n"
-        
-        prompt += "\nGenerate complete HTML now:"
-        
+            prompt += f" WhatsApp: {request.whatsapp_number}."
+
         return prompt
     
     def _parse_ai_response(
