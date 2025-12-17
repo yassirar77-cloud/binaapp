@@ -41,10 +41,10 @@ class AIService:
         # Initialize Qwen client (primary)
         if settings.QWEN_API_KEY:
             try:
-                logger.info("🔗 Connecting to Qwen API (dashscope-intl.aliyuncs.com)...")
+                logger.info("🔗 Connecting to Qwen API (dashscope.aliyuncs.com)...")
                 self.qwen_client = AsyncOpenAI(
                     api_key=settings.QWEN_API_KEY,
-                    base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+                    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
                     timeout=timeout,
                     http_client=httpx.AsyncClient(
                         verify=True,
@@ -162,7 +162,7 @@ class AIService:
         prompt = self._build_generation_prompt(request, style)
 
         logger.info(f"🔗 Calling Qwen API with model: {settings.QWEN_MODEL}")
-        logger.info(f"   Base URL: https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
+        logger.info(f"   Base URL: https://dashscope.aliyuncs.com/compatible-mode/v1")
         response = await self.qwen_client.chat.completions.create(
             model=settings.QWEN_MODEL,
             messages=[
