@@ -20,28 +20,35 @@ class SupabaseService:
         }
     
     async def upload_file(self, bucket: str, path: str, file_data: bytes, content_type: str = "application/octet-stream") -> Optional[str]:
-        """Upload file to Supabase Storage"""
+        """Upload file to Supabase Storage with proper Content-Type"""
         try:
             url = f"{self.url}/storage/v1/object/{bucket}/{path}"
-            
+
+            # Use proper headers for Supabase Storage
+            # x-upsert: true allows creating or updating files
+            upload_headers = {
+                "apikey": self.service_key,
+                "Authorization": f"Bearer {self.service_key}",
+                "Content-Type": content_type,
+                "x-upsert": "true",
+                "Cache-Control": "public, max-age=3600"
+            }
+
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     url,
-                    headers={
-                        **self.headers,
-                        "Content-Type": content_type
-                    },
+                    headers=upload_headers,
                     content=file_data,
                     timeout=30.0
                 )
-            
+
             if response.status_code in [200, 201]:
                 # Return public URL
                 return f"{self.url}/storage/v1/object/public/{bucket}/{path}"
             else:
                 print(f"❌ Upload failed: {response.status_code} - {response.text}")
                 return None
-                
+
         except Exception as e:
             print(f"❌ Upload error: {str(e)}")
             return None

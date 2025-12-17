@@ -33,12 +33,12 @@ class StorageService:
         try:
             file_path = f"{user_id}/{subdomain}/index.html"
 
-            # Upload using REST API
+            # Upload using REST API with proper Content-Type header
             public_url = await self.supabase.upload_file(
                 bucket=self.bucket_name,
                 path=file_path,
                 file_data=html_content.encode('utf-8'),
-                content_type="text/html"
+                content_type="text/html; charset=utf-8"
             )
 
             if not public_url:
