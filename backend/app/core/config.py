@@ -60,11 +60,11 @@ class Settings(BaseSettings):
     # Qwen AI (Optional)
     QWEN_API_KEY: Optional[str] = Field(None, env="QWEN_API_KEY")
     QWEN_API_URL: str = Field(
-        default="https://dashscope.aliyuncs.com/compatible-mode/v1",  # Fixed: removed -intl
+        default="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",  # International/Singapore region
         env="QWEN_API_URL"
     )
     QWEN_MODEL: str = Field(
-        default="qwen3-max",  # Latest Qwen 3 Max model
+        default="qwen-max",  # Qwen Max model (use qwen-plus for faster/cheaper)
         env="QWEN_MODEL"
     )
     
