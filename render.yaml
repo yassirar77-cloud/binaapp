@@ -14,9 +14,9 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.7"
 
-      # 🔥 FIX: Prevent Playwright from breaking Render build
-      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
-        value: "1"
+      # Playwright browser installation enabled in build.sh
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "/opt/render/.cache/ms-playwright"
 
       # Database
       - key: DATABASE_URL
