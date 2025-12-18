@@ -5,8 +5,7 @@ GET /api/preview/{user_id}/{site_name} - Fetches HTML from Supabase and serves w
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
-from loguru import logger
-from supabase import create_client
+import httpx
 
 from app.core.config import settings
 
@@ -15,61 +14,30 @@ router = APIRouter(tags=["preview"])
 
 @router.get("/preview/{user_id}/{site_name}")
 async def preview_site(user_id: str, site_name: str):
-    """
-    Serve published website HTML with correct Content-Type header.
-
-    Supabase Storage cannot serve HTML files with proper Content-Type,
-    so this endpoint acts as a proxy to fetch and serve with text/html.
-    """
+    """Serve published website HTML with correct content-type"""
     try:
-        logger.info(f"Serving preview: {user_id}/{site_name}")
+        # Build the Supabase storage URL
+        storage_url = f"{settings.SUPABASE_URL}/storage/v1/object/public/websites/{user_id}/{site_name}/index.html"
 
-        # Create Supabase client
-        supabase = create_client(
-            settings.SUPABASE_URL,
-            settings.SUPABASE_SERVICE_ROLE_KEY
-        )
+        # Fetch HTML content using httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.get(storage_url)
 
-        # Try primary path: {user_id}/{site_name}/index.html
-        file_path = f"{user_id}/{site_name}/index.html"
-        html_content = None
+            if response.status_code == 200:
+                html_content = response.text
+                return HTMLResponse(content=html_content, status_code=200)
+            else:
+                # Try alternative path without /index.html
+                alt_url = f"{settings.SUPABASE_URL}/storage/v1/object/public/websites/{user_id}/{site_name}.html"
+                response = await client.get(alt_url)
 
-        try:
-            response = supabase.storage.from_("websites").download(file_path)
-            html_content = response.decode('utf-8')
-            logger.info(f"Found HTML at: {file_path}")
-        except Exception as e:
-            logger.warning(f"Primary path failed: {file_path} - {e}")
+                if response.status_code == 200:
+                    html_content = response.text
+                    return HTMLResponse(content=html_content, status_code=200)
+                else:
+                    raise HTTPException(status_code=404, detail="Website not found")
 
-            # Try alternative path: {user_id}/{site_name}.html
-            try:
-                alt_path = f"{user_id}/{site_name}.html"
-                response = supabase.storage.from_("websites").download(alt_path)
-                html_content = response.decode('utf-8')
-                logger.info(f"Found HTML at alternative path: {alt_path}")
-            except Exception as e2:
-                logger.error(f"Alternative path also failed: {alt_path} - {e2}")
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Website not found. Tried: {file_path} and {alt_path}"
-                )
-
-        if not html_content:
-            raise HTTPException(status_code=404, detail="Website content is empty")
-
-        logger.info(f"Successfully serving preview: {user_id}/{site_name} ({len(html_content)} chars)")
-
-        return HTMLResponse(
-            content=html_content,
-            status_code=200,
-            headers={
-                "Content-Type": "text/html; charset=utf-8",
-                "Cache-Control": "public, max-age=3600"
-            }
-        )
-
-    except HTTPException:
-        raise
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching website: {str(e)}")
     except Exception as e:
-        logger.error(f"Error serving preview: {e}")
         raise HTTPException(status_code=500, detail=f"Error loading website: {str(e)}")
