@@ -10,5 +10,8 @@ pip install --upgrade pip
 echo "Installing Python dependencies..."
 pip install --no-cache-dir -r requirements.txt
 
-echo "Skipping Playwright browser installation on Render"
+echo "Installing Playwright Chromium browser..."
+playwright install chromium
+playwright install-deps chromium
+
 echo "Build completed successfully!"
