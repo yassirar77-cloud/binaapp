@@ -28,24 +28,31 @@ class StorageService:
         """
         Upload website HTML to Supabase Storage
         File structure: {user_id}/{subdomain}/index.html
-        Returns the public URL
+        Returns the proxy URL that serves HTML with proper Content-Type
         """
         try:
             file_path = f"{user_id}/{subdomain}/index.html"
 
             # Upload using REST API with proper Content-Type header
-            public_url = await self.supabase.upload_file(
+            storage_url = await self.supabase.upload_file(
                 bucket=self.bucket_name,
                 path=file_path,
                 file_data=html_content.encode('utf-8'),
                 content_type="text/html; charset=utf-8"
             )
 
-            if not public_url:
+            if not storage_url:
                 raise Exception("Upload failed - no URL returned")
 
-            logger.info(f"Website uploaded: {file_path} -> {public_url}")
-            return public_url
+            # Return proxy URL instead of direct Supabase URL
+            # This ensures browsers render HTML properly with correct Content-Type
+            proxy_url = f"{settings.API_URL}/api/preview/{user_id}/{subdomain}"
+
+            logger.info(f"Website uploaded: {file_path}")
+            logger.info(f"Storage URL: {storage_url}")
+            logger.info(f"Proxy URL: {proxy_url}")
+
+            return proxy_url
 
         except Exception as e:
             logger.error(f"Error uploading website: {e}")
@@ -68,9 +75,9 @@ class StorageService:
         return await self.upload_website(user_id, subdomain, html_content)
 
     async def get_website_url(self, user_id: str, subdomain: str) -> Optional[str]:
-        """Get the public URL for an existing website"""
-        file_path = f"{user_id}/{subdomain}/index.html"
-        return await self.supabase.get_file_url(self.bucket_name, file_path)
+        """Get the proxy URL for an existing website"""
+        # Return proxy URL that serves HTML with proper Content-Type
+        return f"{settings.API_URL}/api/preview/{user_id}/{subdomain}"
 
     async def delete_website(self, user_id: str, subdomain: str) -> bool:
         """Delete website files"""
