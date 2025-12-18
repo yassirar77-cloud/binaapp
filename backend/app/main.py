@@ -15,7 +15,8 @@ from app.core.config import settings
 from app.core.logging_config import setup_logging
 from app.api.v1.router import api_router
 from app.api.simple.router import simple_router
-from app.api import upload, menu_designer, server, preview
+from app.api import upload, menu_designer, server
+from app.api.routes.preview import router as preview_router
 
 # -------------------------------------------------------------------
 # Logging
@@ -145,7 +146,7 @@ app.include_router(simple_router, prefix="/api")
 app.include_router(upload.router, prefix="/api", tags=["upload"])
 app.include_router(menu_designer.router, prefix="/api", tags=["menu"])
 app.include_router(server.router, prefix="/api", tags=["projects"])
-app.include_router(preview.router, prefix="/api", tags=["preview"])
+app.include_router(preview_router, prefix="/api")
 
 # -------------------------------------------------------------------
 # Local run

@@ -46,7 +46,8 @@ class StorageService:
 
             # Return proxy URL instead of direct Supabase URL
             # This ensures browsers render HTML properly with correct Content-Type
-            proxy_url = f"{settings.API_URL}/api/preview/{user_id}/{subdomain}"
+            # Use BACKEND_URL for production, API_URL for local development
+            proxy_url = f"{settings.BACKEND_URL}/api/preview/{user_id}/{subdomain}"
 
             logger.info(f"Website uploaded: {file_path}")
             logger.info(f"Storage URL: {storage_url}")
@@ -77,7 +78,7 @@ class StorageService:
     async def get_website_url(self, user_id: str, subdomain: str) -> Optional[str]:
         """Get the proxy URL for an existing website"""
         # Return proxy URL that serves HTML with proper Content-Type
-        return f"{settings.API_URL}/api/preview/{user_id}/{subdomain}"
+        return f"{settings.BACKEND_URL}/api/preview/{user_id}/{subdomain}"
 
     async def delete_website(self, user_id: str, subdomain: str) -> bool:
         """Delete website files"""
