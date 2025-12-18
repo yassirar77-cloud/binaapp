@@ -255,78 +255,183 @@ class AIService:
         return variations
     
     def _get_system_prompt(self, style: Optional[str] = None) -> str:
-        """Get enhanced system prompt for professional website generation"""
+        """Get enhanced system prompt for professional hospitality website generation"""
 
-        return """You are an expert web designer creating stunning, modern websites. Generate beautiful HTML with these requirements:
+        return """You are an expert web designer creating stunning, professional websites for restaurants and hospitality businesses.
 
-DESIGN STANDARDS:
-- Use modern gradient backgrounds (e.g., linear-gradient(135deg, #667eea 0%, #764ba2 100%))
-- Add smooth animations and hover effects with CSS transitions
-- Use professional color schemes with proper contrast
-- Include subtle shadows (box-shadow) for depth
-- Use modern fonts from Google Fonts (Poppins, Inter, or Montserrat)
-- Add glassmorphism effects where appropriate (backdrop-filter: blur)
-- Include micro-interactions on buttons and cards
-- Use proper spacing and visual hierarchy
+Generate a complete, production-ready HTML file with embedded Tailwind CSS using this exact structure:
 
-LAYOUT:
-- Full-width hero section with compelling headline and CTA button
-- Card-based layouts for services/menu items with hover animations
-- Sticky/fixed navigation header
-- Professional footer with multiple columns
-- Mobile-responsive design using flexbox/grid
+## DESIGN FRAMEWORK WITH NUMBERED ZONES
 
-MUST INCLUDE:
-- Google Fonts import in <head>
-- Smooth scroll behavior
-- Animated gradient backgrounds or modern patterns
-- Professional button styles with hover states
-- Image placeholders from unsplash.com (e.g., https://images.unsplash.com/photo-xxx?w=800)
-- Icons using emoji or inline SVG
+### 1. HEADER & NAVIGATION
+- Top full-width red accent bar (bg-red-600 or #E31E24)
+- White utility bar with business contact info
+- Main Navigation: HOME | ABOUT | SERVICES | MENU | CONTACT
+- Sticky header on scroll
 
-Generate complete, production-ready HTML that looks like it was designed by a professional agency. Output ONLY the HTML code, no explanations."""
+### 2. HERO SECTION (ZONE 1)
+- Full-width image/video container with overlay
+- Use high-quality restaurant images from Unsplash
+- Overlay with centered white text:
+  - Business establishment info (uppercase, tracking-widest)
+  - Compelling tagline about the business
+- Dark overlay (bg-black/50) for text readability
+- Minimum height: 80vh
+
+### 3. SERVICE GRID (ZONES 2, 3, 4)
+Create a 3-column responsive grid (grid-cols-1 md:grid-cols-3):
+- Each column: image at top, service list below with hover effects
+- Smooth transitions on all interactive elements
+
+### 4. PORTFOLIO/GALLERY MOSAIC (ZONES 5, 6, 7, 8)
+2x2 grid (grid-cols-1 md:grid-cols-2), each card:
+- Background image covering full card
+- On hover: dark overlay with title + CTA button
+- Smooth transition (transition-all duration-300)
+
+### 5. FOOTER
+- Dark gray background (#333333 or bg-gray-800)
+- 3-column layout: Address | Phone | Email
+- Centered social icons (Facebook, Instagram, Twitter) using SVG
+- Bottom accent bar with Copyright text
+
+## TECHNICAL REQUIREMENTS
+
+1. Include Tailwind CSS via CDN:
+   <script src="https://cdn.tailwindcss.com"></script>
+
+2. Include Google Fonts (Poppins):
+   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+3. Add smooth scroll behavior:
+   <style>html { scroll-behavior: smooth; } body { font-family: 'Poppins', sans-serif; }</style>
+
+4. Mobile responsive (all grids collapse to single column)
+
+5. Hover effects on all interactive elements
+
+6. Professional color scheme with primary brand color
+
+7. Add subtle animations:
+   - Scale on hover for cards
+   - Smooth transitions everywhere
+
+8. Include placeholder comments like <!-- ZONE 1: Hero --> for easy editing
+
+Generate the COMPLETE HTML file with all sections. Output ONLY the HTML code, no explanations."""
     
     def _build_generation_prompt(self, request: WebsiteGenerationRequest, style: Optional[str] = None) -> str:
-        """Build generation prompt for professional website design"""
+        """Build generation prompt for professional hospitality website design"""
 
-        style_descriptions = {
-            'modern': 'sleek gradients, glassmorphism, animated elements',
-            'minimal': 'clean whitespace, subtle animations, elegant typography',
-            'bold': 'vibrant colors, strong contrasts, dynamic hover effects'
+        # Determine business type for appropriate imagery
+        business_type = (request.business_type or 'restaurant').lower()
+
+        # Select appropriate Unsplash images based on business type
+        if 'restaurant' in business_type or 'cafe' in business_type or 'food' in business_type:
+            hero_image = "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1920"
+            gallery_images = [
+                "https://images.unsplash.com/photo-1466978913421-dad2ebd01d17?w=800",
+                "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800",
+                "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800",
+                "https://images.unsplash.com/photo-1559329007-40df8a9345d8?w=800"
+            ]
+            service_images = [
+                "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600",
+                "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=600",
+                "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=600"
+            ]
+        else:
+            hero_image = "https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920"
+            gallery_images = [
+                "https://images.unsplash.com/photo-1497366811353-6870744d04b2?w=800",
+                "https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=800",
+                "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?w=800",
+                "https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=800"
+            ]
+            service_images = [
+                "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600",
+                "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=600",
+                "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=600"
+            ]
+
+        style_colors = {
+            'modern': {'primary': '#E31E24', 'accent': '#FFD700'},
+            'minimal': {'primary': '#2563EB', 'accent': '#10B981'},
+            'bold': {'primary': '#7C3AED', 'accent': '#F59E0B'}
         }
-
-        style_hint = style_descriptions.get(style, 'modern and professional')
+        colors = style_colors.get(style, {'primary': '#E31E24', 'accent': '#FFD700'})
 
         prompt = f"""Create a stunning, professional website for:
 
-BUSINESS DETAILS:
-- Name: {request.business_name}
-- Type: {request.business_type or 'Business'}
-- Description: {request.description}
+## BUSINESS INFORMATION
+- **Name:** {request.business_name}
+- **Type:** {request.business_type or 'Restaurant & Hospitality'}
+- **Description:** {request.description}
 
-DESIGN STYLE: {style_hint}
+## DESIGN SPECIFICATIONS
 
-REQUIRED SECTIONS:
-1. Navigation - Sticky header with logo and menu links
-2. Hero Section - Eye-catching gradient background, main headline, subtext, and CTA button
-3. About Section - Company story with professional layout
-4. Services/Products - Card-based grid with hover animations
-5. Testimonials - Customer reviews with styled quote cards
-6. Contact Section - Professional contact form with validation styling
-7. Footer - Multi-column layout with links, social icons, and copyright
+### COLOR SCHEME
+- Primary Color: {colors['primary']}
+- Accent Color: {colors['accent']}
+- Dark Background: #333333
+- Light Background: #FFFFFF
 
-STYLING REQUIREMENTS:
-- Import Google Font (Poppins or Inter) in the <head>
-- Use CSS variables for colors
-- Add smooth transitions (0.3s ease) on all interactive elements
-- Include box-shadows for depth
-- Make it fully responsive with media queries
-- Add scroll-behavior: smooth to html
+### IMAGES TO USE
+- Hero Background: {hero_image}
+- Service Grid Images: {', '.join(service_images)}
+- Gallery/Portfolio Images: {', '.join(gallery_images)}
 
-Generate the complete HTML with all CSS inline in a <style> tag."""
+### REQUIRED SECTIONS WITH ZONES
+
+<!-- ZONE 1: Hero Section -->
+- Full-screen hero with "{request.business_name}" as main heading
+- Tagline based on: "{request.description[:100]}"
+- "View Our Services" CTA button
+
+<!-- ZONE 2-4: Services Grid -->
+3-column grid showcasing services:
+- Column 1: Creative Services (Website, Design, Branding)
+- Column 2: Marketing (Social Media, Campaigns, Content)
+- Column 3: Operations (Online Ordering, Management, Support)
+
+<!-- ZONE 5-8: Portfolio Gallery -->
+2x2 mosaic grid with hover effects showing:
+- Interior shots
+- Signature dishes/products
+- Branding materials
+- Customer experience
+
+<!-- Contact Section -->
+- Professional contact form
+- Business address, phone, email
+- Operating hours if applicable
+
+<!-- Footer -->
+- Multi-column layout
+- Social media icons (Facebook, Instagram, Twitter SVGs)
+- Copyright: "© 2024 {request.business_name}. All rights reserved."
+
+### TECHNICAL MUST-HAVES
+1. Tailwind CSS via CDN: <script src="https://cdn.tailwindcss.com"></script>
+2. Google Fonts Poppins
+3. Smooth scroll behavior
+4. Mobile-responsive (single column on mobile)
+5. Hover animations on all cards and buttons
+6. Dark overlay on hero image for text readability"""
 
         if request.include_whatsapp and request.whatsapp_number:
-            prompt += f"\n\nInclude a floating WhatsApp button (bottom-right corner) linking to: https://wa.me/{request.whatsapp_number.replace('+', '').replace(' ', '')}"
+            whatsapp_num = request.whatsapp_number.replace('+', '').replace(' ', '').replace('-', '')
+            prompt += f"""
+
+### WHATSAPP INTEGRATION
+Add a floating WhatsApp button in the bottom-right corner:
+- Green background (#25D366)
+- WhatsApp icon (SVG)
+- Links to: https://wa.me/{whatsapp_num}
+- Pulse animation to draw attention
+- Fixed position, always visible"""
+
+        prompt += "\n\nGenerate the COMPLETE HTML file now. Output ONLY the HTML code."
 
         return prompt
     
