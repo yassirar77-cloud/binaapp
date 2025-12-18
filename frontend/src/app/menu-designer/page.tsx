@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { API_BASE_URL } from '@/lib/env'
 
 interface MenuItem {
   name: string
@@ -36,7 +37,7 @@ export default function MenuDesigner() {
     setLoading(true)
 
     try {
-      const res = await fetch('http://localhost:8000/api/generate-menu', {
+      const res = await fetch(`${API_BASE_URL}/api/generate-menu`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
