@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { API_BASE_URL } from '@/lib/env'
 
 interface ImageUploadProps {
   onImagesUploaded: (urls: string[]) => void
@@ -23,7 +24,7 @@ export default function ImageUpload({ onImagesUploaded }: ImageUploadProps) {
       formData.append('file', file)
 
       try {
-        const res = await fetch('http://localhost:8000/api/upload-image', {
+        const res = await fetch(`${API_BASE_URL}/api/upload-image`, {
           method: 'POST',
           body: formData
         })

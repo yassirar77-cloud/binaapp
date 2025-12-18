@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Sparkles, Plus, Eye, Edit2, Trash2, ExternalLink, Calendar, Globe } from 'lucide-react'
+import { API_BASE_URL } from '@/lib/env'
 
 interface Project {
   id: string
@@ -35,7 +36,7 @@ export default function DashboardPage() {
     setError('')
 
     try {
-      const response = await fetch(`http://localhost:8000/api/projects/${userId}`)
+      const response = await fetch(`${API_BASE_URL}/api/projects/${userId}`)
 
       if (!response.ok) {
         throw new Error('Failed to load projects')
@@ -56,7 +57,7 @@ export default function DashboardPage() {
 
     try {
       const response = await fetch(
-        `http://localhost:8000/api/projects/${userId}/${projectId}`,
+        `${API_BASE_URL}/api/projects/${userId}/${projectId}`,
         { method: 'DELETE' }
       )
 
