@@ -43,10 +43,10 @@ class AIService:
             try:
                 # Strip whitespace/newlines from API key (common env var issue)
                 qwen_key = settings.QWEN_API_KEY.strip()
-                logger.info("🔗 Connecting to Qwen API (dashscope.aliyuncs.com)...")
+                logger.info(f"🔗 Connecting to Qwen API ({settings.QWEN_API_URL})...")
                 self.qwen_client = AsyncOpenAI(
                     api_key=qwen_key,
-                    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    base_url=settings.QWEN_API_URL,
                     timeout=timeout,
                     http_client=httpx.AsyncClient(
                         verify=True,
@@ -166,7 +166,7 @@ class AIService:
         prompt = self._build_generation_prompt(request, style)
 
         logger.info(f"🔗 Calling Qwen API with model: {settings.QWEN_MODEL}")
-        logger.info(f"   Base URL: https://dashscope.aliyuncs.com/compatible-mode/v1")
+        logger.info(f"   Base URL: {settings.QWEN_API_URL}")
         response = await self.qwen_client.chat.completions.create(
             model=settings.QWEN_MODEL,
             messages=[
