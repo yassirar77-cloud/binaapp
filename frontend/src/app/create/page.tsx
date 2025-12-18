@@ -8,6 +8,7 @@ import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout } from 'lu
 import ImageUpload from './components/ImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
+import CodeAnimation from '@/components/CodeAnimation'
 import { API_BASE_URL } from '@/lib/env'
 
 const EXAMPLE_DESCRIPTIONS = [
@@ -404,33 +405,23 @@ export default function CreatePage() {
 
             {loading && (
               <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-                <div className="bg-gray-900 rounded-2xl p-12 max-w-2xl w-full mx-4 text-center">
-                  <div className="mb-8 relative">
-                    <div className="bg-gray-800 rounded-lg p-6 shadow-2xl">
-                      <div className="bg-white rounded h-64 flex items-center justify-center">
-                        <div className="text-gray-400 text-sm">
-                          <div className="animate-pulse space-y-4">
-                            <div className="h-4 bg-gray-300 rounded w-3/4 mx-auto"></div>
-                            <div className="h-4 bg-gray-300 rounded w-1/2 mx-auto"></div>
-                            <div className="h-32 bg-gray-300 rounded"></div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                <div className="bg-gray-900 rounded-2xl p-8 max-w-2xl w-full mx-4">
+                  <div className="mb-6 relative">
+                    <CodeAnimation />
                     <div className="absolute -top-2 -right-2 w-6 h-6 bg-blue-500 rounded-full animate-ping"></div>
                   </div>
 
-                  <div className="text-white mb-4">
+                  <div className="text-white mb-4 text-center">
                     <div className="flex items-center justify-center gap-2 mb-2">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-                      <h3 className="text-2xl font-bold">Getting ready...</h3>
+                      <h3 className="text-2xl font-bold">Building your website...</h3>
                     </div>
                     <p className="text-gray-400">
-                      Creating 3 beautiful design variations with Qwen Max 3
+                      AI is writing production-ready HTML code for you
                     </p>
                   </div>
 
-                  <div className="mt-8 space-y-3 text-left max-w-md mx-auto">
+                  <div className="mt-6 space-y-3 text-left max-w-md mx-auto">
                     <div className="flex items-center gap-3 text-gray-300">
                       <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                       <span className="text-sm">Analyzing your business description...</span>
@@ -449,7 +440,7 @@ export default function CreatePage() {
                     </div>
                   </div>
 
-                  <p className="text-xs text-gray-500 mt-8">
+                  <p className="text-xs text-gray-500 mt-6 text-center">
                     This usually takes 30-40 seconds ⏱️
                   </p>
                 </div>
