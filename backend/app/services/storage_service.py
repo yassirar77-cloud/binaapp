@@ -27,33 +27,50 @@ class StorageService:
     ) -> str:
         """
         Upload website HTML to Supabase Storage
-        File structure: {user_id}/{subdomain}/index.html
-        Returns the proxy URL that serves HTML with proper Content-Type
+
+        Uploads to TWO paths for maximum compatibility:
+        1. {subdomain}/index.html - for subdomain routing (sitename.binaapp.my)
+        2. {user_id}/{subdomain}/index.html - for API preview (/api/preview/...)
+
+        Returns the subdomain URL (e.g., https://kedai-ali.binaapp.my)
         """
         try:
-            file_path = f"{user_id}/{subdomain}/index.html"
+            html_bytes = html_content.encode('utf-8')
 
-            # Upload using REST API with proper Content-Type header
-            storage_url = await self.supabase.upload_file(
+            # Path 1: Subdomain-based path for subdomain routing
+            subdomain_path = f"{subdomain}/index.html"
+            storage_url_1 = await self.supabase.upload_file(
                 bucket=self.bucket_name,
-                path=file_path,
-                file_data=html_content.encode('utf-8'),
+                path=subdomain_path,
+                file_data=html_bytes,
                 content_type="text/html; charset=utf-8"
             )
+            logger.info(f"Uploaded to subdomain path: {subdomain_path}")
 
-            if not storage_url:
+            # Path 2: User-based path for API preview (backward compatibility)
+            user_path = f"{user_id}/{subdomain}/index.html"
+            storage_url_2 = await self.supabase.upload_file(
+                bucket=self.bucket_name,
+                path=user_path,
+                file_data=html_bytes,
+                content_type="text/html; charset=utf-8"
+            )
+            logger.info(f"Uploaded to user path: {user_path}")
+
+            if not storage_url_1 and not storage_url_2:
                 raise Exception("Upload failed - no URL returned")
 
-            # Return proxy URL instead of direct Supabase URL
-            # This ensures browsers render HTML properly with correct Content-Type
-            # Use BACKEND_URL for production, API_URL for local development
+            # Return the subdomain URL (e.g., https://kedai-ali.binaapp.my)
+            subdomain_url = f"https://{subdomain}.{settings.MAIN_DOMAIN}"
+
+            # Also provide fallback proxy URL for API access
             proxy_url = f"{settings.BACKEND_URL}/api/preview/{user_id}/{subdomain}"
 
-            logger.info(f"Website uploaded: {file_path}")
-            logger.info(f"Storage URL: {storage_url}")
-            logger.info(f"Proxy URL: {proxy_url}")
+            logger.info(f"Website uploaded successfully!")
+            logger.info(f"  Subdomain URL: {subdomain_url}")
+            logger.info(f"  Fallback URL: {proxy_url}")
 
-            return proxy_url
+            return subdomain_url
 
         except Exception as e:
             logger.error(f"Error uploading website: {e}")
@@ -76,9 +93,9 @@ class StorageService:
         return await self.upload_website(user_id, subdomain, html_content)
 
     async def get_website_url(self, user_id: str, subdomain: str) -> Optional[str]:
-        """Get the proxy URL for an existing website"""
-        # Return proxy URL that serves HTML with proper Content-Type
-        return f"{settings.BACKEND_URL}/api/preview/{user_id}/{subdomain}"
+        """Get the subdomain URL for an existing website"""
+        # Return subdomain URL (e.g., https://kedai-ali.binaapp.my)
+        return f"https://{subdomain}.{settings.MAIN_DOMAIN}"
 
     async def delete_website(self, user_id: str, subdomain: str) -> bool:
         """Delete website files"""

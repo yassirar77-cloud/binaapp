@@ -17,6 +17,7 @@ from app.api.v1.router import api_router
 from app.api.simple.router import simple_router
 from app.api import upload, menu_designer, server
 from app.api.routes.preview import router as preview_router
+from app.middleware.subdomain import subdomain_middleware
 
 # -------------------------------------------------------------------
 # Logging
@@ -92,6 +93,11 @@ app.add_middleware(
 # GZip
 # -------------------------------------------------------------------
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# -------------------------------------------------------------------
+# Subdomain routing (for sitename.binaapp.my)
+# -------------------------------------------------------------------
+app.middleware("http")(subdomain_middleware)
 
 # -------------------------------------------------------------------
 # Request timing
