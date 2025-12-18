@@ -255,24 +255,78 @@ class AIService:
         return variations
     
     def _get_system_prompt(self, style: Optional[str] = None) -> str:
-        """Get enhanced system prompt"""
+        """Get enhanced system prompt for professional website generation"""
 
-        return """You are a web developer. Generate a single-file HTML website with inline CSS. Keep it simple and clean. Output ONLY the HTML code, no explanations."""
+        return """You are an expert web designer creating stunning, modern websites. Generate beautiful HTML with these requirements:
+
+DESIGN STANDARDS:
+- Use modern gradient backgrounds (e.g., linear-gradient(135deg, #667eea 0%, #764ba2 100%))
+- Add smooth animations and hover effects with CSS transitions
+- Use professional color schemes with proper contrast
+- Include subtle shadows (box-shadow) for depth
+- Use modern fonts from Google Fonts (Poppins, Inter, or Montserrat)
+- Add glassmorphism effects where appropriate (backdrop-filter: blur)
+- Include micro-interactions on buttons and cards
+- Use proper spacing and visual hierarchy
+
+LAYOUT:
+- Full-width hero section with compelling headline and CTA button
+- Card-based layouts for services/menu items with hover animations
+- Sticky/fixed navigation header
+- Professional footer with multiple columns
+- Mobile-responsive design using flexbox/grid
+
+MUST INCLUDE:
+- Google Fonts import in <head>
+- Smooth scroll behavior
+- Animated gradient backgrounds or modern patterns
+- Professional button styles with hover states
+- Image placeholders from unsplash.com (e.g., https://images.unsplash.com/photo-xxx?w=800)
+- Icons using emoji or inline SVG
+
+Generate complete, production-ready HTML that looks like it was designed by a professional agency. Output ONLY the HTML code, no explanations."""
     
     def _build_generation_prompt(self, request: WebsiteGenerationRequest, style: Optional[str] = None) -> str:
-        """Build generation prompt - simplified for faster response"""
+        """Build generation prompt for professional website design"""
 
-        style_label = f" ({style} style)" if style else ""
+        style_descriptions = {
+            'modern': 'sleek gradients, glassmorphism, animated elements',
+            'minimal': 'clean whitespace, subtle animations, elegant typography',
+            'bold': 'vibrant colors, strong contrasts, dynamic hover effects'
+        }
 
-        prompt = f"""Create a simple website{style_label}:
-- Business: {request.business_name}
+        style_hint = style_descriptions.get(style, 'modern and professional')
+
+        prompt = f"""Create a stunning, professional website for:
+
+BUSINESS DETAILS:
+- Name: {request.business_name}
 - Type: {request.business_type or 'Business'}
-- About: {request.description[:200]}
+- Description: {request.description}
 
-Include: header, hero, about, services, contact form, footer."""
+DESIGN STYLE: {style_hint}
+
+REQUIRED SECTIONS:
+1. Navigation - Sticky header with logo and menu links
+2. Hero Section - Eye-catching gradient background, main headline, subtext, and CTA button
+3. About Section - Company story with professional layout
+4. Services/Products - Card-based grid with hover animations
+5. Testimonials - Customer reviews with styled quote cards
+6. Contact Section - Professional contact form with validation styling
+7. Footer - Multi-column layout with links, social icons, and copyright
+
+STYLING REQUIREMENTS:
+- Import Google Font (Poppins or Inter) in the <head>
+- Use CSS variables for colors
+- Add smooth transitions (0.3s ease) on all interactive elements
+- Include box-shadows for depth
+- Make it fully responsive with media queries
+- Add scroll-behavior: smooth to html
+
+Generate the complete HTML with all CSS inline in a <style> tag."""
 
         if request.include_whatsapp and request.whatsapp_number:
-            prompt += f" WhatsApp: {request.whatsapp_number}."
+            prompt += f"\n\nInclude a floating WhatsApp button (bottom-right corner) linking to: https://wa.me/{request.whatsapp_number.replace('+', '').replace(' ', '')}"
 
         return prompt
     
