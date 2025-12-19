@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
@@ -36,6 +36,8 @@ const MALAYSIAN_STATES = [
 
 export default function ProfilePage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const isWelcome = searchParams.get('welcome') === 'true'
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -49,6 +51,7 @@ export default function ProfilePage() {
     state: '',
   })
   const [message, setMessage] = useState<{ type: string; text: string }>({ type: '', text: '' })
+  const [showWelcome, setShowWelcome] = useState(isWelcome)
 
   useEffect(() => {
     getProfile()
@@ -183,6 +186,27 @@ export default function ProfilePage() {
 
       <div className="py-12">
         <div className="max-w-2xl mx-auto px-4">
+          {showWelcome && (
+            <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-xl p-6 mb-6">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h2 className="text-xl font-bold text-green-800 mb-2">
+                    Selamat Datang ke BinaApp!
+                  </h2>
+                  <p className="text-green-700">
+                    Akaun anda berjaya didaftar. Sila lengkapkan profil anda untuk pengalaman yang lebih baik.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowWelcome(false)}
+                  className="text-green-600 hover:text-green-800 text-xl font-bold"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="bg-white rounded-xl shadow-lg p-8">
             <div className="flex items-center gap-4 mb-6">
               <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white text-2xl font-bold">

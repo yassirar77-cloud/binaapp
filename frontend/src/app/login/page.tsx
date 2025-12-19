@@ -24,7 +24,7 @@ export default function LoginPage() {
     try {
       await signIn(email, password)
       toast.success('Berjaya log masuk!')
-      router.push('/dashboard')
+      router.push('/my-projects')
     } catch (error: any) {
       toast.error(error.message || 'Gagal log masuk')
     } finally {

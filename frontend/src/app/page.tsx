@@ -4,10 +4,48 @@
 
 'use client'
 
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Sparkles, Zap, Globe, Smartphone } from 'lucide-react'
+import { supabase, signOut } from '@/lib/supabase'
+import { User } from '@supabase/supabase-js'
 
 export default function LandingPage() {
+  const router = useRouter()
+  const [user, setUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    checkUser()
+  }, [])
+
+  async function checkUser() {
+    if (!supabase) {
+      setLoading(false)
+      return
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      setUser(user)
+    } catch (error) {
+      console.error('Error checking user:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await signOut()
+      setUser(null)
+      router.refresh()
+    } catch (error) {
+      console.error('Error logging out:', error)
+    }
+  }
+
   return (
     <div className="min-h-screen">
       {/* Header */}
@@ -18,12 +56,33 @@ export default function LandingPage() {
             <span className="text-xl font-bold">BinaApp</span>
           </div>
           <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="text-gray-600 hover:text-gray-900">
-              My Projects
-            </Link>
-            <Link href="/create" className="btn btn-primary">
-              Create Website
-            </Link>
+            {!loading && (
+              user ? (
+                <>
+                  <Link href="/profile" className="text-gray-600 hover:text-gray-900">
+                    Profil
+                  </Link>
+                  <Link href="/my-projects" className="text-gray-600 hover:text-gray-900">
+                    Website Saya
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="text-red-500 hover:text-red-600"
+                  >
+                    Log Keluar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link href="/login" className="text-gray-600 hover:text-gray-900">
+                    Log Masuk
+                  </Link>
+                  <Link href="/register" className="btn btn-primary">
+                    Daftar
+                  </Link>
+                </>
+              )
+            )}
           </div>
         </nav>
       </header>

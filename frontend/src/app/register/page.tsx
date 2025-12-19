@@ -49,8 +49,8 @@ export default function RegisterPage() {
         formData.password,
         formData.fullName
       )
-      toast.success('Akaun berjaya didaftar!')
-      router.push('/dashboard')
+      toast.success('Akaun berjaya didaftar! Sila lengkapkan profil anda.')
+      router.push('/profile?welcome=true')
     } catch (error: any) {
       toast.error(error.message || 'Gagal mendaftar akaun')
     } finally {
