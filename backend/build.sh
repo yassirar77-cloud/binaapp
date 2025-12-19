@@ -1,7 +1,10 @@
 #!/bin/bash
 set -e
 
-echo "Installing Python dependencies..."
-pip install -r requirements.txt
+echo "Upgrading pip..."
+pip install --upgrade pip
+
+echo "Installing dependencies..."
+pip install --no-cache-dir -r requirements.txt
 
 echo "Build complete!"
