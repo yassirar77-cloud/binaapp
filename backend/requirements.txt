@@ -31,8 +31,8 @@ bleach==6.1.0
 reportlab==4.0.9
 pillow==12.0.0
 
-# Screenshot Generation
-playwright==1.41.0
+# Screenshot Generation (optional - disabled on Render due to Chromium install issues)
+# playwright==1.41.0
 
 # Caching
 redis==5.0.1
