@@ -2,14 +2,18 @@
  * Create Page - AI Website Generation
  */
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout } from 'lucide-react'
 import ImageUpload from './components/ImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
 import CodeAnimation from '@/components/CodeAnimation'
 import { API_BASE_URL } from '@/lib/env'
+import { supabase, signOut } from '@/lib/supabase'
+import { User } from '@supabase/supabase-js'
+import toast from 'react-hot-toast'
 
 const EXAMPLE_DESCRIPTIONS = [
   {
@@ -43,6 +47,9 @@ interface StyleVariation {
 }
 
 export default function CreatePage() {
+  const router = useRouter()
+  const [user, setUser] = useState<User | null>(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [description, setDescription] = useState('')
   const [language, setLanguage] = useState<'ms' | 'en'>('ms')
   const [loading, setLoading] = useState(false)
@@ -57,13 +64,43 @@ export default function CreatePage() {
   const [publishedUrl, setPublishedUrl] = useState('')
   const [copied, setCopied] = useState(false)
   const [uploadedImages, setUploadedImages] = useState<string[]>([])
-  
+
   const [multiStyle, setMultiStyle] = useState(true)
   const [styleVariations, setStyleVariations] = useState<StyleVariation[]>([])
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null)
   const [generatePreviews, setGeneratePreviews] = useState(false)
-  
+
   const [previewMode, setPreviewMode] = useState<'single' | 'multi'>('single')
+
+  useEffect(() => {
+    checkUser()
+  }, [])
+
+  async function checkUser() {
+    if (!supabase) {
+      setAuthLoading(false)
+      return
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      setUser(user)
+    } catch (error) {
+      console.error('Error checking user:', error)
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await signOut()
+      setUser(null)
+      router.push('/')
+    } catch (error) {
+      console.error('Error logging out:', error)
+    }
+  }
 
   const handleGenerate = async () => {
     if (description.length < 10) {
@@ -197,12 +234,14 @@ export default function CreatePage() {
 
   const handlePublish = async () => {
     if (!subdomain || !projectName) {
-      setError('Please fill in subdomain and project name')
+      setError('Sila isi subdomain dan nama projek')
       return
     }
 
     setPublishing(true)
     setError('')
+
+    const cleanSubdomain = subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '')
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/publish`, {
@@ -212,22 +251,48 @@ export default function CreatePage() {
         },
         body: JSON.stringify({
           html_content: generatedHtml,
-          subdomain: subdomain.toLowerCase().replace(/[^a-z0-9-]/g, ''),
+          subdomain: cleanSubdomain,
           project_name: projectName,
-          user_id: 'demo-user'
+          user_id: user?.id || 'demo-user'
         })
       })
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(errorData.detail || 'Failed to publish')
+        throw new Error(errorData.detail || 'Gagal menerbitkan website')
       }
 
       const data = await response.json()
-      setPublishedUrl(data.url)
+      const publishedWebsiteUrl = data.url
+
+      // Save to Supabase websites table if user is logged in
+      if (supabase && user) {
+        const { error: dbError } = await supabase
+          .from('websites')
+          .insert({
+            user_id: user.id,
+            name: projectName,
+            subdomain: cleanSubdomain,
+            description: description.substring(0, 500),
+            template: templateUsed || 'general',
+            html_content: generatedHtml,
+            status: 'published',
+            published_url: publishedWebsiteUrl,
+          })
+
+        if (dbError) {
+          console.error('Error saving to database:', dbError)
+          // Don't fail the publish if database save fails
+          toast.error('Website diterbitkan tetapi gagal disimpan ke akaun')
+        } else {
+          toast.success('Website berjaya diterbitkan dan disimpan!')
+        }
+      }
+
+      setPublishedUrl(publishedWebsiteUrl)
       setShowPublishModal(false)
     } catch (err: any) {
-      setError(err.message || 'Failed to publish website. Please try again.')
+      setError(err.message || 'Gagal menerbitkan website. Sila cuba lagi.')
     } finally {
       setPublishing(false)
     }
@@ -247,12 +312,33 @@ export default function CreatePage() {
             <span className="text-xl font-bold">BinaApp</span>
           </Link>
           <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">
-              My Projects
-            </Link>
-            <Link href="/" className="btn btn-outline btn-sm">
-              Back to Home
-            </Link>
+            {!authLoading && (
+              user ? (
+                <>
+                  <Link href="/profile" className="text-sm text-gray-600 hover:text-gray-900">
+                    Profil
+                  </Link>
+                  <Link href="/my-projects" className="text-sm text-gray-600 hover:text-gray-900">
+                    Website Saya
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="text-sm text-red-500 hover:text-red-600"
+                  >
+                    Log Keluar
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900">
+                    Log Masuk
+                  </Link>
+                  <Link href="/register" className="btn btn-primary btn-sm">
+                    Daftar
+                  </Link>
+                </>
+              )
+            )}
           </div>
         </nav>
       </header>
