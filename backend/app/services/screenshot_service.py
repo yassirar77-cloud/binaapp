@@ -13,12 +13,19 @@ from loguru import logger
 from io import BytesIO
 from PIL import Image
 
-try:
-    from playwright.async_api import async_playwright, Browser, Page
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
+# Check if screenshots should be skipped via environment variable
+SKIP_PLAYWRIGHT = os.getenv("SKIP_PLAYWRIGHT", "false").lower() == "true"
+
+if SKIP_PLAYWRIGHT:
     PLAYWRIGHT_AVAILABLE = False
-    logger.warning("Playwright not installed. Screenshot functionality will be disabled.")
+    logger.info("Screenshot service disabled via SKIP_PLAYWRIGHT environment variable")
+else:
+    try:
+        from playwright.async_api import async_playwright, Browser, Page
+        PLAYWRIGHT_AVAILABLE = True
+    except ImportError:
+        PLAYWRIGHT_AVAILABLE = False
+        logger.warning("Playwright not installed. Screenshot functionality will be disabled.")
 
 
 class ScreenshotService:
