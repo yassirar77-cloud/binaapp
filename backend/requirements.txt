@@ -1,15 +1,39 @@
+# Web Framework
 fastapi
 uvicorn[standard]
-python-dotenv
+starlette
+
+# Pydantic & Validation
 pydantic[email]
 pydantic-settings
+email-validator
+
+# Database & Storage
 supabase
-python-multipart
-openai
-loguru
-Pillow
+httpx
+
+# Authentication & Security
 python-jose[cryptography]
 passlib[bcrypt]
+python-dotenv
+
+# AI Integration
+openai
+
+# Payment Processing
+stripe
+
+# File Handling & Media
+python-multipart
+Pillow
 aiofiles
+reportlab
+
+# Templating
 jinja2
-email-validator
+
+# Logging
+loguru
+
+# Type hints
+typing-extensions
