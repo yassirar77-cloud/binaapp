@@ -1,10 +1,9 @@
 fastapi
 uvicorn[standard]
 python-dotenv
-pydantic
+pydantic[email]
 pydantic-settings
 supabase
-httpx
 python-multipart
 openai
 loguru
@@ -13,3 +12,4 @@ python-jose[cryptography]
 passlib[bcrypt]
 aiofiles
 jinja2
+email-validator
