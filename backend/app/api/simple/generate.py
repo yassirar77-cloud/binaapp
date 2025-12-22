@@ -28,7 +28,7 @@ class SimpleGenerateRequest(BaseModel):
     images: Optional[List[str]] = Field(default=[], description="Optional list of uploaded image URLs")
     multi_style: Optional[bool] = Field(default=False, description="Generate multiple style variations")
     generate_previews: Optional[bool] = Field(default=False, description="Generate preview thumbnails (slower)")
-    mode: Optional[str] = Field(default="single", description="Generation mode: 'single', 'dual', or 'best'")
+    mode: Optional[str] = Field(default="single", description="Generation mode: 'single', 'dual', 'best', or 'strategic'")
 
 
 class SimpleGenerateResponse(BaseModel):
@@ -194,6 +194,34 @@ async def generate_website(request: SimpleGenerateRequest):
             )
 
             logger.info("✓ Best-of-both generation complete")
+
+            return SimpleGenerateResponse(
+                html=html_content,
+                detected_features=features,
+                template_used=website_type,
+                success=True
+            )
+
+        # Strategic mode - task-based routing (DeepSeek for code, Qwen for content)
+        elif request.mode == "strategic":
+            logger.info("=" * 80)
+            logger.info("Step 4: STRATEGIC TASK-BASED GENERATION")
+            logger.info("Using DeepSeek for code structure, Qwen for content...")
+            logger.info("=" * 80)
+
+            ai_response = await ai_service.generate_website_strategic(ai_request)
+
+            # Get the generated HTML
+            html_content = ai_response.html_content
+
+            # Inject additional integrations
+            html_content = template_service.inject_integrations(
+                html_content,
+                features,
+                user_data
+            )
+
+            logger.info("✓ Strategic generation complete")
 
             return SimpleGenerateResponse(
                 html=html_content,

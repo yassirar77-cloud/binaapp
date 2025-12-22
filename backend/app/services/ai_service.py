@@ -1,15 +1,38 @@
 """
 AI Service - Qwen & DeepSeek Integration
-Handles website generation using Qwen Max 3 (primary) and DeepSeek V3 (fallback)
+Handles website generation using task-based AI routing:
+- DeepSeek: Backend logic, Bug fixing, API design, Code generation
+- Qwen: UI ideas, Text & copy, Chatbot, Code explanation
 """
 from openai import AsyncOpenAI
 from typing import Dict, Optional
 from loguru import logger
+from enum import Enum
 import json
 import httpx
 from app.core.config import settings
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
 from app.services.design_system import design_system
+
+
+class AITask(Enum):
+    """Task-based AI routing - assigns the best AI for each task type"""
+    # DeepSeek excels at: Backend logic, Code generation, API design, Bug fixing
+    BACKEND_LOGIC = "deepseek"
+    BUG_FIXING = "deepseek"
+    API_DESIGN = "deepseek"
+    CODE_GENERATION = "deepseek"
+    CODE_STRUCTURE = "deepseek"
+
+    # Qwen excels at: UI design, Content writing, Chatbot, Explanations
+    UI_IDEAS = "qwen"
+    TEXT_COPY = "qwen"
+    CHATBOT = "qwen"
+    CODE_EXPLANATION = "qwen"
+    CONTENT_WRITING = "qwen"
+
+    # Website generation - use both strategically
+    WEBSITE_GENERATION = "both"
 
 class AIService:
     """Service for AI-powered website generation"""
@@ -603,6 +626,220 @@ Add a floating WhatsApp button in the bottom-right corner:
             sections=["Hero", "About", "Services", "Contact"],
             integrations_included=["Contact Form", "WhatsApp", "Social Sharing"]
         )
+
+    def select_ai_for_task(self, task: AITask) -> str:
+        """
+        Select the best AI for a given task type
+
+        Args:
+            task: The task type from AITask enum
+
+        Returns:
+            'qwen', 'deepseek', or 'both'
+        """
+        return task.value
+
+    async def generate_with_task_routing(
+        self,
+        prompt: str,
+        task: AITask,
+        max_tokens: int = 4000
+    ) -> Optional[str]:
+        """
+        Generate content using task-based AI routing
+
+        Args:
+            prompt: The generation prompt
+            task: Task type to determine which AI to use
+            max_tokens: Maximum tokens to generate
+
+        Returns:
+            Generated content string
+        """
+        ai_choice = self.select_ai_for_task(task)
+
+        logger.info(f"🎯 Task-based routing: {task.name} → {ai_choice.upper()}")
+
+        if ai_choice == "deepseek":
+            # Try DeepSeek first (best for code/logic)
+            if self.deepseek_client:
+                try:
+                    logger.info("🤖 Using DeepSeek (Code/Logic specialist)")
+                    response = await self.deepseek_client.chat.completions.create(
+                        model=settings.DEEPSEEK_MODEL,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.7,
+                        max_tokens=max_tokens
+                    )
+                    result = response.choices[0].message.content
+                    logger.info(f"✓ DeepSeek returned {len(result)} chars")
+                    return result
+                except Exception as e:
+                    logger.error(f"DeepSeek failed: {e}")
+
+            # Fallback to Qwen
+            if self.qwen_client:
+                logger.info("⚠️ Falling back to Qwen")
+                try:
+                    response = await self.qwen_client.chat.completions.create(
+                        model=settings.QWEN_MODEL,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.7,
+                        max_tokens=max_tokens
+                    )
+                    return response.choices[0].message.content
+                except Exception as e:
+                    logger.error(f"Qwen fallback failed: {e}")
+
+        elif ai_choice == "qwen":
+            # Try Qwen first (best for UI/content)
+            if self.qwen_client:
+                try:
+                    logger.info("🤖 Using Qwen (UI/Content specialist)")
+                    response = await self.qwen_client.chat.completions.create(
+                        model=settings.QWEN_MODEL,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.7,
+                        max_tokens=max_tokens
+                    )
+                    result = response.choices[0].message.content
+                    logger.info(f"✓ Qwen returned {len(result)} chars")
+                    return result
+                except Exception as e:
+                    logger.error(f"Qwen failed: {e}")
+
+            # Fallback to DeepSeek
+            if self.deepseek_client:
+                logger.info("⚠️ Falling back to DeepSeek")
+                try:
+                    response = await self.deepseek_client.chat.completions.create(
+                        model=settings.DEEPSEEK_MODEL,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.7,
+                        max_tokens=max_tokens
+                    )
+                    return response.choices[0].message.content
+                except Exception as e:
+                    logger.error(f"DeepSeek fallback failed: {e}")
+
+        elif ai_choice == "both":
+            # Use both AIs strategically
+            logger.info("🚀 Using both AIs strategically")
+            results = await self.generate_website_dual(
+                WebsiteGenerationRequest(
+                    description=prompt,
+                    business_name="Generated",
+                    business_type="website",
+                    subdomain="preview"
+                )
+            )
+            # Return DeepSeek result if available (better for code structure)
+            return results.get("deepseek") or results.get("qwen")
+
+        return None
+
+    async def generate_website_strategic(
+        self,
+        request: WebsiteGenerationRequest,
+        style: Optional[str] = None
+    ) -> AIGenerationResponse:
+        """
+        Strategic website generation using task-based routing:
+        1. DeepSeek generates HTML structure and code (CODE_STRUCTURE task)
+        2. Qwen enhances content and copy (CONTENT_WRITING task)
+
+        This combines the strengths of both AIs for optimal results.
+        """
+        logger.info(f"🎯 Strategic generation for {request.business_name}")
+        logger.info("Step 1: DeepSeek generating code structure...")
+
+        # Step 1: Use DeepSeek for HTML structure and code
+        structure_prompt = f"""Generate a complete HTML website structure with Tailwind CSS for:
+
+Business: {request.business_name}
+Type: {request.business_type or 'Business'}
+Description: {request.description}
+Style: {style or 'modern'}
+
+Focus on:
+- Clean, well-structured HTML5 code
+- Proper semantic markup
+- Responsive Tailwind CSS classes
+- Modern JavaScript if needed
+- Professional layout and structure
+
+Use placeholder text like [BUSINESS_NAME], [TAGLINE], [ABOUT_TEXT], etc. for content that will be enhanced later.
+
+Generate ONLY the HTML code."""
+
+        structure_html = await self.generate_with_task_routing(
+            structure_prompt,
+            AITask.CODE_STRUCTURE,
+            max_tokens=4000
+        )
+
+        if not structure_html:
+            # Fallback to standard generation
+            logger.warning("Strategic generation failed, using standard method")
+            return await self.generate_website(request, style)
+
+        # Extract HTML
+        structure_html = self._extract_html(structure_html)
+
+        logger.info("Step 2: Qwen enhancing content and copy...")
+
+        # Step 2: Use Qwen to enhance content and copy
+        content_prompt = f"""Improve this website HTML by replacing placeholder text with compelling, professional content.
+
+Business: {request.business_name}
+Type: {request.business_type or 'Business'}
+Description: {request.description}
+
+HTML to improve:
+{structure_html[:6000]}
+
+Replace all placeholder text with:
+- Engaging, professional copy
+- Appropriate language (Bahasa Malaysia for Malaysian businesses, English otherwise)
+- Compelling calls-to-action
+- SEO-friendly content
+
+Return the complete improved HTML with enhanced content."""
+
+        final_html = await self.generate_with_task_routing(
+            content_prompt,
+            AITask.CONTENT_WRITING,
+            max_tokens=4000
+        )
+
+        if not final_html:
+            logger.warning("Content enhancement failed, using structure only")
+            final_html = structure_html
+
+        # Extract and parse
+        final_html = self._extract_html(final_html)
+
+        logger.info("✅ Strategic generation complete")
+
+        return AIGenerationResponse(
+            html_content=final_html,
+            css_content=None,
+            js_content=None,
+            meta_title=request.business_name,
+            meta_description=f"{request.business_name} - {request.description[:150]}",
+            sections=["Hero", "About", "Services", "Contact"],
+            integrations_included=["Contact Form", "WhatsApp", "Social Sharing"]
+        )
+
+    def _extract_html(self, text: str) -> str:
+        """Extract HTML from text that might contain markdown code blocks"""
+        if not text:
+            return text
+        if "```html" in text:
+            text = text.split("```html")[1].split("```")[0]
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0]
+        return text.strip()
 
     async def test_api_connectivity(self) -> Dict[str, any]:
         """Test API connectivity for debugging"""
