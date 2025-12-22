@@ -229,30 +229,172 @@ class AIService:
         """
         Generate 3 design variations simultaneously (Modern, Minimal, Bold)
         Uses Qwen Max 3 for best quality
-        
+
         Returns:
             Dict with keys: 'modern', 'minimal', 'bold'
         """
         import asyncio
-        
+
         logger.info(f"🎨 Generating multi-style variations for {request.business_name}")
-        
+
         styles = ['modern', 'minimal', 'bold']
         tasks = [self.generate_website(request, style) for style in styles]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         variations = {}
         for style, result in zip(styles, results):
             if isinstance(result, Exception):
                 logger.error(f"❌ Failed to generate {style} style: {result}")
                 continue
             variations[style] = result
-        
+
         if not variations:
             raise Exception("Failed to generate any style variations")
-        
+
         logger.info(f"✅ Generated {len(variations)} style variations successfully")
         return variations
+
+    async def generate_website_dual(
+        self,
+        request: WebsiteGenerationRequest,
+        style: Optional[str] = None
+    ) -> Dict[str, Optional[str]]:
+        """
+        Generate websites using BOTH AIs in parallel, return both results
+
+        Args:
+            request: Website generation request
+            style: Optional design style
+
+        Returns:
+            Dict with keys: 'qwen', 'deepseek', 'success'
+        """
+        import asyncio
+
+        logger.info(f"🎨 Dual AI generation for {request.business_name}")
+        logger.info("Running Qwen and DeepSeek in parallel...")
+
+        # Run both APIs in parallel
+        qwen_task = self._generate_with_qwen(request, style) if self.qwen_client else None
+        deepseek_task = self._generate_with_deepseek(request, style) if self.deepseek_client else None
+
+        tasks = []
+        if qwen_task:
+            tasks.append(qwen_task)
+        if deepseek_task:
+            tasks.append(deepseek_task)
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        qwen_result = None
+        deepseek_result = None
+
+        if qwen_task and len(results) > 0:
+            if not isinstance(results[0], Exception):
+                qwen_result = results[0].html_content
+            else:
+                logger.error(f"Qwen generation failed: {results[0]}")
+
+        if deepseek_task:
+            result_idx = 1 if qwen_task else 0
+            if len(results) > result_idx and not isinstance(results[result_idx], Exception):
+                deepseek_result = results[result_idx].html_content
+            elif len(results) > result_idx:
+                logger.error(f"DeepSeek generation failed: {results[result_idx]}")
+
+        logger.info(f"✅ Dual generation complete - Qwen: {bool(qwen_result)}, DeepSeek: {bool(deepseek_result)}")
+
+        return {
+            "qwen": qwen_result,
+            "deepseek": deepseek_result,
+            "success": bool(qwen_result or deepseek_result)
+        }
+
+    async def generate_website_best(
+        self,
+        request: WebsiteGenerationRequest,
+        style: Optional[str] = None
+    ) -> str:
+        """
+        Generate with both AIs, use DeepSeek to pick/combine the best parts
+
+        Args:
+            request: Website generation request
+            style: Optional design style
+
+        Returns:
+            Combined/best HTML content
+        """
+        logger.info(f"🎨 Best-of-both generation for {request.business_name}")
+
+        # Get both designs
+        results = await self.generate_website_dual(request, style)
+
+        if not results["qwen"] and not results["deepseek"]:
+            raise Exception("Both AI services failed to generate website")
+
+        # If only one succeeded, return that
+        if not results["qwen"]:
+            logger.info("Only DeepSeek succeeded, returning its result")
+            return results["deepseek"]
+        if not results["deepseek"]:
+            logger.info("Only Qwen succeeded, returning its result")
+            return results["qwen"]
+
+        # Both succeeded - use DeepSeek to combine best parts
+        logger.info("Both AIs succeeded, combining best parts...")
+
+        try:
+            combine_prompt = f"""You are a web design expert. I have two website designs for the same business: {request.business_name}.
+
+DESIGN A (Qwen):
+```html
+{results["qwen"][:4000]}
+```
+
+DESIGN B (DeepSeek):
+```html
+{results["deepseek"][:4000]}
+```
+
+Create the BEST final website by combining the best elements from both:
+- Best layout and structure
+- Best colors and styling
+- Best animations and effects
+- Best content organization
+- Most professional appearance
+
+Output ONLY the final HTML code, no explanations."""
+
+            if self.deepseek_client:
+                logger.info("Using DeepSeek to combine designs...")
+                response = await self.deepseek_client.chat.completions.create(
+                    model=settings.DEEPSEEK_MODEL,
+                    messages=[
+                        {"role": "system", "content": "You are an expert web designer."},
+                        {"role": "user", "content": combine_prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=4000
+                )
+
+                final = response.choices[0].message.content
+
+                # Extract HTML
+                if "```html" in final:
+                    final = final.split("```html")[1].split("```")[0]
+                elif "```" in final:
+                    final = final.split("```")[1].split("```")[0]
+
+                logger.info("✅ Successfully combined designs")
+                return final.strip()
+
+        except Exception as e:
+            logger.error(f"Failed to combine designs: {e}")
+            logger.info("Falling back to DeepSeek result")
+
+        # Fallback to DeepSeek result
+        return results["deepseek"]
     
     def _get_system_prompt(self, style: Optional[str] = None) -> str:
         """Get enhanced system prompt for professional hospitality website generation"""
