@@ -3,26 +3,33 @@ BinaApp - AI-Powered No-Code Website Builder
 Main FastAPI Application
 """
 
+import os
+import time
+from contextlib import asynccontextmanager
+
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
+from fastapi.responses import HTMLResponse, JSONResponse
 from loguru import logger
-import time
 
+from app.api import menu_designer, server, upload
+from app.api.routes.preview import router as preview_router
+from app.api.simple.router import simple_router
+from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging_config import setup_logging
-from app.api.v1.router import api_router
-from app.api.simple.router import simple_router
-from app.api import upload, menu_designer, server
-from app.api.routes.preview import router as preview_router
-from app.middleware.subdomain import subdomain_middleware
 
 # -------------------------------------------------------------------
 # Logging
 # -------------------------------------------------------------------
 setup_logging()
+
+# -------------------------------------------------------------------
+# Subdomain routing (for published websites on Render)
+# -------------------------------------------------------------------
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://wjaztxkbaeqjabybxhct.supabase.co")
 
 # -------------------------------------------------------------------
 # Lifespan
@@ -73,6 +80,43 @@ app = FastAPI(
 )
 
 # -------------------------------------------------------------------
+# Subdomain middleware (must run before other middleware)
+# -------------------------------------------------------------------
+@app.middleware("http")
+async def subdomain_middleware(request: Request, call_next):
+    host = request.headers.get("host", "")
+
+    if ".binaapp.my" in host:
+        subdomain = host.split(".binaapp.my")[0].lower().replace(":443", "").replace(":80", "")
+
+        if subdomain and subdomain not in ["www", "api", "app", ""]:
+            logger.info(f"Serving subdomain: {subdomain}")
+
+            try:
+                storage_url = f"{SUPABASE_URL}/storage/v1/object/public/websites/{subdomain}/index.html"
+
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    response = await client.get(storage_url)
+
+                    if response.status_code == 200:
+                        return HTMLResponse(content=response.text, status_code=200)
+            except Exception as e:
+                logger.error(f"Subdomain error: {e}")
+
+            return HTMLResponse(content=f'''
+<!DOCTYPE html>
+<html>
+<head><title>Website Tidak Dijumpai</title></head>
+<body style="font-family:Arial;text-align:center;padding:50px;">
+<h1>🔍 Website Tidak Dijumpai</h1>
+<p>Website <strong>{subdomain}.binaapp.my</strong> tidak wujud.</p>
+<a href="https://binaapp.my">← Bina Website di BinaApp</a>
+</body>
+</html>''', status_code=404)
+
+    return await call_next(request)
+
+# -------------------------------------------------------------------
 # CORS (CRITICAL – FIXES FAILED TO FETCH)
 # -------------------------------------------------------------------
 app.add_middleware(
@@ -93,11 +137,6 @@ app.add_middleware(
 # GZip
 # -------------------------------------------------------------------
 app.add_middleware(GZipMiddleware, minimum_size=1000)
-
-# -------------------------------------------------------------------
-# Subdomain routing (for sitename.binaapp.my)
-# -------------------------------------------------------------------
-app.middleware("http")(subdomain_middleware)
 
 # -------------------------------------------------------------------
 # Request timing
