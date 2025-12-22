@@ -28,6 +28,7 @@ class SimpleGenerateRequest(BaseModel):
     images: Optional[List[str]] = Field(default=[], description="Optional list of uploaded image URLs")
     multi_style: Optional[bool] = Field(default=False, description="Generate multiple style variations")
     generate_previews: Optional[bool] = Field(default=False, description="Generate preview thumbnails (slower)")
+    mode: Optional[str] = Field(default="single", description="Generation mode: 'single', 'dual', or 'best'")
 
 
 class SimpleGenerateResponse(BaseModel):
@@ -55,6 +56,15 @@ class MultiStyleResponse(BaseModel):
     success: bool = True
 
 
+class DualGenerateResponse(BaseModel):
+    """Dual AI generation response"""
+    qwen_html: Optional[str] = None
+    deepseek_html: Optional[str] = None
+    detected_features: List[str]
+    template_used: str
+    success: bool = True
+
+
 @router.post("/generate")
 async def generate_website(request: SimpleGenerateRequest):
     """
@@ -75,6 +85,7 @@ async def generate_website(request: SimpleGenerateRequest):
         logger.info(f"Description preview: {request.description[:100]}...")
         logger.info(f"Multi-style: {request.multi_style}")
         logger.info(f"Generate previews: {request.generate_previews}")
+        logger.info(f"Generation mode: {request.mode}")
         logger.info(f"Images: {len(request.images) if request.images else 0}")
         logger.info("=" * 80)
 
@@ -129,8 +140,70 @@ async def generate_website(request: SimpleGenerateRequest):
             "whatsapp_message": "Hi, I'm interested"
         }
 
+        # Dual AI generation mode - return both designs
+        if request.mode == "dual":
+            logger.info("=" * 80)
+            logger.info("Step 4: DUAL AI GENERATION")
+            logger.info("Calling both Qwen and DeepSeek in parallel...")
+            logger.info("=" * 80)
+
+            dual_results = await ai_service.generate_website_dual(ai_request)
+
+            # Inject integrations into both designs
+            qwen_html = None
+            deepseek_html = None
+
+            if dual_results["qwen"]:
+                qwen_html = template_service.inject_integrations(
+                    dual_results["qwen"],
+                    features,
+                    user_data
+                )
+
+            if dual_results["deepseek"]:
+                deepseek_html = template_service.inject_integrations(
+                    dual_results["deepseek"],
+                    features,
+                    user_data
+                )
+
+            logger.info(f"✓ Dual generation complete")
+
+            return DualGenerateResponse(
+                qwen_html=qwen_html,
+                deepseek_html=deepseek_html,
+                detected_features=features,
+                template_used=website_type,
+                success=True
+            )
+
+        # Best-of-both mode - combine best parts
+        elif request.mode == "best":
+            logger.info("=" * 80)
+            logger.info("Step 4: BEST-OF-BOTH GENERATION")
+            logger.info("Generating with both AIs and combining best parts...")
+            logger.info("=" * 80)
+
+            html_content = await ai_service.generate_website_best(ai_request)
+
+            # Inject integrations
+            html_content = template_service.inject_integrations(
+                html_content,
+                features,
+                user_data
+            )
+
+            logger.info("✓ Best-of-both generation complete")
+
+            return SimpleGenerateResponse(
+                html=html_content,
+                detected_features=features,
+                template_used=website_type,
+                success=True
+            )
+
         # Multi-style generation
-        if request.multi_style:
+        elif request.multi_style:
             logger.info("=" * 80)
             logger.info("Step 4: MULTI-STYLE GENERATION")
             logger.info("Calling AI service to generate 3 style variations...")
