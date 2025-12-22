@@ -11,7 +11,7 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from loguru import logger
 
 from app.api import menu_designer, server, upload
@@ -88,6 +88,11 @@ async def subdomain_middleware(request: Request, call_next):
 
     if ".binaapp.my" in host:
         subdomain = host.split(".binaapp.my")[0].lower().replace(":443", "").replace(":80", "")
+
+        # Redirect www to main frontend domain to avoid hitting the API root
+        if subdomain == "www":
+            target = settings.FRONTEND_URL or "https://binaapp.my"
+            return RedirectResponse(url=target)
 
         if subdomain and subdomain not in ["www", "api", "app", ""]:
             logger.info(f"Serving subdomain: {subdomain}")
