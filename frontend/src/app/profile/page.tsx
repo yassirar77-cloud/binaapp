@@ -33,16 +33,19 @@ function ProfilePageContent() {
       const { createClientComponentClient } = await import('@supabase/auth-helpers-nextjs');
       const supabase = createClientComponentClient();
 
-      const { data: { user } } = await supabase.auth.getUser();
+      // Use getSession() for more reliable auth check
+      const { data: { session } } = await supabase.auth.getSession();
 
-      if (!user) {
+      if (!session) {
+        console.log('No session found, redirecting to login');
         router.push('/login');
         return;
       }
 
+      const user = session.user;
       setUser(user);
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
@@ -60,6 +63,7 @@ function ProfilePageContent() {
       }
     } catch (error) {
       console.error('Error:', error);
+      router.push('/login');
     } finally {
       setLoading(false);
     }
@@ -155,6 +159,15 @@ function ProfilePageContent() {
                   <option value="Johor">Johor</option>
                   <option value="Pulau Pinang">Pulau Pinang</option>
                   <option value="Perak">Perak</option>
+                  <option value="Kedah">Kedah</option>
+                  <option value="Kelantan">Kelantan</option>
+                  <option value="Melaka">Melaka</option>
+                  <option value="Pahang">Pahang</option>
+                  <option value="Sabah">Sabah</option>
+                  <option value="Sarawak">Sarawak</option>
+                  <option value="Terengganu">Terengganu</option>
+                  <option value="Negeri Sembilan">Negeri Sembilan</option>
+                  <option value="Perlis">Perlis</option>
                 </select>
               </div>
             </div>

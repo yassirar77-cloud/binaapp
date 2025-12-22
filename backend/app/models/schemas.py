@@ -76,6 +76,7 @@ class WebsiteGenerationRequest(BaseModel):
     location_address: Optional[str] = None
     include_ecommerce: bool = False
     contact_email: Optional[EmailStr] = None
+    uploaded_images: Optional[list] = Field(default=[], description="List of uploaded image URLs to use in the website")
 
     @validator("subdomain")
     def validate_subdomain(cls, v):
