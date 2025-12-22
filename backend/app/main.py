@@ -84,40 +84,21 @@ app = FastAPI(
 # -------------------------------------------------------------------
 @app.middleware("http")
 async def subdomain_middleware(request: Request, call_next):
-    host = request.headers.get("host", "")
+    host = request.headers.get("host", "").lower().split(":")[0]
 
-    if ".binaapp.my" in host:
-        subdomain = host.split(".binaapp.my")[0].lower().replace(":443", "").replace(":80", "")
+    if host.endswith(".binaapp.my"):
+        subdomain = host.replace(".binaapp.my", "")
 
-        # Redirect www to main frontend domain to avoid hitting the API root
-        if subdomain == "www":
-            target = settings.FRONTEND_URL or "https://binaapp.my"
-            return RedirectResponse(url=target)
-
-        if subdomain and subdomain not in ["www", "api", "app", ""]:
-            logger.info(f"Serving subdomain: {subdomain}")
-
+        if subdomain and subdomain not in ["www", "api", "app"]:
             try:
-                storage_url = f"{SUPABASE_URL}/storage/v1/object/public/websites/{subdomain}/index.html"
-
                 async with httpx.AsyncClient(timeout=15.0) as client:
-                    response = await client.get(storage_url)
-
+                    response = await client.get(f"{SUPABASE_URL}/storage/v1/object/public/websites/{subdomain}/index.html")
                     if response.status_code == 200:
-                        return HTMLResponse(content=response.text, status_code=200)
-            except Exception as e:
-                logger.error(f"Subdomain error: {e}")
+                        return HTMLResponse(content=response.text)
+            except:
+                pass
 
-            return HTMLResponse(content=f'''
-<!DOCTYPE html>
-<html>
-<head><title>Website Tidak Dijumpai</title></head>
-<body style="font-family:Arial;text-align:center;padding:50px;">
-<h1>🔍 Website Tidak Dijumpai</h1>
-<p>Website <strong>{subdomain}.binaapp.my</strong> tidak wujud.</p>
-<a href="https://binaapp.my">← Bina Website di BinaApp</a>
-</body>
-</html>''', status_code=404)
+            return HTMLResponse(content=f"<html><body><h1>Website {subdomain}.binaapp.my tidak dijumpai</h1><a href='https://binaapp.my'>Bina website anda</a></body></html>", status_code=404)
 
     return await call_next(request)
 
