@@ -128,8 +128,15 @@ async def generate_website(request: SimpleGenerateRequest):
             include_maps=("maps" in features),
             location_address=address if address else "",
             include_ecommerce=("cart" in features),
-            contact_email=None
+            contact_email=None,
+            uploaded_images=request.images if request.images else []
         )
+
+        # Log uploaded images
+        if request.images and len(request.images) > 0:
+            logger.info(f"✓ User uploaded {len(request.images)} images:")
+            for i, img in enumerate(request.images):
+                logger.info(f"   Image {i+1}: {img}")
 
         # User data for integrations
         user_data = {

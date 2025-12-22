@@ -491,33 +491,44 @@ Generate the COMPLETE HTML file with all sections. Output ONLY the HTML code, no
         # Determine business type for appropriate imagery
         business_type = (request.business_type or 'restaurant').lower()
 
-        # Select appropriate Unsplash images based on business type
-        if 'restaurant' in business_type or 'cafe' in business_type or 'food' in business_type:
-            hero_image = "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1920"
-            gallery_images = [
-                "https://images.unsplash.com/photo-1466978913421-dad2ebd01d17?w=800",
-                "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800",
-                "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800",
-                "https://images.unsplash.com/photo-1559329007-40df8a9345d8?w=800"
-            ]
-            service_images = [
-                "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600",
-                "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=600",
-                "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=600"
-            ]
+        # PRIORITIZE USER-UPLOADED IMAGES
+        # Check if user has uploaded images - use them first!
+        has_uploaded_images = request.uploaded_images and len(request.uploaded_images) > 0
+
+        if has_uploaded_images:
+            # User uploaded their own images - use them!
+            logger.info(f"🖼️  Using {len(request.uploaded_images)} user-uploaded images")
+            hero_image = request.uploaded_images[0]  # First image as hero
+            gallery_images = request.uploaded_images[1:5] if len(request.uploaded_images) > 1 else request.uploaded_images
+            service_images = request.uploaded_images[:3] if len(request.uploaded_images) >= 3 else request.uploaded_images
         else:
-            hero_image = "https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920"
-            gallery_images = [
-                "https://images.unsplash.com/photo-1497366811353-6870744d04b2?w=800",
-                "https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=800",
-                "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?w=800",
-                "https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=800"
-            ]
-            service_images = [
-                "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600",
-                "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=600",
-                "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=600"
-            ]
+            # No uploaded images - use Unsplash placeholders
+            if 'restaurant' in business_type or 'cafe' in business_type or 'food' in business_type:
+                hero_image = "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1920"
+                gallery_images = [
+                    "https://images.unsplash.com/photo-1466978913421-dad2ebd01d17?w=800",
+                    "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800",
+                    "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800",
+                    "https://images.unsplash.com/photo-1559329007-40df8a9345d8?w=800"
+                ]
+                service_images = [
+                    "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600",
+                    "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=600",
+                    "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=600"
+                ]
+            else:
+                hero_image = "https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920"
+                gallery_images = [
+                    "https://images.unsplash.com/photo-1497366811353-6870744d04b2?w=800",
+                    "https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=800",
+                    "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?w=800",
+                    "https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=800"
+                ]
+                service_images = [
+                    "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600",
+                    "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=600",
+                    "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=600"
+                ]
 
         style_colors = {
             'modern': {'primary': '#E31E24', 'accent': '#FFD700'},
@@ -525,6 +536,24 @@ Generate the COMPLETE HTML file with all sections. Output ONLY the HTML code, no
             'bold': {'primary': '#7C3AED', 'accent': '#F59E0B'}
         }
         colors = style_colors.get(style, {'primary': '#E31E24', 'accent': '#FFD700'})
+
+        # Build image section with clear instructions
+        image_section = f"""### IMAGES TO USE
+- Hero Background: {hero_image}
+- Service Grid Images: {', '.join([str(img) for img in service_images])}
+- Gallery/Portfolio Images: {', '.join([str(img) for img in gallery_images])}"""
+
+        if has_uploaded_images:
+            image_section += f"""
+
+⚠️ CRITICAL INSTRUCTION - USER-UPLOADED IMAGES:
+The user has uploaded {len(request.uploaded_images)} of their own business photos.
+YOU MUST USE THESE EXACT IMAGE URLS in the website.
+DO NOT use placeholder images or Unsplash images.
+These are real photos of their business - use them prominently!
+
+All uploaded images:
+{chr(10).join([f"- {img}" for img in request.uploaded_images])}"""
 
         prompt = f"""Create a stunning, professional website for:
 
@@ -541,10 +570,7 @@ Generate the COMPLETE HTML file with all sections. Output ONLY the HTML code, no
 - Dark Background: #333333
 - Light Background: #FFFFFF
 
-### IMAGES TO USE
-- Hero Background: {hero_image}
-- Service Grid Images: {', '.join(service_images)}
-- Gallery/Portfolio Images: {', '.join(gallery_images)}
+{image_section}
 
 ### REQUIRED SECTIONS WITH ZONES
 
