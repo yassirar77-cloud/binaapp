@@ -244,7 +244,7 @@ export default function MyProjectsPage() {
                         </a>
                       )}
                       <Link
-                        href={`/edit/${website.id}`}
+                        href={`/editor/${website.id}`}
                         className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-center py-2 rounded-lg text-sm font-medium transition-colors"
                       >
                         ✏️ Edit

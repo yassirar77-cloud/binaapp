@@ -419,10 +419,115 @@ Output ONLY the final HTML code, no explanations."""
         # Fallback to DeepSeek result
         return results["deepseek"]
     
-    def _get_system_prompt(self, style: Optional[str] = None) -> str:
-        """Get enhanced system prompt for professional hospitality website generation"""
+    def _detect_business_type(self, description: str) -> dict:
+        """Detect business type and return relevant configuration"""
+        import random
 
-        return """You are an expert web designer creating stunning, professional websites for restaurants and hospitality businesses.
+        desc_lower = description.lower()
+
+        # Food/Restaurant
+        if any(w in desc_lower for w in ['makan', 'restoran', 'cafe', 'kedai makan', 'nasi', 'makanan', 'food', 'restaurant', 'kafe']):
+            return {
+                "type": "restaurant",
+                "components": ["FoodMenuGrid", "WhatsAppOrdering", "GoogleMaps"],
+                "image_style": "food photography, dishes, restaurant interior",
+                "color_scheme": random.choice(["red-orange warm", "green natural", "brown cozy"]),
+                "unsplash_queries": ["malaysian-food", "nasi-lemak", "restaurant-interior", "food-plating"]
+            }
+
+        # Pet Shop / Animals
+        if any(w in desc_lower for w in ['kucing', 'cat', 'pet', 'haiwan', 'anjing', 'dog', 'binatang']):
+            return {
+                "type": "pet_shop",
+                "components": ["ProductGallery", "ServiceList", "ContactForm"],
+                "image_style": "cute cats, pet shop, pet supplies, animals",
+                "color_scheme": random.choice(["orange playful", "blue calm", "purple cute"]),
+                "unsplash_queries": ["cat", "cute-cat", "pet-shop", "kitten", "dog"]
+            }
+
+        # Salon / Beauty
+        if any(w in desc_lower for w in ['salon', 'rambut', 'hair', 'beauty', 'spa', 'kecantikan', 'gunting']):
+            return {
+                "type": "salon",
+                "components": ["ServiceList", "BookingForm", "Gallery"],
+                "image_style": "salon interior, hair styling, beauty",
+                "color_scheme": random.choice(["pink elegant", "gold luxury", "white minimal"]),
+                "unsplash_queries": ["hair-salon", "beauty-salon", "hairstyle", "spa"]
+            }
+
+        # Photography
+        if any(w in desc_lower for w in ['photo', 'gambar', 'wedding', 'photographer', 'fotografi', 'kamera']):
+            return {
+                "type": "portfolio",
+                "components": ["ImageGallery", "Portfolio", "ContactForm"],
+                "image_style": "photography, camera, studio",
+                "color_scheme": random.choice(["black white minimal", "dark moody", "clean white"]),
+                "unsplash_queries": ["photography", "camera", "wedding-photo", "portrait"]
+            }
+
+        # Fitness / Gym
+        if any(w in desc_lower for w in ['gym', 'fitness', 'sukan', 'senaman', 'workout']):
+            return {
+                "type": "fitness",
+                "components": ["ClassSchedule", "MembershipPricing", "ContactForm"],
+                "image_style": "fitness, gym equipment, workout",
+                "color_scheme": random.choice(["red energetic", "black bold", "blue strong"]),
+                "unsplash_queries": ["gym", "fitness", "workout", "exercise"]
+            }
+
+        # Default - General Business
+        return {
+            "type": "general",
+            "components": ["Hero", "Services", "About", "Contact"],
+            "image_style": "professional business",
+            "color_scheme": random.choice(["blue professional", "green fresh", "purple modern"]),
+            "unsplash_queries": ["business", "office", "professional", "workspace"]
+        }
+
+    def _get_design_vibe(self) -> dict:
+        """Get random design vibe for variety"""
+        import random
+
+        vibes = [
+            {
+                "name": "Modern",
+                "font": "font-sans",
+                "rounded": "rounded-xl",
+                "shadow": "shadow-lg",
+                "primary": "bg-gradient-to-r from-blue-600 to-purple-600",
+                "style": "Clean gradients, smooth animations, card-based layout"
+            },
+            {
+                "name": "Minimal",
+                "font": "font-serif",
+                "rounded": "rounded-none",
+                "shadow": "border-b-2",
+                "primary": "bg-gray-900",
+                "style": "Lots of whitespace, typography-focused, elegant"
+            },
+            {
+                "name": "Bold",
+                "font": "font-sans font-bold",
+                "rounded": "rounded-sm",
+                "shadow": "border-4",
+                "primary": "bg-yellow-400",
+                "style": "Strong colors, thick borders, impactful headlines"
+            },
+            {
+                "name": "Gradient",
+                "font": "font-sans",
+                "rounded": "rounded-2xl",
+                "shadow": "shadow-2xl",
+                "primary": "bg-gradient-to-r from-purple-600 to-pink-500",
+                "style": "Colorful gradients, glass morphism, trendy"
+            }
+        ]
+        return random.choice(vibes)
+
+    def _get_system_prompt(self, style: Optional[str] = None) -> str:
+        """Get enhanced system prompt for professional website generation"""
+
+        return """You are an expert web designer creating stunning, professional websites for businesses.
 
 Generate a complete, production-ready HTML file with embedded Tailwind CSS using this exact structure:
 
@@ -486,91 +591,106 @@ Create a 3-column responsive grid (grid-cols-1 md:grid-cols-3):
 Generate the COMPLETE HTML file with all sections. Output ONLY the HTML code, no explanations."""
     
     def _build_generation_prompt(self, request: WebsiteGenerationRequest, style: Optional[str] = None) -> str:
-        """Build generation prompt for professional hospitality website design"""
+        """Build intelligent generation prompt with business detection and smart image handling"""
 
-        # Determine business type for appropriate imagery
-        business_type = (request.business_type or 'restaurant').lower()
+        # Detect business type and get configuration
+        business_config = self._detect_business_type(request.description)
+        logger.info(f"🔍 Detected business type: {business_config['type']}")
+        logger.info(f"🎨 Color scheme: {business_config['color_scheme']}")
+
+        # Get design vibe for variety
+        vibe = self._get_design_vibe()
+        logger.info(f"✨ Design vibe: {vibe['name']}")
 
         # PRIORITIZE USER-UPLOADED IMAGES
-        # Check if user has uploaded images - use them first!
         has_uploaded_images = request.uploaded_images and len(request.uploaded_images) > 0
 
         if has_uploaded_images:
             # User uploaded their own images - use them!
             logger.info(f"🖼️  Using {len(request.uploaded_images)} user-uploaded images")
             hero_image = request.uploaded_images[0]  # First image as hero
-            gallery_images = request.uploaded_images[1:5] if len(request.uploaded_images) > 1 else request.uploaded_images
-            service_images = request.uploaded_images[:3] if len(request.uploaded_images) >= 3 else request.uploaded_images
-        else:
-            # No uploaded images - use Unsplash placeholders
-            if 'restaurant' in business_type or 'cafe' in business_type or 'food' in business_type:
-                hero_image = "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=1920"
-                gallery_images = [
-                    "https://images.unsplash.com/photo-1466978913421-dad2ebd01d17?w=800",
-                    "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=800",
-                    "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800",
-                    "https://images.unsplash.com/photo-1559329007-40df8a9345d8?w=800"
-                ]
-                service_images = [
-                    "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600",
-                    "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=600",
-                    "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=600"
-                ]
-            else:
-                hero_image = "https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920"
-                gallery_images = [
-                    "https://images.unsplash.com/photo-1497366811353-6870744d04b2?w=800",
-                    "https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=800",
-                    "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?w=800",
-                    "https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=800"
-                ]
-                service_images = [
-                    "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600",
-                    "https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=600",
-                    "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=600"
-                ]
+            gallery_images = request.uploaded_images[1:5] if len(request.uploaded_images) > 1 else request.uploaded_images * 4  # Repeat if needed
+            service_images = request.uploaded_images[:3] if len(request.uploaded_images) >= 3 else request.uploaded_images * 3
 
-        style_colors = {
-            'modern': {'primary': '#E31E24', 'accent': '#FFD700'},
-            'minimal': {'primary': '#2563EB', 'accent': '#10B981'},
-            'bold': {'primary': '#7C3AED', 'accent': '#F59E0B'}
-        }
-        colors = style_colors.get(style, {'primary': '#E31E24', 'accent': '#FFD700'})
+            image_section = f"""### 🖼️ USER-UPLOADED IMAGES (MUST USE THESE!)
 
-        # Build image section with clear instructions
-        image_section = f"""### IMAGES TO USE
-- Hero Background: {hero_image}
-- Service Grid Images: {', '.join([str(img) for img in service_images])}
-- Gallery/Portfolio Images: {', '.join([str(img) for img in gallery_images])}"""
+⚠️ CRITICAL: The user uploaded {len(request.uploaded_images)} REAL PHOTOS of their business.
+YOU MUST USE THESE EXACT URLs - DO NOT use Unsplash or placeholder images!
 
-        if has_uploaded_images:
-            image_section += f"""
-
-⚠️ CRITICAL INSTRUCTION - USER-UPLOADED IMAGES:
-The user has uploaded {len(request.uploaded_images)} of their own business photos.
-YOU MUST USE THESE EXACT IMAGE URLS in the website.
-DO NOT use placeholder images or Unsplash images.
-These are real photos of their business - use them prominently!
+Hero Image (Main Banner): {hero_image}
 
 All uploaded images:
-{chr(10).join([f"- {img}" for img in request.uploaded_images])}"""
+{chr(10).join([f"  {i+1}. {img}" for i, img in enumerate(request.uploaded_images)])}
 
-        prompt = f"""Create a stunning, professional website for:
+Use these images in:
+- Hero section background
+- Gallery/Portfolio section
+- Service/Product showcases
+- About section
+
+IMPORTANT: These are the user's actual business photos - showcase them prominently!"""
+        else:
+            # No uploaded images - use relevant Unsplash based on business type
+            logger.info(f"📷 No user images - using Unsplash for {business_config['type']}")
+
+            # Generate relevant Unsplash URLs based on business type
+            unsplash_queries = business_config['unsplash_queries']
+
+            hero_image = f"https://images.unsplash.com/photo-1551963831-b3b1ca40c98e?w=1920&q=80"  # Default
+            gallery_images = [
+                f"https://images.unsplash.com/photo-{1551963831-i}?w=800&q=80" for i in range(1, 5)
+            ]
+            service_images = [
+                f"https://images.unsplash.com/photo-{1551963831-i}?w=600&q=80" for i in range(1, 4)
+            ]
+
+            image_section = f"""### 📷 IMAGES TO USE (Relevant to {business_config['type']})
+
+IMPORTANT: Use images related to "{business_config['image_style']}"
+
+Search Unsplash for: {', '.join(unsplash_queries)}
+
+Hero Background: Use a high-quality {business_config['image_style']} image
+Gallery Images: 4-6 images showcasing {business_config['image_style']}
+Service Images: 3-4 images relevant to the business type
+
+⚠️ CRITICAL: Images MUST match the business type ({business_config['type']})!
+- For cat shop → Use cat/pet images, NOT office/food images
+- For restaurant → Use food/dining images, NOT corporate images
+- For salon → Use salon/beauty images, NOT tech/office images"""
+
+        # Build color scheme based on business type
+        style_colors = {
+            'modern': {'primary': '#3B82F6', 'accent': '#8B5CF6'},
+            'minimal': {'primary': '#1F2937', 'accent': '#6B7280'},
+            'bold': {'primary': '#EF4444', 'accent': '#F59E0B'}
+        }
+        colors = style_colors.get(style, {'primary': '#3B82F6', 'accent': '#8B5CF6'})
+
+        prompt = f"""Create a stunning, UNIQUE, professional website for:
 
 ## BUSINESS INFORMATION
 - **Name:** {request.business_name}
-- **Type:** {request.business_type or 'Restaurant & Hospitality'}
+- **Type:** {business_config['type'].upper()} (Detected: {request.business_type or 'Auto-detected'})
 - **Description:** {request.description}
 
-## DESIGN SPECIFICATIONS
+## DESIGN VIBE: {vibe['name'].upper()}
+- Style: {vibe['style']}
+- Font: {vibe['font']}
+- Border radius: {vibe['rounded']}
+- Shadow style: {vibe['shadow']}
+- Primary styling: {vibe['primary']}
 
-### COLOR SCHEME
+## COLOR SCHEME ({business_config['color_scheme']})
 - Primary Color: {colors['primary']}
 - Accent Color: {colors['accent']}
-- Dark Background: #333333
-- Light Background: #FFFFFF
+- Use colors that match the business mood and type
 
 {image_section}
+
+## BUSINESS-SPECIFIC COMPONENTS
+Recommended sections for {business_config['type']}:
+{chr(10).join([f"- {comp}" for comp in business_config['components']])}
 
 ### REQUIRED SECTIONS WITH ZONES
 
@@ -604,11 +724,27 @@ All uploaded images:
 
 ### TECHNICAL MUST-HAVES
 1. Tailwind CSS via CDN: <script src="https://cdn.tailwindcss.com"></script>
-2. Google Fonts Poppins
+2. Google Fonts (use appropriate font for the design vibe)
 3. Smooth scroll behavior
-4. Mobile-responsive (single column on mobile)
-5. Hover animations on all cards and buttons
-6. Dark overlay on hero image for text readability"""
+4. MOBILE-RESPONSIVE (CRITICAL - must work perfectly on phones!)
+5. Hover animations on all interactive elements
+6. Use the {vibe['name']} design vibe throughout
+7. Apply {business_config['color_scheme']} color scheme
+
+### CRITICAL REQUIREMENTS FOR UNIQUENESS
+⚠️ Each website MUST be DIFFERENT and UNIQUE!
+- Use the {vibe['name']} design vibe specified above
+- Apply {vibe['rounded']} for border radius
+- Use {vibe['shadow']} for shadows
+- Colors must match {business_config['color_scheme']}
+- Layout should reflect the {vibe['style']}
+- Make it look professional and match the business type ({business_config['type']})
+
+🎨 DESIGN VARIETY RULES:
+- Different businesses should have DIFFERENT designs
+- Color schemes should match the business type and mood
+- Layouts should vary based on the design vibe
+- Images MUST be relevant to the specific business type"""
 
         if request.include_whatsapp and request.whatsapp_number:
             whatsapp_num = request.whatsapp_number.replace('+', '').replace(' ', '').replace('-', '')
