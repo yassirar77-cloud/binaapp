@@ -26,6 +26,10 @@ class SimpleGenerateRequest(BaseModel):
     )
     user_id: Optional[str] = Field(default="demo-user", description="Optional user ID")
     images: Optional[List[str]] = Field(default=[], description="Optional list of uploaded image URLs")
+    logo: Optional[str] = Field(default=None, description="Logo URL")
+    fonts: Optional[List[str]] = Field(default=[], description="Font names to use (e.g., ['Inter', 'Poppins'])")
+    colors: Optional[dict] = Field(default=None, description="Color scheme (primary, secondary, accent)")
+    theme: Optional[str] = Field(default=None, description="Detected theme name (e.g., 'Purrfect Paws Theme')")
     multi_style: Optional[bool] = Field(default=False, description="Generate multiple style variations")
     generate_previews: Optional[bool] = Field(default=False, description="Generate preview thumbnails (slower)")
     mode: Optional[str] = Field(default="single", description="Generation mode: 'single', 'dual', 'best', or 'strategic'")
@@ -116,6 +120,16 @@ async def generate_website(request: SimpleGenerateRequest):
         address = extract_address(request.description)
         logger.info(f"✓ Address: {address or 'Not found'}")
 
+        # Log assets
+        if request.logo:
+            logger.info(f"✓ Logo: {request.logo}")
+        if request.fonts and len(request.fonts) > 0:
+            logger.info(f"✓ Fonts: {', '.join(request.fonts)}")
+        if request.colors:
+            logger.info(f"✓ Colors: {request.colors}")
+        if request.theme:
+            logger.info(f"✓ Theme: {request.theme}")
+
         # Build AI generation request
         ai_request = WebsiteGenerationRequest(
             description=request.description,
@@ -129,7 +143,11 @@ async def generate_website(request: SimpleGenerateRequest):
             location_address=address if address else "",
             include_ecommerce=("cart" in features),
             contact_email=None,
-            uploaded_images=request.images if request.images else []
+            uploaded_images=request.images if request.images else [],
+            logo=request.logo,
+            fonts=request.fonts if request.fonts else [],
+            colors=request.colors,
+            theme=request.theme
         )
 
         # Log uploaded images

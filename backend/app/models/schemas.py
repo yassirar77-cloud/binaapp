@@ -77,6 +77,10 @@ class WebsiteGenerationRequest(BaseModel):
     include_ecommerce: bool = False
     contact_email: Optional[EmailStr] = None
     uploaded_images: Optional[list] = Field(default=[], description="List of uploaded image URLs to use in the website")
+    logo: Optional[str] = Field(default=None, description="Logo URL to use in the website")
+    fonts: Optional[list] = Field(default=[], description="Font names to use in the website (e.g., ['Inter', 'Poppins'])")
+    colors: Optional[dict] = Field(default=None, description="Color scheme with primary, secondary, accent colors")
+    theme: Optional[str] = Field(default=None, description="Detected theme name (e.g., 'Purrfect Paws Theme')")
 
     @validator("subdomain")
     def validate_subdomain(cls, v):
