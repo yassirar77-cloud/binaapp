@@ -115,10 +115,15 @@ export default function CreatePage() {
     setSelectedStyle(null)
 
     try {
+      // Use AbortController for timeout (mobile networks can be slow)
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
+
       const response = await fetch(`${API_BASE_URL}/api/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
         body: JSON.stringify({
           description,
@@ -126,18 +131,24 @@ export default function CreatePage() {
           images: uploadedImages,
           multi_style: multiStyle,
           generate_previews: generatePreviews
-        })
+        }),
+        signal: controller.signal,
+        mode: 'cors',
+        cache: 'no-cache',
       })
 
+      clearTimeout(timeoutId)
+
       if (!response.ok) {
-        throw new Error(`Failed to generate: ${response.statusText}`)
+        const errorText = await response.text()
+        throw new Error(`Server error: ${response.status} - ${errorText}`)
       }
 
       const data = await response.json()
-      
+
       console.log('API Response:', data)
       console.log('Variations:', data.variations)
-      
+
       if (multiStyle && data.variations) {
         // Convert backend object format to frontend array format
         const formattedVariations = Object.entries(data.variations).map(([styleName, content]: [string, any]) => {
@@ -150,7 +161,7 @@ export default function CreatePage() {
             social_preview: content.social_preview || null
           }
         })
-        
+
         console.log('Formatted variations:', formattedVariations)
         setStyleVariations(formattedVariations)
         setDetectedFeatures(data.detected_features || [])
@@ -162,7 +173,14 @@ export default function CreatePage() {
       }
     } catch (err: any) {
       console.error('Generation error:', err)
-      setError(err.message || 'Failed to generate website. Please try again.')
+
+      if (err.name === 'AbortError') {
+        setError('Request timeout. Server mungkin sibuk. Sila cuba lagi.')
+      } else if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        setError('Tidak dapat menghubungi server. Pastikan internet anda stabil dan cuba lagi.')
+      } else {
+        setError(err.message || 'Failed to generate website. Please try again.')
+      }
     } finally {
       setLoading(false)
     }
