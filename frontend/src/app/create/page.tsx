@@ -119,18 +119,14 @@ export default function CreatePage() {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
 
-      const response = await fetch(`${API_BASE_URL}/api/generate`, {
+      const response = await fetch('/api/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
         body: JSON.stringify({
-          description,
-          user_id: 'demo-user',
-          images: uploadedImages,
-          multi_style: multiStyle,
-          generate_previews: generatePreviews
+          business_description: description,
         }),
         signal: controller.signal,
         mode: 'cors',
