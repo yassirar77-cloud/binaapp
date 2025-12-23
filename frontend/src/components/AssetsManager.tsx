@@ -1,99 +1,99 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
-interface Assets {
+interface AssetsManagerProps {
+  onLogoChange: (url: string | null) => void;
+  onImagesChange: (urls: string[]) => void;
+  onFontsChange: (fonts: string[]) => void;
   logo: string | null;
   images: string[];
   fonts: string[];
-  colors: {
-    primary: string;
-    secondary: string;
-    accent: string;
-  };
 }
 
-interface AssetsManagerProps {
-  assets: Assets;
-  onAssetsChange: (assets: Assets) => void;
-}
-
-export default function AssetsManager({ assets, onAssetsChange }: AssetsManagerProps) {
+export default function AssetsManager({ onLogoChange, onImagesChange, onFontsChange, logo, images, fonts }: AssetsManagerProps) {
+  const supabase = createClientComponentClient();
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState<string | null>(null);
+  const [fontInput, setFontInput] = useState('');
+
+  const uploadFile = async (file: File, type: 'logo' | 'image'): Promise<string | null> => {
+    try {
+      const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+      const { data, error } = await supabase.storage.from('assets').upload(fileName, file);
+
+      if (error) {
+        console.error('Upload error:', error);
+        return null;
+      }
+
+      return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/assets/${fileName}`;
+    } catch (err) {
+      console.error('Upload failed:', err);
+      return null;
+    }
+  };
 
   const handleDrop = useCallback(async (e: React.DragEvent, type: 'logo' | 'images') => {
     e.preventDefault();
-    const files = Array.from(e.dataTransfer.files);
+    setDragOver(null);
+
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
     if (files.length === 0) return;
 
     setUploading(true);
-    try {
+
+    if (type === 'logo') {
+      const url = await uploadFile(files[0], 'logo');
+      if (url) onLogoChange(url);
+    } else {
+      const newUrls: string[] = [];
       for (const file of files) {
-        const fileName = `${Date.now()}-${file.name}`;
-        const { data, error } = await supabase.storage
-          .from('assets')
-          .upload(fileName, file);
-
-        if (data) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('assets')
-            .getPublicUrl(fileName);
-
-          if (type === 'logo') {
-            onAssetsChange({ ...assets, logo: publicUrl });
-          } else {
-            onAssetsChange({ ...assets, images: [...assets.images, publicUrl] });
-          }
-        }
+        const url = await uploadFile(file, 'image');
+        if (url) newUrls.push(url);
       }
-    } catch (err) {
-      console.error('Upload error:', err);
-    } finally {
-      setUploading(false);
+      onImagesChange([...images, ...newUrls]);
     }
-  }, [assets, onAssetsChange]);
+
+    setUploading(false);
+  }, [images, onLogoChange, onImagesChange]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, type: 'logo' | 'images') => {
     const files = e.target.files;
     if (!files) return;
 
     setUploading(true);
-    try {
+
+    if (type === 'logo') {
+      const url = await uploadFile(files[0], 'logo');
+      if (url) onLogoChange(url);
+    } else {
+      const newUrls: string[] = [];
       for (const file of Array.from(files)) {
-        const fileName = `${Date.now()}-${file.name}`;
-        const { data } = await supabase.storage
-          .from('assets')
-          .upload(fileName, file);
-
-        if (data) {
-          const { data: { publicUrl } } = supabase.storage
-            .from('assets')
-            .getPublicUrl(fileName);
-
-          if (type === 'logo') {
-            onAssetsChange({ ...assets, logo: publicUrl });
-          } else {
-            onAssetsChange({ ...assets, images: [...assets.images, publicUrl] });
-          }
-        }
+        const url = await uploadFile(file, 'image');
+        if (url) newUrls.push(url);
       }
-    } catch (err) {
-      console.error('Upload error:', err);
-    } finally {
-      setUploading(false);
+      onImagesChange([...images, ...newUrls]);
     }
+
+    setUploading(false);
+    e.target.value = '';
   };
 
   const removeImage = (index: number) => {
-    const newImages = assets.images.filter((_, i) => i !== index);
-    onAssetsChange({ ...assets, images: newImages });
+    onImagesChange(images.filter((_, i) => i !== index));
   };
 
-  const addFont = (fontName: string) => {
-    if (!assets.fonts.includes(fontName)) {
-      onAssetsChange({ ...assets, fonts: [...assets.fonts, fontName] });
+  const addFont = () => {
+    if (fontInput.trim() && !fonts.includes(fontInput.trim())) {
+      onFontsChange([...fonts, fontInput.trim()]);
+      setFontInput('');
     }
+  };
+
+  const removeFont = (index: number) => {
+    onFontsChange(fonts.filter((_, i) => i !== index));
   };
 
   return (
@@ -104,185 +104,130 @@ export default function AssetsManager({ assets, onAssetsChange }: AssetsManagerP
       </div>
 
       {/* Logo Section */}
-      <div className="space-y-3">
-        <h3 className="font-semibold text-gray-700 flex items-center gap-2">
-          <span>✨</span> Logo
-        </h3>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">✨</span>
+          <h3 className="font-semibold text-gray-700">Logo</h3>
+        </div>
         <div
           onDrop={(e) => handleDrop(e, 'logo')}
-          onDragOver={(e) => e.preventDefault()}
-          className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer"
+          onDragOver={(e) => { e.preventDefault(); setDragOver('logo'); }}
+          onDragLeave={() => setDragOver(null)}
+          className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer
+            ${dragOver === 'logo' ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'}`}
         >
-          {assets.logo ? (
+          {logo ? (
             <div className="relative inline-block">
-              <img src={assets.logo} alt="Logo" className="max-h-24 mx-auto" />
+              <img src={logo} alt="Logo" className="max-h-20 mx-auto rounded" />
               <button
-                onClick={() => onAssetsChange({ ...assets, logo: null })}
-                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 text-xs hover:bg-red-600"
+                onClick={(e) => { e.stopPropagation(); onLogoChange(null); }}
+                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 text-xs font-bold hover:bg-red-600"
               >
                 ×
               </button>
             </div>
           ) : (
-            <>
-              <div className="text-4xl mb-2">⬆️</div>
-              <p className="text-gray-500">Drag & drop logo here</p>
+            <label className="cursor-pointer block">
+              <div className="text-3xl mb-2">⬆️</div>
+              <p className="text-gray-600 font-medium">Drag & drop logo files</p>
               <p className="text-gray-400 text-sm">or click to browse</p>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(e) => handleFileSelect(e, 'logo')}
-                className="hidden"
-                id="logo-upload"
-              />
-              <label htmlFor="logo-upload" className="cursor-pointer text-blue-500 text-sm mt-2 inline-block hover:underline">
-                Browse files
-              </label>
-            </>
+              <input type="file" accept="image/*" onChange={(e) => handleFileSelect(e, 'logo')} className="hidden" />
+            </label>
           )}
         </div>
       </div>
 
       {/* Fonts Section */}
-      <div className="space-y-3">
-        <h3 className="font-semibold text-gray-700 flex items-center gap-2">
-          <span>🔤</span> Fonts
-          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full">{assets.fonts.length}</span>
-        </h3>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🔤</span>
+          <h3 className="font-semibold text-gray-700">Fonts</h3>
+          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full text-gray-600">{fonts.length}</span>
+        </div>
+
         <div className="space-y-2">
-          {assets.fonts.map((font, i) => (
+          {fonts.map((font, i) => (
             <div key={i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
               <div className="flex items-center gap-3">
-                <span className="text-2xl font-bold" style={{ fontFamily: font }}>Aa</span>
-                <span className="text-gray-700">{font}</span>
+                <span className="text-2xl font-bold text-gray-700" style={{ fontFamily: font }}>Aa</span>
+                <div>
+                  <span className="text-gray-700 font-medium">{font}</span>
+                  <span className="text-xs text-green-600 ml-2">✓ Google Fonts</span>
+                </div>
               </div>
-              <button
-                onClick={() => onAssetsChange({ ...assets, fonts: assets.fonts.filter((_, idx) => idx !== i) })}
-                className="text-gray-400 hover:text-red-500"
-              >
-                ×
-              </button>
+              <button onClick={() => removeFont(i)} className="text-gray-400 hover:text-red-500 text-xl">×</button>
             </div>
           ))}
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="e.g., Inter, Poppins, Roboto"
-              className="flex-1 px-3 py-2 border rounded-lg text-sm"
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') {
-                  const value = (e.target as HTMLInputElement).value.trim();
-                  if (value) {
-                    addFont(value);
-                    (e.target as HTMLInputElement).value = '';
-                  }
-                }
-              }}
-            />
-            <button
-              onClick={() => {
-                const input = document.querySelector('input[placeholder*="Inter"]') as HTMLInputElement;
-                if (input && input.value.trim()) {
-                  addFont(input.value.trim());
-                  input.value = '';
-                }
-              }}
-              className="px-3 py-2 bg-gray-100 rounded-lg text-sm hover:bg-gray-200"
-            >
-              + Add
-            </button>
-          </div>
-          <p className="text-xs text-gray-400">
-            Press Enter or click Add - <a href="https://fonts.google.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Browse Google Fonts</a>
-          </p>
         </div>
+
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={fontInput}
+            onChange={(e) => setFontInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && addFont()}
+            placeholder="Font name or Google Fonts URL"
+            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <button onClick={addFont} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium">
+            + Add
+          </button>
+        </div>
+        <p className="text-xs text-gray-400">
+          e.g., "Inter" or "Poppins" - <a href="https://fonts.google.com" target="_blank" className="text-blue-500 hover:underline">View Google Fonts</a>
+        </p>
       </div>
 
       {/* Images Section */}
-      <div className="space-y-3">
-        <h3 className="font-semibold text-gray-700 flex items-center gap-2">
-          <span>🖼️</span> Images
-          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full">{assets.images.length}</span>
-        </h3>
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🖼️</span>
+          <h3 className="font-semibold text-gray-700">Images</h3>
+          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full text-gray-600">{images.length}</span>
+        </div>
+
         <div
           onDrop={(e) => handleDrop(e, 'images')}
-          onDragOver={(e) => e.preventDefault()}
-          className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer"
+          onDragOver={(e) => { e.preventDefault(); setDragOver('images'); }}
+          onDragLeave={() => setDragOver(null)}
+          className={`border-2 border-dashed rounded-xl p-6 text-center transition-all
+            ${dragOver === 'images' ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'}`}
         >
-          <div className="text-3xl mb-2">⬆️</div>
-          <p className="text-gray-500">Drag & drop images here</p>
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={(e) => handleFileSelect(e, 'images')}
-            className="hidden"
-            id="images-upload"
-          />
-          <label htmlFor="images-upload" className="cursor-pointer text-blue-500 text-sm hover:underline">
-            or click to browse
+          <label className="cursor-pointer block">
+            <div className="text-3xl mb-2">⬆️</div>
+            <p className="text-gray-600 font-medium">Upload images</p>
+            <p className="text-gray-400 text-sm">Drag & drop or click to browse</p>
+            <input type="file" accept="image/*" multiple onChange={(e) => handleFileSelect(e, 'images')} className="hidden" />
           </label>
         </div>
 
-        {assets.images.length > 0 && (
-          <div className="grid grid-cols-3 gap-3 mt-4">
-            {assets.images.map((img, i) => (
-              <div key={i} className="relative group">
-                <img src={img} alt={`Asset ${i}`} className="w-full h-20 object-cover rounded-lg" />
+        {images.length > 0 && (
+          <div className="grid grid-cols-3 gap-2 mt-3">
+            {images.map((img, i) => (
+              <div key={i} className="relative group aspect-square">
+                <img src={img} alt={`Asset ${i + 1}`} className="w-full h-full object-cover rounded-lg" />
                 <button
                   onClick={() => removeImage(i)}
-                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   ×
                 </button>
+                <div className="absolute bottom-1 left-1 bg-black/50 text-white text-xs px-1.5 py-0.5 rounded">
+                  {i === 0 ? 'Hero' : `Image ${i}`}
+                </div>
               </div>
             ))}
           </div>
         )}
-        <p className="text-xs text-gray-400">Upload images for AI to use in your website</p>
+        <p className="text-xs text-gray-400">Upload images for AI to use in your website. First image = Hero.</p>
       </div>
 
-      {/* Color Scheme */}
-      <div className="space-y-3">
-        <h3 className="font-semibold text-gray-700 flex items-center gap-2">
-          <span>🎨</span> Color Scheme
-        </h3>
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Primary</label>
-            <input
-              type="color"
-              value={assets.colors.primary}
-              onChange={(e) => onAssetsChange({ ...assets, colors: { ...assets.colors, primary: e.target.value } })}
-              className="w-full h-10 rounded cursor-pointer"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Secondary</label>
-            <input
-              type="color"
-              value={assets.colors.secondary}
-              onChange={(e) => onAssetsChange({ ...assets, colors: { ...assets.colors, secondary: e.target.value } })}
-              className="w-full h-10 rounded cursor-pointer"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Accent</label>
-            <input
-              type="color"
-              value={assets.colors.accent}
-              onChange={(e) => onAssetsChange({ ...assets, colors: { ...assets.colors, accent: e.target.value } })}
-              className="w-full h-10 rounded cursor-pointer"
-            />
-          </div>
-        </div>
-      </div>
-
+      {/* Uploading Overlay */}
       {uploading && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-xl shadow-xl">
             <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto"></div>
-            <p className="mt-3 text-gray-600">Uploading...</p>
+            <p className="mt-3 text-gray-600 font-medium">Uploading...</p>
           </div>
         </div>
       )}
