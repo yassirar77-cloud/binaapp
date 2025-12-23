@@ -103,20 +103,16 @@ async def subdomain_middleware(request: Request, call_next):
     return await call_next(request)
 
 # -------------------------------------------------------------------
-# CORS (CRITICAL – FIXES FAILED TO FETCH)
+# CORS (CRITICAL – FIXES FAILED TO FETCH AND MOBILE REQUESTS)
 # -------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://binaapp.my",
-        "https://www.binaapp.my",
-        "https://binaapp.vercel.app",
-        "https://binaapp-backend.onrender.com"
-    ],
+    allow_origins=["*"],  # Allow ALL origins including mobile
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,  # Cache preflight for 24 hours
 )
 
 # -------------------------------------------------------------------
@@ -168,6 +164,21 @@ async def root():
         "health": "/health",
         "version": "1.0.0",
     }
+
+# -------------------------------------------------------------------
+# Handle OPTIONS preflight manually for mobile
+# -------------------------------------------------------------------
+@app.options("/{path:path}")
+async def options_handler(request: Request, path: str):
+    return JSONResponse(
+        content={"status": "ok"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Max-Age": "86400",
+        }
+    )
 
 # -------------------------------------------------------------------
 # Routers
