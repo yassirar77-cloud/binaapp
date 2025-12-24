@@ -10,7 +10,7 @@ import ImageUpload from './components/ImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
 import CodeAnimation from '@/components/CodeAnimation'
-import { API_BASE_URL } from '@/lib/env'
+import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
 import { supabase, signOut } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
@@ -117,16 +117,34 @@ export default function CreatePage() {
     setProgress(0)
 
     try {
-      // Step 1: Start generation job (returns immediately)
-      console.log('Starting generation job...')
-      const startResponse = await fetch('/api/generate', {
+      /**
+       * CRITICAL TIMEOUT FIX FOR MOBILE USERS
+       *
+       * Problem: Vercel FREE plan has 10-second timeout for:
+       *   - API routes (/api/generate)
+       *   - Rewrites/proxies (/backend/*)
+       *
+       * AI generation takes 30-60 seconds, causing "Request timeout" errors.
+       *
+       * Solution: Call Render backend DIRECTLY for async operations:
+       *   1. POST /api/generate/start → Returns job_id in <1 second
+       *   2. Poll GET /api/generate/status/{job_id} → Returns status every 3 seconds
+       *   3. AI runs on Render with NO timeout limit
+       *
+       * This bypasses ALL Vercel timeouts and works perfectly on mobile.
+       */
+      console.log('Starting generation job (calling Render backend directly)...')
+      const startResponse = await fetch(`${DIRECT_BACKEND_URL}/api/generate/start`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
         body: JSON.stringify({
-          business_description: description,
+          description: description,
+          user_id: user?.id || 'demo-user',
+          multi_style: multiStyle,
+          images: uploadedImages,
         }),
       })
 
@@ -152,7 +170,7 @@ export default function CreatePage() {
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         await new Promise(resolve => setTimeout(resolve, pollInterval))
 
-        const statusResponse = await fetch(`${API_BASE_URL}/api/generate/status/${jobId}`, {
+        const statusResponse = await fetch(`${DIRECT_BACKEND_URL}/api/generate/status/${jobId}`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
         })
@@ -207,9 +225,11 @@ export default function CreatePage() {
       console.error('Generation error:', err)
 
       if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        setError('Tidak dapat menghubungi server. Pastikan internet anda stabil dan cuba lagi.')
+        setError('Tidak dapat menghubungi server. Pastikan internet anda stabil dan cuba lagi. (Network error)')
+      } else if (err.message.includes('timeout')) {
+        setError('Masa tamat. Server sedang sibuk. Sila cuba lagi dalam beberapa minit.')
       } else {
-        setError(err.message || 'Failed to generate website. Please try again.')
+        setError(`Ralat: ${err.message || 'Gagal menjana website. Sila cuba lagi.'}`)
       }
     } finally {
       setLoading(false)
