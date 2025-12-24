@@ -27,6 +27,73 @@ class AIService:
         logger.info("   Mode: Real images only, no placeholders allowed")
         logger.info("=" * 80)
 
+    async def test_api_connectivity(self) -> Dict[str, any]:
+        """Test connectivity to both AI APIs"""
+        results = {
+            "qwen": {"status": "not_configured", "error": None},
+            "deepseek": {"status": "not_configured", "error": None}
+        }
+
+        # Test Qwen API
+        if self.qwen_api_key:
+            try:
+                logger.info("🟡 Testing Qwen API connectivity...")
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    r = await client.post(
+                        f"{self.qwen_base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self.qwen_api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": "qwen-max",
+                            "messages": [{"role": "user", "content": "Hello"}],
+                            "max_tokens": 10
+                        }
+                    )
+                    if r.status_code == 200:
+                        results["qwen"]["status"] = "connected"
+                        logger.info("🟡 Qwen API ✅ Connection successful")
+                    else:
+                        results["qwen"]["status"] = "error"
+                        results["qwen"]["error"] = f"HTTP {r.status_code}: {r.text}"
+                        logger.error(f"🟡 Qwen API ❌ Status {r.status_code}")
+            except Exception as e:
+                results["qwen"]["status"] = "error"
+                results["qwen"]["error"] = str(e)
+                logger.error(f"🟡 Qwen API ❌ Exception: {e}")
+
+        # Test DeepSeek API
+        if self.deepseek_api_key:
+            try:
+                logger.info("🔷 Testing DeepSeek API connectivity...")
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    r = await client.post(
+                        f"{self.deepseek_base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self.deepseek_api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": "deepseek-chat",
+                            "messages": [{"role": "user", "content": "Hello"}],
+                            "max_tokens": 10
+                        }
+                    )
+                    if r.status_code == 200:
+                        results["deepseek"]["status"] = "connected"
+                        logger.info("🔷 DeepSeek API ✅ Connection successful")
+                    else:
+                        results["deepseek"]["status"] = "error"
+                        results["deepseek"]["error"] = f"HTTP {r.status_code}: {r.text}"
+                        logger.error(f"🔷 DeepSeek API ❌ Status {r.status_code}")
+            except Exception as e:
+                results["deepseek"]["status"] = "error"
+                results["deepseek"]["error"] = str(e)
+                logger.error(f"🔷 DeepSeek API ❌ Exception: {e}")
+
+        return results
+
     # HARDCODED WORKING IMAGES - Guaranteed to work
     IMAGES = {
         "pet_shop": {
