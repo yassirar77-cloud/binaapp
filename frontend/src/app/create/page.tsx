@@ -71,6 +71,7 @@ export default function CreatePage() {
   const [generatePreviews, setGeneratePreviews] = useState(false)
 
   const [previewMode, setPreviewMode] = useState<'single' | 'multi'>('single')
+  const [progress, setProgress] = useState(0)
 
   useEffect(() => {
     checkUser()
@@ -113,13 +114,12 @@ export default function CreatePage() {
     setGeneratedHtml('')
     setStyleVariations([])
     setSelectedStyle(null)
+    setProgress(0)
 
     try {
-      // Use AbortController for timeout (mobile networks can be slow)
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 minute timeout
-
-      const response = await fetch('/api/generate', {
+      // Step 1: Start generation job (returns immediately)
+      console.log('Starting generation job...')
+      const startResponse = await fetch('/api/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -128,57 +128,92 @@ export default function CreatePage() {
         body: JSON.stringify({
           business_description: description,
         }),
-        signal: controller.signal,
-        mode: 'cors',
-        cache: 'no-cache',
       })
 
-      clearTimeout(timeoutId)
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`Server error: ${response.status} - ${errorText}`)
+      if (!startResponse.ok) {
+        const errorText = await startResponse.text()
+        throw new Error(`Failed to start: ${startResponse.status} - ${errorText}`)
       }
 
-      const data = await response.json()
+      const startData = await startResponse.json()
+      console.log('Job started:', startData)
 
-      console.log('API Response:', data)
-      console.log('Variations:', data.variations)
+      if (!startData.job_id) {
+        throw new Error('No job_id returned from server')
+      }
 
-      if (multiStyle && data.variations) {
-        // Convert backend object format to frontend array format
-        const formattedVariations = Object.entries(data.variations).map(([styleName, content]: [string, any]) => {
-          console.log(`Processing style: ${styleName}`, content)
-          return {
-            style: styleName,
-            html: content.html_content || content.html || '',
-            thumbnail: content.thumbnail || null,
-            preview_image: content.preview_image || null,
-            social_preview: content.social_preview || null
-          }
+      const jobId = startData.job_id
+
+      // Step 2: Poll for status every 3 seconds
+      console.log(`Polling for job ${jobId}...`)
+      const maxAttempts = 60 // 60 attempts × 3 seconds = 3 minutes max
+      const pollInterval = 3000 // 3 seconds
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, pollInterval))
+
+        const statusResponse = await fetch(`${API_BASE_URL}/api/generate/status/${jobId}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
         })
 
-        console.log('Formatted variations:', formattedVariations)
-        setStyleVariations(formattedVariations)
-        setDetectedFeatures(data.detected_features || [])
-        setTemplateUsed(data.template_used || 'general')
-      } else {
-        setGeneratedHtml(data.html || data.html_content)
-        setDetectedFeatures(data.detected_features || [])
-        setTemplateUsed(data.template_used || 'general')
+        if (!statusResponse.ok) {
+          console.error(`Status check failed: ${statusResponse.status}`)
+          continue // Try again on next iteration
+        }
+
+        const statusData = await statusResponse.json()
+        console.log(`Job ${jobId} status:`, statusData.status, `(${statusData.progress}%)`)
+
+        // Update progress
+        setProgress(statusData.progress || 0)
+
+        // Check if completed
+        if (statusData.status === 'completed') {
+          console.log('Generation completed!', statusData)
+
+          // Format variations
+          if (statusData.variants && statusData.variants.length > 0) {
+            const formattedVariations = statusData.variants.map((variant: any) => ({
+              style: variant.style || 'Unknown',
+              html: variant.html || '',
+              thumbnail: variant.thumbnail || null,
+              preview_image: variant.preview_image || null,
+              social_preview: variant.social_preview || null
+            }))
+
+            console.log('Formatted variations:', formattedVariations)
+            setStyleVariations(formattedVariations)
+            setDetectedFeatures(statusData.detected_features || [])
+            setTemplateUsed(statusData.template_used || 'general')
+          }
+
+          setLoading(false)
+          return
+        }
+
+        // Check if failed
+        if (statusData.status === 'failed') {
+          throw new Error(statusData.error || 'Generation failed')
+        }
+
+        // Continue polling...
       }
+
+      // If we get here, we exceeded max attempts
+      throw new Error('Generation timeout - took longer than 3 minutes')
+
     } catch (err: any) {
       console.error('Generation error:', err)
 
-      if (err.name === 'AbortError') {
-        setError('Request timeout. Server mungkin sibuk. Sila cuba lagi.')
-      } else if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
         setError('Tidak dapat menghubungi server. Pastikan internet anda stabil dan cuba lagi.')
       } else {
         setError(err.message || 'Failed to generate website. Please try again.')
       }
     } finally {
       setLoading(false)
+      setProgress(0)
     }
   }
 
@@ -521,21 +556,34 @@ export default function CreatePage() {
                     </p>
                   </div>
 
+                  {/* Progress bar */}
+                  <div className="mb-6">
+                    <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 transition-all duration-500 ease-out"
+                        style={{ width: `${progress}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-center text-blue-400 mt-2 font-semibold">
+                      {progress}% Complete
+                    </p>
+                  </div>
+
                   <div className="mt-6 space-y-3 text-left max-w-md mx-auto">
                     <div className="flex items-center gap-3 text-gray-300">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                      <div className={`w-2 h-2 rounded-full ${progress >= 10 ? 'bg-blue-500 animate-pulse' : 'bg-gray-600'}`}></div>
                       <span className="text-sm">Analyzing your business description...</span>
                     </div>
                     <div className="flex items-center gap-3 text-gray-300">
-                      <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                      <div className={`w-2 h-2 rounded-full ${progress >= 33 ? 'bg-purple-500 animate-pulse' : 'bg-gray-600'}`}></div>
                       <span className="text-sm">Generating Modern style...</span>
                     </div>
                     <div className="flex items-center gap-3 text-gray-300">
-                      <div className="w-2 h-2 bg-pink-500 rounded-full animate-pulse"></div>
+                      <div className={`w-2 h-2 rounded-full ${progress >= 66 ? 'bg-pink-500 animate-pulse' : 'bg-gray-600'}`}></div>
                       <span className="text-sm">Generating Minimal style...</span>
                     </div>
                     <div className="flex items-center gap-3 text-gray-300">
-                      <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                      <div className={`w-2 h-2 rounded-full ${progress >= 99 ? 'bg-orange-500 animate-pulse' : 'bg-gray-600'}`}></div>
                       <span className="text-sm">Generating Bold style...</span>
                     </div>
                   </div>
