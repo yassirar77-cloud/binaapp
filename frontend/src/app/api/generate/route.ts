@@ -94,42 +94,7 @@ function extractHtml(text: string): string {
   return text.trim();
 }
 
-async function pollJobStatus(jobId: string, maxAttempts = 60): Promise<any> {
-  const pollInterval = 3000; // Poll every 3 seconds
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      const statusResponse = await fetch(`${BACKEND_API_URL}/api/generate/status/${jobId}`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!statusResponse.ok) {
-        throw new Error(`Status check failed: ${statusResponse.status}`);
-      }
-
-      const status = await statusResponse.json();
-      console.log(`Job ${jobId} status: ${status.status} (${status.progress}%)`);
-
-      if (status.status === 'completed') {
-        return status;
-      }
-
-      if (status.status === 'failed') {
-        throw new Error(status.error || 'Generation failed');
-      }
-
-      // Wait before next poll
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
-    } catch (error) {
-      console.error(`Poll attempt ${attempt + 1} failed:`, error);
-      if (attempt === maxAttempts - 1) throw error;
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
-    }
-  }
-
-  throw new Error('Generation timeout - exceeded maximum wait time');
-}
+// Polling is now handled on the client side to avoid Next.js API route timeouts
 
 export async function POST(request: NextRequest) {
   try {
@@ -138,11 +103,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Description required' }, { status: 400 });
     }
 
-    // Use async generation with backend polling
+    // Use async generation - just start the job and return job_id immediately
     if (USE_ASYNC_GENERATION) {
-      console.log('Using async generation with backend polling...');
+      console.log('Starting async generation job...');
 
-      // Step 1: Start async generation
+      // Start async generation on backend
       const startResponse = await fetch(`${BACKEND_API_URL}/api/generate/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -159,27 +124,15 @@ export async function POST(request: NextRequest) {
         throw new Error(`Failed to start generation: ${startResponse.status} - ${errorText}`);
       }
 
-      const { job_id } = await startResponse.json();
+      const { job_id, status, message } = await startResponse.json();
       console.log(`Job created: ${job_id}`);
 
-      // Step 2: Poll for completion
-      const result = await pollJobStatus(job_id);
-
-      // Step 3: Return variations
+      // Return job_id immediately - frontend will poll for status
       return NextResponse.json({
         success: true,
-        variations: result.variants.reduce((acc: any, variant: any, index: number) => {
-          acc[variant.style || `Variant ${index + 1}`] = {
-            html_content: variant.html,
-            html: variant.html,
-            thumbnail: variant.thumbnail,
-            preview_image: variant.preview_image,
-            social_preview: variant.social_preview,
-          };
-          return acc;
-        }, {}),
-        detected_features: result.detected_features || [],
-        template_used: result.template_used || 'general',
+        job_id,
+        status,
+        message: message || 'Generation started. Poll for status.',
       });
     }
 
