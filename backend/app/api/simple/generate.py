@@ -4,10 +4,12 @@ POST /api/generate - Generate website from description
 """
 
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from loguru import logger
 import asyncio
+import json
 
 from app.services.ai_service import ai_service
 from app.services.templates import template_service
@@ -691,6 +693,160 @@ async def get_generation_result(job_id: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get job result: {str(e)}"
         )
+
+
+@router.post("/generate/stream")
+async def generate_stream(request: SimpleGenerateRequest):
+    """
+    Generate website with Server-Sent Events (SSE)
+
+    This endpoint:
+    - Uses SSE to stream real-time progress updates
+    - No background tasks (works on Render!)
+    - No polling required
+    - Single persistent connection
+    - Returns final HTML when complete
+    """
+    async def event_generator():
+        try:
+            logger.info("=" * 80)
+            logger.info("🚀 SSE GENERATION REQUEST")
+            logger.info(f"User ID: {request.user_id}")
+            logger.info(f"Description: {request.description[:100]}...")
+            logger.info(f"Multi-style: {request.multi_style}")
+            logger.info("=" * 80)
+
+            # Progress 10% - Starting
+            yield f"data: {json.dumps({'progress': 10, 'status': 'processing', 'message': 'Menganalisis perniagaan anda...'})}\n\n"
+            await asyncio.sleep(0.1)
+
+            # Detect website type and features
+            logger.info("Step 1: Detecting website type and features...")
+            website_type = template_service.detect_website_type(request.description)
+            features = template_service.detect_features(request.description)
+            business_name = extract_business_name(request.description)
+            language = detect_language(request.description)
+            phone_number = extract_phone_number(request.description)
+            address = extract_address(request.description)
+
+            logger.info(f"✓ Type={website_type}, Features={features}")
+
+            # Progress 20%
+            yield f"data: {json.dumps({'progress': 20, 'status': 'processing', 'message': 'Menyediakan reka bentuk...', 'detected_features': features, 'template_used': website_type})}\n\n"
+            await asyncio.sleep(0.1)
+
+            # Build AI generation request
+            ai_request = WebsiteGenerationRequest(
+                description=request.description,
+                business_name=business_name,
+                business_type=website_type,
+                language=language,
+                subdomain="preview",
+                include_whatsapp=("whatsapp" in features),
+                whatsapp_number=phone_number if phone_number else "+60123456789",
+                include_maps=("maps" in features),
+                location_address=address if address else "",
+                include_ecommerce=("cart" in features),
+                contact_email=None,
+                uploaded_images=request.images if request.images else [],
+                logo=request.logo,
+                fonts=request.fonts if request.fonts else [],
+                colors=request.colors,
+                theme=request.theme
+            )
+
+            # User data for integrations
+            user_data = {
+                "phone": phone_number if phone_number else "+60123456789",
+                "address": address if address else "",
+                "email": "contact@business.com",
+                "url": "https://preview.binaapp.my",
+                "whatsapp_message": "Hi, I'm interested"
+            }
+
+            # Multi-style generation
+            if request.multi_style:
+                logger.info("Generating 3 style variations with SSE...")
+
+                # Progress 30%
+                yield f"data: {json.dumps({'progress': 30, 'status': 'processing', 'message': 'AI sedang menjana 3 reka bentuk...'})}\n\n"
+
+                # Generate all 3 styles
+                variations_dict = await ai_service.generate_multi_style(ai_request)
+                logger.info(f"✓ Received {len(variations_dict)} variations from AI")
+
+                # Process each variation
+                variations = []
+                for idx, (style, ai_response) in enumerate(variations_dict.items()):
+                    logger.info(f"Processing {style} variant ({idx+1}/3)...")
+
+                    html_content = ai_response.html_content
+
+                    # Inject integrations
+                    html_content = template_service.inject_integrations(
+                        html_content,
+                        features,
+                        user_data
+                    )
+
+                    variant = {
+                        "style": style,
+                        "html": html_content,
+                        "thumbnail": None,
+                        "social_preview": None
+                    }
+
+                    variations.append(variant)
+
+                    # Update progress: 40%, 70%, 100%
+                    progress = 40 + int(((idx + 1) / 3) * 60)
+                    message = f"Reka bentuk {style.upper()} siap! ({idx+1}/3)"
+                    yield f"data: {json.dumps({'progress': progress, 'status': 'processing', 'message': message})}\n\n"
+                    await asyncio.sleep(0.1)
+
+                # Progress 100% - Completed
+                logger.info(f"✅ SSE generation completed with {len(variations)} variants")
+                yield f"data: {json.dumps({'progress': 100, 'status': 'completed', 'message': 'Siap!', 'variants': variations, 'detected_features': features, 'template_used': website_type})}\n\n"
+
+            else:
+                # Single style generation
+                logger.info("Generating single style with SSE...")
+
+                # Progress 50%
+                yield f"data: {json.dumps({'progress': 50, 'status': 'processing', 'message': 'AI sedang menulis kod...'})}\n\n"
+
+                # Generate website
+                ai_response = await ai_service.generate_website(ai_request)
+                html_content = ai_response.html_content
+
+                # Inject integrations
+                html_content = template_service.inject_integrations(
+                    html_content,
+                    features,
+                    user_data
+                )
+
+                # Progress 100% - Completed
+                logger.info("✅ SSE generation completed")
+                yield f"data: {json.dumps({'progress': 100, 'status': 'completed', 'message': 'Siap!', 'html': html_content, 'detected_features': features, 'template_used': website_type})}\n\n"
+
+        except Exception as e:
+            import traceback
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            logger.error(f"❌ SSE generation failed: {error_msg}")
+            logger.error(traceback.format_exc())
+            yield f"data: {json.dumps({'progress': 0, 'status': 'failed', 'error': error_msg, 'message': 'Ralat berlaku'})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*",
+        }
+    )
 
 
 @router.get("/test-ai")

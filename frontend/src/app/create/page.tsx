@@ -118,27 +118,25 @@ export default function CreatePage() {
 
     try {
       /**
-       * CRITICAL TIMEOUT FIX FOR MOBILE USERS
+       * SERVER-SENT EVENTS (SSE) APPROACH
        *
-       * Problem: Vercel FREE plan has 10-second timeout for:
-       *   - API routes (/api/generate)
-       *   - Rewrites/proxies (/backend/*)
+       * NEW: Uses SSE for real-time updates - NO background tasks needed!
        *
-       * AI generation takes 30-60 seconds, causing "Request timeout" errors.
+       * Why this works on Render:
+       *   1. Single persistent connection (no polling)
+       *   2. AI generates in same request (no background tasks)
+       *   3. Real-time progress updates via SSE
+       *   4. Works perfectly on Render free tier
        *
-       * Solution: Call Render backend DIRECTLY for async operations:
-       *   1. POST /api/generate/start → Returns job_id in <1 second
-       *   2. Poll GET /api/generate/status/{job_id} → Returns status every 3 seconds
-       *   3. AI runs on Render with NO timeout limit
-       *
-       * This bypasses ALL Vercel timeouts and works perfectly on mobile.
+       * This replaces the failed async/polling approach that relied on
+       * background tasks which don't work on Render.
        */
-      console.log('Starting generation job (calling Render backend directly)...')
-      const startResponse = await fetch(`${DIRECT_BACKEND_URL}/api/generate/start`, {
+      console.log('Starting SSE generation (calling Render backend directly)...')
+
+      const response = await fetch(`${DIRECT_BACKEND_URL}/api/generate/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
         },
         body: JSON.stringify({
           description: description,
@@ -148,78 +146,100 @@ export default function CreatePage() {
         }),
       })
 
-      if (!startResponse.ok) {
-        const errorText = await startResponse.text()
-        throw new Error(`Failed to start: ${startResponse.status} - ${errorText}`)
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Server error: ${response.status} - ${errorText}`)
       }
 
-      const startData = await startResponse.json()
-      console.log('Job started:', startData)
-
-      if (!startData.job_id) {
-        throw new Error('No job_id returned from server')
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('No reader available')
       }
 
-      const jobId = startData.job_id
+      const decoder = new TextDecoder()
+      let buffer = ''
 
-      // Step 2: Poll for status every 3 seconds
-      console.log(`Polling for job ${jobId}...`)
-      const maxAttempts = 60 // 60 attempts × 3 seconds = 3 minutes max
-      const pollInterval = 3000 // 3 seconds
+      // Read SSE stream
+      while (true) {
+        const { done, value } = await reader.read()
 
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, pollInterval))
-
-        const statusResponse = await fetch(`${DIRECT_BACKEND_URL}/api/generate/status/${jobId}`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-        })
-
-        if (!statusResponse.ok) {
-          console.error(`Status check failed: ${statusResponse.status}`)
-          continue // Try again on next iteration
+        if (done) {
+          console.log('SSE stream ended')
+          break
         }
 
-        const statusData = await statusResponse.json()
-        console.log(`Job ${jobId} status:`, statusData.status, `(${statusData.progress}%)`)
+        // Decode chunk and add to buffer
+        buffer += decoder.decode(value, { stream: true })
 
-        // Update progress
-        setProgress(statusData.progress || 0)
+        // Process complete lines
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || '' // Keep incomplete line in buffer
 
-        // Check if completed
-        if (statusData.status === 'completed') {
-          console.log('Generation completed!', statusData)
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              console.log('SSE event:', data)
 
-          // Format variations
-          if (statusData.variants && statusData.variants.length > 0) {
-            const formattedVariations = statusData.variants.map((variant: any) => ({
-              style: variant.style || 'Unknown',
-              html: variant.html || '',
-              thumbnail: variant.thumbnail || null,
-              preview_image: variant.preview_image || null,
-              social_preview: variant.social_preview || null
-            }))
+              // Update progress and status message
+              if (data.progress !== undefined) {
+                setProgress(data.progress)
+              }
 
-            console.log('Formatted variations:', formattedVariations)
-            setStyleVariations(formattedVariations)
-            setDetectedFeatures(statusData.detected_features || [])
-            setTemplateUsed(statusData.template_used || 'general')
+              // Update detected features if available
+              if (data.detected_features) {
+                setDetectedFeatures(data.detected_features)
+              }
+
+              // Update template used if available
+              if (data.template_used) {
+                setTemplateUsed(data.template_used)
+              }
+
+              // Check status
+              if (data.status === 'completed') {
+                console.log('Generation completed!', data)
+
+                // Multi-style: Handle variants
+                if (data.variants && data.variants.length > 0) {
+                  const formattedVariations = data.variants.map((variant: any) => ({
+                    style: variant.style || 'Unknown',
+                    html: variant.html || '',
+                    thumbnail: variant.thumbnail || null,
+                    preview_image: variant.preview_image || null,
+                    social_preview: variant.social_preview || null
+                  }))
+
+                  console.log('Formatted variations:', formattedVariations)
+                  setStyleVariations(formattedVariations)
+                  setDetectedFeatures(data.detected_features || [])
+                  setTemplateUsed(data.template_used || 'general')
+                }
+                // Single style: Handle HTML
+                else if (data.html) {
+                  setGeneratedHtml(data.html)
+                  setDetectedFeatures(data.detected_features || [])
+                  setTemplateUsed(data.template_used || 'general')
+                }
+
+                setLoading(false)
+                return
+              }
+
+              if (data.status === 'failed') {
+                throw new Error(data.error || 'Generation failed')
+              }
+
+            } catch (e) {
+              console.error('Failed to parse SSE data:', e, 'Line:', line)
+              // Skip invalid JSON lines
+            }
           }
-
-          setLoading(false)
-          return
         }
-
-        // Check if failed
-        if (statusData.status === 'failed') {
-          throw new Error(statusData.error || 'Generation failed')
-        }
-
-        // Continue polling...
       }
 
-      // If we get here, we exceeded max attempts
-      throw new Error('Generation timeout - took longer than 3 minutes')
+      // If we get here without completion, something went wrong
+      throw new Error('Stream ended without completion')
 
     } catch (err: any) {
       console.error('Generation error:', err)
