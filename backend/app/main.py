@@ -42,28 +42,30 @@ async def generate_image(prompt: str) -> Optional[str]:
         return None
     try:
         logger.info(f"🎨 Generating: {prompt[:40]}...")
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        import base64
+        async with httpx.AsyncClient(timeout=90.0) as client:
             response = await client.post(
-                "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",
+                "https://api.stability.ai/v2beta/stable-image/generate/core",
                 headers={
                     "Authorization": f"Bearer {STABILITY_API_KEY}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
+                    "Accept": "image/*"
                 },
-                json={
-                    "text_prompts": [
-                        {"text": f"{prompt}, professional photography, high quality, realistic", "weight": 1},
-                        {"text": "blurry, bad quality, cartoon, anime", "weight": -1}
-                    ],
-                    "cfg_scale": 7, "width": 1024, "height": 576, "steps": 30, "samples": 1, "style_preset": "photographic"
+                files={"none": ''},
+                data={
+                    "prompt": f"{prompt}, professional photography, high quality, realistic",
+                    "negative_prompt": "blurry, cartoon, anime, drawing, low quality",
+                    "output_format": "png",
+                    "aspect_ratio": "16:9"
                 }
             )
             if response.status_code == 200:
+                image_base64 = base64.b64encode(response.content).decode('utf-8')
                 logger.info("🎨 ✅ Image generated")
-                return f"data:image/png;base64,{response.json()['artifacts'][0]['base64']}"
-            logger.error(f"🎨 ❌ Failed: {response.status_code}")
+                return f"data:image/png;base64,{image_base64}"
+            else:
+                logger.error(f"🎨 ❌ Failed: {response.status_code} - {response.text[:100]}")
     except Exception as e:
-        logger.error(f"🎨 Error: {e}")
+        logger.error(f"🎨 ❌ Error: {e}")
     return None
 
 def get_image_prompts(desc: str) -> Dict:
@@ -118,18 +120,32 @@ async def call_deepseek(prompt: str) -> Optional[str]:
 
 async def call_qwen(prompt: str) -> Optional[str]:
     if not QWEN_API_KEY:
+        logger.info("🟡 No Qwen API key")
         return None
     try:
         logger.info("🟡 Calling Qwen...")
         async with httpx.AsyncClient(timeout=120.0) as client:
-            r = await client.post("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
-                headers={"Authorization": f"Bearer {QWEN_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "qwen-max", "messages": [{"role": "user", "content": prompt}], "max_tokens": 8000})
+            r = await client.post(
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {QWEN_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "qwen-plus",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 8000,
+                    "temperature": 0.7
+                }
+            )
+            logger.info(f"🟡 Qwen response: {r.status_code}")
             if r.status_code == 200:
-                logger.info("🟡 ✅ Success")
+                logger.info("🟡 ✅ Qwen Success")
                 return r.json()["choices"][0]["message"]["content"]
+            else:
+                logger.error(f"🟡 ❌ Qwen Failed: {r.status_code} - {r.text[:200]}")
     except Exception as e:
-        logger.error(f"🟡 Error: {e}")
+        logger.error(f"🟡 ❌ Qwen Error: {e}")
     return None
 
 def extract_html(text: str) -> str:
@@ -149,6 +165,46 @@ async def health():
 @app.get("/api/keys")
 async def check_keys():
     return {"deepseek": bool(DEEPSEEK_API_KEY), "qwen": bool(QWEN_API_KEY), "stability": bool(STABILITY_API_KEY)}
+
+@app.get("/api/test-ai")
+async def test_ai():
+    """Test both AI APIs"""
+    results = {"deepseek": False, "qwen": False, "stability": False}
+
+    # Test DeepSeek
+    if DEEPSEEK_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(
+                    "https://api.deepseek.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+                    json={"model": "deepseek-chat", "messages": [{"role": "user", "content": "Say OK"}], "max_tokens": 10}
+                )
+                results["deepseek"] = r.status_code == 200
+        except:
+            pass
+
+    # Test Qwen
+    if QWEN_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(
+                    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {QWEN_API_KEY}", "Content-Type": "application/json"},
+                    json={"model": "qwen-plus", "messages": [{"role": "user", "content": "Say OK"}], "max_tokens": 10}
+                )
+                results["qwen"] = r.status_code == 200
+        except:
+            pass
+
+    # Test Stability
+    if STABILITY_API_KEY:
+        results["stability"] = True  # Just check key exists
+
+    return {
+        "keys": {"deepseek": bool(DEEPSEEK_API_KEY), "qwen": bool(QWEN_API_KEY), "stability": bool(STABILITY_API_KEY)},
+        "working": results
+    }
 
 @app.post("/api/generate-simple")
 async def generate_simple(request: GenerateRequest):
