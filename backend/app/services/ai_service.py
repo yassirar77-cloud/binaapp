@@ -19,11 +19,13 @@ class AIService:
         self.qwen_base_url = os.getenv("QWEN_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+        self.stability_api_key = os.getenv("STABILITY_API_KEY")
 
         logger.info("=" * 80)
         logger.info("🚀 AI SERVICE - STRICT NO-PLACEHOLDER MODE")
         logger.info(f"   DeepSeek: {'✅ Ready' if self.deepseek_api_key else '❌ NOT SET'}")
         logger.info(f"   Qwen: {'✅ Ready' if self.qwen_api_key else '❌ NOT SET'}")
+        logger.info(f"   Stability: {'✅ Ready' if self.stability_api_key else '❌ NOT SET'}")
         logger.info("   Mode: Real images only, no placeholders allowed")
         logger.info("=" * 80)
 
@@ -93,6 +95,202 @@ class AIService:
                 logger.error(f"🔷 DeepSeek API ❌ Exception: {e}")
 
         return results
+
+    # ==================== STABILITY AI IMAGE GENERATION ====================
+    async def generate_image(self, prompt: str) -> Optional[str]:
+        """Generate image using Stability AI"""
+        if not self.stability_api_key:
+            logger.info("🎨 No Stability API key")
+            return None
+
+        try:
+            logger.info(f"🎨 Generating: {prompt[:40]}...")
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",
+                    headers={
+                        "Authorization": f"Bearer {self.stability_api_key}",
+                        "Content-Type": "application/json",
+                        "Accept": "application/json"
+                    },
+                    json={
+                        "text_prompts": [
+                            {"text": f"{prompt}, professional photography, high quality, realistic", "weight": 1},
+                            {"text": "blurry, bad quality, cartoon, illustration, drawing, anime", "weight": -1}
+                        ],
+                        "cfg_scale": 7,
+                        "width": 1024,
+                        "height": 576,
+                        "steps": 30,
+                        "samples": 1,
+                        "style_preset": "photographic"
+                    }
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    base64_img = data["artifacts"][0]["base64"]
+                    logger.info("🎨 ✅ Image generated")
+                    return f"data:image/png;base64,{base64_img}"
+                else:
+                    logger.error(f"🎨 ❌ Failed: {response.status_code}")
+        except Exception as e:
+            logger.error(f"🎨 ❌ Error: {e}")
+
+        return None
+
+    def get_image_prompts(self, description: str) -> Dict:
+        """Get image prompts based on business description"""
+        d = description.lower()
+
+        if "teddy" in d or "bear" in d or "plush" in d or "patung" in d:
+            return {
+                "hero": "Cute teddy bear shop with soft plush toys on shelves, warm cozy lighting",
+                "gallery": [
+                    "Adorable brown teddy bear sitting, soft fluffy plush toy",
+                    "Collection of colorful teddy bears on display",
+                    "Giant pink teddy bear in gift shop",
+                    "Small cute teddy bears with ribbon bows"
+                ]
+            }
+
+        if "ikan" in d or "fish" in d or "seafood" in d:
+            return {
+                "hero": "Fresh fish market with seafood on ice display",
+                "gallery": [
+                    "Fresh red snapper fish on ice",
+                    "Fresh prawns and shrimp display",
+                    "Fresh salmon fillets at counter",
+                    "Variety of tropical fish"
+                ]
+            }
+
+        if "makan" in d or "restoran" in d or "food" in d or "nasi" in d:
+            return {
+                "hero": "Modern Malaysian restaurant interior with warm lighting",
+                "gallery": [
+                    "Delicious nasi lemak with sambal",
+                    "Chef cooking in restaurant kitchen",
+                    "Elegant restaurant table setting",
+                    "Malaysian cuisine dishes spread"
+                ]
+            }
+
+        if any(w in d for w in ['salon', 'rambut', 'hair', 'beauty']):
+            return {
+                "hero": "Modern luxury hair salon interior",
+                "gallery": [
+                    "Hairstylist cutting hair in salon",
+                    "Hair coloring treatment",
+                    "Hair washing station",
+                    "Hair styling products"
+                ]
+            }
+
+        if any(w in d for w in ['kucing', 'cat', 'pet']):
+            return {
+                "hero": "Modern pet shop with cute cats",
+                "gallery": [
+                    "Adorable orange tabby cat",
+                    "Cat food and supplies",
+                    "Playful kittens",
+                    "Cat grooming service"
+                ]
+            }
+
+        if "bakery" in d or "roti" in d or "kek" in d or "cake" in d:
+            return {
+                "hero": "Artisan bakery with fresh bread and pastries",
+                "gallery": [
+                    "Fresh baked bread loaves",
+                    "Decorated birthday cakes",
+                    "Croissants and pastries",
+                    "Baker preparing dough"
+                ]
+            }
+
+        if "kereta" in d or "car" in d or "bengkel" in d or "workshop" in d:
+            return {
+                "hero": "Modern car workshop garage",
+                "gallery": [
+                    "Mechanic working on car engine",
+                    "Car tire service",
+                    "Auto mechanic under car",
+                    "Automotive service center"
+                ]
+            }
+
+        # Default
+        return {
+            "hero": f"{description} business storefront, professional",
+            "gallery": [
+                f"{description} products",
+                f"{description} service",
+                f"Customer at {description}",
+                f"{description} interior"
+            ]
+        }
+
+    async def generate_business_images(self, description: str) -> Optional[Dict]:
+        """Generate all images for a business"""
+        if not self.stability_api_key:
+            return None
+
+        prompts = self.get_image_prompts(description)
+
+        logger.info("🎨 GENERATING IMAGES WITH STABILITY AI...")
+
+        # Generate hero
+        import asyncio
+        hero = await self.generate_image(prompts["hero"])
+        if not hero:
+            return None
+
+        # Generate gallery
+        gallery = []
+        for i, prompt in enumerate(prompts["gallery"]):
+            logger.info(f"🎨 Gallery {i+1}/4...")
+            img = await self.generate_image(prompt)
+            if img:
+                gallery.append(img)
+            await asyncio.sleep(0.3)
+
+        if len(gallery) < 3:
+            return None
+
+        logger.info(f"🎨 ✅ Generated {len(gallery) + 1} images")
+        return {"hero": hero, "gallery": gallery}
+
+    def get_fallback_images(self, description: str) -> Dict:
+        """Get fallback stock images"""
+        d = description.lower()
+
+        if "teddy" in d or "bear" in d:
+            return {
+                "hero": "https://images.unsplash.com/photo-1558679908-541bcf1249ff?w=1920&q=80",
+                "gallery": [
+                    "https://images.unsplash.com/photo-1562040506-a9b32cb51b94?w=800&q=80",
+                    "https://images.unsplash.com/photo-1559454403-b8fb88521f11?w=800&q=80",
+                    "https://images.unsplash.com/photo-1530325553241-4f6e7690cf36?w=800&q=80",
+                    "https://images.unsplash.com/photo-1566669437687-7040a6926753?w=800&q=80"
+                ]
+            }
+
+        if "ikan" in d or "fish" in d:
+            return {
+                "hero": "https://images.unsplash.com/photo-1534043464124-3be32fe000c9?w=1920&q=80",
+                "gallery": [
+                    "https://images.unsplash.com/photo-1510130387422-82bed34b37e9?w=800&q=80",
+                    "https://images.unsplash.com/photo-1498654200943-1088dd4438ae?w=800&q=80",
+                    "https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?w=800&q=80",
+                    "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&q=80"
+                ]
+            }
+
+        # Use existing IMAGES dict for other types
+        biz_type = self._detect_type(description)
+        return self.IMAGES.get(biz_type, self.IMAGES["default"])
 
     # HARDCODED WORKING IMAGES - Guaranteed to work
     IMAGES = {

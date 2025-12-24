@@ -116,52 +116,58 @@ export default function CreatePage() {
     setSelectedStyle(null)
     setProgress(0)
 
-    try {
-      /**
-       * VERCEL API ROUTE WITH STABILITY AI
-       *
-       * Uses /api/generate which has:
-       *   1. Stability AI for custom image generation
-       *   2. DeepSeek for HTML structure
-       *   3. Qwen for content improvement
-       *   4. Triple AI mode for best results
-       *
-       * STABILITY_API_KEY is set in Vercel environment
-       */
-      console.log('Starting generation with Stability AI (Vercel API route)...')
+    /**
+     * RENDER BACKEND WITH STABILITY AI
+     *
+     * Uses Render backend which has:
+     *   1. STABILITY_API_KEY for custom AI-generated images
+     *   2. DEEPSEEK_API_KEY for HTML generation
+     *   3. QWEN_API_KEY for content improvement
+     *   4. No timeout limits (unlike Vercel)
+     *   5. All API keys configured in Render environment
+     *
+     * Endpoint: /api/generate-simple (returns JSON, not SSE)
+     */
+    const RENDER_BACKEND = 'https://binaapp-backend.onrender.com'
 
-      // Simulate progress updates
+    try {
+      console.log('Calling Render backend with Stability AI...')
+
+      // Simulate progress for better UX
       const progressInterval = setInterval(() => {
-        setProgress(prev => {
-          if (prev >= 90) return prev
-          return prev + 10
-        })
+        setProgress(prev => (prev >= 90 ? prev : prev + 10))
       }, 3000)
 
-      const response = await fetch('/api/generate', {
+      const response = await fetch(`${RENDER_BACKEND}/api/generate-simple`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
         body: JSON.stringify({
-          business_description: description
+          description: description,
+          user_id: user?.id || 'demo-user',
+          language: language,
+          multi_style: false,
+          images: uploadedImages,
         }),
       })
 
       clearInterval(progressInterval)
 
-      const data = await response.json()
-
       if (!response.ok) {
-        throw new Error(data.error || 'Generation failed')
+        const errorText = await response.text()
+        throw new Error(`Server error: ${response.status} - ${errorText}`)
       }
+
+      const data = await response.json()
+      console.log('Response:', data)
 
       // Update progress to 100%
       setProgress(100)
 
-      console.log('Generation completed!', data)
-
-      // Handle response
-      if (data.styles && data.styles.length > 0) {
-        // Multi-style response
+      if (data.success && data.styles && data.styles.length > 0) {
+        // Format variations
         const formattedVariations = data.styles.map((item: any) => ({
           style: item.style || 'modern',
           html: item.html || '',
@@ -171,13 +177,16 @@ export default function CreatePage() {
         }))
 
         setStyleVariations(formattedVariations)
+        setDetectedFeatures(data.detected_features || [])
+        setTemplateUsed(data.template_used || 'modern')
         console.log('Formatted variations:', formattedVariations)
-      } else if (data.html) {
+      } else if (data.success && data.html) {
         // Single style response
         setGeneratedHtml(data.html)
-        setTemplateUsed('modern')
+        setDetectedFeatures(data.detected_features || [])
+        setTemplateUsed(data.template_used || 'modern')
       } else {
-        throw new Error('No HTML content received')
+        throw new Error(data.error || 'Generation failed')
       }
 
       setLoading(false)
