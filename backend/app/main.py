@@ -215,41 +215,66 @@ async def generate_simple(request: GenerateRequest):
     logger.info("=" * 60)
     logger.info("🚀 /api/generate-simple CALLED")
     logger.info(f"   Desc: {desc[:50]}...")
-    logger.info(f"   Keys: DS={bool(DEEPSEEK_API_KEY)} QW={bool(QWEN_API_KEY)} ST={bool(STABILITY_API_KEY)}")
     logger.info("=" * 60)
 
     try:
-        # Images
-        images = get_stock_images(desc)
-        if STABILITY_API_KEY:
-            custom = await generate_all_images(desc)
-            if custom: images = custom
+        # Step 1: Try to generate AI images, but use stock URLs for the prompt
+        stock_images = get_stock_images(desc)
+        ai_images = None
 
-        # HTML prompt
+        if STABILITY_API_KEY:
+            logger.info("🎨 Generating AI images...")
+            ai_images = await generate_all_images(desc)
+            if ai_images:
+                logger.info("🎨 ✅ AI images ready")
+            else:
+                logger.info("🎨 ⚠️ Using stock images")
+
+        # Step 2: Generate HTML using STOCK image URLs (not base64)
+        # This keeps the prompt small for the AI
         prompt = f"""Create HTML website for: {desc}
 
-IMAGES (use exactly):
-- Hero: {images['hero']}
-- Gallery: {images['gallery'][0]}, {images['gallery'][1]}, {images['gallery'][2]}, {images['gallery'][3] if len(images['gallery'])>3 else images['gallery'][0]}
+IMAGES (use these URLs):
+- Hero: {stock_images['hero']}
+- Gallery 1: {stock_images['gallery'][0]}
+- Gallery 2: {stock_images['gallery'][1]}
+- Gallery 3: {stock_images['gallery'][2]}
+- Gallery 4: {stock_images['gallery'][3] if len(stock_images['gallery']) > 3 else stock_images['gallery'][0]}
 
 Requirements:
 1. Single HTML with <script src="https://cdn.tailwindcss.com"></script>
-2. Mobile responsive, modern design
-3. Sections: Header, Hero, About, Services, Gallery, Contact, Footer
-4. WhatsApp button (60123456789)
+2. Mobile responsive, modern design with gradients
+3. Sections: Header, Hero (full-width image), About, Services (3 cards), Gallery (4 images grid), Contact, Footer
+4. WhatsApp floating button linking to wa.me/60123456789
+5. Smooth hover effects and shadows
 
-Output ONLY HTML code."""
+Output ONLY the complete HTML code."""
 
-        html = await call_deepseek(prompt) or await call_qwen(prompt)
+        logger.info("🔷 Calling DeepSeek...")
+        html = await call_deepseek(prompt)
+
         if not html:
-            return JSONResponse(status_code=500, content={"success": False, "error": "AI failed"})
+            logger.info("🟡 DeepSeek failed, trying Qwen...")
+            html = await call_qwen(prompt)
+
+        if not html:
+            return JSONResponse(status_code=500, content={"success": False, "error": "AI generation failed"})
 
         html = extract_html(html)
-        logger.info(f"✅ Generated {len(html)} chars")
 
+        # Step 3: Replace stock images with AI images if available
+        if ai_images:
+            logger.info("🔄 Replacing stock images with AI images...")
+            html = html.replace(stock_images['hero'], ai_images['hero'])
+            for i, stock_url in enumerate(stock_images['gallery']):
+                if i < len(ai_images['gallery']):
+                    html = html.replace(stock_url, ai_images['gallery'][i])
+
+        logger.info(f"✅ Generated {len(html)} chars")
         return {"success": True, "html": html, "styles": [{"style": "modern", "html": html}]}
+
     except Exception as e:
-        logger.error(f"❌ {e}")
+        logger.error(f"❌ Error: {e}")
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 # Keep existing routers if they exist
