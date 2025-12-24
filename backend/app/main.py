@@ -1,206 +1,212 @@
-"""
-BinaApp - AI-Powered No-Code Website Builder
-Main FastAPI Application
-"""
-
-import os
-import time
-from contextlib import asynccontextmanager
-
-import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from loguru import logger
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import Optional, List, Dict
+from dotenv import load_dotenv
+import os
+import httpx
+import asyncio
+import logging
 
-from app.api import menu_designer, server, upload
-from app.api.routes.preview import router as preview_router
-from app.api.simple.router import simple_router
-from app.api.simple_generate import router as simple_generate_router
-from app.api.v1.router import api_router
-from app.core.config import settings
-from app.core.logging_config import setup_logging
+load_dotenv()
 
-# -------------------------------------------------------------------
-# Logging
-# -------------------------------------------------------------------
-setup_logging()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# -------------------------------------------------------------------
-# Subdomain routing (for published websites on Render)
-# -------------------------------------------------------------------
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://wjaztxkbaeqjabybxhct.supabase.co")
+app = FastAPI(title="BinaApp API", version="2.0.0")
 
-# -------------------------------------------------------------------
-# Lifespan
-# -------------------------------------------------------------------
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("=" * 80)
-    logger.info("🚀 Starting BinaApp API...")
-    logger.info(f"Environment: {settings.ENVIRONMENT}")
-    logger.info(f"Frontend URL: {settings.FRONTEND_URL}")
-    logger.info("API Version: v1")
-    logger.info("=" * 80)
-
-    # Validate critical environment variables
-    logger.info("Checking environment variables...")
-    env_checks = {
-        "QWEN_API_KEY": bool(settings.QWEN_API_KEY),
-        "DEEPSEEK_API_KEY": bool(settings.DEEPSEEK_API_KEY),
-        "SUPABASE_URL": bool(settings.SUPABASE_URL),
-        "SUPABASE_ANON_KEY": bool(settings.SUPABASE_ANON_KEY),
-        "JWT_SECRET_KEY": bool(settings.JWT_SECRET_KEY),
-    }
-
-    for key, is_set in env_checks.items():
-        status = "✓ SET" if is_set else "✗ MISSING"
-        logger.info(f"  {key}: {status}")
-
-    missing = [k for k, v in env_checks.items() if not v]
-    if missing:
-        logger.warning(f"⚠️  Missing environment variables: {', '.join(missing)}")
-    else:
-        logger.info("✓ All critical environment variables are set")
-
-    logger.info("=" * 80)
-    yield
-    logger.info("👋 Shutting down BinaApp API...")
-
-# -------------------------------------------------------------------
-# App
-# -------------------------------------------------------------------
-app = FastAPI(
-    title="BinaApp API",
-    description="AI-Powered No-Code Website Builder for Malaysian SMEs",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
-    lifespan=lifespan,
-)
-
-# -------------------------------------------------------------------
-# Subdomain middleware (must run before other middleware)
-# -------------------------------------------------------------------
-@app.middleware("http")
-async def subdomain_middleware(request: Request, call_next):
-    host = request.headers.get("host", "").lower().split(":")[0]
-
-    if host.endswith(".binaapp.my"):
-        subdomain = host.replace(".binaapp.my", "")
-
-        if subdomain and subdomain not in ["www", "api", "app"]:
-            try:
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    response = await client.get(f"{SUPABASE_URL}/storage/v1/object/public/websites/{subdomain}/index.html")
-                    if response.status_code == 200:
-                        return HTMLResponse(content=response.text)
-            except:
-                pass
-
-            return HTMLResponse(content=f"<html><body><h1>Website {subdomain}.binaapp.my tidak dijumpai</h1><a href='https://binaapp.my'>Bina website anda</a></body></html>", status_code=404)
-
-    return await call_next(request)
-
-# -------------------------------------------------------------------
-# CORS (CRITICAL – FIXES FAILED TO FETCH AND MOBILE REQUESTS)
-# -------------------------------------------------------------------
+# CORS - Allow all origins for now
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow ALL origins including mobile
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=86400,  # Cache preflight for 24 hours
 )
 
-# -------------------------------------------------------------------
-# GZip
-# -------------------------------------------------------------------
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+# API Keys
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+QWEN_API_KEY = os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
 
-# -------------------------------------------------------------------
-# Request timing
-# -------------------------------------------------------------------
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    start_time = time.time()
-    response = await call_next(request)
-    response.headers["X-Process-Time"] = str(time.time() - start_time)
-    return response
+class GenerateRequest(BaseModel):
+    business_description: str
+    description: Optional[str] = None
+    language: str = "ms"
+    multi_style: bool = False
 
-# -------------------------------------------------------------------
-# Global error handler
-# -------------------------------------------------------------------
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.exception(exc)
-    return JSONResponse(
-        status_code=500,
-        content={
-            "detail": "Internal server error",
-            "error": str(exc) if settings.ENVIRONMENT == "development" else "An error occurred"
-        },
-    )
+# ==================== STABILITY AI ====================
+async def generate_image(prompt: str) -> Optional[str]:
+    if not STABILITY_API_KEY:
+        return None
+    try:
+        logger.info(f"🎨 Generating: {prompt[:40]}...")
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",
+                headers={
+                    "Authorization": f"Bearer {STABILITY_API_KEY}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                json={
+                    "text_prompts": [
+                        {"text": f"{prompt}, professional photography, high quality, realistic", "weight": 1},
+                        {"text": "blurry, bad quality, cartoon, anime", "weight": -1}
+                    ],
+                    "cfg_scale": 7, "width": 1024, "height": 576, "steps": 30, "samples": 1, "style_preset": "photographic"
+                }
+            )
+            if response.status_code == 200:
+                logger.info("🎨 ✅ Image generated")
+                return f"data:image/png;base64,{response.json()['artifacts'][0]['base64']}"
+            logger.error(f"🎨 ❌ Failed: {response.status_code}")
+    except Exception as e:
+        logger.error(f"🎨 Error: {e}")
+    return None
 
-# -------------------------------------------------------------------
-# Health & Root
-# -------------------------------------------------------------------
-@app.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "service": "BinaApp API",
-        "version": "1.0.0",
-        "environment": settings.ENVIRONMENT,
-    }
+def get_image_prompts(desc: str) -> Dict:
+    d = desc.lower()
+    if "teddy" in d or "bear" in d: return {"hero": "Cute teddy bear shop with plush toys", "gallery": ["Brown teddy bear", "Colorful teddy bears", "Giant pink teddy", "Small teddy bears"]}
+    if "salon" in d or "hair" in d or "rambut" in d: return {"hero": "Modern luxury hair salon interior", "gallery": ["Hairstylist cutting hair", "Hair coloring", "Hair washing", "Hair products"]}
+    if "ikan" in d or "fish" in d: return {"hero": "Fresh fish market with seafood on ice", "gallery": ["Fresh fish on ice", "Prawns and shrimp", "Salmon fillets", "Tropical fish"]}
+    if "makan" in d or "restoran" in d or "food" in d: return {"hero": "Modern restaurant interior", "gallery": ["Nasi lemak", "Chef cooking", "Table setting", "Malaysian dishes"]}
+    if "kucing" in d or "cat" in d or "pet" in d: return {"hero": "Pet shop with cute cats", "gallery": ["Orange tabby cat", "Cat food", "Playful kittens", "Cat grooming"]}
+    return {"hero": f"{desc} business", "gallery": [f"{desc} products", f"{desc} service", f"{desc} customer", f"{desc} interior"]}
 
+async def generate_all_images(desc: str) -> Optional[Dict]:
+    if not STABILITY_API_KEY:
+        return None
+    prompts = get_image_prompts(desc)
+    hero = await generate_image(prompts["hero"])
+    if not hero:
+        return None
+    gallery = []
+    for p in prompts["gallery"]:
+        img = await generate_image(p)
+        if img: gallery.append(img)
+        await asyncio.sleep(0.3)
+    if len(gallery) < 3:
+        return None
+    return {"hero": hero, "gallery": gallery}
+
+def get_stock_images(desc: str) -> Dict:
+    d = desc.lower()
+    if "salon" in d or "hair" in d or "rambut" in d:
+        return {"hero": "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1920&q=80", "gallery": ["https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=800&q=80", "https://images.unsplash.com/photo-1559599101-f09722fb4948?w=800&q=80", "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=800&q=80", "https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800&q=80"]}
+    if "ikan" in d or "fish" in d:
+        return {"hero": "https://images.unsplash.com/photo-1534043464124-3be32fe000c9?w=1920&q=80", "gallery": ["https://images.unsplash.com/photo-1510130387422-82bed34b37e9?w=800&q=80", "https://images.unsplash.com/photo-1498654200943-1088dd4438ae?w=800&q=80", "https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?w=800&q=80", "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&q=80"]}
+    return {"hero": "https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920&q=80", "gallery": ["https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&q=80", "https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=800&q=80", "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?w=800&q=80", "https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=800&q=80"]}
+
+# ==================== AI CALLS ====================
+async def call_deepseek(prompt: str) -> Optional[str]:
+    if not DEEPSEEK_API_KEY:
+        return None
+    try:
+        logger.info("🔷 Calling DeepSeek...")
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.post("https://api.deepseek.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
+                json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "max_tokens": 8000})
+            if r.status_code == 200:
+                logger.info("🔷 ✅ Success")
+                return r.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.error(f"🔷 Error: {e}")
+    return None
+
+async def call_qwen(prompt: str) -> Optional[str]:
+    if not QWEN_API_KEY:
+        return None
+    try:
+        logger.info("🟡 Calling Qwen...")
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.post("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+                headers={"Authorization": f"Bearer {QWEN_API_KEY}", "Content-Type": "application/json"},
+                json={"model": "qwen-max", "messages": [{"role": "user", "content": prompt}], "max_tokens": 8000})
+            if r.status_code == 200:
+                logger.info("🟡 ✅ Success")
+                return r.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.error(f"🟡 Error: {e}")
+    return None
+
+def extract_html(text: str) -> str:
+    if "```html" in text: return text.split("```html")[1].split("```")[0].strip()
+    if "```" in text: return text.split("```")[1].split("```")[0].strip()
+    return text.strip()
+
+# ==================== ENDPOINTS ====================
 @app.get("/")
 async def root():
-    return {
-        "message": "Welcome to BinaApp API",
-        "docs": "/docs",
-        "health": "/health",
-        "version": "1.0.0",
-    }
+    return {"status": "running", "service": "BinaApp API", "version": "2.0.0"}
 
-# -------------------------------------------------------------------
-# Handle OPTIONS preflight manually for mobile
-# -------------------------------------------------------------------
-@app.options("/{path:path}")
-async def options_handler(request: Request, path: str):
-    return JSONResponse(
-        content={"status": "ok"},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Max-Age": "86400",
-        }
-    )
+@app.get("/health")
+async def health():
+    return {"status": "healthy", "service": "BinaApp API", "version": "2.0.0", "environment": "production"}
 
-# -------------------------------------------------------------------
-# Routers
-# -------------------------------------------------------------------
-app.include_router(api_router, prefix="/api/v1")
-app.include_router(simple_router, prefix="/api")
-app.include_router(simple_generate_router)
-app.include_router(upload.router, prefix="/api", tags=["upload"])
-app.include_router(menu_designer.router, prefix="/api", tags=["menu"])
-app.include_router(server.router, prefix="/api", tags=["projects"])
-app.include_router(preview_router, prefix="/api")
+@app.get("/api/keys")
+async def check_keys():
+    return {"deepseek": bool(DEEPSEEK_API_KEY), "qwen": bool(QWEN_API_KEY), "stability": bool(STABILITY_API_KEY)}
 
-# -------------------------------------------------------------------
-# Local run
-# -------------------------------------------------------------------
+@app.post("/api/generate-simple")
+async def generate_simple(request: GenerateRequest):
+    desc = request.business_description or request.description or ""
+    if not desc:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
+
+    logger.info("=" * 60)
+    logger.info("🚀 /api/generate-simple CALLED")
+    logger.info(f"   Desc: {desc[:50]}...")
+    logger.info(f"   Keys: DS={bool(DEEPSEEK_API_KEY)} QW={bool(QWEN_API_KEY)} ST={bool(STABILITY_API_KEY)}")
+    logger.info("=" * 60)
+
+    try:
+        # Images
+        images = get_stock_images(desc)
+        if STABILITY_API_KEY:
+            custom = await generate_all_images(desc)
+            if custom: images = custom
+
+        # HTML prompt
+        prompt = f"""Create HTML website for: {desc}
+
+IMAGES (use exactly):
+- Hero: {images['hero']}
+- Gallery: {images['gallery'][0]}, {images['gallery'][1]}, {images['gallery'][2]}, {images['gallery'][3] if len(images['gallery'])>3 else images['gallery'][0]}
+
+Requirements:
+1. Single HTML with <script src="https://cdn.tailwindcss.com"></script>
+2. Mobile responsive, modern design
+3. Sections: Header, Hero, About, Services, Gallery, Contact, Footer
+4. WhatsApp button (60123456789)
+
+Output ONLY HTML code."""
+
+        html = await call_deepseek(prompt) or await call_qwen(prompt)
+        if not html:
+            return JSONResponse(status_code=500, content={"success": False, "error": "AI failed"})
+
+        html = extract_html(html)
+        logger.info(f"✅ Generated {len(html)} chars")
+
+        return {"success": True, "html": html, "styles": [{"style": "modern", "html": html}]}
+    except Exception as e:
+        logger.error(f"❌ {e}")
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+# Keep existing routers if they exist
+try:
+    from app.api.simple.generate import router as simple_router
+    app.include_router(simple_router)
+except: pass
+
+try:
+    from app.api.generate import router as gen_router
+    app.include_router(gen_router)
+except: pass
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info",
-    )
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 10000)))

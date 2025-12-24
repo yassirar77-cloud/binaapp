@@ -110,43 +110,34 @@ export default function CreatePage() {
     setError('');
     setStyleVariations([]);
 
-    const API_URL = 'https://binaapp-backend.onrender.com';
-
     try {
-      const response = await fetch(`${API_URL}/api/generate-simple`, {
+      console.log('🚀 Calling API...');
+
+      const response = await fetch('https://binaapp-backend.onrender.com/api/generate-simple', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          business_description: description,
-          language: language,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ business_description: description, language }),
       });
 
       const data = await response.json();
+      console.log('Response:', data);
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || `Server error: ${response.status}`);
-      }
+      if (!data.success) throw new Error(data.error || 'Failed');
 
-      if (data.styles && data.styles.length > 0) {
+      if (data.styles?.length > 0) {
         setStyleVariations(data.styles);
         setSelectedStyle(null);
       } else if (data.html) {
         setStyleVariations([{ style: 'modern', html: data.html }]);
         setSelectedStyle(null);
-      } else {
-        throw new Error('No website generated');
       }
     } catch (err: any) {
-      console.error('Generate error:', err);
-      setError(err.message || 'Ralat berlaku. Sila cuba lagi.');
+      console.error(err);
+      setError(err.message || 'Error');
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   const handleSelectVariation = (variation: StyleVariation) => {
     setSelectedStyle(variation.style)
