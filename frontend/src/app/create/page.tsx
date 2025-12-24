@@ -118,128 +118,69 @@ export default function CreatePage() {
 
     try {
       /**
-       * SERVER-SENT EVENTS (SSE) APPROACH
+       * VERCEL API ROUTE WITH STABILITY AI
        *
-       * NEW: Uses SSE for real-time updates - NO background tasks needed!
+       * Uses /api/generate which has:
+       *   1. Stability AI for custom image generation
+       *   2. DeepSeek for HTML structure
+       *   3. Qwen for content improvement
+       *   4. Triple AI mode for best results
        *
-       * Why this works on Render:
-       *   1. Single persistent connection (no polling)
-       *   2. AI generates in same request (no background tasks)
-       *   3. Real-time progress updates via SSE
-       *   4. Works perfectly on Render free tier
-       *
-       * This replaces the failed async/polling approach that relied on
-       * background tasks which don't work on Render.
+       * STABILITY_API_KEY is set in Vercel environment
        */
-      console.log('Starting SSE generation (calling Render backend directly)...')
+      console.log('Starting generation with Stability AI (Vercel API route)...')
 
-      const response = await fetch(`${DIRECT_BACKEND_URL}/api/generate/stream`, {
+      // Simulate progress updates
+      const progressInterval = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 90) return prev
+          return prev + 10
+        })
+      }, 3000)
+
+      const response = await fetch('/api/generate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          description: description,
-          user_id: user?.id || 'demo-user',
-          multi_style: multiStyle,
-          images: uploadedImages,
+          business_description: description
         }),
       })
 
+      clearInterval(progressInterval)
+
+      const data = await response.json()
+
       if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`Server error: ${response.status} - ${errorText}`)
+        throw new Error(data.error || 'Generation failed')
       }
 
-      const reader = response.body?.getReader()
-      if (!reader) {
-        throw new Error('No reader available')
+      // Update progress to 100%
+      setProgress(100)
+
+      console.log('Generation completed!', data)
+
+      // Handle response
+      if (data.styles && data.styles.length > 0) {
+        // Multi-style response
+        const formattedVariations = data.styles.map((item: any) => ({
+          style: item.style || 'modern',
+          html: item.html || '',
+          thumbnail: null,
+          preview_image: null,
+          social_preview: null
+        }))
+
+        setStyleVariations(formattedVariations)
+        console.log('Formatted variations:', formattedVariations)
+      } else if (data.html) {
+        // Single style response
+        setGeneratedHtml(data.html)
+        setTemplateUsed('modern')
+      } else {
+        throw new Error('No HTML content received')
       }
 
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      // Read SSE stream
-      while (true) {
-        const { done, value } = await reader.read()
-
-        if (done) {
-          console.log('SSE stream ended')
-          break
-        }
-
-        // Decode chunk and add to buffer
-        buffer += decoder.decode(value, { stream: true })
-
-        // Process complete lines
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || '' // Keep incomplete line in buffer
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
-              console.log('SSE event:', data)
-
-              // Update progress and status message
-              if (data.progress !== undefined) {
-                setProgress(data.progress)
-              }
-
-              // Update detected features if available
-              if (data.detected_features) {
-                setDetectedFeatures(data.detected_features)
-              }
-
-              // Update template used if available
-              if (data.template_used) {
-                setTemplateUsed(data.template_used)
-              }
-
-              // Check status
-              if (data.status === 'completed') {
-                console.log('Generation completed!', data)
-
-                // Multi-style: Handle variants
-                if (data.variants && data.variants.length > 0) {
-                  const formattedVariations = data.variants.map((variant: any) => ({
-                    style: variant.style || 'Unknown',
-                    html: variant.html || '',
-                    thumbnail: variant.thumbnail || null,
-                    preview_image: variant.preview_image || null,
-                    social_preview: variant.social_preview || null
-                  }))
-
-                  console.log('Formatted variations:', formattedVariations)
-                  setStyleVariations(formattedVariations)
-                  setDetectedFeatures(data.detected_features || [])
-                  setTemplateUsed(data.template_used || 'general')
-                }
-                // Single style: Handle HTML
-                else if (data.html) {
-                  setGeneratedHtml(data.html)
-                  setDetectedFeatures(data.detected_features || [])
-                  setTemplateUsed(data.template_used || 'general')
-                }
-
-                setLoading(false)
-                return
-              }
-
-              if (data.status === 'failed') {
-                throw new Error(data.error || 'Generation failed')
-              }
-
-            } catch (e) {
-              console.error('Failed to parse SSE data:', e, 'Line:', line)
-              // Skip invalid JSON lines
-            }
-          }
-        }
-      }
-
-      // If we get here without completion, something went wrong
-      throw new Error('Stream ended without completion')
+      setLoading(false)
 
     } catch (err: any) {
       console.error('Generation error:', err)
