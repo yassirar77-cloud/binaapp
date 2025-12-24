@@ -104,106 +104,47 @@ export default function CreatePage() {
   }
 
   const handleGenerate = async () => {
-    if (description.length < 10) {
-      setError('Please provide a more detailed description (at least 10 characters)')
-      return
-    }
+    if (!description.trim()) return;
 
-    setLoading(true)
-    setError('')
-    setGeneratedHtml('')
-    setStyleVariations([])
-    setSelectedStyle(null)
-    setProgress(0)
+    setLoading(true);
+    setError('');
+    setStyleVariations([]);
 
-    /**
-     * RENDER BACKEND WITH STABILITY AI
-     *
-     * Uses Render backend which has:
-     *   1. STABILITY_API_KEY for custom AI-generated images
-     *   2. DEEPSEEK_API_KEY for HTML generation
-     *   3. QWEN_API_KEY for content improvement
-     *   4. No timeout limits (unlike Vercel)
-     *   5. All API keys configured in Render environment
-     *
-     * Endpoint: /api/generate-simple (returns JSON, not SSE)
-     */
-    const RENDER_BACKEND = 'https://binaapp-backend.onrender.com'
+    const API_URL = 'https://binaapp-backend.onrender.com';
 
     try {
-      console.log('Calling Render backend with Stability AI...')
-
-      // Simulate progress for better UX
-      const progressInterval = setInterval(() => {
-        setProgress(prev => (prev >= 90 ? prev : prev + 10))
-      }, 3000)
-
-      const response = await fetch(`${RENDER_BACKEND}/api/generate-simple`, {
+      const response = await fetch(`${API_URL}/api/generate-simple`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
         body: JSON.stringify({
-          description: description,
-          user_id: user?.id || 'demo-user',
+          business_description: description,
           language: language,
-          multi_style: false,
-          images: uploadedImages,
         }),
-      })
+      });
 
-      clearInterval(progressInterval)
+      const data = await response.json();
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`Server error: ${response.status} - ${errorText}`)
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `Server error: ${response.status}`);
       }
 
-      const data = await response.json()
-      console.log('Response:', data)
-
-      // Update progress to 100%
-      setProgress(100)
-
-      if (data.success && data.styles && data.styles.length > 0) {
-        // Format variations
-        const formattedVariations = data.styles.map((item: any) => ({
-          style: item.style || 'modern',
-          html: item.html || '',
-          thumbnail: null,
-          preview_image: null,
-          social_preview: null
-        }))
-
-        setStyleVariations(formattedVariations)
-        setDetectedFeatures(data.detected_features || [])
-        setTemplateUsed(data.template_used || 'modern')
-        console.log('Formatted variations:', formattedVariations)
-      } else if (data.success && data.html) {
-        // Single style response
-        setGeneratedHtml(data.html)
-        setDetectedFeatures(data.detected_features || [])
-        setTemplateUsed(data.template_used || 'modern')
+      if (data.styles && data.styles.length > 0) {
+        setStyleVariations(data.styles);
+        setSelectedStyle(null);
+      } else if (data.html) {
+        setStyleVariations([{ style: 'modern', html: data.html }]);
+        setSelectedStyle(null);
       } else {
-        throw new Error(data.error || 'Generation failed')
+        throw new Error('No website generated');
       }
-
-      setLoading(false)
-
     } catch (err: any) {
-      console.error('Generation error:', err)
-
-      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        setError('Tidak dapat menghubungi server. Pastikan internet anda stabil dan cuba lagi. (Network error)')
-      } else if (err.message.includes('timeout')) {
-        setError('Masa tamat. Server sedang sibuk. Sila cuba lagi dalam beberapa minit.')
-      } else {
-        setError(`Ralat: ${err.message || 'Gagal menjana website. Sila cuba lagi.'}`)
-      }
+      console.error('Generate error:', err);
+      setError(err.message || 'Ralat berlaku. Sila cuba lagi.');
     } finally {
-      setLoading(false)
-      setProgress(0)
+      setLoading(false);
     }
   }
 
