@@ -849,6 +849,115 @@ async def generate_stream(request: SimpleGenerateRequest):
     )
 
 
+@router.post("/api/generate-simple")
+async def generate_website_simple(request: SimpleGenerateRequest):
+    """
+    Simple JSON endpoint - No SSE, returns complete result
+
+    This endpoint:
+    - Returns regular JSON (not SSE)
+    - Uses Stability AI for custom images (if STABILITY_API_KEY is set)
+    - Falls back to stock images if Stability unavailable
+    - Works perfectly with Render backend
+    """
+    try:
+        logger.info("=" * 80)
+        logger.info("🚀 SIMPLE JSON GENERATION REQUEST")
+        logger.info(f"User ID: {request.user_id}")
+        logger.info(f"Description: {request.description[:100]}...")
+        logger.info("=" * 80)
+
+        # Detect website type
+        website_type = template_service.detect_website_type(request.description)
+        features = template_service.detect_features(request.description)
+        business_name = extract_business_name(request.description)
+        language = detect_language(request.description)
+        phone_number = extract_phone_number(request.description)
+        address = extract_address(request.description)
+
+        logger.info(f"✓ Type={website_type}, Features={features}")
+
+        # Try to generate custom images with Stability AI
+        images = None
+        if ai_service.stability_api_key:
+            logger.info("🎨 Attempting Stability AI image generation...")
+            images = await ai_service.generate_business_images(request.description)
+            if images:
+                logger.info("🎨 ✅ Using Stability AI custom images")
+            else:
+                logger.info("🎨 ⚠️ Stability AI failed, using fallback")
+
+        # Fallback to stock images
+        if not images:
+            images = ai_service.get_fallback_images(request.description)
+            logger.info("📸 Using stock images")
+
+        # Build AI generation request
+        ai_request = WebsiteGenerationRequest(
+            description=request.description,
+            business_name=business_name,
+            business_type=website_type,
+            language=language,
+            subdomain="preview",
+            include_whatsapp=("whatsapp" in features),
+            whatsapp_number=phone_number if phone_number else "+60123456789",
+            include_maps=("maps" in features),
+            location_address=address if address else "",
+            include_ecommerce=("cart" in features),
+            contact_email=None,
+            uploaded_images=images.get("gallery", []),  # Use generated images
+            logo=request.logo,
+            fonts=request.fonts if request.fonts else [],
+            colors=request.colors,
+            theme=request.theme
+        )
+
+        # User data for integrations
+        user_data = {
+            "phone": phone_number if phone_number else "+60123456789",
+            "address": address if address else "",
+            "email": "contact@business.com",
+            "url": "https://preview.binaapp.my",
+            "whatsapp_message": "Hi, I'm interested"
+        }
+
+        # Generate website
+        logger.info("🔷 Generating HTML with AI...")
+        ai_response = await ai_service.generate_website(ai_request)
+        html_content = ai_response.html_content
+
+        # Inject integrations
+        html_content = template_service.inject_integrations(
+            html_content,
+            features,
+            user_data
+        )
+
+        logger.info("✅ Simple generation complete")
+
+        return {
+            "success": True,
+            "html": html_content,
+            "styles": [{"style": "modern", "html": html_content}],
+            "detected_features": features,
+            "template_used": website_type
+        }
+
+    except Exception as e:
+        import traceback
+        logger.error("=" * 80)
+        logger.error("❌ ERROR IN SIMPLE GENERATION")
+        logger.error(f"Error: {str(e)}")
+        logger.error(traceback.format_exc())
+        logger.error("=" * 80)
+        return {
+            "success": False,
+            "error": str(e),
+            "html": "",
+            "styles": []
+        }
+
+
 @router.get("/test-ai")
 async def test_ai_connectivity():
     """
