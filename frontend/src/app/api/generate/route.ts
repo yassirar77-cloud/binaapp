@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 export const maxDuration = 120;
 export const dynamic = 'force-dynamic';
 
+const BACKEND_API_URL = process.env.NEXT_PUBLIC_BACKEND_API_URL || 'https://binaapp-backend.onrender.com';
+const USE_ASYNC_GENERATION = true; // Set to true to use async polling instead of direct call
+
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const QWEN_API_KEY = process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY;
 
@@ -91,15 +94,109 @@ function extractHtml(text: string): string {
   return text.trim();
 }
 
+async function pollJobStatus(jobId: string, maxAttempts = 60): Promise<any> {
+  const pollInterval = 3000; // Poll every 3 seconds
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const statusResponse = await fetch(`${BACKEND_API_URL}/api/generate/status/${jobId}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!statusResponse.ok) {
+        throw new Error(`Status check failed: ${statusResponse.status}`);
+      }
+
+      const status = await statusResponse.json();
+      console.log(`Job ${jobId} status: ${status.status} (${status.progress}%)`);
+
+      if (status.status === 'completed') {
+        return status;
+      }
+
+      if (status.status === 'failed') {
+        throw new Error(status.error || 'Generation failed');
+      }
+
+      // Wait before next poll
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+    } catch (error) {
+      console.error(`Poll attempt ${attempt + 1} failed:`, error);
+      if (attempt === maxAttempts - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+    }
+  }
+
+  throw new Error('Generation timeout - exceeded maximum wait time');
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { business_description } = await request.json();
-    if (!business_description) return NextResponse.json({ error: 'Description required' }, { status: 400 });
+    if (!business_description) {
+      return NextResponse.json({ error: 'Description required' }, { status: 400 });
+    }
+
+    // Use async generation with backend polling
+    if (USE_ASYNC_GENERATION) {
+      console.log('Using async generation with backend polling...');
+
+      // Step 1: Start async generation
+      const startResponse = await fetch(`${BACKEND_API_URL}/api/generate/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: business_description,
+          user_id: 'demo-user',
+          multi_style: true, // Always generate 3 variants
+          images: [],
+        }),
+      });
+
+      if (!startResponse.ok) {
+        const errorText = await startResponse.text();
+        throw new Error(`Failed to start generation: ${startResponse.status} - ${errorText}`);
+      }
+
+      const { job_id } = await startResponse.json();
+      console.log(`Job created: ${job_id}`);
+
+      // Step 2: Poll for completion
+      const result = await pollJobStatus(job_id);
+
+      // Step 3: Return variations
+      return NextResponse.json({
+        success: true,
+        variations: result.variants.reduce((acc: any, variant: any, index: number) => {
+          acc[variant.style || `Variant ${index + 1}`] = {
+            html_content: variant.html,
+            html: variant.html,
+            thumbnail: variant.thumbnail,
+            preview_image: variant.preview_image,
+            social_preview: variant.social_preview,
+          };
+          return acc;
+        }, {}),
+        detected_features: result.detected_features || [],
+        template_used: result.template_used || 'general',
+      });
+    }
+
+    // Fallback: Direct AI call (old method)
+    console.log('Using direct AI generation (fallback)...');
     const result = await callAI(buildPrompt(business_description));
-    if (!result) return NextResponse.json({ error: 'AI failed' }, { status: 500 });
+    if (!result) {
+      return NextResponse.json({ error: 'AI failed' }, { status: 500 });
+    }
     const html = extractHtml(result);
     return NextResponse.json({ success: true, html, styles: [{ style: 'modern', html }] });
+
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Generation error:', error);
+    return NextResponse.json({
+      error: error.message || 'Failed to generate website',
+      details: error.toString()
+    }, { status: 500 });
   }
 }
