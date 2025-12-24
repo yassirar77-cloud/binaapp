@@ -3,14 +3,16 @@ Simple Generate Endpoint
 POST /api/generate - Generate website from description
 """
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, BackgroundTasks
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from loguru import logger
+import asyncio
 
 from app.services.ai_service import ai_service
 from app.services.templates import template_service
 from app.services.screenshot_service import screenshot_service
+from app.services.job_service import job_service, JobStatus
 from app.models.schemas import WebsiteGenerationRequest, Language
 
 router = APIRouter()
@@ -432,6 +434,263 @@ def extract_address(description: str) -> Optional[str]:
                 return address
 
     return None
+
+
+# ==================== ASYNC GENERATION ENDPOINTS ====================
+
+class AsyncGenerateStartResponse(BaseModel):
+    """Response when starting async generation"""
+    job_id: str
+    status: str
+    message: str
+
+
+class AsyncGenerateStatusResponse(BaseModel):
+    """Response for job status check"""
+    job_id: str
+    status: str
+    progress: int
+    variants: List[dict] = []
+    error: Optional[str] = None
+    detected_features: List[str] = []
+    template_used: str = ""
+
+
+async def generate_variants_background(job_id: str, request: SimpleGenerateRequest):
+    """Background task to generate 3 website variants"""
+    try:
+        logger.info(f"🚀 Starting background generation for job {job_id}")
+        job_service.update_status(job_id, JobStatus.PROCESSING)
+        job_service.update_progress(job_id, 0)
+
+        # Step 1: Detect website type and features
+        logger.info(f"Job {job_id}: Detecting website type and features...")
+        website_type = template_service.detect_website_type(request.description)
+        features = template_service.detect_features(request.description)
+        business_name = extract_business_name(request.description)
+        language = detect_language(request.description)
+        phone_number = extract_phone_number(request.description)
+        address = extract_address(request.description)
+
+        # Update job metadata
+        job_service.set_metadata(job_id, features, website_type)
+        logger.info(f"Job {job_id}: Type={website_type}, Features={features}")
+
+        # Build AI generation request
+        ai_request = WebsiteGenerationRequest(
+            description=request.description,
+            business_name=business_name,
+            business_type=website_type,
+            language=language,
+            subdomain="preview",
+            include_whatsapp=("whatsapp" in features),
+            whatsapp_number=phone_number if phone_number else "+60123456789",
+            include_maps=("maps" in features),
+            location_address=address if address else "",
+            include_ecommerce=("cart" in features),
+            contact_email=None,
+            uploaded_images=request.images if request.images else [],
+            logo=request.logo,
+            fonts=request.fonts if request.fonts else [],
+            colors=request.colors,
+            theme=request.theme
+        )
+
+        # User data for integrations
+        user_data = {
+            "phone": phone_number if phone_number else "+60123456789",
+            "address": address if address else "",
+            "email": "contact@business.com",
+            "url": "https://preview.binaapp.my",
+            "whatsapp_message": "Hi, I'm interested"
+        }
+
+        # Step 2: Generate 3 style variations
+        logger.info(f"Job {job_id}: Generating 3 style variations...")
+        variations_dict = await ai_service.generate_multi_style(ai_request)
+        logger.info(f"Job {job_id}: Received {len(variations_dict)} variations from AI")
+
+        # Process each variation
+        for idx, (style, ai_response) in enumerate(variations_dict.items()):
+            try:
+                logger.info(f"Job {job_id}: Processing variant {idx+1}/3 ({style})...")
+
+                html_content = ai_response.html_content
+
+                # Inject integrations
+                html_content = template_service.inject_integrations(
+                    html_content,
+                    features,
+                    user_data
+                )
+
+                variant = {
+                    "style": style,
+                    "html": html_content,
+                    "thumbnail": None,
+                    "social_preview": None
+                }
+
+                # Add variant to job
+                job_service.add_variant(job_id, variant)
+
+                # Update progress: 33%, 66%, 100%
+                progress = int(((idx + 1) / 3) * 100)
+                job_service.update_progress(job_id, progress)
+                logger.info(f"Job {job_id}: Progress {progress}% - Variant {idx+1} completed")
+
+            except Exception as e:
+                logger.error(f"Job {job_id}: Error processing variant {idx+1}: {e}")
+                # Continue with other variants even if one fails
+
+        # Step 3: Mark as completed
+        job_service.update_status(job_id, JobStatus.COMPLETED)
+        job_service.update_progress(job_id, 100)
+        logger.info(f"✅ Job {job_id} completed successfully with {len(variations_dict)} variants")
+
+    except Exception as e:
+        import traceback
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"❌ Job {job_id} failed: {error_msg}")
+        logger.error(traceback.format_exc())
+        job_service.update_status(job_id, JobStatus.FAILED, error=error_msg)
+        job_service.update_progress(job_id, 0)
+
+
+@router.post("/generate/start", response_model=AsyncGenerateStartResponse)
+async def start_async_generation(request: SimpleGenerateRequest, background_tasks: BackgroundTasks):
+    """
+    Start async website generation (returns immediately)
+
+    This endpoint:
+    - Creates a generation job
+    - Returns job_id immediately (< 1 second)
+    - Generates 3 design variants in the background
+    - Client polls /generate/status/{job_id} for updates
+    """
+    try:
+        logger.info("=" * 80)
+        logger.info("🚀 ASYNC GENERATION START")
+        logger.info(f"User ID: {request.user_id}")
+        logger.info(f"Description: {request.description[:100]}...")
+        logger.info("=" * 80)
+
+        # Create job
+        request_data = request.dict()
+        job_id = job_service.create_job(
+            user_id=request.user_id or "demo-user",
+            description=request.description,
+            request_data=request_data
+        )
+
+        # Start background task
+        background_tasks.add_task(generate_variants_background, job_id, request)
+
+        logger.info(f"✅ Job {job_id} created and queued for processing")
+
+        return AsyncGenerateStartResponse(
+            job_id=job_id,
+            status="pending",
+            message="Generation started. Poll /generate/status/{job_id} for updates."
+        )
+
+    except Exception as e:
+        import traceback
+        logger.error(f"Failed to start async generation: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start generation: {str(e)}"
+        )
+
+
+@router.get("/generate/status/{job_id}", response_model=AsyncGenerateStatusResponse)
+async def get_generation_status(job_id: str):
+    """
+    Get status of async generation job
+
+    Returns:
+    - status: pending, processing, completed, failed
+    - progress: 0-100
+    - variants: List of completed variants (populated as they're generated)
+    """
+    try:
+        job_status = job_service.get_job_status(job_id)
+
+        if not job_status:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Job {job_id} not found"
+            )
+
+        return AsyncGenerateStatusResponse(**job_status)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting job status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get job status: {str(e)}"
+        )
+
+
+@router.get("/generate/result/{job_id}")
+async def get_generation_result(job_id: str):
+    """
+    Get completed generation result
+
+    Returns full result when job is completed
+    Throws 404 if job not found
+    Throws 425 (Too Early) if job not completed yet
+    """
+    try:
+        job = job_service.get_job(job_id)
+
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Job {job_id} not found"
+            )
+
+        if job.status == JobStatus.FAILED:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Generation failed: {job.error}"
+            )
+
+        if job.status != JobStatus.COMPLETED:
+            raise HTTPException(
+                status_code=425,  # Too Early
+                detail=f"Job not completed yet. Status: {job.status.value}, Progress: {job.progress}%"
+            )
+
+        # Convert variants to StyleVariation format
+        variations = [
+            StyleVariation(
+                style=v.get("style"),
+                html=v.get("html"),
+                thumbnail=v.get("thumbnail"),
+                social_preview=v.get("social_preview")
+            )
+            for v in job.variants
+        ]
+
+        return MultiStyleResponse(
+            variations=variations,
+            detected_features=job.detected_features,
+            template_used=job.template_used,
+            success=True
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting job result: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get job result: {str(e)}"
+        )
 
 
 @router.get("/test-ai")
