@@ -371,7 +371,7 @@ def extract_html(text: str) -> str:
 
 @app.post("/api/generate-simple")
 async def generate_simple(request: GenerateRequest):
-    """3-Step AI Pipeline with Cloudinary images"""
+    """3-Step AI Pipeline with 3 Style Variations"""
 
     desc = request.business_description or request.description or ""
     user_id = request.user_id or "anonymous"
@@ -393,9 +393,8 @@ async def generate_simple(request: GenerateRequest):
         )
 
     logger.info("=" * 70)
-    logger.info("🌐 WEBSITE GENERATION - 3-STEP AI PIPELINE")
+    logger.info("🌐 WEBSITE GENERATION - 3 STYLE VARIATIONS")
     logger.info(f"   Business: {desc[:60]}...")
-    logger.info(f"   User: {user_id}")
     logger.info("=" * 70)
 
     try:
@@ -404,7 +403,7 @@ async def generate_simple(request: GenerateRequest):
 
         stock_images = get_stock_images(desc)
 
-        # STEP 1: Generate AI Images (upload to Cloudinary)
+        # STEP 1: Generate AI Images (once, reuse for all styles)
         logger.info("")
         logger.info("🎨 STEP 1: Stability AI + Cloudinary...")
         ai_images = None
@@ -417,93 +416,140 @@ async def generate_simple(request: GenerateRequest):
         hero_img = ai_images['hero'] if ai_images else stock_images['hero']
         gallery_imgs = ai_images['gallery'] if ai_images else stock_images['gallery']
 
-        # STEP 2: DeepSeek generates HTML
-        logger.info("")
-        logger.info("🔷 STEP 2: DeepSeek generating HTML...")
+        # Define 3 style variations
+        styles_config = [
+            {
+                "name": "modern",
+                "display_name": "Modern",
+                "description": "Vibrant gradients (purple to blue), glassmorphism effects, rounded corners, bold shadows, smooth animations, contemporary design",
+                "colors": "purple-600, blue-500, gradient backgrounds",
+                "font": "bold, modern sans-serif"
+            },
+            {
+                "name": "minimal",
+                "display_name": "Minimal",
+                "description": "Clean white background, lots of whitespace, simple black text, thin borders, subtle shadows, elegant simplicity, one accent color only",
+                "colors": "white, black, gray-100, one accent color",
+                "font": "thin, elegant, light weight"
+            },
+            {
+                "name": "bold",
+                "display_name": "Bold",
+                "description": "Dark theme with black/dark gray background, large impactful typography, neon accent colors (cyan, pink, yellow), strong contrast, sharp edges, powerful visual impact",
+                "colors": "black, dark gray, neon cyan/pink accents",
+                "font": "extra bold, uppercase headings, impactful"
+            }
+        ]
 
-        deepseek_prompt = f"""Create a modern website for: {desc}
+        generated_styles = []
+
+        # STEP 2 & 3: Generate each style variation
+        for style in styles_config:
+            logger.info("")
+            logger.info(f"🎨 Generating {style['display_name'].upper()} style...")
+
+            # STEP 2: DeepSeek generates HTML structure
+            logger.info(f"🔷 DeepSeek generating {style['name']} HTML...")
+
+            deepseek_prompt = f"""Create a stunning {style['display_name']} website for: {desc}
+
+DESIGN STYLE: {style['description']}
+COLORS: {style['colors']}
+TYPOGRAPHY: {style['font']}
 
 Business Type: {business_type}
 
-Use these placeholders:
-- [BUSINESS_NAME], [BUSINESS_TAGLINE], [ABOUT_TEXT]
-- [SERVICE_1_TITLE], [SERVICE_1_DESC]
-- [SERVICE_2_TITLE], [SERVICE_2_DESC]
-- [SERVICE_3_TITLE], [SERVICE_3_DESC]
-- [CTA_TEXT], [FOOTER_TEXT]
+Use these placeholders (will be replaced by AI):
+- [BUSINESS_NAME] - Business name
+- [BUSINESS_TAGLINE] - Catchy tagline
+- [ABOUT_TEXT] - About us paragraph
+- [SERVICE_1_TITLE], [SERVICE_1_DESC] - Service 1
+- [SERVICE_2_TITLE], [SERVICE_2_DESC] - Service 2
+- [SERVICE_3_TITLE], [SERVICE_3_DESC] - Service 3
+- [CTA_TEXT] - Call to action button
+- [FOOTER_TEXT] - Footer tagline
 
-IMAGES:
+IMAGES (use these exact URLs):
 - Hero: {stock_images['hero']}
-- Gallery: {', '.join(stock_images['gallery'][:4])}
+- Gallery 1: {stock_images['gallery'][0]}
+- Gallery 2: {stock_images['gallery'][1]}
+- Gallery 3: {stock_images['gallery'][2]}
+- Gallery 4: {stock_images['gallery'][3] if len(stock_images['gallery']) > 3 else stock_images['gallery'][0]}
 
-Requirements:
-1. <script src="https://cdn.tailwindcss.com"></script>
-2. Mobile responsive, modern gradients, shadows
-3. Sections: Header, Hero, About, Services, Gallery, Contact, Footer
-4. WhatsApp button: wa.me/60123456789
-5. Smooth animations
+CRITICAL REQUIREMENTS:
+1. Start with: <!DOCTYPE html>
+2. Include: <script src="https://cdn.tailwindcss.com"></script>
+3. MUST be {style['display_name']} style: {style['description']}
+4. Mobile responsive (use Tailwind responsive classes)
+5. Sections: Header/Nav, Hero (full-width image), About, Services (3 cards), Gallery (4 images grid), Contact form, Footer
+6. WhatsApp floating button: <a href="https://wa.me/60123456789" class="fixed bottom-6 right-6 bg-green-500 text-white p-4 rounded-full shadow-lg hover:bg-green-600 z-50">WhatsApp</a>
+7. Smooth hover effects and transitions
+8. Each style MUST look distinctly different!
 
-Output ONLY complete HTML code."""
+Output ONLY the complete HTML code. No explanations."""
 
-        html_structure = await call_deepseek(deepseek_prompt)
+            html_structure = await call_deepseek(deepseek_prompt)
 
-        if not html_structure:
-            return JSONResponse(status_code=500, content={"success": False, "error": "DeepSeek failed"})
+            if not html_structure:
+                logger.warning(f"🔷 DeepSeek failed for {style['name']}, skipping...")
+                continue
 
-        html_structure = extract_html(html_structure)
-        logger.info(f"🔷 STEP 2 - ✅ Complete ({len(html_structure)} chars)")
+            html_structure = extract_html(html_structure)
+            logger.info(f"🔷 DeepSeek [{style['name']}] - ✅ Success ({len(html_structure)} chars)")
 
-        # STEP 3: Qwen improves content
-        logger.info("")
-        logger.info("🟡 STEP 3: Qwen improving content...")
+            # STEP 3: Qwen improves content
+            logger.info(f"🟡 Qwen improving {style['name']} content...")
 
-        qwen_prompt = f"""Replace ALL placeholders with Malaysian-friendly content.
+            qwen_prompt = f"""You are a Malaysian copywriter. Replace ALL placeholders with compelling content.
 
 Business: {desc}
+Business Type: {business_type}
+Style: {style['display_name']}
 
-REPLACE:
-- [BUSINESS_NAME] → Business name
-- [BUSINESS_TAGLINE] → Catchy tagline
-- [ABOUT_TEXT] → About us (2-3 sentences)
-- [SERVICE_1_TITLE], [SERVICE_1_DESC] → Service 1
-- [SERVICE_2_TITLE], [SERVICE_2_DESC] → Service 2
-- [SERVICE_3_TITLE], [SERVICE_3_DESC] → Service 3
-- [CTA_TEXT] → Call to action
-- [FOOTER_TEXT] → Footer tagline
+REPLACE these placeholders with real content:
+- [BUSINESS_NAME] → Create a catchy business name based on description
+- [BUSINESS_TAGLINE] → Catchy tagline (Malaysian English, friendly)
+- [ABOUT_TEXT] → About us paragraph (2-3 sentences, warm tone)
+- [SERVICE_1_TITLE], [SERVICE_1_DESC] → First service name and description
+- [SERVICE_2_TITLE], [SERVICE_2_DESC] → Second service name and description
+- [SERVICE_3_TITLE], [SERVICE_3_DESC] → Third service name and description
+- [CTA_TEXT] → Call to action (e.g., "Hubungi Kami", "Book Now", "Get Started")
+- [FOOTER_TEXT] → Short footer tagline
 
-HTML:
+Guidelines:
+- Malaysian English (friendly, warm)
+- Professional but approachable
+- Suitable for local Malaysian businesses
+- DO NOT change any HTML structure or styling
+- ONLY replace the placeholder text
+
+HTML TO IMPROVE:
 {html_structure}
 
-Output ONLY improved HTML."""
+Output ONLY the complete improved HTML. No explanations."""
 
-        final_html = await call_qwen(qwen_prompt)
+            final_html = await call_qwen(qwen_prompt)
 
-        if final_html:
-            final_html = extract_html(final_html)
-            logger.info(f"🟡 STEP 3 - ✅ Complete ({len(final_html)} chars)")
-        else:
-            final_html = html_structure
-            logger.warning("🟡 STEP 3 - ⚠️ Using DeepSeek output")
+            if final_html:
+                final_html = extract_html(final_html)
+                logger.info(f"🟡 Qwen [{style['name']}] - ✅ Success ({len(final_html)} chars)")
+            else:
+                logger.warning(f"🟡 Qwen [{style['name']}] - ⚠️ Using DeepSeek output")
+                final_html = html_structure
 
-        # STEP 4: Replace stock images with AI/Cloudinary images
-        if ai_images:
-            logger.info("")
-            logger.info("🔄 STEP 4: Replacing images...")
-            final_html = final_html.replace(stock_images['hero'], ai_images['hero'])
-            for i, stock_url in enumerate(stock_images['gallery']):
-                if i < len(ai_images['gallery']):
-                    final_html = final_html.replace(stock_url, ai_images['gallery'][i])
+            # Replace stock images with AI images
+            if ai_images:
+                final_html = final_html.replace(stock_images['hero'], ai_images['hero'])
+                for i, stock_url in enumerate(stock_images['gallery']):
+                    if i < len(ai_images['gallery']):
+                        final_html = final_html.replace(stock_url, ai_images['gallery'][i])
 
-        # STEP 5: Generate project ID and inject analytics tracking script
-        project_id = str(uuid.uuid4())
-        logger.info("")
-        logger.info("📊 STEP 5: Injecting analytics tracking...")
-
-        tracking_script = f'''
+            # Inject analytics tracking script
+            tracking_script = f'''
 <!-- BinaApp Analytics -->
 <script>
 (function() {{
-    const PROJECT_ID = '{project_id}';
+    const PROJECT_ID = 'PENDING';
     const API_URL = 'https://binaapp-backend.onrender.com/api/analytics/track';
     let visitorId = localStorage.getItem('binaapp_visitor');
     if (!visitorId) {{
@@ -523,31 +569,35 @@ Output ONLY improved HTML."""
 }})();
 </script>
 '''
+            if '</body>' in final_html:
+                final_html = final_html.replace('</body>', f'{tracking_script}</body>')
 
-        # Insert before </body>
-        if '</body>' in final_html:
-            final_html = final_html.replace('</body>', f'{tracking_script}</body>')
-            logger.info(f"📊 Analytics tracking injected (Project ID: {project_id[:8]}...)")
-        else:
-            logger.warning("📊 No </body> tag found, appending tracking script")
-            final_html += tracking_script
+            generated_styles.append({
+                "style": style['name'],
+                "name": style['display_name'],
+                "description": style['description'],
+                "html": final_html
+            })
 
-        # Increment usage
+            logger.info(f"✅ {style['display_name']} style complete!")
+
+        # Increment usage after successful generation
         increment_usage(user_id)
 
         logger.info("")
         logger.info("=" * 70)
-        logger.info("✅ GENERATION COMPLETE!")
-        logger.info(f"   Final HTML: {len(final_html)} chars")
-        logger.info(f"   Project ID: {project_id}")
+        logger.info(f"✅ GENERATION COMPLETE! {len(generated_styles)} styles generated")
         logger.info("=" * 70)
+
+        if not generated_styles:
+            return JSONResponse(status_code=500, content={"success": False, "error": "Failed to generate any styles"})
 
         return {
             "success": True,
-            "html": final_html,
-            "project_id": project_id,
-            "styles": [{"style": "modern", "html": final_html}],
-            "usage": check_rate_limit(user_id)
+            "html": generated_styles[0]["html"],  # Default to first style
+            "styles": generated_styles,
+            "usage": check_rate_limit(user_id),
+            "business_type": business_type
         }
 
     except Exception as e:
