@@ -160,7 +160,7 @@ async def generate_all_images(desc: str) -> Optional[dict]:
 
 
 async def call_deepseek(prompt: str) -> Optional[str]:
-    """STEP 2: Call DeepSeek V3 API for HTML structure"""
+    """STEP 2: Call DeepSeek V3.2 API for HTML structure"""
     if not DEEPSEEK_API_KEY:
         logger.info("🔷 DEEPSEEK - No API key configured")
         return None
@@ -176,17 +176,17 @@ async def call_deepseek(prompt: str) -> Optional[str]:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "deepseek-chat",
+                    "model": "deepseek-chat",  # This IS V3.2 - deepseek-chat auto-upgrades to latest
                     "messages": [
-                        {"role": "system", "content": "You are an expert web developer. Output only valid HTML code, no explanations."},
+                        {"role": "system", "content": "You are an expert web developer specializing in modern, beautiful websites. Output only valid HTML code, no explanations."},
                         {"role": "user", "content": prompt}
                     ],
                     "max_tokens": 8000,
-                    "temperature": 0.7
+                    "temperature": 0.8  # Slightly higher for more creative designs
                 }
             )
 
-            logger.info(f"🔷 DEEPSEEK - Response status: {response.status_code}")
+            logger.info(f"🔷 DEEPSEEK V3.2 - Response status: {response.status_code}")
 
             if response.status_code == 200:
                 data = response.json()
@@ -194,7 +194,7 @@ async def call_deepseek(prompt: str) -> Optional[str]:
                 logger.info(f"🔷 DEEPSEEK [html_structure] - ✅ Success ({len(content)} chars)")
                 return content
             else:
-                logger.error(f"🔷 DEEPSEEK - ❌ Failed: {response.status_code} - {response.text[:200]}")
+                logger.error(f"🔷 DEEPSEEK - ❌ Failed: {response.status_code}")
                 return None
 
     except Exception as e:
@@ -273,26 +273,25 @@ def extract_html(text: str) -> str:
 
 @app.post("/api/generate-simple")
 async def generate_simple(request: GenerateRequest):
-    """3-Step AI Pipeline: Stability AI → DeepSeek → Qwen"""
+    """3-Step AI Pipeline with 3 Style Variations"""
 
     desc = request.business_description or request.description or ""
     if not desc:
         return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
 
     logger.info("=" * 70)
-    logger.info("🌐 WEBSITE GENERATION - 3-STEP AI PIPELINE")
+    logger.info("🌐 WEBSITE GENERATION - 3-STEP AI PIPELINE (3 STYLES)")
     logger.info(f"   Business: {desc[:60]}...")
     logger.info("=" * 70)
 
     try:
-        # Detect business type
         business_type = detect_business_type(desc)
         logger.info(f"📋 Detected business type: {business_type}")
 
         stock_images = get_stock_images(desc)
 
         # ============================================
-        # STEP 1: STABILITY AI - Generate Images
+        # STEP 1: STABILITY AI - Generate Images (once, reuse for all styles)
         # ============================================
         logger.info("")
         logger.info("🎨 STEP 1: Stability AI generating images...")
@@ -303,130 +302,140 @@ async def generate_simple(request: GenerateRequest):
             if ai_images:
                 logger.info("🎨 STABILITY [images] - ✅ Success")
             else:
-                logger.info("🎨 STABILITY [images] - ⚠️ Failed, using stock images")
-        else:
-            logger.info("🎨 STABILITY [images] - ⚠️ No API key, using stock images")
+                logger.info("🎨 STABILITY [images] - ⚠️ Using stock images")
 
-        # Use AI images or fallback to stock
         hero_img = ai_images['hero'] if ai_images else stock_images['hero']
         gallery_imgs = ai_images['gallery'] if ai_images else stock_images['gallery']
 
         # ============================================
-        # STEP 2: DEEPSEEK - Generate HTML Structure
+        # STEP 2 & 3: Generate 3 Style Variations
         # ============================================
-        logger.info("")
-        logger.info("🔷 STEP 2: DeepSeek V3 generating HTML structure...")
 
-        deepseek_prompt = f"""Create a complete HTML website structure for: {desc}
+        styles_config = [
+            {
+                "name": "modern",
+                "description": "Modern luxury style with vibrant gradients (purple to blue), glass morphism effects, rounded corners, shadows, smooth animations, bold typography"
+            },
+            {
+                "name": "minimal",
+                "description": "Clean minimal style with lots of whitespace, simple black and white palette with one accent color, thin fonts, subtle borders, elegant simplicity"
+            },
+            {
+                "name": "bold",
+                "description": "Bold dramatic style with dark theme, large impactful typography, strong color contrasts, sharp edges, powerful visual hierarchy, neon accents"
+            }
+        ]
+
+        generated_styles = []
+
+        for style in styles_config:
+            logger.info("")
+            logger.info(f"🎨 Generating {style['name'].upper()} style...")
+
+            # STEP 2: DeepSeek generates HTML structure
+            logger.info(f"🔷 STEP 2: DeepSeek V3.2 generating {style['name']} HTML...")
+
+            deepseek_prompt = f"""Create a stunning {style['name']} website for: {desc}
+
+DESIGN STYLE: {style['description']}
 
 Business Type: {business_type}
 
-Use these EXACT placeholders that will be replaced later:
-- [BUSINESS_NAME] - The business name
-- [BUSINESS_TAGLINE] - A catchy tagline
-- [ABOUT_TEXT] - About us paragraph (2-3 sentences)
-- [SERVICE_1_TITLE], [SERVICE_1_DESC] - First service
-- [SERVICE_2_TITLE], [SERVICE_2_DESC] - Second service
-- [SERVICE_3_TITLE], [SERVICE_3_DESC] - Third service
-- [CTA_TEXT] - Call to action button text
-- [FOOTER_TEXT] - Footer tagline
+Use these placeholders (will be replaced):
+- [BUSINESS_NAME], [BUSINESS_TAGLINE], [ABOUT_TEXT]
+- [SERVICE_1_TITLE], [SERVICE_1_DESC]
+- [SERVICE_2_TITLE], [SERVICE_2_DESC]
+- [SERVICE_3_TITLE], [SERVICE_3_DESC]
+- [CTA_TEXT], [FOOTER_TEXT]
 
-IMAGES (use these exact URLs):
-- Hero background: {stock_images['hero']}
-- Gallery 1: {stock_images['gallery'][0]}
-- Gallery 2: {stock_images['gallery'][1]}
-- Gallery 3: {stock_images['gallery'][2]}
-- Gallery 4: {stock_images['gallery'][3] if len(stock_images['gallery']) > 3 else stock_images['gallery'][0]}
+IMAGES:
+- Hero: {stock_images['hero']}
+- Gallery: {', '.join(stock_images['gallery'][:4])}
 
 Requirements:
-1. Single HTML file with <script src="https://cdn.tailwindcss.com"></script>
-2. Mobile responsive design
-3. Modern gradients and shadows
-4. Sections: Header/Nav, Hero (full-width with image), About, Services (3 cards), Gallery (4 images grid), Contact form, Footer
-5. WhatsApp floating button linking to wa.me/60123456789
-6. Smooth hover effects and transitions
-7. Professional color scheme
+1. <script src="https://cdn.tailwindcss.com"></script>
+2. Mobile responsive
+3. STYLE: {style['description']}
+4. Sections: Header, Hero (full-width), About, Services (3 cards), Gallery (4 images), Contact, Footer
+5. WhatsApp button: wa.me/60123456789
+6. Beautiful hover effects and animations
 
-Output ONLY the complete HTML code with all placeholders."""
+Output ONLY complete HTML code."""
 
-        html_structure = await call_deepseek(deepseek_prompt)
+            html_structure = await call_deepseek(deepseek_prompt)
 
-        if not html_structure:
-            logger.error("🔷 DEEPSEEK - ❌ Failed to generate HTML structure")
-            return JSONResponse(status_code=500, content={"success": False, "error": "DeepSeek failed to generate HTML"})
+            if not html_structure:
+                logger.warning(f"🔷 DEEPSEEK - ❌ Failed for {style['name']}, skipping...")
+                continue
 
-        html_structure = extract_html(html_structure)
+            html_structure = extract_html(html_structure)
+            logger.info(f"🔷 DEEPSEEK [{style['name']}] - ✅ Success ({len(html_structure)} chars)")
 
-        # ============================================
-        # STEP 3: QWEN - Improve Content & Copywriting
-        # ============================================
-        logger.info("")
-        logger.info("🟡 STEP 3: Qwen improving content and copywriting...")
+            # STEP 3: Qwen improves content
+            logger.info(f"🟡 STEP 3: Qwen improving {style['name']} content...")
 
-        qwen_prompt = f"""You are a Malaysian copywriter. Improve this website HTML by replacing ALL placeholders with compelling, Malaysian-friendly content.
+            qwen_prompt = f"""You are a Malaysian copywriter. Replace ALL placeholders with compelling content.
 
-Business Description: {desc}
-Business Type: {business_type}
+Business: {desc}
+Style: {style['name']}
 
-REPLACE THESE PLACEHOLDERS with real, compelling content:
-- [BUSINESS_NAME] → Extract or create business name from description
-- [BUSINESS_TAGLINE] → Catchy tagline in English (Malaysian style, warm and friendly)
-- [ABOUT_TEXT] → Compelling about us (2-3 sentences, friendly Malaysian tone)
-- [SERVICE_1_TITLE], [SERVICE_1_DESC] → First service name and short description
-- [SERVICE_2_TITLE], [SERVICE_2_DESC] → Second service name and short description
-- [SERVICE_3_TITLE], [SERVICE_3_DESC] → Third service name and short description
-- [CTA_TEXT] → Call to action (e.g., "Contact Us Today!", "Book Now!", "Get Started!")
-- [FOOTER_TEXT] → Short footer tagline
+REPLACE these placeholders:
+- [BUSINESS_NAME] → Business name
+- [BUSINESS_TAGLINE] → Catchy tagline (Malaysian English)
+- [ABOUT_TEXT] → About us (2-3 sentences, friendly)
+- [SERVICE_1_TITLE], [SERVICE_1_DESC] → First service
+- [SERVICE_2_TITLE], [SERVICE_2_DESC] → Second service
+- [SERVICE_3_TITLE], [SERVICE_3_DESC] → Third service
+- [CTA_TEXT] → Call to action
+- [FOOTER_TEXT] → Footer tagline
 
-Guidelines:
-- Use Malaysian English (friendly, warm, approachable)
-- Keep it professional but personable
-- Make it compelling and engaging
-- Suitable for local Malaysian audience
-- Don't change any HTML structure, only replace the placeholder text
-
-HTML TO IMPROVE:
+HTML:
 {html_structure}
 
-Output ONLY the complete improved HTML with all placeholders replaced. No explanations."""
+Output ONLY the improved HTML. No explanations."""
 
-        final_html = await call_qwen(qwen_prompt)
+            final_html = await call_qwen(qwen_prompt)
 
-        if final_html:
-            final_html = extract_html(final_html)
-            logger.info(f"🟡 QWEN [content_improvement] - ✅ Content improved")
-        else:
-            logger.warning("🟡 QWEN [content_improvement] - ⚠️ Failed, using DeepSeek output")
-            final_html = html_structure
+            if final_html:
+                final_html = extract_html(final_html)
+                logger.info(f"🟡 QWEN [{style['name']}] - ✅ Success ({len(final_html)} chars)")
+            else:
+                logger.warning(f"🟡 QWEN [{style['name']}] - ⚠️ Using DeepSeek output")
+                final_html = html_structure
 
-        # ============================================
-        # STEP 4: Replace stock images with AI images
-        # ============================================
-        if ai_images:
-            logger.info("")
-            logger.info("🔄 Replacing stock images with AI-generated images...")
-            final_html = final_html.replace(stock_images['hero'], ai_images['hero'])
-            for i, stock_url in enumerate(stock_images['gallery']):
-                if i < len(ai_images['gallery']):
-                    final_html = final_html.replace(stock_url, ai_images['gallery'][i])
+            # Replace stock images with AI images
+            if ai_images:
+                final_html = final_html.replace(stock_images['hero'], ai_images['hero'])
+                for i, stock_url in enumerate(stock_images['gallery']):
+                    if i < len(ai_images['gallery']):
+                        final_html = final_html.replace(stock_url, ai_images['gallery'][i])
+
+            generated_styles.append({
+                "style": style['name'],
+                "html": final_html
+            })
+            logger.info(f"✅ {style['name'].upper()} style complete!")
 
         # ============================================
         # COMPLETE!
         # ============================================
         logger.info("")
         logger.info("=" * 70)
-        logger.info("✅ 3-STEP AI PIPELINE COMPLETE!")
-        logger.info(f"   Final HTML: {len(final_html)} chars")
+        logger.info(f"✅ 3-STEP AI PIPELINE COMPLETE! Generated {len(generated_styles)} styles")
         logger.info("=" * 70)
+
+        if not generated_styles:
+            return JSONResponse(status_code=500, content={"success": False, "error": "Failed to generate any styles"})
 
         return {
             "success": True,
-            "html": final_html,
-            "styles": [{"style": "modern", "html": final_html}],
+            "html": generated_styles[0]["html"],  # Default to first style
+            "styles": generated_styles,
             "pipeline": {
                 "step1_stability": bool(ai_images),
                 "step2_deepseek": True,
-                "step3_qwen": final_html != html_structure
+                "step3_qwen": True,
+                "styles_generated": len(generated_styles)
             }
         }
 
