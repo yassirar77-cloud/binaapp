@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import httpx
@@ -17,6 +17,8 @@ import hashlib
 from supabase import create_client, Client
 from urllib.parse import urlparse
 import uuid
+import asyncio
+import json
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -73,6 +75,9 @@ else:
 user_usage = defaultdict(lambda: {"count": 0, "reset_time": datetime.now()})
 FREE_LIMIT = 3  # 3 generations per day
 
+# Store generation progress
+generation_progress = {}
+
 
 # Request models
 class GenerateRequest(BaseModel):
@@ -114,6 +119,17 @@ async def check_keys():
 async def get_usage(user_id: str = "anonymous"):
     """Get user's current usage"""
     return check_rate_limit(user_id)
+
+
+@app.get("/api/generate/progress/{session_id}")
+async def get_progress(session_id: str):
+    """Get generation progress"""
+    progress = generation_progress.get(session_id, {
+        "percent": 0,
+        "step": "Waiting...",
+        "steps_completed": []
+    })
+    return progress
 
 
 def check_rate_limit(user_id: str = "anonymous") -> dict:
@@ -255,17 +271,50 @@ async def generate_stability_image(prompt: str) -> Optional[str]:
 
 
 async def generate_all_images(desc: str) -> Optional[dict]:
-    """Generate hero image"""
+    """Generate hero image and 4 different gallery images"""
     business_type = detect_business_type(desc)
-    hero_prompt = f"Modern {business_type.replace('_', ' ')} interior, professional, luxurious, {desc}"
+
+    images = {
+        'hero': None,
+        'gallery': []
+    }
+
+    # Generate Hero Image
+    hero_prompt = f"Modern {business_type.replace('_', ' ')} storefront exterior, professional photography, daytime, welcoming entrance, {desc}"
     hero_image = await generate_stability_image(hero_prompt)
 
     if hero_image:
-        return {
-            'hero': hero_image,
-            'gallery': [hero_image] * 4  # Reuse hero for gallery
-        }
-    return None
+        images['hero'] = hero_image
+        logger.info("🎨 Hero image generated")
+    else:
+        return None
+
+    # Generate 4 Different Gallery Images with unique prompts
+    gallery_prompts = [
+        f"Interior view of {business_type.replace('_', ' ')}, modern design, customers browsing, warm lighting, {desc}",
+        f"Product display showcase at {business_type.replace('_', ' ')}, close-up, professional arrangement, {desc}",
+        f"Staff working at {business_type.replace('_', ' ')}, friendly service, professional environment, {desc}",
+        f"Cozy seating area in {business_type.replace('_', ' ')}, comfortable atmosphere, modern furniture, {desc}"
+    ]
+
+    for i, prompt in enumerate(gallery_prompts):
+        logger.info(f"🎨 Generating gallery image {i+1}/4...")
+        gallery_image = await generate_stability_image(prompt)
+
+        if gallery_image:
+            images['gallery'].append(gallery_image)
+            logger.info(f"🎨 Gallery image {i+1} - ✅")
+        else:
+            # Fallback: reuse hero if generation fails
+            images['gallery'].append(images['hero'])
+            logger.warning(f"🎨 Gallery image {i+1} - ⚠️ Using hero as fallback")
+
+    # Ensure we have 4 gallery images
+    while len(images['gallery']) < 4:
+        images['gallery'].append(images['hero'])
+
+    logger.info(f"🎨 All images generated: 1 hero + {len(images['gallery'])} gallery")
+    return images
 
 
 async def call_deepseek(prompt: str) -> Optional[str]:
@@ -373,6 +422,8 @@ def extract_html(text: str) -> str:
 async def generate_simple(request: GenerateRequest):
     """3-Step AI Pipeline with 3 Style Variations"""
 
+    session_id = str(uuid.uuid4())[:8]
+
     desc = request.business_description or request.description or ""
     user_id = request.user_id or "anonymous"
 
@@ -392,8 +443,16 @@ async def generate_simple(request: GenerateRequest):
             }
         )
 
+    # Initialize progress
+    generation_progress[session_id] = {
+        "percent": 5,
+        "step": "Analyzing your business description...",
+        "steps_completed": []
+    }
+
     logger.info("=" * 70)
     logger.info("🌐 WEBSITE GENERATION - 3 STYLE VARIATIONS")
+    logger.info(f"   Session: {session_id}")
     logger.info(f"   Business: {desc[:60]}...")
     logger.info("=" * 70)
 
@@ -402,6 +461,13 @@ async def generate_simple(request: GenerateRequest):
         logger.info(f"📋 Detected: {business_type}")
 
         stock_images = get_stock_images(desc)
+
+        # Update progress
+        generation_progress[session_id] = {
+            "percent": 10,
+            "step": "Generating AI images...",
+            "steps_completed": ["Analyzing your business description..."]
+        }
 
         # STEP 1: Generate AI Images (once, reuse for all styles)
         logger.info("")
@@ -416,28 +482,41 @@ async def generate_simple(request: GenerateRequest):
         hero_img = ai_images['hero'] if ai_images else stock_images['hero']
         gallery_imgs = ai_images['gallery'] if ai_images else stock_images['gallery']
 
+        # Update progress
+        generation_progress[session_id] = {
+            "percent": 25,
+            "step": "Generating Modern style...",
+            "steps_completed": [
+                "Analyzing your business description...",
+                "Generating AI images..."
+            ]
+        }
+
         # Define 3 style variations
         styles_config = [
             {
                 "name": "modern",
                 "display_name": "Modern",
-                "description": "Vibrant gradients (purple to blue), glassmorphism effects, rounded corners, bold shadows, smooth animations, contemporary design",
+                "description": "Vibrant gradients (purple to blue), glassmorphism effects, rounded corners, bold shadows, smooth animations",
                 "colors": "purple-600, blue-500, gradient backgrounds",
-                "font": "bold, modern sans-serif"
+                "font": "bold, modern sans-serif",
+                "progress_percent": 25
             },
             {
                 "name": "minimal",
                 "display_name": "Minimal",
-                "description": "Clean white background, lots of whitespace, simple black text, thin borders, subtle shadows, elegant simplicity, one accent color only",
+                "description": "Clean white background, lots of whitespace, simple black text, thin borders, subtle shadows, elegant simplicity",
                 "colors": "white, black, gray-100, one accent color",
-                "font": "thin, elegant, light weight"
+                "font": "thin, elegant, light weight",
+                "progress_percent": 50
             },
             {
                 "name": "bold",
                 "display_name": "Bold",
-                "description": "Dark theme with black/dark gray background, large impactful typography, neon accent colors (cyan, pink, yellow), strong contrast, sharp edges, powerful visual impact",
+                "description": "Dark theme with black/dark gray background, large impactful typography, neon accent colors, strong contrast",
                 "colors": "black, dark gray, neon cyan/pink accents",
-                "font": "extra bold, uppercase headings, impactful"
+                "font": "extra bold, uppercase headings",
+                "progress_percent": 75
             }
         ]
 
@@ -445,8 +524,13 @@ async def generate_simple(request: GenerateRequest):
 
         # STEP 2 & 3: Generate each style variation
         for style in styles_config:
-            logger.info("")
+            # Update progress for each style
+            generation_progress[session_id]["percent"] = style["progress_percent"]
+            generation_progress[session_id]["step"] = f"Generating {style['display_name']} style..."
             logger.info(f"🎨 Generating {style['display_name'].upper()} style...")
+
+            # Use actual gallery images (not all same)
+            gallery_urls = gallery_imgs if isinstance(gallery_imgs, list) else [gallery_imgs] * 4
 
             # STEP 2: DeepSeek generates HTML structure
             logger.info(f"🔷 DeepSeek generating {style['name']} HTML...")
@@ -459,34 +543,29 @@ TYPOGRAPHY: {style['font']}
 
 Business Type: {business_type}
 
-Use these placeholders (will be replaced by AI):
-- [BUSINESS_NAME] - Business name
-- [BUSINESS_TAGLINE] - Catchy tagline
-- [ABOUT_TEXT] - About us paragraph
-- [SERVICE_1_TITLE], [SERVICE_1_DESC] - Service 1
-- [SERVICE_2_TITLE], [SERVICE_2_DESC] - Service 2
-- [SERVICE_3_TITLE], [SERVICE_3_DESC] - Service 3
-- [CTA_TEXT] - Call to action button
-- [FOOTER_TEXT] - Footer tagline
+Use these placeholders:
+- [BUSINESS_NAME], [BUSINESS_TAGLINE], [ABOUT_TEXT]
+- [SERVICE_1_TITLE], [SERVICE_1_DESC]
+- [SERVICE_2_TITLE], [SERVICE_2_DESC]
+- [SERVICE_3_TITLE], [SERVICE_3_DESC]
+- [CTA_TEXT], [FOOTER_TEXT]
 
-IMAGES (use these exact URLs):
-- Hero: {stock_images['hero']}
-- Gallery 1: {stock_images['gallery'][0]}
-- Gallery 2: {stock_images['gallery'][1]}
-- Gallery 3: {stock_images['gallery'][2]}
-- Gallery 4: {stock_images['gallery'][3] if len(stock_images['gallery']) > 3 else stock_images['gallery'][0]}
+IMAGES (use these EXACT URLs - each gallery image is DIFFERENT):
+- Hero: {hero_img}
+- Gallery 1: {gallery_urls[0] if len(gallery_urls) > 0 else hero_img}
+- Gallery 2: {gallery_urls[1] if len(gallery_urls) > 1 else hero_img}
+- Gallery 3: {gallery_urls[2] if len(gallery_urls) > 2 else hero_img}
+- Gallery 4: {gallery_urls[3] if len(gallery_urls) > 3 else hero_img}
 
-CRITICAL REQUIREMENTS:
-1. Start with: <!DOCTYPE html>
-2. Include: <script src="https://cdn.tailwindcss.com"></script>
-3. MUST be {style['display_name']} style: {style['description']}
-4. Mobile responsive (use Tailwind responsive classes)
-5. Sections: Header/Nav, Hero (full-width image), About, Services (3 cards), Gallery (4 images grid), Contact form, Footer
-6. WhatsApp floating button: <a href="https://wa.me/60123456789" class="fixed bottom-6 right-6 bg-green-500 text-white p-4 rounded-full shadow-lg hover:bg-green-600 z-50">WhatsApp</a>
-7. Smooth hover effects and transitions
-8. Each style MUST look distinctly different!
+CRITICAL: Each gallery image URL is DIFFERENT. Do NOT use the same URL for all images.
 
-Output ONLY the complete HTML code. No explanations."""
+Requirements:
+1. <!DOCTYPE html> with <script src="https://cdn.tailwindcss.com"></script>
+2. Mobile responsive
+3. Sections: Header, Hero, About, Services (3 cards), Gallery (4 DIFFERENT images), Contact, Footer
+4. WhatsApp button: <a href="https://wa.me/60123456789">WhatsApp</a>
+
+Output ONLY complete HTML."""
 
             html_structure = await call_deepseek(deepseek_prompt)
 
@@ -495,78 +574,65 @@ Output ONLY the complete HTML code. No explanations."""
                 continue
 
             html_structure = extract_html(html_structure)
-            logger.info(f"🔷 DeepSeek [{style['name']}] - ✅ Success ({len(html_structure)} chars)")
+
+            # Update progress
+            generation_progress[session_id]["step"] = f"Improving {style['display_name']} content..."
 
             # STEP 3: Qwen improves content
             logger.info(f"🟡 Qwen improving {style['name']} content...")
 
-            qwen_prompt = f"""You are a Malaysian copywriter. Replace ALL placeholders with compelling content.
+            qwen_prompt = f"""Replace ALL placeholders with Malaysian-friendly content.
 
 Business: {desc}
-Business Type: {business_type}
 Style: {style['display_name']}
 
-REPLACE these placeholders with real content:
-- [BUSINESS_NAME] → Create a catchy business name based on description
-- [BUSINESS_TAGLINE] → Catchy tagline (Malaysian English, friendly)
-- [ABOUT_TEXT] → About us paragraph (2-3 sentences, warm tone)
-- [SERVICE_1_TITLE], [SERVICE_1_DESC] → First service name and description
-- [SERVICE_2_TITLE], [SERVICE_2_DESC] → Second service name and description
-- [SERVICE_3_TITLE], [SERVICE_3_DESC] → Third service name and description
-- [CTA_TEXT] → Call to action (e.g., "Hubungi Kami", "Book Now", "Get Started")
-- [FOOTER_TEXT] → Short footer tagline
+REPLACE:
+- [BUSINESS_NAME] → Business name
+- [BUSINESS_TAGLINE] → Catchy tagline
+- [ABOUT_TEXT] → About us (2-3 sentences)
+- [SERVICE_1_TITLE], [SERVICE_1_DESC] → Service 1
+- [SERVICE_2_TITLE], [SERVICE_2_DESC] → Service 2
+- [SERVICE_3_TITLE], [SERVICE_3_DESC] → Service 3
+- [CTA_TEXT] → Call to action
+- [FOOTER_TEXT] → Footer tagline
 
-Guidelines:
-- Malaysian English (friendly, warm)
-- Professional but approachable
-- Suitable for local Malaysian businesses
-- DO NOT change any HTML structure or styling
-- ONLY replace the placeholder text
+DO NOT change image URLs. Keep them exactly as they are.
 
-HTML TO IMPROVE:
+HTML:
 {html_structure}
 
-Output ONLY the complete improved HTML. No explanations."""
+Output ONLY improved HTML."""
 
             final_html = await call_qwen(qwen_prompt)
 
             if final_html:
                 final_html = extract_html(final_html)
-                logger.info(f"🟡 Qwen [{style['name']}] - ✅ Success ({len(final_html)} chars)")
             else:
-                logger.warning(f"🟡 Qwen [{style['name']}] - ⚠️ Using DeepSeek output")
                 final_html = html_structure
 
-            # Replace stock images with AI images
-            if ai_images:
-                final_html = final_html.replace(stock_images['hero'], ai_images['hero'])
-                for i, stock_url in enumerate(stock_images['gallery']):
-                    if i < len(ai_images['gallery']):
-                        final_html = final_html.replace(stock_url, ai_images['gallery'][i])
-
-            # Inject analytics tracking script
-            tracking_script = f'''
+            # Add analytics script
+            tracking_script = '''
 <!-- BinaApp Analytics -->
 <script>
-(function() {{
+(function() {
     const PROJECT_ID = 'PENDING';
     const API_URL = 'https://binaapp-backend.onrender.com/api/analytics/track';
     let visitorId = localStorage.getItem('binaapp_visitor');
-    if (!visitorId) {{
+    if (!visitorId) {
         visitorId = 'v_' + Math.random().toString(36).substr(2, 9);
         localStorage.setItem('binaapp_visitor', visitorId);
-    }}
-    fetch(API_URL, {{
+    }
+    fetch(API_URL, {
         method: 'POST',
-        headers: {{ 'Content-Type': 'application/json' }},
-        body: JSON.stringify({{
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
             project_id: PROJECT_ID,
             visitor_id: visitorId,
             referrer: document.referrer,
             page_path: window.location.pathname
-        }})
-    }}).catch(function() {{}});
-}})();
+        })
+    }).catch(function() {});
+})();
 </script>
 '''
             if '</body>' in final_html:
@@ -579,22 +645,43 @@ Output ONLY the complete improved HTML. No explanations."""
                 "html": final_html
             })
 
+            # Update completed steps
+            generation_progress[session_id]["steps_completed"].append(f"Generating {style['display_name']} style...")
+
             logger.info(f"✅ {style['display_name']} style complete!")
 
-        # Increment usage after successful generation
+        # Final progress update
+        generation_progress[session_id] = {
+            "percent": 100,
+            "step": "Complete!",
+            "steps_completed": [
+                "Analyzing your business description...",
+                "Generating AI images...",
+                "Generating Modern style...",
+                "Generating Minimal style...",
+                "Generating Bold style..."
+            ]
+        }
+
+        # Increment usage
         increment_usage(user_id)
 
-        logger.info("")
-        logger.info("=" * 70)
-        logger.info(f"✅ GENERATION COMPLETE! {len(generated_styles)} styles generated")
-        logger.info("=" * 70)
+        # Clean up progress after a delay
+        async def cleanup_progress():
+            await asyncio.sleep(60)
+            generation_progress.pop(session_id, None)
+
+        asyncio.create_task(cleanup_progress())
+
+        logger.info(f"✅ GENERATION COMPLETE! {len(generated_styles)} styles")
 
         if not generated_styles:
-            return JSONResponse(status_code=500, content={"success": False, "error": "Failed to generate any styles"})
+            return JSONResponse(status_code=500, content={"success": False, "error": "Failed to generate"})
 
         return {
             "success": True,
-            "html": generated_styles[0]["html"],  # Default to first style
+            "session_id": session_id,
+            "html": generated_styles[0]["html"],
             "styles": generated_styles,
             "usage": check_rate_limit(user_id),
             "business_type": business_type
@@ -604,6 +691,7 @@ Output ONLY the complete improved HTML. No explanations."""
         logger.error(f"❌ Error: {e}")
         import traceback
         logger.error(traceback.format_exc())
+        generation_progress.pop(session_id, None)
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 
@@ -795,6 +883,86 @@ async def get_realtime_analytics(project_id: str):
 
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# ==================== SUBDOMAIN PUBLISHING ENDPOINTS ====================
+
+@app.post("/api/projects/{project_id}/publish")
+async def publish_project(project_id: str, subdomain: str = None):
+    """Publish a project to subdomain"""
+    if not supabase:
+        return JSONResponse(status_code=500, content={"success": False, "error": "Database not connected"})
+
+    try:
+        # Generate subdomain if not provided
+        if not subdomain:
+            subdomain = f"site-{project_id[:8]}"
+
+        # Clean subdomain (lowercase, alphanumeric, hyphens only)
+        subdomain = re.sub(r'[^a-z0-9-]', '', subdomain.lower())
+
+        if not subdomain:
+            subdomain = f"site-{project_id[:8]}"
+
+        # Check if subdomain is taken
+        existing = supabase.table("projects").select("id").eq("subdomain", subdomain).neq("id", project_id).execute()
+
+        if existing.data:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "Subdomain already taken"}
+            )
+
+        # Update project with subdomain and published status
+        result = supabase.table("projects").update({
+            "is_published": True,
+            "subdomain": subdomain,
+            "published_at": datetime.now().isoformat()
+        }).eq("id", project_id).execute()
+
+        if result.data:
+            published_url = f"https://{subdomain}.binaapp.my"
+            logger.info(f"✅ Published: {published_url}")
+
+            return {
+                "success": True,
+                "subdomain": subdomain,
+                "url": published_url,
+                "project": result.data[0]
+            }
+        else:
+            return JSONResponse(status_code=404, content={"success": False, "error": "Project not found"})
+
+    except Exception as e:
+        logger.error(f"❌ Publish error: {e}")
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+
+
+@app.get("/api/sites/{subdomain}")
+async def get_published_site(subdomain: str):
+    """Get published website by subdomain"""
+    if not supabase:
+        return JSONResponse(status_code=500, content={"success": False, "error": "Database not connected"})
+
+    try:
+        result = supabase.table("projects").select("*").eq("subdomain", subdomain).eq("is_published", True).single().execute()
+
+        if result.data:
+            # Increment view count
+            supabase.table("projects").update({
+                "total_views": (result.data.get("total_views") or 0) + 1
+            }).eq("id", result.data["id"]).execute()
+
+            return {
+                "success": True,
+                "project": result.data
+            }
+        else:
+            return JSONResponse(status_code=404, content={"success": False, "error": "Site not found"})
+
+    except Exception as e:
+        logger.error(f"❌ Get site error: {e}")
+        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 
 if __name__ == "__main__":
