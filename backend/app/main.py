@@ -803,7 +803,7 @@ async def get_project_analytics(project_id: str, days: int = 30):
         ).gte("date", start_date.isoformat()).lte("date", end_date.isoformat()).order("date").execute()
 
         # Get total stats
-        project = supabase.table("projects").select("total_views, unique_visitors").eq("id", project_id).single().execute()
+        project = supabase.table("websites").select("total_views, unique_visitors").eq("id", project_id).single().execute()
 
         # Get device breakdown
         device_stats = supabase.table("analytics").select("device_type").eq("project_id", project_id).execute()
@@ -915,7 +915,7 @@ async def publish_website(request: dict):
 
     try:
         # Check if subdomain taken by another user
-        existing = supabase.table("projects").select("id, user_id").eq("subdomain", subdomain).execute()
+        existing = supabase.table("websites").select("id, user_id").eq("subdomain", subdomain).execute()
 
         project_id = None
         if existing.data:
@@ -974,10 +974,10 @@ async def publish_website(request: dict):
         }
 
         if project_id:
-            supabase.table("projects").update(project_data).eq("id", project_id).execute()
+            supabase.table("websites").update(project_data).eq("id", project_id).execute()
             logger.info(f"✅ Updated project in database")
         else:
-            result = supabase.table("projects").insert(project_data).execute()
+            result = supabase.table("websites").insert(project_data).execute()
             project_id = result.data[0]["id"] if result.data else None
             logger.info(f"✅ Created new project: {project_id}")
 
@@ -1010,7 +1010,7 @@ async def serve_published_site(subdomain: str):
 
     try:
         # Try to get HTML from database first (faster)
-        result = supabase.table("projects").select("html_code").eq("subdomain", subdomain).eq("is_published", True).execute()
+        result = supabase.table("websites").select("html_code").eq("subdomain", subdomain).eq("is_published", True).execute()
 
         if result.data and result.data[0].get("html_code"):
             logger.info(f"✅ Serving from database")
@@ -1059,7 +1059,7 @@ async def check_subdomain(subdomain: str):
         return {"available": False, "error": "Subdomain too short (min 2 characters)"}
 
     try:
-        existing = supabase.table("projects").select("id").eq("subdomain", subdomain).execute()
+        existing = supabase.table("websites").select("id").eq("subdomain", subdomain).execute()
         return {"available": len(existing.data) == 0, "subdomain": subdomain}
     except Exception as e:
         return {"available": False, "error": str(e)}
