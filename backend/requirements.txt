@@ -38,3 +38,6 @@ loguru
 
 # Type hints
 typing-extensions
+
+# Analytics
+user-agents==2.2.0
