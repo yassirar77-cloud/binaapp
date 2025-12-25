@@ -9,7 +9,7 @@ pydantic-settings
 email-validator
 
 # Database & Storage
-supabase
+supabase>=2.0.0
 httpx
 
 # Authentication & Security

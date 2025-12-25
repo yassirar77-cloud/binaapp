@@ -24,7 +24,67 @@ import json
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="BinaApp Backend")
+# ============================================
+# SUPABASE INITIALIZATION - CRITICAL SECTION
+# ============================================
+
+supabase = None
+
+def init_supabase():
+    """Initialize Supabase client with multiple env var name support"""
+    global supabase
+
+    # Get URL
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+
+    # Try multiple possible key names
+    SUPABASE_KEY = (
+        os.getenv("SUPABASE_SERVICE_KEY") or
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or
+        os.getenv("SUPABASE_KEY") or
+        os.getenv("SUPABASE_ANON_KEY") or
+        ""
+    )
+
+    logger.info(f"🔧 SUPABASE_URL: {SUPABASE_URL[:50] if SUPABASE_URL else 'NOT SET'}...")
+    logger.info(f"🔧 SUPABASE_KEY: {'SET (' + str(len(SUPABASE_KEY)) + ' chars)' if SUPABASE_KEY else 'NOT SET'}")
+
+    if not SUPABASE_URL:
+        logger.error("❌ SUPABASE_URL environment variable not set!")
+        return None
+
+    if not SUPABASE_KEY:
+        logger.error("❌ No Supabase key found! Tried: SUPABASE_SERVICE_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_KEY, SUPABASE_ANON_KEY")
+        return None
+
+    try:
+        from supabase import create_client, Client
+        client: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logger.info("✅ Supabase client created successfully!")
+
+        # Test connection by making a simple query
+        try:
+            test = client.table("websites").select("id").limit(1).execute()
+            logger.info(f"✅ Supabase connection verified! Websites table accessible.")
+        except Exception as test_error:
+            logger.warning(f"⚠️ Websites table test failed (might not exist yet): {test_error}")
+
+        return client
+
+    except Exception as e:
+        logger.error(f"❌ Failed to create Supabase client: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return None
+
+# Initialize on startup
+supabase = init_supabase()
+
+# ============================================
+# FASTAPI APP
+# ============================================
+
+app = FastAPI(title="BinaApp Backend", version="4.0")
 
 # CORS
 app.add_middleware(
@@ -34,6 +94,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def startup_event():
+    global supabase
+    if supabase is None:
+        logger.info("🔄 Retrying Supabase initialization on startup...")
+        supabase = init_supabase()
+
+    if supabase:
+        logger.info("🚀 BinaApp API started with Supabase connected!")
+    else:
+        logger.error("🚀 BinaApp API started but Supabase NOT connected!")
 
 # API Keys from environment
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
@@ -54,22 +126,6 @@ if CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
     logger.info("☁️ Cloudinary configured successfully")
 else:
     logger.warning("☁️ Cloudinary not configured - will use base64 fallback")
-
-# Supabase Configuration
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
-
-# Initialize Supabase client
-supabase: Optional[Client] = None
-if SUPABASE_URL and SUPABASE_KEY:
-    try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        logger.info("🗄️ Supabase connected successfully")
-    except Exception as e:
-        logger.error(f"🗄️ Supabase connection failed: {e}")
-        supabase = None
-else:
-    logger.warning("🗄️ Supabase not configured - analytics will be disabled")
 
 # Rate limiting
 user_usage = defaultdict(lambda: {"count": 0, "reset_time": datetime.now()})
@@ -888,107 +944,97 @@ async def get_realtime_analytics(project_id: str):
 # ==================== SUBDOMAIN PUBLISHING ENDPOINTS ====================
 
 @app.post("/api/publish")
-async def publish_website(request: dict):
-    """Publish website to subdomain using Supabase Storage"""
+async def publish_website(request: Request):
+    """Publish website to subdomain"""
+    global supabase
 
-    if not supabase:
-        return JSONResponse(status_code=500, content={"success": False, "error": "Database not connected"})
+    logger.info("📤 PUBLISH REQUEST RECEIVED")
 
-    html_content = request.get("html_content") or request.get("html_code") or request.get("html")
-    subdomain = request.get("subdomain", "").lower().strip()
-    project_name = request.get("project_name", subdomain)
-    user_id = request.get("user_id", "anonymous")
+    # Check Supabase connection
+    if supabase is None:
+        logger.error("❌ Supabase is None - trying to reinitialize...")
+        supabase = init_supabase()
 
-    logger.info(f"📤 Publishing: subdomain={subdomain}, user={user_id}")
-
-    if not html_content:
-        return JSONResponse(status_code=400, content={"success": False, "error": "Missing html_content"})
-
-    if not subdomain:
-        return JSONResponse(status_code=400, content={"success": False, "error": "Missing subdomain"})
-
-    # Clean subdomain - only lowercase letters, numbers, hyphens
-    subdomain = re.sub(r'[^a-z0-9-]', '', subdomain.lower())
-
-    if not subdomain or len(subdomain) < 2:
-        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid subdomain (min 2 characters)"})
+        if supabase is None:
+            logger.error("❌ Supabase reinitialization failed!")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "error": "Database not connected. Check SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables."
+                }
+            )
 
     try:
-        # Check if subdomain taken by another user
+        body = await request.json()
+        logger.info(f"📤 Request body keys: {list(body.keys())}")
+    except Exception as e:
+        logger.error(f"❌ Failed to parse request: {e}")
+        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
+
+    # Extract data
+    html_content = body.get("html_content") or body.get("html_code") or body.get("html") or ""
+    subdomain = (body.get("subdomain") or "").lower().strip()
+    project_name = body.get("project_name") or body.get("name") or subdomain
+    user_id = body.get("user_id") or "anonymous"
+
+    logger.info(f"📤 Subdomain: {subdomain}, Name: {project_name}, User: {user_id}")
+    logger.info(f"📤 HTML length: {len(html_content)} chars")
+
+    if not html_content:
+        return JSONResponse(status_code=400, content={"success": False, "error": "No HTML content"})
+
+    if not subdomain:
+        return JSONResponse(status_code=400, content={"success": False, "error": "No subdomain"})
+
+    # Clean subdomain
+    subdomain = re.sub(r'[^a-z0-9-]', '', subdomain)
+    if len(subdomain) < 2:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain too short"})
+
+    try:
+        # Check if subdomain exists
         existing = supabase.table("websites").select("id, user_id").eq("subdomain", subdomain).execute()
 
         project_id = None
         if existing.data:
-            if existing.data[0].get("user_id") != user_id:
-                return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain already taken by another user"})
+            if existing.data[0].get("user_id") != user_id and existing.data[0].get("user_id") != "anonymous":
+                return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain taken"})
             project_id = existing.data[0]["id"]
-            logger.info(f"📝 Updating existing project: {project_id}")
 
-        # Upload HTML to Supabase Storage
-        file_path = f"{subdomain}/index.html"
-        html_bytes = html_content.encode('utf-8')
-
-        logger.info(f"📤 Uploading to storage: {file_path}")
-
-        # Remove existing file first (ignore errors)
-        try:
-            supabase.storage.from_("websites").remove([file_path])
-            logger.info(f"🗑️ Removed existing file")
-        except Exception as e:
-            logger.info(f"ℹ️ No existing file to remove: {e}")
-
-        # Upload new file
-        try:
-            upload_result = supabase.storage.from_("websites").upload(
-                path=file_path,
-                file=html_bytes,
-                file_options={"content-type": "text/html", "upsert": "true"}
-            )
-            logger.info(f"✅ Upload result: {upload_result}")
-        except Exception as upload_error:
-            logger.error(f"❌ Upload error: {upload_error}")
-            # Try alternative upload method
-            try:
-                supabase.storage.from_("websites").upload(
-                    file_path,
-                    html_bytes
-                )
-                logger.info(f"✅ Upload succeeded with alternative method")
-            except Exception as e2:
-                logger.error(f"❌ Alternative upload also failed: {e2}")
-                return JSONResponse(status_code=500, content={"success": False, "error": f"Storage upload failed: {str(e2)}"})
-
-        # Get public URL
-        public_url = supabase.storage.from_("websites").get_public_url(file_path)
-        logger.info(f"🔗 Public URL: {public_url}")
-
-        # Save/Update project in database
+        # Prepare data
         project_data = {
             "user_id": user_id,
             "name": project_name,
             "subdomain": subdomain,
             "html_code": html_content,
             "is_published": True,
-            "published_url": public_url,
+            "published_url": f"https://{subdomain}.binaapp.my",
             "updated_at": datetime.now().isoformat()
         }
 
+        # Save to database
         if project_id:
-            supabase.table("websites").update(project_data).eq("id", project_id).execute()
-            logger.info(f"✅ Updated project in database")
+            result = supabase.table("websites").update(project_data).eq("id", project_id).execute()
+            logger.info(f"✅ Updated project: {project_id}")
         else:
             result = supabase.table("websites").insert(project_data).execute()
             project_id = result.data[0]["id"] if result.data else None
-            logger.info(f"✅ Created new project: {project_id}")
+            logger.info(f"✅ Created project: {project_id}")
 
-        # Return success with URLs
+        # Try storage upload (optional)
+        try:
+            file_path = f"{subdomain}/index.html"
+            supabase.storage.from_("websites").upload(file_path, html_content.encode(), {"content-type": "text/html", "upsert": "true"})
+            logger.info(f"✅ Uploaded to storage: {file_path}")
+        except Exception as storage_err:
+            logger.warning(f"⚠️ Storage upload failed (non-critical): {storage_err}")
+
         return {
             "success": True,
             "subdomain": subdomain,
             "url": f"https://{subdomain}.binaapp.my",
-            "storage_url": public_url,
-            "project_id": project_id,
-            "message": f"Website published to {subdomain}.binaapp.my"
+            "project_id": str(project_id) if project_id else None
         }
 
     except Exception as e:
