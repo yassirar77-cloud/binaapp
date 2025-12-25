@@ -28,6 +28,7 @@ python-multipart
 Pillow
 aiofiles
 reportlab
+cloudinary==1.36.0
 
 # Templating
 jinja2
