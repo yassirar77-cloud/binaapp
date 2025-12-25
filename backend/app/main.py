@@ -10,8 +10,13 @@ import base64
 import re
 import cloudinary
 import cloudinary.uploader
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from collections import defaultdict
+from user_agents import parse as parse_user_agent
+import hashlib
+from supabase import create_client, Client
+from urllib.parse import urlparse
+import uuid
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -48,6 +53,22 @@ if CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
 else:
     logger.warning("☁️ Cloudinary not configured - will use base64 fallback")
 
+# Supabase Configuration
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+
+# Initialize Supabase client
+supabase: Optional[Client] = None
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logger.info("🗄️ Supabase connected successfully")
+    except Exception as e:
+        logger.error(f"🗄️ Supabase connection failed: {e}")
+        supabase = None
+else:
+    logger.warning("🗄️ Supabase not configured - analytics will be disabled")
+
 # Rate limiting
 user_usage = defaultdict(lambda: {"count": 0, "reset_time": datetime.now()})
 FREE_LIMIT = 3  # 3 generations per day
@@ -59,6 +80,14 @@ class GenerateRequest(BaseModel):
     business_description: Optional[str] = None
     style: Optional[str] = "modern"
     user_id: Optional[str] = None
+
+
+# Analytics request model
+class TrackEventRequest(BaseModel):
+    project_id: str
+    visitor_id: Optional[str] = None
+    referrer: Optional[str] = None
+    page_path: Optional[str] = "/"
 
 
 @app.get("/")
@@ -465,6 +494,44 @@ Output ONLY improved HTML."""
                 if i < len(ai_images['gallery']):
                     final_html = final_html.replace(stock_url, ai_images['gallery'][i])
 
+        # STEP 5: Generate project ID and inject analytics tracking script
+        project_id = str(uuid.uuid4())
+        logger.info("")
+        logger.info("📊 STEP 5: Injecting analytics tracking...")
+
+        tracking_script = f'''
+<!-- BinaApp Analytics -->
+<script>
+(function() {{
+    const PROJECT_ID = '{project_id}';
+    const API_URL = 'https://binaapp-backend.onrender.com/api/analytics/track';
+    let visitorId = localStorage.getItem('binaapp_visitor');
+    if (!visitorId) {{
+        visitorId = 'v_' + Math.random().toString(36).substr(2, 9);
+        localStorage.setItem('binaapp_visitor', visitorId);
+    }}
+    fetch(API_URL, {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{
+            project_id: PROJECT_ID,
+            visitor_id: visitorId,
+            referrer: document.referrer,
+            page_path: window.location.pathname
+        }})
+    }}).catch(function() {{}});
+}})();
+</script>
+'''
+
+        # Insert before </body>
+        if '</body>' in final_html:
+            final_html = final_html.replace('</body>', f'{tracking_script}</body>')
+            logger.info(f"📊 Analytics tracking injected (Project ID: {project_id[:8]}...)")
+        else:
+            logger.warning("📊 No </body> tag found, appending tracking script")
+            final_html += tracking_script
+
         # Increment usage
         increment_usage(user_id)
 
@@ -472,11 +539,13 @@ Output ONLY improved HTML."""
         logger.info("=" * 70)
         logger.info("✅ GENERATION COMPLETE!")
         logger.info(f"   Final HTML: {len(final_html)} chars")
+        logger.info(f"   Project ID: {project_id}")
         logger.info("=" * 70)
 
         return {
             "success": True,
             "html": final_html,
+            "project_id": project_id,
             "styles": [{"style": "modern", "html": final_html}],
             "usage": check_rate_limit(user_id)
         }
@@ -499,6 +568,183 @@ async def test_ai():
             "cloudinary": bool(CLOUDINARY_CLOUD_NAME)
         }
     }
+
+
+# ==================== ANALYTICS ENDPOINTS ====================
+
+@app.post("/api/analytics/track")
+async def track_pageview(request: TrackEventRequest, req: Request):
+    """Track a pageview event - called from published websites"""
+    if not supabase:
+        return {"success": False, "error": "Database not connected"}
+
+    try:
+        # Get visitor info from request
+        ip_address = req.client.host if req.client else "unknown"
+        user_agent_string = req.headers.get("user-agent", "")
+
+        # Parse user agent
+        user_agent = parse_user_agent(user_agent_string)
+        device_type = "mobile" if user_agent.is_mobile else "tablet" if user_agent.is_tablet else "desktop"
+        browser = user_agent.browser.family
+        os = user_agent.os.family
+
+        # Generate visitor ID if not provided (hash of IP + user agent for privacy)
+        visitor_id = request.visitor_id
+        if not visitor_id:
+            hash_input = f"{ip_address}{user_agent_string}"
+            visitor_id = hashlib.md5(hash_input.encode()).hexdigest()[:16]
+
+        # Insert analytics event
+        supabase.table("analytics").insert({
+            "project_id": request.project_id,
+            "visitor_id": visitor_id,
+            "ip_address": ip_address[:50],  # Truncate for privacy
+            "user_agent": user_agent_string[:500],
+            "device_type": device_type,
+            "browser": browser,
+            "os": os,
+            "referrer": request.referrer,
+            "page_path": request.page_path
+        }).execute()
+
+        # Update project total views
+        supabase.rpc("increment_project_views", {"p_id": request.project_id}).execute()
+
+        # Update daily stats
+        today = date.today().isoformat()
+
+        # Try to update existing daily record, or insert new one
+        existing = supabase.table("analytics_daily").select("*").eq("project_id", request.project_id).eq("date", today).execute()
+
+        if existing.data:
+            # Update existing
+            record = existing.data[0]
+            update_data = {
+                "total_views": record["total_views"] + 1,
+            }
+            if device_type == "mobile":
+                update_data["mobile_views"] = record.get("mobile_views", 0) + 1
+            else:
+                update_data["desktop_views"] = record.get("desktop_views", 0) + 1
+
+            supabase.table("analytics_daily").update(update_data).eq("id", record["id"]).execute()
+        else:
+            # Insert new daily record
+            supabase.table("analytics_daily").insert({
+                "project_id": request.project_id,
+                "date": today,
+                "total_views": 1,
+                "unique_visitors": 1,
+                "mobile_views": 1 if device_type == "mobile" else 0,
+                "desktop_views": 0 if device_type == "mobile" else 1
+            }).execute()
+
+        logger.info(f"📊 Tracked pageview for project {request.project_id[:8]}...")
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"📊 Analytics error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/analytics/{project_id}")
+async def get_project_analytics(project_id: str, days: int = 30):
+    """Get analytics for a project"""
+    if not supabase:
+        return {"success": False, "error": "Database not connected"}
+
+    try:
+        # Get date range
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days)
+
+        # Get daily stats
+        daily_stats = supabase.table("analytics_daily").select("*").eq(
+            "project_id", project_id
+        ).gte("date", start_date.isoformat()).lte("date", end_date.isoformat()).order("date").execute()
+
+        # Get total stats
+        project = supabase.table("projects").select("total_views, unique_visitors").eq("id", project_id).single().execute()
+
+        # Get device breakdown
+        device_stats = supabase.table("analytics").select("device_type").eq("project_id", project_id).execute()
+
+        mobile_count = sum(1 for d in device_stats.data if d.get("device_type") == "mobile")
+        desktop_count = sum(1 for d in device_stats.data if d.get("device_type") == "desktop")
+
+        # Get top referrers
+        referrer_stats = supabase.table("analytics").select("referrer").eq("project_id", project_id).not_.is_("referrer", "null").execute()
+
+        referrer_counts = {}
+        for r in referrer_stats.data:
+            ref = r.get("referrer", "Direct")
+            if ref:
+                # Extract domain from referrer
+                try:
+                    domain = urlparse(ref).netloc or "Direct"
+                except:
+                    domain = ref[:50]
+                referrer_counts[domain] = referrer_counts.get(domain, 0) + 1
+
+        top_referrers = sorted(referrer_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        # Get browser breakdown
+        browser_stats = supabase.table("analytics").select("browser").eq("project_id", project_id).execute()
+
+        browser_counts = {}
+        for b in browser_stats.data:
+            browser = b.get("browser", "Unknown")
+            browser_counts[browser] = browser_counts.get(browser, 0) + 1
+
+        top_browsers = sorted(browser_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        return {
+            "success": True,
+            "analytics": {
+                "total_views": project.data.get("total_views", 0) if project.data else 0,
+                "unique_visitors": project.data.get("unique_visitors", 0) if project.data else 0,
+                "daily_stats": daily_stats.data,
+                "device_breakdown": {
+                    "mobile": mobile_count,
+                    "desktop": desktop_count
+                },
+                "top_referrers": [{"source": r[0], "count": r[1]} for r in top_referrers],
+                "top_browsers": [{"browser": b[0], "count": b[1]} for b in top_browsers]
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"📊 Analytics fetch error: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/analytics/{project_id}/realtime")
+async def get_realtime_analytics(project_id: str):
+    """Get realtime visitors (last 5 minutes)"""
+    if not supabase:
+        return {"success": False, "error": "Database not connected"}
+
+    try:
+        five_minutes_ago = (datetime.now() - timedelta(minutes=5)).isoformat()
+
+        recent = supabase.table("analytics").select("visitor_id").eq(
+            "project_id", project_id
+        ).gte("created_at", five_minutes_ago).execute()
+
+        # Count unique visitors
+        unique_recent = len(set(r.get("visitor_id") for r in recent.data))
+
+        return {
+            "success": True,
+            "realtime": {
+                "active_visitors": unique_recent,
+                "last_5_minutes": len(recent.data)
+            }
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 if __name__ == "__main__":
