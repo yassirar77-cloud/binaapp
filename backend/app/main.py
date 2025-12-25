@@ -8,6 +8,10 @@ import os
 import logging
 import base64
 import re
+import cloudinary
+import cloudinary.uploader
+from datetime import datetime, timedelta
+from collections import defaultdict
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -29,16 +33,37 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 QWEN_API_KEY = os.getenv("QWEN_API_KEY", "")
 STABILITY_API_KEY = os.getenv("STABILITY_API_KEY", "")
 
+# Cloudinary Configuration
+CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME", "")
+CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY", "")
+CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "")
+
+if CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
+    cloudinary.config(
+        cloud_name=CLOUDINARY_CLOUD_NAME,
+        api_key=CLOUDINARY_API_KEY,
+        api_secret=CLOUDINARY_API_SECRET
+    )
+    logger.info("☁️ Cloudinary configured successfully")
+else:
+    logger.warning("☁️ Cloudinary not configured - will use base64 fallback")
+
+# Rate limiting
+user_usage = defaultdict(lambda: {"count": 0, "reset_time": datetime.now()})
+FREE_LIMIT = 3  # 3 generations per day
+
+
 # Request models
 class GenerateRequest(BaseModel):
     description: Optional[str] = None
     business_description: Optional[str] = None
     style: Optional[str] = "modern"
+    user_id: Optional[str] = None
 
 
 @app.get("/")
 async def root():
-    return {"status": "BinaApp Backend Running", "version": "3.0"}
+    return {"status": "BinaApp Backend Running", "version": "4.0-production"}
 
 
 @app.get("/health")
@@ -51,51 +76,79 @@ async def check_keys():
     return {
         "deepseek": bool(DEEPSEEK_API_KEY),
         "qwen": bool(QWEN_API_KEY),
-        "stability": bool(STABILITY_API_KEY)
+        "stability": bool(STABILITY_API_KEY),
+        "cloudinary": bool(CLOUDINARY_CLOUD_NAME)
     }
 
 
+@app.get("/api/usage")
+async def get_usage(user_id: str = "anonymous"):
+    """Get user's current usage"""
+    return check_rate_limit(user_id)
+
+
+def check_rate_limit(user_id: str = "anonymous") -> dict:
+    """Check if user has exceeded daily limit"""
+    now = datetime.now()
+    user = user_usage[user_id]
+
+    if now - user["reset_time"] > timedelta(days=1):
+        user["count"] = 0
+        user["reset_time"] = now
+
+    remaining = FREE_LIMIT - user["count"]
+
+    return {
+        "allowed": remaining > 0,
+        "remaining": max(0, remaining),
+        "limit": FREE_LIMIT,
+        "reset_time": (user["reset_time"] + timedelta(days=1)).isoformat()
+    }
+
+
+def increment_usage(user_id: str = "anonymous"):
+    user_usage[user_id]["count"] += 1
+
+
 def detect_business_type(desc: str) -> str:
-    """Detect business type from description"""
     desc_lower = desc.lower()
 
     if any(word in desc_lower for word in ['salon', 'hair', 'beauty', 'spa', 'nail', 'makeup']):
         return 'beauty_salon'
     elif any(word in desc_lower for word in ['restaurant', 'cafe', 'food', 'makan', 'nasi', 'kedai makan', 'catering']):
         return 'restaurant'
-    elif any(word in desc_lower for word in ['pet', 'kucing', 'cat', 'dog', 'anjing', 'haiwan', 'veterinar']):
+    elif any(word in desc_lower for word in ['pet', 'kucing', 'cat', 'dog', 'anjing', 'haiwan']):
         return 'pet_shop'
-    elif any(word in desc_lower for word in ['gym', 'fitness', 'workout', 'exercise']):
+    elif any(word in desc_lower for word in ['gym', 'fitness', 'workout']):
         return 'fitness'
-    elif any(word in desc_lower for word in ['clinic', 'doctor', 'medical', 'klinik', 'dentist']):
+    elif any(word in desc_lower for word in ['clinic', 'doctor', 'medical', 'klinik']):
         return 'clinic'
-    elif any(word in desc_lower for word in ['shop', 'store', 'kedai', 'boutique', 'retail']):
+    elif any(word in desc_lower for word in ['photo', 'photographer', 'photography', 'wedding']):
+        return 'photography'
+    elif any(word in desc_lower for word in ['shop', 'store', 'kedai', 'boutique']):
         return 'retail'
-    elif any(word in desc_lower for word in ['hotel', 'homestay', 'resort', 'accommodation']):
-        return 'hospitality'
     else:
         return 'general_business'
 
 
 def get_stock_images(desc: str) -> dict:
-    """Get relevant stock images from Unsplash based on business type"""
     business_type = detect_business_type(desc)
 
     image_keywords = {
-        'beauty_salon': 'hair+salon+interior',
-        'restaurant': 'restaurant+interior+food',
-        'pet_shop': 'pet+shop+animals',
-        'fitness': 'gym+fitness+workout',
-        'clinic': 'medical+clinic+healthcare',
-        'retail': 'retail+shop+store',
-        'hospitality': 'hotel+lobby+resort',
-        'general_business': 'modern+office+business'
+        'beauty_salon': 'salon',
+        'restaurant': 'restaurant',
+        'pet_shop': 'pet-store',
+        'fitness': 'gym',
+        'clinic': 'clinic',
+        'photography': 'photography-studio',
+        'retail': 'retail-store',
+        'general_business': 'office'
     }
 
-    keyword = image_keywords.get(business_type, 'business+office')
+    keyword = image_keywords.get(business_type, 'business')
 
     return {
-        'hero': f'https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=1200&h=600&fit=crop&q=80',
+        'hero': f'https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=1200&h=600&fit=crop',
         'gallery': [
             f'https://source.unsplash.com/600x400/?{keyword},1',
             f'https://source.unsplash.com/600x400/?{keyword},2',
@@ -105,17 +158,35 @@ def get_stock_images(desc: str) -> dict:
     }
 
 
+def upload_to_cloudinary(image_bytes: bytes, folder: str = "binaapp") -> Optional[str]:
+    """Upload image bytes to Cloudinary, return URL"""
+    if not CLOUDINARY_CLOUD_NAME:
+        return None
+
+    try:
+        result = cloudinary.uploader.upload(
+            image_bytes,
+            folder=folder,
+            resource_type="image"
+        )
+        url = result.get('secure_url')
+        logger.info(f"☁️ Cloudinary uploaded: {url[:60]}...")
+        return url
+    except Exception as e:
+        logger.error(f"☁️ Cloudinary upload failed: {e}")
+        return None
+
+
 async def generate_stability_image(prompt: str) -> Optional[str]:
-    """STEP 1: Generate image using Stability AI v2beta API"""
+    """Generate image using Stability AI and upload to Cloudinary"""
     if not STABILITY_API_KEY:
-        logger.info("🎨 STABILITY - No API key configured")
+        logger.info("🎨 STABILITY - No API key")
         return None
 
     try:
         logger.info(f"🎨 STABILITY - Generating: {prompt[:50]}...")
 
         async with httpx.AsyncClient(timeout=90.0) as client:
-            # Using v2beta stable-image/generate/core endpoint
             response = await client.post(
                 "https://api.stability.ai/v2beta/stable-image/generate/core",
                 headers={
@@ -124,19 +195,29 @@ async def generate_stability_image(prompt: str) -> Optional[str]:
                 },
                 files={"none": ''},
                 data={
-                    "prompt": f"{prompt}, professional photography, high quality, realistic, commercial",
-                    "negative_prompt": "blurry, low quality, cartoon, anime, drawing, sketch, amateur",
+                    "prompt": f"{prompt}, professional photography, high quality, commercial",
+                    "negative_prompt": "blurry, low quality, cartoon, anime, sketch",
                     "output_format": "png",
                     "aspect_ratio": "16:9"
                 }
             )
 
             if response.status_code == 200:
-                image_base64 = base64.b64encode(response.content).decode('utf-8')
-                logger.info("🎨 STABILITY - ✅ Image generated successfully")
-                return f"data:image/png;base64,{image_base64}"
+                image_bytes = response.content
+
+                # Try to upload to Cloudinary
+                cloudinary_url = upload_to_cloudinary(image_bytes)
+
+                if cloudinary_url:
+                    logger.info("🎨 STABILITY - ✅ Uploaded to Cloudinary")
+                    return cloudinary_url
+                else:
+                    # Fallback to base64 (not recommended for production)
+                    logger.warning("🎨 STABILITY - ⚠️ Cloudinary failed, using base64")
+                    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+                    return f"data:image/png;base64,{image_base64}"
             else:
-                logger.error(f"🎨 STABILITY - ❌ Failed: {response.status_code} - {response.text[:100]}")
+                logger.error(f"🎨 STABILITY - ❌ Failed: {response.status_code}")
                 return None
 
     except Exception as e:
@@ -145,28 +226,26 @@ async def generate_stability_image(prompt: str) -> Optional[str]:
 
 
 async def generate_all_images(desc: str) -> Optional[dict]:
-    """Generate hero and gallery images"""
+    """Generate hero image"""
     business_type = detect_business_type(desc)
-
     hero_prompt = f"Modern {business_type.replace('_', ' ')} interior, professional, luxurious, {desc}"
     hero_image = await generate_stability_image(hero_prompt)
 
     if hero_image:
         return {
             'hero': hero_image,
-            'gallery': [hero_image, hero_image, hero_image, hero_image]  # Reuse for now
+            'gallery': [hero_image] * 4  # Reuse hero for gallery
         }
     return None
 
 
 async def call_deepseek(prompt: str) -> Optional[str]:
-    """STEP 2: Call DeepSeek V3.2 API for HTML structure"""
+    """Call DeepSeek V3.2 API"""
     if not DEEPSEEK_API_KEY:
-        logger.info("🔷 DEEPSEEK - No API key configured")
         return None
 
     try:
-        logger.info("🔷 DEEPSEEK [html_structure] - Calling API...")
+        logger.info("🔷 DEEPSEEK - Calling API...")
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
@@ -176,22 +255,19 @@ async def call_deepseek(prompt: str) -> Optional[str]:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "deepseek-chat",  # This IS V3.2 - deepseek-chat auto-upgrades to latest
+                    "model": "deepseek-chat",
                     "messages": [
-                        {"role": "system", "content": "You are an expert web developer specializing in modern, beautiful websites. Output only valid HTML code, no explanations."},
+                        {"role": "system", "content": "You are an expert web developer. Output only valid HTML code."},
                         {"role": "user", "content": prompt}
                     ],
                     "max_tokens": 8000,
-                    "temperature": 0.8  # Slightly higher for more creative designs
+                    "temperature": 0.8
                 }
             )
 
-            logger.info(f"🔷 DEEPSEEK V3.2 - Response status: {response.status_code}")
-
             if response.status_code == 200:
-                data = response.json()
-                content = data["choices"][0]["message"]["content"]
-                logger.info(f"🔷 DEEPSEEK [html_structure] - ✅ Success ({len(content)} chars)")
+                content = response.json()["choices"][0]["message"]["content"]
+                logger.info(f"🔷 DEEPSEEK - ✅ Success ({len(content)} chars)")
                 return content
             else:
                 logger.error(f"🔷 DEEPSEEK - ❌ Failed: {response.status_code}")
@@ -203,13 +279,12 @@ async def call_deepseek(prompt: str) -> Optional[str]:
 
 
 async def call_qwen(prompt: str) -> Optional[str]:
-    """STEP 3: Call Qwen API for content improvement"""
+    """Call Qwen API"""
     if not QWEN_API_KEY:
-        logger.info("🟡 QWEN - No API key configured")
         return None
 
     try:
-        logger.info("🟡 QWEN [content_improvement] - Calling API...")
+        logger.info("🟡 QWEN - Calling API...")
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
@@ -219,9 +294,9 @@ async def call_qwen(prompt: str) -> Optional[str]:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "qwen-plus",  # Use qwen-plus for international
+                    "model": "qwen-plus",
                     "messages": [
-                        {"role": "system", "content": "You are a Malaysian copywriter expert. Output only valid HTML code with improved content, no explanations."},
+                        {"role": "system", "content": "You are a Malaysian copywriter. Output only valid HTML code."},
                         {"role": "user", "content": prompt}
                     ],
                     "max_tokens": 8000,
@@ -229,15 +304,12 @@ async def call_qwen(prompt: str) -> Optional[str]:
                 }
             )
 
-            logger.info(f"🟡 QWEN - Response status: {response.status_code}")
-
             if response.status_code == 200:
-                data = response.json()
-                content = data["choices"][0]["message"]["content"]
-                logger.info(f"🟡 QWEN [content_improvement] - ✅ Success ({len(content)} chars)")
+                content = response.json()["choices"][0]["message"]["content"]
+                logger.info(f"🟡 QWEN - ✅ Success ({len(content)} chars)")
                 return content
             else:
-                logger.error(f"🟡 QWEN - ❌ Failed: {response.status_code} - {response.text[:200]}")
+                logger.error(f"🟡 QWEN - ❌ Failed: {response.status_code}")
                 return None
 
     except Exception as e:
@@ -246,11 +318,9 @@ async def call_qwen(prompt: str) -> Optional[str]:
 
 
 def extract_html(text: str) -> str:
-    """Extract HTML from AI response"""
     if not text:
         return ""
 
-    # Try to find HTML in code blocks
     patterns = [
         r'```html\s*([\s\S]*?)\s*```',
         r'```\s*([\s\S]*?)\s*```',
@@ -264,7 +334,6 @@ def extract_html(text: str) -> str:
             html = match.group(1) if '```' in pattern else match.group(0)
             return html.strip()
 
-    # If no pattern matches, return original if it looks like HTML
     if '<' in text and '>' in text:
         return text.strip()
 
@@ -273,75 +342,61 @@ def extract_html(text: str) -> str:
 
 @app.post("/api/generate-simple")
 async def generate_simple(request: GenerateRequest):
-    """3-Step AI Pipeline with 3 Style Variations"""
+    """3-Step AI Pipeline with Cloudinary images"""
 
     desc = request.business_description or request.description or ""
+    user_id = request.user_id or "anonymous"
+
     if not desc:
         return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
 
+    # Check rate limit
+    rate_limit = check_rate_limit(user_id)
+    if not rate_limit["allowed"]:
+        return JSONResponse(
+            status_code=429,
+            content={
+                "success": False,
+                "error": "Daily limit reached",
+                "message": f"You've used all {FREE_LIMIT} free generations today!",
+                "usage": rate_limit
+            }
+        )
+
     logger.info("=" * 70)
-    logger.info("🌐 WEBSITE GENERATION - 3-STEP AI PIPELINE (3 STYLES)")
+    logger.info("🌐 WEBSITE GENERATION - 3-STEP AI PIPELINE")
     logger.info(f"   Business: {desc[:60]}...")
+    logger.info(f"   User: {user_id}")
     logger.info("=" * 70)
 
     try:
         business_type = detect_business_type(desc)
-        logger.info(f"📋 Detected business type: {business_type}")
+        logger.info(f"📋 Detected: {business_type}")
 
         stock_images = get_stock_images(desc)
 
-        # ============================================
-        # STEP 1: STABILITY AI - Generate Images (once, reuse for all styles)
-        # ============================================
+        # STEP 1: Generate AI Images (upload to Cloudinary)
         logger.info("")
-        logger.info("🎨 STEP 1: Stability AI generating images...")
+        logger.info("🎨 STEP 1: Stability AI + Cloudinary...")
         ai_images = None
 
         if STABILITY_API_KEY:
             ai_images = await generate_all_images(desc)
             if ai_images:
-                logger.info("🎨 STABILITY [images] - ✅ Success")
-            else:
-                logger.info("🎨 STABILITY [images] - ⚠️ Using stock images")
+                logger.info("🎨 STEP 1 - ✅ Complete")
 
         hero_img = ai_images['hero'] if ai_images else stock_images['hero']
         gallery_imgs = ai_images['gallery'] if ai_images else stock_images['gallery']
 
-        # ============================================
-        # STEP 2 & 3: Generate 3 Style Variations
-        # ============================================
+        # STEP 2: DeepSeek generates HTML
+        logger.info("")
+        logger.info("🔷 STEP 2: DeepSeek generating HTML...")
 
-        styles_config = [
-            {
-                "name": "modern",
-                "description": "Modern luxury style with vibrant gradients (purple to blue), glass morphism effects, rounded corners, shadows, smooth animations, bold typography"
-            },
-            {
-                "name": "minimal",
-                "description": "Clean minimal style with lots of whitespace, simple black and white palette with one accent color, thin fonts, subtle borders, elegant simplicity"
-            },
-            {
-                "name": "bold",
-                "description": "Bold dramatic style with dark theme, large impactful typography, strong color contrasts, sharp edges, powerful visual hierarchy, neon accents"
-            }
-        ]
-
-        generated_styles = []
-
-        for style in styles_config:
-            logger.info("")
-            logger.info(f"🎨 Generating {style['name'].upper()} style...")
-
-            # STEP 2: DeepSeek generates HTML structure
-            logger.info(f"🔷 STEP 2: DeepSeek V3.2 generating {style['name']} HTML...")
-
-            deepseek_prompt = f"""Create a stunning {style['name']} website for: {desc}
-
-DESIGN STYLE: {style['description']}
+        deepseek_prompt = f"""Create a modern website for: {desc}
 
 Business Type: {business_type}
 
-Use these placeholders (will be replaced):
+Use these placeholders:
 - [BUSINESS_NAME], [BUSINESS_TAGLINE], [ABOUT_TEXT]
 - [SERVICE_1_TITLE], [SERVICE_1_DESC]
 - [SERVICE_2_TITLE], [SERVICE_2_DESC]
@@ -354,93 +409,80 @@ IMAGES:
 
 Requirements:
 1. <script src="https://cdn.tailwindcss.com"></script>
-2. Mobile responsive
-3. STYLE: {style['description']}
-4. Sections: Header, Hero (full-width), About, Services (3 cards), Gallery (4 images), Contact, Footer
-5. WhatsApp button: wa.me/60123456789
-6. Beautiful hover effects and animations
+2. Mobile responsive, modern gradients, shadows
+3. Sections: Header, Hero, About, Services, Gallery, Contact, Footer
+4. WhatsApp button: wa.me/60123456789
+5. Smooth animations
 
 Output ONLY complete HTML code."""
 
-            html_structure = await call_deepseek(deepseek_prompt)
+        html_structure = await call_deepseek(deepseek_prompt)
 
-            if not html_structure:
-                logger.warning(f"🔷 DEEPSEEK - ❌ Failed for {style['name']}, skipping...")
-                continue
+        if not html_structure:
+            return JSONResponse(status_code=500, content={"success": False, "error": "DeepSeek failed"})
 
-            html_structure = extract_html(html_structure)
-            logger.info(f"🔷 DEEPSEEK [{style['name']}] - ✅ Success ({len(html_structure)} chars)")
+        html_structure = extract_html(html_structure)
+        logger.info(f"🔷 STEP 2 - ✅ Complete ({len(html_structure)} chars)")
 
-            # STEP 3: Qwen improves content
-            logger.info(f"🟡 STEP 3: Qwen improving {style['name']} content...")
+        # STEP 3: Qwen improves content
+        logger.info("")
+        logger.info("🟡 STEP 3: Qwen improving content...")
 
-            qwen_prompt = f"""You are a Malaysian copywriter. Replace ALL placeholders with compelling content.
+        qwen_prompt = f"""Replace ALL placeholders with Malaysian-friendly content.
 
 Business: {desc}
-Style: {style['name']}
 
-REPLACE these placeholders:
+REPLACE:
 - [BUSINESS_NAME] → Business name
-- [BUSINESS_TAGLINE] → Catchy tagline (Malaysian English)
-- [ABOUT_TEXT] → About us (2-3 sentences, friendly)
-- [SERVICE_1_TITLE], [SERVICE_1_DESC] → First service
-- [SERVICE_2_TITLE], [SERVICE_2_DESC] → Second service
-- [SERVICE_3_TITLE], [SERVICE_3_DESC] → Third service
+- [BUSINESS_TAGLINE] → Catchy tagline
+- [ABOUT_TEXT] → About us (2-3 sentences)
+- [SERVICE_1_TITLE], [SERVICE_1_DESC] → Service 1
+- [SERVICE_2_TITLE], [SERVICE_2_DESC] → Service 2
+- [SERVICE_3_TITLE], [SERVICE_3_DESC] → Service 3
 - [CTA_TEXT] → Call to action
 - [FOOTER_TEXT] → Footer tagline
 
 HTML:
 {html_structure}
 
-Output ONLY the improved HTML. No explanations."""
+Output ONLY improved HTML."""
 
-            final_html = await call_qwen(qwen_prompt)
+        final_html = await call_qwen(qwen_prompt)
 
-            if final_html:
-                final_html = extract_html(final_html)
-                logger.info(f"🟡 QWEN [{style['name']}] - ✅ Success ({len(final_html)} chars)")
-            else:
-                logger.warning(f"🟡 QWEN [{style['name']}] - ⚠️ Using DeepSeek output")
-                final_html = html_structure
+        if final_html:
+            final_html = extract_html(final_html)
+            logger.info(f"🟡 STEP 3 - ✅ Complete ({len(final_html)} chars)")
+        else:
+            final_html = html_structure
+            logger.warning("🟡 STEP 3 - ⚠️ Using DeepSeek output")
 
-            # Replace stock images with AI images
-            if ai_images:
-                final_html = final_html.replace(stock_images['hero'], ai_images['hero'])
-                for i, stock_url in enumerate(stock_images['gallery']):
-                    if i < len(ai_images['gallery']):
-                        final_html = final_html.replace(stock_url, ai_images['gallery'][i])
+        # STEP 4: Replace stock images with AI/Cloudinary images
+        if ai_images:
+            logger.info("")
+            logger.info("🔄 STEP 4: Replacing images...")
+            final_html = final_html.replace(stock_images['hero'], ai_images['hero'])
+            for i, stock_url in enumerate(stock_images['gallery']):
+                if i < len(ai_images['gallery']):
+                    final_html = final_html.replace(stock_url, ai_images['gallery'][i])
 
-            generated_styles.append({
-                "style": style['name'],
-                "html": final_html
-            })
-            logger.info(f"✅ {style['name'].upper()} style complete!")
+        # Increment usage
+        increment_usage(user_id)
 
-        # ============================================
-        # COMPLETE!
-        # ============================================
         logger.info("")
         logger.info("=" * 70)
-        logger.info(f"✅ 3-STEP AI PIPELINE COMPLETE! Generated {len(generated_styles)} styles")
+        logger.info("✅ GENERATION COMPLETE!")
+        logger.info(f"   Final HTML: {len(final_html)} chars")
         logger.info("=" * 70)
-
-        if not generated_styles:
-            return JSONResponse(status_code=500, content={"success": False, "error": "Failed to generate any styles"})
 
         return {
             "success": True,
-            "html": generated_styles[0]["html"],  # Default to first style
-            "styles": generated_styles,
-            "pipeline": {
-                "step1_stability": bool(ai_images),
-                "step2_deepseek": True,
-                "step3_qwen": True,
-                "styles_generated": len(generated_styles)
-            }
+            "html": final_html,
+            "styles": [{"style": "modern", "html": final_html}],
+            "usage": check_rate_limit(user_id)
         }
 
     except Exception as e:
-        logger.error(f"❌ Pipeline Error: {e}")
+        logger.error(f"❌ Error: {e}")
         import traceback
         logger.error(traceback.format_exc())
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
@@ -448,55 +490,15 @@ Output ONLY the improved HTML. No explanations."""
 
 @app.get("/api/test-ai")
 async def test_ai():
-    """Test all AI APIs"""
-    results = {
+    """Test all services"""
+    return {
         "keys": {
             "deepseek": bool(DEEPSEEK_API_KEY),
             "qwen": bool(QWEN_API_KEY),
-            "stability": bool(STABILITY_API_KEY)
-        },
-        "working": {
-            "deepseek": False,
-            "qwen": False,
-            "stability": False
+            "stability": bool(STABILITY_API_KEY),
+            "cloudinary": bool(CLOUDINARY_CLOUD_NAME)
         }
     }
-
-    # Test DeepSeek
-    if DEEPSEEK_API_KEY:
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                r = await client.post(
-                    "https://api.deepseek.com/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": "deepseek-chat", "messages": [{"role": "user", "content": "Say OK"}], "max_tokens": 10}
-                )
-                results["working"]["deepseek"] = r.status_code == 200
-                results["deepseek_status"] = r.status_code
-        except Exception as e:
-            results["deepseek_error"] = str(e)
-
-    # Test Qwen
-    if QWEN_API_KEY:
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                r = await client.post(
-                    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {QWEN_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": "qwen-plus", "messages": [{"role": "user", "content": "Say OK"}], "max_tokens": 10}
-                )
-                results["working"]["qwen"] = r.status_code == 200
-                results["qwen_status"] = r.status_code
-                if r.status_code != 200:
-                    results["qwen_error"] = r.text[:200]
-        except Exception as e:
-            results["qwen_error"] = str(e)
-
-    # Test Stability (just check key format)
-    if STABILITY_API_KEY:
-        results["working"]["stability"] = STABILITY_API_KEY.startswith("sk-")
-
-    return results
 
 
 if __name__ == "__main__":
