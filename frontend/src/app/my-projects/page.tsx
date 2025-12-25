@@ -232,30 +232,38 @@ export default function MyProjectsPage() {
                     </p>
 
                     {/* Actions */}
-                    <div className="flex gap-2">
-                      {website.published_url && (
-                        <a
-                          href={website.published_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2 rounded-lg text-sm font-medium transition-colors"
+                    <div className="flex flex-col gap-2">
+                      <div className="flex gap-2">
+                        {website.published_url && (
+                          <a
+                            href={website.published_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2 rounded-lg text-sm font-medium transition-colors"
+                          >
+                            👁 Lihat Live
+                          </a>
+                        )}
+                        <Link
+                          href={`/editor/${website.id}`}
+                          className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-center py-2 rounded-lg text-sm font-medium transition-colors"
                         >
-                          👁 Lihat Live
-                        </a>
-                      )}
+                          ✏️ Edit
+                        </Link>
+                        <button
+                          onClick={() => deleteWebsite(website.id)}
+                          disabled={deleting === website.id}
+                          className="bg-red-100 hover:bg-red-200 text-red-600 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                        >
+                          {deleting === website.id ? '...' : '🗑️'}
+                        </button>
+                      </div>
                       <Link
-                        href={`/editor/${website.id}`}
-                        className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-center py-2 rounded-lg text-sm font-medium transition-colors"
+                        href={`/analytics/${website.id}`}
+                        className="w-full bg-purple-100 hover:bg-purple-200 text-purple-700 text-center py-2 rounded-lg text-sm font-medium transition-colors"
                       >
-                        ✏️ Edit
+                        📊 Analytics
                       </Link>
-                      <button
-                        onClick={() => deleteWebsite(website.id)}
-                        disabled={deleting === website.id}
-                        className="bg-red-100 hover:bg-red-200 text-red-600 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                      >
-                        {deleting === website.id ? '...' : '🗑️'}
-                      </button>
                     </div>
                   </div>
                 </div>
