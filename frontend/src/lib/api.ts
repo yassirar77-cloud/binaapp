@@ -4,19 +4,37 @@ const API_BASE =
 
 export async function apiFetch(
   path: string,
-  options?: RequestInit
+  options?: RequestInit & { timeout?: number }
 ) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    ...options,
-  })
+  // Default timeout: 2 minutes for mobile compatibility
+  const timeout = options?.timeout || 120000
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text || 'API request failed')
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      ...options,
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(text || 'API request failed')
+    }
+
+    return res.json()
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+
+    if (error.name === 'AbortError') {
+      throw new Error('Request timed out. Please check your connection and try again.')
+    }
+
+    throw error
   }
-
-  return res.json()
 }

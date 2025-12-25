@@ -86,14 +86,35 @@ supabase = init_supabase()
 
 app = FastAPI(title="BinaApp Backend", version="4.0")
 
-# CORS
+# CORS - CRITICAL: allow_credentials must be False when using wildcard origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=["*"],  # Allow ALL origins for mobile compatibility
+    allow_credentials=False,  # Must be False when using "*"
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
 )
+
+# Add CORS headers manually for preflight requests and mobile browsers
+@app.middleware("http")
+async def add_cors_headers(request: Request, call_next):
+    """Add explicit CORS headers for mobile browser compatibility"""
+    # Handle preflight OPTIONS request
+    if request.method == "OPTIONS":
+        response = JSONResponse(content={"status": "ok"})
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Max-Age"] = "3600"
+        return response
+
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
 
 @app.on_event("startup")
 async def startup_event():
@@ -152,13 +173,30 @@ class TrackEventRequest(BaseModel):
 
 
 @app.get("/")
-async def root():
-    return {"status": "BinaApp Backend Running", "version": "4.0-production"}
-
-
 @app.get("/health")
-async def health():
-    return {"status": "healthy"}
+@app.get("/api/health")
+async def health_check():
+    """Fast health check endpoint to wake up service and verify it's running"""
+    return {
+        "status": "ok",
+        "service": "BinaApp API",
+        "version": "4.0-production",
+        "healthy": True
+    }
+
+
+@app.options("/{path:path}")
+async def options_handler(path: str):
+    """Handle preflight OPTIONS requests for all paths"""
+    return JSONResponse(
+        content={"status": "ok"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Max-Age": "3600",
+        }
+    )
 
 
 @app.get("/api/keys")

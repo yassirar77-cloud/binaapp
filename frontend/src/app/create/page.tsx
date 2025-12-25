@@ -110,6 +110,10 @@ export default function CreatePage() {
     setError('');
     setStyleVariations([]);
 
+    // Create AbortController for timeout handling (2 minutes for mobile)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
+
     try {
       console.log('🚀 Calling API...');
 
@@ -117,7 +121,10 @@ export default function CreatePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ business_description: description, language }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const data = await response.json();
       console.log('Response:', data);
@@ -132,8 +139,14 @@ export default function CreatePage() {
         setSelectedStyle(null);
       }
     } catch (err: any) {
+      clearTimeout(timeoutId);
       console.error(err);
-      setError(err.message || 'Error');
+
+      if (err.name === 'AbortError') {
+        setError('Request timed out. The backend might be sleeping - please try again in 30 seconds.');
+      } else {
+        setError(err.message || 'Error connecting to server. Please check your internet connection and try again.');
+      }
     } finally {
       setLoading(false);
     }
