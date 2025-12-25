@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import httpx
@@ -887,82 +887,182 @@ async def get_realtime_analytics(project_id: str):
 
 # ==================== SUBDOMAIN PUBLISHING ENDPOINTS ====================
 
-@app.post("/api/projects/{project_id}/publish")
-async def publish_project(project_id: str, subdomain: str = None):
-    """Publish a project to subdomain"""
+@app.post("/api/publish")
+async def publish_website(request: dict):
+    """Publish website to subdomain using Supabase Storage"""
+
     if not supabase:
         return JSONResponse(status_code=500, content={"success": False, "error": "Database not connected"})
 
+    html_content = request.get("html_content") or request.get("html_code") or request.get("html")
+    subdomain = request.get("subdomain", "").lower().strip()
+    project_name = request.get("project_name", subdomain)
+    user_id = request.get("user_id", "anonymous")
+
+    logger.info(f"📤 Publishing: subdomain={subdomain}, user={user_id}")
+
+    if not html_content:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Missing html_content"})
+
+    if not subdomain:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Missing subdomain"})
+
+    # Clean subdomain - only lowercase letters, numbers, hyphens
+    subdomain = re.sub(r'[^a-z0-9-]', '', subdomain.lower())
+
+    if not subdomain or len(subdomain) < 2:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid subdomain (min 2 characters)"})
+
     try:
-        # Generate subdomain if not provided
-        if not subdomain:
-            subdomain = f"site-{project_id[:8]}"
+        # Check if subdomain taken by another user
+        existing = supabase.table("projects").select("id, user_id").eq("subdomain", subdomain).execute()
 
-        # Clean subdomain (lowercase, alphanumeric, hyphens only)
-        subdomain = re.sub(r'[^a-z0-9-]', '', subdomain.lower())
-
-        if not subdomain:
-            subdomain = f"site-{project_id[:8]}"
-
-        # Check if subdomain is taken
-        existing = supabase.table("projects").select("id").eq("subdomain", subdomain).neq("id", project_id).execute()
-
+        project_id = None
         if existing.data:
-            return JSONResponse(
-                status_code=400,
-                content={"success": False, "error": "Subdomain already taken"}
+            if existing.data[0].get("user_id") != user_id:
+                return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain already taken by another user"})
+            project_id = existing.data[0]["id"]
+            logger.info(f"📝 Updating existing project: {project_id}")
+
+        # Upload HTML to Supabase Storage
+        file_path = f"{subdomain}/index.html"
+        html_bytes = html_content.encode('utf-8')
+
+        logger.info(f"📤 Uploading to storage: {file_path}")
+
+        # Remove existing file first (ignore errors)
+        try:
+            supabase.storage.from_("websites").remove([file_path])
+            logger.info(f"🗑️ Removed existing file")
+        except Exception as e:
+            logger.info(f"ℹ️ No existing file to remove: {e}")
+
+        # Upload new file
+        try:
+            upload_result = supabase.storage.from_("websites").upload(
+                path=file_path,
+                file=html_bytes,
+                file_options={"content-type": "text/html", "upsert": "true"}
             )
+            logger.info(f"✅ Upload result: {upload_result}")
+        except Exception as upload_error:
+            logger.error(f"❌ Upload error: {upload_error}")
+            # Try alternative upload method
+            try:
+                supabase.storage.from_("websites").upload(
+                    file_path,
+                    html_bytes
+                )
+                logger.info(f"✅ Upload succeeded with alternative method")
+            except Exception as e2:
+                logger.error(f"❌ Alternative upload also failed: {e2}")
+                return JSONResponse(status_code=500, content={"success": False, "error": f"Storage upload failed: {str(e2)}"})
 
-        # Update project with subdomain and published status
-        result = supabase.table("projects").update({
-            "is_published": True,
+        # Get public URL
+        public_url = supabase.storage.from_("websites").get_public_url(file_path)
+        logger.info(f"🔗 Public URL: {public_url}")
+
+        # Save/Update project in database
+        project_data = {
+            "user_id": user_id,
+            "name": project_name,
             "subdomain": subdomain,
-            "published_at": datetime.now().isoformat()
-        }).eq("id", project_id).execute()
+            "html_code": html_content,
+            "is_published": True,
+            "published_url": public_url,
+            "updated_at": datetime.now().isoformat()
+        }
 
-        if result.data:
-            published_url = f"https://{subdomain}.binaapp.my"
-            logger.info(f"✅ Published: {published_url}")
-
-            return {
-                "success": True,
-                "subdomain": subdomain,
-                "url": published_url,
-                "project": result.data[0]
-            }
+        if project_id:
+            supabase.table("projects").update(project_data).eq("id", project_id).execute()
+            logger.info(f"✅ Updated project in database")
         else:
-            return JSONResponse(status_code=404, content={"success": False, "error": "Project not found"})
+            result = supabase.table("projects").insert(project_data).execute()
+            project_id = result.data[0]["id"] if result.data else None
+            logger.info(f"✅ Created new project: {project_id}")
+
+        # Return success with URLs
+        return {
+            "success": True,
+            "subdomain": subdomain,
+            "url": f"https://{subdomain}.binaapp.my",
+            "storage_url": public_url,
+            "project_id": project_id,
+            "message": f"Website published to {subdomain}.binaapp.my"
+        }
 
     except Exception as e:
         logger.error(f"❌ Publish error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 
-@app.get("/api/sites/{subdomain}")
-async def get_published_site(subdomain: str):
-    """Get published website by subdomain"""
+@app.get("/api/site/{subdomain}")
+async def serve_published_site(subdomain: str):
+    """Serve a published website by subdomain"""
+
     if not supabase:
-        return JSONResponse(status_code=500, content={"success": False, "error": "Database not connected"})
+        return HTMLResponse(content="<h1>Service unavailable</h1>", status_code=500)
+
+    subdomain = subdomain.lower().strip()
+    logger.info(f"🌐 Serving site: {subdomain}")
 
     try:
-        result = supabase.table("projects").select("*").eq("subdomain", subdomain).eq("is_published", True).single().execute()
+        # Try to get HTML from database first (faster)
+        result = supabase.table("projects").select("html_code").eq("subdomain", subdomain).eq("is_published", True).execute()
 
-        if result.data:
-            # Increment view count
-            supabase.table("projects").update({
-                "total_views": (result.data.get("total_views") or 0) + 1
-            }).eq("id", result.data["id"]).execute()
+        if result.data and result.data[0].get("html_code"):
+            logger.info(f"✅ Serving from database")
+            return HTMLResponse(content=result.data[0]["html_code"])
 
-            return {
-                "success": True,
-                "project": result.data
-            }
-        else:
-            return JSONResponse(status_code=404, content={"success": False, "error": "Site not found"})
+        # Fallback: get from storage
+        file_path = f"{subdomain}/index.html"
+        try:
+            html_bytes = supabase.storage.from_("websites").download(file_path)
+            logger.info(f"✅ Serving from storage")
+            return HTMLResponse(content=html_bytes.decode('utf-8'))
+        except Exception as storage_error:
+            logger.warning(f"⚠️ Storage download failed: {storage_error}")
+
+        # Not found
+        return HTMLResponse(
+            content=f"""
+            <!DOCTYPE html>
+            <html>
+            <head><title>Site Not Found</title></head>
+            <body style="font-family: Arial; text-align: center; padding: 50px;">
+                <h1>🔍 Site Not Found</h1>
+                <p>The site <strong>{subdomain}.binaapp.my</strong> does not exist.</p>
+                <p><a href="https://binaapp.my">Create your own website with BinaApp</a></p>
+            </body>
+            </html>
+            """,
+            status_code=404
+        )
 
     except Exception as e:
-        logger.error(f"❌ Get site error: {e}")
-        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+        logger.error(f"❌ Serve site error: {e}")
+        return HTMLResponse(content=f"<h1>Error loading site</h1><p>{str(e)}</p>", status_code=500)
+
+
+@app.get("/api/subdomain/check/{subdomain}")
+async def check_subdomain(subdomain: str):
+    """Check if subdomain is available"""
+
+    if not supabase:
+        return {"available": False, "error": "Database not connected"}
+
+    subdomain = re.sub(r'[^a-z0-9-]', '', subdomain.lower())
+
+    if len(subdomain) < 2:
+        return {"available": False, "error": "Subdomain too short (min 2 characters)"}
+
+    try:
+        existing = supabase.table("projects").select("id").eq("subdomain", subdomain).execute()
+        return {"available": len(existing.data) == 0, "subdomain": subdomain}
+    except Exception as e:
+        return {"available": False, "error": str(e)}
 
 
 if __name__ == "__main__":
