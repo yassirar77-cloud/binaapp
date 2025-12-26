@@ -164,19 +164,19 @@ async def publish_website(request: PublishRequest):
         logger.info("💾 Saving project metadata to database...")
 
         async def save_metadata():
+            # Actual schema columns: id, user_id, name, description, html_code, subdomain,
+            # is_published, published_url, total_views, created_at, updated_at
             project_data = {
                 "id": project_id,
                 "user_id": request.user_id,
-                "business_name": request.project_name,
+                "name": request.project_name,  # Column name is 'name' not 'business_name'
                 "subdomain": request.subdomain,
-                "status": "published",
-                "public_url": public_url,
-                "published_at": datetime.utcnow().isoformat(),
+                "html_code": html_content,  # Column name is 'html_code' not 'html_content'
+                "is_published": True,  # Column name is 'is_published' not 'status'
+                "published_url": public_url,
                 "created_at": datetime.utcnow().isoformat(),
                 "updated_at": datetime.utcnow().isoformat()
             }
-            # Note: HTML content is stored in Supabase Storage, not in database
-            # The public_url points to the stored HTML file
             result = await supabase_service.create_website(project_data)
             if not result:
                 raise Exception("Database insert returned None")
