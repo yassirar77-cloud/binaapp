@@ -15,6 +15,47 @@ from difflib import SequenceMatcher
 class AIService:
     """AI Service with strict anti-placeholder enforcement"""
 
+    # FOOD IMAGES - Unique Unsplash images for each dish category
+    FOOD_IMAGES = {
+        "nasi kandar": "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=600&q=80",
+        "nasi lemak": "https://images.unsplash.com/photo-1590301157890-4810ed352733?w=600&q=80",
+        "nasi goreng": "https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=600&q=80",
+        "nasi kerabu": "https://images.unsplash.com/photo-1596040033229-a0b3b7b43107?w=600&q=80",
+        "nasi ayam": "https://images.unsplash.com/photo-1603360946369-dc9bb6258143?w=600&q=80",
+        "nasi briyani": "https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=600&q=80",
+
+        "ayam goreng": "https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?w=600&q=80",
+        "ayam percik": "https://images.unsplash.com/photo-1598103442097-8b74394b95c6?w=600&q=80",
+        "rendang": "https://images.unsplash.com/photo-1574484284002-952d92456975?w=600&q=80",
+
+        "ikan bakar": "https://images.unsplash.com/photo-1580476262798-bddd9f4b7369?w=600&q=80",
+        "ikan": "https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?w=600&q=80",
+
+        "mee goreng": "https://images.unsplash.com/photo-1617093727343-374698b1b08d?w=600&q=80",
+        "char kway teow": "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=600&q=80",
+        "laksa": "https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43?w=600&q=80",
+        "hokkien mee": "https://images.unsplash.com/photo-1612927601601-6638404737ce?w=600&q=80",
+        "mee rebus": "https://images.unsplash.com/photo-1585032226651-759b368d7246?w=600&q=80",
+
+        "roti canai": "https://images.unsplash.com/photo-1589301760014-d929f3979dbc?w=600&q=80",
+        "roti": "https://images.unsplash.com/photo-1601050690597-df0568f70950?w=600&q=80",
+        "murtabak": "https://images.unsplash.com/photo-1599020792689-9fde458e7e17?w=600&q=80",
+
+        "satay": "https://images.unsplash.com/photo-1529563021893-cc83c992d75d?w=600&q=80",
+
+        "pelbagai lauk": "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=80",
+        "lauk": "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&q=80",
+
+        "teh tarik": "https://images.unsplash.com/photo-1594631661960-17f1e5fc3d08?w=600&q=80",
+        "kopi": "https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=600&q=80",
+
+        "cendol": "https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=600&q=80",
+        "ais kacang": "https://images.unsplash.com/photo-1488477181946-6428a0291777?w=600&q=80",
+
+        # Generic fallback
+        "default": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80"
+    }
+
     # MALAYSIAN FOOD PROMPTS - 60+ Authentic Malaysian Dishes
     MALAYSIAN_FOOD_PROMPTS = {
         # Rice Dishes
@@ -123,6 +164,77 @@ class AIService:
         logger.info(f"   Stability: {'✅ Ready' if self.stability_api_key else '❌ NOT SET'}")
         logger.info("   Mode: Real images only, no placeholders allowed")
         logger.info("=" * 80)
+
+    def get_food_image(self, dish_name: str) -> str:
+        """
+        Get unique food image URL for a dish name
+
+        Uses fuzzy matching to find the best image for a dish.
+        Ensures different dishes get different images.
+        """
+        if not dish_name:
+            return self.FOOD_IMAGES["default"]
+
+        dish_lower = dish_name.lower().strip()
+
+        # Direct exact match
+        if dish_lower in self.FOOD_IMAGES:
+            return self.FOOD_IMAGES[dish_lower]
+
+        # Fuzzy matching - check if dish name contains any key
+        best_match = None
+        best_score = 0.0
+
+        for key, url in self.FOOD_IMAGES.items():
+            if key == "default":
+                continue
+
+            # Check if key is in dish name or vice versa
+            if key in dish_lower:
+                score = len(key) / len(dish_lower)
+                if score > best_score:
+                    best_score = score
+                    best_match = url
+            elif dish_lower in key:
+                score = len(dish_lower) / len(key)
+                if score > best_score:
+                    best_score = score
+                    best_match = url
+
+        if best_match and best_score >= 0.3:
+            return best_match
+
+        # Keyword fallback
+        if "nasi kandar" in dish_lower:
+            return self.FOOD_IMAGES["nasi kandar"]
+        if "nasi lemak" in dish_lower:
+            return self.FOOD_IMAGES["nasi lemak"]
+        if "nasi" in dish_lower:
+            return self.FOOD_IMAGES["nasi goreng"]
+        if "ayam" in dish_lower or "chicken" in dish_lower:
+            return self.FOOD_IMAGES["ayam goreng"]
+        if "ikan" in dish_lower or "fish" in dish_lower:
+            return self.FOOD_IMAGES["ikan bakar"]
+        if "mee" in dish_lower or "noodle" in dish_lower:
+            return self.FOOD_IMAGES["mee goreng"]
+        if "laksa" in dish_lower:
+            return self.FOOD_IMAGES["laksa"]
+        if "roti" in dish_lower:
+            return self.FOOD_IMAGES["roti canai"]
+        if "satay" in dish_lower:
+            return self.FOOD_IMAGES["satay"]
+        if "rendang" in dish_lower:
+            return self.FOOD_IMAGES["rendang"]
+        if "lauk" in dish_lower or "side" in dish_lower:
+            return self.FOOD_IMAGES["pelbagai lauk"]
+        if "teh" in dish_lower or "tea" in dish_lower:
+            return self.FOOD_IMAGES["teh tarik"]
+        if "kopi" in dish_lower or "coffee" in dish_lower:
+            return self.FOOD_IMAGES["kopi"]
+        if "cendol" in dish_lower:
+            return self.FOOD_IMAGES["cendol"]
+
+        return self.FOOD_IMAGES["default"]
 
     def get_smart_image_prompt(self, text: str) -> Tuple[str, float]:
         """
@@ -695,6 +807,120 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 text = parts[1]
         return text.strip()
 
+    def _fix_menu_item_images(self, html: str) -> str:
+        """
+        Fix duplicate menu item images - ensure each dish has a unique image
+
+        This function finds menu items with duplicate images and replaces them
+        with unique images based on the dish name.
+        """
+        if not html:
+            return html
+
+        import re
+
+        logger.info("🖼️ Fixing menu item images to ensure uniqueness...")
+
+        # Track image URLs we've seen
+        image_usage = {}
+        replacements = []
+
+        # Pattern to match menu items with images
+        # This matches common HTML patterns for menu items:
+        # - <img src="..."> followed by text (dish name)
+        # - Or text followed by <img>
+        patterns = [
+            # Pattern 1: <img src="URL"> ... <h3>Dish Name</h3>
+            r'<img[^>]*src="([^"]+)"[^>]*>[\s\S]{0,200}?<h[2-4][^>]*>(.*?)</h[2-4]>',
+            # Pattern 2: <h3>Dish Name</h3> ... <img src="URL">
+            r'<h[2-4][^>]*>(.*?)</h[2-4]>[\s\S]{0,200}?<img[^>]*src="([^"]+)"[^>]*>',
+            # Pattern 3: Direct img with alt containing dish name
+            r'<img[^>]*src="([^"]+)"[^>]*alt="([^"]*)"[^>]*>',
+        ]
+
+        for pattern in patterns:
+            matches = re.finditer(pattern, html, re.IGNORECASE)
+            for match in matches:
+                if len(match.groups()) == 2:
+                    if 'src=' in match.group(0)[:30]:  # Pattern 1 or 3
+                        img_url = match.group(1)
+                        dish_name = match.group(2).strip()
+                    else:  # Pattern 2
+                        dish_name = match.group(1).strip()
+                        img_url = match.group(2)
+
+                    # Clean dish name (remove HTML tags)
+                    dish_name = re.sub(r'<[^>]+>', '', dish_name).strip()
+
+                    if not dish_name or not img_url:
+                        continue
+
+                    # Track this image URL
+                    if img_url not in image_usage:
+                        image_usage[img_url] = []
+                    image_usage[img_url].append(dish_name)
+
+        # Find duplicate image URLs
+        duplicate_images = {url: dishes for url, dishes in image_usage.items() if len(dishes) > 1}
+
+        if duplicate_images:
+            logger.warning(f"⚠️ Found {len(duplicate_images)} image URLs used for multiple dishes!")
+            for url, dishes in duplicate_images.items():
+                logger.warning(f"   {url[:60]}... used for: {', '.join(dishes[:3])}")
+
+            # Fix duplicates
+            for dup_url, dishes in duplicate_images.items():
+                # Skip the first occurrence, replace others
+                for i, dish in enumerate(dishes):
+                    if i == 0:
+                        continue  # Keep first usage
+
+                    # Get unique image for this dish
+                    new_url = self.get_food_image(dish)
+                    logger.info(f"   🔄 Replacing image for '{dish}': {new_url}")
+
+                    # Find and replace this specific occurrence
+                    # This is tricky - we need to replace only specific occurrences
+                    # For now, let's use a simpler approach: replace globally after first
+                    # occurrence, which works if the HTML is generated consistently
+
+            # Simpler approach: Scan for common menu item patterns and fix images
+            fixed_html = html
+            seen_urls = set()
+
+            def replace_image(match):
+                full_match = match.group(0)
+                img_url = match.group(1)
+
+                # Try to extract dish name from context
+                # Look for nearby h2, h3, h4 tags
+                context_start = max(0, match.start() - 300)
+                context_end = min(len(html), match.end() + 300)
+                context = html[context_start:context_end]
+
+                dish_name = None
+                heading_match = re.search(r'<h[2-4][^>]*>(.*?)</h[2-4]>', context)
+                if heading_match:
+                    dish_name = re.sub(r'<[^>]+>', '', heading_match.group(1)).strip()
+
+                # If we've seen this URL before and we have a dish name, replace it
+                if img_url in seen_urls and dish_name:
+                    new_url = self.get_food_image(dish_name)
+                    logger.info(f"   🔄 '{dish_name}': {img_url[:50]}... → {new_url[:50]}...")
+                    return full_match.replace(img_url, new_url)
+                else:
+                    seen_urls.add(img_url)
+                    return full_match
+
+            # Replace images
+            fixed_html = re.sub(r'<img[^>]*src="([^"]+)"[^>]*>', replace_image, fixed_html)
+
+            logger.info("✅ Menu item images fixed")
+            return fixed_html
+
+        logger.info("✅ No duplicate menu images found")
+        return html
+
     def _fix_placeholders(self, html: str, name: str, desc: str) -> str:
         """Fix any remaining placeholders as a safety net"""
         if not html:
@@ -757,6 +983,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         # Extract and fix
         html = self._extract_html(html)
         html = self._fix_placeholders(html, request.business_name, request.description)
+        html = self._fix_menu_item_images(html)
 
         logger.info("✅ Website generated successfully!")
         logger.info(f"   Final size: {len(html)} characters")
@@ -806,6 +1033,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             if html:
                 html = self._extract_html(html)
                 html = self._fix_placeholders(html, request.business_name, request.description)
+                html = self._fix_menu_item_images(html)
 
                 results[style] = AIGenerationResponse(
                     html_content=html,
