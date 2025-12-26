@@ -810,6 +810,400 @@ Output ONLY improved HTML."""
         return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
 
 
+# ==================== NEW GENERATION ENDPOINTS WITH SUPABASE TRACKING ====================
+
+async def generate_style_variation(description: str, language: str, style_config: dict, hero_image: str, gallery_images: list) -> str:
+    """Generate a single style variation HTML"""
+
+    # Use actual gallery images (not all same)
+    gallery_urls = gallery_images if isinstance(gallery_images, list) else [gallery_images] * 4
+
+    # STEP 1: DeepSeek generates HTML structure
+    logger.info(f"🔷 DeepSeek generating {style_config['name']} HTML...")
+
+    deepseek_prompt = f"""Create a stunning {style_config['display_name']} website for: {description}
+
+DESIGN STYLE: {style_config['description']}
+COLORS: {style_config['colors']}
+TYPOGRAPHY: {style_config['font']}
+
+Use these placeholders:
+- [BUSINESS_NAME], [BUSINESS_TAGLINE], [ABOUT_TEXT]
+- [SERVICE_1_TITLE], [SERVICE_1_DESC]
+- [SERVICE_2_TITLE], [SERVICE_2_DESC]
+- [SERVICE_3_TITLE], [SERVICE_3_DESC]
+- [CTA_TEXT], [FOOTER_TEXT]
+
+IMAGES (use these EXACT URLs - each gallery image is DIFFERENT):
+- Hero: {hero_image}
+- Gallery 1: {gallery_urls[0] if len(gallery_urls) > 0 else hero_image}
+- Gallery 2: {gallery_urls[1] if len(gallery_urls) > 1 else hero_image}
+- Gallery 3: {gallery_urls[2] if len(gallery_urls) > 2 else hero_image}
+- Gallery 4: {gallery_urls[3] if len(gallery_urls) > 3 else hero_image}
+
+CRITICAL: Each gallery image URL is DIFFERENT. Do NOT use the same URL for all images.
+
+Requirements:
+1. <!DOCTYPE html> with <script src="https://cdn.tailwindcss.com"></script>
+2. Mobile responsive
+3. Sections: Header, Hero, About, Services (3 cards), Gallery (4 DIFFERENT images), Contact, Footer
+4. WhatsApp button: <a href="https://wa.me/60123456789">WhatsApp</a>
+
+Output ONLY complete HTML."""
+
+    html_structure = await call_deepseek(deepseek_prompt)
+
+    if not html_structure:
+        logger.warning(f"🔷 DeepSeek failed for {style_config['name']}")
+        return None
+
+    html_structure = extract_html(html_structure)
+
+    # STEP 2: Qwen improves content
+    logger.info(f"🟡 Qwen improving {style_config['name']} content...")
+
+    qwen_prompt = f"""Replace ALL placeholders with Malaysian-friendly content.
+
+Business: {description}
+Style: {style_config['display_name']}
+
+REPLACE:
+- [BUSINESS_NAME] → Business name
+- [BUSINESS_TAGLINE] → Catchy tagline
+- [ABOUT_TEXT] → About us (2-3 sentences)
+- [SERVICE_1_TITLE], [SERVICE_1_DESC] → Service 1
+- [SERVICE_2_TITLE], [SERVICE_2_DESC] → Service 2
+- [SERVICE_3_TITLE], [SERVICE_3_DESC] → Service 3
+- [CTA_TEXT] → Call to action
+- [FOOTER_TEXT] → Footer tagline
+
+DO NOT change image URLs. Keep them exactly as they are.
+
+HTML:
+{html_structure}
+
+Output ONLY improved HTML."""
+
+    final_html = await call_qwen(qwen_prompt)
+
+    if final_html:
+        final_html = extract_html(final_html)
+    else:
+        final_html = html_structure
+
+    # Add analytics script
+    tracking_script = '''
+<!-- BinaApp Analytics -->
+<script>
+(function() {
+  const projectId = window.location.hostname;
+  const visitorId = localStorage.getItem('bina_visitor') || 'v_' + Math.random().toString(36).substr(2, 9);
+  localStorage.setItem('bina_visitor', visitorId);
+
+  fetch('https://binaapp-backend.onrender.com/api/analytics/track', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      project_id: projectId,
+      visitor_id: visitorId,
+      referrer: document.referrer,
+      page_path: window.location.pathname
+    })
+  }).catch(() => {});
+})();
+</script>
+'''
+
+    if '</body>' in final_html:
+        final_html = final_html.replace('</body>', f'{tracking_script}</body>')
+    else:
+        final_html += tracking_script
+
+    return final_html
+
+
+@app.post("/api/generate/start")
+async def start_generation(request: Request):
+    """Start generation - runs synchronously with Supabase tracking"""
+
+    try:
+        body = await request.json()
+    except Exception as e:
+        logger.error(f"❌ Invalid JSON: {e}")
+        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
+
+    # Extract request parameters
+    description = body.get("description") or body.get("business_description") or ""
+    language = body.get("language", "en")
+    user_id = body.get("user_id", "anonymous")
+    user_email = body.get("email")
+
+    if not description:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
+
+    # Check rate limit (founders bypass limit)
+    rate_limit = check_rate_limit(user_id, user_email)
+    if not rate_limit["allowed"]:
+        return JSONResponse(
+            status_code=429,
+            content={
+                "success": False,
+                "error": "Daily limit reached",
+                "message": f"You've used all {FREE_LIMIT} free generations today!",
+                "usage": rate_limit
+            }
+        )
+
+    # Generate unique job ID
+    job_id = str(uuid.uuid4())
+
+    logger.info("=" * 70)
+    logger.info("🚀 NEW GENERATION JOB STARTED (SYNC)")
+    logger.info(f"   Job ID: {job_id}")
+    logger.info(f"   User: {user_email or user_id}")
+    logger.info(f"   Description: {description[:60]}...")
+    logger.info("=" * 70)
+
+    # Create job record in Supabase
+    if supabase:
+        try:
+            supabase.table("generation_jobs").insert({
+                "job_id": job_id,
+                "status": "processing",
+                "progress": 10,
+                "description": description,
+                "language": language,
+                "user_id": user_id,
+                "email": user_email,
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat()
+            }).execute()
+            logger.info(f"✅ Job {job_id} created in database")
+        except Exception as db_error:
+            logger.error(f"❌ Failed to create job in database: {db_error}")
+            # Continue anyway - we can still generate
+
+    # Run generation SYNCHRONOUSLY
+    try:
+        logger.info(f"🔄 Starting AI generation for job: {job_id}")
+
+        # Update progress to 20%
+        if supabase:
+            try:
+                supabase.table("generation_jobs").update({
+                    "progress": 20,
+                    "updated_at": datetime.now().isoformat()
+                }).eq("job_id", job_id).execute()
+            except:
+                pass
+
+        # Detect business type
+        business_type = detect_business_type(description)
+        logger.info(f"📋 Detected business type: {business_type}")
+
+        # Get stock images
+        stock_images = get_stock_images(description)
+
+        # Update progress to 30%
+        if supabase:
+            try:
+                supabase.table("generation_jobs").update({
+                    "progress": 30,
+                    "updated_at": datetime.now().isoformat()
+                }).eq("job_id", job_id).execute()
+            except:
+                pass
+
+        # STEP 1: Generate AI Images (if Stability AI is available)
+        logger.info("🎨 STEP 1: Generating images...")
+        ai_images = None
+
+        if STABILITY_API_KEY:
+            ai_images = await generate_all_images(description)
+            if ai_images:
+                logger.info("✅ AI images generated successfully")
+
+        hero_img = ai_images['hero'] if ai_images else stock_images['hero']
+        gallery_imgs = ai_images['gallery'] if ai_images else stock_images['gallery']
+
+        # Update progress to 40%
+        if supabase:
+            try:
+                supabase.table("generation_jobs").update({
+                    "progress": 40,
+                    "updated_at": datetime.now().isoformat()
+                }).eq("job_id", job_id).execute()
+            except:
+                pass
+
+        # Define 3 style variations
+        styles_config = [
+            {
+                "name": "modern",
+                "display_name": "Modern",
+                "description": "Vibrant gradients (purple to blue), glassmorphism effects, rounded corners",
+                "colors": "purple-600, blue-500, gradient backgrounds",
+                "font": "bold, modern sans-serif",
+                "progress_percent": 50
+            },
+            {
+                "name": "minimal",
+                "display_name": "Minimal",
+                "description": "Clean white background, lots of whitespace, simple black text",
+                "colors": "white, black, gray-100",
+                "font": "thin, elegant",
+                "progress_percent": 70
+            },
+            {
+                "name": "bold",
+                "display_name": "Bold",
+                "description": "Dark background, bright accent colors, large bold typography",
+                "colors": "gray-900, yellow-400, bold contrasts",
+                "font": "heavy, impactful",
+                "progress_percent": 90
+            }
+        ]
+
+        logger.info(f"🎨 STEP 2: Generating {len(styles_config)} style variations...")
+        generated_styles = []
+
+        for idx, style in enumerate(styles_config, 1):
+            logger.info(f"   Generating {style['display_name']} ({idx}/{len(styles_config)})...")
+
+            # Update progress
+            if supabase:
+                try:
+                    supabase.table("generation_jobs").update({
+                        "progress": style['progress_percent'],
+                        "updated_at": datetime.now().isoformat()
+                    }).eq("job_id", job_id).execute()
+                except:
+                    pass
+
+            # Generate HTML for this style
+            html = await generate_style_variation(
+                description=description,
+                language=language,
+                style_config=style,
+                hero_image=hero_img,
+                gallery_images=gallery_imgs
+            )
+
+            if html:
+                generated_styles.append({
+                    "style": style["name"],
+                    "html": html,
+                    "display_name": style["display_name"]
+                })
+                logger.info(f"   ✅ {style['display_name']} generated ({len(html)} chars)")
+
+        logger.info(f"✅ AI generation complete for job: {job_id} - Generated {len(generated_styles)} styles")
+
+        # Increment usage (founders bypass)
+        increment_usage(user_id, user_email)
+
+        # Update progress to 100% and save result
+        if supabase:
+            try:
+                supabase.table("generation_jobs").update({
+                    "status": "completed",
+                    "progress": 100,
+                    "html": generated_styles[0]["html"] if generated_styles else None,
+                    "styles": json.dumps(generated_styles),
+                    "business_type": business_type,
+                    "updated_at": datetime.now().isoformat()
+                }).eq("job_id", job_id).execute()
+                logger.info(f"✅ Job {job_id} completed and saved to database")
+            except db_error:
+                logger.error(f"⚠️ Failed to save completed job: {db_error}")
+
+        # Return success with job_id
+        return {
+            "success": True,
+            "job_id": job_id,
+            "status": "completed",
+            "html": generated_styles[0]["html"] if generated_styles else None,
+            "styles": generated_styles,
+            "business_type": business_type
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Generation failed for job {job_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+        # Save error to database
+        if supabase:
+            try:
+                supabase.table("generation_jobs").update({
+                    "status": "failed",
+                    "error": str(e),
+                    "updated_at": datetime.now().isoformat()
+                }).eq("job_id", job_id).execute()
+            except:
+                pass
+
+        return JSONResponse(status_code=500, content={
+            "success": False,
+            "job_id": job_id,
+            "status": "failed",
+            "error": str(e)
+        })
+
+
+@app.get("/api/generate/status/{job_id}")
+async def get_generation_status(job_id: str):
+    """Check job status from Supabase"""
+
+    logger.info(f"📊 Checking status for job: {job_id}")
+
+    if not supabase:
+        logger.error("❌ Supabase not configured")
+        return JSONResponse(status_code=500, content={
+            "status": "error",
+            "error": "Database not configured"
+        })
+
+    try:
+        result = supabase.table("generation_jobs").select("*").eq("job_id", job_id).execute()
+
+        if not result.data:
+            logger.warning(f"⚠️ Job not found: {job_id}")
+            return JSONResponse(status_code=404, content={
+                "status": "not_found",
+                "error": "Job not found"
+            })
+
+        job = result.data[0]
+        logger.info(f"📊 Job {job_id}: status={job['status']}, progress={job.get('progress', 0)}%")
+
+        # Parse styles if available
+        styles = None
+        if job.get("styles"):
+            try:
+                styles = json.loads(job["styles"]) if isinstance(job["styles"], str) else job["styles"]
+            except:
+                styles = None
+
+        return {
+            "status": job["status"],
+            "progress": job.get("progress", 0),
+            "html": job.get("html") if job["status"] == "completed" else None,
+            "styles": styles if job["status"] == "completed" else None,
+            "business_type": job.get("business_type"),
+            "error": job.get("error")
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Failed to retrieve job {job_id}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return JSONResponse(status_code=500, content={
+            "status": "error",
+            "error": str(e)
+        })
+
+
 @app.get("/api/test-ai")
 async def test_ai():
     """Test all services"""
