@@ -6,10 +6,24 @@ Ensures real images and real content - NO placeholders allowed
 import os
 import httpx
 import random
+import uuid
 from loguru import logger
 from typing import Optional, List, Dict, Tuple
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
 from difflib import SequenceMatcher
+
+# Import Stability AI service
+try:
+    from app.services.stability_service import (
+        generate_malaysian_image,
+        save_image_to_storage,
+        get_malaysian_prompt,
+        MALAYSIAN_PROMPTS
+    )
+    STABILITY_AVAILABLE = True
+except ImportError:
+    logger.warning("⚠️ Stability AI service not available")
+    STABILITY_AVAILABLE = False
 
 
 class AIService:
@@ -285,12 +299,15 @@ class AIService:
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
         self.stability_api_key = os.getenv("STABILITY_API_KEY")
+        self.supabase_url = os.getenv("SUPABASE_URL")
+        self.supabase_key = os.getenv("SUPABASE_ANON_KEY")
 
         logger.info("=" * 80)
         logger.info("🚀 AI SERVICE - STRICT NO-PLACEHOLDER MODE")
         logger.info(f"   DeepSeek: {'✅ Ready' if self.deepseek_api_key else '❌ NOT SET'}")
         logger.info(f"   Qwen: {'✅ Ready' if self.qwen_api_key else '❌ NOT SET'}")
-        logger.info(f"   Stability: {'✅ Ready' if self.stability_api_key else '❌ NOT SET'}")
+        logger.info(f"   Stability AI: {'✅ Ready' if self.stability_api_key and STABILITY_AVAILABLE else '❌ NOT SET'}")
+        logger.info(f"   Supabase Storage: {'✅ Ready' if self.supabase_url and self.supabase_key else '❌ NOT SET'}")
         logger.info("   Mode: Real images only, no placeholders allowed")
         logger.info("=" * 80)
 
@@ -494,6 +511,61 @@ class AIService:
         # Final fallback
         logger.info(f"⚠️ No specific match for '{text}', using default")
         return self.BUSINESS_IMAGES["default"]
+
+    async def get_product_image(
+        self,
+        item_name: str,
+        business_type: str = "",
+        use_ai: bool = True,
+        aspect_ratio: str = "1:1"
+    ) -> str:
+        """
+        Get image for a product - try AI generation first, fallback to stock.
+
+        Args:
+            item_name: Product/service name (e.g., "Nasi Kandar", "Baju Kurung")
+            business_type: Business category
+            use_ai: Whether to try AI generation first
+            aspect_ratio: Image aspect ratio for AI generation
+
+        Returns:
+            Image URL (either AI-generated from storage or stock Unsplash)
+        """
+        if use_ai and STABILITY_AVAILABLE and self.stability_api_key:
+            try:
+                logger.info(f"🎨 Attempting AI generation for: {item_name}")
+
+                # Generate image with Stability AI
+                image_base64 = await generate_malaysian_image(
+                    item_name,
+                    business_type,
+                    aspect_ratio
+                )
+
+                if image_base64 and self.supabase_url and self.supabase_key:
+                    # Save to storage and get URL
+                    filename = f"{item_name.lower().replace(' ', '-')}-{uuid.uuid4().hex[:8]}.webp"
+                    image_url = await save_image_to_storage(
+                        image_base64,
+                        filename,
+                        self.supabase_url,
+                        self.supabase_key
+                    )
+
+                    if image_url:
+                        logger.info(f"✅ AI image generated and saved: {item_name}")
+                        return image_url
+                    else:
+                        logger.warning(f"⚠️ Failed to save AI image for: {item_name}")
+                else:
+                    logger.warning(f"⚠️ AI generation failed for: {item_name}")
+
+            except Exception as e:
+                logger.error(f"❌ AI generation error for {item_name}: {e}")
+
+        # Fallback to stock Unsplash image
+        logger.info(f"📸 Using stock image for: {item_name}")
+        return self.get_matching_image(item_name, "all")
 
     def get_smart_image_prompt(self, text: str) -> Tuple[str, float]:
         """
