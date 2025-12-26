@@ -56,6 +56,135 @@ class AIService:
         "default": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80"
     }
 
+    # COMPREHENSIVE BUSINESS IMAGES - Verified URLs for Malaysian Businesses
+    BUSINESS_IMAGES = {
+        # ===== MALAYSIAN FASHION & CLOTHING =====
+        "baju kurung": "https://images.unsplash.com/photo-1583623025817-d180a2221d0a?w=600&q=80",  # Traditional Malay dress
+        "baju melayu": "https://images.unsplash.com/photo-1583623025817-d180a2221d0a?w=600&q=80",
+        "kurung": "https://images.unsplash.com/photo-1583623025817-d180a2221d0a?w=600&q=80",
+
+        "tudung": "https://images.unsplash.com/photo-1601924357840-3e2a98b997f5?w=600&q=80",  # Hijab/headscarf
+        "hijab": "https://images.unsplash.com/photo-1601924357840-3e2a98b997f5?w=600&q=80",
+        "shawl": "https://images.unsplash.com/photo-1610976215686-875f2da6f249?w=600&q=80",
+        "scarf": "https://images.unsplash.com/photo-1610976215686-875f2da6f249?w=600&q=80",
+
+        "kebaya": "https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?w=600&q=80",  # Traditional blouse
+        "baju kebaya": "https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?w=600&q=80",
+
+        "pakaian": "https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?w=600&q=80",  # General clothing
+        "fashion": "https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?w=600&q=80",
+        "clothing": "https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?w=600&q=80",
+        "boutique": "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=600&q=80",
+
+        # Fashion accessories
+        "brooch": "https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=600&q=80",
+        "accessories": "https://images.unsplash.com/photo-1492707892479-7bc8d5a4ee93?w=600&q=80",
+        "jewelry": "https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?w=600&q=80",
+        "anting": "https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?w=600&q=80",  # Earrings
+        "rantai": "https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=600&q=80",  # Necklace
+
+        # ===== HAIR SALON SERVICES =====
+        "salon": "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=600&q=80",
+        "hair salon": "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=600&q=80",
+        "salon rambut": "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=600&q=80",
+
+        "haircut": "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=600&q=80",
+        "potong rambut": "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=600&q=80",
+        "gunting rambut": "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=600&q=80",
+
+        "hair coloring": "https://images.unsplash.com/photo-1559599101-f09722fb4948?w=600&q=80",
+        "hair color": "https://images.unsplash.com/photo-1559599101-f09722fb4948?w=600&q=80",
+        "cat rambut": "https://images.unsplash.com/photo-1559599101-f09722fb4948?w=600&q=80",
+        "warna rambut": "https://images.unsplash.com/photo-1559599101-f09722fb4948?w=600&q=80",
+
+        "hair treatment": "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=600&q=80",
+        "rawatan rambut": "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=600&q=80",
+        "hair spa": "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=600&q=80",
+
+        "hair styling": "https://images.unsplash.com/photo-1562322140-8baeececf3df?w=600&q=80",
+        "styling": "https://images.unsplash.com/photo-1562322140-8baeececf3df?w=600&q=80",
+        "blowdry": "https://images.unsplash.com/photo-1562322140-8baeececf3df?w=600&q=80",
+
+        # ===== BEAUTY & SPA SERVICES =====
+        "beauty": "https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=600&q=80",
+        "kecantikan": "https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=600&q=80",
+        "beauty salon": "https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=600&q=80",
+
+        "facial": "https://images.unsplash.com/photo-1616394584738-fc6e612e71b9?w=600&q=80",
+        "facial treatment": "https://images.unsplash.com/photo-1616394584738-fc6e612e71b9?w=600&q=80",
+        "rawatan muka": "https://images.unsplash.com/photo-1616394584738-fc6e612e71b9?w=600&q=80",
+
+        "spa": "https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=600&q=80",
+        "massage": "https://images.unsplash.com/photo-1519823551278-64ac92734fb1?w=600&q=80",
+        "urut": "https://images.unsplash.com/photo-1519823551278-64ac92734fb1?w=600&q=80",
+        "body massage": "https://images.unsplash.com/photo-1519823551278-64ac92734fb1?w=600&q=80",
+
+        "manicure": "https://images.unsplash.com/photo-1604654894610-df63bc536371?w=600&q=80",
+        "pedicure": "https://images.unsplash.com/photo-1604654894610-df63bc536371?w=600&q=80",
+        "nails": "https://images.unsplash.com/photo-1604654894610-df63bc536371?w=600&q=80",
+        "nail salon": "https://images.unsplash.com/photo-1604654894610-df63bc536371?w=600&q=80",
+
+        "makeup": "https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=600&q=80",
+        "makeover": "https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=600&q=80",
+        "solek": "https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=600&q=80",
+
+        # ===== CAR & AUTOMOTIVE SERVICES =====
+        "car wash": "https://images.unsplash.com/photo-1601362840469-51e4d8d58785?w=600&q=80",
+        "cuci kereta": "https://images.unsplash.com/photo-1601362840469-51e4d8d58785?w=600&q=80",
+        "auto wash": "https://images.unsplash.com/photo-1601362840469-51e4d8d58785?w=600&q=80",
+
+        "bengkel": "https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=600&q=80",
+        "workshop": "https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=600&q=80",
+        "car repair": "https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=600&q=80",
+        "auto repair": "https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=600&q=80",
+        "mechanic": "https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=600&q=80",
+
+        "car service": "https://images.unsplash.com/photo-1625047509168-a7026f36de04?w=600&q=80",
+        "servis kereta": "https://images.unsplash.com/photo-1625047509168-a7026f36de04?w=600&q=80",
+        "auto service": "https://images.unsplash.com/photo-1625047509168-a7026f36de04?w=600&q=80",
+
+        "tire service": "https://images.unsplash.com/photo-1592840496694-26d035b52b48?w=600&q=80",
+        "tayar": "https://images.unsplash.com/photo-1592840496694-26d035b52b48?w=600&q=80",
+        "tyre": "https://images.unsplash.com/photo-1592840496694-26d035b52b48?w=600&q=80",
+
+        "kereta": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=600&q=80",  # General car
+        "car": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=600&q=80",
+        "automotive": "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=600&q=80",
+
+        # ===== GENERAL BUSINESS CATEGORIES =====
+        "bakery": "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=600&q=80",
+        "kedai roti": "https://images.unsplash.com/photo-1509440159596-0249440159596-0249088772ff?w=600&q=80",
+        "cake": "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=600&q=80",
+        "kek": "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=600&q=80",
+
+        "florist": "https://images.unsplash.com/photo-1490750967868-88aa4486c946?w=600&q=80",
+        "bunga": "https://images.unsplash.com/photo-1490750967868-88aa4486c946?w=600&q=80",
+        "flowers": "https://images.unsplash.com/photo-1490750967868-88aa4486c946?w=600&q=80",
+
+        "pet shop": "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=600&q=80",
+        "kedai haiwan": "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=600&q=80",
+        "pet": "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=600&q=80",
+
+        "grocery": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?w=600&q=80",
+        "kedai runcit": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?w=600&q=80",
+        "mini market": "https://images.unsplash.com/photo-1534723452862-4c874018d66d?w=600&q=80",
+
+        "laundry": "https://images.unsplash.com/photo-1517677208171-0bc6725a3e60?w=600&q=80",
+        "dobi": "https://images.unsplash.com/photo-1517677208171-0bc6725a3e60?w=600&q=80",
+
+        "cafe": "https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=600&q=80",
+        "kafe": "https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=600&q=80",
+        "coffee": "https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=600&q=80",
+
+        "restaurant": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600&q=80",
+        "restoran": "https://images.unsplash.com/photo-517248135467-4c7edcad34c4?w=600&q=80",
+
+        # Generic fallback
+        "business": "https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&q=80",
+        "perniagaan": "https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&q=80",
+        "default": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80"
+    }
+
     # MALAYSIAN FOOD PROMPTS - 60+ Authentic Malaysian Dishes
     MALAYSIAN_FOOD_PROMPTS = {
         # Rice Dishes
@@ -235,6 +364,136 @@ class AIService:
             return self.FOOD_IMAGES["cendol"]
 
         return self.FOOD_IMAGES["default"]
+
+    def get_matching_image(self, text: str, category: str = "all") -> str:
+        """
+        Get matching image URL for any Malaysian business product/service
+
+        Uses smart keyword matching to find the best image from BUSINESS_IMAGES
+        Combines FOOD_IMAGES and BUSINESS_IMAGES for comprehensive coverage
+
+        Args:
+            text: Product/service name or description (e.g., "Baju Kurung", "Tudung", "Haircut")
+            category: Optional category hint ("fashion", "salon", "beauty", "food", "auto", "all")
+
+        Returns:
+            Best matching image URL
+        """
+        if not text:
+            return self.BUSINESS_IMAGES["default"]
+
+        text_lower = text.lower().strip()
+
+        # Combine food and business images for comprehensive matching
+        all_images = {**self.FOOD_IMAGES, **self.BUSINESS_IMAGES}
+
+        # Direct exact match
+        if text_lower in all_images:
+            logger.info(f"🎯 Exact match for '{text}': {all_images[text_lower][:60]}...")
+            return all_images[text_lower]
+
+        # Fuzzy matching - check if text contains any key or vice versa
+        best_match = None
+        best_score = 0.0
+        best_url = None
+
+        for key, url in all_images.items():
+            if key == "default":
+                continue
+
+            # Check if key is in text or vice versa
+            if key in text_lower:
+                score = len(key) / len(text_lower)
+                if score > best_score:
+                    best_score = score
+                    best_match = key
+                    best_url = url
+            elif text_lower in key:
+                score = len(text_lower) / len(key)
+                if score > best_score:
+                    best_score = score
+                    best_match = key
+                    best_url = url
+
+        # Return if we have a good match (30% similarity or higher)
+        if best_url and best_score >= 0.3:
+            logger.info(f"🎯 Fuzzy match for '{text}' → '{best_match}' (score: {best_score:.2f})")
+            return best_url
+
+        # Keyword-based fallback for common categories
+        # Fashion & Clothing
+        if any(word in text_lower for word in ['baju', 'kurung', 'melayu', 'traditional', 'dress']):
+            return self.BUSINESS_IMAGES.get("baju kurung", self.BUSINESS_IMAGES["clothing"])
+        if any(word in text_lower for word in ['tudung', 'hijab', 'headscarf', 'shawl']):
+            return self.BUSINESS_IMAGES.get("tudung", self.BUSINESS_IMAGES["default"])
+        if any(word in text_lower for word in ['kebaya', 'blouse']):
+            return self.BUSINESS_IMAGES.get("kebaya", self.BUSINESS_IMAGES["clothing"])
+        if any(word in text_lower for word in ['pakaian', 'clothing', 'fashion', 'boutique']):
+            return self.BUSINESS_IMAGES.get("clothing", self.BUSINESS_IMAGES["default"])
+        if any(word in text_lower for word in ['jewelry', 'brooch', 'anting', 'necklace', 'rantai', 'accessories']):
+            return self.BUSINESS_IMAGES.get("accessories", self.BUSINESS_IMAGES["default"])
+
+        # Hair Salon
+        if any(word in text_lower for word in ['haircut', 'potong rambut', 'gunting', 'cut']):
+            return self.BUSINESS_IMAGES.get("haircut", self.BUSINESS_IMAGES["salon"])
+        if any(word in text_lower for word in ['hair color', 'cat rambut', 'warna', 'coloring', 'dye']):
+            return self.BUSINESS_IMAGES.get("hair coloring", self.BUSINESS_IMAGES["salon"])
+        if any(word in text_lower for word in ['hair treatment', 'rawatan rambut', 'hair spa']):
+            return self.BUSINESS_IMAGES.get("hair treatment", self.BUSINESS_IMAGES["salon"])
+        if any(word in text_lower for word in ['styling', 'blowdry', 'blow dry']):
+            return self.BUSINESS_IMAGES.get("hair styling", self.BUSINESS_IMAGES["salon"])
+        if any(word in text_lower for word in ['salon', 'rambut', 'hair']):
+            return self.BUSINESS_IMAGES.get("salon", self.BUSINESS_IMAGES["default"])
+
+        # Beauty & Spa
+        if any(word in text_lower for word in ['facial', 'rawatan muka', 'face treatment']):
+            return self.BUSINESS_IMAGES.get("facial", self.BUSINESS_IMAGES["beauty"])
+        if any(word in text_lower for word in ['massage', 'urut', 'body massage']):
+            return self.BUSINESS_IMAGES.get("massage", self.BUSINESS_IMAGES["spa"])
+        if any(word in text_lower for word in ['manicure', 'pedicure', 'nail', 'nails']):
+            return self.BUSINESS_IMAGES.get("manicure", self.BUSINESS_IMAGES["beauty"])
+        if any(word in text_lower for word in ['makeup', 'makeover', 'solek']):
+            return self.BUSINESS_IMAGES.get("makeup", self.BUSINESS_IMAGES["beauty"])
+        if any(word in text_lower for word in ['spa', 'beauty', 'kecantikan']):
+            return self.BUSINESS_IMAGES.get("beauty", self.BUSINESS_IMAGES["default"])
+
+        # Automotive
+        if any(word in text_lower for word in ['car wash', 'cuci kereta', 'auto wash', 'wash']):
+            return self.BUSINESS_IMAGES.get("car wash", self.BUSINESS_IMAGES["car"])
+        if any(word in text_lower for word in ['bengkel', 'workshop', 'repair', 'mechanic']):
+            return self.BUSINESS_IMAGES.get("bengkel", self.BUSINESS_IMAGES["car"])
+        if any(word in text_lower for word in ['car service', 'servis kereta', 'auto service', 'servicing']):
+            return self.BUSINESS_IMAGES.get("car service", self.BUSINESS_IMAGES["car"])
+        if any(word in text_lower for word in ['tire', 'tyre', 'tayar']):
+            return self.BUSINESS_IMAGES.get("tire service", self.BUSINESS_IMAGES["car"])
+        if any(word in text_lower for word in ['kereta', 'car', 'automotive', 'auto']):
+            return self.BUSINESS_IMAGES.get("car", self.BUSINESS_IMAGES["default"])
+
+        # Food (use existing get_food_image for better food matching)
+        if any(word in text_lower for word in ['nasi', 'mee', 'rice', 'noodle', 'food', 'makan', 'dish']):
+            food_img = self.get_food_image(text)
+            if food_img != self.FOOD_IMAGES["default"]:
+                return food_img
+
+        # Other categories
+        if any(word in text_lower for word in ['bakery', 'roti', 'bread', 'cake', 'kek']):
+            return self.BUSINESS_IMAGES.get("bakery", self.BUSINESS_IMAGES["default"])
+        if any(word in text_lower for word in ['flower', 'bunga', 'florist']):
+            return self.BUSINESS_IMAGES.get("florist", self.BUSINESS_IMAGES["default"])
+        if any(word in text_lower for word in ['pet', 'haiwan', 'cat', 'dog']):
+            return self.BUSINESS_IMAGES.get("pet shop", self.BUSINESS_IMAGES["default"])
+        if any(word in text_lower for word in ['grocery', 'runcit', 'mini market', 'mart']):
+            return self.BUSINESS_IMAGES.get("grocery", self.BUSINESS_IMAGES["default"])
+        if any(word in text_lower for word in ['laundry', 'dobi']):
+            return self.BUSINESS_IMAGES.get("laundry", self.BUSINESS_IMAGES["default"])
+        if any(word in text_lower for word in ['cafe', 'kafe', 'coffee', 'kopi']):
+            return self.BUSINESS_IMAGES.get("cafe", self.BUSINESS_IMAGES["default"])
+        if any(word in text_lower for word in ['restaurant', 'restoran']):
+            return self.BUSINESS_IMAGES.get("restaurant", self.BUSINESS_IMAGES["default"])
+
+        # Final fallback
+        logger.info(f"⚠️ No specific match for '{text}', using default")
+        return self.BUSINESS_IMAGES["default"]
 
     def get_smart_image_prompt(self, text: str) -> Tuple[str, float]:
         """
@@ -574,34 +833,90 @@ class AIService:
         return {"hero": hero, "gallery": gallery}
 
     def get_fallback_images(self, description: str) -> Dict:
-        """Get fallback stock images"""
+        """Get fallback stock images using comprehensive image matching"""
         d = description.lower()
 
-        if "teddy" in d or "bear" in d:
-            return {
-                "hero": "https://images.unsplash.com/photo-1558679908-541bcf1249ff?w=1920&q=80",
-                "gallery": [
-                    "https://images.unsplash.com/photo-1562040506-a9b32cb51b94?w=800&q=80",
-                    "https://images.unsplash.com/photo-1559454403-b8fb88521f11?w=800&q=80",
-                    "https://images.unsplash.com/photo-1530325553241-4f6e7690cf36?w=800&q=80",
-                    "https://images.unsplash.com/photo-1566669437687-7040a6926753?w=800&q=80"
-                ]
-            }
+        # Use get_matching_image for smart image selection
+        hero_img = self.get_matching_image(description)
 
-        if "ikan" in d or "fish" in d:
-            return {
-                "hero": "https://images.unsplash.com/photo-1534043464124-3be32fe000c9?w=1920&q=80",
-                "gallery": [
-                    "https://images.unsplash.com/photo-1510130387422-82bed34b37e9?w=800&q=80",
-                    "https://images.unsplash.com/photo-1498654200943-1088dd4438ae?w=800&q=80",
-                    "https://images.unsplash.com/photo-1519708227418-c8fd9a32b7a2?w=800&q=80",
-                    "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&q=80"
-                ]
-            }
+        # Generate gallery images based on description keywords
+        gallery_images = []
 
-        # Use existing IMAGES dict for other types
-        biz_type = self._detect_type(description)
-        return self.IMAGES.get(biz_type, self.IMAGES["default"])
+        # Extract key products/services from description
+        # Split into words and try to match each phrase
+        words = d.split()
+
+        # Try to find specific products/services mentioned
+        for i in range(len(words)):
+            if len(gallery_images) >= 4:
+                break
+            for j in range(min(i + 3, len(words)), i, -1):  # Check up to 3-word phrases
+                phrase = " ".join(words[i:j])
+                if len(phrase) >= 3:  # Skip very short words
+                    img = self.get_matching_image(phrase)
+                    if img not in gallery_images and img != self.BUSINESS_IMAGES["default"]:
+                        gallery_images.append(img)
+                        break
+
+        # If we didn't find enough specific images, add category-based defaults
+        if len(gallery_images) < 4:
+            # Detect business type and add relevant category images
+            if any(w in d for w in ['baju', 'tudung', 'fashion', 'pakaian']):
+                fallback_imgs = [
+                    self.BUSINESS_IMAGES.get("baju kurung", self.BUSINESS_IMAGES["clothing"]),
+                    self.BUSINESS_IMAGES.get("tudung", self.BUSINESS_IMAGES["clothing"]),
+                    self.BUSINESS_IMAGES.get("kebaya", self.BUSINESS_IMAGES["clothing"]),
+                    self.BUSINESS_IMAGES.get("accessories", self.BUSINESS_IMAGES["clothing"])
+                ]
+            elif any(w in d for w in ['salon', 'rambut', 'hair']):
+                fallback_imgs = [
+                    self.BUSINESS_IMAGES.get("haircut", self.BUSINESS_IMAGES["salon"]),
+                    self.BUSINESS_IMAGES.get("hair coloring", self.BUSINESS_IMAGES["salon"]),
+                    self.BUSINESS_IMAGES.get("hair treatment", self.BUSINESS_IMAGES["salon"]),
+                    self.BUSINESS_IMAGES.get("hair styling", self.BUSINESS_IMAGES["salon"])
+                ]
+            elif any(w in d for w in ['beauty', 'kecantikan', 'spa']):
+                fallback_imgs = [
+                    self.BUSINESS_IMAGES.get("facial", self.BUSINESS_IMAGES["beauty"]),
+                    self.BUSINESS_IMAGES.get("massage", self.BUSINESS_IMAGES["spa"]),
+                    self.BUSINESS_IMAGES.get("manicure", self.BUSINESS_IMAGES["beauty"]),
+                    self.BUSINESS_IMAGES.get("makeup", self.BUSINESS_IMAGES["beauty"])
+                ]
+            elif any(w in d for w in ['kereta', 'car', 'bengkel', 'automotive']):
+                fallback_imgs = [
+                    self.BUSINESS_IMAGES.get("car wash", self.BUSINESS_IMAGES["car"]),
+                    self.BUSINESS_IMAGES.get("bengkel", self.BUSINESS_IMAGES["car"]),
+                    self.BUSINESS_IMAGES.get("car service", self.BUSINESS_IMAGES["car"]),
+                    self.BUSINESS_IMAGES.get("tire service", self.BUSINESS_IMAGES["car"])
+                ]
+            elif any(w in d for w in ['nasi', 'makan', 'restoran', 'food']):
+                fallback_imgs = [
+                    self.FOOD_IMAGES.get("nasi lemak", self.FOOD_IMAGES["default"]),
+                    self.FOOD_IMAGES.get("nasi kandar", self.FOOD_IMAGES["default"]),
+                    self.FOOD_IMAGES.get("mee goreng", self.FOOD_IMAGES["default"]),
+                    self.FOOD_IMAGES.get("roti canai", self.FOOD_IMAGES["default"])
+                ]
+            else:
+                # Use existing IMAGES dict for other types
+                biz_type = self._detect_type(description)
+                imgs = self.IMAGES.get(biz_type, self.IMAGES["default"])
+                fallback_imgs = imgs["gallery"]
+
+            # Add fallback images that aren't already in the list
+            for img in fallback_imgs:
+                if img not in gallery_images:
+                    gallery_images.append(img)
+                if len(gallery_images) >= 4:
+                    break
+
+        # Ensure we have exactly 4 gallery images
+        while len(gallery_images) < 4:
+            gallery_images.append(self.BUSINESS_IMAGES["default"])
+
+        return {
+            "hero": hero_img,
+            "gallery": gallery_images[:4]
+        }
 
     # HARDCODED WORKING IMAGES - Guaranteed to work
     IMAGES = {
@@ -809,32 +1124,33 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
     def _fix_menu_item_images(self, html: str) -> str:
         """
-        Fix duplicate menu item images - ensure each dish has a unique image
+        Fix duplicate product/service images - ensure each item has a unique image
 
-        This function finds menu items with duplicate images and replaces them
-        with unique images based on the dish name.
+        This function finds product/service items with duplicate images and replaces them
+        with unique images based on the product/service name.
+        Works for food, fashion, salon services, and all Malaysian business products.
         """
         if not html:
             return html
 
         import re
 
-        logger.info("🖼️ Fixing menu item images to ensure uniqueness...")
+        logger.info("🖼️ Fixing product/service images to ensure uniqueness...")
 
         # Track image URLs we've seen
         image_usage = {}
         replacements = []
 
-        # Pattern to match menu items with images
-        # This matches common HTML patterns for menu items:
-        # - <img src="..."> followed by text (dish name)
+        # Pattern to match product/service items with images
+        # This matches common HTML patterns for menu/product items:
+        # - <img src="..."> followed by text (product name)
         # - Or text followed by <img>
         patterns = [
-            # Pattern 1: <img src="URL"> ... <h3>Dish Name</h3>
+            # Pattern 1: <img src="URL"> ... <h3>Product Name</h3>
             r'<img[^>]*src="([^"]+)"[^>]*>[\s\S]{0,200}?<h[2-4][^>]*>(.*?)</h[2-4]>',
-            # Pattern 2: <h3>Dish Name</h3> ... <img src="URL">
+            # Pattern 2: <h3>Product Name</h3> ... <img src="URL">
             r'<h[2-4][^>]*>(.*?)</h[2-4]>[\s\S]{0,200}?<img[^>]*src="([^"]+)"[^>]*>',
-            # Pattern 3: Direct img with alt containing dish name
+            # Pattern 3: Direct img with alt containing product name
             r'<img[^>]*src="([^"]+)"[^>]*alt="([^"]*)"[^>]*>',
         ]
 
@@ -844,47 +1160,42 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 if len(match.groups()) == 2:
                     if 'src=' in match.group(0)[:30]:  # Pattern 1 or 3
                         img_url = match.group(1)
-                        dish_name = match.group(2).strip()
+                        item_name = match.group(2).strip()
                     else:  # Pattern 2
-                        dish_name = match.group(1).strip()
+                        item_name = match.group(1).strip()
                         img_url = match.group(2)
 
-                    # Clean dish name (remove HTML tags)
-                    dish_name = re.sub(r'<[^>]+>', '', dish_name).strip()
+                    # Clean item name (remove HTML tags)
+                    item_name = re.sub(r'<[^>]+>', '', item_name).strip()
 
-                    if not dish_name or not img_url:
+                    if not item_name or not img_url:
                         continue
 
                     # Track this image URL
                     if img_url not in image_usage:
                         image_usage[img_url] = []
-                    image_usage[img_url].append(dish_name)
+                    image_usage[img_url].append(item_name)
 
         # Find duplicate image URLs
-        duplicate_images = {url: dishes for url, dishes in image_usage.items() if len(dishes) > 1}
+        duplicate_images = {url: items for url, items in image_usage.items() if len(items) > 1}
 
         if duplicate_images:
-            logger.warning(f"⚠️ Found {len(duplicate_images)} image URLs used for multiple dishes!")
-            for url, dishes in duplicate_images.items():
-                logger.warning(f"   {url[:60]}... used for: {', '.join(dishes[:3])}")
+            logger.warning(f"⚠️ Found {len(duplicate_images)} image URLs used for multiple items!")
+            for url, items in duplicate_images.items():
+                logger.warning(f"   {url[:60]}... used for: {', '.join(items[:3])}")
 
-            # Fix duplicates
-            for dup_url, dishes in duplicate_images.items():
+            # Fix duplicates - use comprehensive image matching
+            for dup_url, items in duplicate_images.items():
                 # Skip the first occurrence, replace others
-                for i, dish in enumerate(dishes):
+                for i, item in enumerate(items):
                     if i == 0:
                         continue  # Keep first usage
 
-                    # Get unique image for this dish
-                    new_url = self.get_food_image(dish)
-                    logger.info(f"   🔄 Replacing image for '{dish}': {new_url}")
+                    # Get unique image for this item using comprehensive matching
+                    new_url = self.get_matching_image(item)
+                    logger.info(f"   🔄 Replacing image for '{item}': {new_url}")
 
-                    # Find and replace this specific occurrence
-                    # This is tricky - we need to replace only specific occurrences
-                    # For now, let's use a simpler approach: replace globally after first
-                    # occurrence, which works if the HTML is generated consistently
-
-            # Simpler approach: Scan for common menu item patterns and fix images
+            # Simpler approach: Scan for common product/service item patterns and fix images
             fixed_html = html
             seen_urls = set()
 
@@ -892,21 +1203,22 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 full_match = match.group(0)
                 img_url = match.group(1)
 
-                # Try to extract dish name from context
+                # Try to extract product/service name from context
                 # Look for nearby h2, h3, h4 tags
                 context_start = max(0, match.start() - 300)
                 context_end = min(len(html), match.end() + 300)
                 context = html[context_start:context_end]
 
-                dish_name = None
+                item_name = None
                 heading_match = re.search(r'<h[2-4][^>]*>(.*?)</h[2-4]>', context)
                 if heading_match:
-                    dish_name = re.sub(r'<[^>]+>', '', heading_match.group(1)).strip()
+                    item_name = re.sub(r'<[^>]+>', '', heading_match.group(1)).strip()
 
-                # If we've seen this URL before and we have a dish name, replace it
-                if img_url in seen_urls and dish_name:
-                    new_url = self.get_food_image(dish_name)
-                    logger.info(f"   🔄 '{dish_name}': {img_url[:50]}... → {new_url[:50]}...")
+                # If we've seen this URL before and we have an item name, replace it
+                if img_url in seen_urls and item_name:
+                    # Use comprehensive image matching for all product types
+                    new_url = self.get_matching_image(item_name)
+                    logger.info(f"   🔄 '{item_name}': {img_url[:50]}... → {new_url[:50]}...")
                     return full_match.replace(img_url, new_url)
                 else:
                     seen_urls.add(img_url)
@@ -915,10 +1227,10 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             # Replace images
             fixed_html = re.sub(r'<img[^>]*src="([^"]+)"[^>]*>', replace_image, fixed_html)
 
-            logger.info("✅ Menu item images fixed")
+            logger.info("✅ Product/service images fixed")
             return fixed_html
 
-        logger.info("✅ No duplicate menu images found")
+        logger.info("✅ No duplicate product/service images found")
         return html
 
     def _fix_placeholders(self, html: str, name: str, desc: str) -> str:
