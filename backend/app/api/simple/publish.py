@@ -170,12 +170,13 @@ async def publish_website(request: PublishRequest):
                 "business_name": request.project_name,
                 "subdomain": request.subdomain,
                 "status": "published",
-                "html_content": html_content,
                 "public_url": public_url,
                 "published_at": datetime.utcnow().isoformat(),
                 "created_at": datetime.utcnow().isoformat(),
                 "updated_at": datetime.utcnow().isoformat()
             }
+            # Note: HTML content is stored in Supabase Storage, not in database
+            # The public_url points to the stored HTML file
             result = await supabase_service.create_website(project_data)
             if not result:
                 raise Exception("Database insert returned None")
