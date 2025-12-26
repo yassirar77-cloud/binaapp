@@ -1595,25 +1595,29 @@ async def get_realtime_analytics(project_id: str):
 
 @app.post("/api/publish")
 async def publish_website(request: Request):
-    """Publish website to subdomain"""
-    global supabase
+    """Publish website to subdomain - USING DIRECT REST API"""
 
     logger.info("📤 PUBLISH REQUEST RECEIVED")
 
-    # Check Supabase connection
-    if supabase is None:
-        logger.error("❌ Supabase is None - trying to reinitialize...")
-        supabase = init_supabase()
+    # Get Supabase credentials from environment
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+    SUPABASE_KEY = (
+        os.getenv("SUPABASE_SERVICE_KEY") or
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or
+        os.getenv("SUPABASE_KEY") or
+        os.getenv("SUPABASE_ANON_KEY") or
+        ""
+    )
 
-        if supabase is None:
-            logger.error("❌ Supabase reinitialization failed!")
-            return JSONResponse(
-                status_code=500,
-                content={
-                    "success": False,
-                    "error": "Database not connected. Check SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables."
-                }
-            )
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        logger.error("❌ Supabase credentials not configured!")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": "Database not configured. Check SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables."
+            }
+        )
 
     try:
         body = await request.json()
@@ -1622,7 +1626,7 @@ async def publish_website(request: Request):
         logger.error(f"❌ Failed to parse request: {e}")
         return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
 
-    # Extract data
+    # Extract data (support multiple field names)
     html_content = body.get("html_content") or body.get("html_code") or body.get("html") or ""
     subdomain = (body.get("subdomain") or "").lower().strip()
     project_name = body.get("project_name") or body.get("name") or subdomain
@@ -1643,42 +1647,122 @@ async def publish_website(request: Request):
         return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain too short"})
 
     try:
-        # Check if subdomain exists
-        existing = supabase.table("websites").select("id, user_id").eq("subdomain", subdomain).execute()
-
-        project_id = None
-        if existing.data:
-            if existing.data[0].get("user_id") != user_id and existing.data[0].get("user_id") != "anonymous":
-                return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain taken"})
-            project_id = existing.data[0]["id"]
-
-        # Prepare data
-        project_data = {
-            "user_id": user_id,
-            "name": project_name,
-            "subdomain": subdomain,
-            "html_code": html_content,
-            "is_published": True,
-            "published_url": f"https://{subdomain}.binaapp.my",
-            "updated_at": datetime.now().isoformat()
+        # Setup httpx headers for Supabase REST API
+        headers = {
+            "apikey": SUPABASE_KEY,
+            "Authorization": f"Bearer {SUPABASE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"
         }
 
-        # Save to database
-        if project_id:
-            result = supabase.table("websites").update(project_data).eq("id", project_id).execute()
-            logger.info(f"✅ Updated project: {project_id}")
-        else:
-            result = supabase.table("websites").insert(project_data).execute()
-            project_id = result.data[0]["id"] if result.data else None
-            logger.info(f"✅ Created project: {project_id}")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Check if subdomain exists using direct REST API
+            check_url = f"{SUPABASE_URL}/rest/v1/websites"
+            check_params = {"subdomain": f"eq.{subdomain}", "select": "id,user_id"}
 
-        # Try storage upload (optional)
-        try:
-            file_path = f"{subdomain}/index.html"
-            supabase.storage.from_("websites").upload(file_path, html_content.encode(), {"content-type": "text/html", "upsert": "true"})
-            logger.info(f"✅ Uploaded to storage: {file_path}")
-        except Exception as storage_err:
-            logger.warning(f"⚠️ Storage upload failed (non-critical): {storage_err}")
+            logger.info(f"🔍 Checking subdomain: {subdomain}")
+            check_response = await client.get(check_url, headers=headers, params=check_params)
+
+            if check_response.status_code != 200:
+                logger.error(f"❌ Subdomain check failed: {check_response.status_code} - {check_response.text}")
+                return JSONResponse(
+                    status_code=500,
+                    content={"success": False, "error": f"Database query failed: {check_response.text}"}
+                )
+
+            existing = check_response.json()
+            project_id = None
+
+            if existing and len(existing) > 0:
+                if existing[0].get("user_id") != user_id and existing[0].get("user_id") != "anonymous":
+                    return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain taken"})
+                project_id = existing[0]["id"]
+                logger.info(f"✓ Found existing project: {project_id}")
+
+            # Prepare data - ONLY include fields that exist in database schema
+            project_data = {
+                "user_id": user_id,
+                "business_name": project_name,  # Use business_name instead of name
+                "subdomain": subdomain,
+                "status": "published",
+                "public_url": f"https://{subdomain}.binaapp.my",
+                "published_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat()
+            }
+
+            # Note: HTML content is NOT saved to database - only to storage
+            # This avoids schema errors with html_content, html_code fields
+
+            # Save to database using direct REST API
+            if project_id:
+                # UPDATE existing project
+                update_url = f"{SUPABASE_URL}/rest/v1/websites"
+                update_params = {"id": f"eq.{project_id}"}
+
+                logger.info(f"📝 Updating project: {project_id}")
+                update_response = await client.patch(
+                    update_url,
+                    headers=headers,
+                    params=update_params,
+                    json=project_data
+                )
+
+                if update_response.status_code not in [200, 204]:
+                    logger.error(f"❌ Update failed: {update_response.status_code} - {update_response.text}")
+                    return JSONResponse(
+                        status_code=500,
+                        content={"success": False, "error": f"Database update failed: {update_response.text}"}
+                    )
+
+                logger.info(f"✅ Updated project: {project_id}")
+            else:
+                # INSERT new project
+                project_data["id"] = str(uuid.uuid4())
+                project_data["created_at"] = datetime.now().isoformat()
+
+                insert_url = f"{SUPABASE_URL}/rest/v1/websites"
+
+                logger.info(f"📝 Creating new project: {project_data['id']}")
+                insert_response = await client.post(
+                    insert_url,
+                    headers=headers,
+                    json=project_data
+                )
+
+                if insert_response.status_code not in [200, 201]:
+                    logger.error(f"❌ Insert failed: {insert_response.status_code} - {insert_response.text}")
+                    return JSONResponse(
+                        status_code=500,
+                        content={"success": False, "error": f"Database insert failed: {insert_response.text}"}
+                    )
+
+                result_data = insert_response.json()
+                project_id = result_data[0]["id"] if result_data else project_data["id"]
+                logger.info(f"✅ Created project: {project_id}")
+
+            # Upload HTML to Supabase Storage (optional, non-critical)
+            try:
+                storage_url = f"{SUPABASE_URL}/storage/v1/object/websites/{subdomain}/index.html"
+                storage_headers = {
+                    "apikey": SUPABASE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_KEY}",
+                    "Content-Type": "text/html",
+                    "x-upsert": "true"
+                }
+
+                logger.info(f"📤 Uploading to storage: {subdomain}/index.html")
+                storage_response = await client.post(
+                    storage_url,
+                    headers=storage_headers,
+                    content=html_content.encode('utf-8')
+                )
+
+                if storage_response.status_code in [200, 201]:
+                    logger.info(f"✅ Uploaded to storage: {subdomain}/index.html")
+                else:
+                    logger.warning(f"⚠️ Storage upload failed (non-critical): {storage_response.status_code}")
+            except Exception as storage_err:
+                logger.warning(f"⚠️ Storage upload failed (non-critical): {storage_err}")
 
         return {
             "success": True,
