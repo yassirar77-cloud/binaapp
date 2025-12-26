@@ -116,6 +116,94 @@ async def add_cors_headers(request: Request, call_next):
     response.headers["Access-Control-Allow-Headers"] = "*"
     return response
 
+# ============================================
+# SUBDOMAIN ROUTING MIDDLEWARE - CRITICAL
+# ============================================
+@app.middleware("http")
+async def subdomain_middleware(request: Request, call_next):
+    """
+    Catch subdomain requests and serve website from Supabase Storage
+
+    This middleware intercepts requests to subdomains like kitcat.binaapp.my
+    and serves the actual website HTML from Supabase Storage instead of
+    showing the API health check response.
+    """
+
+    host = request.headers.get("host", "")
+
+    # Check if it's a subdomain request (not main domain or API)
+    # e.g., kitcat.binaapp.my, penangkandar.binaapp.my
+    if host and ".binaapp.my" in host and not host.startswith("www.") and not host.startswith("api."):
+        subdomain = host.split(".binaapp.my")[0].lower().strip()
+
+        # Skip if it's the main domain or known paths
+        if subdomain and subdomain not in ["binaapp", "www", "api"]:
+            logger.info(f"🌐 Subdomain request detected: {subdomain}.binaapp.my")
+
+            # Get Supabase URL
+            SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+
+            # Fetch website from Supabase Storage
+            storage_url = f"{SUPABASE_URL}/storage/v1/object/public/websites/{subdomain}/index.html"
+
+            logger.info(f"📁 Fetching website from: {storage_url}")
+
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.get(storage_url)
+
+                    if response.status_code == 200:
+                        logger.info(f"✅ Website '{subdomain}' found and served!")
+                        return HTMLResponse(content=response.text, status_code=200)
+                    else:
+                        logger.warning(f"⚠️ Website '{subdomain}' not found (status: {response.status_code})")
+                        return HTMLResponse(
+                            content=f"""
+                            <!DOCTYPE html>
+                            <html>
+                            <head>
+                                <title>Website Not Found</title>
+                                <style>
+                                    body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+                                    h1 {{ color: #e74c3c; }}
+                                    p {{ color: #7f8c8d; }}
+                                </style>
+                            </head>
+                            <body>
+                                <h1>Website '{subdomain}' not found</h1>
+                                <p>This website hasn't been published yet or the subdomain doesn't exist.</p>
+                                <p>Error code: {response.status_code}</p>
+                            </body>
+                            </html>
+                            """,
+                            status_code=404
+                        )
+            except Exception as e:
+                logger.error(f"❌ Error loading website '{subdomain}': {e}")
+                return HTMLResponse(
+                    content=f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>Error Loading Website</title>
+                        <style>
+                            body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+                            h1 {{ color: #e74c3c; }}
+                            p {{ color: #7f8c8d; }}
+                        </style>
+                    </head>
+                    <body>
+                        <h1>Error loading website</h1>
+                        <p>{str(e)}</p>
+                    </body>
+                    </html>
+                    """,
+                    status_code=500
+                )
+
+    # Continue to normal API routes
+    return await call_next(request)
+
 @app.on_event("startup")
 async def startup_event():
     global supabase
