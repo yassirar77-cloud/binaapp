@@ -109,49 +109,94 @@ export default function CreatePage() {
     setLoading(true);
     setError('');
     setStyleVariations([]);
-
-    // Create AbortController for timeout handling (2 minutes for mobile)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
+    setProgress(0);
 
     try {
-      console.log('🚀 Calling API...');
+      console.log('🚀 Starting async generation...');
 
-      const response = await fetch('https://binaapp-backend.onrender.com/api/generate-simple', {
+      // Step 1: Start the job (returns immediately with job_id)
+      const startResponse = await fetch('https://binaapp-backend.onrender.com/api/generate/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          description: description,
           business_description: description,
-          language,
+          language: language,
+          user_id: user?.id || 'anonymous',
           email: user?.email  // Pass user email for founder bypass
         }),
-        signal: controller.signal,
       });
 
-      clearTimeout(timeoutId);
-
-      const data = await response.json();
-      console.log('Response:', data);
-
-      if (!data.success) throw new Error(data.error || 'Failed');
-
-      if (data.styles?.length > 0) {
-        setStyleVariations(data.styles);
-        setSelectedStyle(null);
-      } else if (data.html) {
-        setStyleVariations([{ style: 'modern', html: data.html }]);
-        setSelectedStyle(null);
+      if (!startResponse.ok) {
+        const errorData = await startResponse.json();
+        throw new Error(errorData.error || 'Failed to start generation');
       }
+
+      const startData = await startResponse.json();
+      const jobId = startData.job_id;
+
+      console.log('✅ Job started:', jobId);
+
+      // Step 2: Poll for results
+      const maxAttempts = 60; // 60 attempts x 3 seconds = 3 minutes max
+      let attempt = 0;
+
+      const pollInterval = setInterval(async () => {
+        attempt++;
+
+        if (attempt > maxAttempts) {
+          clearInterval(pollInterval);
+          setError('Generation timed out after 3 minutes. Please try again.');
+          setLoading(false);
+          return;
+        }
+
+        try {
+          const statusResponse = await fetch(
+            `https://binaapp-backend.onrender.com/api/generate/status/${jobId}`
+          );
+
+          if (!statusResponse.ok) {
+            console.warn('Status check failed, retrying...');
+            return; // Continue polling
+          }
+
+          const statusData = await statusResponse.json();
+          console.log(`📊 Progress: ${statusData.progress}%`, statusData.status);
+
+          // Update progress bar
+          setProgress(statusData.progress || 0);
+
+          if (statusData.status === 'completed') {
+            clearInterval(pollInterval);
+            console.log('✅ Generation complete!');
+
+            // Handle completed job
+            if (statusData.styles?.length > 0) {
+              setStyleVariations(statusData.styles);
+              setSelectedStyle(null);
+            } else if (statusData.html) {
+              setStyleVariations([{ style: 'modern', html: statusData.html }]);
+              setSelectedStyle(null);
+            }
+
+            setLoading(false);
+            setProgress(100);
+          } else if (statusData.status === 'failed') {
+            clearInterval(pollInterval);
+            setError(statusData.error || 'Generation failed. Please try again.');
+            setLoading(false);
+          }
+          // If status is still 'processing', continue polling
+        } catch (pollError: any) {
+          console.warn('Poll error:', pollError);
+          // Continue polling on error
+        }
+      }, 3000); // Poll every 3 seconds
+
     } catch (err: any) {
-      clearTimeout(timeoutId);
-      console.error(err);
-
-      if (err.name === 'AbortError') {
-        setError('Generation is taking longer than usual on your network. Please try again or check your connection.');
-      } else {
-        setError(err.message || 'Error connecting to server. Please check your internet connection and try again.');
-      }
-    } finally {
+      console.error('Generation error:', err);
+      setError(err.message || 'Error connecting to server. Please check your internet connection and try again.');
       setLoading(false);
     }
   };
@@ -528,7 +573,7 @@ export default function CreatePage() {
                   </div>
 
                   <p className="text-xs text-gray-500 mt-6 text-center">
-                    This usually takes 45-60 seconds (up to 2 minutes on mobile) ⏱️
+                    This usually takes 45-90 seconds. Progress updates every 3 seconds ⏱️
                   </p>
                 </div>
               </div>

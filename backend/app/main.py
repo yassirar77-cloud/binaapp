@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
 from pydantic import BaseModel
@@ -267,6 +267,357 @@ def check_rate_limit(user_id: str = "anonymous", user_email: Optional[str] = Non
 
 def increment_usage(user_id: str = "anonymous"):
     user_usage[user_id]["count"] += 1
+
+
+# ==================== ASYNC JOB MANAGEMENT (SUPABASE) ====================
+
+async def save_job_to_supabase(job_id: str, data: dict):
+    """Save job data to Supabase generation_jobs table"""
+    if not supabase:
+        logger.error("❌ Cannot save job - Supabase not connected")
+        return
+
+    try:
+        job_data = {
+            "job_id": job_id,
+            "updated_at": datetime.now().isoformat(),
+            **data
+        }
+
+        # Upsert (insert or update)
+        supabase.table("generation_jobs").upsert(job_data, on_conflict="job_id").execute()
+        logger.info(f"💾 Job {job_id[:8]} saved to Supabase")
+    except Exception as e:
+        logger.error(f"❌ Failed to save job {job_id[:8]}: {e}")
+
+
+async def get_job_from_supabase(job_id: str) -> Optional[dict]:
+    """Retrieve job data from Supabase"""
+    if not supabase:
+        logger.error("❌ Cannot retrieve job - Supabase not connected")
+        return None
+
+    try:
+        result = supabase.table("generation_jobs").select("*").eq("job_id", job_id).execute()
+
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+
+        return None
+    except Exception as e:
+        logger.error(f"❌ Failed to retrieve job {job_id[:8]}: {e}")
+        return None
+
+
+async def run_website_generation(job_id: str, description: str, language: str, user_id: str):
+    """Background task to generate website - runs async"""
+    try:
+        logger.info(f"🚀 Starting background generation for job {job_id[:8]}")
+
+        # Update progress: 10%
+        await save_job_to_supabase(job_id, {
+            "status": "processing",
+            "progress": 10,
+            "description": description,
+            "language": language,
+            "user_id": user_id
+        })
+
+        # Detect business type
+        business_type = detect_business_type(description)
+        logger.info(f"📋 Detected: {business_type}")
+
+        # Get stock images
+        stock_images = get_stock_images(description)
+
+        # Update progress: 20%
+        await save_job_to_supabase(job_id, {
+            "status": "processing",
+            "progress": 20
+        })
+
+        # STEP 1: Generate AI Images (if available)
+        logger.info("🎨 STEP 1: Generating images...")
+        ai_images = None
+
+        if STABILITY_API_KEY:
+            ai_images = await generate_all_images(description)
+
+        hero_img = ai_images['hero'] if ai_images else stock_images['hero']
+        gallery_imgs = ai_images['gallery'] if ai_images else stock_images['gallery']
+
+        # Update progress: 30%
+        await save_job_to_supabase(job_id, {
+            "status": "processing",
+            "progress": 30
+        })
+
+        # Define 3 style variations
+        styles_config = [
+            {
+                "name": "modern",
+                "display_name": "Modern",
+                "description": "Vibrant gradients (purple to blue), glassmorphism effects, rounded corners",
+                "colors": "purple-600, blue-500, gradient backgrounds",
+                "font": "bold, modern sans-serif",
+                "progress_percent": 40
+            },
+            {
+                "name": "minimal",
+                "display_name": "Minimal",
+                "description": "Clean white background, lots of whitespace, simple black text",
+                "colors": "white, black, gray-100, one accent color",
+                "font": "thin, elegant, light weight",
+                "progress_percent": 65
+            },
+            {
+                "name": "bold",
+                "display_name": "Bold",
+                "description": "Dark theme with black/dark gray background, large impactful typography",
+                "colors": "black, dark gray, neon cyan/pink accents",
+                "font": "extra bold, uppercase headings",
+                "progress_percent": 90
+            }
+        ]
+
+        generated_styles = []
+
+        # STEP 2 & 3: Generate each style variation
+        for style in styles_config:
+            logger.info(f"🎨 Generating {style['display_name']} style...")
+
+            # Update progress
+            await save_job_to_supabase(job_id, {
+                "status": "processing",
+                "progress": style["progress_percent"]
+            })
+
+            gallery_urls = gallery_imgs if isinstance(gallery_imgs, list) else [gallery_imgs] * 4
+
+            # DeepSeek generates HTML structure
+            deepseek_prompt = f"""Create a stunning {style['display_name']} website for: {description}
+
+DESIGN STYLE: {style['description']}
+COLORS: {style['colors']}
+TYPOGRAPHY: {style['font']}
+
+Business Type: {business_type}
+
+Use these placeholders:
+- [BUSINESS_NAME], [BUSINESS_TAGLINE], [ABOUT_TEXT]
+- [SERVICE_1_TITLE], [SERVICE_1_DESC]
+- [SERVICE_2_TITLE], [SERVICE_2_DESC]
+- [SERVICE_3_TITLE], [SERVICE_3_DESC]
+- [CTA_TEXT], [FOOTER_TEXT]
+
+IMAGES (use these EXACT URLs - each gallery image is DIFFERENT):
+- Hero: {hero_img}
+- Gallery 1: {gallery_urls[0] if len(gallery_urls) > 0 else hero_img}
+- Gallery 2: {gallery_urls[1] if len(gallery_urls) > 1 else hero_img}
+- Gallery 3: {gallery_urls[2] if len(gallery_urls) > 2 else hero_img}
+- Gallery 4: {gallery_urls[3] if len(gallery_urls) > 3 else hero_img}
+
+Requirements:
+1. <!DOCTYPE html> with <script src="https://cdn.tailwindcss.com"></script>
+2. Mobile responsive
+3. Sections: Header, Hero, About, Services (3 cards), Gallery (4 DIFFERENT images), Contact, Footer
+4. WhatsApp button: <a href="https://wa.me/60123456789">WhatsApp</a>
+
+Output ONLY complete HTML."""
+
+            html_structure = await call_deepseek(deepseek_prompt)
+
+            if not html_structure:
+                logger.warning(f"🔷 DeepSeek failed for {style['name']}, skipping...")
+                continue
+
+            html_structure = extract_html(html_structure)
+
+            # Qwen improves content
+            qwen_prompt = f"""Replace ALL placeholders with {'Malaysian-friendly' if language == 'ms' else 'English'} content.
+
+Business: {description}
+Style: {style['display_name']}
+
+REPLACE:
+- [BUSINESS_NAME] → Business name
+- [BUSINESS_TAGLINE] → Catchy tagline
+- [ABOUT_TEXT] → About us (2-3 sentences)
+- [SERVICE_1_TITLE], [SERVICE_1_DESC] → Service 1
+- [SERVICE_2_TITLE], [SERVICE_2_DESC] → Service 2
+- [SERVICE_3_TITLE], [SERVICE_3_DESC] → Service 3
+- [CTA_TEXT] → Call to action
+- [FOOTER_TEXT] → Footer tagline
+
+DO NOT change image URLs. Keep them exactly as they are.
+
+HTML:
+{html_structure}
+
+Output ONLY improved HTML."""
+
+            final_html = await call_qwen(qwen_prompt)
+
+            if final_html:
+                final_html = extract_html(final_html)
+            else:
+                final_html = html_structure
+
+            # Add analytics script
+            tracking_script = '''
+<!-- BinaApp Analytics -->
+<script>
+(function() {
+    const PROJECT_ID = 'PENDING';
+    const API_URL = 'https://binaapp-backend.onrender.com/api/analytics/track';
+    let visitorId = localStorage.getItem('binaapp_visitor');
+    if (!visitorId) {
+        visitorId = 'v_' + Math.random().toString(36).substr(2, 9);
+        localStorage.setItem('binaapp_visitor', visitorId);
+    }
+    fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            project_id: PROJECT_ID,
+            visitor_id: visitorId,
+            referrer: document.referrer,
+            page_path: window.location.pathname
+        })
+    }).catch(function() {});
+})();
+</script>
+'''
+            if '</body>' in final_html:
+                final_html = final_html.replace('</body>', f'{tracking_script}</body>')
+
+            generated_styles.append({
+                "style": style['name'],
+                "name": style['display_name'],
+                "description": style['description'],
+                "html": final_html
+            })
+
+            logger.info(f"✅ {style['display_name']} style complete!")
+
+        # Save completed job
+        await save_job_to_supabase(job_id, {
+            "status": "completed",
+            "progress": 100,
+            "html": generated_styles[0]["html"] if generated_styles else None,
+            "styles": json.dumps(generated_styles)  # Store as JSON
+        })
+
+        # Increment usage
+        increment_usage(user_id)
+
+        logger.info(f"✅ Job {job_id[:8]} COMPLETE! {len(generated_styles)} styles")
+
+    except Exception as e:
+        logger.error(f"❌ Job {job_id[:8]} FAILED: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+        # Save error to Supabase
+        await save_job_to_supabase(job_id, {
+            "status": "failed",
+            "error": str(e)
+        })
+
+
+@app.post("/api/generate/start")
+async def start_generation(request: Request, background_tasks: BackgroundTasks):
+    """Start async website generation - returns immediately with job_id"""
+
+    try:
+        body = await request.json()
+    except Exception as e:
+        logger.error(f"❌ Invalid JSON: {e}")
+        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
+
+    description = body.get("description") or body.get("business_description") or ""
+    language = body.get("language", "ms")
+    user_id = body.get("user_id", "anonymous")
+
+    if not description:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
+
+    # Check rate limit
+    rate_limit = check_rate_limit(user_id)
+    if not rate_limit["allowed"]:
+        return JSONResponse(
+            status_code=429,
+            content={
+                "success": False,
+                "error": "Daily limit reached",
+                "message": f"You've used all {FREE_LIMIT} free generations today!",
+                "usage": rate_limit
+            }
+        )
+
+    # Generate unique job ID
+    job_id = str(uuid.uuid4())
+
+    logger.info("=" * 70)
+    logger.info("🌐 ASYNC GENERATION STARTED")
+    logger.info(f"   Job ID: {job_id[:8]}...")
+    logger.info(f"   Description: {description[:60]}...")
+    logger.info("=" * 70)
+
+    # Save initial job to Supabase
+    await save_job_to_supabase(job_id, {
+        "status": "processing",
+        "progress": 0,
+        "description": description,
+        "language": language,
+        "user_id": user_id
+    })
+
+    # Start background generation task
+    background_tasks.add_task(run_website_generation, job_id, description, language, user_id)
+
+    # Return immediately
+    return {
+        "success": True,
+        "job_id": job_id,
+        "status": "processing",
+        "message": "Generation started. Poll /api/generate/status/{job_id} for updates."
+    }
+
+
+@app.get("/api/generate/status/{job_id}")
+async def get_generation_status(job_id: str):
+    """Check job status - called by frontend polling"""
+
+    job = await get_job_from_supabase(job_id)
+
+    if not job:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "status": "not_found",
+                "error": "Job not found"
+            }
+        )
+
+    # Parse styles JSON if completed
+    styles = None
+    if job.get("status") == "completed" and job.get("styles"):
+        try:
+            styles = json.loads(job["styles"]) if isinstance(job["styles"], str) else job["styles"]
+        except:
+            styles = None
+
+    return {
+        "success": True,
+        "status": job["status"],
+        "progress": job["progress"],
+        "html": job.get("html") if job["status"] == "completed" else None,
+        "styles": styles if job["status"] == "completed" else None,
+        "error": job.get("error"),
+        "job_id": job_id
+    }
 
 
 def detect_business_type(desc: str) -> str:
