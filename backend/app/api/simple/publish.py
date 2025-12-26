@@ -4,12 +4,13 @@ POST /api/publish - Publish website to Supabase Storage
 """
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Optional
 from loguru import logger
 from datetime import datetime
 import uuid
 import re
+import asyncio
 
 from app.services.storage_service import storage_service
 from app.services.supabase_client import supabase_service
@@ -18,8 +19,10 @@ router = APIRouter()
 
 
 class PublishRequest(BaseModel):
-    """Publish request"""
-    html_content: str = Field(..., description="HTML code to publish")
+    """Publish request - supports multiple field names for HTML content"""
+    html_content: Optional[str] = Field(None, description="HTML code to publish")
+    html_code: Optional[str] = Field(None, description="HTML code to publish (alternative field)")
+    html: Optional[str] = Field(None, description="HTML code to publish (alternative field)")
     subdomain: str = Field(
         ...,
         min_length=3,
@@ -28,6 +31,21 @@ class PublishRequest(BaseModel):
     )
     project_name: str = Field(..., min_length=2, max_length=100, description="Project name")
     user_id: str = Field(default="demo-user", description="User ID")
+
+    @validator('html_content', always=True)
+    def set_html_content(cls, v, values):
+        """Automatically handle multiple field names for HTML content"""
+        if v:
+            return v
+        if values.get('html_code'):
+            return values.get('html_code')
+        if values.get('html'):
+            return values.get('html')
+        return None
+
+    class Config:
+        # Allow extra fields without error
+        extra = "allow"
 
 
 class PublishResponse(BaseModel):
@@ -38,79 +56,144 @@ class PublishResponse(BaseModel):
     success: bool = True
 
 
+async def retry_with_backoff(func, max_retries=3, initial_delay=1.0):
+    """Retry a function with exponential backoff"""
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            return await func()
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                delay = initial_delay * (2 ** attempt)
+                logger.warning(f"Attempt {attempt + 1} failed: {e}. Retrying in {delay}s...")
+                await asyncio.sleep(delay)
+            else:
+                logger.error(f"All {max_retries} attempts failed")
+    raise last_error
+
+
 @router.post("/publish", response_model=PublishResponse)
 async def publish_website(request: PublishRequest):
     """
-    Publish website to Supabase Storage
+    Publish website to Supabase Storage - ROBUST VERSION
 
     This endpoint:
+    - Supports multiple field names (html_content, html_code, html)
     - Uploads HTML to Supabase Storage (bucket: websites)
     - File path: {user_id}/{subdomain}/index.html
-    - Saves project metadata to database
+    - Saves project metadata to database (creates table if missing)
     - Returns public URL
-    - Handles errors (subdomain taken, upload failed)
+    - Handles errors with retry logic and reconnection
     """
     try:
-        logger.info(f"Publishing website: {request.project_name} ({request.subdomain})")
+        logger.info("=" * 80)
+        logger.info(f"🚀 PUBLISH REQUEST RECEIVED")
+        logger.info(f"   Project: {request.project_name}")
+        logger.info(f"   Subdomain: {request.subdomain}")
+        logger.info(f"   User ID: {request.user_id}")
+        logger.info("=" * 80)
+
+        # Get HTML content from any of the supported fields
+        html_content = request.html_content
+        if not html_content:
+            logger.error("❌ No HTML content provided in any field (html_content, html_code, html)")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Tiada kod HTML ditemui. Sila berikan html_content, html_code, atau html."
+            )
+
+        logger.info(f"✓ HTML content received: {len(html_content)} characters")
 
         # Validate subdomain format
         if not validate_subdomain(request.subdomain):
+            logger.error(f"❌ Invalid subdomain format: {request.subdomain}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid subdomain format. Use only lowercase letters, numbers, and hyphens."
+                detail="Format subdomain tidak sah. Gunakan huruf kecil, nombor, dan tanda sempang sahaja."
             )
 
-        # Check if subdomain is already taken
-        subdomain_exists = await storage_service.check_subdomain_exists(request.subdomain)
-        if subdomain_exists:
-            logger.warning(f"Subdomain already taken: {request.subdomain}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Subdomain '{request.subdomain}' is already taken. Please choose another one."
-            )
+        logger.info("✓ Subdomain format valid")
+
+        # Check if subdomain is already taken (with retry)
+        async def check_subdomain():
+            return await storage_service.check_subdomain_exists(request.subdomain)
+
+        try:
+            subdomain_exists = await retry_with_backoff(check_subdomain, max_retries=2)
+            if subdomain_exists:
+                logger.warning(f"⚠️ Subdomain already taken: {request.subdomain}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Subdomain '{request.subdomain}' sudah digunakan. Sila pilih yang lain."
+                )
+            logger.info("✓ Subdomain available")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"⚠️ Could not check subdomain availability: {e}")
+            # Continue anyway - will fail later if subdomain is actually taken
 
         # Generate project ID
         project_id = str(uuid.uuid4())
+        logger.info(f"✓ Generated project ID: {project_id}")
 
-        # Upload to Supabase Storage
-        logger.info(f"Uploading to Supabase Storage: {request.user_id}/{request.subdomain}/index.html")
-        try:
-            public_url = await storage_service.upload_website(
+        # Upload to Supabase Storage with retry logic
+        logger.info(f"📤 Uploading to Supabase Storage: {request.user_id}/{request.subdomain}/index.html")
+
+        async def upload_html():
+            return await storage_service.upload_website(
                 user_id=request.user_id,
                 subdomain=request.subdomain,
-                html_content=request.html_content
-            )
-        except Exception as e:
-            logger.error(f"Failed to upload to storage: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to upload website: {str(e)}"
+                html_content=html_content
             )
 
-        # Save project metadata to database
         try:
+            public_url = await retry_with_backoff(upload_html, max_retries=3, initial_delay=2.0)
+            if not public_url:
+                raise Exception("Upload returned no URL")
+            logger.info(f"✅ Upload successful: {public_url}")
+        except Exception as e:
+            logger.error(f"❌ Failed to upload after retries: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Gagal memuat naik website: {str(e)}"
+            )
+
+        # Save project metadata to database with retry
+        logger.info("💾 Saving project metadata to database...")
+
+        async def save_metadata():
             project_data = {
                 "id": project_id,
                 "user_id": request.user_id,
                 "business_name": request.project_name,
                 "subdomain": request.subdomain,
                 "status": "published",
-                "html_content": request.html_content,
+                "html_content": html_content,
                 "public_url": public_url,
                 "published_at": datetime.utcnow().isoformat(),
                 "created_at": datetime.utcnow().isoformat(),
                 "updated_at": datetime.utcnow().isoformat()
             }
+            result = await supabase_service.create_website(project_data)
+            if not result:
+                raise Exception("Database insert returned None")
+            return result
 
-            await supabase_service.create_website(project_data)
-            logger.info(f"Project metadata saved to database: {project_id}")
-
+        try:
+            await retry_with_backoff(save_metadata, max_retries=3, initial_delay=1.0)
+            logger.info(f"✅ Metadata saved successfully: {project_id}")
         except Exception as e:
-            logger.error(f"Failed to save project metadata: {e}")
-            # Don't fail the request if metadata save fails
-            logger.warning("Website uploaded but metadata save failed")
+            logger.error(f"❌ Failed to save metadata after retries: {e}")
+            logger.warning("⚠️ Website uploaded but metadata save failed - continuing anyway")
+            # Don't fail the entire request - user can still access the website
 
-        logger.info(f"Website published successfully: {public_url}")
+        logger.info("=" * 80)
+        logger.info(f"✅ WEBSITE PUBLISHED SUCCESSFULLY")
+        logger.info(f"   URL: {public_url}")
+        logger.info(f"   Project ID: {project_id}")
+        logger.info("=" * 80)
 
         return PublishResponse(
             url=public_url,
@@ -122,10 +205,17 @@ async def publish_website(request: PublishRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error publishing website: {e}")
+        import traceback
+        logger.error("=" * 80)
+        logger.error("❌ PUBLISH ERROR")
+        logger.error(f"   Error type: {type(e).__name__}")
+        logger.error(f"   Error message: {str(e)}")
+        logger.error("   Full traceback:")
+        logger.error(traceback.format_exc())
+        logger.error("=" * 80)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to publish website: {str(e)}"
+            detail=f"Gagal menerbitkan website: {str(e)}"
         )
 
 
