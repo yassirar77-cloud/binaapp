@@ -1683,12 +1683,17 @@ async def get_realtime_analytics(project_id: str):
 
 @app.post("/api/publish")
 async def publish_website(request: Request):
-    """Publish website to subdomain - USING DIRECT REST API"""
+    """
+    Publish website to subdomain - STORAGE ONLY (NO DATABASE)
+
+    This endpoint ONLY uploads HTML to Supabase Storage.
+    No database operations to avoid schema cache errors.
+    """
 
     logger.info("📤 PUBLISH REQUEST RECEIVED")
 
     # Get Supabase credentials from environment
-    SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
     SUPABASE_KEY = (
         os.getenv("SUPABASE_SERVICE_KEY") or
         os.getenv("SUPABASE_SERVICE_ROLE_KEY") or
@@ -1703,7 +1708,7 @@ async def publish_website(request: Request):
             status_code=500,
             content={
                 "success": False,
-                "error": "Database not configured. Check SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables."
+                "error": "Storage not configured. Check SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables."
             }
         )
 
@@ -1718,151 +1723,71 @@ async def publish_website(request: Request):
     html_content = body.get("html_content") or body.get("html_code") or body.get("html") or ""
     subdomain = (body.get("subdomain") or "").lower().strip()
     project_name = body.get("project_name") or body.get("name") or subdomain
-    user_id = body.get("user_id") or "anonymous"
 
-    logger.info(f"📤 Subdomain: {subdomain}, Name: {project_name}, User: {user_id}")
+    logger.info(f"📤 Subdomain: {subdomain}, Name: {project_name}")
     logger.info(f"📤 HTML length: {len(html_content)} chars")
 
+    # Validate inputs
     if not html_content:
-        return JSONResponse(status_code=400, content={"success": False, "error": "No HTML content"})
+        return JSONResponse(status_code=400, content={"success": False, "error": "No HTML content provided"})
 
     if not subdomain:
-        return JSONResponse(status_code=400, content={"success": False, "error": "No subdomain"})
+        return JSONResponse(status_code=400, content={"success": False, "error": "No subdomain provided"})
 
-    # Clean subdomain
+    # Clean subdomain (only lowercase letters, numbers, hyphens)
     subdomain = re.sub(r'[^a-z0-9-]', '', subdomain)
     if len(subdomain) < 2:
-        return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain too short"})
+        return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain too short (min 2 chars)"})
 
     try:
-        # Setup httpx headers for Supabase REST API
-        headers = {
+        # Upload HTML to Supabase Storage
+        storage_url = f"{SUPABASE_URL}/storage/v1/object/websites/{subdomain}/index.html"
+        storage_headers = {
             "apikey": SUPABASE_KEY,
             "Authorization": f"Bearer {SUPABASE_KEY}",
-            "Content-Type": "application/json",
-            "Prefer": "return=representation"
+            "Content-Type": "text/html; charset=utf-8",
+            "x-upsert": "true"  # Overwrite if exists
         }
+
+        logger.info(f"📤 Uploading to Storage: {subdomain}/index.html")
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # Check if subdomain exists using direct REST API
-            check_url = f"{SUPABASE_URL}/rest/v1/websites"
-            check_params = {"subdomain": f"eq.{subdomain}", "select": "id,user_id"}
+            storage_response = await client.post(
+                storage_url,
+                headers=storage_headers,
+                content=html_content.encode('utf-8')
+            )
 
-            logger.info(f"🔍 Checking subdomain: {subdomain}")
-            check_response = await client.get(check_url, headers=headers, params=check_params)
-
-            if check_response.status_code != 200:
-                logger.error(f"❌ Subdomain check failed: {check_response.status_code} - {check_response.text}")
+            if storage_response.status_code in [200, 201]:
+                logger.info(f"✅ Published successfully: {subdomain}.binaapp.my")
+                return {
+                    "success": True,
+                    "subdomain": subdomain,
+                    "url": f"https://{subdomain}.binaapp.my",
+                    "message": "Website published successfully! Visit your site at the URL above.",
+                    "status": "live"
+                }
+            else:
+                logger.error(f"❌ Storage upload failed: {storage_response.status_code} - {storage_response.text}")
                 return JSONResponse(
                     status_code=500,
-                    content={"success": False, "error": f"Database query failed: {check_response.text}"}
+                    content={
+                        "success": False,
+                        "error": f"Failed to upload website to storage: {storage_response.text}"
+                    }
                 )
-
-            existing = check_response.json()
-            project_id = None
-
-            if existing and len(existing) > 0:
-                if existing[0].get("user_id") != user_id and existing[0].get("user_id") != "anonymous":
-                    return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain taken"})
-                project_id = existing[0]["id"]
-                logger.info(f"✓ Found existing project: {project_id}")
-
-            # Prepare data - ONLY include fields that exist in database schema
-            # Actual schema columns: id, user_id, name, description, html_code, subdomain,
-            # is_published, published_url, total_views, created_at, updated_at
-            project_data = {
-                "user_id": user_id,
-                "name": project_name,  # Column name is 'name' not 'business_name'
-                "subdomain": subdomain,
-                "html_code": html_content,  # Column name is 'html_code' not 'html_content'
-                "is_published": True,
-                "published_url": f"https://{subdomain}.binaapp.my",
-                "updated_at": datetime.now().isoformat()
-            }
-
-            # Save to database using direct REST API
-            if project_id:
-                # UPDATE existing project
-                update_url = f"{SUPABASE_URL}/rest/v1/websites"
-                update_params = {"id": f"eq.{project_id}"}
-
-                logger.info(f"📝 Updating project: {project_id}")
-                update_response = await client.patch(
-                    update_url,
-                    headers=headers,
-                    params=update_params,
-                    json=project_data
-                )
-
-                if update_response.status_code not in [200, 204]:
-                    logger.error(f"❌ Update failed: {update_response.status_code} - {update_response.text}")
-                    return JSONResponse(
-                        status_code=500,
-                        content={"success": False, "error": f"Database update failed: {update_response.text}"}
-                    )
-
-                logger.info(f"✅ Updated project: {project_id}")
-            else:
-                # INSERT new project
-                project_data["id"] = str(uuid.uuid4())
-                project_data["created_at"] = datetime.now().isoformat()
-
-                insert_url = f"{SUPABASE_URL}/rest/v1/websites"
-
-                logger.info(f"📝 Creating new project: {project_data['id']}")
-                insert_response = await client.post(
-                    insert_url,
-                    headers=headers,
-                    json=project_data
-                )
-
-                if insert_response.status_code not in [200, 201]:
-                    logger.error(f"❌ Insert failed: {insert_response.status_code} - {insert_response.text}")
-                    return JSONResponse(
-                        status_code=500,
-                        content={"success": False, "error": f"Database insert failed: {insert_response.text}"}
-                    )
-
-                result_data = insert_response.json()
-                project_id = result_data[0]["id"] if result_data else project_data["id"]
-                logger.info(f"✅ Created project: {project_id}")
-
-            # Upload HTML to Supabase Storage (optional, non-critical)
-            try:
-                storage_url = f"{SUPABASE_URL}/storage/v1/object/websites/{subdomain}/index.html"
-                storage_headers = {
-                    "apikey": SUPABASE_KEY,
-                    "Authorization": f"Bearer {SUPABASE_KEY}",
-                    "Content-Type": "text/html",
-                    "x-upsert": "true"
-                }
-
-                logger.info(f"📤 Uploading to storage: {subdomain}/index.html")
-                storage_response = await client.post(
-                    storage_url,
-                    headers=storage_headers,
-                    content=html_content.encode('utf-8')
-                )
-
-                if storage_response.status_code in [200, 201]:
-                    logger.info(f"✅ Uploaded to storage: {subdomain}/index.html")
-                else:
-                    logger.warning(f"⚠️ Storage upload failed (non-critical): {storage_response.status_code}")
-            except Exception as storage_err:
-                logger.warning(f"⚠️ Storage upload failed (non-critical): {storage_err}")
-
-        return {
-            "success": True,
-            "subdomain": subdomain,
-            "url": f"https://{subdomain}.binaapp.my",
-            "project_id": str(project_id) if project_id else None
-        }
 
     except Exception as e:
         logger.error(f"❌ Publish error: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return JSONResponse(status_code=500, content={"success": False, "error": str(e)})
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Publishing failed: {str(e)}"
+            }
+        )
 
 
 @app.get("/api/site/{subdomain}")
