@@ -19,6 +19,12 @@ from urllib.parse import urlparse
 import uuid
 import asyncio
 import json
+from app.data.malaysian_prompts import (
+    get_smart_stability_prompt,
+    get_hero_prompt,
+    get_fallback_image,
+    MALAYSIAN_FOOD_PROMPTS
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -721,14 +727,27 @@ def upload_to_cloudinary(image_bytes: bytes, folder: str = "binaapp") -> Optiona
         return None
 
 
-async def generate_stability_image(prompt: str) -> Optional[str]:
-    """Generate image using Stability AI and upload to Cloudinary"""
+async def generate_stability_image(item_name: str, business_type: str = "") -> Optional[str]:
+    """
+    Generate image using Stability AI with smart Malaysian prompts.
+    Upload to Cloudinary and return URL.
+
+    Args:
+        item_name: Name of menu item, product, or service
+        business_type: Type of business (restaurant, salon, etc.)
+
+    Returns:
+        Cloudinary URL of generated image, or None if failed
+    """
     if not STABILITY_API_KEY:
         logger.info("🎨 STABILITY - No API key")
         return None
 
     try:
-        logger.info(f"🎨 STABILITY - Generating: {prompt[:50]}...")
+        # GET SMART PROMPT for Malaysian context
+        prompt = get_smart_stability_prompt(item_name, business_type)
+        logger.info(f"🎨 STABILITY - Item: {item_name}")
+        logger.info(f"🎨 STABILITY - Smart prompt: {prompt[:80]}...")
 
         async with httpx.AsyncClient(timeout=90.0) as client:
             response = await client.post(
@@ -739,8 +758,8 @@ async def generate_stability_image(prompt: str) -> Optional[str]:
                 },
                 files={"none": ''},
                 data={
-                    "prompt": f"{prompt}, professional photography, high quality, commercial",
-                    "negative_prompt": "blurry, low quality, cartoon, anime, sketch",
+                    "prompt": prompt,
+                    "negative_prompt": "blurry, low quality, cartoon, anime, sketch, drawing, illustration, 3d render",
                     "output_format": "png",
                     "aspect_ratio": "16:9"
                 }
@@ -749,28 +768,35 @@ async def generate_stability_image(prompt: str) -> Optional[str]:
             if response.status_code == 200:
                 image_bytes = response.content
 
-                # Try to upload to Cloudinary
-                cloudinary_url = upload_to_cloudinary(image_bytes)
+                # Upload to Cloudinary
+                cloudinary_url = upload_to_cloudinary(image_bytes, folder="binaapp")
 
                 if cloudinary_url:
-                    logger.info("🎨 STABILITY - ✅ Uploaded to Cloudinary")
+                    logger.info(f"🎨 STABILITY - ✅ Uploaded: {cloudinary_url[:60]}...")
                     return cloudinary_url
                 else:
-                    # Fallback to base64 (not recommended for production)
-                    logger.warning("🎨 STABILITY - ⚠️ Cloudinary failed, using base64")
-                    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
-                    return f"data:image/png;base64,{image_base64}"
+                    logger.warning("🎨 STABILITY - ⚠️ Cloudinary failed")
+                    # Return fallback stock image instead of base64
+                    return get_fallback_image(item_name)
             else:
                 logger.error(f"🎨 STABILITY - ❌ Failed: {response.status_code}")
-                return None
+                return get_fallback_image(item_name)
 
     except Exception as e:
         logger.error(f"🎨 STABILITY - ❌ Error: {e}")
-        return None
+        return get_fallback_image(item_name)
 
 
 async def generate_all_images(desc: str) -> Optional[dict]:
-    """Generate hero image and 4 different gallery images"""
+    """
+    Generate hero image and 4 different gallery images with smart Malaysian prompts.
+
+    Args:
+        desc: Business description
+
+    Returns:
+        Dict with 'hero' and 'gallery' images, or None if hero generation fails
+    """
     business_type = detect_business_type(desc)
 
     images = {
@@ -778,27 +804,59 @@ async def generate_all_images(desc: str) -> Optional[dict]:
         'gallery': []
     }
 
-    # Generate Hero Image
-    hero_prompt = f"Modern {business_type.replace('_', ' ')} storefront exterior, professional photography, daytime, welcoming entrance, {desc}"
-    hero_image = await generate_stability_image(hero_prompt)
+    # Extract business name from description (simple extraction)
+    business_name = desc.split(',')[0].strip() if ',' in desc else desc[:50]
+
+    # Generate Hero Image using smart prompt
+    logger.info("🎨 Generating hero image...")
+    hero_image = await generate_stability_image(
+        item_name=f"hero image for {business_type.replace('_', ' ')}",
+        business_type=business_type
+    )
 
     if hero_image:
         images['hero'] = hero_image
-        logger.info("🎨 Hero image generated")
+        logger.info("🎨 Hero image generated ✅")
     else:
-        return None
+        # Use stock image as fallback
+        stock_images = get_stock_images(desc)
+        images['hero'] = stock_images['hero']
+        logger.warning("🎨 Hero image - using stock fallback")
 
-    # Generate 4 Different Gallery Images with unique prompts
-    gallery_prompts = [
-        f"Interior view of {business_type.replace('_', ' ')}, modern design, customers browsing, warm lighting, {desc}",
-        f"Product display showcase at {business_type.replace('_', ' ')}, close-up, professional arrangement, {desc}",
-        f"Staff working at {business_type.replace('_', ' ')}, friendly service, professional environment, {desc}",
-        f"Cozy seating area in {business_type.replace('_', ' ')}, comfortable atmosphere, modern furniture, {desc}"
-    ]
+    # Generate 4 Different Gallery Images
+    # Try to extract menu items or services from description
+    gallery_items = []
 
-    for i, prompt in enumerate(gallery_prompts):
-        logger.info(f"🎨 Generating gallery image {i+1}/4...")
-        gallery_image = await generate_stability_image(prompt)
+    # Check if description mentions specific items
+    desc_lower = desc.lower()
+    if any(word in desc_lower for word in ["nasi", "mee", "ayam", "roti", "satay", "ikan"]):
+        # This is a food business - try to extract menu items
+        # Simple extraction: look for common food keywords
+        potential_items = []
+        for word in desc.split():
+            word_clean = word.strip(',.!?')
+            if word_clean.lower() in MALAYSIAN_FOOD_PROMPTS:
+                potential_items.append(word_clean)
+
+        if potential_items:
+            gallery_items = potential_items[:4]
+
+    # If we don't have specific items, use generic gallery descriptions
+    if not gallery_items:
+        gallery_items = [
+            f"{business_type.replace('_', ' ')} interior",
+            f"{business_type.replace('_', ' ')} products",
+            f"{business_type.replace('_', ' ')} service",
+            f"{business_type.replace('_', ' ')} ambiance"
+        ]
+
+    # Ensure we have 4 items
+    while len(gallery_items) < 4:
+        gallery_items.append(f"{business_type.replace('_', ' ')} showcase")
+
+    for i, item in enumerate(gallery_items[:4]):
+        logger.info(f"🎨 Generating gallery image {i+1}/4: {item}")
+        gallery_image = await generate_stability_image(item, business_type)
 
         if gallery_image:
             images['gallery'].append(gallery_image)
@@ -813,6 +871,41 @@ async def generate_all_images(desc: str) -> Optional[dict]:
         images['gallery'].append(images['hero'])
 
     logger.info(f"🎨 All images generated: 1 hero + {len(images['gallery'])} gallery")
+    return images
+
+
+async def generate_menu_images(menu_items: list, business_type: str = "restaurant") -> dict:
+    """
+    Generate unique images for each menu item with smart Malaysian prompts.
+    Returns dict mapping item name to image URL.
+
+    Args:
+        menu_items: List of menu item names or dicts with 'name' key
+        business_type: Type of business (restaurant, salon, etc.)
+
+    Returns:
+        Dictionary mapping item names to image URLs
+    """
+    images = {}
+
+    for item in menu_items:
+        # Extract item name
+        item_name = item.get("name", "") if isinstance(item, dict) else str(item)
+
+        logger.info(f"🎨 Generating image for menu item: {item_name}")
+
+        # Generate image with smart prompt
+        image_url = await generate_stability_image(item_name, business_type)
+
+        if image_url:
+            images[item_name] = image_url
+            logger.info(f"🎨 ✅ {item_name} → {image_url[:60]}...")
+        else:
+            # Fallback to stock image
+            images[item_name] = get_fallback_image(item_name)
+            logger.warning(f"🎨 ⚠️ {item_name} → Using fallback")
+
+    logger.info(f"🎨 Menu images complete! Generated {len(images)} items")
     return images
 
 
