@@ -10,6 +10,8 @@ from loguru import logger
 from typing import Optional, List, Dict, Tuple
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
 from difflib import SequenceMatcher
+import cloudinary
+import cloudinary.uploader
 
 
 class AIService:
@@ -832,6 +834,82 @@ class AIService:
         logger.info(f"🎨 ✅ Generated {len(gallery) + 1} images")
         return {"hero": hero, "gallery": gallery}
 
+    async def _generate_stability_image(self, prompt: str) -> Optional[str]:
+        """Generate image with Stability AI and upload to Cloudinary"""
+        stability_key = os.getenv("STABILITY_API_KEY")
+        if not stability_key:
+            logger.warning("🎨 No STABILITY_API_KEY")
+            return None
+
+        try:
+            # Smart prompt for Malaysian context
+            smart_prompt = self._get_malaysian_prompt(prompt)
+
+            async with httpx.AsyncClient(timeout=60) as client:
+                response = await client.post(
+                    "https://api.stability.ai/v2beta/stable-image/generate/core",
+                    headers={
+                        "Authorization": f"Bearer {stability_key}",
+                        "Accept": "image/*"
+                    },
+                    files={"none": ""},
+                    data={
+                        "prompt": smart_prompt,
+                        "output_format": "png",
+                        "aspect_ratio": "16:9"
+                    }
+                )
+
+                if response.status_code == 200:
+                    # Upload to Cloudinary
+                    result = cloudinary.uploader.upload(
+                        response.content,
+                        folder="binaapp"
+                    )
+                    url = result.get("secure_url")
+                    logger.info(f"☁️ Uploaded: {url[:50]}...")
+                    return url
+                else:
+                    logger.error(f"🎨 Stability failed: {response.status_code}")
+                    return None
+        except Exception as e:
+            logger.error(f"🎨 Error: {e}")
+            return None
+
+    def _get_malaysian_prompt(self, item: str) -> str:
+        """Convert Malaysian food names to detailed prompts"""
+        prompts = {
+            "nasi kandar": "Malaysian nasi kandar with rice, curry chicken, vegetables, banana leaf, food photography",
+            "nasi lemak": "Malaysian nasi lemak coconut rice, sambal, egg, anchovies, peanuts, food photography",
+            "mee goreng": "Malaysian mee goreng yellow noodles, egg, vegetables, spicy, food photography",
+            "ayam goreng": "Malaysian fried chicken ayam goreng berempah, crispy, turmeric, food photography",
+            "roti canai": "Malaysian roti canai flatbread with curry, food photography",
+        }
+
+        item_lower = item.lower()
+        for key, prompt in prompts.items():
+            if key in item_lower:
+                return prompt
+
+        return f"Professional photo of {item}, Malaysian style, food photography"
+
+    def _extract_menu_items(self, description: str) -> list:
+        """Extract menu items from description"""
+        common_items = ["nasi kandar", "nasi lemak", "mee goreng", "ayam goreng",
+                        "roti canai", "teh tarik", "ikan bakar", "satay"]
+        found = []
+        desc_lower = description.lower()
+        for item in common_items:
+            if item in desc_lower:
+                found.append(item)
+        return found if found else ["hero image"]
+
+    async def _improve_with_qwen(self, html: str, description: str) -> str:
+        """Use Qwen to improve content"""
+        prompt = f"Improve this HTML content for Malaysian business. Make descriptions more appealing. Keep all image URLs unchanged.\n\n{html}"
+        improved = await self._call_qwen(prompt)
+        return improved if improved else html
+
     def get_fallback_images(self, description: str) -> Dict:
         """Get fallback stock images using comprehensive image matching"""
         d = description.lower()
@@ -1266,15 +1344,39 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         request: WebsiteGenerationRequest,
         style: Optional[str] = None
     ) -> AIGenerationResponse:
-        """Generate website with strict anti-placeholder enforcement"""
+        """Generate website with Stability AI + Cloudinary + DeepSeek + Qwen"""
 
         logger.info("=" * 80)
-        logger.info("🌐 WEBSITE GENERATION - NO PLACEHOLDER MODE")
+        logger.info("🌐 WEBSITE GENERATION - FULL AI PIPELINE")
         logger.info(f"   Business: {request.business_name}")
         logger.info(f"   Style: {style or 'modern'}")
         logger.info(f"   User Images: {len(request.uploaded_images) if request.uploaded_images else 0}")
         logger.info("=" * 80)
 
+        # STEP 1: Generate images with Stability AI
+        logger.info("🎨 STEP 1: Generating images with Stability AI...")
+
+        # Generate hero image
+        hero_prompt = f"Professional {request.business_type or 'business'} storefront, Malaysian style, welcoming"
+        hero_image = await self._generate_stability_image(hero_prompt)
+
+        # Generate menu/product images based on description
+        image_urls = {}
+        if hero_image:
+            image_urls["hero"] = hero_image
+
+        # Extract items from description and generate images
+        menu_items = self._extract_menu_items(request.description)
+        for item in menu_items[:4]:  # Limit to 4 items
+            logger.info(f"🎨 Generating image for: {item}")
+            img_url = await self._generate_stability_image(item)
+            if img_url:
+                image_urls[item] = img_url
+
+        logger.info(f"☁️ Generated {len(image_urls)} images")
+
+        # Build prompt WITH image URLs
+        logger.info("🔷 STEP 2: DeepSeek generating HTML...")
         prompt = self._build_strict_prompt(
             request.business_name,
             request.description,
@@ -1282,8 +1384,18 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             request.uploaded_images
         )
 
-        # Try DeepSeek first (better at code)
+        # Add image URLs to prompt
+        if image_urls:
+            image_instructions = "\n\nUSE THESE EXACT IMAGE URLS (from Cloudinary):\n"
+            for name, url in image_urls.items():
+                if url:
+                    image_instructions += f"- {name}: {url}\n"
+            image_instructions += "\nDO NOT use Unsplash or placeholder URLs!"
+
+            prompt += image_instructions
+
         html = await self._call_deepseek(prompt)
+
         if not html:
             logger.warning("⚠️ DeepSeek failed, trying Qwen...")
             html = await self._call_qwen(prompt)
@@ -1292,12 +1404,19 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error("❌ Both AIs failed to generate")
             raise Exception("Failed to generate website")
 
-        # Extract and fix
+        # Extract HTML
         html = self._extract_html(html)
+
+        # STEP 3: Improve content with Qwen
+        if html:
+            logger.info("🟡 STEP 3: Qwen improving content...")
+            html = await self._improve_with_qwen(html, request.description)
+
+        # Fix any remaining issues
         html = self._fix_placeholders(html, request.business_name, request.description)
         html = self._fix_menu_item_images(html)
 
-        logger.info("✅ Website generated successfully!")
+        logger.info("✅ ALL STEPS COMPLETE")
         logger.info(f"   Final size: {len(html)} characters")
 
         return AIGenerationResponse(
@@ -1307,7 +1426,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             meta_title=request.business_name,
             meta_description=f"{request.business_name} - {request.description[:150]}",
             sections=["Header", "Hero", "About", "Services", "Gallery", "Contact", "Footer"],
-            integrations_included=["WhatsApp", "Contact Form", "Mobile Responsive"]
+            integrations_included=["WhatsApp", "Contact Form", "Mobile Responsive", "Cloudinary Images"]
         )
 
     async def generate_multi_style(
