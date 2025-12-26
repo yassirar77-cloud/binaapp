@@ -265,7 +265,13 @@ def check_rate_limit(user_id: str = "anonymous", user_email: Optional[str] = Non
     }
 
 
-def increment_usage(user_id: str = "anonymous"):
+def increment_usage(user_id: str = "anonymous", user_email: Optional[str] = None):
+    """Increment usage count for non-founder users"""
+    # Don't increment for founders (they have unlimited access)
+    if user_email and user_email.lower() in [e.lower() for e in UNLIMITED_ACCESS_EMAILS]:
+        logger.info(f"🔓 Founder {user_email} - not incrementing usage count")
+        return
+
     user_usage[user_id]["count"] += 1
 
 
@@ -1069,8 +1075,8 @@ Output ONLY improved HTML."""
             ]
         }
 
-        # Increment usage
-        increment_usage(user_id)
+        # Increment usage (founders bypass)
+        increment_usage(user_id, user_email)
 
         # Clean up progress after a delay
         async def cleanup_progress():
