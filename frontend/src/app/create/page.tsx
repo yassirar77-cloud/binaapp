@@ -143,7 +143,7 @@ export default function CreatePage() {
       console.error(err);
 
       if (err.name === 'AbortError') {
-        setError('Request timed out. The backend might be sleeping - please try again in 30 seconds.');
+        setError('Generation is taking longer than usual on your network. Please try again or check your connection.');
       } else {
         setError(err.message || 'Error connecting to server. Please check your internet connection and try again.');
       }
@@ -524,7 +524,7 @@ export default function CreatePage() {
                   </div>
 
                   <p className="text-xs text-gray-500 mt-6 text-center">
-                    This usually takes 30-40 seconds ⏱️
+                    This usually takes 45-60 seconds (up to 2 minutes on mobile) ⏱️
                   </p>
                 </div>
               </div>
