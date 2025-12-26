@@ -120,7 +120,11 @@ export default function CreatePage() {
       const response = await fetch('https://binaapp-backend.onrender.com/api/generate-simple', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ business_description: description, language }),
+        body: JSON.stringify({
+          business_description: description,
+          language,
+          email: user?.email  // Pass user email for founder bypass
+        }),
         signal: controller.signal,
       });
 

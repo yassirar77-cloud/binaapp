@@ -152,6 +152,12 @@ else:
 user_usage = defaultdict(lambda: {"count": 0, "reset_time": datetime.now()})
 FREE_LIMIT = 3  # 3 generations per day
 
+# Founder/Admin emails with unlimited access
+UNLIMITED_ACCESS_EMAILS = [
+    "yassirarafat33@yahoo.com",
+    # Add more admin emails here if needed
+]
+
 # Store generation progress
 generation_progress = {}
 
@@ -162,6 +168,7 @@ class GenerateRequest(BaseModel):
     business_description: Optional[str] = None
     style: Optional[str] = "modern"
     user_id: Optional[str] = None
+    email: Optional[str] = None
 
 
 # Analytics request model
@@ -226,8 +233,21 @@ async def get_progress(session_id: str):
     return progress
 
 
-def check_rate_limit(user_id: str = "anonymous") -> dict:
+def check_rate_limit(user_id: str = "anonymous", user_email: Optional[str] = None) -> dict:
     """Check if user has exceeded daily limit"""
+
+    # Founders have unlimited access - bypass limit check
+    if user_email and user_email.lower() in [e.lower() for e in UNLIMITED_ACCESS_EMAILS]:
+        logger.info(f"🔓 Founder access granted: {user_email} - bypassing limit")
+        return {
+            "allowed": True,
+            "remaining": 999,  # Unlimited
+            "limit": FREE_LIMIT,
+            "reset_time": (datetime.now() + timedelta(days=1)).isoformat(),
+            "is_founder": True
+        }
+
+    # Regular users have daily limit
     now = datetime.now()
     user = user_usage[user_id]
 
@@ -520,12 +540,13 @@ async def generate_simple(request: GenerateRequest):
 
     desc = request.business_description or request.description or ""
     user_id = request.user_id or "anonymous"
+    user_email = request.email
 
     if not desc:
         return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
 
-    # Check rate limit
-    rate_limit = check_rate_limit(user_id)
+    # Check rate limit (founders bypass limit)
+    rate_limit = check_rate_limit(user_id, user_email)
     if not rate_limit["allowed"]:
         return JSONResponse(
             status_code=429,
@@ -777,7 +798,7 @@ Output ONLY improved HTML."""
             "session_id": session_id,
             "html": generated_styles[0]["html"],
             "styles": generated_styles,
-            "usage": check_rate_limit(user_id),
+            "usage": check_rate_limit(user_id, user_email),
             "business_type": business_type
         }
 
