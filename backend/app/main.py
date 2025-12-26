@@ -1680,18 +1680,17 @@ async def publish_website(request: Request):
                 logger.info(f"✓ Found existing project: {project_id}")
 
             # Prepare data - ONLY include fields that exist in database schema
+            # Actual schema columns: id, user_id, name, description, html_code, subdomain,
+            # is_published, published_url, total_views, created_at, updated_at
             project_data = {
                 "user_id": user_id,
-                "business_name": project_name,  # Use business_name instead of name
+                "name": project_name,  # Column name is 'name' not 'business_name'
                 "subdomain": subdomain,
-                "status": "published",
-                "public_url": f"https://{subdomain}.binaapp.my",
-                "published_at": datetime.now().isoformat(),
+                "html_code": html_content,  # Column name is 'html_code' not 'html_content'
+                "is_published": True,
+                "published_url": f"https://{subdomain}.binaapp.my",
                 "updated_at": datetime.now().isoformat()
             }
-
-            # Note: HTML content is NOT saved to database - only to storage
-            # This avoids schema errors with html_content, html_code fields
 
             # Save to database using direct REST API
             if project_id:
