@@ -525,66 +525,6 @@ Output ONLY improved HTML."""
         })
 
 
-@app.post("/api/generate/start")
-async def start_generation(request: Request, background_tasks: BackgroundTasks):
-    """Start async website generation - returns immediately with job_id"""
-
-    try:
-        body = await request.json()
-    except Exception as e:
-        logger.error(f"❌ Invalid JSON: {e}")
-        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
-
-    description = body.get("description") or body.get("business_description") or ""
-    language = body.get("language", "ms")
-    user_id = body.get("user_id", "anonymous")
-
-    if not description:
-        return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
-
-    # Check rate limit
-    rate_limit = check_rate_limit(user_id)
-    if not rate_limit["allowed"]:
-        return JSONResponse(
-            status_code=429,
-            content={
-                "success": False,
-                "error": "Daily limit reached",
-                "message": f"You've used all {FREE_LIMIT} free generations today!",
-                "usage": rate_limit
-            }
-        )
-
-    # Generate unique job ID
-    job_id = str(uuid.uuid4())
-
-    logger.info("=" * 70)
-    logger.info("🌐 ASYNC GENERATION STARTED")
-    logger.info(f"   Job ID: {job_id[:8]}...")
-    logger.info(f"   Description: {description[:60]}...")
-    logger.info("=" * 70)
-
-    # Save initial job to Supabase
-    await save_job_to_supabase(job_id, {
-        "status": "processing",
-        "progress": 0,
-        "description": description,
-        "language": language,
-        "user_id": user_id
-    })
-
-    # Start background generation task
-    background_tasks.add_task(run_website_generation, job_id, description, language, user_id)
-
-    # Return immediately
-    return {
-        "success": True,
-        "job_id": job_id,
-        "status": "processing",
-        "message": "Generation started. Poll /api/generate/status/{job_id} for updates."
-    }
-
-
 @app.get("/api/generate/status/{job_id}")
 async def get_generation_status(job_id: str):
     """Check job status - called by frontend polling"""
@@ -1273,9 +1213,120 @@ Output ONLY improved HTML."""
     return final_html
 
 
+# ==================== SIMPLE ASYNC GENERATION (NO BACKGROUND TASKS) ====================
+
+async def run_generation_task(job_id: str, description: str, user_email: str = "", user_id: str = "anonymous"):
+    """Generate website - SIMPLE VERSION with guaranteed completion"""
+
+    logger.info(f"🚀 TASK START: {job_id}")
+
+    try:
+        # Step 1: Update to 20%
+        logger.info(f"📊 Updating progress to 20%")
+        if supabase:
+            supabase.table("generation_jobs").update({
+                "progress": 20,
+                "updated_at": datetime.now().isoformat()
+            }).eq("job_id", job_id).execute()
+
+        # Step 2: Generate ONE website using DeepSeek
+        logger.info(f"🤖 Calling AI for: {description[:50]}...")
+
+        prompt = f"""Create a complete HTML website for: {description}
+
+Requirements:
+- Single HTML file with embedded CSS
+- Mobile responsive with Tailwind CSS CDN: <script src="https://cdn.tailwindcss.com"></script>
+- Modern professional design
+- Sections: header, hero, features/services, contact, footer
+- Malaysian business style (RM currency, Malaysian phone format)
+- WhatsApp contact button
+- Use placeholder images from picsum.photos
+
+Return ONLY HTML code, no explanations."""
+
+        # Step 3: Call DeepSeek
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                "https://api.deepseek.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "deepseek-chat",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 8000,
+                    "temperature": 0.7
+                }
+            )
+
+        logger.info(f"📡 AI Response status: {response.status_code}")
+
+        if response.status_code != 200:
+            raise Exception(f"AI API error: {response.status_code} - {response.text[:200]}")
+
+        data = response.json()
+        html = data["choices"][0]["message"]["content"]
+
+        # Clean HTML
+        if "```html" in html:
+            html = html.split("```html")[1].split("```")[0]
+        elif "```" in html:
+            html = html.split("```")[1].split("```")[0]
+
+        html = html.strip()
+        logger.info(f"✅ Got HTML: {len(html)} chars")
+
+        # Step 4: Update progress to 80%
+        if supabase:
+            supabase.table("generation_jobs").update({
+                "progress": 80,
+                "updated_at": datetime.now().isoformat()
+            }).eq("job_id", job_id).execute()
+
+        # Increment usage (founders bypass)
+        increment_usage(user_id, user_email)
+
+        # Step 5: MARK COMPLETED - THIS IS CRITICAL!
+        logger.info(f"💾 Saving completed job to Supabase...")
+
+        if supabase:
+            result = supabase.table("generation_jobs").update({
+                "status": "completed",
+                "progress": 100,
+                "html": html,
+                "updated_at": datetime.now().isoformat()
+            }).eq("job_id", job_id).execute()
+
+            logger.info(f"✅ JOB COMPLETED: {job_id}")
+            logger.info(f"📊 Supabase update result: {result.data}")
+        else:
+            logger.warning(f"⚠️ Supabase not available - job completed but not saved")
+
+    except Exception as e:
+        logger.error(f"❌ TASK FAILED: {job_id} - {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+        # Mark as failed
+        if supabase:
+            try:
+                supabase.table("generation_jobs").update({
+                    "status": "failed",
+                    "error": str(e)[:500],
+                    "updated_at": datetime.now().isoformat()
+                }).eq("job_id", job_id).execute()
+                logger.info(f"❌ Job marked FAILED in Supabase")
+            except Exception as e2:
+                logger.error(f"❌ Could not save failure: {e2}")
+
+    logger.info(f"🏁 TASK END: {job_id}")
+
+
 @app.post("/api/generate/start")
 async def start_generation(request: Request):
-    """Start generation - runs synchronously with Supabase tracking"""
+    """Start async generation using asyncio.create_task"""
 
     try:
         body = await request.json()
@@ -1283,16 +1334,15 @@ async def start_generation(request: Request):
         logger.error(f"❌ Invalid JSON: {e}")
         return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
 
-    # Extract request parameters
+    # Extract parameters
     description = body.get("description") or body.get("business_description") or ""
-    language = body.get("language", "en")
     user_id = body.get("user_id", "anonymous")
-    user_email = body.get("email")
+    user_email = body.get("email", "")
 
     if not description:
         return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
 
-    # Check rate limit (founders bypass limit)
+    # Check rate limit (founders bypass)
     rate_limit = check_rate_limit(user_id, user_email)
     if not rate_limit["allowed"]:
         return JSONResponse(
@@ -1305,254 +1355,44 @@ async def start_generation(request: Request):
             }
         )
 
-    # Generate unique job ID
+    # Generate job ID
     job_id = str(uuid.uuid4())
 
-    logger.info("=" * 70)
-    logger.info("🚀 NEW GENERATION JOB STARTED (SYNC)")
-    logger.info(f"   Job ID: {job_id}")
+    logger.info(f"📝 Creating job: {job_id}")
     logger.info(f"   User: {user_email or user_id}")
     logger.info(f"   Description: {description[:60]}...")
-    logger.info("=" * 70)
 
-    # Create job record in Supabase
+    # Create job in Supabase
     if supabase:
         try:
             supabase.table("generation_jobs").insert({
                 "job_id": job_id,
                 "status": "processing",
-                "progress": 10,
+                "progress": 0,
                 "description": description,
-                "language": language,
-                "user_id": user_id,
                 "email": user_email,
+                "user_id": user_id,
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat()
             }).execute()
-            logger.info(f"✅ Job {job_id} created in database")
+            logger.info(f"✅ Job created in database")
         except Exception as db_error:
-            logger.error(f"❌ Failed to create job in database: {db_error}")
-            # Continue anyway - we can still generate
-
-    # Run generation SYNCHRONOUSLY
-    try:
-        logger.info(f"🔄 Starting AI generation for job: {job_id}")
-
-        # Update progress to 20%
-        if supabase:
-            try:
-                supabase.table("generation_jobs").update({
-                    "progress": 20,
-                    "updated_at": datetime.now().isoformat()
-                }).eq("job_id", job_id).execute()
-            except:
-                pass
-
-        # Detect business type
-        business_type = detect_business_type(description)
-        logger.info(f"📋 Detected business type: {business_type}")
-
-        # Get stock images
-        stock_images = get_stock_images(description)
-
-        # Update progress to 30%
-        if supabase:
-            try:
-                supabase.table("generation_jobs").update({
-                    "progress": 30,
-                    "updated_at": datetime.now().isoformat()
-                }).eq("job_id", job_id).execute()
-            except:
-                pass
-
-        # STEP 1: Generate AI Images (if Stability AI is available)
-        logger.info("🎨 STEP 1: Generating images...")
-        ai_images = None
-
-        if STABILITY_API_KEY:
-            ai_images = await generate_all_images(description)
-            if ai_images:
-                logger.info("✅ AI images generated successfully")
-
-        hero_img = ai_images['hero'] if ai_images else stock_images['hero']
-        gallery_imgs = ai_images['gallery'] if ai_images else stock_images['gallery']
-
-        # Update progress to 40%
-        if supabase:
-            try:
-                supabase.table("generation_jobs").update({
-                    "progress": 40,
-                    "updated_at": datetime.now().isoformat()
-                }).eq("job_id", job_id).execute()
-            except:
-                pass
-
-        # Define 3 style variations
-        styles_config = [
-            {
-                "name": "modern",
-                "display_name": "Modern",
-                "description": "Vibrant gradients (purple to blue), glassmorphism effects, rounded corners",
-                "colors": "purple-600, blue-500, gradient backgrounds",
-                "font": "bold, modern sans-serif",
-                "progress_percent": 50
-            },
-            {
-                "name": "minimal",
-                "display_name": "Minimal",
-                "description": "Clean white background, lots of whitespace, simple black text",
-                "colors": "white, black, gray-100",
-                "font": "thin, elegant",
-                "progress_percent": 70
-            },
-            {
-                "name": "bold",
-                "display_name": "Bold",
-                "description": "Dark background, bright accent colors, large bold typography",
-                "colors": "gray-900, yellow-400, bold contrasts",
-                "font": "heavy, impactful",
-                "progress_percent": 90
-            }
-        ]
-
-        logger.info(f"🎨 STEP 2: Generating {len(styles_config)} style variations...")
-        generated_styles = []
-
-        for idx, style in enumerate(styles_config, 1):
-            logger.info(f"   Generating {style['display_name']} ({idx}/{len(styles_config)})...")
-
-            # Update progress
-            if supabase:
-                try:
-                    supabase.table("generation_jobs").update({
-                        "progress": style['progress_percent'],
-                        "updated_at": datetime.now().isoformat()
-                    }).eq("job_id", job_id).execute()
-                except:
-                    pass
-
-            # Generate HTML for this style
-            html = await generate_style_variation(
-                description=description,
-                language=language,
-                style_config=style,
-                hero_image=hero_img,
-                gallery_images=gallery_imgs
-            )
-
-            if html:
-                generated_styles.append({
-                    "style": style["name"],
-                    "html": html,
-                    "display_name": style["display_name"]
-                })
-                logger.info(f"   ✅ {style['display_name']} generated ({len(html)} chars)")
-
-        logger.info(f"✅ AI generation complete for job: {job_id} - Generated {len(generated_styles)} styles")
-
-        # Increment usage (founders bypass)
-        increment_usage(user_id, user_email)
-
-        # Update progress to 100% and save result
-        if supabase:
-            try:
-                supabase.table("generation_jobs").update({
-                    "status": "completed",
-                    "progress": 100,
-                    "html": generated_styles[0]["html"] if generated_styles else None,
-                    "styles": json.dumps(generated_styles),
-                    "business_type": business_type,
-                    "updated_at": datetime.now().isoformat()
-                }).eq("job_id", job_id).execute()
-                logger.info(f"✅ Job {job_id} completed and saved to database")
-            except db_error:
-                logger.error(f"⚠️ Failed to save completed job: {db_error}")
-
-        # Return success with job_id
-        return {
-            "success": True,
-            "job_id": job_id,
-            "status": "completed",
-            "html": generated_styles[0]["html"] if generated_styles else None,
-            "styles": generated_styles,
-            "business_type": business_type
-        }
-
-    except Exception as e:
-        logger.error(f"❌ Generation failed for job {job_id}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-
-        # Save error to database
-        if supabase:
-            try:
-                supabase.table("generation_jobs").update({
-                    "status": "failed",
-                    "error": str(e),
-                    "updated_at": datetime.now().isoformat()
-                }).eq("job_id", job_id).execute()
-            except:
-                pass
-
-        return JSONResponse(status_code=500, content={
-            "success": False,
-            "job_id": job_id,
-            "status": "failed",
-            "error": str(e)
-        })
-
-
-@app.get("/api/generate/status/{job_id}")
-async def get_generation_status(job_id: str):
-    """Check job status from Supabase"""
-
-    logger.info(f"📊 Checking status for job: {job_id}")
-
-    if not supabase:
-        logger.error("❌ Supabase not configured")
-        return JSONResponse(status_code=500, content={
-            "status": "error",
-            "error": "Database not configured"
-        })
-
-    try:
-        result = supabase.table("generation_jobs").select("*").eq("job_id", job_id).execute()
-
-        if not result.data:
-            logger.warning(f"⚠️ Job not found: {job_id}")
-            return JSONResponse(status_code=404, content={
-                "status": "not_found",
-                "error": "Job not found"
+            logger.error(f"❌ Failed to create job: {db_error}")
+            return JSONResponse(status_code=500, content={
+                "success": False,
+                "error": f"Database error: {str(db_error)}"
             })
 
-        job = result.data[0]
-        logger.info(f"📊 Job {job_id}: status={job['status']}, progress={job.get('progress', 0)}%")
+    # Run generation with asyncio (NOT BackgroundTasks!)
+    asyncio.create_task(run_generation_task(job_id, description, user_email, user_id))
 
-        # Parse styles if available
-        styles = None
-        if job.get("styles"):
-            try:
-                styles = json.loads(job["styles"]) if isinstance(job["styles"], str) else job["styles"]
-            except:
-                styles = None
+    logger.info(f"🚀 Job started: {job_id}")
 
-        return {
-            "status": job["status"],
-            "progress": job.get("progress", 0),
-            "html": job.get("html") if job["status"] == "completed" else None,
-            "styles": styles if job["status"] == "completed" else None,
-            "business_type": job.get("business_type"),
-            "error": job.get("error")
-        }
-
-    except Exception as e:
-        logger.error(f"❌ Failed to retrieve job {job_id}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return JSONResponse(status_code=500, content={
-            "status": "error",
-            "error": str(e)
-        })
+    return {
+        "success": True,
+        "job_id": job_id,
+        "status": "processing"
+    }
 
 
 @app.get("/api/test-ai")
