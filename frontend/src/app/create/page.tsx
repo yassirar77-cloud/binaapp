@@ -122,7 +122,8 @@ export default function CreatePage() {
           description: description,
           business_description: description,
           language: language,
-          user_id: user?.id || 'anonymous'
+          user_id: user?.id || 'anonymous',
+          email: user?.email  // Pass user email for founder bypass
         }),
       });
 
