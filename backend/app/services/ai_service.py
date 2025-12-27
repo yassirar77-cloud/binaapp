@@ -904,6 +904,72 @@ class AIService:
                 found.append(item)
         return found if found else ["hero image"]
 
+    def _detect_business_category(self, description: str) -> str:
+        """Detect if business is food/restaurant or clothing/fashion"""
+        desc_lower = description.lower()
+
+        # Clothing/Fashion keywords
+        clothing_keywords = [
+            "baju", "shirt", "t-shirt", "kemeja", "fashion", "boutique", "clothing",
+            "pakaian", "tudung", "hijab", "scarf", "shawl", "dress", "pants",
+            "seluar", "skirt", "jacket", "blazer", "apparel", "garment",
+            "butik", "koleksi", "collection", "wear", "attire"
+        ]
+
+        # Food/Restaurant keywords
+        food_keywords = [
+            "nasi", "mee", "ayam", "ikan", "restaurant", "restoran", "cafe",
+            "kafe", "kedai makan", "food", "makan", "masak", "cook", "menu",
+            "roti", "satay", "rendang", "curry", "mamak", "warung"
+        ]
+
+        # Count matches
+        clothing_score = sum(1 for keyword in clothing_keywords if keyword in desc_lower)
+        food_score = sum(1 for keyword in food_keywords if keyword in desc_lower)
+
+        if clothing_score > food_score:
+            return "clothing"
+        elif food_score > 0:
+            return "food"
+        else:
+            return "general"
+
+    def _extract_clothing_items(self, description: str) -> list:
+        """Extract clothing/fashion items from description"""
+        common_items = ["shirt", "baju", "t-shirt", "kemeja", "seluar", "pants",
+                        "dress", "tudung", "hijab", "koleksi", "collection"]
+        found = []
+        desc_lower = description.lower()
+        for item in common_items:
+            if item in desc_lower:
+                found.append(item)
+        # If nothing found, return generic clothing items
+        return found if found else ["shirt", "baju", "koleksi", "collection"]
+
+    def _get_clothing_prompt(self, item: str) -> str:
+        """Get appropriate Stability AI prompt for clothing items"""
+        item_lower = item.lower()
+
+        prompts = {
+            "shirt": "Premium men's dress shirt on mannequin, elegant fabric, professional product photography, boutique setting",
+            "baju": "Malaysian men's traditional and modern clothing, baju melayu and casual shirts, fashion photography",
+            "t-shirt": "Stylish men's t-shirt on display, modern casual wear, product photography",
+            "kemeja": "Elegant men's formal shirt, crisp fabric, professional fashion photography",
+            "seluar": "Men's premium pants on display, formal and casual wear, boutique photography",
+            "pants": "Men's premium pants on display, formal and casual wear, boutique photography",
+            "dress": "Elegant dress on mannequin, luxury boutique setting, fashion photography",
+            "tudung": "Elegant hijab tudung collection display, various styles, Malaysian fashion photography",
+            "hijab": "Elegant hijab collection display, various colors and styles, fashion photography",
+            "koleksi": "Stylish men's clothing collection display, premium shirts and apparel, boutique setting",
+            "collection": "Premium men's clothing collection, modern boutique display, fashion photography",
+        }
+
+        for key, prompt in prompts.items():
+            if key in item_lower:
+                return prompt
+
+        return f"Professional {item} display, Malaysian boutique, fashion photography"
+
     async def _improve_with_qwen(self, html: str, description: str) -> str:
         """Use Qwen to improve content"""
         prompt = f"Improve this HTML content for Malaysian business. Make descriptions more appealing. Keep all image URLs unchanged.\n\n{html}"
@@ -1189,15 +1255,45 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         return None
 
     def _extract_html(self, text: str) -> Optional[str]:
-        """Extract HTML from response"""
+        """Extract only HTML from AI response, remove explanations"""
+        import re
+
         if not text:
             return None
+
+        # Remove markdown code blocks
         if "```html" in text:
-            text = text.split("```html")[1].split("```")[0]
+            match = re.search(r'```html\s*(.*?)\s*```', text, re.DOTALL)
+            if match:
+                text = match.group(1)
         elif "```" in text:
-            parts = text.split("```")
-            if len(parts) >= 2:
-                text = parts[1]
+            match = re.search(r'```\s*(.*?)\s*```', text, re.DOTALL)
+            if match:
+                text = match.group(1)
+
+        # Remove any text before <!DOCTYPE or <html
+        if "<!DOCTYPE" in text:
+            text = text[text.find("<!DOCTYPE"):]
+        elif "<html" in text:
+            text = text[text.find("<html"):]
+
+        # Remove any text after </html>
+        if "</html>" in text:
+            text = text[:text.find("</html>") + 7]
+
+        # Remove common AI explanation patterns
+        patterns_to_remove = [
+            r"Here's an improved version.*?(?=<!DOCTYPE|<html)",
+            r"(?<=</html>).*?###.*",
+            r"(?<=</html>).*?Key Improvements:.*",
+            r"(?<=</html>).*?\*\*Engaging Descriptions\*\*.*",
+            r"^---\s*",  # Remove markdown separators at start
+            r"\s*---$",  # Remove markdown separators at end
+        ]
+
+        for pattern in patterns_to_remove:
+            text = re.sub(pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
+
         return text.strip()
 
     def _fix_menu_item_images(self, html: str) -> str:
@@ -1356,8 +1452,18 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         # STEP 1: Generate images with Stability AI
         logger.info("🎨 STEP 1: Generating images with Stability AI...")
 
-        # Generate hero image
-        hero_prompt = "Malaysian mamak restaurant interior, nasi kandar counter with colorful curries, warm lighting, authentic Penang style, food photography"
+        # Detect business category
+        business_category = self._detect_business_category(request.description)
+        logger.info(f"   Business category: {business_category}")
+
+        # Generate hero image based on business category
+        if business_category == "clothing":
+            hero_prompt = "Elegant men's clothing store interior, modern boutique, luxury fashion display, premium shirts and apparel, professional lighting, product photography"
+        elif business_category == "food":
+            hero_prompt = "Malaysian mamak restaurant interior, nasi kandar counter with colorful curries, warm lighting, authentic Penang style, food photography"
+        else:
+            hero_prompt = f"Professional {request.business_type or 'business'} interior, Malaysian style, welcoming atmosphere, professional photography"
+
         hero_image = await self._generate_stability_image(hero_prompt)
 
         # Generate menu/product images based on description
@@ -1365,13 +1471,24 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         if hero_image:
             image_urls["hero"] = hero_image
 
-        # Extract items from description and generate images
-        menu_items = self._extract_menu_items(request.description)
-        for item in menu_items[:4]:  # Limit to 4 items
-            logger.info(f"🎨 Generating image for: {item}")
-            img_url = await self._generate_stability_image(item)
-            if img_url:
-                image_urls[item] = img_url
+        # Extract items from description and generate images with category-specific prompts
+        if business_category == "clothing":
+            # For clothing, extract clothing items
+            clothing_items = self._extract_clothing_items(request.description)
+            for item in clothing_items[:4]:  # Limit to 4 items
+                logger.info(f"🎨 Generating clothing image for: {item}")
+                img_prompt = self._get_clothing_prompt(item)
+                img_url = await self._generate_stability_image(img_prompt)
+                if img_url:
+                    image_urls[item] = img_url
+        else:
+            # For food/general, use existing menu items extraction
+            menu_items = self._extract_menu_items(request.description)
+            for item in menu_items[:4]:  # Limit to 4 items
+                logger.info(f"🎨 Generating image for: {item}")
+                img_url = await self._generate_stability_image(item)
+                if img_url:
+                    image_urls[item] = img_url
 
         logger.info(f"☁️ Generated {len(image_urls)} images")
 
@@ -1411,6 +1528,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         if html:
             logger.info("🟡 STEP 3: Qwen improving content...")
             html = await self._improve_with_qwen(html, request.description)
+            # Extract HTML again to remove Qwen's explanation text
+            if html:
+                html = self._extract_html(html)
 
         # Fix any remaining issues
         html = self._fix_placeholders(html, request.business_name, request.description)
