@@ -992,6 +992,44 @@ async def call_qwen(prompt: str) -> Optional[str]:
         return None
 
 
+async def call_qwen_turbo(prompt: str) -> Optional[str]:
+    """Call Qwen-Turbo for fast responses (ideal for editor use)"""
+    if not QWEN_API_KEY:
+        return None
+
+    try:
+        logger.info("⚡ QWEN-TURBO - Calling API...")
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {QWEN_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "qwen-turbo",  # TURBO = fastest model!
+                    "messages": [
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": 0.3,  # Lower for more predictable edits
+                    "max_tokens": 8000
+                }
+            )
+
+            if response.status_code == 200:
+                content = response.json()["choices"][0]["message"]["content"]
+                logger.info(f"⚡ QWEN-TURBO - ✅ Success ({len(content)} chars)")
+                return content
+            else:
+                logger.error(f"⚡ QWEN-TURBO - ❌ Failed: {response.status_code}")
+                return None
+
+    except Exception as e:
+        logger.error(f"⚡ QWEN-TURBO - ❌ Error: {e}")
+        return None
+
+
 def extract_html(text: str) -> str:
     if not text:
         return ""
@@ -1936,7 +1974,7 @@ async def check_subdomain(subdomain: str):
 
 @app.post("/api/edit-html")
 async def edit_html(request: Request):
-    """AI-powered HTML editing for non-coders"""
+    """AI-powered HTML editing for non-coders - uses Qwen-Turbo for speed"""
     try:
         body = await request.json()
     except Exception as e:
@@ -1952,61 +1990,44 @@ async def edit_html(request: Request):
             content={"success": False, "error": "Missing html or instruction"}
         )
 
-    logger.info(f"🤖 AI Edit: {instruction[:50]}...")
+    logger.info(f"⚡ AI Edit Request: {instruction[:60]}...")
 
-    # Create prompt for AI
-    prompt = f"""You are an HTML editor. Modify the HTML based on the user's instruction.
+    # Create concise prompt for FAST editing
+    prompt = f"""Edit this HTML. Output ONLY the modified HTML, no explanation.
 
-USER INSTRUCTION (may be in Malay or English):
-{instruction}
+INSTRUCTION: {instruction}
+
+Malay translation guide:
+- Tukar = Change
+- Tambah = Add
+- Buang/Padam = Remove
+- Warna = Color
+- Tajuk = Title
+- Harga = Price
+- Telefon = Phone
+- Alamat = Address
+- Jadi = To/Become
+- Baru = New
+- Button = Button
+- Gambar = Image
 
 CURRENT HTML:
 {html}
 
-RULES:
-1. ONLY output the modified HTML, nothing else
-2. Keep all existing structure and styling
-3. Only change what the user asked for
-4. If instruction is in Malay, understand it:
-   - "Tukar" = Change
-   - "Tambah" = Add
-   - "Buang/Padam" = Remove/Delete
-   - "Warna" = Color
-   - "Tajuk" = Title/Heading
-   - "Gambar" = Image
-   - "Button" = Button
-   - "Telefon" = Phone
-   - "Alamat" = Address
-   - "Harga" = Price
-   - "Jadi" = To/Become
-   - "Baru" = New
+MODIFIED HTML:"""
 
-OUTPUT only the complete modified HTML:"""
+    # Use QWEN-TURBO for fastest response (optimized for editor)
+    response = await call_qwen_turbo(prompt)
 
-    # Try DeepSeek first (better at code)
-    try:
-        response = await call_deepseek(prompt)
-        if response:
-            # Extract HTML
-            html_result = extract_html(response)
-            logger.info("🤖 AI Edit - ✅ Success (DeepSeek)")
-            return {"html": html_result, "success": True}
-    except Exception as e:
-        logger.error(f"🤖 AI Edit - DeepSeek failed: {e}")
+    if response:
+        html_result = extract_html(response)
+        logger.info("⚡ AI Edit - ✅ Success (Qwen-Turbo)")
+        return {"html": html_result, "success": True}
 
-    # Fallback to Qwen
-    try:
-        response = await call_qwen(prompt)
-        if response:
-            html_result = extract_html(response)
-            logger.info("🤖 AI Edit - ✅ Success (Qwen)")
-            return {"html": html_result, "success": True}
-    except Exception as e:
-        logger.error(f"🤖 AI Edit - Qwen failed: {e}")
-
+    logger.error("⚡ AI Edit - ❌ Failed")
     return JSONResponse(
         status_code=500,
-        content={"error": "AI editing failed", "success": False}
+        content={"error": "Gagal. Cuba lagi.", "success": False}
     )
 
 
