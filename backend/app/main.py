@@ -713,6 +713,69 @@ def get_stock_images(desc: str) -> dict:
     }
 
 
+def get_image_prompts_by_business_type(description: str) -> dict:
+    """Generate appropriate image prompts based on business type to avoid wrong images"""
+
+    desc_lower = description.lower()
+
+    # PHOTOGRAPHY / PHOTOGRAPHER
+    if any(word in desc_lower for word in ["photo", "photographer", "photography", "wedding photo", "gambar", "jurugambar"]):
+        return {
+            "hero": "Professional wedding photographer capturing couple moment, romantic sunset, DSLR camera, artistic photography",
+            "gallery": "Beautiful bride and groom wedding portrait, elegant dress, romantic lighting, professional photography"
+        }
+
+    # RESTAURANT / FOOD
+    elif any(word in desc_lower for word in ["restaurant", "food", "nasi", "makan", "cafe", "kedai makan", "makanan", "ayam", "ikan", "mee", "roti"]):
+        return {
+            "hero": "Malaysian restaurant interior, warm lighting, welcoming atmosphere, dining tables",
+            "gallery": "Malaysian food nasi kandar with curry, delicious food photography, authentic Malaysian cuisine"
+        }
+
+    # FASHION / CLOTHING
+    elif any(word in desc_lower for word in ["fashion", "clothing", "baju", "shirt", "boutique", "pakaian", "dress"]):
+        return {
+            "hero": "Modern fashion boutique interior, clothing displays, elegant design, shopping atmosphere",
+            "gallery": "Premium clothing on mannequin, professional fashion product photography, boutique display"
+        }
+
+    # SALON / BEAUTY
+    elif any(word in desc_lower for word in ["salon", "beauty", "spa", "hair", "kecantikan", "rambut", "haircut"]):
+        return {
+            "hero": "Modern beauty salon interior, styling chairs, mirrors, professional hair salon equipment",
+            "gallery": "Professional hairstylist cutting hair, salon service, beauty treatment"
+        }
+
+    # WATCH / JEWELRY
+    elif any(word in desc_lower for word in ["watch", "jam", "jewelry", "barang kemas", "timepiece"]):
+        return {
+            "hero": "Luxury watch store display, elegant showcase, premium timepieces, jewelry store interior",
+            "gallery": "Luxury silver wristwatch, professional product photography, elegant timepiece"
+        }
+
+    # GYM / FITNESS
+    elif any(word in desc_lower for word in ["gym", "fitness", "workout", "exercise", "gim", "senaman"]):
+        return {
+            "hero": "Modern gym interior, fitness equipment, workout space, professional training facility",
+            "gallery": "Person working out at gym, fitness training, exercise equipment, athletic photography"
+        }
+
+    # BAKERY / PASTRY
+    elif any(word in desc_lower for word in ["bakery", "cake", "pastry", "kek", "roti", "donut", "bread"]):
+        return {
+            "hero": "Artisan bakery interior, fresh bread display, warm lighting, cozy bakery atmosphere",
+            "gallery": "Fresh baked pastries and cakes, food photography, delicious bakery products"
+        }
+
+    # DEFAULT / GENERIC BUSINESS
+    else:
+        business_name = description.split(',')[0].strip()[:30]
+        return {
+            "hero": f"Professional business interior, modern office, welcoming atmosphere, commercial space",
+            "gallery": f"Professional service and products, quality business, commercial photography"
+        }
+
+
 def upload_to_cloudinary(image_bytes: bytes, folder: str = "binaapp") -> Optional[str]:
     """Upload image bytes to Cloudinary, return URL"""
     if not CLOUDINARY_CLOUD_NAME:
@@ -795,6 +858,7 @@ async def generate_stability_image(item_name: str, business_type: str = "") -> O
 async def generate_all_images(desc: str) -> Optional[dict]:
     """
     Generate ONLY 2 images (hero + 1 gallery) to avoid timeout.
+    Uses business-type-specific prompts to avoid wrong images (e.g., food for photography).
 
     REDUCED: 4 images → 2 images for speed
     With 30-second timeout per image = max 60 seconds total
@@ -818,35 +882,26 @@ async def generate_all_images(desc: str) -> Optional[dict]:
         'gallery': []
     }
 
-    # Prepare 1 gallery item
-    desc_lower = desc.lower()
-    if any(word in desc_lower for word in ["nasi", "mee", "ayam", "roti", "satay", "ikan"]):
-        # Food business - try to extract one menu item
-        for word in desc.split():
-            word_clean = word.strip(',.!?')
-            if word_clean.lower() in MALAYSIAN_FOOD_PROMPTS:
-                gallery_item = word_clean
-                break
-        else:
-            gallery_item = f"{business_type.replace('_', ' ')} food"
-    else:
-        gallery_item = f"{business_type.replace('_', ' ')} product"
+    # 🎯 GET BUSINESS-SPECIFIC PROMPTS (prevents wrong images)
+    prompts = get_image_prompts_by_business_type(desc)
+    hero_prompt = prompts["hero"]
+    gallery_prompt = prompts["gallery"]
 
     # 🚀 GENERATE ONLY 2 IMAGES IN PARALLEL with 30s timeout each
     logger.info("🚀 Generating 2 images IN PARALLEL (hero + 1 gallery)...")
-    logger.info(f"   Hero: hero image for {business_type.replace('_', ' ')}")
-    logger.info(f"   Gallery: {gallery_item}")
+    logger.info(f"   Hero prompt: {hero_prompt[:60]}...")
+    logger.info(f"   Gallery prompt: {gallery_prompt[:60]}...")
 
     start_time = asyncio.get_event_loop().time()
 
     try:
-        # Wrap each generation with timeout
+        # Wrap each generation with timeout - using BUSINESS-SPECIFIC PROMPTS
         hero_task = asyncio.wait_for(
-            generate_stability_image(f"hero image for {business_type.replace('_', ' ')}", business_type),
+            generate_stability_image(hero_prompt, business_type),
             timeout=30.0
         )
         gallery_task = asyncio.wait_for(
-            generate_stability_image(gallery_item, business_type),
+            generate_stability_image(gallery_prompt, business_type),
             timeout=30.0
         )
 
