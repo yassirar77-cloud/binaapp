@@ -970,6 +970,99 @@ class AIService:
 
         return f"Professional {item} display, Malaysian boutique, fashion photography"
 
+    # Malay to English translation for Stability AI
+    MALAY_TO_ENGLISH = {
+        "jam tangan": "wristwatch timepiece",
+        "jam": "watch clock",
+        "baju": "shirt clothing garment",
+        "kasut": "shoes footwear",
+        "tudung": "hijab headscarf",
+        "makanan": "food cuisine",
+        "restoran": "restaurant dining",
+        "kedai": "shop store",
+        "perkhidmatan": "services",
+        "kecantikan": "beauty cosmetics",
+        "salon": "hair salon beauty parlor",
+        "nasi": "rice dish",
+        "mee": "noodles",
+        "ayam": "chicken",
+        "ikan": "fish seafood",
+        "daging": "beef meat",
+        "sayur": "vegetables",
+        "kuih": "traditional cakes pastries",
+        "minuman": "beverages drinks",
+    }
+
+    def _translate_for_stability(self, text: str) -> str:
+        """Translate Malay keywords to English for Stability AI"""
+        text_lower = text.lower()
+        for malay, english in self.MALAY_TO_ENGLISH.items():
+            if malay in text_lower:
+                text_lower = text_lower.replace(malay, english)
+        return text_lower
+
+    def _get_product_prompts(self, description: str, business_category: str) -> list:
+        """Generate smart product image prompts based on business type"""
+        desc_lower = description.lower()
+
+        # Translate Malay to English for better detection
+        desc_english = self._translate_for_stability(description)
+
+        # WATCHES / JEWELRY
+        if any(word in desc_lower for word in ["watch", "jam tangan", "timepiece", "jam"]):
+            return [
+                "Luxury silver wristwatch on white background, product photography, elegant timepiece, professional lighting",
+                "Black sports watch with rubber strap, waterproof dive watch, product photography, studio lighting",
+                "Rose gold women's watch with diamond bezel, luxury feminine timepiece, product photography, elegant display",
+                "Chronograph watch with leather strap, men's luxury watch, detailed product photography, white background"
+            ]
+
+        # JEWELRY / ACCESSORIES
+        elif any(word in desc_lower for word in ["jewelry", "necklace", "bracelet", "ring", "earing", "perhiasan"]):
+            return [
+                "Gold necklace on display, luxury jewelry, product photography, elegant presentation",
+                "Silver bracelet on white background, premium jewelry, professional product photography",
+                "Diamond ring on velvet cushion, luxury engagement ring, professional jewelry photography",
+                "Pearl earrings on display, elegant jewelry, product photography, studio lighting"
+            ]
+
+        # CLOTHING / FASHION (already handled but adding here for completeness)
+        elif business_category == "clothing":
+            return [
+                "Premium men's dress shirt on mannequin, business formal, product photography",
+                "Casual men's polo shirt, modern style, product photography",
+                "Traditional baju melayu, elegant Malaysian menswear, product photography",
+                "Men's casual jacket, modern fashion, product photography"
+            ]
+
+        # FOOD / RESTAURANT (already handled but adding here for completeness)
+        elif business_category == "food":
+            return [
+                "Malaysian nasi kandar with curry, food photography, professional lighting",
+                "Crispy fried chicken ayam goreng, food photography, delicious presentation",
+                "Grilled fish ikan bakar on banana leaf, food photography, authentic Malaysian",
+                "Malaysian curry dishes assortment, food photography, colorful spread"
+            ]
+
+        # BEAUTY / SALON
+        elif any(word in desc_lower for word in ["beauty", "salon", "kecantikan", "spa", "facial", "makeup"]):
+            return [
+                "Professional hair styling service, modern salon interior, beauty photography",
+                "Facial treatment spa session, relaxing ambiance, professional beauty photography",
+                "Makeup application service, cosmetics display, professional beauty photography",
+                "Manicure pedicure service, nail salon, professional beauty photography"
+            ]
+
+        # GENERIC FALLBACK - use business type
+        else:
+            business_type = request.business_type if hasattr(self, 'request') else "product"
+            return [
+                f"Professional product photo, {business_type}, clean white background, studio lighting",
+                f"Premium {business_type} showcase, commercial photography, professional presentation",
+                f"Elegant {business_type} display, professional product photography, modern style",
+                f"High-end {business_type} product, studio photography, luxury presentation"
+            ]
+
     async def _improve_with_qwen(self, html: str, description: str) -> str:
         """Use Qwen to improve content"""
         prompt = f"Improve this HTML content for Malaysian business. Make descriptions more appealing. Keep all image URLs unchanged.\n\n{html}"
@@ -1471,26 +1564,23 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         if hero_image:
             image_urls["hero"] = hero_image
 
-        # Extract items from description and generate images with category-specific prompts
-        if business_category == "clothing":
-            # For clothing, extract clothing items
-            clothing_items = self._extract_clothing_items(request.description)
-            for item in clothing_items[:4]:  # Limit to 4 items
-                logger.info(f"🎨 Generating clothing image for: {item}")
-                img_prompt = self._get_clothing_prompt(item)
-                img_url = await self._generate_stability_image(img_prompt)
-                if img_url:
-                    image_urls[item] = img_url
-        else:
-            # For food/general, use existing menu items extraction
-            menu_items = self._extract_menu_items(request.description)
-            for item in menu_items[:4]:  # Limit to 4 items
-                logger.info(f"🎨 Generating image for: {item}")
-                img_url = await self._generate_stability_image(item)
-                if img_url:
-                    image_urls[item] = img_url
+        # Generate product/menu images - ALWAYS generate 4 images minimum
+        logger.info(f"🎨 Generating product/menu images for {business_category} business...")
 
-        logger.info(f"☁️ Generated {len(image_urls)} images")
+        # Get smart product prompts based on business type
+        product_prompts = self._get_product_prompts(request.description, business_category)
+
+        # Generate images for each product prompt
+        for i, prompt in enumerate(product_prompts[:4], 1):  # Generate exactly 4 product images
+            logger.info(f"🎨 Generating product {i}/4: {prompt[:60]}...")
+            img_url = await self._generate_stability_image(prompt)
+            if img_url:
+                image_urls[f"product{i}"] = img_url
+                logger.info(f"   ✅ Product {i} generated: {img_url[:50]}...")
+            else:
+                logger.warning(f"   ⚠️ Product {i} failed to generate")
+
+        logger.info(f"☁️ Generated {len(image_urls)} total images (1 hero + {len(image_urls)-1} products)")
 
         # Build prompt WITH image URLs
         logger.info("🔷 STEP 2: DeepSeek generating HTML...")
@@ -1501,13 +1591,30 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             request.uploaded_images
         )
 
-        # Add image URLs to prompt
+        # Add image URLs to prompt with STRONG emphasis
         if image_urls:
-            image_instructions = "\n\nUSE THESE EXACT IMAGE URLS (from Cloudinary):\n"
-            for name, url in image_urls.items():
-                if url:
-                    image_instructions += f"- {name}: {url}\n"
-            image_instructions += "\nDO NOT use Unsplash or placeholder URLs!"
+            image_instructions = "\n\n" + "="*50 + "\n"
+            image_instructions += "CRITICAL: USE THESE EXACT IMAGE URLS FROM CLOUDINARY\n"
+            image_instructions += "="*50 + "\n"
+
+            # Add hero image
+            if "hero" in image_urls:
+                image_instructions += f"\nHERO SECTION:\n- Use this URL: {image_urls['hero']}\n"
+
+            # Add product/gallery images
+            product_urls = {k: v for k, v in image_urls.items() if k.startswith('product')}
+            if product_urls:
+                image_instructions += f"\nPRODUCTS/GALLERY SECTION (use ALL {len(product_urls)} images):\n"
+                for name, url in sorted(product_urls.items()):
+                    if url:
+                        image_instructions += f"- {name}: {url}\n"
+
+            image_instructions += "\n" + "="*50 + "\n"
+            image_instructions += "❌ DO NOT use Unsplash URLs\n"
+            image_instructions += "❌ DO NOT use placeholder URLs\n"
+            image_instructions += "❌ DO NOT generate random image URLs\n"
+            image_instructions += "✅ ONLY use the Cloudinary URLs listed above\n"
+            image_instructions += "="*50 + "\n"
 
             prompt += image_instructions
 
