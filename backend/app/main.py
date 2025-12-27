@@ -25,6 +25,11 @@ from app.data.malaysian_prompts import (
     get_fallback_image,
     MALAYSIAN_FOOD_PROMPTS
 )
+from app.services.ai_service import AIService
+from app.models.schemas import WebsiteGenerationRequest, Language
+
+# Initialize AI service
+ai_service = AIService()
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -1416,53 +1421,30 @@ async def run_generation_task(job_id: str, description: str, user_email: str = "
                 "updated_at": datetime.now().isoformat()
             }).eq("job_id", job_id).execute()
 
-        # Step 2: Generate ONE website using DeepSeek
-        logger.info(f"🤖 Calling AI for: {description[:50]}...")
+        # Step 2: Generate website using ai_service (4-step flow: Stability AI + Cloudinary + DeepSeek + Qwen)
+        logger.info(f"🚀 Using ai_service 4-step generation for: {description[:50]}...")
 
-        prompt = f"""Create a complete HTML website for: {description}
+        # Build AI generation request
+        ai_request = WebsiteGenerationRequest(
+            description=description,
+            business_name=description.split()[0] if description else "Business",  # Simple extraction
+            business_type="business",  # Generic type
+            language=Language.MALAY if any(word in description.lower() for word in ['saya', 'kami', 'untuk']) else Language.ENGLISH,
+            subdomain="preview",
+            include_whatsapp=True,
+            whatsapp_number="+60123456789",
+            include_maps=False,
+            location_address="",
+            include_ecommerce=False,
+            contact_email=None,
+            uploaded_images=[]
+        )
 
-Requirements:
-- Single HTML file with embedded CSS
-- Mobile responsive with Tailwind CSS CDN: <script src="https://cdn.tailwindcss.com"></script>
-- Modern professional design
-- Sections: header, hero, features/services, contact, footer
-- Malaysian business style (RM currency, Malaysian phone format)
-- WhatsApp contact button
-- Use placeholder images from picsum.photos
+        # Call ai_service.generate_website() - This triggers the 4-step flow
+        logger.info("🎨 Starting 4-step generation (Stability AI + Cloudinary + DeepSeek + Qwen)...")
+        ai_response = await ai_service.generate_website(ai_request)
+        html = ai_response.html_content
 
-Return ONLY HTML code, no explanations."""
-
-        # Step 3: Call DeepSeek
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                "https://api.deepseek.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 8000,
-                    "temperature": 0.7
-                }
-            )
-
-        logger.info(f"📡 AI Response status: {response.status_code}")
-
-        if response.status_code != 200:
-            raise Exception(f"AI API error: {response.status_code} - {response.text[:200]}")
-
-        data = response.json()
-        html = data["choices"][0]["message"]["content"]
-
-        # Clean HTML
-        if "```html" in html:
-            html = html.split("```html")[1].split("```")[0]
-        elif "```" in html:
-            html = html.split("```")[1].split("```")[0]
-
-        html = html.strip()
         logger.info(f"✅ Got HTML: {len(html)} chars")
 
         # Step 4: Update progress to 80%
