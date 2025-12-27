@@ -1974,7 +1974,7 @@ async def check_subdomain(subdomain: str):
 
 @app.post("/api/edit-html")
 async def edit_html(request: Request):
-    """AI-powered HTML editing for non-coders - uses Qwen-Turbo with detailed logging"""
+    """AI-powered HTML editing using DeepSeek"""
     try:
         body = await request.json()
     except Exception as e:
@@ -1991,108 +1991,87 @@ async def edit_html(request: Request):
     logger.info("=" * 50)
 
     if not html or not instruction:
-        logger.error("🤖 Missing html or instruction")
-        return JSONResponse(
-            status_code=400,
-            content={"error": "Missing data", "success": False}
-        )
+        return {"error": "Missing data", "success": False}
 
-    # TRUNCATE HTML to prevent API overload
-    MAX_HTML = 10000  # 10k chars max
+    # Truncate HTML if too long
+    MAX_HTML = 10000
     if len(html) > MAX_HTML:
         logger.warning(f"🤖 Truncating HTML from {len(html)} to {MAX_HTML}")
         html = html[:MAX_HTML]
 
-    # Simple prompt for fast editing
-    prompt = f"""Edit this HTML. Output ONLY modified HTML, nothing else.
+    prompt = f"""Edit this HTML based on the instruction. Output ONLY the modified HTML, nothing else.
 
-Instruction: {instruction}
+INSTRUCTION: {instruction}
 
-Malay words: Tukar=Change, Tambah=Add, Buang=Remove, Warna=Color, Tajuk=Title, Harga=Price, Telefon=Phone, Alamat=Address
+MALAY WORDS:
+- Tukar = Change
+- Tambah = Add
+- Buang/Padam = Remove/Delete
+- Warna = Color
+- Tajuk = Title
+- Harga = Price
+- Telefon = Phone
+- Alamat = Address
+- Gambar = Image
 
-HTML:
+HTML TO EDIT:
 {html}
 
-Modified HTML:"""
+OUTPUT THE COMPLETE MODIFIED HTML:"""
 
-    logger.info(f"🤖 Prompt length: {len(prompt)} chars")
-
-    # Try Qwen-Turbo with detailed error logging
+    # Use DeepSeek
     try:
-        logger.info("🟡 Calling Qwen-Turbo...")
-
-        api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY")
+        api_key = os.getenv("DEEPSEEK_API_KEY")
 
         if not api_key:
-            logger.error("🟡 ❌ No API key found!")
-            return JSONResponse(
-                status_code=500,
-                content={"error": "API key not configured", "success": False}
-            )
+            logger.error("🔷 No DEEPSEEK_API_KEY!")
+            return {"error": "No API key", "success": False}
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        logger.info("🔷 Calling DeepSeek...")
+
+        async with httpx.AsyncClient(timeout=90.0) as client:
             response = await client.post(
-                "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                "https://api.deepseek.com/v1/chat/completions",
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "qwen-turbo",
+                    "model": "deepseek-chat",
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 12000,
                     "temperature": 0.3
                 }
             )
 
-            logger.info(f"🟡 Response status: {response.status_code}")
+            logger.info(f"🔷 Response status: {response.status_code}")
 
             if response.status_code == 200:
                 data = response.json()
                 content = data["choices"][0]["message"]["content"]
-                logger.info(f"🟡 Got response: {len(content)} chars")
+                logger.info(f"🔷 Got response: {len(content)} chars")
 
-                # Extract HTML
+                # Extract HTML from response
                 html_result = extract_html(content)
-                logger.info(f"🟡 Extracted HTML: {len(html_result) if html_result else 0} chars")
 
-                if html_result and len(html_result) > 50:
-                    logger.info("🟡 ✅ SUCCESS!")
+                if html_result and len(html_result) > 100:
+                    logger.info("🔷 ✅ SUCCESS!")
                     return {"html": html_result, "success": True}
                 else:
-                    logger.error("🟡 ❌ HTML extraction failed")
-                    logger.error(f"🟡 Raw content: {content[:500]}...")
-                    return JSONResponse(
-                        status_code=500,
-                        content={"error": "Failed to extract HTML", "success": False}
-                    )
+                    logger.error("🔷 HTML extraction failed")
+                    logger.error(f"🔷 Raw content preview: {content[:300]}")
+                    return {"error": "Failed to extract HTML", "success": False}
             else:
-                logger.error(f"🟡 ❌ API Error: {response.status_code}")
-                logger.error(f"🟡 Response: {response.text[:500]}...")
-                return JSONResponse(
-                    status_code=500,
-                    content={"error": f"API error: {response.status_code}", "success": False}
-                )
+                logger.error(f"🔷 API Error: {response.status_code}")
+                logger.error(f"🔷 Response: {response.text[:300]}")
+                return {"error": "API error", "success": False}
 
     except httpx.TimeoutException:
-        logger.error("🟡 ❌ TIMEOUT!")
-        return JSONResponse(
-            status_code=500,
-            content={"error": "Request timeout", "success": False}
-        )
+        logger.error("🔷 TIMEOUT!")
+        return {"error": "Timeout - cuba lagi", "success": False}
     except Exception as e:
-        logger.error(f"🟡 ❌ Exception: {type(e).__name__}: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Error: {str(e)}", "success": False}
-        )
-
-    return JSONResponse(
-        status_code=500,
-        content={"error": "Gagal. Cuba lagi.", "success": False}
-    )
+        logger.error(f"🔷 Exception: {type(e).__name__}: {e}")
+        return {"error": "Gagal. Cuba lagi.", "success": False}
 
 
 if __name__ == "__main__":
