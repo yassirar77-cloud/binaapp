@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import AIEditor from './AIEditor';
 
 interface Website {
   id: string;
@@ -167,33 +168,44 @@ export default function EditorPage() {
       </div>
 
       {/* Editor Container */}
-      <div className="flex-1 flex flex-col lg:flex-row">
-        {/* Code Editor */}
-        <div className="w-full lg:w-1/2 flex flex-col border-r border-gray-200">
-          <div className="bg-gray-100 px-4 py-2 border-b border-gray-200">
-            <h2 className="text-sm font-semibold text-gray-700">📝 HTML Editor</h2>
-          </div>
-          <textarea
-            value={html}
-            onChange={(e) => setHtml(e.target.value)}
-            className="flex-1 w-full p-4 font-mono text-sm border-0 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-            placeholder="Masukkan kod HTML anda di sini..."
-            spellCheck={false}
+      <div className="flex-1 flex flex-col p-4 gap-4 overflow-y-auto">
+        {/* AI Editor Section */}
+        <div className="w-full">
+          <AIEditor
+            html={html}
+            onHtmlChange={(newHtml) => setHtml(newHtml)}
           />
         </div>
 
-        {/* Preview */}
-        <div className="w-full lg:w-1/2 flex flex-col bg-white">
-          <div className="bg-gray-100 px-4 py-2 border-b border-gray-200">
-            <h2 className="text-sm font-semibold text-gray-700">👁 Preview</h2>
-          </div>
-          <div className="flex-1 overflow-auto">
-            <iframe
-              srcDoc={html}
-              className="w-full h-full border-0"
-              title="Website Preview"
-              sandbox="allow-scripts allow-same-origin allow-forms"
+        {/* Code Editor and Preview Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1">
+          {/* Code Editor */}
+          <div className="flex flex-col border rounded-xl overflow-hidden shadow-sm bg-white">
+            <div className="bg-gray-100 px-4 py-2 border-b border-gray-200">
+              <h2 className="text-sm font-semibold text-gray-700">📝 HTML Editor</h2>
+            </div>
+            <textarea
+              value={html}
+              onChange={(e) => setHtml(e.target.value)}
+              className="flex-1 w-full p-4 font-mono text-sm border-0 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              placeholder="Masukkan kod HTML anda di sini..."
+              spellCheck={false}
             />
+          </div>
+
+          {/* Preview */}
+          <div className="flex flex-col border rounded-xl overflow-hidden shadow-sm bg-white">
+            <div className="bg-gray-100 px-4 py-2 border-b border-gray-200">
+              <h2 className="text-sm font-semibold text-gray-700">👁 Preview</h2>
+            </div>
+            <div className="flex-1 overflow-auto">
+              <iframe
+                srcDoc={html}
+                className="w-full h-full border-0"
+                title="Website Preview"
+                sandbox="allow-scripts allow-same-origin allow-forms"
+              />
+            </div>
           </div>
         </div>
       </div>

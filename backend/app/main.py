@@ -1932,6 +1932,84 @@ async def check_subdomain(subdomain: str):
         return {"available": False, "error": str(e)}
 
 
+# ==================== AI-POWERED HTML EDITOR ENDPOINT ====================
+
+@app.post("/api/edit-html")
+async def edit_html(request: Request):
+    """AI-powered HTML editing for non-coders"""
+    try:
+        body = await request.json()
+    except Exception as e:
+        logger.error(f"❌ Invalid JSON: {e}")
+        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
+
+    html = body.get("html", "")
+    instruction = body.get("instruction", "")
+
+    if not html or not instruction:
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error": "Missing html or instruction"}
+        )
+
+    logger.info(f"🤖 AI Edit: {instruction[:50]}...")
+
+    # Create prompt for AI
+    prompt = f"""You are an HTML editor. Modify the HTML based on the user's instruction.
+
+USER INSTRUCTION (may be in Malay or English):
+{instruction}
+
+CURRENT HTML:
+{html}
+
+RULES:
+1. ONLY output the modified HTML, nothing else
+2. Keep all existing structure and styling
+3. Only change what the user asked for
+4. If instruction is in Malay, understand it:
+   - "Tukar" = Change
+   - "Tambah" = Add
+   - "Buang/Padam" = Remove/Delete
+   - "Warna" = Color
+   - "Tajuk" = Title/Heading
+   - "Gambar" = Image
+   - "Button" = Button
+   - "Telefon" = Phone
+   - "Alamat" = Address
+   - "Harga" = Price
+   - "Jadi" = To/Become
+   - "Baru" = New
+
+OUTPUT only the complete modified HTML:"""
+
+    # Try DeepSeek first (better at code)
+    try:
+        response = await call_deepseek(prompt)
+        if response:
+            # Extract HTML
+            html_result = extract_html(response)
+            logger.info("🤖 AI Edit - ✅ Success (DeepSeek)")
+            return {"html": html_result, "success": True}
+    except Exception as e:
+        logger.error(f"🤖 AI Edit - DeepSeek failed: {e}")
+
+    # Fallback to Qwen
+    try:
+        response = await call_qwen(prompt)
+        if response:
+            html_result = extract_html(response)
+            logger.info("🤖 AI Edit - ✅ Success (Qwen)")
+            return {"html": html_result, "success": True}
+    except Exception as e:
+        logger.error(f"🤖 AI Edit - Qwen failed: {e}")
+
+    return JSONResponse(
+        status_code=500,
+        content={"error": "AI editing failed", "success": False}
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=10000)
