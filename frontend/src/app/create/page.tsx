@@ -138,7 +138,7 @@ export default function CreatePage() {
       console.log('✅ Job started:', jobId);
 
       // Step 2: Poll for results
-      const maxAttempts = 60; // 60 attempts x 3 seconds = 3 minutes max
+      const maxAttempts = 100; // 100 attempts x 3 seconds = 5 minutes max (increased from 3 min)
       let attempt = 0;
 
       const pollInterval = setInterval(async () => {
@@ -146,7 +146,7 @@ export default function CreatePage() {
 
         if (attempt > maxAttempts) {
           clearInterval(pollInterval);
-          setError('Generation timed out after 3 minutes. Please try again.');
+          setError('Generation timed out after 5 minutes. Please try again with a shorter description.');
           setLoading(false);
           return;
         }

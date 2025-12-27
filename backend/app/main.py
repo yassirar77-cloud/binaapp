@@ -794,101 +794,115 @@ async def generate_stability_image(item_name: str, business_type: str = "") -> O
 
 async def generate_all_images(desc: str) -> Optional[dict]:
     """
-    Generate hero image and 3 gallery images IN PARALLEL (4 total) with smart Malaysian prompts.
+    Generate ONLY 2 images (hero + 1 gallery) to avoid timeout.
 
-    PARALLEL GENERATION = MUCH FASTER (30s vs 2+ minutes)
+    REDUCED: 4 images → 2 images for speed
+    With 30-second timeout per image = max 60 seconds total
 
     Args:
         desc: Business description
 
     Returns:
-        Dict with 'hero' and 'gallery' images, or None if hero generation fails
+        Dict with 'hero' and 'gallery' images (gallery will have duplicates of the 1 image)
     """
     business_type = detect_business_type(desc)
+
+    logger.info("=" * 60)
+    logger.info("🎨 IMAGE GENERATION START")
+    logger.info(f"   Business: {desc[:50]}...")
+    logger.info(f"   Type: {business_type}")
+    logger.info("=" * 60)
 
     images = {
         'hero': None,
         'gallery': []
     }
 
-    # Extract business name from description (simple extraction)
-    business_name = desc.split(',')[0].strip() if ',' in desc else desc[:50]
-
-    # Prepare gallery items FIRST
-    gallery_items = []
-
-    # Check if description mentions specific items
+    # Prepare 1 gallery item
     desc_lower = desc.lower()
     if any(word in desc_lower for word in ["nasi", "mee", "ayam", "roti", "satay", "ikan"]):
-        # This is a food business - try to extract menu items
-        # Simple extraction: look for common food keywords
-        potential_items = []
+        # Food business - try to extract one menu item
         for word in desc.split():
             word_clean = word.strip(',.!?')
             if word_clean.lower() in MALAYSIAN_FOOD_PROMPTS:
-                potential_items.append(word_clean)
+                gallery_item = word_clean
+                break
+        else:
+            gallery_item = f"{business_type.replace('_', ' ')} food"
+    else:
+        gallery_item = f"{business_type.replace('_', ' ')} product"
 
-        if potential_items:
-            gallery_items = potential_items[:3]  # Only 3 gallery images now
+    # 🚀 GENERATE ONLY 2 IMAGES IN PARALLEL with 30s timeout each
+    logger.info("🚀 Generating 2 images IN PARALLEL (hero + 1 gallery)...")
+    logger.info(f"   Hero: hero image for {business_type.replace('_', ' ')}")
+    logger.info(f"   Gallery: {gallery_item}")
 
-    # If we don't have specific items, use generic gallery descriptions
-    if not gallery_items:
-        gallery_items = [
-            f"{business_type.replace('_', ' ')} interior",
-            f"{business_type.replace('_', ' ')} products",
-            f"{business_type.replace('_', ' ')} service"
-        ]
-
-    # Ensure we have exactly 3 items
-    while len(gallery_items) < 3:
-        gallery_items.append(f"{business_type.replace('_', ' ')} showcase")
-    gallery_items = gallery_items[:3]
-
-    # 🚀 GENERATE ALL 4 IMAGES IN PARALLEL (hero + 3 gallery)
-    logger.info("🚀 Generating 4 images IN PARALLEL (hero + 3 gallery)...")
+    start_time = asyncio.get_event_loop().time()
 
     try:
-        results = await asyncio.gather(
+        # Wrap each generation with timeout
+        hero_task = asyncio.wait_for(
             generate_stability_image(f"hero image for {business_type.replace('_', ' ')}", business_type),
-            generate_stability_image(gallery_items[0], business_type),
-            generate_stability_image(gallery_items[1], business_type),
-            generate_stability_image(gallery_items[2], business_type),
+            timeout=30.0
+        )
+        gallery_task = asyncio.wait_for(
+            generate_stability_image(gallery_item, business_type),
+            timeout=30.0
+        )
+
+        results = await asyncio.gather(
+            hero_task,
+            gallery_task,
             return_exceptions=True
         )
 
+        elapsed = asyncio.get_event_loop().time() - start_time
+        logger.info(f"⏱️  Generation completed in {elapsed:.1f}s")
+
         hero_image = results[0] if not isinstance(results[0], Exception) else None
-        gallery_images = [
-            results[1] if not isinstance(results[1], Exception) else None,
-            results[2] if not isinstance(results[2], Exception) else None,
-            results[3] if not isinstance(results[3], Exception) else None
-        ]
+        gallery_image = results[1] if not isinstance(results[1], Exception) else None
+
+        # Log results
+        if isinstance(results[0], asyncio.TimeoutError):
+            logger.warning("⏱️  Hero image TIMEOUT (30s)")
+        elif isinstance(results[0], Exception):
+            logger.error(f"❌ Hero error: {results[0]}")
+
+        if isinstance(results[1], asyncio.TimeoutError):
+            logger.warning("⏱️  Gallery image TIMEOUT (30s)")
+        elif isinstance(results[1], Exception):
+            logger.error(f"❌ Gallery error: {results[1]}")
 
     except Exception as e:
         logger.error(f"🚀 Parallel generation failed: {e}")
         hero_image = None
-        gallery_images = [None, None, None]
+        gallery_image = None
 
     # Handle hero image
     if hero_image:
         images['hero'] = hero_image
-        logger.info("🎨 Hero image generated ✅")
+        logger.info("✅ Hero image generated")
     else:
         # Use stock image as fallback
         stock_images = get_stock_images(desc)
         images['hero'] = stock_images['hero']
-        logger.warning("🎨 Hero image - using stock fallback")
+        logger.warning("⚠️  Hero image - using stock fallback")
 
-    # Handle gallery images with fallbacks
-    for i, gallery_image in enumerate(gallery_images):
-        if gallery_image:
-            images['gallery'].append(gallery_image)
-            logger.info(f"🎨 Gallery image {i+1}/3 - ✅")
-        else:
-            # Fallback: reuse hero if generation fails
-            images['gallery'].append(images['hero'])
-            logger.warning(f"🎨 Gallery image {i+1}/3 - ⚠️ Using hero as fallback")
+    # Handle gallery image - use the 1 image for all 3 slots
+    if gallery_image:
+        images['gallery'] = [gallery_image, gallery_image, gallery_image]
+        logger.info("✅ Gallery image generated (reusing for 3 slots)")
+    else:
+        # Fallback: reuse hero for all gallery slots
+        images['gallery'] = [images['hero'], images['hero'], images['hero']]
+        logger.warning("⚠️  Gallery - using hero as fallback for all slots")
 
-    logger.info(f"🚀 All images generated IN PARALLEL: 1 hero + {len(images['gallery'])} gallery")
+    logger.info("=" * 60)
+    logger.info(f"🎨 IMAGE GENERATION COMPLETE")
+    logger.info(f"   Generated: 1 hero + 1 gallery (reused 3x)")
+    logger.info(f"   Total time: {asyncio.get_event_loop().time() - start_time:.1f}s")
+    logger.info("=" * 60)
+
     return images
 
 
