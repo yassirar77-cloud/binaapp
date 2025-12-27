@@ -78,11 +78,13 @@ MALAYSIAN_FOOD_PROMPTS = {
     "pisang goreng": "Crispy fried banana fritters pisang goreng, golden brown, food photography",
     "curry puff": "Golden curry puff karipap, flaky pastry, potato chicken filling, food photography",
 
-    # Vegetables
+    # Vegetables & Side Dishes
     "kangkung": "Stir fried kangkung water spinach with belacan, garlic, chili, food photography",
     "sayur campur": "Mixed vegetables stir fry, colorful, Malaysian style, food photography",
     "taugeh": "Bean sprouts stir fry with garlic, simple vegetable dish, food photography",
     "pucuk paku": "Jungle fern pucuk paku stir fry with belacan, Malaysian wild vegetable, food photography",
+    "pelbagai lauk": "Malaysian nasi kandar side dishes spread, various curries and vegetables in metal trays, colorful, food photography",
+    "lauk": "Malaysian curry dishes assortment, chicken curry, fish curry, vegetables, food photography",
 }
 
 # ============================================

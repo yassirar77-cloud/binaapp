@@ -896,7 +896,7 @@ class AIService:
     def _extract_menu_items(self, description: str) -> list:
         """Extract menu items from description"""
         common_items = ["nasi kandar", "nasi lemak", "mee goreng", "ayam goreng",
-                        "roti canai", "teh tarik", "ikan bakar", "satay"]
+                        "roti canai", "teh tarik", "ikan bakar", "pelbagai lauk", "satay"]
         found = []
         desc_lower = description.lower()
         for item in common_items:
@@ -1357,7 +1357,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         logger.info("🎨 STEP 1: Generating images with Stability AI...")
 
         # Generate hero image
-        hero_prompt = f"Professional {request.business_type or 'business'} storefront, Malaysian style, welcoming"
+        hero_prompt = "Malaysian mamak restaurant interior, nasi kandar counter with colorful curries, warm lighting, authentic Penang style, food photography"
         hero_image = await self._generate_stability_image(hero_prompt)
 
         # Generate menu/product images based on description
