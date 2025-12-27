@@ -6,6 +6,8 @@ Ensures real images and real content - NO placeholders allowed
 import os
 import httpx
 import random
+import asyncio
+import time
 from loguru import logger
 from typing import Optional, List, Dict, Tuple
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
@@ -1557,30 +1559,58 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         else:
             hero_prompt = f"Professional {request.business_type or 'business'} interior, Malaysian style, welcoming atmosphere, professional photography"
 
-        hero_image = await self._generate_stability_image(hero_prompt)
-
-        # Generate menu/product images based on description
-        image_urls = {}
-        if hero_image:
-            image_urls["hero"] = hero_image
-
-        # Generate product/menu images - ALWAYS generate 4 images minimum
-        logger.info(f"🎨 Generating product/menu images for {business_category} business...")
-
         # Get smart product prompts based on business type
         product_prompts = self._get_product_prompts(request.description, business_category)
 
-        # Generate images for each product prompt
-        for i, prompt in enumerate(product_prompts[:4], 1):  # Generate exactly 4 product images
-            logger.info(f"🎨 Generating product {i}/4: {prompt[:60]}...")
-            img_url = await self._generate_stability_image(prompt)
-            if img_url:
-                image_urls[f"product{i}"] = img_url
-                logger.info(f"   ✅ Product {i} generated: {img_url[:50]}...")
-            else:
-                logger.warning(f"   ⚠️ Product {i} failed to generate")
+        # ===================================================================
+        # PARALLEL IMAGE GENERATION - Generate ALL images at the same time
+        # ===================================================================
+        logger.info(f"🎨 Generating ALL images in PARALLEL (hero + 4 products)...")
+        logger.info(f"   Hero prompt: {hero_prompt[:60]}...")
+        logger.info(f"   Business category: {business_category}")
 
-        logger.info(f"☁️ Generated {len(image_urls)} total images (1 hero + {len(image_urls)-1} products)")
+        # Create tasks for parallel execution
+        image_tasks = [
+            self._generate_stability_image(hero_prompt),  # Task 0: Hero
+            self._generate_stability_image(product_prompts[0]),  # Task 1: Product 1
+            self._generate_stability_image(product_prompts[1]),  # Task 2: Product 2
+            self._generate_stability_image(product_prompts[2]),  # Task 3: Product 3
+            self._generate_stability_image(product_prompts[3]),  # Task 4: Product 4
+        ]
+
+        # Run ALL tasks in parallel (much faster than sequential)
+        start_time = time.time()
+        results = await asyncio.gather(*image_tasks, return_exceptions=True)
+        elapsed = time.time() - start_time
+
+        # Extract results with error handling
+        hero_image = results[0] if results[0] and not isinstance(results[0], Exception) else None
+        product1_image = results[1] if results[1] and not isinstance(results[1], Exception) else None
+        product2_image = results[2] if results[2] and not isinstance(results[2], Exception) else None
+        product3_image = results[3] if results[3] and not isinstance(results[3], Exception) else None
+        product4_image = results[4] if results[4] and not isinstance(results[4], Exception) else None
+
+        # Build image_urls dict
+        image_urls = {}
+        if hero_image:
+            image_urls["hero"] = hero_image
+        if product1_image:
+            image_urls["product1"] = product1_image
+        if product2_image:
+            image_urls["product2"] = product2_image
+        if product3_image:
+            image_urls["product3"] = product3_image
+        if product4_image:
+            image_urls["product4"] = product4_image
+
+        # Log results
+        successful = sum(1 for r in results if r and not isinstance(r, Exception))
+        failed = len(results) - successful
+        logger.info(f"☁️ Parallel generation complete in {elapsed:.1f}s")
+        logger.info(f"   ✅ Successful: {successful}/5 images")
+        if failed > 0:
+            logger.warning(f"   ⚠️ Failed: {failed}/5 images")
+        logger.info(f"   Total URLs: {len(image_urls)} images ready for HTML generation")
 
         # Build prompt WITH image URLs
         logger.info("🔷 STEP 2: DeepSeek generating HTML...")
