@@ -8,6 +8,8 @@ import httpx
 import random
 import asyncio
 import time
+import json
+import re
 from loguru import logger
 from typing import Optional, List, Dict, Tuple
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
@@ -1065,6 +1067,95 @@ class AIService:
                 f"High-end {business_type} product, studio photography, luxury presentation"
             ]
 
+    async def generate_smart_image_prompts(self, description: str) -> dict:
+        """Use AI to generate appropriate image prompts for ANY business type"""
+
+        prompt = f"""You are an expert at creating image prompts for Stability AI.
+
+BUSINESS DESCRIPTION:
+{description}
+
+TASK:
+Analyze this business and generate 5 specific image prompts that match this EXACT business type.
+
+RULES:
+1. If it's a PHOTOGRAPHER business → generate prompts for cameras, wedding photos, portrait sessions
+2. If it's a RESTAURANT → generate prompts for food dishes, restaurant interior
+3. If it's a FASHION store → generate prompts for clothing, boutique
+4. If it's a SALON → generate prompts for hairstyling, beauty treatments
+5. If it's a WATCH/JEWELRY store → generate prompts for watches, jewelry products
+6. If it's an AUTOMOTIVE business → generate prompts for cars, workshop, mechanics
+7. NEVER generate food images for non-food businesses
+8. NEVER generate random images - they must match the business
+9. All prompts must be in ENGLISH for Stability AI
+10. Each prompt should be detailed (20-40 words)
+11. Include "professional photography" or "product photography" in each prompt
+
+OUTPUT FORMAT (JSON only, no explanation):
+{{
+    "hero": "detailed prompt for hero/banner image",
+    "image1": "detailed prompt for first product/service image",
+    "image2": "detailed prompt for second product/service image",
+    "image3": "detailed prompt for third product/service image",
+    "image4": "detailed prompt for fourth product/service image"
+}}
+
+Generate prompts now:"""
+
+        try:
+            # Use DeepSeek to analyze and generate prompts
+            api_key = os.getenv("DEEPSEEK_API_KEY")
+
+            if not api_key:
+                logger.warning("🧠 No DEEPSEEK_API_KEY, using fallback prompts")
+                return self._get_fallback_prompts(description)
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://api.deepseek.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "deepseek-chat",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 1000,
+                        "temperature": 0.3
+                    }
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    content = data["choices"][0]["message"]["content"]
+
+                    # Parse JSON from response - extract JSON from response
+                    json_match = re.search(r'\{[\s\S]*\}', content)
+                    if json_match:
+                        prompts = json.loads(json_match.group())
+                        logger.info(f"🧠 AI Generated prompts for: {description[:50]}")
+                        logger.info(f"🧠 Hero: {prompts.get('hero', '')[:50]}...")
+                        return prompts
+                else:
+                    logger.error(f"🧠 DeepSeek API failed: {response.status_code}")
+
+        except Exception as e:
+            logger.error(f"🧠 Smart prompt generation failed: {e}")
+
+        # Fallback - use generic prompts
+        return self._get_fallback_prompts(description)
+
+    def _get_fallback_prompts(self, description: str) -> dict:
+        """Generate fallback prompts when AI fails"""
+        desc_short = description[:50]
+        return {
+            "hero": f"Professional business establishment for {desc_short}, modern interior, welcoming atmosphere, commercial photography",
+            "image1": f"Professional service showcase for {desc_short}, high quality, commercial photography",
+            "image2": f"Business products and services, {desc_short}, professional setting, product photography",
+            "image3": f"Customer experience at business, {desc_short}, professional photography",
+            "image4": f"Quality service delivery, {desc_short}, commercial photography"
+        }
+
     async def _improve_with_qwen(self, html: str, description: str) -> str:
         """Use Qwen to improve content"""
         prompt = f"Improve this HTML content for Malaysian business. Make descriptions more appealing. Keep all image URLs unchanged.\n\n{html}"
@@ -1544,38 +1635,33 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         logger.info(f"   User Images: {len(request.uploaded_images) if request.uploaded_images else 0}")
         logger.info("=" * 80)
 
+        # STEP 0: Use AI to generate smart image prompts
+        logger.info("🧠 STEP 0: AI analyzing business type and generating smart prompts...")
+        smart_prompts = await self.generate_smart_image_prompts(request.description)
+
+        hero_prompt = smart_prompts.get("hero", "")
+        product_prompt_1 = smart_prompts.get("image1", "")
+        product_prompt_2 = smart_prompts.get("image2", "")
+        product_prompt_3 = smart_prompts.get("image3", "")
+        product_prompt_4 = smart_prompts.get("image4", "")
+
         # STEP 1: Generate images with Stability AI
-        logger.info("🎨 STEP 1: Generating images with Stability AI...")
-
-        # Detect business category
-        business_category = self._detect_business_category(request.description)
-        logger.info(f"   Business category: {business_category}")
-
-        # Generate hero image based on business category
-        if business_category == "clothing":
-            hero_prompt = "Elegant men's clothing store interior, modern boutique, luxury fashion display, premium shirts and apparel, professional lighting, product photography"
-        elif business_category == "food":
-            hero_prompt = "Malaysian mamak restaurant interior, nasi kandar counter with colorful curries, warm lighting, authentic Penang style, food photography"
-        else:
-            hero_prompt = f"Professional {request.business_type or 'business'} interior, Malaysian style, welcoming atmosphere, professional photography"
-
-        # Get smart product prompts based on business type
-        product_prompts = self._get_product_prompts(request.description, business_category)
+        logger.info("🎨 STEP 1: Generating images with Stability AI using smart prompts...")
+        logger.info(f"   Hero prompt: {hero_prompt[:60]}...")
+        logger.info(f"   Product 1: {product_prompt_1[:60]}...")
 
         # ===================================================================
         # PARALLEL IMAGE GENERATION - Generate ALL images at the same time
         # ===================================================================
         logger.info(f"🎨 Generating ALL images in PARALLEL (hero + 4 products)...")
-        logger.info(f"   Hero prompt: {hero_prompt[:60]}...")
-        logger.info(f"   Business category: {business_category}")
 
-        # Create tasks for parallel execution
+        # Create tasks for parallel execution using AI-generated prompts
         image_tasks = [
             self._generate_stability_image(hero_prompt),  # Task 0: Hero
-            self._generate_stability_image(product_prompts[0]),  # Task 1: Product 1
-            self._generate_stability_image(product_prompts[1]),  # Task 2: Product 2
-            self._generate_stability_image(product_prompts[2]),  # Task 3: Product 3
-            self._generate_stability_image(product_prompts[3]),  # Task 4: Product 4
+            self._generate_stability_image(product_prompt_1),  # Task 1: Product 1
+            self._generate_stability_image(product_prompt_2),  # Task 2: Product 2
+            self._generate_stability_image(product_prompt_3),  # Task 3: Product 3
+            self._generate_stability_image(product_prompt_4),  # Task 4: Product 4
         ]
 
         # Run ALL tasks in parallel (much faster than sequential)
