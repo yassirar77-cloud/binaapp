@@ -17,6 +17,63 @@ from app.services.supabase_client import supabase_service
 
 router = APIRouter()
 
+# Blocked subdomain words - offensive, sensitive, trademarked terms
+BLOCKED_WORDS = [
+    # English offensive
+    "fuck", "shit", "ass", "bitch", "dick", "porn", "sex", "xxx",
+    "nude", "naked", "kill", "murder", "terrorist", "bomb", "drug",
+    "cocaine", "heroin", "weed", "gambling", "casino", "scam", "fraud",
+
+    # Malay offensive
+    "babi", "bodoh", "sial", "pukimak", "kimak", "lancau", "pantat",
+    "sundal", "jalang", "pelacur", "haram", "celaka", "bangang",
+    "bengap", "tolol", "goblok", "anjing", "asu",
+
+    # Religious/Political sensitive (Malaysia)
+    "allah", "nabi", "rasul", "agong", "sultan", "kerajaan",
+
+    # Brand/Trademark issues
+    "google", "facebook", "instagram", "tiktok", "twitter", "amazon",
+    "apple", "microsoft", "netflix", "shopee", "lazada", "grab",
+
+    # Government/Official
+    "gov", "government", "polis", "police", "tentera", "army",
+    "kementerian", "jabatan", "official", "rasmi",
+]
+
+
+def is_subdomain_allowed(subdomain: str) -> tuple[bool, str]:
+    """
+    Check if subdomain is allowed based on content policy.
+
+    Returns:
+        tuple[bool, str]: (is_allowed, error_message)
+    """
+    subdomain_lower = subdomain.lower().strip()
+
+    # Check minimum length
+    if len(subdomain_lower) < 3:
+        return False, "Subdomain mesti sekurang-kurangnya 3 aksara"
+
+    # Check maximum length
+    if len(subdomain_lower) > 30:
+        return False, "Subdomain terlalu panjang (maksimum 30 aksara)"
+
+    # Check for valid characters only
+    if not re.match(r'^[a-z0-9-]+$', subdomain_lower):
+        return False, "Subdomain hanya boleh mengandungi huruf kecil, nombor dan tanda sempang (-)"
+
+    # Check if starts/ends with hyphen
+    if subdomain_lower.startswith('-') or subdomain_lower.endswith('-'):
+        return False, "Subdomain tidak boleh bermula atau berakhir dengan tanda sempang"
+
+    # Check blocked words
+    for word in BLOCKED_WORDS:
+        if word in subdomain_lower:
+            return False, "Subdomain mengandungi perkataan tidak dibenarkan"
+
+    return True, "OK"
+
 
 class PublishRequest(BaseModel):
     """Publish request - supports multiple field names for HTML content"""
@@ -104,6 +161,17 @@ async def publish_website(request: PublishRequest):
             )
 
         logger.info(f"✓ HTML content received: {len(html_content)} characters")
+
+        # Check if subdomain is allowed (content policy)
+        is_allowed, error_message = is_subdomain_allowed(request.subdomain)
+        if not is_allowed:
+            logger.error(f"❌ Subdomain blocked by content policy: {request.subdomain}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_message
+            )
+
+        logger.info("✓ Subdomain passes content policy check")
 
         # Validate subdomain format
         if not validate_subdomain(request.subdomain):
