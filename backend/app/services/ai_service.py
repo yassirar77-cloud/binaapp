@@ -1635,68 +1635,93 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         logger.info(f"   User Images: {len(request.uploaded_images) if request.uploaded_images else 0}")
         logger.info("=" * 80)
 
-        # STEP 0: Use AI to generate smart image prompts
-        logger.info("🧠 STEP 0: AI analyzing business type and generating smart prompts...")
-        smart_prompts = await self.generate_smart_image_prompts(request.description)
-
-        hero_prompt = smart_prompts.get("hero", "")
-        product_prompt_1 = smart_prompts.get("image1", "")
-        product_prompt_2 = smart_prompts.get("image2", "")
-        product_prompt_3 = smart_prompts.get("image3", "")
-        product_prompt_4 = smart_prompts.get("image4", "")
-
-        # STEP 1: Generate images with Stability AI
-        logger.info("🎨 STEP 1: Generating images with Stability AI using smart prompts...")
-        logger.info(f"   Hero prompt: {hero_prompt[:60]}...")
-        logger.info(f"   Product 1: {product_prompt_1[:60]}...")
-
-        # ===================================================================
-        # PARALLEL IMAGE GENERATION - Generate ALL images at the same time
-        # ===================================================================
-        logger.info(f"🎨 Generating ALL images in PARALLEL (hero + 4 products)...")
-
-        # Create tasks for parallel execution using AI-generated prompts
-        image_tasks = [
-            self._generate_stability_image(hero_prompt),  # Task 0: Hero
-            self._generate_stability_image(product_prompt_1),  # Task 1: Product 1
-            self._generate_stability_image(product_prompt_2),  # Task 2: Product 2
-            self._generate_stability_image(product_prompt_3),  # Task 3: Product 3
-            self._generate_stability_image(product_prompt_4),  # Task 4: Product 4
-        ]
-
-        # Run ALL tasks in parallel (much faster than sequential)
-        start_time = time.time()
-        results = await asyncio.gather(*image_tasks, return_exceptions=True)
-        elapsed = time.time() - start_time
-
-        # Extract results with error handling
-        hero_image = results[0] if results[0] and not isinstance(results[0], Exception) else None
-        product1_image = results[1] if results[1] and not isinstance(results[1], Exception) else None
-        product2_image = results[2] if results[2] and not isinstance(results[2], Exception) else None
-        product3_image = results[3] if results[3] and not isinstance(results[3], Exception) else None
-        product4_image = results[4] if results[4] and not isinstance(results[4], Exception) else None
-
-        # Build image_urls dict
+        # Check if user uploaded images - skip AI image generation if so
         image_urls = {}
-        if hero_image:
-            image_urls["hero"] = hero_image
-        if product1_image:
-            image_urls["product1"] = product1_image
-        if product2_image:
-            image_urls["product2"] = product2_image
-        if product3_image:
-            image_urls["product3"] = product3_image
-        if product4_image:
-            image_urls["product4"] = product4_image
 
-        # Log results
-        successful = sum(1 for r in results if r and not isinstance(r, Exception))
-        failed = len(results) - successful
-        logger.info(f"☁️ Parallel generation complete in {elapsed:.1f}s")
-        logger.info(f"   ✅ Successful: {successful}/5 images")
-        if failed > 0:
-            logger.warning(f"   ⚠️ Failed: {failed}/5 images")
-        logger.info(f"   Total URLs: {len(image_urls)} images ready for HTML generation")
+        if request.uploaded_images and len(request.uploaded_images) > 0:
+            # User uploaded images - use them directly, skip AI generation
+            logger.info(f"☁️ User uploaded {len(request.uploaded_images)} images - SKIPPING AI image generation")
+            logger.info("   Using user-uploaded Cloudinary URLs...")
+
+            # Map uploaded images to expected keys
+            if len(request.uploaded_images) > 0:
+                image_urls["hero"] = request.uploaded_images[0]
+            if len(request.uploaded_images) > 1:
+                image_urls["product1"] = request.uploaded_images[1]
+            if len(request.uploaded_images) > 2:
+                image_urls["product2"] = request.uploaded_images[2]
+            if len(request.uploaded_images) > 3:
+                image_urls["product3"] = request.uploaded_images[3]
+            if len(request.uploaded_images) > 4:
+                image_urls["product4"] = request.uploaded_images[4]
+
+            logger.info(f"   ✅ Using {len(image_urls)} user-uploaded images")
+
+        else:
+            # No user images - generate with Stability AI
+            logger.info("🎨 No user images - generating with Stability AI...")
+
+            # STEP 0: Use AI to generate smart image prompts
+            logger.info("🧠 STEP 0: AI analyzing business type and generating smart prompts...")
+            smart_prompts = await self.generate_smart_image_prompts(request.description)
+
+            hero_prompt = smart_prompts.get("hero", "")
+            product_prompt_1 = smart_prompts.get("image1", "")
+            product_prompt_2 = smart_prompts.get("image2", "")
+            product_prompt_3 = smart_prompts.get("image3", "")
+            product_prompt_4 = smart_prompts.get("image4", "")
+
+            # STEP 1: Generate images with Stability AI
+            logger.info("🎨 STEP 1: Generating images with Stability AI using smart prompts...")
+            logger.info(f"   Hero prompt: {hero_prompt[:60]}...")
+            logger.info(f"   Product 1: {product_prompt_1[:60]}...")
+
+            # ===================================================================
+            # PARALLEL IMAGE GENERATION - Generate ALL images at the same time
+            # ===================================================================
+            logger.info(f"🎨 Generating ALL images in PARALLEL (hero + 4 products)...")
+
+            # Create tasks for parallel execution using AI-generated prompts
+            image_tasks = [
+                self._generate_stability_image(hero_prompt),  # Task 0: Hero
+                self._generate_stability_image(product_prompt_1),  # Task 1: Product 1
+                self._generate_stability_image(product_prompt_2),  # Task 2: Product 2
+                self._generate_stability_image(product_prompt_3),  # Task 3: Product 3
+                self._generate_stability_image(product_prompt_4),  # Task 4: Product 4
+            ]
+
+            # Run ALL tasks in parallel (much faster than sequential)
+            start_time = time.time()
+            results = await asyncio.gather(*image_tasks, return_exceptions=True)
+            elapsed = time.time() - start_time
+
+            # Extract results with error handling
+            hero_image = results[0] if results[0] and not isinstance(results[0], Exception) else None
+            product1_image = results[1] if results[1] and not isinstance(results[1], Exception) else None
+            product2_image = results[2] if results[2] and not isinstance(results[2], Exception) else None
+            product3_image = results[3] if results[3] and not isinstance(results[3], Exception) else None
+            product4_image = results[4] if results[4] and not isinstance(results[4], Exception) else None
+
+            # Build image_urls dict
+            if hero_image:
+                image_urls["hero"] = hero_image
+            if product1_image:
+                image_urls["product1"] = product1_image
+            if product2_image:
+                image_urls["product2"] = product2_image
+            if product3_image:
+                image_urls["product3"] = product3_image
+            if product4_image:
+                image_urls["product4"] = product4_image
+
+            # Log results
+            successful = sum(1 for r in results if r and not isinstance(r, Exception))
+            failed = len(results) - successful
+            logger.info(f"☁️ Parallel generation complete in {elapsed:.1f}s")
+            logger.info(f"   ✅ Successful: {successful}/5 images")
+            if failed > 0:
+                logger.warning(f"   ⚠️ Failed: {failed}/5 images")
+            logger.info(f"   Total URLs: {len(image_urls)} images ready for HTML generation")
 
         # Build prompt WITH image URLs
         logger.info("🔷 STEP 2: DeepSeek generating HTML...")
