@@ -120,7 +120,10 @@ export default function CreatePage() {
   const [publishing, setPublishing] = useState(false)
   const [publishedUrl, setPublishedUrl] = useState('')
   const [copied, setCopied] = useState(false)
-  const [uploadedImages, setUploadedImages] = useState<{ hero: string | null; gallery: string[] }>({ hero: null, gallery: [] })
+  const [uploadedImages, setUploadedImages] = useState<{
+    hero: string | null
+    gallery: { url: string; name: string }[]
+  }>({ hero: null, gallery: [] })
 
   const [multiStyle, setMultiStyle] = useState(true)
   const [styleVariations, setStyleVariations] = useState<StyleVariation[]>([])
@@ -172,10 +175,15 @@ export default function CreatePage() {
       console.log('🚀 Starting async generation...');
 
       // Step 1: Start the job (returns immediately with job_id)
-      // Prepare images array - combine hero and gallery images
+      // Prepare images array - combine hero and gallery images with metadata
+      const galleryWithMetadata = uploadedImages.gallery.map(g => ({
+        url: g.url,
+        name: g.name || ''  // Ensure name is always a string
+      }));
+
       const allImages = uploadedImages.hero
-        ? [uploadedImages.hero, ...uploadedImages.gallery]
-        : uploadedImages.gallery;
+        ? [{ url: uploadedImages.hero, name: 'Hero Image' }, ...galleryWithMetadata]
+        : galleryWithMetadata;
 
       const startResponse = await fetch('https://binaapp-backend.onrender.com/api/generate/start', {
         method: 'POST',
@@ -186,7 +194,8 @@ export default function CreatePage() {
           language: language,
           user_id: user?.id || 'anonymous',
           email: user?.email,  // Pass user email for founder bypass
-          images: allImages.length > 0 ? allImages : undefined  // Send uploaded images
+          images: allImages.length > 0 ? allImages : undefined,  // Send uploaded images with names
+          gallery_metadata: uploadedImages.gallery  // Pass full gallery metadata separately for AI context
         }),
       });
 

@@ -1643,19 +1643,35 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.info(f"☁️ User uploaded {len(request.uploaded_images)} images - SKIPPING AI image generation")
             logger.info("   Using user-uploaded Cloudinary URLs...")
 
+            # Helper function to extract URL from image (can be string or dict with 'url' key)
+            def get_image_url(img):
+                if isinstance(img, dict):
+                    return img.get('url', img.get('URL', ''))
+                return str(img)
+
+            # Helper function to extract name from image metadata
+            def get_image_name(img):
+                if isinstance(img, dict):
+                    return img.get('name', '')
+                return ''
+
             # Map uploaded images to expected keys
             if len(request.uploaded_images) > 0:
-                image_urls["hero"] = request.uploaded_images[0]
+                image_urls["hero"] = get_image_url(request.uploaded_images[0])
             if len(request.uploaded_images) > 1:
-                image_urls["gallery1"] = request.uploaded_images[1]
+                image_urls["gallery1"] = get_image_url(request.uploaded_images[1])
+                image_urls["gallery1_name"] = get_image_name(request.uploaded_images[1])
             if len(request.uploaded_images) > 2:
-                image_urls["gallery2"] = request.uploaded_images[2]
+                image_urls["gallery2"] = get_image_url(request.uploaded_images[2])
+                image_urls["gallery2_name"] = get_image_name(request.uploaded_images[2])
             if len(request.uploaded_images) > 3:
-                image_urls["gallery3"] = request.uploaded_images[3]
+                image_urls["gallery3"] = get_image_url(request.uploaded_images[3])
+                image_urls["gallery3_name"] = get_image_name(request.uploaded_images[3])
             if len(request.uploaded_images) > 4:
-                image_urls["gallery4"] = request.uploaded_images[4]
+                image_urls["gallery4"] = get_image_url(request.uploaded_images[4])
+                image_urls["gallery4_name"] = get_image_name(request.uploaded_images[4])
 
-            logger.info(f"   ✅ Using {len(image_urls)} user-uploaded images")
+            logger.info(f"   ✅ Using {len(image_urls)} user-uploaded images with metadata")
 
         else:
             # No user images - generate with Stability AI
@@ -1734,15 +1750,30 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         # Add image URLs to prompt with STRONG emphasis
         if image_urls:
+            # Build gallery section with dish names
+            gallery_items = []
+            for i in range(1, 5):
+                key = f'gallery{i}'
+                name_key = f'gallery{i}_name'
+                if key in image_urls:
+                    dish_name = image_urls.get(name_key, '')
+                    if dish_name:
+                        gallery_items.append(f"- Product/Gallery image {i}: {image_urls[key]} (Dish: {dish_name})")
+                    else:
+                        gallery_items.append(f"- Product/Gallery image {i}: {image_urls[key]}")
+
+            gallery_text = "\n".join(gallery_items) if gallery_items else ""
+
             image_instructions = f"""
 USE THESE EXACT IMAGE URLS IN THE HTML:
 - Hero/Banner image: {image_urls.get('hero', 'generate appropriate image')}
-- Product/Gallery image 1: {image_urls.get('gallery1', 'generate appropriate image')}
-- Product/Gallery image 2: {image_urls.get('gallery2', 'generate appropriate image')}
-- Product/Gallery image 3: {image_urls.get('gallery3', 'generate appropriate image')}
-- Product/Gallery image 4: {image_urls.get('gallery4', 'generate appropriate image')}
+{gallery_text}
 
-IMPORTANT: Use these EXACT URLs in the img src attributes. Do NOT use placeholder or Unsplash URLs.
+IMPORTANT INSTRUCTIONS:
+1. Use these EXACT URLs in the img src attributes. Do NOT use placeholder or Unsplash URLs.
+2. For gallery images with dish names, use those names in your headings, titles, and descriptions.
+3. Write compelling descriptions for each dish based on its name and the business type.
+4. Make sure ALL 4 gallery images are displayed in the gallery section.
 """
 
             prompt += image_instructions
