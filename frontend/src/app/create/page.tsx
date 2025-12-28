@@ -46,6 +46,62 @@ interface StyleVariation {
   social_preview?: string
 }
 
+// Blocked subdomain words - must match backend list
+const BLOCKED_WORDS = [
+  // English offensive
+  "fuck", "shit", "ass", "bitch", "dick", "porn", "sex", "xxx",
+  "nude", "naked", "kill", "murder", "terrorist", "bomb", "drug",
+  "cocaine", "heroin", "weed", "gambling", "casino", "scam", "fraud",
+
+  // Malay offensive
+  "babi", "bodoh", "sial", "pukimak", "kimak", "lancau", "pantat",
+  "sundal", "jalang", "pelacur", "haram", "celaka", "bangang",
+  "bengap", "tolol", "goblok", "anjing", "asu",
+
+  // Religious/Political sensitive (Malaysia)
+  "allah", "nabi", "rasul", "agong", "sultan", "kerajaan",
+
+  // Brand/Trademark issues
+  "google", "facebook", "instagram", "tiktok", "twitter", "amazon",
+  "apple", "microsoft", "netflix", "shopee", "lazada", "grab",
+
+  // Government/Official
+  "gov", "government", "polis", "police", "tentera", "army",
+  "kementerian", "jabatan", "official", "rasmi",
+]
+
+/**
+ * Validate subdomain against content policy
+ * Returns error message if invalid, null if valid
+ */
+const validateSubdomain = (subdomain: string): string | null => {
+  const lower = subdomain.toLowerCase().trim()
+
+  if (lower.length < 3) {
+    return "Minimum 3 characters required"
+  }
+
+  if (lower.length > 30) {
+    return "Maximum 30 characters allowed"
+  }
+
+  if (!/^[a-z0-9-]+$/.test(lower)) {
+    return "Only lowercase letters, numbers and hyphens allowed"
+  }
+
+  if (lower.startsWith('-') || lower.endsWith('-')) {
+    return "Cannot start or end with hyphen"
+  }
+
+  for (const word of BLOCKED_WORDS) {
+    if (lower.includes(word)) {
+      return "This name is not allowed"
+    }
+  }
+
+  return null // Valid
+}
+
 export default function CreatePage() {
   const router = useRouter()
   const [user, setUser] = useState<User | null>(null)
@@ -59,6 +115,7 @@ export default function CreatePage() {
   const [error, setError] = useState('')
   const [showPublishModal, setShowPublishModal] = useState(false)
   const [subdomain, setSubdomain] = useState('')
+  const [subdomainError, setSubdomainError] = useState<string | null>(null)
   const [projectName, setProjectName] = useState('')
   const [publishing, setPublishing] = useState(false)
   const [publishedUrl, setPublishedUrl] = useState('')
@@ -271,10 +328,17 @@ export default function CreatePage() {
       return
     }
 
+    // Validate subdomain before publishing
+    const cleanSubdomain = subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '')
+    const validationError = validateSubdomain(cleanSubdomain)
+    if (validationError) {
+      setError(validationError)
+      setSubdomainError(validationError)
+      return
+    }
+
     setPublishing(true)
     setError('')
-
-    const cleanSubdomain = subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '')
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/publish`, {
@@ -878,15 +942,28 @@ export default function CreatePage() {
                 <input
                   type="text"
                   value={subdomain}
-                  onChange={(e) => setSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                  onChange={(e) => {
+                    const value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
+                    setSubdomain(value)
+                    const validationError = validateSubdomain(value)
+                    setSubdomainError(validationError)
+                  }}
                   placeholder="kedaiayam"
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  className={`flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 ${
+                    subdomainError ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 />
                 <span className="text-gray-600">.binaapp.my</span>
               </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Only lowercase letters, numbers, and hyphens
-              </p>
+              {subdomainError ? (
+                <p className="text-xs text-red-600 mt-1 font-medium">
+                  ❌ {subdomainError}
+                </p>
+              ) : (
+                <p className="text-xs text-gray-500 mt-1">
+                  Only lowercase letters, numbers, and hyphens
+                </p>
+              )}
             </div>
 
             {error && (
@@ -900,6 +977,7 @@ export default function CreatePage() {
                 onClick={() => {
                   setShowPublishModal(false)
                   setError('')
+                  setSubdomainError(null)
                 }}
                 className="flex-1 btn btn-outline"
                 disabled={publishing}
@@ -909,7 +987,7 @@ export default function CreatePage() {
               <button
                 onClick={handlePublish}
                 className="flex-1 btn btn-primary"
-                disabled={publishing || !subdomain || !projectName}
+                disabled={publishing || !subdomain || !projectName || !!subdomainError}
               >
                 {publishing ? (
                   <>
