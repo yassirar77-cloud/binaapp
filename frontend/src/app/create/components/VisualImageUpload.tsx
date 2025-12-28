@@ -3,8 +3,13 @@
 import { useState } from 'react'
 import { API_BASE_URL } from '@/lib/env'
 
+interface GalleryImage {
+  url: string
+  name: string
+}
+
 interface VisualImageUploadProps {
-  onImagesUploaded: (images: { hero: string | null; gallery: string[] }) => void
+  onImagesUploaded: (images: { hero: string | null; gallery: GalleryImage[] }) => void
 }
 
 export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploadProps) {
@@ -12,9 +17,17 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
   const [heroPreview, setHeroPreview] = useState<string>('')
   const [heroUrl, setHeroUrl] = useState<string>('')
 
-  const [galleryImages, setGalleryImages] = useState<(File | null)[]>([null, null, null, null])
-  const [galleryPreviews, setGalleryPreviews] = useState<string[]>(['', '', '', ''])
-  const [galleryUrls, setGalleryUrls] = useState<string[]>(['', '', '', ''])
+  const [galleryData, setGalleryData] = useState<{
+    file: File | null
+    preview: string
+    url: string
+    name: string
+  }[]>([
+    { file: null, preview: '', url: '', name: '' },
+    { file: null, preview: '', url: '', name: '' },
+    { file: null, preview: '', url: '', name: '' },
+    { file: null, preview: '', url: '', name: '' }
+  ])
 
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState('')
@@ -52,7 +65,9 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
         // Notify parent
         onImagesUploaded({
           hero: url,
-          gallery: galleryUrls.filter(u => u !== '')
+          gallery: galleryData
+            .filter(g => g.url !== '')
+            .map(g => ({ url: g.url, name: g.name }))
         })
       } catch (error) {
         console.error('Hero upload failed:', error)
@@ -66,28 +81,26 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
   const handleGalleryUpload = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
-      const newImages = [...galleryImages]
-      newImages[index] = file
-      setGalleryImages(newImages)
-
       const preview = URL.createObjectURL(file)
-      const newPreviews = [...galleryPreviews]
-      newPreviews[index] = preview
-      setGalleryPreviews(newPreviews)
+      const newData = [...galleryData]
+      newData[index] = { ...newData[index], file, preview }
+      setGalleryData(newData)
 
       // Upload immediately
       setUploading(true)
       setUploadProgress(`Uploading gallery image ${index + 1}...`)
       try {
         const url = await uploadImage(file)
-        const newUrls = [...galleryUrls]
-        newUrls[index] = url
-        setGalleryUrls(newUrls)
+        const updatedData = [...newData]
+        updatedData[index] = { ...updatedData[index], url }
+        setGalleryData(updatedData)
 
         // Notify parent
         onImagesUploaded({
           hero: heroUrl || null,
-          gallery: newUrls.filter(u => u !== '')
+          gallery: updatedData
+            .filter(g => g.url !== '')
+            .map(g => ({ url: g.url, name: g.name }))
         })
       } catch (error) {
         console.error(`Gallery ${index + 1} upload failed:`, error)
@@ -98,36 +111,46 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
     }
   }
 
+  const handleGalleryNameChange = (index: number, name: string) => {
+    const newData = [...galleryData]
+    newData[index] = { ...newData[index], name }
+    setGalleryData(newData)
+
+    // Notify parent immediately when name changes
+    onImagesUploaded({
+      hero: heroUrl || null,
+      gallery: newData
+        .filter(g => g.url !== '')
+        .map(g => ({ url: g.url, name: g.name }))
+    })
+  }
+
   const removeHero = () => {
     setHeroImage(null)
     setHeroPreview('')
     setHeroUrl('')
     onImagesUploaded({
       hero: null,
-      gallery: galleryUrls.filter(u => u !== '')
+      gallery: galleryData
+        .filter(g => g.url !== '')
+        .map(g => ({ url: g.url, name: g.name }))
     })
   }
 
   const removeGallery = (index: number) => {
-    const newImages = [...galleryImages]
-    newImages[index] = null
-    setGalleryImages(newImages)
-
-    const newPreviews = [...galleryPreviews]
-    newPreviews[index] = ''
-    setGalleryPreviews(newPreviews)
-
-    const newUrls = [...galleryUrls]
-    newUrls[index] = ''
-    setGalleryUrls(newUrls)
+    const newData = [...galleryData]
+    newData[index] = { file: null, preview: '', url: '', name: '' }
+    setGalleryData(newData)
 
     onImagesUploaded({
       hero: heroUrl || null,
-      gallery: newUrls.filter(u => u !== '')
+      gallery: newData
+        .filter(g => g.url !== '')
+        .map(g => ({ url: g.url, name: g.name }))
     })
   }
 
-  const uploadedCount = (heroImage ? 1 : 0) + galleryImages.filter(img => img !== null).length
+  const uploadedCount = (heroImage ? 1 : 0) + galleryData.filter(g => g.file !== null).length
 
   return (
     <div className="bg-white rounded-xl p-6 shadow-lg mb-6">
@@ -159,7 +182,7 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
         >
           {heroPreview ? (
             <div className="relative">
-              <img src={heroPreview} alt="Hero" className="w-full h-40 object-cover rounded-lg" />
+              <img src={heroPreview} alt="Hero" className="w-full h-32 object-cover rounded-lg" />
               <button
                 onClick={(e) => { e.stopPropagation(); removeHero(); }}
                 className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 text-xs hover:bg-red-600"
@@ -172,9 +195,9 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
               )}
             </div>
           ) : (
-            <div className="py-8">
-              <span className="text-4xl">🖼️</span>
-              <p className="text-gray-500 mt-2">Klik untuk muat naik gambar hero / Click to upload hero image</p>
+            <div className="py-6">
+              <span className="text-3xl">🖼️</span>
+              <p className="text-gray-500 mt-2 text-sm">Klik untuk muat naik gambar hero / Click to upload hero image</p>
               <p className="text-xs text-gray-400">Saiz dicadangkan / Recommended size: 1920 x 600 piksel</p>
             </div>
           )}
@@ -198,50 +221,58 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
           Gambar menu, produk, atau perkhidmatan anda / Images of your menu, products, or services
         </p>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-4">
           {[0, 1, 2, 3].map((index) => (
-            <div
-              key={index}
-              className="border-2 border-dashed border-gray-300 rounded-xl p-2 text-center cursor-pointer hover:border-blue-500 transition aspect-square flex items-center justify-center"
-              onClick={() => document.getElementById(`gallery-upload-${index}`)?.click()}
-            >
-              {galleryPreviews[index] ? (
-                <div className="relative w-full h-full">
-                  <img
-                    src={galleryPreviews[index]}
-                    alt={`Product ${index + 1}`}
-                    className="w-full h-full object-cover rounded-lg"
-                  />
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      removeGallery(index)
-                    }}
-                    className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs hover:bg-red-600"
-                    title="Remove image"
-                  >✕</button>
-                  <span className="absolute bottom-1 left-1 bg-black/50 text-white text-xs px-2 py-1 rounded">
-                    Gambar {index + 1}
-                  </span>
-                  {galleryUrls[index] && (
-                    <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded">
-                      ✓
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <span className="text-2xl">📷</span>
-                  <p className="text-xs text-gray-500 mt-1">Gambar {index + 1}</p>
-                </div>
-              )}
+            <div key={index} className="space-y-2">
+              {/* Image upload box */}
+              <div
+                className="border-2 border-dashed border-gray-300 rounded-xl p-2 text-center cursor-pointer hover:border-blue-500 transition h-32 flex items-center justify-center"
+                onClick={() => document.getElementById(`gallery-upload-${index}`)?.click()}
+              >
+                {galleryData[index].preview ? (
+                  <div className="relative w-full h-full">
+                    <img
+                      src={galleryData[index].preview}
+                      alt={`Product ${index + 1}`}
+                      className="w-full h-full object-cover rounded-lg"
+                    />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        removeGallery(index)
+                      }}
+                      className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs hover:bg-red-600"
+                      title="Remove image"
+                    >✕</button>
+                    {galleryData[index].url && (
+                      <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded">
+                        ✓
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <span className="text-2xl">📷</span>
+                    <p className="text-xs text-gray-500">Gambar {index + 1}</p>
+                  </div>
+                )}
+                <input
+                  id={`gallery-upload-${index}`}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => handleGalleryUpload(index, e)}
+                  disabled={uploading}
+                />
+              </div>
+
+              {/* Dish name input */}
               <input
-                id={`gallery-upload-${index}`}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => handleGalleryUpload(index, e)}
-                disabled={uploading}
+                type="text"
+                placeholder="Nama hidangan (cth: Nasi Lemak)"
+                value={galleryData[index].name}
+                onChange={(e) => handleGalleryNameChange(index, e.target.value)}
+                className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           ))}
@@ -250,7 +281,7 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
 
       {/* Upload status */}
       <div className="mt-4 text-sm text-gray-500">
-        ✅ {uploadedCount} / 5 gambar dipilih ({galleryUrls.filter(u => u !== '').length + (heroUrl ? 1 : 0)} uploaded)
+        ✅ {uploadedCount} / 5 gambar dipilih ({galleryData.filter(g => g.url !== '').length + (heroUrl ? 1 : 0)} uploaded)
       </div>
     </div>
   )
