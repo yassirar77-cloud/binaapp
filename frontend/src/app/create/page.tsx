@@ -228,6 +228,9 @@ export default function CreatePage() {
             clearInterval(pollInterval);
             console.log('✅ Generation complete!');
 
+            // Set progress to 100% FIRST (before hiding modal)
+            setProgress(100);
+
             // Handle completed job
             if (statusData.styles?.length > 0) {
               setStyleVariations(statusData.styles);
@@ -237,8 +240,8 @@ export default function CreatePage() {
               setSelectedStyle(null);
             }
 
+            // Hide loading modal AFTER setting progress to 100%
             setLoading(false);
-            setProgress(100);
           } else if (statusData.status === 'failed') {
             clearInterval(pollInterval);
             setError(statusData.error || 'Generation failed. Please try again.');
