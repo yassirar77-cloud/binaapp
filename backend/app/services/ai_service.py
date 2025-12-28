@@ -1375,15 +1375,27 @@ TYPE: {biz_type}
    - Do NOT use any other image sources
 
 7. IMAGE SIZE GUIDELINES:
-   - Hero section: Use 'h-[60vh]' or 'h-[500px]' (NOT h-[90vh] - too big!)
    - Gallery images: Use 'h-48' or 'h-52' (NOT h-64 - too big on desktop!)
-   - Hero image: Use 'object-contain' to show FULL logo/image without cropping
    - Gallery images: Use 'object-cover' for proper fill
 
-   Example hero section (SHOWS FULL IMAGE - NO CROPPING):
-   <section class="relative h-[60vh] md:h-[500px] bg-gray-100">
-     <img src="..." class="w-full h-full object-contain">
-   </section>
+HERO SECTION - IMPORTANT:
+- Use h-[50vh] or h-[400px] (NOT 60vh or 90vh - too tall!)
+- Use object-contain (NOT object-cover) if image has logo/text
+- OR use object-cover with object-top to show top of image
+- Background color behind image: bg-gray-100 or bg-white
+
+Example hero that shows FULL image:
+<section id="home" class="relative h-[400px] bg-gray-100">
+    <img src="HERO_URL" alt="..." class="w-full h-full object-contain">
+    <div class="absolute inset-0 bg-black/30 flex items-center">
+        <!-- content -->
+    </div>
+</section>
+
+OR if you want cover style but show top:
+<section id="home" class="relative h-[50vh] md:h-[400px]">
+    <img src="HERO_URL" alt="..." class="w-full h-full object-cover object-top">
+</section>
 
    Example gallery card:
    <div class="rounded-xl overflow-hidden shadow-lg">
