@@ -30,7 +30,11 @@ class SimpleGenerateRequest(BaseModel):
         description="User's description in Malay or English"
     )
     user_id: Optional[str] = Field(default="demo-user", description="Optional user ID")
-    images: Optional[List[str]] = Field(default=[], description="Optional list of uploaded image URLs")
+    images: Optional[List] = Field(default=[], description="Optional list of uploaded image URLs or image metadata objects with url and name")
+    gallery_metadata: Optional[List] = Field(default=[], description="Gallery images with metadata (url, name)")
+    business_description: Optional[str] = Field(default=None, description="Business description for context")
+    language: Optional[str] = Field(default="ms", description="Language for generation (ms or en)")
+    email: Optional[str] = Field(default=None, description="User email")
     logo: Optional[str] = Field(default=None, description="Logo URL")
     fonts: Optional[List[str]] = Field(default=[], description="Font names to use (e.g., ['Inter', 'Poppins'])")
     colors: Optional[dict] = Field(default=None, description="Color scheme (primary, secondary, accent)")
