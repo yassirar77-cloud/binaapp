@@ -1543,7 +1543,7 @@ Output ONLY improved HTML."""
 
 # ==================== SIMPLE ASYNC GENERATION (NO BACKGROUND TASKS) ====================
 
-async def run_generation_task(job_id: str, description: str, user_email: str = "", user_id: str = "anonymous"):
+async def run_generation_task(job_id: str, description: str, user_email: str = "", user_id: str = "anonymous", images: list = None):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
     logger.info(f"🚀 TASK START: {job_id}")
@@ -1573,7 +1573,7 @@ async def run_generation_task(job_id: str, description: str, user_email: str = "
             location_address="",
             include_ecommerce=False,
             contact_email=None,
-            uploaded_images=[]
+            uploaded_images=images if images else []
         )
 
         # Call ai_service.generate_website() - This triggers the 4-step flow
@@ -1643,6 +1643,7 @@ async def start_generation(request: Request):
     description = body.get("description") or body.get("business_description") or ""
     user_id = body.get("user_id", "anonymous")
     user_email = body.get("email", "")
+    images = body.get("images", [])  # Extract uploaded images
 
     if not description:
         return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
@@ -1666,6 +1667,7 @@ async def start_generation(request: Request):
     logger.info(f"📝 Creating job: {job_id}")
     logger.info(f"   User: {user_email or user_id}")
     logger.info(f"   Description: {description[:60]}...")
+    logger.info(f"   Images: {len(images) if images else 0} uploaded")
 
     # Create job in Supabase
     if supabase:
@@ -1689,7 +1691,7 @@ async def start_generation(request: Request):
             })
 
     # Run generation with asyncio (NOT BackgroundTasks!)
-    asyncio.create_task(run_generation_task(job_id, description, user_email, user_id))
+    asyncio.create_task(run_generation_task(job_id, description, user_email, user_id, images))
 
     logger.info(f"🚀 Job started: {job_id}")
 
