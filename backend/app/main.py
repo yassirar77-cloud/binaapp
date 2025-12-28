@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, BackgroundTasks
+from fastapi import FastAPI, Request, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
 from pydantic import BaseModel
@@ -27,6 +27,7 @@ from app.data.malaysian_prompts import (
 )
 from app.services.ai_service import AIService
 from app.models.schemas import WebsiteGenerationRequest, Language
+from app.api.upload import router as upload_router
 
 # Initialize AI service
 ai_service = AIService()
@@ -96,6 +97,9 @@ supabase = init_supabase()
 # ============================================
 
 app = FastAPI(title="BinaApp Backend", version="4.0")
+
+# Include upload router
+app.include_router(upload_router, prefix="/api", tags=["Upload"])
 
 # CORS - CRITICAL: allow_credentials must be False when using wildcard origins
 app.add_middleware(

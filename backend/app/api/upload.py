@@ -178,3 +178,77 @@ async def upload_single_image(file: UploadFile = File(...)):
             status_code=500,
             detail=f"Upload error: {str(e)}"
         )
+
+
+@router.post("/upload-images")
+async def upload_images(
+    hero: UploadFile = File(None),
+    gallery1: UploadFile = File(None),
+    gallery2: UploadFile = File(None),
+    gallery3: UploadFile = File(None),
+    gallery4: UploadFile = File(None),
+):
+    """Upload user images to Cloudinary (hero + gallery images)"""
+
+    # Check if Cloudinary is configured
+    if not CLOUDINARY_CLOUD_NAME:
+        raise HTTPException(
+            status_code=503,
+            detail="Cloudinary not configured"
+        )
+
+    uploaded_urls = {}
+
+    files = {
+        "hero": hero,
+        "gallery1": gallery1,
+        "gallery2": gallery2,
+        "gallery3": gallery3,
+        "gallery4": gallery4,
+    }
+
+    for key, file in files.items():
+        if file and file.filename:
+            try:
+                # Validate file type
+                if file.content_type not in ALLOWED_TYPES:
+                    logger.warning(f"☁️ Skipping {key}: invalid type {file.content_type}")
+                    continue
+
+                # Read file content
+                contents = await file.read()
+
+                # Validate file size
+                if len(contents) > MAX_FILE_SIZE:
+                    logger.warning(f"☁️ Skipping {key}: file too large ({len(contents)} bytes)")
+                    continue
+
+                # Upload to Cloudinary
+                import uuid
+                file_ext = os.path.splitext(file.filename)[1] if file.filename else ''
+                unique_filename = f"{uuid.uuid4()}{file_ext}"
+
+                result = cloudinary.uploader.upload(
+                    contents,
+                    folder="binaapp/user-uploads",
+                    public_id=unique_filename.replace(file_ext, ''),
+                    resource_type="image",
+                    overwrite=True
+                )
+
+                cloudinary_url = result.get('secure_url')
+
+                if cloudinary_url:
+                    uploaded_urls[key] = cloudinary_url
+                    logger.info(f"☁️ Uploaded {key}: {cloudinary_url[:50]}...")
+                else:
+                    logger.error(f"☁️ Upload succeeded for {key} but no URL returned")
+
+            except Exception as e:
+                logger.error(f"☁️ Upload failed for {key}: {e}")
+
+    return {
+        "success": True,
+        "uploaded_urls": uploaded_urls,
+        "count": len(uploaded_urls)
+    }
