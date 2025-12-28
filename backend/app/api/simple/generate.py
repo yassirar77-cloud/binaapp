@@ -476,6 +476,7 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
 
         # Update job metadata
         job_service.set_metadata(job_id, features, website_type)
+        job_service.update_progress(job_id, 10)
         logger.info(f"Job {job_id}: Type={website_type}, Features={features}")
 
         # Build AI generation request
@@ -508,8 +509,10 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
         }
 
         # Step 2: Generate 3 style variations
+        job_service.update_progress(job_id, 20)
         logger.info(f"Job {job_id}: Generating 3 style variations...")
         variations_dict = await ai_service.generate_multi_style(ai_request)
+        job_service.update_progress(job_id, 30)
         logger.info(f"Job {job_id}: Received {len(variations_dict)} variations from AI")
 
         # Process each variation
@@ -536,8 +539,9 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
                 # Add variant to job
                 job_service.add_variant(job_id, variant)
 
-                # Update progress: 33%, 66%, 100%
-                progress = int(((idx + 1) / 3) * 100)
+                # Update progress: 50%, 70%, 90% (we already hit 30% before AI generation)
+                # Progress formula: 30% + (variant_number / 3) * 60%
+                progress = 30 + int(((idx + 1) / 3) * 60)
                 job_service.update_progress(job_id, progress)
                 logger.info(f"Job {job_id}: Progress {progress}% - Variant {idx+1} completed")
 
