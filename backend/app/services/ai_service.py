@@ -1377,12 +1377,12 @@ TYPE: {biz_type}
 7. IMAGE SIZE GUIDELINES:
    - Hero section: Use 'h-[60vh]' or 'h-[500px]' (NOT h-[90vh] - too big!)
    - Gallery images: Use 'h-48' or 'h-52' (NOT h-64 - too big on desktop!)
-   - Use 'object-cover' for all images
-   - Use 'object-center' for hero image
+   - Hero image: Use 'object-contain' to show FULL logo/image without cropping
+   - Gallery images: Use 'object-cover' for proper fill
 
-   Example hero section:
-   <section class="relative h-[60vh] md:h-[500px]">
-     <img src="..." class="w-full h-full object-cover object-center">
+   Example hero section (SHOWS FULL IMAGE - NO CROPPING):
+   <section class="relative h-[60vh] md:h-[500px] bg-gray-100">
+     <img src="..." class="w-full h-full object-contain">
    </section>
 
    Example gallery card:
@@ -1772,6 +1772,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         if image_urls:
             # Build gallery section with dish names
             gallery_items = []
+            dish_names_list = []
             for i in range(1, 5):
                 key = f'gallery{i}'
                 name_key = f'gallery{i}_name'
@@ -1779,20 +1780,47 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     dish_name = image_urls.get(name_key, '')
                     if dish_name:
                         gallery_items.append(f"- Product/Gallery image {i}: {image_urls[key]} (Dish: {dish_name})")
+                        dish_names_list.append(f'Dish {i}: "{dish_name}"')
                     else:
                         gallery_items.append(f"- Product/Gallery image {i}: {image_urls[key]}")
 
             gallery_text = "\n".join(gallery_items) if gallery_items else ""
 
+            # Build CRITICAL dish names section
+            dish_names_section = ""
+            if dish_names_list:
+                dish_names_section = f"""
+
+CRITICAL - DISH NAMES (DO NOT CHANGE THESE):
+You MUST use these EXACT dish names as-is. DO NOT modify, translate, or change them:
+
+{chr(10).join(dish_names_list)}
+
+RULES FOR DISH NAMES:
+1. Copy the dish name EXACTLY as written above into the <h3> or menu item title
+2. DO NOT change "Mee Goreng Mamak" to "Nasi Kandar Mee Goreng"
+3. DO NOT add "Nasi Kandar" prefix if not in the original name
+4. DO NOT translate or modify the names in any way
+5. The menu item title/heading MUST match EXACTLY what the user typed
+
+EXAMPLES:
+❌ WRONG: User types "Ayam Penyet" → AI writes "Nasi Kandar Ayam Goreng"
+✅ CORRECT: User types "Ayam Penyet" → AI writes "Ayam Penyet"
+
+❌ WRONG: User types "Mee Goreng Mamak" → AI writes "Nasi Kandar Ikan Bakar"
+✅ CORRECT: User types "Mee Goreng Mamak" → AI writes "Mee Goreng Mamak"
+"""
+
             image_instructions = f"""
 USE THESE EXACT IMAGE URLS IN THE HTML:
 - Hero/Banner image: {image_urls.get('hero', 'generate appropriate image')}
 {gallery_text}
+{dish_names_section}
 
 IMPORTANT INSTRUCTIONS:
 1. Use these EXACT URLs in the img src attributes. Do NOT use placeholder or Unsplash URLs.
-2. For gallery images with dish names, use those names in your headings, titles, and descriptions.
-3. Write compelling descriptions for each dish based on its name and the business type.
+2. For gallery images with dish names, use the EXACT dish names shown above - DO NOT modify them.
+3. Write compelling descriptions for each dish, but keep the dish NAME exactly as provided.
 4. Make sure ALL 4 gallery images are displayed in the gallery section.
 """
 
