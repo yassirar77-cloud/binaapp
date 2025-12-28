@@ -16,6 +16,7 @@ from app.services.templates import template_service
 from app.services.screenshot_service import screenshot_service
 from app.services.job_service import job_service, JobStatus
 from app.models.schemas import WebsiteGenerationRequest, Language
+from app.utils.content_moderation import is_content_allowed, log_blocked_attempt
 
 router = APIRouter()
 
@@ -96,6 +97,21 @@ async def generate_website(request: SimpleGenerateRequest):
         logger.info(f"Generation mode: {request.mode}")
         logger.info(f"Images: {len(request.images) if request.images else 0}")
         logger.info("=" * 80)
+
+        # ==================== CONTENT MODERATION ====================
+        # Check for illegal/harmful content BEFORE generation
+        is_allowed, block_reason = is_content_allowed(request.description)
+        if not is_allowed:
+            log_blocked_attempt(
+                description=request.description,
+                reason=block_reason,
+                user_id=request.user_id
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=block_reason
+            )
+        logger.info("✅ Content moderation check passed")
 
         # Detect website type
         logger.info("Step 1: Detecting website type...")
@@ -581,6 +597,21 @@ async def start_async_generation(request: SimpleGenerateRequest, background_task
         logger.info(f"Description: {request.description[:100]}...")
         logger.info("=" * 80)
 
+        # ==================== CONTENT MODERATION ====================
+        # Check for illegal/harmful content BEFORE generation
+        is_allowed, block_reason = is_content_allowed(request.description)
+        if not is_allowed:
+            log_blocked_attempt(
+                description=request.description,
+                reason=block_reason,
+                user_id=request.user_id
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=block_reason
+            )
+        logger.info("✅ Content moderation check passed")
+
         # Create job
         request_data = request.dict()
         job_id = job_service.create_job(
@@ -719,6 +750,19 @@ async def generate_stream(request: SimpleGenerateRequest):
             logger.info(f"Description: {request.description[:100]}...")
             logger.info(f"Multi-style: {request.multi_style}")
             logger.info("=" * 80)
+
+            # ==================== CONTENT MODERATION ====================
+            # Check for illegal/harmful content BEFORE generation
+            is_allowed, block_reason = is_content_allowed(request.description)
+            if not is_allowed:
+                log_blocked_attempt(
+                    description=request.description,
+                    reason=block_reason,
+                    user_id=request.user_id
+                )
+                yield f"data: {json.dumps({'progress': 0, 'status': 'failed', 'error': block_reason, 'message': 'Kandungan disekat / Content blocked'})}\n\n"
+                return
+            logger.info("✅ Content moderation check passed")
 
             # Progress 10% - Starting
             yield f"data: {json.dumps({'progress': 10, 'status': 'processing', 'message': 'Menganalisis perniagaan anda...'})}\n\n"
@@ -870,6 +914,24 @@ async def generate_website_simple(request: SimpleGenerateRequest):
         logger.info(f"User ID: {request.user_id}")
         logger.info(f"Description: {request.description[:100]}...")
         logger.info("=" * 80)
+
+        # ==================== CONTENT MODERATION ====================
+        # Check for illegal/harmful content BEFORE generation
+        is_allowed, block_reason = is_content_allowed(request.description)
+        if not is_allowed:
+            log_blocked_attempt(
+                description=request.description,
+                reason=block_reason,
+                user_id=request.user_id
+            )
+            return {
+                "success": False,
+                "error": block_reason,
+                "blocked": True,
+                "html": "",
+                "styles": []
+            }
+        logger.info("✅ Content moderation check passed")
 
         # Detect website type
         website_type = template_service.detect_website_type(request.description)
