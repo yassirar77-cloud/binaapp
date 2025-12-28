@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout } from 'lucide-react'
-import ImageUpload from './components/ImageUpload'
+import VisualImageUpload from './components/VisualImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
 import CodeAnimation from '@/components/CodeAnimation'
@@ -120,7 +120,7 @@ export default function CreatePage() {
   const [publishing, setPublishing] = useState(false)
   const [publishedUrl, setPublishedUrl] = useState('')
   const [copied, setCopied] = useState(false)
-  const [uploadedImages, setUploadedImages] = useState<string[]>([])
+  const [uploadedImages, setUploadedImages] = useState<{ hero: string | null; gallery: string[] }>({ hero: null, gallery: [] })
 
   const [multiStyle, setMultiStyle] = useState(true)
   const [styleVariations, setStyleVariations] = useState<StyleVariation[]>([])
@@ -172,6 +172,11 @@ export default function CreatePage() {
       console.log('🚀 Starting async generation...');
 
       // Step 1: Start the job (returns immediately with job_id)
+      // Prepare images array - combine hero and gallery images
+      const allImages = uploadedImages.hero
+        ? [uploadedImages.hero, ...uploadedImages.gallery]
+        : uploadedImages.gallery;
+
       const startResponse = await fetch('https://binaapp-backend.onrender.com/api/generate/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -180,7 +185,8 @@ export default function CreatePage() {
           business_description: description,
           language: language,
           user_id: user?.id || 'anonymous',
-          email: user?.email  // Pass user email for founder bypass
+          email: user?.email,  // Pass user email for founder bypass
+          images: allImages.length > 0 ? allImages : undefined  // Send uploaded images
         }),
       });
 
@@ -567,7 +573,7 @@ export default function CreatePage() {
               </div>
             </div>
 
-            <ImageUpload onImagesUploaded={setUploadedImages} />
+            <VisualImageUpload onImagesUploaded={setUploadedImages} />
 
             {error && (
               <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
