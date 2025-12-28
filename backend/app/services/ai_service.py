@@ -1647,13 +1647,13 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             if len(request.uploaded_images) > 0:
                 image_urls["hero"] = request.uploaded_images[0]
             if len(request.uploaded_images) > 1:
-                image_urls["product1"] = request.uploaded_images[1]
+                image_urls["gallery1"] = request.uploaded_images[1]
             if len(request.uploaded_images) > 2:
-                image_urls["product2"] = request.uploaded_images[2]
+                image_urls["gallery2"] = request.uploaded_images[2]
             if len(request.uploaded_images) > 3:
-                image_urls["product3"] = request.uploaded_images[3]
+                image_urls["gallery3"] = request.uploaded_images[3]
             if len(request.uploaded_images) > 4:
-                image_urls["product4"] = request.uploaded_images[4]
+                image_urls["gallery4"] = request.uploaded_images[4]
 
             logger.info(f"   ✅ Using {len(image_urls)} user-uploaded images")
 
@@ -1706,13 +1706,13 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             if hero_image:
                 image_urls["hero"] = hero_image
             if product1_image:
-                image_urls["product1"] = product1_image
+                image_urls["gallery1"] = product1_image
             if product2_image:
-                image_urls["product2"] = product2_image
+                image_urls["gallery2"] = product2_image
             if product3_image:
-                image_urls["product3"] = product3_image
+                image_urls["gallery3"] = product3_image
             if product4_image:
-                image_urls["product4"] = product4_image
+                image_urls["gallery4"] = product4_image
 
             # Log results
             successful = sum(1 for r in results if r and not isinstance(r, Exception))
@@ -1734,28 +1734,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         # Add image URLs to prompt with STRONG emphasis
         if image_urls:
-            image_instructions = "\n\n" + "="*50 + "\n"
-            image_instructions += "CRITICAL: USE THESE EXACT IMAGE URLS FROM CLOUDINARY\n"
-            image_instructions += "="*50 + "\n"
+            image_instructions = f"""
+USE THESE EXACT IMAGE URLS IN THE HTML:
+- Hero/Banner image: {image_urls.get('hero', 'generate appropriate image')}
+- Product/Gallery image 1: {image_urls.get('gallery1', 'generate appropriate image')}
+- Product/Gallery image 2: {image_urls.get('gallery2', 'generate appropriate image')}
+- Product/Gallery image 3: {image_urls.get('gallery3', 'generate appropriate image')}
+- Product/Gallery image 4: {image_urls.get('gallery4', 'generate appropriate image')}
 
-            # Add hero image
-            if "hero" in image_urls:
-                image_instructions += f"\nHERO SECTION:\n- Use this URL: {image_urls['hero']}\n"
-
-            # Add product/gallery images
-            product_urls = {k: v for k, v in image_urls.items() if k.startswith('product')}
-            if product_urls:
-                image_instructions += f"\nPRODUCTS/GALLERY SECTION (use ALL {len(product_urls)} images):\n"
-                for name, url in sorted(product_urls.items()):
-                    if url:
-                        image_instructions += f"- {name}: {url}\n"
-
-            image_instructions += "\n" + "="*50 + "\n"
-            image_instructions += "❌ DO NOT use Unsplash URLs\n"
-            image_instructions += "❌ DO NOT use placeholder URLs\n"
-            image_instructions += "❌ DO NOT generate random image URLs\n"
-            image_instructions += "✅ ONLY use the Cloudinary URLs listed above\n"
-            image_instructions += "="*50 + "\n"
+IMPORTANT: Use these EXACT URLs in the img src attributes. Do NOT use placeholder or Unsplash URLs.
+"""
 
             prompt += image_instructions
 
