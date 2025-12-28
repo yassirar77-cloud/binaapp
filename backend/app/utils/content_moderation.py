@@ -96,14 +96,14 @@ def is_content_allowed(description: str) -> Tuple[bool, str]:
         if keyword in desc_lower:
             logger.warning(f"🚫 BLOCKED: Illegal content detected - '{keyword}'")
             logger.warning(f"   Description preview: {description[:100]}...")
-            return False, "Kandungan tidak dibenarkan / Content not allowed"
+            return False, "❌ Kandungan tidak dibenarkan. Content not allowed."
 
     # Check suspicious patterns
     for pattern in SUSPICIOUS_PATTERNS:
         if re.search(pattern, desc_lower, re.IGNORECASE):
             logger.warning(f"🚫 BLOCKED: Suspicious pattern detected - '{pattern}'")
             logger.warning(f"   Description preview: {description[:100]}...")
-            return False, "Kandungan mencurigakan / Suspicious content"
+            return False, "❌ Kandungan mencurigakan. Suspicious content detected."
 
     return True, "OK"
 

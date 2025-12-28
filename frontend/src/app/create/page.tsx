@@ -78,24 +78,24 @@ const validateSubdomain = (subdomain: string): string | null => {
   const lower = subdomain.toLowerCase().trim()
 
   if (lower.length < 3) {
-    return "Minimum 3 characters required"
+    return "Subdomain mesti sekurang-kurangnya 3 aksara. Minimum 3 characters."
   }
 
   if (lower.length > 30) {
-    return "Maximum 30 characters allowed"
+    return "Subdomain terlalu panjang. Subdomain too long."
   }
 
   if (!/^[a-z0-9-]+$/.test(lower)) {
-    return "Only lowercase letters, numbers and hyphens allowed"
+    return "Hanya huruf kecil, nombor dan (-) dibenarkan. Only lowercase, numbers and hyphens allowed."
   }
 
   if (lower.startsWith('-') || lower.endsWith('-')) {
-    return "Cannot start or end with hyphen"
+    return "Tidak boleh bermula/berakhir dengan (-). Cannot start/end with hyphen."
   }
 
   for (const word of BLOCKED_WORDS) {
     if (lower.includes(word)) {
-      return "This name is not allowed"
+      return "Nama ini tidak dibenarkan. This name is not allowed."
     }
   }
 
@@ -186,7 +186,11 @@ export default function CreatePage() {
 
       if (!startResponse.ok) {
         const errorData = await startResponse.json();
-        throw new Error(errorData.error || 'Failed to start generation');
+        // Check if content was blocked
+        if (errorData.blocked || errorData.detail?.includes('tidak dibenarkan') || errorData.detail?.includes('mencurigakan')) {
+          throw new Error(errorData.detail || '⚠️ Maaf, kandungan ini tidak dibenarkan. Sorry, this content is not allowed.');
+        }
+        throw new Error(errorData.error || errorData.detail || 'Failed to start generation');
       }
 
       const startData = await startResponse.json();
