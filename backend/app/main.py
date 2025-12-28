@@ -1649,6 +1649,39 @@ async def start_generation(request: Request):
     user_email = body.get("email", "")
     images = body.get("images", [])  # Extract uploaded images
 
+    # Get dish names from request
+    dish_names = body.get("dish_names", [])
+    uploaded_images = body.get("uploaded_images", {})
+
+    # Build image info for AI prompt
+    image_info = ""
+    if uploaded_images:
+        image_info = "\n\nUSE THESE EXACT IMAGES AND NAMES:\n"
+
+        if uploaded_images.get("hero"):
+            image_info += f"- Hero Banner: {uploaded_images['hero']}\n"
+
+        for i in range(4):
+            key = f"gallery{i+1}"
+            name = dish_names[i] if i < len(dish_names) else f"Menu Item {i+1}"
+            if uploaded_images.get(key):
+                image_info += f"- {name}: {uploaded_images[key]}\n"
+
+        image_info += """
+CRITICAL IMAGE INSTRUCTIONS:
+1. Use the dish names provided above as menu item titles
+2. Generate appropriate descriptions IN MALAY for each dish
+3. Use the EXACT image URLs provided above
+4. DO NOT use Unsplash or placeholder URLs
+5. Make sure ALL 4 gallery images are used (not just 3)
+6. Hero section: Use h-[60vh] (NOT h-[90vh])
+7. Gallery images: Use h-48 (NOT h-64)
+"""
+
+    # Append image info to description
+    if image_info:
+        description = description + image_info
+
     if not description:
         return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
 
@@ -1672,6 +1705,8 @@ async def start_generation(request: Request):
     logger.info(f"   User: {user_email or user_id}")
     logger.info(f"   Description: {description[:60]}...")
     logger.info(f"   Images: {len(images) if images else 0} uploaded")
+    logger.info(f"   Dish names: {dish_names if dish_names else 'None'}")
+    logger.info(f"   Uploaded images: {len(uploaded_images)} items" if uploaded_images else "   Uploaded images: None")
 
     # Create job in Supabase
     if supabase:
