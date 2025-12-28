@@ -1656,27 +1656,55 @@ async def start_generation(request: Request):
     # Build image info for AI prompt
     image_info = ""
     if uploaded_images:
-        image_info = "\n\nUSE THESE EXACT IMAGES AND NAMES:\n"
-
-        if uploaded_images.get("hero"):
-            image_info += f"- Hero Banner: {uploaded_images['hero']}\n"
-
+        # Extract gallery URLs and names
+        gallery_urls = []
+        gallery_names = []
         for i in range(4):
             key = f"gallery{i+1}"
             name = dish_names[i] if i < len(dish_names) else f"Menu Item {i+1}"
             if uploaded_images.get(key):
-                image_info += f"- {name}: {uploaded_images[key]}\n"
+                gallery_urls.append(uploaded_images[key])
+                gallery_names.append(name)
 
-        image_info += """
-CRITICAL IMAGE INSTRUCTIONS:
-1. Use the dish names provided above as menu item titles
+        # Build CRITICAL gallery instruction
+        image_info = "\n\n"
+
+        if uploaded_images.get("hero"):
+            image_info += f"HERO IMAGE: {uploaded_images['hero']}\n\n"
+
+        if len(gallery_urls) == 4:
+            image_info += f"""CRITICAL - GALLERY IMAGES:
+You MUST include EXACTLY 4 menu/gallery items using these images:
+1. Gallery 1: {gallery_urls[0]} - Name: {gallery_names[0]}
+2. Gallery 2: {gallery_urls[1]} - Name: {gallery_names[1]}
+3. Gallery 3: {gallery_urls[2]} - Name: {gallery_names[2]}
+4. Gallery 4: {gallery_urls[3]} - Name: {gallery_names[3]}
+
+DO NOT skip any image. DO NOT use Unsplash for ANY gallery image.
+All 4 images MUST be from the uploaded URLs above.
+Each gallery item MUST use the exact name and URL specified.
+
+MANDATORY REQUIREMENTS:
+1. Use the dish names provided above as menu item titles (EXACT names)
 2. Generate appropriate descriptions IN MALAY for each dish
-3. Use the EXACT image URLs provided above
-4. DO NOT use Unsplash or placeholder URLs
-5. Make sure ALL 4 gallery images are used (not just 3)
+3. Use the EXACT image URLs provided above (DO NOT modify or replace)
+4. DO NOT use Unsplash or any placeholder URLs
+5. Make sure ALL 4 gallery images are included (not 3, not 2, but ALL 4)
 6. Hero section: Use h-[60vh] (NOT h-[90vh])
 7. Gallery images: Use h-48 (NOT h-64)
+8. Each gallery item must be DIFFERENT - different image, different name, different description
 """
+        else:
+            # Fallback for partial uploads
+            image_info += "USE THESE EXACT IMAGES AND NAMES:\n"
+            if uploaded_images.get("hero"):
+                image_info += f"- Hero Banner: {uploaded_images['hero']}\n"
+            for i in range(4):
+                key = f"gallery{i+1}"
+                name = dish_names[i] if i < len(dish_names) else f"Menu Item {i+1}"
+                if uploaded_images.get(key):
+                    image_info += f"- {name}: {uploaded_images[key]}\n"
+            image_info += "\nCRITICAL: Use EXACT URLs. DO NOT use Unsplash.\n"
 
     # Append image info to description
     if image_info:
