@@ -1374,6 +1374,26 @@ TYPE: {biz_type}
    - Do NOT modify the URLs
    - Do NOT use any other image sources
 
+7. IMAGE SIZE GUIDELINES:
+   - Hero section: Use 'h-[60vh]' or 'h-[500px]' (NOT h-[90vh] - too big!)
+   - Gallery images: Use 'h-48' or 'h-52' (NOT h-64 - too big on desktop!)
+   - Use 'object-cover' for all images
+   - Use 'object-center' for hero image
+
+   Example hero section:
+   <section class="relative h-[60vh] md:h-[500px]">
+     <img src="..." class="w-full h-full object-cover object-center">
+   </section>
+
+   Example gallery card:
+   <div class="rounded-xl overflow-hidden shadow-lg">
+     <img src="..." class="w-full h-48 object-cover">
+     <div class="p-4">
+       <h3>Dish Name</h3>
+       <p>Description</p>
+     </div>
+   </div>
+
 Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HTML."""
 
     async def _call_deepseek(self, prompt: str) -> Optional[str]:
