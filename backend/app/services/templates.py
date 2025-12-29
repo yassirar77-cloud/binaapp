@@ -519,6 +519,343 @@ function handleContactSubmit(e) {{
 
         return html
 
+    def create_delivery_order_page(
+        self,
+        business_name: str,
+        menu_items: List[Dict],
+        delivery_zones: List[Dict],
+        phone_number: str,
+        business_description: str = ""
+    ) -> str:
+        """
+        NEW METHOD - Creates a complete standalone delivery order page
+
+        This is the CRITICAL FIX for Problem #1: Missing Delivery Page
+        Creates a SEPARATE page (not just a section) with:
+        - Delivery zone selection cards
+        - Full menu grid with AI-generated images
+        - Shopping cart (sidebar on desktop, floating button on mobile)
+        - WhatsApp checkout integration
+
+        Args:
+            business_name: Name of the business
+            menu_items: List of menu items with {'name', 'price', 'description', 'image_url', 'category'}
+            delivery_zones: List of zones with {'name', 'location', 'delivery_time', 'fee'}
+            phone_number: WhatsApp phone number
+            business_description: Optional business description
+
+        Returns:
+            Complete HTML for standalone delivery order page
+        """
+        # Clean phone number
+        phone_clean = re.sub(r'[^\d+]', '', phone_number)
+        if not phone_clean.startswith('+'):
+            if phone_clean.startswith('60'):
+                phone_clean = '+' + phone_clean
+            elif phone_clean.startswith('0'):
+                phone_clean = '+6' + phone_clean
+            else:
+                phone_clean = '+60' + phone_clean
+
+        # Prepare menu items JSON
+        menu_json = json.dumps(menu_items)
+        zones_json = json.dumps(delivery_zones)
+
+        # Build zone cards HTML
+        zone_cards_html = ""
+        for zone in delivery_zones:
+            zone_cards_html += f"""
+        <div class="zone-card" onclick="selectZone('{zone['name']}', '{zone['fee']}')">
+          <div class="zone-icon">📍</div>
+          <h3>{zone['name']}</h3>
+          <div class="zone-details">
+            <div>🕐 {zone.get('delivery_time', '30-45 min')}</div>
+            <div>💰 {zone['fee']}</div>
+          </div>
+        </div>
+"""
+
+        # Build menu items HTML by category
+        categories = {}
+        for item in menu_items:
+            cat = item.get('category', 'Menu')
+            if cat not in categories:
+                categories[cat] = []
+            categories[cat].append(item)
+
+        menu_html = ""
+        for category, items in categories.items():
+            menu_html += f"""
+      <div class="category-section">
+        <h2 class="category-title">{category}</h2>
+        <div class="menu-grid">
+"""
+            for item in items:
+                img_url = item.get('image_url', 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80')
+                menu_html += f"""
+          <div class="menu-card">
+            <img src="{img_url}" alt="{item['name']}" class="menu-image">
+            <div class="menu-content">
+              <h3>{item['name']}</h3>
+              <p class="menu-desc">{item.get('description', '')}</p>
+              <div class="menu-footer">
+                <span class="price">{item['price']}</span>
+                <button class="add-btn" onclick="addToCart('{item['name']}', '{item['price']}', '{img_url}')">
+                  <svg width="20" height="20" fill="white" viewBox="0 0 20 20">
+                    <path d="M10 5v10M5 10h10" stroke="white" stroke-width="2" stroke-linecap="round"/>
+                  </svg>
+                  Tambah
+                </button>
+              </div>
+            </div>
+          </div>
+"""
+            menu_html += """
+        </div>
+      </div>
+"""
+
+        # Complete HTML
+        html = f"""<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Order Delivery - {business_name}</title>
+  <style>
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f9fafb; }}
+
+    /* Header */
+    .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }}
+    .header-content {{ max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }}
+    .back-btn {{ background: rgba(255,255,255,0.2); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }}
+    .back-btn:hover {{ background: rgba(255,255,255,0.3); }}
+
+    /* Zone Selection */
+    .zone-section {{ max-width: 1400px; margin: 40px auto; padding: 0 20px; }}
+    .zone-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 24px; }}
+    .zone-card {{ background: white; padding: 24px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.3s; border: 3px solid transparent; }}
+    .zone-card:hover {{ transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,0.15); }}
+    .zone-card.selected {{ border-color: #25D366; background: #f0fdf4; }}
+    .zone-icon {{ font-size: 3rem; text-align: center; margin-bottom: 12px; }}
+    .zone-card h3 {{ text-align: center; margin-bottom: 12px; color: #1f2937; }}
+    .zone-details {{ display: flex; justify-content: space-around; color: #6b7280; font-size: 0.9rem; }}
+
+    /* Menu */
+    .menu-section {{ max-width: 1400px; margin: 40px auto; padding: 0 20px; }}
+    .category-section {{ margin-bottom: 48px; }}
+    .category-title {{ font-size: 2rem; margin-bottom: 24px; color: #1f2937; }}
+    .menu-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 24px; }}
+    .menu-card {{ background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); transition: transform 0.3s; }}
+    .menu-card:hover {{ transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,0.15); }}
+    .menu-image {{ width: 100%; height: 200px; object-fit: cover; }}
+    .menu-content {{ padding: 20px; }}
+    .menu-card h3 {{ font-size: 1.25rem; margin-bottom: 8px; color: #1f2937; }}
+    .menu-desc {{ color: #6b7280; font-size: 0.9rem; margin-bottom: 16px; line-height: 1.5; }}
+    .menu-footer {{ display: flex; justify-content: space-between; align-items: center; }}
+    .price {{ font-size: 1.5rem; font-weight: bold; color: #667eea; }}
+    .add-btn {{ background: #25D366; color: white; border: none; padding: 12px 20px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: bold; }}
+    .add-btn:hover {{ background: #1fa855; }}
+
+    /* Cart Sidebar (Desktop) */
+    .cart-sidebar {{ position: fixed; right: 0; top: 0; width: 400px; height: 100vh; background: white; box-shadow: -4px 0 24px rgba(0,0,0,0.1); transform: translateX(100%); transition: transform 0.3s; z-index: 200; display: flex; flex-direction: column; }}
+    .cart-sidebar.open {{ transform: translateX(0); }}
+    .cart-header {{ padding: 24px; background: #667eea; color: white; display: flex; justify-content: space-between; align-items: center; }}
+    .cart-close {{ background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer; }}
+    .cart-items {{ flex: 1; overflow-y: auto; padding: 20px; }}
+    .cart-item {{ display: flex; gap: 12px; padding: 16px; background: #f9fafb; border-radius: 12px; margin-bottom: 12px; }}
+    .cart-item-img {{ width: 60px; height: 60px; border-radius: 8px; object-fit: cover; }}
+    .cart-item-details {{ flex: 1; }}
+    .cart-item-name {{ font-weight: bold; margin-bottom: 4px; }}
+    .cart-item-price {{ color: #667eea; }}
+    .cart-remove {{ background: #ef4444; color: white; border: none; padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }}
+    .cart-footer {{ padding: 24px; border-top: 2px solid #e5e7eb; }}
+    .cart-total {{ display: flex; justify-content: space-between; font-size: 1.5rem; font-weight: bold; margin-bottom: 16px; }}
+    .checkout-btn {{ width: 100%; background: #25D366; color: white; border: none; padding: 16px; border-radius: 12px; font-size: 1.1rem; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }}
+    .checkout-btn:hover {{ background: #1fa855; }}
+
+    /* Cart Button (Mobile) */
+    .cart-fab {{ display: none; position: fixed; bottom: 20px; right: 20px; width: 64px; height: 64px; background: #667eea; color: white; border-radius: 50%; border: none; box-shadow: 0 8px 24px rgba(102,126,234,0.4); cursor: pointer; z-index: 150; align-items: center; justify-content: center; font-size: 1.5rem; }}
+    .cart-count {{ position: absolute; top: -8px; right: -8px; background: #ef4444; color: white; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; font-weight: bold; }}
+
+    @media (max-width: 768px) {{
+      .cart-sidebar {{ width: 100%; }}
+      .cart-fab {{ display: flex; }}
+      .header-content {{ flex-direction: column; gap: 12px; }}
+    }}
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <div class="header">
+    <div class="header-content">
+      <h1>🛵 {business_name} - Delivery</h1>
+      <a href="/" class="back-btn">← Kembali</a>
+    </div>
+  </div>
+
+  <!-- Zone Selection -->
+  <div class="zone-section">
+    <h2 style="font-size: 2rem; color: #1f2937;">Pilih Kawasan Delivery</h2>
+    <div class="zone-grid">
+{zone_cards_html}
+    </div>
+  </div>
+
+  <!-- Menu -->
+  <div class="menu-section" id="menu-section">
+    <h2 style="font-size: 2.5rem; color: #1f2937; margin-bottom: 32px;">Menu Kami</h2>
+{menu_html}
+  </div>
+
+  <!-- Cart Sidebar -->
+  <div class="cart-sidebar" id="cartSidebar">
+    <div class="cart-header">
+      <h2>Troli Saya</h2>
+      <button class="cart-close" onclick="toggleCart()">×</button>
+    </div>
+    <div class="cart-items" id="cartItems">
+      <p style="text-align: center; color: #6b7280; margin-top: 40px;">Troli masih kosong</p>
+    </div>
+    <div class="cart-footer">
+      <div class="cart-total">
+        <span>Total:</span>
+        <span id="cartTotal">RM 0.00</span>
+      </div>
+      <button class="checkout-btn" onclick="checkout()">
+        <svg width="24" height="24" fill="white" viewBox="0 0 24 24">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.890-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+        </svg>
+        Checkout via WhatsApp
+      </button>
+    </div>
+  </div>
+
+  <!-- Cart FAB (Mobile) -->
+  <button class="cart-fab" onclick="toggleCart()">
+    🛒
+    <span class="cart-count" id="cartCount">0</span>
+  </button>
+
+  <script>
+    let cart = [];
+    let selectedZone = null;
+
+    function selectZone(name, fee) {{
+      selectedZone = {{ name, fee }};
+      document.querySelectorAll('.zone-card').forEach(card => card.classList.remove('selected'));
+      event.currentTarget.classList.add('selected');
+
+      // Scroll to menu
+      document.getElementById('menu-section').scrollIntoView({{ behavior: 'smooth' }});
+    }}
+
+    function addToCart(name, price, image) {{
+      if (!selectedZone) {{
+        alert('Sila pilih kawasan delivery terlebih dahulu!');
+        window.scrollTo({{ top: 0, behavior: 'smooth' }});
+        return;
+      }}
+
+      cart.push({{ name, price, image, id: Date.now() }});
+      updateCart();
+
+      // Show cart on mobile
+      if (window.innerWidth <= 768) {{
+        toggleCart();
+      }}
+    }}
+
+    function removeFromCart(id) {{
+      cart = cart.filter(item => item.id !== id);
+      updateCart();
+    }}
+
+    function updateCart() {{
+      const cartItems = document.getElementById('cartItems');
+      const cartCount = document.getElementById('cartCount');
+      const cartTotal = document.getElementById('cartTotal');
+
+      if (cart.length === 0) {{
+        cartItems.innerHTML = '<p style="text-align: center; color: #6b7280; margin-top: 40px;">Troli masih kosong</p>';
+        cartCount.textContent = '0';
+        cartTotal.textContent = 'RM 0.00';
+        return;
+      }}
+
+      // Update count
+      cartCount.textContent = cart.length;
+
+      // Calculate total
+      const total = cart.reduce((sum, item) => {{
+        const price = parseFloat(item.price.replace('RM', '').replace(',', ''));
+        return sum + price;
+      }}, 0);
+
+      cartTotal.textContent = `RM ${{total.toFixed(2)}}`;
+
+      // Render items
+      cartItems.innerHTML = cart.map(item => `
+        <div class="cart-item">
+          <img src="${{item.image}}" class="cart-item-img" alt="${{item.name}}">
+          <div class="cart-item-details">
+            <div class="cart-item-name">${{item.name}}</div>
+            <div class="cart-item-price">${{item.price}}</div>
+          </div>
+          <button class="cart-remove" onclick="removeFromCart(${{item.id}})">×</button>
+        </div>
+      `).join('');
+    }}
+
+    function toggleCart() {{
+      document.getElementById('cartSidebar').classList.toggle('open');
+    }}
+
+    function checkout() {{
+      if (cart.length === 0) {{
+        alert('Troli masih kosong!');
+        return;
+      }}
+
+      if (!selectedZone) {{
+        alert('Sila pilih kawasan delivery!');
+        toggleCart();
+        window.scrollTo({{ top: 0, behavior: 'smooth' }});
+        return;
+      }}
+
+      // Build WhatsApp message
+      let message = `*Order Delivery dari {business_name}*%0A%0A`;
+      message += `*Kawasan:* ${{selectedZone.name}}%0A`;
+      message += `*Caj Delivery:* ${{selectedZone.fee}}%0A%0A`;
+      message += `*Pesanan:*%0A`;
+
+      cart.forEach((item, index) => {{
+        message += `${{index + 1}}. ${{item.name}} - ${{item.price}}%0A`;
+      }});
+
+      const total = cart.reduce((sum, item) => {{
+        const price = parseFloat(item.price.replace('RM', '').replace(',', ''));
+        return sum + price;
+      }}, 0);
+
+      const deliveryFee = parseFloat(selectedZone.fee.replace('RM', '').replace(',', ''));
+      const grandTotal = total + deliveryFee;
+
+      message += `%0A*Subtotal:* RM ${{total.toFixed(2)}}%0A`;
+      message += `*Delivery:* ${{selectedZone.fee}}%0A`;
+      message += `*TOTAL:* RM ${{grandTotal.toFixed(2)}}`;
+
+      // Open WhatsApp
+      window.open(`https://wa.me/{phone_clean}?text=${{message}}`, '_blank');
+    }}
+  </script>
+</body>
+</html>
+"""
+        return html
+
     def inject_ordering_system(
         self,
         html: str,

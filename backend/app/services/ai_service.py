@@ -1761,6 +1761,95 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         logger.info("✅ No duplicate product/service images found")
         return html
 
+    async def _generate_ai_food_images(self, html: str) -> str:
+        """
+        NEW METHOD: Replace Unsplash food images with AI-generated images
+
+        This is the CRITICAL FIX for Problem #2:
+        - Scans HTML for Malaysian food items
+        - Generates AI images using DeepSeek/Qwen → Stability AI → Cloudinary pipeline
+        - Replaces Unsplash URLs with Cloudinary URLs
+
+        Returns HTML with AI-generated images for food items
+        """
+        if not html or not self.stability_api_key:
+            logger.info("   ⚠️ Skipping AI image generation (no Stability API key)")
+            return html
+
+        import re
+
+        logger.info("🎨 GENERATING AI IMAGES FOR MALAYSIAN FOOD ITEMS...")
+
+        # Pattern to find images with food names
+        # Matches: <img src="URL"> near <h3>Food Name</h3>
+        patterns = [
+            r'(<img[^>]*src=")([^"]+unsplash[^"]+)("[^>]*>[\s\S]{0,200}?<h[2-4][^>]*>)(.*?)(</h[2-4]>)',
+            r'(<h[2-4][^>]*>)(.*?)(</h[2-4]>[\s\S]{0,200}?<img[^>]*src=")([^"]+unsplash[^"]+)("[^>]*>)',
+        ]
+
+        replacements = {}
+        food_items_found = []
+
+        for pattern in patterns:
+            matches = re.finditer(pattern, html, re.IGNORECASE)
+            for match in matches:
+                groups = match.groups()
+
+                # Extract item name and URL based on pattern
+                if 'src=' in groups[0]:  # Pattern 1
+                    img_url = groups[1]
+                    item_name = groups[3].strip()
+                else:  # Pattern 2
+                    item_name = groups[1].strip()
+                    img_url = groups[3]
+
+                # Clean item name
+                item_name = re.sub(r'<[^>]+>', '', item_name).strip()
+                item_name = re.sub(r'[🍛🍗🐟🥤]', '', item_name).strip()  # Remove emojis
+
+                # Check if it's Malaysian food
+                is_food = any(word in item_name.lower() for word in [
+                    'nasi', 'mee', 'ayam', 'ikan', 'roti', 'satay', 'rendang', 'laksa',
+                    'rice', 'noodle', 'chicken', 'fish', 'bread', 'curry', 'teh', 'kopi',
+                    'cendol', 'kuih', 'goreng', 'lemak', 'kandar', 'bakar'
+                ])
+
+                if is_food and 'unsplash' in img_url.lower():
+                    food_items_found.append((item_name, img_url))
+
+        if not food_items_found:
+            logger.info("   ℹ️ No Malaysian food items found that need AI generation")
+            return html
+
+        logger.info(f"   🍽️ Found {len(food_items_found)} food items to generate:")
+        for name, _ in food_items_found:
+            logger.info(f"      - {name}")
+
+        # Generate AI images for each food item
+        for item_name, old_url in food_items_found:
+            try:
+                logger.info(f"   🎨 Generating AI image for: {item_name}")
+                ai_url = await self.generate_food_image(item_name)
+
+                if ai_url and 'cloudinary' in ai_url.lower():
+                    replacements[old_url] = ai_url
+                    logger.info(f"   ✅ Generated: {ai_url[:60]}...")
+                else:
+                    logger.warning(f"   ⚠️ Failed to generate image for: {item_name}")
+            except Exception as e:
+                logger.error(f"   ❌ Error generating image for {item_name}: {e}")
+
+        # Apply replacements
+        if replacements:
+            logger.info(f"   🔄 Replacing {len(replacements)} Unsplash URLs with AI-generated images...")
+            for old_url, new_url in replacements.items():
+                html = html.replace(old_url, new_url)
+            logger.info("   ✅ AI image generation complete!")
+        else:
+            logger.warning("   ⚠️ No AI images were generated")
+
+        return html
+
     def _fix_placeholders(self, html: str, name: str, desc: str) -> str:
         """Fix any remaining placeholders as a safety net"""
         if not html:
@@ -2001,6 +2090,10 @@ IMPORTANT INSTRUCTIONS:
         html = self._fix_placeholders(html, request.business_name, request.description)
         html = self._fix_menu_item_images(html)
 
+        # CRITICAL FIX: Generate AI images for Malaysian food items
+        # This replaces Unsplash URLs with Cloudinary URLs from Stability AI
+        html = await self._generate_ai_food_images(html)
+
         logger.info("✅ ALL STEPS COMPLETE")
         logger.info(f"   Final size: {len(html)} characters")
 
@@ -2050,6 +2143,10 @@ IMPORTANT INSTRUCTIONS:
                 html = self._extract_html(html)
                 html = self._fix_placeholders(html, request.business_name, request.description)
                 html = self._fix_menu_item_images(html)
+
+                # CRITICAL FIX: Generate AI images for Malaysian food items
+                # This replaces Unsplash URLs with Cloudinary URLs from Stability AI
+                html = await self._generate_ai_food_images(html)
 
                 results[style] = AIGenerationResponse(
                     html_content=html,
