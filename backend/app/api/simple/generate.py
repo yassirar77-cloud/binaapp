@@ -205,6 +205,56 @@ async def generate_website(request: SimpleGenerateRequest):
             for i, img in enumerate(request.images):
                 logger.info(f"   Image {i+1}: {img}")
 
+        # Create menu items from uploaded images (for ordering system)
+        menu_items = []
+        if request.images and len(request.images) > 0:
+            logger.info(f"Creating menu items from {len(request.images)} uploaded images...")
+            default_prices = [15, 12, 18, 10, 20, 14, 16, 13]  # Default prices for menu items
+
+            for idx, img in enumerate(request.images):
+                # Extract image data
+                if isinstance(img, dict):
+                    img_url = img.get('url', '')
+                    img_name = img.get('name', f'Item {idx+1}')
+                else:
+                    img_url = str(img)
+                    img_name = f'Item {idx+1}'
+
+                # Skip hero image (first image is usually hero)
+                if idx == 0 and 'hero' in img_name.lower():
+                    continue
+
+                # Skip empty names or "Hero Image"
+                if not img_name or img_name == 'Hero Image' or img_name == '':
+                    continue
+
+                # Create menu item
+                menu_item = {
+                    "id": f"menu-{idx}",
+                    "name": img_name,
+                    "description": f"Hidangan istimewa dari dapur kami",  # Default description
+                    "price": default_prices[idx % len(default_prices)],
+                    "image_url": img_url,
+                    "category_id": "main",
+                    "is_available": True
+                }
+                menu_items.append(menu_item)
+                logger.info(f"   Added menu item: {img_name} - RM{menu_item['price']}")
+
+        # Create delivery zones if delivery feature is enabled
+        delivery_zones = []
+        if request.features and request.features.get("deliverySystem") and request.delivery:
+            delivery_data = request.delivery
+            default_zone = {
+                "id": "default",
+                "zone_name": delivery_data.get("area", "Kawasan Delivery"),
+                "delivery_fee": float(delivery_data.get("fee", "5").replace("RM", "").strip()) if isinstance(delivery_data.get("fee"), str) else delivery_data.get("fee", 5),
+                "estimated_time": delivery_data.get("hours", "30-45 min"),
+                "is_active": True
+            }
+            delivery_zones = [default_zone]
+            logger.info(f"Created default delivery zone: {default_zone['zone_name']} - RM{default_zone['delivery_fee']}")
+
         # User data for integrations
         user_data = {
             "phone": phone_number if phone_number else "+60123456789",
@@ -212,8 +262,14 @@ async def generate_website(request: SimpleGenerateRequest):
             "email": "contact@business.com",
             "url": "https://preview.binaapp.my",
             "whatsapp_message": "Hi, I'm interested",
-            "business_name": business_name
+            "business_name": business_name,
+            "menu_items": menu_items,
+            "delivery_zones": delivery_zones
         }
+
+        # Add delivery info if provided
+        if request.delivery:
+            user_data["delivery"] = request.delivery
 
         # Dual AI generation mode - return both designs
         if request.mode == "dual":
