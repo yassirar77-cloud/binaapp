@@ -6,6 +6,7 @@ Handles website type detection and feature injection
 from typing import List, Dict, Tuple
 from loguru import logger
 import re
+import json
 
 
 class TemplateService:
@@ -518,6 +519,496 @@ function handleContactSubmit(e) {{
 
         return html
 
+    def inject_ordering_system(
+        self,
+        html: str,
+        menu_items: List[Dict],
+        delivery_zones: List[Dict],
+        business_info: Dict
+    ) -> str:
+        """
+        Inject complete ordering system with cart, zone selection, and WhatsApp checkout
+        """
+        business_name = business_info.get("name", "Our Restaurant")
+        phone_number = business_info.get("phone", "+60123456789")
+
+        # Clean phone for WhatsApp
+        phone_clean = re.sub(r'[^\d+]', '', phone_number)
+        if not phone_clean.startswith('+'):
+            if phone_clean.startswith('60'):
+                phone_clean = '+' + phone_clean
+            elif phone_clean.startswith('0'):
+                phone_clean = '+6' + phone_clean
+            else:
+                phone_clean = '+60' + phone_clean
+
+        # Organize menu by categories
+        categories = {}
+        for item in menu_items:
+            cat_id = item.get('category_id', 'uncategorized')
+            if cat_id not in categories:
+                categories[cat_id] = []
+            categories[cat_id].append(item)
+
+        # Build menu items JSON
+        menu_json = json.dumps(menu_items)
+        zones_json = json.dumps(delivery_zones)
+
+        ordering_html = f"""
+<!-- Online Ordering System -->
+<div id="ordering-app" style="display:none;position:fixed;inset:0;background:white;z-index:9999;overflow-y:auto;">
+  <!-- Header -->
+  <div style="position:sticky;top:0;background:white;border-bottom:2px solid #e5e7eb;z-index:100;">
+    <div style="max-width:1400px;margin:0 auto;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <h1 style="margin:0;font-size:1.5rem;font-weight:bold;color:#1f2937;">{business_name}</h1>
+        <p style="margin:4px 0 0;color:#6b7280;font-size:0.875rem;">Order Delivery Online</p>
+      </div>
+      <button onclick="closeOrdering()" style="background:#ef4444;color:white;border:none;padding:10px 20px;border-radius:8px;font-weight:600;cursor:pointer;">
+        ✕ Close
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div style="max-width:1400px;margin:0 auto;display:grid;grid-template-columns:1fr;gap:24px;padding:20px;">
+    <!-- Left: Menu Section -->
+    <div style="grid-column:1/-1;">
+      <!-- Step 1: Zone Selection -->
+      <div id="zone-section" style="margin-bottom:32px;">
+        <h2 style="font-size:1.5rem;font-weight:bold;margin-bottom:16px;color:#1f2937;">📍 Step 1: Choose Delivery Area</h2>
+        <div id="zones-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px;">
+          <!-- Zones will be injected here -->
+        </div>
+        <div id="zone-warning" style="margin-top:16px;padding:16px;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;display:none;">
+          ⚠️ Please select a delivery area to continue
+        </div>
+      </div>
+
+      <!-- Step 2: Menu -->
+      <div id="menu-section" style="opacity:0.5;pointer-events:none;">
+        <h2 style="font-size:1.5rem;font-weight:bold;margin-bottom:16px;color:#1f2937;">🍽️ Step 2: Choose Your Meal</h2>
+
+        <!-- Category Tabs -->
+        <div id="category-tabs" style="display:flex;gap:8px;margin-bottom:24px;overflow-x:auto;padding-bottom:8px;">
+          <button onclick="filterCategory('all')" class="category-tab active" data-category="all"
+                  style="padding:10px 20px;border:2px solid #3b82f6;background:#3b82f6;color:white;border-radius:9999px;font-weight:600;cursor:pointer;white-space:nowrap;">
+            All Items
+          </button>
+        </div>
+
+        <!-- Menu Grid -->
+        <div id="menu-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:20px;">
+          <!-- Menu items will be injected here -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cart Sidebar (Desktop) -->
+  <div id="cart-sidebar" style="position:fixed;top:0;right:0;width:380px;height:100vh;background:white;border-left:2px solid #e5e7eb;display:none;flex-direction:column;z-index:101;">
+    <div style="padding:20px;border-bottom:2px solid #e5e7eb;">
+      <h3 style="margin:0;font-size:1.25rem;font-weight:bold;">🛒 Your Order</h3>
+    </div>
+
+    <div id="cart-items-list" style="flex:1;overflow-y:auto;padding:20px;">
+      <div style="text-align:center;color:#9ca3af;padding:40px 20px;">
+        Cart is empty
+      </div>
+    </div>
+
+    <div style="padding:20px;border-top:2px solid #e5e7eb;background:#f9fafb;">
+      <div style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+          <span>Subtotal:</span>
+          <span id="cart-subtotal">RM 0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+          <span>Delivery Fee:</span>
+          <span id="cart-delivery-fee">RM 0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:1.25rem;font-weight:bold;padding-top:8px;border-top:2px solid #e5e7eb;">
+          <span>Total:</span>
+          <span id="cart-total">RM 0.00</span>
+        </div>
+      </div>
+
+      <button id="checkout-btn" onclick="checkout()"
+              style="width:100%;padding:16px;background:#25D366;color:white;border:none;border-radius:8px;font-size:1.125rem;font-weight:bold;cursor:pointer;display:none;">
+        Checkout via WhatsApp
+      </button>
+    </div>
+  </div>
+
+  <!-- Cart Floating Button (Mobile) -->
+  <button id="cart-float-btn" onclick="toggleMobileCart()"
+          style="display:none;position:fixed;bottom:20px;right:20px;background:#3b82f6;color:white;border:none;padding:16px;border-radius:9999px;box-shadow:0 10px 30px rgba(59,130,246,0.4);cursor:pointer;z-index:102;">
+    🛒 <span id="cart-count-badge" style="margin-left:8px;background:white;color:#3b82f6;padding:4px 10px;border-radius:9999px;font-weight:bold;">0</span>
+  </button>
+</div>
+
+<style>
+.category-tab {{
+  transition: all 0.2s;
+}}
+.category-tab:hover {{
+  transform: scale(1.05);
+}}
+.category-tab.active {{
+  background: #3b82f6 !important;
+  color: white !important;
+}}
+.menu-item-card {{
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all 0.3s;
+  background: white;
+}}
+.menu-item-card:hover {{
+  transform: translateY(-4px);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+  border-color: #3b82f6;
+}}
+.zone-card {{
+  border: 2px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: white;
+}}
+.zone-card:hover {{
+  border-color: #3b82f6;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(59,130,246,0.2);
+}}
+.zone-card.selected {{
+  border-color: #3b82f6;
+  background: #eff6ff;
+  box-shadow: 0 8px 24px rgba(59,130,246,0.3);
+}}
+@media (max-width: 768px) {{
+  #cart-sidebar {{
+    display: none !important;
+  }}
+  #cart-float-btn {{
+    display: flex !important;
+    align-items: center;
+  }}
+}}
+@media (min-width: 769px) {{
+  #ordering-app > div:first-child {{
+    padding-right: 400px;
+  }}
+  #cart-sidebar {{
+    display: flex !important;
+  }}
+}}
+</style>
+
+<script>
+// Data
+const menuItems = {menu_json};
+const deliveryZones = {zones_json};
+const businessName = "{business_name}";
+const whatsappNumber = "{phone_clean}";
+
+// State
+let selectedZone = null;
+let cart = [];
+let currentCategory = 'all';
+
+// Initialize
+function initOrdering() {{
+  renderZones();
+  renderMenu();
+  updateCart();
+}}
+
+// Render delivery zones
+function renderZones() {{
+  const grid = document.getElementById('zones-grid');
+  grid.innerHTML = deliveryZones.map(zone => `
+    <div class="zone-card" onclick="selectZone('${{zone.id}}')" data-zone="${{zone.id}}">
+      <div style="font-size:1.5rem;margin-bottom:8px;">📍</div>
+      <div style="font-weight:bold;font-size:1.125rem;margin-bottom:8px;">${{zone.zone_name}}</div>
+      <div style="color:#6b7280;font-size:0.875rem;margin-bottom:4px;">
+        <span style="color:#10b981;">⏱ ${{zone.estimated_time || '30-45 min'}}</span>
+      </div>
+      <div style="color:#3b82f6;font-weight:bold;font-size:1.125rem;">
+        RM ${{zone.delivery_fee.toFixed(2)}}
+      </div>
+    </div>
+  `).join('');
+}}
+
+// Select delivery zone
+function selectZone(zoneId) {{
+  selectedZone = deliveryZones.find(z => z.id === zoneId);
+
+  // Update UI
+  document.querySelectorAll('.zone-card').forEach(card => {{
+    card.classList.remove('selected');
+  }});
+  document.querySelector(`[data-zone="${{zoneId}}"]`).classList.add('selected');
+
+  // Enable menu
+  document.getElementById('menu-section').style.opacity = '1';
+  document.getElementById('menu-section').style.pointerEvents = 'auto';
+  document.getElementById('zone-warning').style.display = 'none';
+
+  updateCart();
+}}
+
+// Render menu
+function renderMenu() {{
+  const grid = document.getElementById('menu-grid');
+
+  const filteredItems = currentCategory === 'all'
+    ? menuItems
+    : menuItems.filter(item => item.category_id === currentCategory);
+
+  grid.innerHTML = filteredItems.map(item => `
+    <div class="menu-item-card">
+      ${{item.image_url ? `<img src="${{item.image_url}}" style="width:100%;height:180px;object-fit:cover;" alt="${{item.name}}">` : `<div style="width:100%;height:180px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);display:flex;align-items:center;justify-content:center;"><span style="font-size:3rem;">🍽️</span></div>`}}
+      <div style="padding:16px;">
+        <h4 style="margin:0 0 8px;font-size:1.125rem;font-weight:bold;">${{item.name}}</h4>
+        ${{item.description ? `<p style="margin:0 0 12px;color:#6b7280;font-size:0.875rem;">${{item.description}}</p>` : ''}}
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:1.25rem;font-weight:bold;color:#3b82f6;">RM ${{item.price.toFixed(2)}}</span>
+          <div id="controls-${{item.id}}">
+            <button onclick="addToCart('${{item.id}}')"
+                    style="background:#10b981;color:white;border:none;padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;">
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}}
+
+// Filter by category
+function filterCategory(category) {{
+  currentCategory = category;
+
+  // Update active tab
+  document.querySelectorAll('.category-tab').forEach(btn => {{
+    btn.classList.remove('active');
+    btn.style.background = 'white';
+    btn.style.color = '#3b82f6';
+  }});
+  event.target.classList.add('active');
+  event.target.style.background = '#3b82f6';
+  event.target.style.color = 'white';
+
+  renderMenu();
+  updateCartControls();
+}}
+
+// Add to cart
+function addToCart(itemId) {{
+  if (!selectedZone) {{
+    document.getElementById('zone-warning').style.display = 'block';
+    document.getElementById('zone-section').scrollIntoView({{ behavior: 'smooth' }});
+    return;
+  }}
+
+  const item = menuItems.find(i => i.id === itemId);
+  const existing = cart.find(c => c.id === itemId);
+
+  if (existing) {{
+    existing.quantity++;
+  }} else {{
+    cart.push({{ ...item, quantity: 1 }});
+  }}
+
+  updateCart();
+  updateCartControls();
+}}
+
+// Remove from cart
+function removeFromCart(itemId) {{
+  const existing = cart.find(c => c.id === itemId);
+  if (existing) {{
+    existing.quantity--;
+    if (existing.quantity === 0) {{
+      cart = cart.filter(c => c.id !== itemId);
+    }}
+  }}
+
+  updateCart();
+  updateCartControls();
+}}
+
+// Update cart controls on menu items
+function updateCartControls() {{
+  menuItems.forEach(item => {{
+    const cartItem = cart.find(c => c.id === item.id);
+    const controls = document.getElementById(`controls-${{item.id}}`);
+
+    if (controls) {{
+      if (cartItem) {{
+        controls.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button onclick="removeFromCart('${{item.id}}')"
+                    style="background:#ef4444;color:white;border:none;width:32px;height:32px;border-radius:8px;font-weight:bold;cursor:pointer;">
+              -
+            </button>
+            <span style="font-weight:bold;min-width:24px;text-align:center;">${{cartItem.quantity}}</span>
+            <button onclick="addToCart('${{item.id}}')"
+                    style="background:#10b981;color:white;border:none;width:32px;height:32px;border-radius:8px;font-weight:bold;cursor:pointer;">
+              +
+            </button>
+          </div>
+        `;
+      }} else {{
+        controls.innerHTML = `
+          <button onclick="addToCart('${{item.id}}')"
+                  style="background:#10b981;color:white;border:none;padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer;">
+            Add
+          </button>
+        `;
+      }}
+    }}
+  }});
+}}
+
+// Update cart display
+function updateCart() {{
+  const itemsList = document.getElementById('cart-items-list');
+  const subtotalEl = document.getElementById('cart-subtotal');
+  const deliveryFeeEl = document.getElementById('cart-delivery-fee');
+  const totalEl = document.getElementById('cart-total');
+  const checkoutBtn = document.getElementById('checkout-btn');
+  const countBadge = document.getElementById('cart-count-badge');
+
+  if (cart.length === 0) {{
+    itemsList.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:40px 20px;">Cart is empty</div>';
+    checkoutBtn.style.display = 'none';
+    countBadge.textContent = '0';
+    return;
+  }}
+
+  let subtotal = 0;
+  itemsList.innerHTML = cart.map(item => {{
+    const itemTotal = item.price * item.quantity;
+    subtotal += itemTotal;
+    return `
+      <div style="padding:12px;background:#f9fafb;border-radius:8px;margin-bottom:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
+          <div>
+            <div style="font-weight:600;">${{item.name}}</div>
+            <div style="color:#6b7280;font-size:0.875rem;">RM ${{item.price.toFixed(2)}} each</div>
+          </div>
+          <div style="font-weight:bold;color:#3b82f6;">RM ${{itemTotal.toFixed(2)}}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button onclick="removeFromCart('${{item.id}}')"
+                  style="background:#ef4444;color:white;border:none;width:28px;height:28px;border-radius:6px;cursor:pointer;">-</button>
+          <span style="font-weight:600;min-width:24px;text-align:center;">${{item.quantity}}</span>
+          <button onclick="addToCart('${{item.id}}')"
+                  style="background:#10b981;color:white;border:none;width:28px;height:28px;border-radius:6px;cursor:pointer;">+</button>
+        </div>
+      </div>
+    `;
+  }}).join('');
+
+  const deliveryFee = selectedZone ? selectedZone.delivery_fee : 0;
+  const total = subtotal + deliveryFee;
+
+  subtotalEl.textContent = `RM ${{subtotal.toFixed(2)}}`;
+  deliveryFeeEl.textContent = `RM ${{deliveryFee.toFixed(2)}}`;
+  totalEl.textContent = `RM ${{total.toFixed(2)}}`;
+  checkoutBtn.style.display = 'block';
+  countBadge.textContent = cart.reduce((sum, item) => sum + item.quantity, 0);
+}}
+
+// Checkout via WhatsApp
+function checkout() {{
+  if (!selectedZone) {{
+    alert('Please select a delivery area');
+    return;
+  }}
+
+  if (cart.length === 0) {{
+    alert('Your cart is empty');
+    return;
+  }}
+
+  let message = `🍛 *PESANAN BARU - ${{businessName}}*\\n\\n`;
+  message += `📍 *Kawasan:* ${{selectedZone.zone_name}}\\n`;
+  message += `━━━━━━━━━━━━━━━━\\n\\n`;
+  message += `📝 *Pesanan:*\\n`;
+
+  cart.forEach(item => {{
+    message += `• ${{item.name}} x${{item.quantity}} - RM${{(item.price * item.quantity).toFixed(2)}}\\n`;
+  }});
+
+  const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  const deliveryFee = selectedZone.delivery_fee;
+  const total = subtotal + deliveryFee;
+
+  message += `\\n━━━━━━━━━━━━━━━━\\n`;
+  message += `Subtotal: RM${{subtotal.toFixed(2)}}\\n`;
+  message += `Caj Delivery: RM${{deliveryFee.toFixed(2)}}\\n`;
+  message += `*JUMLAH: RM${{total.toFixed(2)}}*\\n\\n`;
+  message += `Sila nyatakan alamat penuh anda.`;
+
+  const whatsappUrl = `https://wa.me/${{whatsappNumber}}?text=${{encodeURIComponent(message)}}`;
+  window.open(whatsappUrl, '_blank');
+}}
+
+// Toggle mobile cart
+function toggleMobileCart() {{
+  const sidebar = document.getElementById('cart-sidebar');
+  if (sidebar.style.display === 'flex') {{
+    sidebar.style.display = 'none';
+  }} else {{
+    sidebar.style.display = 'flex';
+    sidebar.style.position = 'fixed';
+    sidebar.style.left = '0';
+    sidebar.style.width = '100%';
+    sidebar.style.zIndex = '1000';
+  }}
+}}
+
+// Open/close ordering app
+function openOrdering() {{
+  document.getElementById('ordering-app').style.display = 'block';
+  document.body.style.overflow = 'hidden';
+  initOrdering();
+}}
+
+function closeOrdering() {{
+  document.getElementById('ordering-app').style.display = 'none';
+  document.body.style.overflow = 'auto';
+}}
+</script>
+
+<!-- Order Now Button -->
+<button onclick="openOrdering()"
+        style="position:fixed;bottom:20px;right:20px;background:#ea580c;color:white;border:none;padding:18px 32px;border-radius:9999px;font-size:1.125rem;font-weight:bold;cursor:pointer;box-shadow:0 10px 30px rgba(234,88,12,0.4);z-index:100;animation:pulse 2s infinite;">
+  🛵 Order Delivery
+</button>
+
+<style>
+@keyframes pulse {{
+  0%, 100% {{ transform: scale(1); }}
+  50% {{ transform: scale(1.05); }}
+}}
+</style>
+"""
+
+        # Inject before closing body tag
+        if "</body>" in html:
+            html = html.replace("</body>", ordering_html + "\n</body>")
+        else:
+            html += ordering_html
+
+        return html
+
     def inject_integrations(
         self,
         html: str,
@@ -557,6 +1048,19 @@ function handleContactSubmit(e) {{
         # Contact Form
         if "contact" in features:
             html = self.inject_contact_form(html, user_data.get("email", ""))
+
+        # Ordering System (menu + delivery zones)
+        if user_data.get("menu_items") and user_data.get("delivery_zones"):
+            logger.info("Injecting complete ordering system")
+            html = self.inject_ordering_system(
+                html,
+                user_data["menu_items"],
+                user_data["delivery_zones"],
+                {
+                    "name": user_data.get("business_name", "Our Business"),
+                    "phone": user_data.get("phone", "+60123456789")
+                }
+            )
 
         # QR Code
         if user_data.get("url"):
