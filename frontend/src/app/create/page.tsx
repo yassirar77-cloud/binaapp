@@ -221,7 +221,20 @@ export default function CreatePage() {
           user_id: user?.id || 'anonymous',
           email: user?.email,  // Pass user email for founder bypass
           images: allImages.length > 0 ? allImages : undefined,  // Send uploaded images with names
-          gallery_metadata: uploadedImages.gallery  // Pass full gallery metadata separately for AI context
+          gallery_metadata: uploadedImages.gallery,  // Pass full gallery metadata separately for AI context
+          features: selectedFeatures,  // Pass selected features
+          delivery: selectedFeatures.deliverySystem ? {
+            area: deliveryArea,
+            fee: deliveryFee,
+            minimum: minimumOrder,
+            hours: deliveryHours
+          } : null,
+          address: fullAddress || null,
+          social_media: selectedFeatures.socialMedia ? {
+            instagram: instagram,
+            facebook: facebook,
+            tiktok: tiktok
+          } : null
         }),
       });
 
