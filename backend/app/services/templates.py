@@ -864,8 +864,8 @@ function handleContactSubmit(e) {{
         business_info: Dict
     ) -> str:
         """
-        COMPLETE DELIVERY PAGE INTEGRATION - User's Polished Template
-        Injects a production-ready delivery ordering system with multi-page navigation
+        COMPLETE DELIVERY PAGE - Using User's Proven Template
+        Exact structure from complete-website-with-delivery.html
         """
         business_name = business_info.get("name", "Our Restaurant")
         phone_number = business_info.get("phone", "+60123456789")
@@ -892,7 +892,7 @@ function handleContactSubmit(e) {{
                 category = 'minuman'
 
             formatted_menu.append({
-                'id': item.get('id', f'menu-{idx}'),
+                'id': idx + 1,
                 'name': name,
                 'desc': item.get('description', 'Hidangan istimewa dari dapur kami'),
                 'price': float(item.get('price', 15)),
@@ -907,7 +907,8 @@ function handleContactSubmit(e) {{
                 'id': idx + 1,
                 'name': zone.get('zone_name', zone.get('name', f'Zone {idx+1}')),
                 'fee': float(zone.get('delivery_fee', 5)),
-                'time': zone.get('estimated_time', zone.get('delivery_time', '30-45 min'))
+                'time': zone.get('estimated_time', zone.get('delivery_time', '30-45 min')),
+                'active': True
             })
 
         menu_json = json.dumps(formatted_menu)
@@ -915,17 +916,30 @@ function handleContactSubmit(e) {{
         minimum_order = 30
         delivery_hours = '11am - 5pm'
 
-        # STEP 1: Add CSS to <head>
+        # STEP 1: CSS - User's exact styles
         delivery_css = '''
 <style>
-.page{display:none}.page.active{display:block}.delivery-header{background:linear-gradient(135deg,#ea580c 0%,#c2410c 100%)}.zone-card{transition:all .2s ease;border:2px solid transparent}.zone-card:hover{border-color:#ea580c;background:#fff7ed}.zone-card.selected{border-color:#ea580c;background:#fff7ed;box-shadow:0 0 0 3px rgba(234,88,12,.2)}.menu-card{transition:all .2s ease}.menu-card:hover{transform:translateY(-4px);box-shadow:0 12px 24px rgba(0,0,0,.1)}.qty-btn{transition:transform .1s}.qty-btn:active{transform:scale(.9)}.floating-cart{animation:float 3s ease-in-out infinite}@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+.page { display: none; }
+.page.active { display: block; }
+.zone-card { transition: all 0.2s ease; border: 2px solid transparent; }
+.zone-card:hover { border-color: #ea580c; background: #fff7ed; }
+.zone-card.selected { border-color: #ea580c; background: #fff7ed; box-shadow: 0 0 0 3px rgba(234,88,12,0.2); }
+.menu-card { transition: all 0.2s ease; }
+.menu-card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); }
+.qty-btn { transition: transform 0.1s; }
+.qty-btn:active { transform: scale(0.9); }
+.floating-cart { animation: float 3s ease-in-out infinite; }
+@keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+@keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.1)} }
+.cart-badge { animation: pulse 2s infinite; }
 </style>'''
+        
         if "</head>" in html:
             html = html.replace("</head>", delivery_css + "\n</head>")
         elif "<body" in html:
             html = html.replace("<body", delivery_css + "\n<body", 1)
 
-        # STEP 2-4: Wrap existing content + add delivery page + add button
+        # STEP 2: Wrap existing content + add delivery page
         if "<body" in html:
             body_start = html.find("<body")
             body_content_start = html.find(">", body_start) + 1
@@ -934,18 +948,138 @@ function handleContactSubmit(e) {{
             if body_content_start > 0 and body_end > 0:
                 body_content = html[body_content_start:body_end]
                 
-                # Complete page system HTML (condensed for message limits)
+                # User's exact delivery page HTML structure
                 page_html = f'''<div id="page-home" class="page active">{body_content}</div>
-<div id="page-order" class="page"><div style="background:linear-gradient(135deg,#ea580c 0%,#c2410c 100%);color:white;padding:24px 0;position:sticky;top:0;z-index:40"><div style="max-width:1200px;margin:0 auto;padding:0 16px"><div style="display:flex;justify-content:space-between;align-items:center"><div><button onclick="showPage('home')" style="background:rgba(255,255,255,0.2);color:white;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;margin-bottom:4px;display:inline-flex;align-items:center;gap:8px;font-size:0.875rem"><span>←</span>Kembali</button><h1 style="font-size:1.5rem;font-weight:bold;margin:0">🛵 Pesan Delivery</h1><p style="opacity:0.8;font-size:0.875rem;margin:4px 0 0">{business_name} • {delivery_hours}</p></div><button onclick="toggleMobileCart()" style="display:none;background:rgba(255,255,255,0.2);padding:12px;border-radius:9999px;border:none;cursor:pointer;position:relative" id="mobile-cart-toggle"><span style="font-size:1.25rem">🛒</span><span id="cart-badge-mobile" style="display:none;position:absolute;top:-4px;right:-4px;background:#fbbf24;color:#78350f;font-size:0.75rem;font-weight:bold;width:20px;height:20px;border-radius:9999px;display:flex;align-items:center;justify-content:center">0</span></button></div></div></div>
-<div style="max-width:1200px;margin:0 auto;padding:24px 16px"><div style="display:grid;gap:24px"><div style="background:white;border-radius:16px;padding:24px;box-shadow:0 4px 12px rgba(0,0,0,0.1)"><div style="display:flex;align-items:center;gap:12px;margin-bottom:20px"><div style="width:40px;height:40px;background:#ea580c;color:white;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:1.125rem">1</div><div><h2 style="font-weight:bold;font-size:1.25rem;color:#111827;margin:0">Pilih Kawasan Delivery</h2><p style="color:#6b7280;font-size:0.875rem;margin:0">Min. order: RM{minimum_order}</p></div></div><div id="delivery-zones" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px"></div><div id="selected-zone-info" style="display:none;margin-top:16px;padding:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:12px"><div style="display:flex;align-items:center;gap:8px;color:#15803d"><span>✓</span><span style="font-weight:600">Kawasan: <span id="zone-name-display">-</span></span><span style="margin-left:auto">Caj: RM<span id="zone-fee-display">0</span></span></div></div></div>
-<div style="background:white;border-radius:16px;padding:24px;box-shadow:0 4px 12px rgba(0,0,0,0.1)"><div style="display:flex;align-items:center;gap:12px;margin-bottom:20px"><div style="width:40px;height:40px;background:#ea580c;color:white;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:1.125rem">2</div><div><h2 style="font-weight:bold;font-size:1.25rem;color:#111827;margin:0">Pilih Menu</h2><p style="color:#6b7280;font-size:0.875rem;margin:0">Klik untuk tambah ke bakul</p></div></div><div style="display:flex;gap:8px;margin-bottom:24px;overflow-x:auto;padding-bottom:8px"><button onclick="filterCategory('all')" class="cat-btn active" style="background:#ea580c;color:white;padding:8px 16px;border-radius:9999px;font-size:0.875rem;font-weight:500;white-space:nowrap;border:none;cursor:pointer">Semua</button><button onclick="filterCategory('nasi')" class="cat-btn" style="background:#f3f4f6;color:#374151;padding:8px 16px;border-radius:9999px;font-size:0.875rem;font-weight:500;white-space:nowrap;border:none;cursor:pointer">🍚 Nasi</button><button onclick="filterCategory('lauk')" class="cat-btn" style="background:#f3f4f6;color:#374151;padding:8px 16px;border-radius:9999px;font-size:0.875rem;font-weight:500;white-space:nowrap;border:none;cursor:pointer">🍗 Lauk</button><button onclick="filterCategory('minuman')" class="cat-btn" style="background:#f3f4f6;color:#374151;padding:8px 16px;border-radius:9999px;font-size:0.875rem;font-weight:500;white-space:nowrap;border:none;cursor:pointer">🥤 Minuman</button></div><div id="menu-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px"></div></div></div></div>
-<div id="floating-cart-btn" style="display:none;position:fixed;bottom:24px;right:24px;z-index:50"><button onclick="toggleMobileCart()" class="floating-cart" style="background:linear-gradient(to right,#ea580c,#c2410c);color:white;padding:16px 20px;border-radius:9999px;box-shadow:0 10px 40px rgba(0,0,0,0.3);border:none;cursor:pointer;display:flex;align-items:center;gap:12px;font-weight:bold"><span style="font-size:1.25rem">🛒</span><span>RM<span id="floating-total">0</span></span><span style="background:white;color:#ea580c;font-size:0.875rem;font-weight:bold;width:24px;height:24px;border-radius:9999px;display:flex;align-items:center;justify-content:center" id="floating-count">0</span></button></div>
-<div id="mobile-cart-overlay" style="display:none;position:fixed;inset:0;z-index:50"><div style="position:absolute;inset:0;background:rgba(0,0,0,0.5)" onclick="toggleMobileCart()"></div><div style="position:absolute;bottom:0;left:0;right:0;background:white;border-radius:24px 24px 0 0;max-height:85vh;overflow:hidden;display:flex;flex-direction:column"><div style="padding:16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between"><h3 style="font-weight:bold;font-size:1.125rem;margin:0">Bakul Pesanan</h3><button onclick="toggleMobileCart()" style="width:40px;height:40px;background:#f3f4f6;border-radius:9999px;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;font-size:1.25rem">×</button></div><div style="padding:16px;max-height:40vh;overflow-y:auto;flex:1"><div id="cart-empty-mobile" style="text-align:center;padding:32px 0"><p style="color:#6b7280">Bakul anda kosong</p></div><div id="cart-items-mobile" style="display:none"></div></div><div id="cart-footer-mobile" style="display:none;padding:16px;border-top:1px solid #e5e7eb;background:#f9fafb"><div style="margin-bottom:16px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Subtotal</span><span>RM<span id="subtotal-mobile">0</span></span></div><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Caj Delivery</span><span>RM<span id="delivery-fee-mobile">0</span></span></div><div style="display:flex;justify-content:space-between;font-weight:bold;font-size:1.125rem"><span>Jumlah</span><span style="color:#ea580c">RM<span id="total-mobile">0</span></span></div></div><button onclick="checkout()" style="width:100%;background:linear-gradient(to right,#10b981,#059669);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px"><span style="font-size:1.5rem">💬</span>Hantar WhatsApp</button></div></div></div></div>'''
+<div id="page-order" class="page">
+    <div class="bg-gradient-to-r from-orange-500 to-orange-600 text-white py-6 sticky top-0 z-40">
+        <div class="container mx-auto px-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <button onclick="showPage('home')" class="text-white/80 hover:text-white text-sm mb-1 flex items-center gap-1">
+                        <i class="fas fa-arrow-left"></i> Kembali
+                    </button>
+                    <h1 class="text-2xl font-bold">🛵 Pesan Delivery</h1>
+                    <p class="text-white/80 text-sm">{business_name} • {delivery_hours}</p>
+                </div>
+                <button onclick="toggleMobileCart()" class="lg:hidden relative bg-white/20 hover:bg-white/30 p-3 rounded-full">
+                    <i class="fas fa-shopping-cart text-xl"></i>
+                    <span id="cart-badge-mobile" class="hidden absolute -top-1 -right-1 bg-yellow-400 text-orange-900 text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center cart-badge">0</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container mx-auto px-4 py-6">
+        <div class="grid lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 space-y-6">
+                
+                <div class="bg-white rounded-2xl p-6 shadow-lg">
+                    <div class="flex items-center gap-3 mb-5">
+                        <div class="w-10 h-10 bg-orange-500 text-white rounded-full flex items-center justify-center font-bold text-lg">1</div>
+                        <div>
+                            <h2 class="font-bold text-xl text-gray-900">Pilih Kawasan Delivery</h2>
+                            <p class="text-gray-500 text-sm">Min. order: RM{minimum_order}</p>
+                        </div>
+                    </div>
+                    <div id="delivery-zones" class="grid sm:grid-cols-2 gap-3"></div>
+                    <div id="selected-zone-info" class="hidden mt-4 p-4 bg-green-50 border border-green-200 rounded-xl">
+                        <div class="flex items-center gap-2 text-green-700">
+                            <i class="fas fa-check-circle"></i>
+                            <span class="font-semibold">Kawasan: <span id="zone-name-display">-</span></span>
+                            <span class="ml-auto">Caj: RM<span id="zone-fee-display">0</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl p-6 shadow-lg">
+                    <div class="flex items-center gap-3 mb-5">
+                        <div class="w-10 h-10 bg-orange-500 text-white rounded-full flex items-center justify-center font-bold text-lg">2</div>
+                        <div>
+                            <h2 class="font-bold text-xl text-gray-900">Pilih Menu</h2>
+                            <p class="text-gray-500 text-sm">Klik untuk tambah ke bakul</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 mb-6 overflow-x-auto pb-2">
+                        <button onclick="filterCategory('all')" class="cat-btn active bg-orange-500 text-white px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap">Semua</button>
+                        <button onclick="filterCategory('nasi')" class="cat-btn bg-gray-100 text-gray-700 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap hover:bg-gray-200">🍚 Nasi</button>
+                        <button onclick="filterCategory('lauk')" class="cat-btn bg-gray-100 text-gray-700 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap hover:bg-gray-200">🍗 Lauk</button>
+                        <button onclick="filterCategory('minuman')" class="cat-btn bg-gray-100 text-gray-700 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap hover:bg-gray-200">🥤 Minuman</button>
+                    </div>
+                    <div id="menu-grid" class="grid sm:grid-cols-2 gap-4"></div>
+                </div>
+            </div>
+
+            <div class="hidden lg:block">
+                <div class="bg-white rounded-2xl shadow-lg sticky top-28 overflow-hidden">
+                    <div class="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-5">
+                        <h3 class="font-bold text-lg flex items-center gap-2">
+                            <i class="fas fa-shopping-cart"></i> Bakul Pesanan
+                            <span id="cart-count-desktop" class="bg-white text-orange-600 text-sm px-2 py-0.5 rounded-full ml-auto">0</span>
+                        </h3>
+                    </div>
+                    <div class="p-5">
+                        <div id="cart-empty-desktop" class="text-center py-8">
+                            <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="fas fa-shopping-basket text-gray-400 text-2xl"></i>
+                            </div>
+                            <p class="text-gray-500">Bakul anda kosong</p>
+                        </div>
+                        <div id="cart-items-desktop" class="hidden space-y-3 max-h-[280px] overflow-y-auto"></div>
+                        <div id="cart-summary-desktop" class="hidden border-t border-gray-100 pt-4 mt-4 space-y-2">
+                            <div class="flex justify-between text-gray-600"><span>Subtotal</span><span>RM<span id="subtotal-desktop">0.00</span></span></div>
+                            <div class="flex justify-between text-gray-600"><span>Caj Delivery</span><span>RM<span id="delivery-fee-desktop">0.00</span></span></div>
+                            <div class="flex justify-between text-xl font-bold pt-2 border-t border-gray-100"><span>Jumlah</span><span class="text-orange-600">RM<span id="total-desktop">0.00</span></span></div>
+                        </div>
+                        <button id="checkout-btn-desktop" onclick="checkout()" class="hidden w-full mt-5 bg-gradient-to-r from-green-500 to-green-600 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3">
+                            <i class="fab fa-whatsapp text-2xl"></i> Hantar Pesanan
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="floating-cart-btn" class="lg:hidden fixed bottom-6 right-6 hidden z-50">
+        <button onclick="toggleMobileCart()" class="floating-cart bg-gradient-to-r from-orange-500 to-orange-600 text-white px-5 py-4 rounded-full shadow-2xl flex items-center gap-3">
+            <i class="fas fa-shopping-cart text-xl"></i>
+            <span class="font-bold">RM<span id="floating-total">0</span></span>
+            <span class="bg-white text-orange-600 text-sm font-bold w-6 h-6 rounded-full flex items-center justify-center" id="floating-count">0</span>
+        </button>
+    </div>
+
+    <div id="mobile-cart-overlay" class="lg:hidden fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/50" onclick="toggleMobileCart()"></div>
+        <div class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl max-h-[85vh] overflow-hidden">
+            <div class="p-4 border-b flex items-center justify-between">
+                <h3 class="font-bold text-lg">Bakul Pesanan</h3>
+                <button onclick="toggleMobileCart()" class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-4 max-h-[40vh] overflow-y-auto">
+                <div id="cart-empty-mobile" class="text-center py-8"><p class="text-gray-500">Bakul anda kosong</p></div>
+                <div id="cart-items-mobile" class="hidden space-y-3"></div>
+            </div>
+            <div id="cart-footer-mobile" class="hidden p-4 border-t bg-gray-50">
+                <div class="space-y-2 mb-4">
+                    <div class="flex justify-between"><span>Subtotal</span><span>RM<span id="subtotal-mobile">0</span></span></div>
+                    <div class="flex justify-between"><span>Caj Delivery</span><span>RM<span id="delivery-fee-mobile">0</span></span></div>
+                    <div class="flex justify-between font-bold text-lg"><span>Jumlah</span><span class="text-orange-600">RM<span id="total-mobile">0</span></span></div>
+                </div>
+                <button onclick="checkout()" class="w-full bg-gradient-to-r from-green-500 to-green-600 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3">
+                    <i class="fab fa-whatsapp text-2xl"></i> Hantar WhatsApp
+                </button>
+            </div>
+        </div>
+    </div>
+</div>'''
 
                 html = html[:body_content_start] + page_html + html[body_end:]
 
-        # STEP 5: Add delivery button to navigation
-        delivery_button = '''<button onclick="showPage('order')" style="background:#ea580c;color:white;padding:12px 16px;border-radius:8px;font-weight:600;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:all 0.3s ease" onmouseover="this.style.background='#c2410c'" onmouseout="this.style.background='#ea580c'"><span>🛵</span> Pesan Delivery</button>'''
+        # STEP 3: Add delivery button to navigation
+        delivery_button = '''<button onclick="showPage('order')" class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg font-semibold transition flex items-center gap-2 shadow-md">
+    <i class="fas fa-motorcycle"></i>
+    <span class="hidden sm:inline">Pesan Delivery</span>
+</button>'''
+        
         for pattern in ["</nav>", "</header>", '<a href="https://wa.me/']:
             if pattern in html:
                 if pattern.startswith('<a href="https://wa.me/'):
@@ -955,23 +1089,166 @@ function handleContactSubmit(e) {{
                     html = html.replace(pattern, delivery_button + "\n" + pattern, 1)
                 break
 
-        # STEP 6: Add JavaScript
+        # STEP 4: JavaScript - User's exact implementation
         script = f'''<script>
-function showPage(p){{document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));document.getElementById('page-'+p).classList.add('active');window.scrollTo(0,0)}}
-const WHATSAPP_NUMBER='{phone_clean}',BUSINESS_NAME='{business_name}',MINIMUM_ORDER={minimum_order},deliveryZones={zones_json},menuItems={menu_json};
-let cart=[],selectedZone=null,deliveryFee=0,currentCategory='all';
-function renderDeliveryZones(){{document.getElementById('delivery-zones').innerHTML=deliveryZones.map(z=>`<button onclick="selectZone(${{z.id}},'${{z.name}}',${{z.fee}})" id="zone-${{z.id}}" style="border:2px solid #e5e7eb;padding:16px;border-radius:12px;text-align:left;background:white;cursor:pointer;transition:all 0.2s"><div style="display:flex;align-items:center;justify-content:space-between"><div style="display:flex;align-items:center;gap:12px"><div style="width:40px;height:40px;background:#fff7ed;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:1.25rem">📍</div><div><div style="font-weight:600;color:#111827">${{z.name}}</div><div style="font-size:0.875rem;color:#6b7280">${{z.time||'30-45 min'}}</div></div></div><div style="color:#ea580c;font-weight:bold">RM${{z.fee}}</div></div></button>`).join('')}}
-function renderMenuItems(){{const c=document.getElementById('menu-grid'),f=currentCategory==='all'?menuItems:menuItems.filter(i=>i.category===currentCategory);c.innerHTML=f.map(item=>{{const inCart=cart.find(c=>c.id===item.id);return`<div class="menu-card" style="background:white;border:2px solid #e5e7eb;border-radius:12px;overflow:hidden;display:flex;gap:12px;padding:12px;cursor:pointer"><div style="width:80px;height:80px;border-radius:8px;overflow:hidden;flex-shrink:0"><img src="${{item.image}}" alt="${{item.name}}" style="width:100%;height:100%;object-fit:cover"></div><div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;min-width:0"><div><h4 style="font-weight:bold;color:#111827;margin:0 0 4px;font-size:0.938rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${{item.name}}</h4><p style="font-size:0.75rem;color:#6b7280;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${{item.desc||''}}</p></div><div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px"><span style="font-weight:bold;color:#ea580c">RM${{item.price.toFixed(2)}}</span>${{inCart?`<div style="display:flex;align-items:center;gap:8px"><button onclick="updateQty(${{item.id}},-1)" class="qty-btn" style="width:32px;height:32px;background:#e5e7eb;border-radius:9999px;border:none;cursor:pointer;font-size:0.875rem">-</button><span style="font-weight:bold;width:24px;text-align:center">${{inCart.qty}}</span><button onclick="updateQty(${{item.id}},1)" class="qty-btn" style="width:32px;height:32px;background:#ea580c;color:white;border-radius:9999px;border:none;cursor:pointer;font-size:0.875rem">+</button></div>`:`<button onclick="addToCart(${{item.id}})" style="background:#ea580c;color:white;font-size:0.875rem;font-weight:600;padding:8px 16px;border-radius:9999px;border:none;cursor:pointer">+ Tambah</button>`}}</div></div></div>`}}).join('')}}
-function selectZone(id,n,f){{document.querySelectorAll('[id^="zone-"]').forEach(e=>{{e.style.border='2px solid #e5e7eb';e.style.background='white'}});const z=document.getElementById('zone-'+id);if(z){{z.style.border='2px solid #ea580c';z.style.background='#fff7ed'}}selectedZone={{id,name:n,fee:f}};deliveryFee=f;document.getElementById('selected-zone-info').style.display='block';document.getElementById('zone-name-display').textContent=n;document.getElementById('zone-fee-display').textContent=f;updateCartDisplay()}}
-function addToCart(id){{const i=menuItems.find(m=>m.id===id);if(i){{cart.push({{...i,qty:1}});updateCartDisplay();renderMenuItems()}}}}
-function updateQty(id,d){{const idx=cart.findIndex(c=>c.id===id);if(idx>-1){{cart[idx].qty+=d;if(cart[idx].qty<=0)cart.splice(idx,1)}}updateCartDisplay();renderMenuItems()}}
-function updateCartDisplay(){{const s=cart.reduce((sum,i)=>sum+(i.price*i.qty),0),t=s+deliveryFee,cnt=cart.reduce((sum,i)=>sum+i.qty,0),has=cart.length>0;['desktop','mobile'].forEach(x=>{{document.getElementById('subtotal-'+x).textContent=s.toFixed(2);document.getElementById('delivery-fee-'+x).textContent=deliveryFee.toFixed(2);document.getElementById('total-'+x).textContent=t.toFixed(2)}});const f=document.getElementById('floating-cart-btn');if(has){{f.style.display='block';document.getElementById('floating-total').textContent=t.toFixed(0);document.getElementById('floating-count').textContent=cnt}}else{{f.style.display='none'}}const b=document.getElementById('cart-badge-mobile');if(cnt>0){{b.textContent=cnt;b.style.display='flex'}}else{{b.style.display='none'}}renderCartItems()}}
-function renderCartItems(){{const h=cart.map(i=>`<div style="display:flex;align-items:center;gap:12px;padding:12px;background:#f9fafb;border-radius:12px;margin-bottom:8px"><img src="${{i.image}}" style="width:48px;height:48px;border-radius:8px;object-fit:cover"><div style="flex:1;min-width:0"><div style="font-weight:600;font-size:0.875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${{i.name}}</div><div style="color:#ea580c;font-weight:bold">RM${{(i.price*i.qty).toFixed(2)}}</div></div><div style="display:flex;align-items:center;gap:8px"><button onclick="updateQty(${{i.id}},-1)" style="width:28px;height:28px;background:#e5e7eb;border-radius:9999px;border:none;cursor:pointer;font-size:0.75rem">-</button><span style="font-weight:bold;width:16px;text-align:center;font-size:0.875rem">${{i.qty}}</span><button onclick="updateQty(${{i.id}},1)" style="width:28px;height:28px;background:#ea580c;color:white;border-radius:9999px;border:none;cursor:pointer;font-size:0.75rem">+</button></div></div>`).join('');document.getElementById('cart-items-mobile').innerHTML=h}}
-function filterCategory(c){{currentCategory=c;document.querySelectorAll('.cat-btn').forEach(b=>{{b.style.background='#f3f4f6';b.style.color='#374151'}});event.target.style.background='#ea580c';event.target.style.color='white';renderMenuItems()}}
-function toggleMobileCart(){{document.getElementById('mobile-cart-overlay').style.display=document.getElementById('mobile-cart-overlay').style.display==='none'?'block':'none'}}
-function checkout(){{if(cart.length===0){{alert('Sila tambah item ke dalam bakul');return}}if(!selectedZone){{alert('Sila pilih kawasan delivery');return}}const s=cart.reduce((sum,i)=>sum+(i.price*i.qty),0);if(s<MINIMUM_ORDER){{alert('Minimum order adalah RM'+MINIMUM_ORDER);return}}const t=s+deliveryFee;let msg='🍛 *PESANAN BARU - '+BUSINESS_NAME+'*\\\\n\\\\n📍 *Kawasan:* '+selectedZone.name+'\\\\n━━━━━━━━━━━━━━━━\\\\n\\\\n📝 *Pesanan:*\\\\n';cart.forEach(i=>{{msg+='• '+i.name+' x'+i.qty+' - RM'+(i.price*i.qty).toFixed(2)+'\\\\n'}});msg+='\\\\n━━━━━━━━━━━━━━━━\\\\nSubtotal: RM'+s.toFixed(2)+'\\\\nCaj Delivery: RM'+deliveryFee.toFixed(2)+'\\\\n*JUMLAH: RM'+t.toFixed(2)+'*\\\\n\\\\nSila nyatakan alamat penuh. Terima kasih! 🙏';window.open('https://wa.me/'+WHATSAPP_NUMBER+'?text='+encodeURIComponent(msg),'_blank')}}
-document.addEventListener('DOMContentLoaded',()=>{{renderDeliveryZones();renderMenuItems()}});
-if(window.innerWidth<=768){{document.getElementById('mobile-cart-toggle').style.display='block'}}
+function showPage(page) {{
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + page).classList.add('active');
+    window.scrollTo(0, 0);
+}}
+
+const WHATSAPP_NUMBER = '{phone_clean}';
+const BUSINESS_NAME = '{business_name}';
+const MINIMUM_ORDER = {minimum_order};
+const deliveryZones = {zones_json};
+const menuItems = {menu_json};
+
+let cart = [];
+let selectedZone = null;
+let deliveryFee = 0;
+let currentCategory = 'all';
+
+function renderDeliveryZones() {{
+    const container = document.getElementById('delivery-zones');
+    container.innerHTML = deliveryZones.filter(z => z.active).map(zone => `
+        <button onclick="selectZone(${{zone.id}}, '${{zone.name}}', ${{zone.fee}})" id="zone-${{zone.id}}" class="zone-card p-4 rounded-xl text-left bg-gray-50">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center"><i class="fas fa-map-marker-alt text-orange-600"></i></div>
+                    <div><div class="font-semibold text-gray-900">${{zone.name}}</div><div class="text-sm text-gray-500">${{zone.time}}</div></div>
+                </div>
+                <div class="text-orange-600 font-bold">RM${{zone.fee}}</div>
+            </div>
+        </button>
+    `).join('');
+}}
+
+function renderMenuItems() {{
+    const container = document.getElementById('menu-grid');
+    const filtered = currentCategory === 'all' ? menuItems : menuItems.filter(i => i.category === currentCategory);
+    container.innerHTML = filtered.map(item => {{
+        const inCart = cart.find(c => c.id === item.id);
+        return `
+        <div class="menu-card bg-gray-50 rounded-xl overflow-hidden flex gap-3 p-3">
+            <div class="w-20 h-20 rounded-lg overflow-hidden flex-shrink-0">
+                <img src="${{item.image}}" alt="${{item.name}}" class="w-full h-full object-cover">
+            </div>
+            <div class="flex-1 flex flex-col justify-between min-w-0">
+                <div><h4 class="font-bold text-gray-900 truncate">${{item.name}}</h4><p class="text-xs text-gray-500 truncate">${{item.desc}}</p></div>
+                <div class="flex items-center justify-between mt-2">
+                    <span class="font-bold text-orange-600">RM${{item.price.toFixed(2)}}</span>
+                    ${{inCart ? `
+                        <div class="flex items-center gap-2">
+                            <button onclick="updateQty(${{item.id}}, -1)" class="qty-btn w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center"><i class="fas fa-minus text-xs"></i></button>
+                            <span class="font-bold w-6 text-center">${{inCart.qty}}</span>
+                            <button onclick="updateQty(${{item.id}}, 1)" class="qty-btn w-8 h-8 bg-orange-500 text-white rounded-full flex items-center justify-center"><i class="fas fa-plus text-xs"></i></button>
+                        </div>
+                    ` : `<button onclick="addToCart(${{item.id}})" class="bg-orange-500 text-white text-sm font-semibold py-2 px-4 rounded-full">+ Tambah</button>`}}
+                </div>
+            </div>
+        </div>`;
+    }}).join('');
+}}
+
+function selectZone(id, name, fee) {{
+    document.querySelectorAll('.zone-card').forEach(el => el.classList.remove('selected'));
+    document.getElementById('zone-' + id).classList.add('selected');
+    selectedZone = {{ id, name, fee }};
+    deliveryFee = fee;
+    document.getElementById('selected-zone-info').classList.remove('hidden');
+    document.getElementById('zone-name-display').textContent = name;
+    document.getElementById('zone-fee-display').textContent = fee;
+    updateCartDisplay();
+}}
+
+function addToCart(id) {{
+    const item = menuItems.find(m => m.id === id);
+    if (item) {{ cart.push({{...item, qty: 1}}); updateCartDisplay(); renderMenuItems(); }}
+}}
+
+function updateQty(id, delta) {{
+    const idx = cart.findIndex(c => c.id === id);
+    if (idx > -1) {{ cart[idx].qty += delta; if (cart[idx].qty <= 0) cart.splice(idx, 1); }}
+    updateCartDisplay(); renderMenuItems();
+}}
+
+function updateCartDisplay() {{
+    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+    const total = subtotal + deliveryFee;
+    const count = cart.reduce((sum, item) => sum + item.qty, 0);
+    const hasItems = cart.length > 0;
+
+    ['desktop', 'mobile'].forEach(t => {{
+        document.getElementById('subtotal-' + t).textContent = subtotal.toFixed(2);
+        document.getElementById('delivery-fee-' + t).textContent = deliveryFee.toFixed(2);
+        document.getElementById('total-' + t).textContent = total.toFixed(2);
+    }});
+
+    document.getElementById('cart-count-desktop').textContent = count;
+    document.getElementById('cart-empty-desktop').classList.toggle('hidden', hasItems);
+    document.getElementById('cart-items-desktop').classList.toggle('hidden', !hasItems);
+    document.getElementById('cart-summary-desktop').classList.toggle('hidden', !hasItems);
+    document.getElementById('checkout-btn-desktop').classList.toggle('hidden', !hasItems);
+    document.getElementById('cart-empty-mobile').classList.toggle('hidden', hasItems);
+    document.getElementById('cart-items-mobile').classList.toggle('hidden', !hasItems);
+    document.getElementById('cart-footer-mobile').classList.toggle('hidden', !hasItems);
+
+    const floatingBtn = document.getElementById('floating-cart-btn');
+    if (hasItems) {{ floatingBtn.classList.remove('hidden'); document.getElementById('floating-total').textContent = total.toFixed(0); document.getElementById('floating-count').textContent = count; }}
+    else {{ floatingBtn.classList.add('hidden'); }}
+
+    const badge = document.getElementById('cart-badge-mobile');
+    if (count > 0) {{ badge.textContent = count; badge.classList.remove('hidden'); }} else {{ badge.classList.add('hidden'); }}
+
+    renderCartItems();
+}}
+
+function renderCartItems() {{
+    const html = cart.map(item => `
+        <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+            <img src="${{item.image}}" class="w-12 h-12 rounded-lg object-cover">
+            <div class="flex-1 min-w-0"><div class="font-semibold text-sm truncate">${{item.name}}</div><div class="text-orange-600 font-bold">RM${{(item.price * item.qty).toFixed(2)}}</div></div>
+            <div class="flex items-center gap-2">
+                <button onclick="updateQty(${{item.id}}, -1)" class="w-7 h-7 bg-gray-200 rounded-full flex items-center justify-center text-xs"><i class="fas fa-minus"></i></button>
+                <span class="font-bold w-4 text-center text-sm">${{item.qty}}</span>
+                <button onclick="updateQty(${{item.id}}, 1)" class="w-7 h-7 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs"><i class="fas fa-plus"></i></button>
+            </div>
+        </div>
+    `).join('');
+    document.getElementById('cart-items-desktop').innerHTML = html;
+    document.getElementById('cart-items-mobile').innerHTML = html;
+}}
+
+function filterCategory(category) {{
+    currentCategory = category;
+    document.querySelectorAll('.cat-btn').forEach(btn => {{ btn.classList.remove('active','bg-orange-500','text-white'); btn.classList.add('bg-gray-100','text-gray-700'); }});
+    event.target.classList.add('active','bg-orange-500','text-white');
+    event.target.classList.remove('bg-gray-100','text-gray-700');
+    renderMenuItems();
+}}
+
+function toggleMobileCart() {{
+    document.getElementById('mobile-cart-overlay').classList.toggle('hidden');
+}}
+
+function checkout() {{
+    if (cart.length === 0) {{ alert('Sila tambah item ke dalam bakul'); return; }}
+    if (!selectedZone) {{ alert('Sila pilih kawasan delivery'); return; }}
+    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+    if (subtotal < MINIMUM_ORDER) {{ alert('Minimum order adalah RM' + MINIMUM_ORDER); return; }}
+    const total = subtotal + deliveryFee;
+
+    let msg = '🍛 *PESANAN BARU - ' + BUSINESS_NAME + '*\\n\\n';
+    msg += '📍 *Kawasan:* ' + selectedZone.name + '\\n━━━━━━━━━━━━━━━━\\n\\n📝 *Pesanan:*\\n';
+    cart.forEach(item => {{ msg += '• ' + item.name + ' x' + item.qty + ' - RM' + (item.price * item.qty).toFixed(2) + '\\n'; }});
+    msg += '\\n━━━━━━━━━━━━━━━━\\nSubtotal: RM' + subtotal.toFixed(2) + '\\nCaj Delivery: RM' + deliveryFee.toFixed(2) + '\\n*JUMLAH: RM' + total.toFixed(2) + '*\\n\\nSila nyatakan alamat penuh. Terima kasih! 🙏';
+    window.open('https://wa.me/' + WHATSAPP_NUMBER + '?text=' + encodeURIComponent(msg), '_blank');
+}}
+
+document.addEventListener('DOMContentLoaded', function() {{
+    renderDeliveryZones();
+    renderMenuItems();
+}});
 </script>'''
 
         if "</body>" in html:
@@ -980,6 +1257,7 @@ if(window.innerWidth<=768){{document.getElementById('mobile-cart-toggle').style.
             html += script
 
         return html
+
 
 
     def inject_integrations(
