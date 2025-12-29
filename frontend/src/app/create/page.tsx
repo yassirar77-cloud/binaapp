@@ -133,6 +133,32 @@ export default function CreatePage() {
   const [previewMode, setPreviewMode] = useState<'single' | 'multi'>('single')
   const [progress, setProgress] = useState(0)
 
+  // Feature selector states
+  const [selectedFeatures, setSelectedFeatures] = useState({
+    whatsapp: true,          // WhatsApp button
+    googleMap: false,        // Google Map embed
+    deliverySystem: false,   // Delivery ordering
+    contactForm: false,      // Contact form
+    socialMedia: false,      // Social media links
+    priceList: true,         // Show prices on menu
+    operatingHours: true,    // Show operating hours
+    gallery: true,           // Photo gallery section
+  })
+
+  // Delivery system states
+  const [deliveryArea, setDeliveryArea] = useState('')
+  const [deliveryFee, setDeliveryFee] = useState('')
+  const [minimumOrder, setMinimumOrder] = useState('')
+  const [deliveryHours, setDeliveryHours] = useState('')
+
+  // Google Map state
+  const [fullAddress, setFullAddress] = useState('')
+
+  // Social media states
+  const [instagram, setInstagram] = useState('')
+  const [facebook, setFacebook] = useState('')
+  const [tiktok, setTiktok] = useState('')
+
   useEffect(() => {
     checkUser()
   }, [])
@@ -583,6 +609,198 @@ export default function CreatePage() {
             </div>
 
             <VisualImageUpload onImagesUploaded={setUploadedImages} />
+
+            {/* Feature Selector */}
+            <div className="bg-white rounded-xl p-6 shadow-lg mt-6">
+              <h3 className="text-lg font-bold mb-2">⚡ Pilih Ciri-ciri Website</h3>
+              <p className="text-gray-500 text-sm mb-4">Pilih apa yang anda mahu dalam website anda</p>
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* WhatsApp */}
+                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.whatsapp}
+                    onChange={(e) => setSelectedFeatures({...selectedFeatures, whatsapp: e.target.checked})}
+                    className="w-5 h-5 text-green-600"
+                  />
+                  <span className="ml-3">
+                    <span className="text-xl">💬</span>
+                    <span className="ml-2 font-medium">WhatsApp</span>
+                  </span>
+                </label>
+
+                {/* Google Map */}
+                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.googleMap}
+                    onChange={(e) => setSelectedFeatures({...selectedFeatures, googleMap: e.target.checked})}
+                    className="w-5 h-5 text-blue-600"
+                  />
+                  <span className="ml-3">
+                    <span className="text-xl">📍</span>
+                    <span className="ml-2 font-medium">Google Map</span>
+                  </span>
+                </label>
+
+                {/* Delivery System */}
+                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.deliverySystem}
+                    onChange={(e) => setSelectedFeatures({...selectedFeatures, deliverySystem: e.target.checked})}
+                    className="w-5 h-5 text-orange-600"
+                  />
+                  <span className="ml-3">
+                    <span className="text-xl">🛵</span>
+                    <span className="ml-2 font-medium">Delivery Sendiri</span>
+                  </span>
+                </label>
+
+                {/* Contact Form */}
+                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.contactForm}
+                    onChange={(e) => setSelectedFeatures({...selectedFeatures, contactForm: e.target.checked})}
+                    className="w-5 h-5 text-purple-600"
+                  />
+                  <span className="ml-3">
+                    <span className="text-xl">📧</span>
+                    <span className="ml-2 font-medium">Borang Hubungi</span>
+                  </span>
+                </label>
+
+                {/* Social Media */}
+                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.socialMedia}
+                    onChange={(e) => setSelectedFeatures({...selectedFeatures, socialMedia: e.target.checked})}
+                    className="w-5 h-5 text-pink-600"
+                  />
+                  <span className="ml-3">
+                    <span className="text-xl">📱</span>
+                    <span className="ml-2 font-medium">Social Media</span>
+                  </span>
+                </label>
+
+                {/* Price List */}
+                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.priceList}
+                    onChange={(e) => setSelectedFeatures({...selectedFeatures, priceList: e.target.checked})}
+                    className="w-5 h-5 text-yellow-600"
+                  />
+                  <span className="ml-3">
+                    <span className="text-xl">💰</span>
+                    <span className="ml-2 font-medium">Senarai Harga</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* If Delivery selected, show delivery settings */}
+            {selectedFeatures.deliverySystem && (
+              <div className="bg-orange-50 rounded-xl p-6 mt-4 border border-orange-200">
+                <h4 className="font-bold text-orange-800 mb-3">🛵 Tetapan Delivery</h4>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Kawasan Delivery</label>
+                    <input
+                      type="text"
+                      placeholder="cth: Shah Alam, Klang, Subang (5km radius)"
+                      className="w-full px-4 py-2 border rounded-lg"
+                      value={deliveryArea}
+                      onChange={(e) => setDeliveryArea(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Caj Delivery</label>
+                    <input
+                      type="text"
+                      placeholder="cth: RM5 (dalam 3km), RM8 (3-5km)"
+                      className="w-full px-4 py-2 border rounded-lg"
+                      value={deliveryFee}
+                      onChange={(e) => setDeliveryFee(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Minimum Order</label>
+                    <input
+                      type="text"
+                      placeholder="cth: RM20"
+                      className="w-full px-4 py-2 border rounded-lg"
+                      value={minimumOrder}
+                      onChange={(e) => setMinimumOrder(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Waktu Delivery</label>
+                    <input
+                      type="text"
+                      placeholder="cth: 11am - 9pm"
+                      className="w-full px-4 py-2 border rounded-lg"
+                      value={deliveryHours}
+                      onChange={(e) => setDeliveryHours(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* If Google Map selected, ask for address */}
+            {selectedFeatures.googleMap && (
+              <div className="bg-blue-50 rounded-xl p-6 mt-4 border border-blue-200">
+                <h4 className="font-bold text-blue-800 mb-3">📍 Google Map</h4>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Alamat Penuh</label>
+                  <input
+                    type="text"
+                    placeholder="cth: 123, Jalan Sultan, Shah Alam, Selangor"
+                    className="w-full px-4 py-2 border rounded-lg"
+                    value={fullAddress}
+                    onChange={(e) => setFullAddress(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* If Social Media selected */}
+            {selectedFeatures.socialMedia && (
+              <div className="bg-pink-50 rounded-xl p-6 mt-4 border border-pink-200">
+                <h4 className="font-bold text-pink-800 mb-3">📱 Social Media</h4>
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    placeholder="Instagram: @username"
+                    className="w-full px-4 py-2 border rounded-lg"
+                    value={instagram}
+                    onChange={(e) => setInstagram(e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Facebook: page name or URL"
+                    className="w-full px-4 py-2 border rounded-lg"
+                    value={facebook}
+                    onChange={(e) => setFacebook(e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    placeholder="TikTok: @username"
+                    className="w-full px-4 py-2 border rounded-lg"
+                    value={tiktok}
+                    onChange={(e) => setTiktok(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
 
             {error && (
               <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
