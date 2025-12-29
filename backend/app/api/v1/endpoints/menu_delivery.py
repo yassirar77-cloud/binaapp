@@ -13,7 +13,7 @@ from app.models.schemas import (
     DeliveryZoneCreate, DeliveryZoneUpdate, DeliveryZoneResponse
 )
 from app.core.supabase import get_supabase_client
-from app.core.auth import get_current_user
+from app.core.security import get_current_user
 
 router = APIRouter()
 
