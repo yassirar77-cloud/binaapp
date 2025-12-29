@@ -838,6 +838,36 @@ class AIService:
         logger.info(f"🎨 ✅ Generated {len(gallery) + 1} images")
         return {"hero": hero, "gallery": gallery}
 
+    async def generate_food_image(self, food_name: str) -> Optional[str]:
+        """
+        Generate AI image for a food item using Stability AI
+
+        Args:
+            food_name: Name of the food item (e.g., "Nasi Kandar Special", "Ayam Goreng Berempah")
+
+        Returns:
+            Cloudinary URL of generated image, or None if generation fails
+        """
+        if not self.stability_api_key:
+            logger.warning("🎨 No Stability API key configured")
+            return None
+
+        try:
+            logger.info(f"🎨 Generating AI image for: {food_name}")
+
+            # Generate image with Stability AI and upload to Cloudinary
+            image_url = await self._generate_stability_image(food_name)
+
+            if image_url:
+                logger.info(f"✅ Generated image: {image_url[:60]}...")
+            else:
+                logger.warning(f"⚠️ Failed to generate image for: {food_name}")
+
+            return image_url
+        except Exception as e:
+            logger.error(f"❌ Error generating food image: {e}")
+            return None
+
     async def _generate_stability_image(self, prompt: str) -> Optional[str]:
         """Generate image with Stability AI and upload to Cloudinary"""
         stability_key = os.getenv("STABILITY_API_KEY")
@@ -848,6 +878,7 @@ class AIService:
         try:
             # Smart prompt for Malaysian context
             smart_prompt = self._get_malaysian_prompt(prompt)
+            logger.info(f"🎨 Prompt: {smart_prompt[:80]}...")
 
             async with httpx.AsyncClient(timeout=60) as client:
                 response = await client.post(
@@ -871,31 +902,67 @@ class AIService:
                         folder="binaapp"
                     )
                     url = result.get("secure_url")
-                    logger.info(f"☁️ Uploaded: {url[:50]}...")
+                    logger.info(f"☁️ Uploaded to Cloudinary: {url[:50]}...")
                     return url
                 else:
-                    logger.error(f"🎨 Stability failed: {response.status_code}")
+                    logger.error(f"🎨 Stability AI failed: {response.status_code} - {response.text[:200]}")
                     return None
         except Exception as e:
-            logger.error(f"🎨 Error: {e}")
+            logger.error(f"🎨 Error generating image: {e}")
             return None
 
     def _get_malaysian_prompt(self, item: str) -> str:
         """Convert Malaysian food names to detailed prompts"""
         prompts = {
-            "nasi kandar": "Malaysian nasi kandar with rice, curry chicken, vegetables, banana leaf, food photography",
-            "nasi lemak": "Malaysian nasi lemak coconut rice, sambal, egg, anchovies, peanuts, food photography",
-            "mee goreng": "Malaysian mee goreng yellow noodles, egg, vegetables, spicy, food photography",
-            "ayam goreng": "Malaysian fried chicken ayam goreng berempah, crispy, turmeric, food photography",
-            "roti canai": "Malaysian roti canai flatbread with curry, food photography",
+            "nasi kandar": "Malaysian nasi kandar with rice, curry chicken, vegetables, banana leaf, food photography, high quality, realistic",
+            "nasi lemak": "Malaysian nasi lemak coconut rice, sambal, egg, anchovies, peanuts, banana leaf, food photography, high quality",
+            "nasi goreng": "Malaysian nasi goreng fried rice, egg, vegetables, sambal, food photography, high quality",
+            "nasi ayam": "Malaysian chicken rice hainanese nasi ayam, roasted chicken, rice, cucumber, food photography",
+            "nasi briyani": "Malaysian nasi briyani biryani rice, spiced rice, chicken, raita, food photography",
+            "nasi kerabu": "Malaysian nasi kerabu blue rice, herbs, vegetables, fish, food photography, traditional",
+
+            "mee goreng": "Malaysian mee goreng yellow noodles, egg, vegetables, spicy, food photography, high quality",
+            "char kway teow": "Malaysian char kway teow flat noodles, prawns, cockles, wok fried, food photography",
+            "laksa": "Malaysian laksa spicy noodle soup, coconut milk, shrimp, food photography, traditional",
+            "hokkien mee": "Malaysian hokkien mee dark noodles, prawns, pork, food photography, high quality",
+            "mee rebus": "Malaysian mee rebus noodles, thick gravy, egg, food photography",
+
+            "ayam goreng": "Malaysian fried chicken ayam goreng berempah, crispy, golden, turmeric, food photography, close up",
+            "ayam percik": "Malaysian ayam percik grilled chicken, coconut sauce, food photography, traditional",
+            "rendang": "Malaysian beef rendang curry, coconut milk, spicy, food photography, close up, high quality",
+
+            "ikan bakar": "Malaysian ikan bakar grilled fish, sambal, banana leaf, food photography, traditional",
+            "ikan": "Malaysian grilled fish, sambal sauce, food photography, high quality",
+
+            "roti canai": "Malaysian roti canai flatbread crispy, served with curry, food photography, close up",
+            "roti": "Malaysian roti flatbread, curry, food photography",
+            "murtabak": "Malaysian murtabak stuffed pancake, egg, meat, curry, food photography",
+
+            "satay": "Malaysian satay skewered meat, peanut sauce, cucumber, food photography, traditional, close up",
+
+            "teh tarik": "Malaysian teh tarik pulled milk tea, frothy, glass, food photography, traditional",
+            "kopi": "Malaysian kopi coffee traditional, glass cup, food photography",
+
+            "cendol": "Malaysian cendol dessert, shaved ice, coconut milk, gula melaka, green jelly, food photography",
+            "ais kacang": "Malaysian ais kacang shaved ice dessert, colorful toppings, food photography",
+
+            "pelbagai lauk": "Malaysian mixed side dishes, variety of curries and vegetables, food photography",
+            "lauk": "Malaysian side dishes curry vegetables, food photography",
         }
 
-        item_lower = item.lower()
+        item_lower = item.lower().strip()
+
+        # Direct exact match
+        if item_lower in prompts:
+            return prompts[item_lower]
+
+        # Fuzzy matching - check if item contains any key
         for key, prompt in prompts.items():
             if key in item_lower:
                 return prompt
 
-        return f"Professional photo of {item}, Malaysian style, food photography"
+        # Generic food prompt
+        return f"Professional close-up photo of {item}, Malaysian style, food photography, high quality, realistic, appetizing"
 
     def _extract_menu_items(self, description: str) -> list:
         """Extract menu items from description"""
