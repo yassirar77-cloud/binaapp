@@ -769,6 +769,21 @@ function renderMenu() {{
     ? menuItems
     : menuItems.filter(item => item.category_id === currentCategory);
 
+  // Show placeholder if no menu items
+  if (filteredItems.length === 0) {{
+    grid.innerHTML = `
+      <div style="grid-column:1/-1;text-align:center;padding:60px 20px;background:#f9fafb;border-radius:16px;border:2px dashed #e5e7eb;">
+        <div style="font-size:4rem;margin-bottom:16px;">🍽️</div>
+        <h3 style="font-size:1.5rem;font-weight:bold;margin-bottom:8px;color:#1f2937;">Menu Belum Tersedia</h3>
+        <p style="color:#6b7280;margin-bottom:16px;">Sila tambah menu item melalui panel admin anda.</p>
+        <div style="display:inline-block;padding:12px 24px;background:#eff6ff;border:1px solid #3b82f6;border-radius:8px;color:#3b82f6;font-size:0.875rem;">
+          💡 Tip: Log masuk ke profil anda untuk menguruskan menu dan kawasan delivery
+        </div>
+      </div>
+    `;
+    return;
+  }}
+
   grid.innerHTML = filteredItems.map(item => `
     <div class="menu-item-card">
       ${{item.image_url ? `<img src="${{item.image_url}}" style="width:100%;height:180px;object-fit:cover;" alt="${{item.name}}">` : `<div style="width:100%;height:180px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);display:flex;align-items:center;justify-content:center;"><span style="font-size:3rem;">🍽️</span></div>`}}
@@ -1049,13 +1064,31 @@ function closeOrdering() {{
         if "contact" in features:
             html = self.inject_contact_form(html, user_data.get("email", ""))
 
-        # Ordering System (menu + delivery zones)
-        if user_data.get("menu_items") and user_data.get("delivery_zones"):
-            logger.info("Injecting complete ordering system")
+        # Ordering System (check if delivery system feature is enabled)
+        if "delivery_system" in features or user_data.get("delivery"):
+            logger.info("Injecting ordering system (deliverySystem feature enabled)")
+            # Get menu items and delivery zones (may be empty initially)
+            menu_items = user_data.get("menu_items", [])
+            delivery_zones = user_data.get("delivery_zones", [])
+
+            # If no delivery zones exist yet but delivery settings were provided during generation,
+            # create a default zone from those settings
+            if not delivery_zones and user_data.get("delivery"):
+                delivery_data = user_data["delivery"]
+                default_zone = {
+                    "id": "default",
+                    "zone_name": delivery_data.get("area", "Kawasan Delivery"),
+                    "delivery_fee": float(delivery_data.get("fee", "5").replace("RM", "").strip()),
+                    "estimated_time": delivery_data.get("hours", "30-45 min"),
+                    "is_active": True
+                }
+                delivery_zones = [default_zone]
+
+            # Always inject the ordering system structure
             html = self.inject_ordering_system(
                 html,
-                user_data["menu_items"],
-                user_data["delivery_zones"],
+                menu_items,
+                delivery_zones,
                 {
                     "name": user_data.get("business_name", "Our Business"),
                     "phone": user_data.get("phone", "+60123456789")
