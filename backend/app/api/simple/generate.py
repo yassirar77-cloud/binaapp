@@ -129,7 +129,28 @@ async def generate_website(request: SimpleGenerateRequest):
         # Detect required features
         logger.info("Step 2: Detecting features...")
         features = template_service.detect_features(request.description)
-        logger.info(f"✓ Detected features: {features}")
+
+        # Merge user-selected features from frontend
+        if request.features:
+            logger.info(f"User-selected features: {request.features}")
+            # Add features that user explicitly selected
+            if request.features.get("deliverySystem"):
+                if "delivery_system" not in features:
+                    features.append("delivery_system")
+            if request.features.get("googleMap"):
+                if "maps" not in features:
+                    features.append("maps")
+            if request.features.get("contactForm"):
+                if "contact" not in features:
+                    features.append("contact")
+            if request.features.get("socialMedia"):
+                if "social" not in features:
+                    features.append("social")
+            # WhatsApp is usually included by default, but respect if user disabled it
+            if not request.features.get("whatsapp", True) and "whatsapp" in features:
+                features.remove("whatsapp")
+
+        logger.info(f"✓ Final features: {features}")
 
         # Extract business name from description (simple extraction)
         logger.info("Step 3: Extracting business information...")
@@ -565,6 +586,25 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
         logger.info(f"Job {job_id}: Detecting website type and features...")
         website_type = template_service.detect_website_type(request.description)
         features = template_service.detect_features(request.description)
+
+        # Merge user-selected features from frontend
+        if request.features:
+            logger.info(f"User-selected features: {request.features}")
+            if request.features.get("deliverySystem"):
+                if "delivery_system" not in features:
+                    features.append("delivery_system")
+            if request.features.get("googleMap"):
+                if "maps" not in features:
+                    features.append("maps")
+            if request.features.get("contactForm"):
+                if "contact" not in features:
+                    features.append("contact")
+            if request.features.get("socialMedia"):
+                if "social" not in features:
+                    features.append("social")
+            if not request.features.get("whatsapp", True) and "whatsapp" in features:
+                features.remove("whatsapp")
+
         business_name = extract_business_name(request.description)
         language = detect_language(request.description)
         phone_number = extract_phone_number(request.description)
@@ -877,6 +917,25 @@ async def generate_stream(request: SimpleGenerateRequest):
             logger.info("Step 1: Detecting website type and features...")
             website_type = template_service.detect_website_type(request.description)
             features = template_service.detect_features(request.description)
+
+            # Merge user-selected features from frontend
+            if request.features:
+                logger.info(f"User-selected features: {request.features}")
+                if request.features.get("deliverySystem"):
+                    if "delivery_system" not in features:
+                        features.append("delivery_system")
+                if request.features.get("googleMap"):
+                    if "maps" not in features:
+                        features.append("maps")
+                if request.features.get("contactForm"):
+                    if "contact" not in features:
+                        features.append("contact")
+                if request.features.get("socialMedia"):
+                    if "social" not in features:
+                        features.append("social")
+                if not request.features.get("whatsapp", True) and "whatsapp" in features:
+                    features.remove("whatsapp")
+
             business_name = extract_business_name(request.description)
             language = detect_language(request.description)
             phone_number = extract_phone_number(request.description)
@@ -1041,6 +1100,25 @@ async def generate_website_simple(request: SimpleGenerateRequest):
         # Detect website type
         website_type = template_service.detect_website_type(request.description)
         features = template_service.detect_features(request.description)
+
+        # Merge user-selected features from frontend
+        if request.features:
+            logger.info(f"User-selected features: {request.features}")
+            if request.features.get("deliverySystem"):
+                if "delivery_system" not in features:
+                    features.append("delivery_system")
+            if request.features.get("googleMap"):
+                if "maps" not in features:
+                    features.append("maps")
+            if request.features.get("contactForm"):
+                if "contact" not in features:
+                    features.append("contact")
+            if request.features.get("socialMedia"):
+                if "social" not in features:
+                    features.append("social")
+            if not request.features.get("whatsapp", True) and "whatsapp" in features:
+                features.remove("whatsapp")
+
         business_name = extract_business_name(request.description)
         language = detect_language(request.description)
         phone_number = extract_phone_number(request.description)
