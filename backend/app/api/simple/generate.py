@@ -211,7 +211,8 @@ async def generate_website(request: SimpleGenerateRequest):
             "address": address if address else "",
             "email": "contact@business.com",
             "url": "https://preview.binaapp.my",
-            "whatsapp_message": "Hi, I'm interested"
+            "whatsapp_message": "Hi, I'm interested",
+            "business_name": business_name
         }
 
         # Dual AI generation mode - return both designs
@@ -658,7 +659,8 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
             "address": address if address else "",
             "email": "contact@business.com",
             "url": "https://preview.binaapp.my",
-            "whatsapp_message": "Hi, I'm interested"
+            "whatsapp_message": "Hi, I'm interested",
+            "business_name": business_name
         }
 
         # Add social media to user_data if provided
@@ -668,6 +670,49 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
         # Add delivery info to user_data if provided
         if request.delivery:
             user_data["delivery"] = request.delivery
+
+        # Create menu items from uploaded images (for ordering system)
+        menu_items = []
+        if request.images and len(request.images) > 0:
+            logger.info(f"Job {job_id}: Creating menu items from {len(request.images)} uploaded images...")
+            default_prices = [15, 12, 18, 10, 20, 14, 16, 13]  # Default prices for menu items
+
+            for idx, img in enumerate(request.images):
+                # Extract image data
+                if isinstance(img, dict):
+                    img_url = img.get('url', '')
+                    img_name = img.get('name', f'Item {idx+1}')
+                else:
+                    img_url = str(img)
+                    img_name = f'Item {idx+1}'
+
+                # Skip hero image (first image is usually hero)
+                if idx == 0 and 'hero' in img_name.lower():
+                    continue
+
+                # Skip empty names or "Hero Image"
+                if not img_name or img_name == 'Hero Image' or img_name == '':
+                    continue
+
+                # Create menu item
+                menu_item = {
+                    "id": f"menu-{idx}",
+                    "name": img_name,
+                    "description": f"Hidangan istimewa dari dapur kami",  # Default description
+                    "price": default_prices[idx % len(default_prices)],
+                    "image_url": img_url,
+                    "category_id": "main",
+                    "is_available": True
+                }
+                menu_items.append(menu_item)
+                logger.info(f"   Added menu item: {img_name} - RM{menu_item['price']}")
+
+        # Add menu items to user_data
+        if menu_items:
+            user_data["menu_items"] = menu_items
+            logger.info(f"Job {job_id}: Created {len(menu_items)} menu items for ordering system")
+        else:
+            logger.warning(f"Job {job_id}: No menu items created - ordering system will be empty")
 
         # Step 2: Generate 3 style variations
         job_service.update_progress(job_id, 20)
@@ -1167,7 +1212,8 @@ async def generate_website_simple(request: SimpleGenerateRequest):
             "address": address if address else "",
             "email": "contact@business.com",
             "url": "https://preview.binaapp.my",
-            "whatsapp_message": "Hi, I'm interested"
+            "whatsapp_message": "Hi, I'm interested",
+            "business_name": business_name
         }
 
         # Generate website
