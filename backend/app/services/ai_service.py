@@ -1137,6 +1137,12 @@ class AIService:
     async def generate_smart_image_prompts(self, description: str) -> dict:
         """Use AI to generate appropriate image prompts for ANY business type"""
 
+        # Check if this is a Malaysian food business - use specific prompts
+        desc_lower = description.lower()
+        if any(word in desc_lower for word in ['nasi', 'mee', 'ayam', 'ikan', 'restoran', 'restaurant', 'kedai makan', 'warung', 'mamak', 'kandar', 'lemak', 'goreng']):
+            logger.info("🍽️ Detected Malaysian food business - using Malaysian food prompts")
+            return self._get_malaysian_food_prompts(description)
+
         prompt = f"""You are an expert at creating image prompts for Stability AI.
 
 BUSINESS DESCRIPTION:
@@ -1145,18 +1151,24 @@ BUSINESS DESCRIPTION:
 TASK:
 Analyze this business and generate 5 specific image prompts that match this EXACT business type.
 
+IMPORTANT FOR MALAYSIAN FOOD BUSINESSES:
+- If it's a Malaysian restaurant/food business, use specific Malaysian dish names
+- Examples: "nasi kandar", "nasi lemak", "mee goreng", "char kway teow", "roti canai"
+- Each prompt must describe the ACTUAL Malaysian dish, not generic food
+
 RULES:
 1. If it's a PHOTOGRAPHER business → generate prompts for cameras, wedding photos, portrait sessions
-2. If it's a RESTAURANT → generate prompts for food dishes, restaurant interior
-3. If it's a FASHION store → generate prompts for clothing, boutique
+2. If it's a RESTAURANT/FOOD → generate prompts for SPECIFIC dishes mentioned in description
+3. If it's a FASHION store → generate prompts for clothing items, boutique display
 4. If it's a SALON → generate prompts for hairstyling, beauty treatments
 5. If it's a WATCH/JEWELRY store → generate prompts for watches, jewelry products
 6. If it's an AUTOMOTIVE business → generate prompts for cars, workshop, mechanics
 7. NEVER generate food images for non-food businesses
-8. NEVER generate random images - they must match the business
+8. NEVER generate random/generic images - they must match the EXACT business
 9. All prompts must be in ENGLISH for Stability AI
-10. Each prompt should be detailed (20-40 words)
-11. Include "professional photography" or "product photography" in each prompt
+10. Each prompt should be detailed (20-50 words)
+11. Include "professional photography" or "food photography" in each prompt
+12. For food businesses: Describe the SPECIFIC dishes, not just "food" or "restaurant interior"
 
 OUTPUT FORMAT (JSON only, no explanation):
 {{
@@ -1209,11 +1221,68 @@ Generate prompts now:"""
         except Exception as e:
             logger.error(f"🧠 Smart prompt generation failed: {e}")
 
-        # Fallback - use generic prompts
+        # Fallback - use specific prompts based on business type
         return self._get_fallback_prompts(description)
+
+    def _get_malaysian_food_prompts(self, description: str) -> dict:
+        """Generate Malaysian food-specific prompts using MALAYSIAN_FOOD_PROMPTS database"""
+        desc_lower = description.lower()
+
+        # Find specific Malaysian dishes mentioned in description
+        dishes_found = []
+        for dish_name, prompt in self.MALAYSIAN_FOOD_PROMPTS.items():
+            if dish_name in desc_lower:
+                dishes_found.append((dish_name, prompt))
+
+        # If we found specific dishes, use them
+        if len(dishes_found) >= 4:
+            logger.info(f"🍽️ Found {len(dishes_found)} Malaysian dishes in description")
+            return {
+                "hero": f"Malaysian restaurant interior, traditional food stall, authentic atmosphere, food photography, welcoming ambiance",
+                "image1": dishes_found[0][1] + ", professional food photography, high quality, appetizing",
+                "image2": dishes_found[1][1] + ", professional food photography, high quality, delicious",
+                "image3": dishes_found[2][1] + ", professional food photography, high quality, authentic",
+                "image4": dishes_found[3][1] + ", professional food photography, high quality, traditional"
+            }
+
+        # Default Malaysian food prompts - common dishes
+        logger.info("🍽️ Using default Malaysian food prompts")
+        return {
+            "hero": "Malaysian restaurant interior, food stall with hanging menu, authentic atmosphere, people eating, warm lighting, food photography",
+            "image1": self.MALAYSIAN_FOOD_PROMPTS["nasi kandar"] + ", professional food photography, close-up, appetizing presentation",
+            "image2": self.MALAYSIAN_FOOD_PROMPTS["nasi lemak"] + ", professional food photography, banana leaf, traditional serving",
+            "image3": self.MALAYSIAN_FOOD_PROMPTS["mee goreng"] + ", professional food photography, wok-fried, steaming hot",
+            "image4": self.MALAYSIAN_FOOD_PROMPTS["roti canai"] + ", professional food photography, curry sauce, close-up"
+        }
 
     def _get_fallback_prompts(self, description: str) -> dict:
         """Generate fallback prompts when AI fails"""
+        desc_lower = description.lower()
+
+        # Check if it's a Malaysian food business
+        if any(word in desc_lower for word in ['nasi', 'mee', 'ayam', 'ikan', 'restoran', 'restaurant', 'kedai makan', 'warung', 'mamak']):
+            return self._get_malaysian_food_prompts(description)
+
+        # Check for other business types
+        if any(word in desc_lower for word in ['salon', 'rambut', 'hair', 'beauty', 'kecantikan']):
+            return {
+                "hero": "Modern hair salon interior, styling chairs, mirrors, professional lighting, commercial photography",
+                "image1": "Professional haircut service, stylist cutting hair, modern salon, beauty photography",
+                "image2": "Hair coloring treatment, professional hair color application, salon interior, beauty photography",
+                "image3": "Hair treatment service, professional hair spa, relaxing atmosphere, beauty photography",
+                "image4": "Hair styling service, blow dry, professional salon, beauty photography"
+            }
+
+        if any(word in desc_lower for word in ['baju', 'pakaian', 'fashion', 'clothing', 'boutique', 'tudung']):
+            return {
+                "hero": "Modern fashion boutique interior, clothing displays, elegant atmosphere, commercial photography",
+                "image1": "Traditional baju kurung display, elegant Malaysian clothing, product photography, boutique setting",
+                "image2": "Hijab and tudung collection, colorful scarves, product photography, elegant display",
+                "image3": "Fashion accessories display, jewelry and brooches, product photography, luxury presentation",
+                "image4": "Clothing boutique interior, modern retail space, professional photography"
+            }
+
+        # Generic business fallback
         desc_short = description[:50]
         return {
             "hero": f"Professional business establishment for {desc_short}, modern interior, welcoming atmosphere, commercial photography",
