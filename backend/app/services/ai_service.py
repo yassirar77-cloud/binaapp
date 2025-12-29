@@ -840,7 +840,10 @@ class AIService:
 
     async def generate_food_image(self, food_name: str) -> Optional[str]:
         """
-        Generate AI image for a food item using Stability AI
+        Generate AI image for a food item using the full pipeline:
+        1. DeepSeek/Qwen generates detailed English description
+        2. Stability AI generates image from description
+        3. Image uploaded to Cloudinary
 
         Args:
             food_name: Name of the food item (e.g., "Nasi Kandar Special", "Ayam Goreng Berempah")
@@ -855,8 +858,17 @@ class AIService:
         try:
             logger.info(f"🎨 Generating AI image for: {food_name}")
 
-            # Generate image with Stability AI and upload to Cloudinary
-            image_url = await self._generate_stability_image(food_name)
+            # Step 1: Generate detailed description using DeepSeek/Qwen
+            detailed_description = await self._generate_food_description(food_name)
+
+            if not detailed_description:
+                logger.warning(f"⚠️ Failed to generate description, using smart prompt fallback")
+                detailed_description = self._get_malaysian_prompt(food_name)
+            else:
+                logger.info(f"📝 AI Description: {detailed_description[:100]}...")
+
+            # Step 2: Generate image with Stability AI using the detailed description
+            image_url = await self._generate_stability_image(detailed_description)
 
             if image_url:
                 logger.info(f"✅ Generated image: {image_url[:60]}...")
@@ -866,6 +878,109 @@ class AIService:
             return image_url
         except Exception as e:
             logger.error(f"❌ Error generating food image: {e}")
+            return None
+
+    async def _generate_food_description(self, food_name: str) -> Optional[str]:
+        """
+        Use DeepSeek/Qwen to generate a detailed English description for Stability AI
+
+        Args:
+            food_name: Name of the food (e.g., "Nasi Kandar Special")
+
+        Returns:
+            Detailed English description for image generation, or None if failed
+        """
+        try:
+            # Prepare prompt for AI to generate image description
+            system_prompt = """You are an expert at creating detailed image prompts for AI image generation.
+Your task is to convert a food name into a detailed, vivid description suitable for Stability AI image generation.
+
+Focus on:
+- Visual appearance (colors, textures, arrangement)
+- Traditional presentation style
+- Serving method (banana leaf, plate, etc.)
+- Specific ingredients visible
+- Photography style (food photography, professional lighting)
+
+Keep the description concise (under 100 words) but highly descriptive."""
+
+            user_prompt = f"""Create a detailed image generation prompt for: "{food_name}"
+
+If it's a Malaysian dish, describe it authentically with proper ingredients and presentation.
+If it's not Malaysian, describe it in its traditional style.
+
+Format: Just the image description, no explanations."""
+
+            # Try DeepSeek first (better for descriptions)
+            if self.deepseek_api_key:
+                logger.info(f"🔷 Using DeepSeek to generate description for: {food_name}")
+                try:
+                    async with httpx.AsyncClient(timeout=30) as client:
+                        response = await client.post(
+                            f"{self.deepseek_base_url}/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {self.deepseek_api_key}",
+                                "Content-Type": "application/json"
+                            },
+                            json={
+                                "model": "deepseek-chat",
+                                "messages": [
+                                    {"role": "system", "content": system_prompt},
+                                    {"role": "user", "content": user_prompt}
+                                ],
+                                "temperature": 0.7,
+                                "max_tokens": 200
+                            }
+                        )
+
+                        if response.status_code == 200:
+                            result = response.json()
+                            description = result["choices"][0]["message"]["content"].strip()
+                            logger.info(f"✅ DeepSeek generated description")
+                            return description
+                        else:
+                            logger.warning(f"DeepSeek failed: {response.status_code}")
+                except Exception as e:
+                    logger.warning(f"DeepSeek error: {e}")
+
+            # Fallback to Qwen
+            if self.qwen_api_key:
+                logger.info(f"🟡 Using Qwen to generate description for: {food_name}")
+                try:
+                    async with httpx.AsyncClient(timeout=30) as client:
+                        response = await client.post(
+                            f"{self.qwen_base_url}/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {self.qwen_api_key}",
+                                "Content-Type": "application/json"
+                            },
+                            json={
+                                "model": "qwen-max",
+                                "messages": [
+                                    {"role": "system", "content": system_prompt},
+                                    {"role": "user", "content": user_prompt}
+                                ],
+                                "temperature": 0.7,
+                                "max_tokens": 200
+                            }
+                        )
+
+                        if response.status_code == 200:
+                            result = response.json()
+                            description = result["choices"][0]["message"]["content"].strip()
+                            logger.info(f"✅ Qwen generated description")
+                            return description
+                        else:
+                            logger.warning(f"Qwen failed: {response.status_code}")
+                except Exception as e:
+                    logger.warning(f"Qwen error: {e}")
+
+            # No AI available
+            logger.warning("No AI service available for description generation")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error generating food description: {e}")
             return None
 
     async def _generate_stability_image(self, prompt: str) -> Optional[str]:
