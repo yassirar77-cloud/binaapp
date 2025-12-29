@@ -42,6 +42,10 @@ class SimpleGenerateRequest(BaseModel):
     multi_style: Optional[bool] = Field(default=False, description="Generate multiple style variations")
     generate_previews: Optional[bool] = Field(default=False, description="Generate preview thumbnails (slower)")
     mode: Optional[str] = Field(default="single", description="Generation mode: 'single', 'dual', 'best', or 'strategic'")
+    features: Optional[dict] = Field(default=None, description="Selected features (whatsapp, googleMap, deliverySystem, etc.)")
+    delivery: Optional[dict] = Field(default=None, description="Delivery system settings (area, fee, minimum, hours)")
+    address: Optional[str] = Field(default=None, description="Full address for Google Map")
+    social_media: Optional[dict] = Field(default=None, description="Social media handles (instagram, facebook, tiktok)")
 
 
 class SimpleGenerateResponse(BaseModel):
@@ -478,6 +482,78 @@ class AsyncGenerateStatusResponse(BaseModel):
     template_used: str = ""
 
 
+def build_feature_instructions(features: dict, delivery: dict, address: str, social_media: dict) -> str:
+    """Build feature instructions for AI based on user selections"""
+    if not features:
+        return ""
+
+    feature_instructions = "\n\n=== REQUIRED FEATURES ===\n"
+
+    # WhatsApp
+    if features.get("whatsapp", True):
+        feature_instructions += "- WhatsApp button (floating and in contact section)\n"
+    else:
+        feature_instructions += "- DO NOT include WhatsApp button\n"
+
+    # Google Map
+    if features.get("googleMap") and address:
+        feature_instructions += f"- Google Map embed showing: {address}\n"
+        feature_instructions += f"  Use iframe: <iframe src='https://maps.google.com/maps?q={address}&output=embed'>\n"
+
+    # Delivery System
+    if features.get("deliverySystem") and delivery:
+        area = delivery.get('area', 'Dalam 5km')
+        fee = delivery.get('fee', 'RM5')
+        minimum = delivery.get('minimum', 'RM20')
+        hours = delivery.get('hours', '11am-9pm')
+
+        feature_instructions += f"""- DELIVERY SECTION with:
+  - Kawasan: {area}
+  - Caj: {fee}
+  - Minimum order: {minimum}
+  - Waktu: {hours}
+  - Order button that sends WhatsApp with delivery request
+  - Simple order form: Name, Phone, Address, Items, Total
+"""
+
+    # Contact Form
+    if features.get("contactForm"):
+        feature_instructions += "- Contact form with Name, Email, Phone, Message fields\n"
+
+    # Social Media
+    if features.get("socialMedia") and social_media:
+        feature_instructions += "- Social media icons in footer"
+        social_links = []
+        if social_media.get('instagram'):
+            social_links.append(f"Instagram ({social_media['instagram']})")
+        if social_media.get('facebook'):
+            social_links.append(f"Facebook ({social_media['facebook']})")
+        if social_media.get('tiktok'):
+            social_links.append(f"TikTok ({social_media['tiktok']})")
+        if social_links:
+            feature_instructions += f": {', '.join(social_links)}\n"
+        else:
+            feature_instructions += "\n"
+
+    # Price List
+    if features.get("priceList", True):
+        feature_instructions += "- Show prices for each menu item\n"
+    else:
+        feature_instructions += "- DO NOT show prices (customer will ask via WhatsApp)\n"
+
+    # Operating Hours
+    if features.get("operatingHours", True):
+        feature_instructions += "- Show operating hours\n"
+
+    # Gallery
+    if features.get("gallery", True):
+        feature_instructions += "- Include photo gallery section\n"
+
+    feature_instructions += "=== END FEATURES ===\n\n"
+
+    return feature_instructions
+
+
 async def generate_variants_background(job_id: str, request: SimpleGenerateRequest):
     """Background task to generate 3 website variants"""
     try:
@@ -492,23 +568,40 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
         business_name = extract_business_name(request.description)
         language = detect_language(request.description)
         phone_number = extract_phone_number(request.description)
-        address = extract_address(request.description)
+        address = request.address if request.address else extract_address(request.description)
+
+        # Build feature instructions from user selections
+        feature_instructions = ""
+        if request.features:
+            feature_instructions = build_feature_instructions(
+                request.features,
+                request.delivery or {},
+                address or "",
+                request.social_media or {}
+            )
+            logger.info(f"Job {job_id}: User-selected features:")
+            logger.info(feature_instructions)
 
         # Update job metadata
         job_service.set_metadata(job_id, features, website_type)
         job_service.update_progress(job_id, 10)
         logger.info(f"Job {job_id}: Type={website_type}, Features={features}")
 
+        # Build enhanced description with feature instructions
+        enhanced_description = request.description
+        if feature_instructions:
+            enhanced_description = f"{request.description}\n{feature_instructions}"
+
         # Build AI generation request
         ai_request = WebsiteGenerationRequest(
-            description=request.description,
+            description=enhanced_description,
             business_name=business_name,
             business_type=website_type,
             language=language,
             subdomain="preview",
-            include_whatsapp=("whatsapp" in features),
+            include_whatsapp=("whatsapp" in features) or (request.features and request.features.get("whatsapp", True)),
             whatsapp_number=phone_number if phone_number else "+60123456789",
-            include_maps=("maps" in features),
+            include_maps=("maps" in features) or (request.features and request.features.get("googleMap", False)),
             location_address=address if address else "",
             include_ecommerce=("cart" in features),
             contact_email=None,
@@ -527,6 +620,14 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
             "url": "https://preview.binaapp.my",
             "whatsapp_message": "Hi, I'm interested"
         }
+
+        # Add social media to user_data if provided
+        if request.social_media:
+            user_data["social_media"] = request.social_media
+
+        # Add delivery info to user_data if provided
+        if request.delivery:
+            user_data["delivery"] = request.delivery
 
         # Step 2: Generate 3 style variations
         job_service.update_progress(job_id, 20)
