@@ -18,60 +18,149 @@ from app.services.supabase_client import supabase_service
 router = APIRouter()
 
 # Blocked subdomain words - offensive, sensitive, trademarked terms
+# IMPORTANT: Include ALL spelling variations to catch attempts to bypass filters
 BLOCKED_WORDS = [
-    # English offensive
-    "fuck", "shit", "ass", "bitch", "dick", "porn", "sex", "xxx",
-    "nude", "naked", "kill", "murder", "terrorist", "bomb", "drug",
-    "cocaine", "heroin", "weed", "gambling", "casino", "scam", "fraud",
+    # Malay offensive - with spelling variations
+    "bodo", "bodoh", "bodow", "bodo", "bhodoh",  # stupid
+    "babi", "bab1", "bbabi", "babii",  # pig
+    "sial", "cial", "siol", "syal", "siol",  # damn
+    "pukimak", "puki", "kimak", "pkimak", "pukima",  # vulgar
+    "lancau", "lanjiao", "lncau", "lancaw",  # vulgar
+    "pantat", "pntat", "pantet", "pntet",  # vulgar
+    "sundal", "sndal", "sundel", "sndel",  # prostitute
+    "jalang", "jlang", "jaláng",  # slut
+    "pelacur", "plcur", "pelacor",  # prostitute
+    "haram", "harom", "harem", "haraam",  # forbidden (offensive context)
+    "celaka", "claka", "celake", "clake",  # cursed
+    "bangang", "bangng", "bnggang", "bangang",  # idiot
+    "bengap", "bngap", "bengep", "bngep",  # stupid
+    "tolol", "tlol", "tol0l", "tolool",  # idiot
+    "goblok", "goblog", "gblok", "gobloq",  # stupid
+    "anjing", "anjng", "ajg", "anjig", "anying",  # dog (offensive)
+    "asu", "assu", "asuw",  # dog
+    "mampus", "mampos", "mampuss", "mampoos",  # die
+    "taik", "tahi", "taek", "taiek",  # shit
+    "palat", "palet", "plat",  # vulgar
+    "pukul", "pkul", "pukol",  # hit (violence context)
+    "bunuh", "bnuh", "bunoh",  # kill
+    "pepek", "ppek", "memek", "mmek",  # vulgar
+    "kontol", "kntol", "kontl",  # vulgar
 
-    # Malay offensive
-    "babi", "bodoh", "sial", "pukimak", "kimak", "lancau", "pantat",
-    "sundal", "jalang", "pelacur", "haram", "celaka", "bangang",
-    "bengap", "tolol", "goblok", "anjing", "asu",
+    # English offensive - with leetspeak variations
+    "fuck", "fck", "fuk", "f4ck", "fvck", "phuck", "fxck",
+    "shit", "sh1t", "sht", "shyt", "shite",
+    "ass", "a55", "azz", "arse",
+    "bitch", "b1tch", "btch", "biatch", "bytch",
+    "dick", "d1ck", "dik", "dck",
+    "porn", "p0rn", "pron", "pr0n", "porno",
+    "sex", "s3x", "sexx", "s3xx",
+    "xxx", "xxxx",
+    "nude", "nud3", "nood", "n00d",
+    "naked", "nak3d", "nakey",
+    "kill", "k1ll", "kil", "kll",
+    "murder", "murd3r", "mrder",
+    "drug", "drugs", "drg", "drugz", "dadah",
+    "gambling", "gambl1ng", "judi", "judii",
+    "casino", "cas1no", "kasino", "casin0",
+    "scam", "sc4m", "scamm", "sc@m",
+    "terrorist", "terror1st", "terrori5t",
+    "bomb", "b0mb", "bomm",
+    "cocaine", "coke", "c0caine",
+    "heroin", "her0in", "hero1n",
+    "weed", "w33d", "w3ed",
+    "fraud", "fr4ud", "frawd",
 
     # Religious/Political sensitive (Malaysia)
-    "allah", "nabi", "rasul", "agong", "sultan", "kerajaan",
+    "allah", "al1ah", "alloh",
+    "nabi", "nab1", "nabii",
+    "rasul", "rasool", "rasol",
+    "agong", "ag0ng", "aggong",
+    "sultan", "sult4n", "sulton",
+    "kerajaan", "krajaaan", "kerajaan",
 
     # Brand/Trademark issues
-    "google", "facebook", "instagram", "tiktok", "twitter", "amazon",
-    "apple", "microsoft", "netflix", "shopee", "lazada", "grab",
+    "google", "g00gle", "googl", "gogle",
+    "facebook", "faceb00k", "fb", "facbook",
+    "instagram", "insta", "1nstagram", "instagr4m",
+    "tiktok", "t1ktok", "tikt0k", "tik-tok",
+    "twitter", "tw1tter", "twiter", "twtr",
+    "amazon", "amaz0n", "amazn",
+    "apple", "appl", "app1e", "apel",
+    "microsoft", "micr0soft", "microsfot",
+    "netflix", "netfl1x", "netflex",
+    "shopee", "sh0pee", "shope", "shopi",
+    "lazada", "laz4da", "lazadaa",
+    "grab", "gr4b", "grabb",
+    "foodpanda", "f00dpanda", "food-panda",
 
     # Government/Official
-    "gov", "government", "polis", "police", "tentera", "army",
-    "kementerian", "jabatan", "official", "rasmi",
+    "gov", "govt", "government", "g0v",
+    "kerajaan", "krjaan",
+    "polis", "police", "p0lis", "pol1ce",
+    "tentera", "army", "milit4ry",
+    "kementerian", "ministry", "kemen",
+    "jabatan", "department", "dept",
+    "official", "0fficial", "ofisial",
+    "rasmi", "r4smi", "rasmii",
 ]
 
 
 def is_subdomain_allowed(subdomain: str) -> tuple[bool, str]:
     """
     Check if subdomain is allowed based on content policy.
+    Catches leetspeak variations and spelling tricks.
 
     Returns:
         tuple[bool, str]: (is_allowed, error_message)
     """
     subdomain_lower = subdomain.lower().strip()
 
+    # Normalize leetspeak - convert common number/symbol substitutions
+    normalized = subdomain_lower
+    normalized = normalized.replace("0", "o")
+    normalized = normalized.replace("1", "i")
+    normalized = normalized.replace("3", "e")
+    normalized = normalized.replace("4", "a")
+    normalized = normalized.replace("5", "s")
+    normalized = normalized.replace("@", "a")
+    normalized = normalized.replace("$", "s")
+    normalized = normalized.replace("7", "t")
+    normalized = normalized.replace("8", "b")
+
+    logger.info("=" * 50)
+    logger.info(f"🔒 SUBDOMAIN CHECK: '{subdomain_lower}'")
+    if normalized != subdomain_lower:
+        logger.info(f"   Normalized: '{normalized}'")
+    logger.info("=" * 50)
+
     # Check minimum length
     if len(subdomain_lower) < 3:
-        return False, "Subdomain mesti sekurang-kurangnya 3 aksara"
+        logger.warning(f"❌ BLOCKED: Too short ({len(subdomain_lower)} chars)")
+        return False, "Subdomain mesti sekurang-kurangnya 3 aksara / Minimum 3 characters"
 
     # Check maximum length
     if len(subdomain_lower) > 30:
-        return False, "Subdomain terlalu panjang (maksimum 30 aksara)"
+        logger.warning(f"❌ BLOCKED: Too long ({len(subdomain_lower)} chars)")
+        return False, "Subdomain terlalu panjang / Subdomain too long (max 30 characters)"
 
     # Check for valid characters only
     if not re.match(r'^[a-z0-9-]+$', subdomain_lower):
-        return False, "Subdomain hanya boleh mengandungi huruf kecil, nombor dan tanda sempang (-)"
+        logger.warning(f"❌ BLOCKED: Invalid characters")
+        return False, "Hanya huruf kecil, nombor dan (-) dibenarkan / Only lowercase, numbers and hyphens"
 
     # Check if starts/ends with hyphen
     if subdomain_lower.startswith('-') or subdomain_lower.endswith('-'):
-        return False, "Subdomain tidak boleh bermula atau berakhir dengan tanda sempang"
+        logger.warning(f"❌ BLOCKED: Starts/ends with hyphen")
+        return False, "Tidak boleh bermula/berakhir dengan (-) / Cannot start/end with hyphen"
 
-    # Check blocked words
+    # Check blocked words - check both original AND normalized version
     for word in BLOCKED_WORDS:
-        if word in subdomain_lower:
-            return False, "Subdomain mengandungi perkataan tidak dibenarkan"
+        # Check if blocked word is IN the subdomain (substring match)
+        if word in subdomain_lower or word in normalized:
+            logger.warning(f"🚫 BLOCKED: Contains '{word}' (original: '{subdomain_lower}', normalized: '{normalized}')")
+            return False, "Nama ini tidak dibenarkan / This name is not allowed"
 
+    logger.info(f"✅ ALLOWED: '{subdomain_lower}'")
     return True, "OK"
 
 
@@ -162,16 +251,25 @@ async def publish_website(request: PublishRequest):
 
         logger.info(f"✓ HTML content received: {len(html_content)} characters")
 
-        # Check if subdomain is allowed (content policy)
+        # CRITICAL: Check if subdomain is allowed BEFORE anything else
+        logger.info("")
+        logger.info("🛡️ STEP 1: CONTENT POLICY CHECK")
+        logger.info(f"   Checking subdomain: '{request.subdomain}'")
+
         is_allowed, error_message = is_subdomain_allowed(request.subdomain)
+
         if not is_allowed:
-            logger.error(f"❌ Subdomain blocked by content policy: {request.subdomain}")
+            logger.error("=" * 80)
+            logger.error(f"❌ SUBDOMAIN BLOCKED BY CONTENT POLICY")
+            logger.error(f"   Requested subdomain: '{request.subdomain}'")
+            logger.error(f"   Reason: {error_message}")
+            logger.error("=" * 80)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=error_message
             )
 
-        logger.info("✓ Subdomain passes content policy check")
+        logger.info(f"✅ Subdomain passes content policy check: '{request.subdomain}'")
 
         # Validate subdomain format
         if not validate_subdomain(request.subdomain):

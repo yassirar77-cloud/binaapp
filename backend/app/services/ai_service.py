@@ -1785,6 +1785,8 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             # Build gallery section with dish names
             gallery_items = []
             dish_names_list = []
+            menu_items_structured = []
+
             for i in range(1, 5):
                 key = f'gallery{i}'
                 name_key = f'gallery{i}_name'
@@ -1792,48 +1794,48 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     dish_name = image_urls.get(name_key, '')
                     if dish_name:
                         gallery_items.append(f"- Product/Gallery image {i}: {image_urls[key]} (Dish: {dish_name})")
-                        dish_names_list.append(f'Dish {i}: "{dish_name}"')
+                        dish_names_list.append(dish_name)
+                        menu_items_structured.append(f"""ITEM {i}:
+- Image URL: {image_urls[key]}
+- Title: "{dish_name}" (COPY EXACTLY - DO NOT MODIFY)
+- Generate description in Malay based on the title""")
                     else:
                         gallery_items.append(f"- Product/Gallery image {i}: {image_urls[key]}")
 
-            gallery_text = "\n".join(gallery_items) if gallery_items else ""
+            # Build structured menu items section
+            menu_items_section = ""
+            if menu_items_structured:
+                menu_items_section = f"""
 
-            # Build CRITICAL dish names section
-            dish_names_section = ""
-            if dish_names_list:
-                dish_names_section = f"""
+MENU ITEMS - USE EXACTLY AS SPECIFIED:
 
-CRITICAL - DISH NAMES (DO NOT CHANGE THESE):
-You MUST use these EXACT dish names as-is. DO NOT modify, translate, or change them:
+{chr(10).join(menu_items_structured)}
 
-{chr(10).join(dish_names_list)}
-
-RULES FOR DISH NAMES:
-1. Copy the dish name EXACTLY as written above into the <h3> or menu item title
-2. DO NOT change "Mee Goreng Mamak" to "Nasi Kandar Mee Goreng"
-3. DO NOT add "Nasi Kandar" prefix if not in the original name
-4. DO NOT translate or modify the names in any way
-5. The menu item title/heading MUST match EXACTLY what the user typed
+CRITICAL RULES:
+1. The HTML <h3> for each menu card MUST contain the EXACT title text specified above
+2. DO NOT modify, translate, or change the title in any way
+3. DO NOT add prefixes like "Nasi Kandar" if not in the original title
+4. ONLY generate the description in Malay - the title stays EXACTLY as written
+5. Copy-paste the title EXACTLY into your HTML <h3> tags
 
 EXAMPLES:
-❌ WRONG: User types "Ayam Penyet" → AI writes "Nasi Kandar Ayam Goreng"
-✅ CORRECT: User types "Ayam Penyet" → AI writes "Ayam Penyet"
+❌ WRONG: Title is "Ayam Penyet" → AI writes <h3>Nasi Kandar Ayam Goreng</h3>
+✅ CORRECT: Title is "Ayam Penyet" → AI writes <h3>Ayam Penyet</h3>
 
-❌ WRONG: User types "Mee Goreng Mamak" → AI writes "Nasi Kandar Ikan Bakar"
-✅ CORRECT: User types "Mee Goreng Mamak" → AI writes "Mee Goreng Mamak"
+❌ WRONG: Title is "Mee Goreng Mamak" → AI writes <h3>Nasi Kandar Ikan Bakar</h3>
+✅ CORRECT: Title is "Mee Goreng Mamak" → AI writes <h3>Mee Goreng Mamak</h3>
 """
 
             image_instructions = f"""
 USE THESE EXACT IMAGE URLS IN THE HTML:
 - Hero/Banner image: {image_urls.get('hero', 'generate appropriate image')}
-{gallery_text}
-{dish_names_section}
+{menu_items_section}
 
 IMPORTANT INSTRUCTIONS:
 1. Use these EXACT URLs in the img src attributes. Do NOT use placeholder or Unsplash URLs.
-2. For gallery images with dish names, use the EXACT dish names shown above - DO NOT modify them.
-3. Write compelling descriptions for each dish, but keep the dish NAME exactly as provided.
-4. Make sure ALL 4 gallery images are displayed in the gallery section.
+2. Use the EXACT menu item titles shown above - DO NOT modify them.
+3. Write compelling descriptions in Malay for each dish, but keep the dish NAME/TITLE exactly as provided.
+4. Make sure ALL menu items with images are displayed in the menu/gallery section.
 """
 
             prompt += image_instructions
