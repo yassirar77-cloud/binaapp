@@ -213,6 +213,98 @@ class ErrorResponse(BaseModel):
     error_code: Optional[str] = None
 
 
+# Menu and Delivery Schemas
+class MenuCategoryBase(BaseModel):
+    name: str
+    slug: str
+    sort_order: int = 0
+
+
+class MenuCategoryCreate(MenuCategoryBase):
+    website_id: str
+
+
+class MenuCategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
+class MenuCategoryResponse(MenuCategoryBase):
+    id: str
+    website_id: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class MenuItemBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    price: float = Field(..., ge=0)
+    image_url: Optional[str] = None
+    is_available: bool = True
+    sort_order: int = 0
+
+
+class MenuItemCreate(MenuItemBase):
+    website_id: str
+    category_id: Optional[str] = None
+
+
+class MenuItemUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    price: Optional[float] = Field(None, ge=0)
+    category_id: Optional[str] = None
+    image_url: Optional[str] = None
+    is_available: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+class MenuItemResponse(MenuItemBase):
+    id: str
+    website_id: str
+    category_id: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DeliveryZoneBase(BaseModel):
+    zone_name: str
+    delivery_fee: float = Field(..., ge=0)
+    estimated_time: Optional[str] = None
+    is_active: bool = True
+    sort_order: int = 0
+
+
+class DeliveryZoneCreate(DeliveryZoneBase):
+    website_id: str
+
+
+class DeliveryZoneUpdate(BaseModel):
+    zone_name: Optional[str] = None
+    delivery_fee: Optional[float] = Field(None, ge=0)
+    estimated_time: Optional[str] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+class DeliveryZoneResponse(DeliveryZoneBase):
+    id: str
+    website_id: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # Health Check
 class HealthResponse(BaseModel):
     status: str
