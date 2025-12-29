@@ -4,6 +4,7 @@ Menu and Delivery Management API Endpoints
 
 from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List, Optional
+from pydantic import BaseModel
 from loguru import logger
 from supabase import Client
 
@@ -14,8 +15,64 @@ from app.models.schemas import (
 )
 from app.core.supabase import get_supabase_client
 from app.core.security import get_current_user
+from app.services.ai_service import ai_service
 
 router = APIRouter()
+
+
+# ============================================================
+# IMAGE GENERATION ENDPOINTS
+# ============================================================
+
+class GenerateFoodImageRequest(BaseModel):
+    """Request to generate AI image for food item"""
+    food_name: str
+    description: Optional[str] = None
+
+
+class GenerateFoodImageResponse(BaseModel):
+    """Response with generated image URL"""
+    image_url: str
+    food_name: str
+
+
+@router.post("/generate-food-image", response_model=GenerateFoodImageResponse)
+async def generate_food_image(
+    request: GenerateFoodImageRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Generate AI image for a food item using Stability AI.
+    The image is uploaded to Cloudinary and the URL is returned.
+
+    Example:
+    - Input: "Nasi Kandar Special" → Generates realistic nasi kandar image
+    - Input: "Ayam Goreng Berempah" → Generates Malaysian fried chicken image
+    """
+    try:
+        logger.info(f"🎨 User {current_user['email']} requesting image for: {request.food_name}")
+
+        # Generate AI image
+        image_url = await ai_service.generate_food_image(request.food_name)
+
+        if not image_url:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to generate image. Please try again or contact support."
+            )
+
+        return GenerateFoodImageResponse(
+            image_url=image_url,
+            food_name=request.food_name
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating food image: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error generating image: {str(e)}"
+        )
 
 
 # ============================================================
@@ -147,15 +204,34 @@ async def delete_menu_category(
 async def create_menu_item(
     website_id: str,
     item: MenuItemCreate,
+    auto_generate_image: bool = True,
     current_user: dict = Depends(get_current_user),
     supabase: Client = Depends(get_supabase_client)
 ):
-    """Create a new menu item"""
+    """
+    Create a new menu item
+
+    If auto_generate_image=True (default) and no image_url is provided,
+    the system will automatically generate an AI image using Stability AI.
+    """
     try:
         # Verify ownership
         website_check = supabase.table("websites").select("user_id").eq("id", website_id).execute()
         if not website_check.data or website_check.data[0]["user_id"] != current_user["id"]:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+        # Auto-generate image if not provided
+        if auto_generate_image and not item.image_url:
+            logger.info(f"🎨 Auto-generating image for menu item: {item.name}")
+            try:
+                generated_url = await ai_service.generate_food_image(item.name)
+                if generated_url:
+                    item.image_url = generated_url
+                    logger.info(f"✅ Generated image: {generated_url[:60]}...")
+                else:
+                    logger.warning(f"⚠️ Image generation failed, creating without image")
+            except Exception as e:
+                logger.error(f"❌ Image generation error: {e}, creating without image")
 
         # Create item
         item.website_id = website_id
