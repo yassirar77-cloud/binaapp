@@ -439,6 +439,85 @@ function handleContactSubmit(e) {{
 
         return html
 
+    def inject_delivery_section(
+        self,
+        html: str,
+        delivery_data: Dict,
+        phone_number: str
+    ) -> str:
+        """
+        Inject delivery section with order form into HTML
+        """
+        delivery_area = delivery_data.get('area', 'Dalam 5km')
+        delivery_fee = delivery_data.get('fee', 'RM5')
+        minimum_order = delivery_data.get('minimum', 'RM20')
+        delivery_hours = delivery_data.get('hours', '11am-9pm')
+
+        # Clean phone number for WhatsApp link
+        phone_clean = re.sub(r'[^\d+]', '', phone_number)
+        if not phone_clean.startswith('+'):
+            if phone_clean.startswith('60'):
+                phone_clean = '+' + phone_clean
+            elif phone_clean.startswith('0'):
+                phone_clean = '+6' + phone_clean
+            else:
+                phone_clean = '+60' + phone_clean
+
+        delivery_html = f"""
+<!-- Delivery Section -->
+<section id="delivery" style="padding:60px 20px;background:linear-gradient(135deg, #fff5eb 0%, #ffe4cc 100%);">
+  <div style="max-width:1200px;margin:0 auto;">
+    <div style="text-align:center;margin-bottom:40px;">
+      <h2 style="font-size:2.5rem;font-weight:bold;margin-bottom:16px;color:#c2410c;">🛵 Delivery Sendiri</h2>
+      <p style="font-size:1.25rem;color:#7c2d12;margin-bottom:32px;">Kami hantar terus ke rumah anda!</p>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;max-width:800px;margin:0 auto 32px;">
+        <div style="background:white;padding:24px;border-radius:16px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+          <div style="font-size:2rem;margin-bottom:8px;">📍</div>
+          <div style="font-weight:bold;color:#1f2937;">Kawasan</div>
+          <div style="color:#6b7280;margin-top:4px;">{delivery_area}</div>
+        </div>
+        <div style="background:white;padding:24px;border-radius:16px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+          <div style="font-size:2rem;margin-bottom:8px;">💰</div>
+          <div style="font-weight:bold;color:#1f2937;">Caj Delivery</div>
+          <div style="color:#6b7280;margin-top:4px;">{delivery_fee}</div>
+        </div>
+        <div style="background:white;padding:24px;border-radius:16px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+          <div style="font-size:2rem;margin-bottom:8px;">🛒</div>
+          <div style="font-weight:bold;color:#1f2937;">Minimum</div>
+          <div style="color:#6b7280;margin-top:4px;">{minimum_order}</div>
+        </div>
+        <div style="background:white;padding:24px;border-radius:16px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+          <div style="font-size:2rem;margin-bottom:8px;">🕐</div>
+          <div style="font-weight:bold;color:#1f2937;">Waktu</div>
+          <div style="color:#6b7280;margin-top:4px;">{delivery_hours}</div>
+        </div>
+      </div>
+
+      <a href="https://wa.me/{phone_clean}?text=Saya%20nak%20order%20delivery"
+         style="display:inline-flex;align-items:center;background:#ea580c;color:white;padding:16px 32px;
+                border-radius:9999px;font-weight:bold;font-size:1.125rem;text-decoration:none;
+                box-shadow:0 10px 25px rgba(234,88,12,0.4);transition:all 0.3s ease;"
+         onmouseover="this.style.background='#c2410c';this.style.transform='scale(1.05)';this.style.boxShadow='0 12px 30px rgba(234,88,12,0.5)';"
+         onmouseout="this.style.background='#ea580c';this.style.transform='scale(1)';this.style.boxShadow='0 10px 25px rgba(234,88,12,0.4)';">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="white" style="margin-right:8px;">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.890-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+        </svg>
+        Order Delivery Sekarang
+      </a>
+    </div>
+  </div>
+</section>
+"""
+
+        # Inject before closing body tag
+        if "</body>" in html:
+            html = html.replace("</body>", delivery_html + "\n</body>")
+        else:
+            html += delivery_html
+
+        return html
+
     def inject_integrations(
         self,
         html: str,
@@ -465,6 +544,15 @@ function handleContactSubmit(e) {{
         # Shopping Cart
         if "cart" in features:
             html = self.inject_shopping_cart(html)
+
+        # Delivery System
+        if user_data.get("delivery") and user_data.get("phone"):
+            logger.info("Injecting delivery section")
+            html = self.inject_delivery_section(
+                html,
+                user_data["delivery"],
+                user_data["phone"]
+            )
 
         # Contact Form
         if "contact" in features:
