@@ -437,6 +437,122 @@ async def track_order(
 
 
 # =====================================================
+# BUSINESS ORDER MANAGEMENT ENDPOINTS
+# =====================================================
+
+@router.get("/orders/business/{user_id}", response_model=List[OrderResponse])
+async def get_business_orders(
+    user_id: str,
+    status_filter: Optional[str] = None,
+    supabase: Client = Depends(get_supabase_client)
+):
+    """
+    Get all orders for websites owned by a user
+
+    **Authenticated endpoint** - Business owners can view their orders
+    """
+    try:
+        # 1. Get all websites owned by this user
+        websites_response = supabase.table("websites").select("id").eq(
+            "user_id", user_id
+        ).execute()
+
+        if not websites_response.data:
+            return []
+
+        website_ids = [w['id'] for w in websites_response.data]
+
+        # 2. Get all orders for these websites
+        query = supabase.table("delivery_orders").select("*").in_(
+            "website_id", website_ids
+        ).order("created_at", desc=True)
+
+        if status_filter:
+            query = query.eq("status", status_filter)
+
+        orders_response = query.execute()
+
+        orders = [convert_db_row_to_dict(o) for o in orders_response.data]
+
+        return orders
+
+    except Exception as e:
+        logger.error(f"Error fetching business orders: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch orders: {str(e)}"
+        )
+
+
+@router.put("/orders/{order_id}/status", response_model=OrderResponse)
+async def update_order_status(
+    order_id: str,
+    status_update: OrderStatusUpdate,
+    supabase: Client = Depends(get_supabase_client)
+):
+    """
+    Update order status
+
+    **Authenticated endpoint** - Business owners can update order status
+
+    Status flow: pending → confirmed → preparing → ready → delivered
+    """
+    try:
+        # 1. Get current order
+        order_response = supabase.table("delivery_orders").select("*").eq(
+            "id", order_id
+        ).execute()
+
+        if not order_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Order not found"
+            )
+
+        current_order = order_response.data[0]
+        new_status = status_update.status.value
+
+        # 2. Prepare update data with timestamp
+        update_data = {"status": new_status}
+        timestamp_field = f"{new_status}_at"
+        if timestamp_field in ['confirmed_at', 'preparing_at', 'ready_at', 'picked_up_at', 'delivered_at', 'completed_at', 'cancelled_at']:
+            update_data[timestamp_field] = datetime.utcnow().isoformat()
+
+        # 3. Update order status
+        updated_response = supabase.table("delivery_orders").update(
+            update_data
+        ).eq("id", order_id).execute()
+
+        if not updated_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update order status"
+            )
+
+        # 4. Add to status history
+        history_data = {
+            "order_id": order_id,
+            "status": new_status,
+            "notes": status_update.notes,
+            "updated_by": "business"
+        }
+        supabase.table("order_status_history").insert(history_data).execute()
+
+        logger.info(f"✅ Order {current_order['order_number']} status updated: {current_order['status']} → {new_status}")
+
+        return convert_db_row_to_dict(updated_response.data[0])
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating order status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update order status: {str(e)}"
+        )
+
+
+# =====================================================
 # HEALTH CHECK
 # =====================================================
 
