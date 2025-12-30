@@ -1258,6 +1258,59 @@ document.addEventListener('DOMContentLoaded', function() {{
 
         return html
 
+    def inject_delivery_widget(
+        self,
+        html: str,
+        website_id: str,
+        whatsapp_number: str,
+        primary_color: str = "#ea580c"
+    ) -> str:
+        """
+        Inject BinaApp Delivery Widget
+        Shows floating "Pesan Sekarang" button for ordering
+
+        Args:
+            html: Website HTML
+            website_id: Website UUID
+            whatsapp_number: WhatsApp number for orders
+            primary_color: Brand color (hex)
+
+        Returns:
+            HTML with delivery widget injected
+        """
+        # Clean WhatsApp number
+        whatsapp_clean = re.sub(r'[^\d+]', '', whatsapp_number)
+        if not whatsapp_clean.startswith('+'):
+            if whatsapp_clean.startswith('60'):
+                whatsapp_clean = '+' + whatsapp_clean
+            elif whatsapp_clean.startswith('0'):
+                whatsapp_clean = '+6' + whatsapp_clean
+            else:
+                whatsapp_clean = '+60' + whatsapp_clean
+
+        # Widget integration script
+        widget_script = f'''
+<!-- BinaApp Delivery Widget -->
+<script src="https://binaapp-backend.onrender.com/widgets/delivery-widget.js"></script>
+<script>
+  BinaAppDelivery.init({{
+    websiteId: '{website_id}',
+    apiUrl: 'https://binaapp-backend.onrender.com/v1',
+    whatsapp: '{whatsapp_clean}',
+    primaryColor: '{primary_color}',
+    language: 'ms'
+  }});
+</script>'''
+
+        # Inject before </body>
+        if "</body>" in html:
+            html = html.replace("</body>", widget_script + "\n</body>")
+        else:
+            # Fallback: append to end
+            html += widget_script
+
+        logger.info(f"✅ Delivery widget injected for website {website_id}")
+        return html
 
 
     def inject_integrations(
@@ -1330,6 +1383,19 @@ document.addEventListener('DOMContentLoaded', function() {{
                     "phone": user_data.get("phone", "+60123456789")
                 }
             )
+
+            # Inject delivery widget for floating "Pesan Sekarang" button
+            website_id = user_data.get("website_id", "")
+            whatsapp = user_data.get("phone", "+60123456789")
+            primary_color = user_data.get("primary_color", "#ea580c")
+
+            if website_id and whatsapp:
+                html = self.inject_delivery_widget(
+                    html,
+                    website_id,
+                    whatsapp,
+                    primary_color
+                )
 
         # QR Code
         if user_data.get("url"):
