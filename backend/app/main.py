@@ -29,6 +29,7 @@ from app.services.ai_service import AIService
 from app.models.schemas import WebsiteGenerationRequest, Language
 from app.api.upload import router as upload_router
 from app.api.v1.endpoints.menu_delivery import router as menu_delivery_router
+from app.api.v1.router import api_router as v1_router
 
 # Initialize AI service
 ai_service = AIService()
@@ -102,6 +103,7 @@ app = FastAPI(title="BinaApp Backend", version="4.0")
 # Include routers
 app.include_router(upload_router, prefix="/api", tags=["Upload"])
 app.include_router(menu_delivery_router, prefix="/api/v1", tags=["Menu & Delivery"])
+app.include_router(v1_router, prefix="/v1")  # New delivery system + all v1 endpoints
 
 # CORS - CRITICAL: allow_credentials must be False when using wildcard origins
 app.add_middleware(
