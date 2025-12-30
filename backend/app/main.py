@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List
 import httpx
@@ -104,6 +105,14 @@ app = FastAPI(title="BinaApp Backend", version="4.0")
 app.include_router(upload_router, prefix="/api", tags=["Upload"])
 app.include_router(menu_delivery_router, prefix="/api/v1", tags=["Menu & Delivery"])
 app.include_router(v1_router, prefix="/v1")  # New delivery system + all v1 endpoints
+
+# Mount static files for delivery widget
+static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+if os.path.exists(static_dir):
+    widgets_path = os.path.join(static_dir, "widgets")
+    if os.path.exists(widgets_path):
+        app.mount("/widgets", StaticFiles(directory=widgets_path), name="widgets")
+        logger.info(f"✅ Static widgets directory mounted: {widgets_path}")
 
 # CORS - CRITICAL: allow_credentials must be False when using wildcard origins
 app.add_middleware(
