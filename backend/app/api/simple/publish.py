@@ -400,32 +400,62 @@ def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: 
     This is the CRITICAL FIX for the delivery widget not being injected.
     The widget enables customers to place delivery orders directly from the website.
 
-    Detection: Checks for delivery-related markers in the HTML:
-    - "delivery_system" feature
-    - "Pesan Delivery" button
-    - "delivery" section
-    - Delivery zone references
+    Detection: Checks for ANY delivery-related content in the HTML
     """
-    # Check if delivery features are present in the HTML
+    # Check if widget is already injected
+    if 'delivery-widget.js' in html:
+        logger.info("📦 Delivery widget already present - skipping injection")
+        return html
+
+    # More robust detection - check for ANY delivery-related markers
     delivery_markers = [
-        'id="page-order"',           # Delivery order page
-        'Pesan Delivery',            # Delivery button text
-        'id="delivery"',             # Delivery section
-        'delivery-zones',            # Delivery zones
-        'showPage(\'order\')',       # Delivery page navigation
-        'Delivery Sendiri',          # Delivery section header
-        '🛵',                        # Delivery emoji
+        # Page structure markers
+        'id="page-order"',
+        "id='page-order'",
+        'id="delivery"',
+        "id='delivery'",
+        'id="delivery-zones"',
+        "id='delivery-zones'",
+        # Button/text markers
+        'Pesan Delivery',
+        'pesan delivery',
+        'Delivery Sendiri',
+        'delivery sendiri',
+        'Order Delivery',
+        'order delivery',
+        # Navigation markers
+        "showPage('order')",
+        'showPage("order")',
+        "showPage('delivery')",
+        # Emoji markers
+        '🛵',
+        # Class markers
+        'delivery-section',
+        'delivery-zone',
+        'delivery-order',
+        # WhatsApp order markers
+        'nak order delivery',
+        'Saya nak order',
+        # Menu ordering markers
+        'Pilih Kawasan Delivery',
+        'Bakul Pesanan',
+        'Troli Pesanan',
     ]
 
     has_delivery = any(marker in html for marker in delivery_markers)
 
+    # Log detection status
+    logger.info(f"🔍 Delivery widget detection for website {website_id}:")
+    logger.info(f"   - HTML length: {len(html)} chars")
+    logger.info(f"   - Delivery features detected: {has_delivery}")
+
+    if has_delivery:
+        # Log which markers were found
+        found_markers = [m for m in delivery_markers if m in html]
+        logger.info(f"   - Found markers: {found_markers[:3]}...")  # Show first 3
+
     if not has_delivery:
         logger.info("📦 No delivery features detected - skipping widget injection")
-        return html
-
-    # Check if widget is already injected
-    if 'delivery-widget.js' in html:
-        logger.info("📦 Delivery widget already present - skipping injection")
         return html
 
     logger.info("📦 Delivery features detected - injecting delivery widget")
@@ -439,6 +469,9 @@ def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: 
             whatsapp_number = '+' + whatsapp_number
         logger.info(f"📱 Extracted WhatsApp: {whatsapp_number}")
 
+    # Escape business name for JavaScript
+    safe_business_name = business_name.replace("'", "\\'").replace('"', '\\"')
+
     # Create the delivery widget script
     delivery_script = f'''
 <!-- BinaApp Delivery Widget -->
@@ -450,7 +483,7 @@ document.addEventListener('DOMContentLoaded', function() {{
             websiteId: '{website_id}',
             apiUrl: 'https://binaapp-backend.onrender.com',
             whatsapp: '{whatsapp_number}',
-            businessName: '{business_name}',
+            businessName: '{safe_business_name}',
             primaryColor: '#ea580c'
         }});
     }}
@@ -462,10 +495,13 @@ document.addEventListener('DOMContentLoaded', function() {{
     if '</body>' in html:
         html = html.replace('</body>', delivery_script + '\n</body>')
         logger.info(f"✅ Delivery widget injected for website {website_id}")
+    elif '</BODY>' in html:
+        html = html.replace('</BODY>', delivery_script + '\n</BODY>')
+        logger.info(f"✅ Delivery widget injected for website {website_id} (uppercase)")
     else:
         # Fallback: append to end
         html += delivery_script
-        logger.info(f"✅ Delivery widget appended for website {website_id}")
+        logger.info(f"✅ Delivery widget appended for website {website_id} (no body tag)")
 
     return html
 
