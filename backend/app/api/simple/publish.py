@@ -304,6 +304,13 @@ async def publish_website(request: PublishRequest):
         project_id = str(uuid.uuid4())
         logger.info(f"✓ Generated project ID: {project_id}")
 
+        # CRITICAL FIX: Inject delivery widget if delivery features are detected
+        html_content = inject_delivery_widget_if_needed(
+            html_content,
+            project_id,
+            request.project_name
+        )
+
         # Upload to Supabase Storage with retry logic
         logger.info(f"📤 Uploading to Supabase Storage: {request.user_id}/{request.subdomain}/index.html")
 
@@ -384,6 +391,83 @@ async def publish_website(request: PublishRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Gagal menerbitkan website: {str(e)}"
         )
+
+
+def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: str) -> str:
+    """
+    Inject BinaApp Delivery Widget if delivery features are detected in the HTML.
+
+    This is the CRITICAL FIX for the delivery widget not being injected.
+    The widget enables customers to place delivery orders directly from the website.
+
+    Detection: Checks for delivery-related markers in the HTML:
+    - "delivery_system" feature
+    - "Pesan Delivery" button
+    - "delivery" section
+    - Delivery zone references
+    """
+    # Check if delivery features are present in the HTML
+    delivery_markers = [
+        'id="page-order"',           # Delivery order page
+        'Pesan Delivery',            # Delivery button text
+        'id="delivery"',             # Delivery section
+        'delivery-zones',            # Delivery zones
+        'showPage(\'order\')',       # Delivery page navigation
+        'Delivery Sendiri',          # Delivery section header
+        '🛵',                        # Delivery emoji
+    ]
+
+    has_delivery = any(marker in html for marker in delivery_markers)
+
+    if not has_delivery:
+        logger.info("📦 No delivery features detected - skipping widget injection")
+        return html
+
+    # Check if widget is already injected
+    if 'delivery-widget.js' in html:
+        logger.info("📦 Delivery widget already present - skipping injection")
+        return html
+
+    logger.info("📦 Delivery features detected - injecting delivery widget")
+
+    # Try to extract WhatsApp number from existing links in the HTML
+    whatsapp_number = "+60123456789"  # Default
+    wa_match = re.search(r'wa\.me/(\+?\d+)', html)
+    if wa_match:
+        whatsapp_number = wa_match.group(1)
+        if not whatsapp_number.startswith('+'):
+            whatsapp_number = '+' + whatsapp_number
+        logger.info(f"📱 Extracted WhatsApp: {whatsapp_number}")
+
+    # Create the delivery widget script
+    delivery_script = f'''
+<!-- BinaApp Delivery Widget -->
+<script src="https://binaapp-backend.onrender.com/widgets/delivery-widget.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {{
+    if (typeof BinaAppDelivery !== 'undefined') {{
+        BinaAppDelivery.init({{
+            websiteId: '{website_id}',
+            apiUrl: 'https://binaapp-backend.onrender.com',
+            whatsapp: '{whatsapp_number}',
+            businessName: '{business_name}',
+            primaryColor: '#ea580c'
+        }});
+    }}
+}});
+</script>
+'''
+
+    # Inject before </body>
+    if '</body>' in html:
+        html = html.replace('</body>', delivery_script + '\n</body>')
+        logger.info(f"✅ Delivery widget injected for website {website_id}")
+    else:
+        # Fallback: append to end
+        html += delivery_script
+        logger.info(f"✅ Delivery widget appended for website {website_id}")
+
+    return html
 
 
 def validate_subdomain(subdomain: str) -> bool:
