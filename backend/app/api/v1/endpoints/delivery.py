@@ -27,6 +27,7 @@ from app.models.delivery_schemas import (
     OrderTrackingResponse,
     OrderItemResponse,
     OrderStatusHistoryResponse,
+    OrderStatusUpdate,
     RiderInfoResponse,
     RiderLocationResponse,
 )
