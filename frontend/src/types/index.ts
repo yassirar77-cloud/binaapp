@@ -56,3 +56,42 @@ export interface WebsiteGenerationForm {
   include_ecommerce: boolean
   contact_email: string
 }
+
+// Delivery Order Types
+export type OrderStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'preparing'
+  | 'ready'
+  | 'picked_up'
+  | 'delivering'
+  | 'delivered'
+  | 'completed'
+  | 'cancelled'
+  | 'rejected'
+
+export interface DeliveryOrder {
+  id: string
+  order_number: string
+  website_id: string
+  customer_name: string
+  customer_phone: string
+  customer_email?: string
+  delivery_address: string
+  delivery_fee: number
+  subtotal: number
+  total_amount: number
+  payment_method: 'cod' | 'online' | 'ewallet'
+  payment_status: 'pending' | 'paid' | 'failed' | 'refunded'
+  status: OrderStatus
+  created_at: string
+  confirmed_at?: string
+  preparing_at?: string
+  ready_at?: string
+  picked_up_at?: string
+  delivered_at?: string
+  completed_at?: string
+  cancelled_at?: string
+  estimated_prep_time?: number
+  estimated_delivery_time?: number
+}
