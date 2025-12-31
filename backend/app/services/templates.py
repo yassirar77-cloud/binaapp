@@ -1288,28 +1288,25 @@ document.addEventListener('DOMContentLoaded', function() {{
             else:
                 whatsapp_clean = '+60' + whatsapp_clean
 
-        # Widget integration script
-        widget_script = f'''
-<!-- BinaApp Delivery Widget -->
-<script src="https://binaapp-backend.onrender.com/widgets/delivery-widget.js"></script>
-<script>
-  BinaAppDelivery.init({{
-    websiteId: '{website_id}',
-    apiUrl: 'https://binaapp-backend.onrender.com/v1',
-    whatsapp: '{whatsapp_clean}',
-    primaryColor: '{primary_color}',
-    language: 'ms'
-  }});
-</script>'''
+        # Simple delivery button link (replaces complex widget)
+        delivery_button = f'''
+<!-- BinaApp Standalone Delivery Page Link -->
+<a href="https://binaapp.my/delivery/{website_id}"
+   target="_blank"
+   style="position:fixed;bottom:24px;left:24px;background:linear-gradient(135deg,#f97316,#ea580c);color:white;padding:16px 24px;border-radius:50px;font-weight:600;z-index:9999;display:flex;align-items:center;gap:8px;text-decoration:none;font-family:sans-serif;box-shadow:0 4px 20px rgba(234,88,12,0.4);transition:transform 0.2s,box-shadow 0.2s;"
+   onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 25px rgba(234,88,12,0.5)';"
+   onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 20px rgba(234,88,12,0.4)';">
+    🛵 Pesan Delivery
+</a>'''
 
         # Inject before </body>
         if "</body>" in html:
-            html = html.replace("</body>", widget_script + "\n</body>")
+            html = html.replace("</body>", delivery_button + "\n</body>")
         else:
             # Fallback: append to end
-            html += widget_script
+            html += delivery_button
 
-        logger.info(f"✅ Delivery widget injected for website {website_id}")
+        logger.info(f"✅ Delivery button link injected for website {website_id}")
         return html
 
 
