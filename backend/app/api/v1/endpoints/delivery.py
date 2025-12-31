@@ -337,7 +337,29 @@ async def create_order(
         for item_data in order_items_data:
             item_data['order_id'] = order_id
 
-        supabase.table("order_items").insert(order_items_data).execute()
+        try:
+            items_result = supabase.table("order_items").insert(order_items_data).execute()
+            if not items_result.data:
+                logger.error(f"❌ Failed to insert order items for order {order_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to save order items. Please try again."
+                )
+            logger.info(f"✅ Saved {len(items_result.data)} order items")
+        except HTTPException:
+            raise
+        except Exception as items_error:
+            logger.error(f"❌ Error inserting order items: {items_error}")
+            # Try to rollback - delete the order if items failed
+            try:
+                supabase.table("delivery_orders").delete().eq("id", order_id).execute()
+                logger.info(f"🔄 Rolled back order {order_id} due to items failure")
+            except Exception as rollback_error:
+                logger.error(f"❌ Rollback failed: {rollback_error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to save order items: {str(items_error)}"
+            )
 
         # 6. TODO: Send notifications (WhatsApp, Email)
         logger.info(f"✅ Order created: {created_order['order_number']} - Total: RM{total_amount}")

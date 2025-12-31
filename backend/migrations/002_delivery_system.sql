@@ -403,9 +403,14 @@ GRANT ALL ON delivery_settings TO authenticated;
 GRANT SELECT ON delivery_zones TO anon;
 GRANT SELECT ON menu_categories TO anon;
 GRANT SELECT ON menu_items TO anon;
+GRANT SELECT ON menu_item_options TO anon;
 GRANT INSERT ON delivery_orders TO anon;
 GRANT SELECT ON delivery_orders TO anon;
+GRANT INSERT ON order_items TO anon;
 GRANT SELECT ON order_items TO anon;
+GRANT INSERT ON order_status_history TO anon;
+GRANT SELECT ON order_status_history TO anon;
+GRANT SELECT ON delivery_settings TO anon;
 
 -- =====================================================
 -- ENABLE REAL-TIME SUBSCRIPTIONS
