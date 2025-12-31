@@ -738,6 +738,31 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
         if request.delivery:
             user_data["delivery"] = request.delivery
 
+        # CRITICAL: Create delivery zones if delivery feature is enabled
+        delivery_zones = []
+        if request.features and request.features.get("deliverySystem") and request.delivery:
+            delivery_data = request.delivery
+            # Parse fee - handle both string and number formats
+            fee_value = delivery_data.get("fee", "5")
+            if isinstance(fee_value, str):
+                fee_value = float(fee_value.replace("RM", "").replace(",", "").strip()) if fee_value else 5
+            else:
+                fee_value = float(fee_value) if fee_value else 5
+                
+            default_zone = {
+                "id": "default",
+                "zone_name": delivery_data.get("area", "Kawasan Delivery"),
+                "delivery_fee": fee_value,
+                "estimated_time": delivery_data.get("hours", "30-45 min"),
+                "is_active": True
+            }
+            delivery_zones = [default_zone]
+            logger.info(f"Job {job_id}: Created delivery zone: {default_zone['zone_name']} - RM{default_zone['delivery_fee']}")
+        
+        # Add delivery_zones to user_data
+        user_data["delivery_zones"] = delivery_zones
+        logger.info(f"Job {job_id}: Delivery zones in user_data: {len(delivery_zones)}")
+
         # Create menu items from uploaded images (for ordering system)
         menu_items = []
         if request.images and len(request.images) > 0:
@@ -779,7 +804,18 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
             user_data["menu_items"] = menu_items
             logger.info(f"Job {job_id}: Created {len(menu_items)} menu items for ordering system")
         else:
-            logger.warning(f"Job {job_id}: No menu items created - ordering system will be empty")
+            # Create default menu items if none provided but delivery is enabled
+            if request.features and request.features.get("deliverySystem"):
+                default_menu_items = [
+                    {"id": "1", "name": "Nasi Lemak Special", "description": "Nasi lemak dengan ayam goreng, sambal, dan telur", "price": 12.0, "image_url": "https://images.unsplash.com/photo-1598514983318-2f64f8f4796c?w=600&q=80", "category_id": "nasi"},
+                    {"id": "2", "name": "Nasi Goreng Kampung", "description": "Nasi goreng dengan ikan bilis dan telur mata", "price": 10.0, "image_url": "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=600&q=80", "category_id": "nasi"},
+                    {"id": "3", "name": "Ayam Goreng Berempah", "description": "Ayam goreng rangup dengan rempah pilihan", "price": 8.0, "image_url": "https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?w=600&q=80", "category_id": "lauk"},
+                    {"id": "4", "name": "Teh Tarik", "description": "Teh tarik panas atau sejuk", "price": 3.0, "image_url": "https://images.unsplash.com/photo-1571934811356-5cc061b6821f?w=600&q=80", "category_id": "minuman"},
+                ]
+                user_data["menu_items"] = default_menu_items
+                logger.info(f"Job {job_id}: Created {len(default_menu_items)} default menu items for delivery system")
+            else:
+                logger.warning(f"Job {job_id}: No menu items created - ordering system will be empty")
 
         # Step 2: Generate 3 style variations
         job_service.update_progress(job_id, 20)

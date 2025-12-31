@@ -864,8 +864,8 @@ function handleContactSubmit(e) {{
         business_info: Dict
     ) -> str:
         """
-        COMPLETE DELIVERY PAGE - Using User's Proven Template
-        Exact structure from complete-website-with-delivery.html
+        COMPLETE DELIVERY PAGE - With all dependencies included
+        Uses inline styles to avoid CSS framework dependency issues
         """
         business_name = business_info.get("name", "Our Restaurant")
         phone_number = business_info.get("phone", "+60123456789")
@@ -900,44 +900,64 @@ function handleContactSubmit(e) {{
                 'category': category
             })
 
-        # Format zones
+        # Format zones - ensure we have at least one default zone
         formatted_zones = []
-        for idx, zone in enumerate(delivery_zones):
-            formatted_zones.append({
-                'id': idx + 1,
-                'name': zone.get('zone_name', zone.get('name', f'Zone {idx+1}')),
-                'fee': float(zone.get('delivery_fee', 5)),
-                'time': zone.get('estimated_time', zone.get('delivery_time', '30-45 min')),
+        if delivery_zones:
+            for idx, zone in enumerate(delivery_zones):
+                formatted_zones.append({
+                    'id': idx + 1,
+                    'name': zone.get('zone_name', zone.get('name', f'Zone {idx+1}')),
+                    'fee': float(zone.get('delivery_fee', zone.get('fee', 5))),
+                    'time': zone.get('estimated_time', zone.get('delivery_time', '30-45 min')),
+                    'active': True
+                })
+        else:
+            # Default zone if none provided
+            formatted_zones = [{
+                'id': 1,
+                'name': 'Kawasan Sekitar',
+                'fee': 5.0,
+                'time': '30-45 min',
                 'active': True
-            })
+            }]
 
         menu_json = json.dumps(formatted_menu)
         zones_json = json.dumps(formatted_zones)
         minimum_order = 30
-        delivery_hours = '11am - 5pm'
+        delivery_hours = '11am - 9pm'
 
-        # STEP 1: CSS - User's exact styles
-        delivery_css = '''
+        logger.info(f"🛵 Injecting delivery system: {len(formatted_menu)} items, {len(formatted_zones)} zones")
+
+        # STEP 1: Add Tailwind CSS and Font Awesome (CRITICAL!)
+        css_libraries = '''
+<!-- Tailwind CSS for Delivery System -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Font Awesome for Icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
-.page { display: none; }
-.page.active { display: block; }
-.zone-card { transition: all 0.2s ease; border: 2px solid transparent; }
-.zone-card:hover { border-color: #ea580c; background: #fff7ed; }
-.zone-card.selected { border-color: #ea580c; background: #fff7ed; box-shadow: 0 0 0 3px rgba(234,88,12,0.2); }
-.menu-card { transition: all 0.2s ease; }
-.menu-card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); }
-.qty-btn { transition: transform 0.1s; }
-.qty-btn:active { transform: scale(0.9); }
-.floating-cart { animation: float 3s ease-in-out infinite; }
-@keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
-@keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.1)} }
-.cart-badge { animation: pulse 2s infinite; }
+/* Delivery System Styles */
+.delivery-page { display: none; }
+.delivery-page.active { display: block; }
+.delivery-zone-card { transition: all 0.2s ease; border: 2px solid transparent; cursor: pointer; }
+.delivery-zone-card:hover { border-color: #ea580c; background: #fff7ed; }
+.delivery-zone-card.selected { border-color: #ea580c; background: #fff7ed; box-shadow: 0 0 0 3px rgba(234,88,12,0.2); }
+.delivery-menu-card { transition: all 0.2s ease; }
+.delivery-menu-card:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0,0,0,0.1); }
+.delivery-qty-btn { transition: transform 0.1s; }
+.delivery-qty-btn:active { transform: scale(0.9); }
+.delivery-floating-cart { animation: deliveryFloat 3s ease-in-out infinite; }
+@keyframes deliveryFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+@keyframes deliveryPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.1)} }
+.delivery-cart-badge { animation: deliveryPulse 2s infinite; }
 </style>'''
         
         if "</head>" in html:
-            html = html.replace("</head>", delivery_css + "\n</head>")
-        elif "<body" in html:
-            html = html.replace("<body", delivery_css + "\n<body", 1)
+            html = html.replace("</head>", css_libraries + "\n</head>")
+        elif "<head>" in html:
+            html = html.replace("<head>", "<head>\n" + css_libraries)
+        else:
+            # No head tag - add it at the beginning
+            html = "<!DOCTYPE html><html><head>" + css_libraries + "</head>" + html
 
         # STEP 2: Wrap existing content + add delivery page
         if "<body" in html:
@@ -948,124 +968,124 @@ function handleContactSubmit(e) {{
             if body_content_start > 0 and body_end > 0:
                 body_content = html[body_content_start:body_end]
                 
-                # User's exact delivery page HTML structure
-                page_html = f'''<div id="page-home" class="page active">{body_content}</div>
-<div id="page-order" class="page">
-    <div class="bg-gradient-to-r from-orange-500 to-orange-600 text-white py-6 sticky top-0 z-40">
-        <div class="container mx-auto px-4">
-            <div class="flex items-center justify-between">
+                # Complete delivery page HTML with inline styles as fallback
+                page_html = f'''<div id="page-home" class="delivery-page active">{body_content}</div>
+<div id="page-order" class="delivery-page">
+    <div style="background:linear-gradient(to right,#f97316,#ea580c);color:white;padding:24px 0;position:sticky;top:0;z-index:40;">
+        <div style="max-width:1200px;margin:0 auto;padding:0 16px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
                 <div>
-                    <button onclick="showPage('home')" class="text-white/80 hover:text-white text-sm mb-1 flex items-center gap-1">
-                        <i class="fas fa-arrow-left"></i> Kembali
+                    <button onclick="showDeliveryPage('home')" style="background:none;border:none;color:rgba(255,255,255,0.8);cursor:pointer;font-size:14px;margin-bottom:4px;display:flex;align-items:center;gap:4px;">
+                        ← Kembali
                     </button>
-                    <h1 class="text-2xl font-bold">🛵 Pesan Delivery</h1>
-                    <p class="text-white/80 text-sm">{business_name} • {delivery_hours}</p>
+                    <h1 style="font-size:24px;font-weight:bold;margin:0;">🛵 Pesan Delivery</h1>
+                    <p style="color:rgba(255,255,255,0.8);font-size:14px;margin:4px 0 0 0;">{business_name} • {delivery_hours}</p>
                 </div>
-                <button onclick="toggleMobileCart()" class="lg:hidden relative bg-white/20 hover:bg-white/30 p-3 rounded-full">
-                    <i class="fas fa-shopping-cart text-xl"></i>
-                    <span id="cart-badge-mobile" class="hidden absolute -top-1 -right-1 bg-yellow-400 text-orange-900 text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center cart-badge">0</span>
+                <button onclick="toggleDeliveryMobileCart()" id="mobile-cart-btn" style="display:none;background:rgba(255,255,255,0.2);border:none;padding:12px;border-radius:50%;cursor:pointer;position:relative;">
+                    🛒
+                    <span id="cart-badge-mobile" style="display:none;position:absolute;top:-4px;right:-4px;background:#facc15;color:#7c2d12;font-size:12px;font-weight:bold;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;">0</span>
                 </button>
             </div>
         </div>
     </div>
 
-    <div class="container mx-auto px-4 py-6">
-        <div class="grid lg:grid-cols-3 gap-6">
-            <div class="lg:col-span-2 space-y-6">
+    <div style="max-width:1200px;margin:0 auto;padding:24px 16px;">
+        <div style="display:grid;grid-template-columns:1fr;gap:24px;">
+            <div style="display:flex;flex-direction:column;gap:24px;">
                 
-                <div class="bg-white rounded-2xl p-6 shadow-lg">
-                    <div class="flex items-center gap-3 mb-5">
-                        <div class="w-10 h-10 bg-orange-500 text-white rounded-full flex items-center justify-center font-bold text-lg">1</div>
+                <!-- Zone Selection -->
+                <div style="background:white;border-radius:16px;padding:24px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+                        <div style="width:40px;height:40px;background:#f97316;color:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:18px;">1</div>
                         <div>
-                            <h2 class="font-bold text-xl text-gray-900">Pilih Kawasan Delivery</h2>
-                            <p class="text-gray-500 text-sm">Min. order: RM{minimum_order}</p>
+                            <h2 style="font-weight:bold;font-size:20px;color:#111827;margin:0;">Pilih Kawasan Delivery</h2>
+                            <p style="color:#6b7280;font-size:14px;margin:4px 0 0 0;">Min. order: RM{minimum_order}</p>
                         </div>
                     </div>
-                    <div id="delivery-zones" class="grid sm:grid-cols-2 gap-3"></div>
-                    <div id="selected-zone-info" class="hidden mt-4 p-4 bg-green-50 border border-green-200 rounded-xl">
-                        <div class="flex items-center gap-2 text-green-700">
-                            <i class="fas fa-check-circle"></i>
-                            <span class="font-semibold">Kawasan: <span id="zone-name-display">-</span></span>
-                            <span class="ml-auto">Caj: RM<span id="zone-fee-display">0</span></span>
+                    <div id="delivery-zones" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;"></div>
+                    <div id="selected-zone-info" style="display:none;margin-top:16px;padding:16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;">
+                        <div style="display:flex;align-items:center;gap:8px;color:#15803d;">
+                            ✓ <span style="font-weight:600;">Kawasan: <span id="zone-name-display">-</span></span>
+                            <span style="margin-left:auto;">Caj: RM<span id="zone-fee-display">0</span></span>
                         </div>
                     </div>
                 </div>
 
-                <div class="bg-white rounded-2xl p-6 shadow-lg">
-                    <div class="flex items-center gap-3 mb-5">
-                        <div class="w-10 h-10 bg-orange-500 text-white rounded-full flex items-center justify-center font-bold text-lg">2</div>
+                <!-- Menu -->
+                <div style="background:white;border-radius:16px;padding:24px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+                        <div style="width:40px;height:40px;background:#f97316;color:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:18px;">2</div>
                         <div>
-                            <h2 class="font-bold text-xl text-gray-900">Pilih Menu</h2>
-                            <p class="text-gray-500 text-sm">Klik untuk tambah ke bakul</p>
+                            <h2 style="font-weight:bold;font-size:20px;color:#111827;margin:0;">Pilih Menu</h2>
+                            <p style="color:#6b7280;font-size:14px;margin:4px 0 0 0;">Klik untuk tambah ke bakul</p>
                         </div>
                     </div>
-                    <div class="flex gap-2 mb-6 overflow-x-auto pb-2">
-                        <button onclick="filterCategory('all')" class="cat-btn active bg-orange-500 text-white px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap">Semua</button>
-                        <button onclick="filterCategory('nasi')" class="cat-btn bg-gray-100 text-gray-700 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap hover:bg-gray-200">🍚 Nasi</button>
-                        <button onclick="filterCategory('lauk')" class="cat-btn bg-gray-100 text-gray-700 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap hover:bg-gray-200">🍗 Lauk</button>
-                        <button onclick="filterCategory('minuman')" class="cat-btn bg-gray-100 text-gray-700 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap hover:bg-gray-200">🥤 Minuman</button>
+                    <div style="display:flex;gap:8px;margin-bottom:24px;overflow-x:auto;padding-bottom:8px;">
+                        <button onclick="filterDeliveryCategory('all')" class="delivery-cat-btn active" style="background:#f97316;color:white;padding:8px 16px;border-radius:9999px;font-size:14px;font-weight:500;white-space:nowrap;border:none;cursor:pointer;">Semua</button>
+                        <button onclick="filterDeliveryCategory('nasi')" class="delivery-cat-btn" style="background:#f3f4f6;color:#374151;padding:8px 16px;border-radius:9999px;font-size:14px;font-weight:500;white-space:nowrap;border:none;cursor:pointer;">🍚 Nasi</button>
+                        <button onclick="filterDeliveryCategory('lauk')" class="delivery-cat-btn" style="background:#f3f4f6;color:#374151;padding:8px 16px;border-radius:9999px;font-size:14px;font-weight:500;white-space:nowrap;border:none;cursor:pointer;">🍗 Lauk</button>
+                        <button onclick="filterDeliveryCategory('minuman')" class="delivery-cat-btn" style="background:#f3f4f6;color:#374151;padding:8px 16px;border-radius:9999px;font-size:14px;font-weight:500;white-space:nowrap;border:none;cursor:pointer;">🥤 Minuman</button>
                     </div>
-                    <div id="menu-grid" class="grid sm:grid-cols-2 gap-4"></div>
+                    <div id="delivery-menu-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;"></div>
                 </div>
             </div>
 
-            <div class="hidden lg:block">
-                <div class="bg-white rounded-2xl shadow-lg sticky top-28 overflow-hidden">
-                    <div class="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-5">
-                        <h3 class="font-bold text-lg flex items-center gap-2">
-                            <i class="fas fa-shopping-cart"></i> Bakul Pesanan
-                            <span id="cart-count-desktop" class="bg-white text-orange-600 text-sm px-2 py-0.5 rounded-full ml-auto">0</span>
-                        </h3>
+            <!-- Desktop Cart Sidebar -->
+            <div id="delivery-cart-sidebar" style="display:none;position:fixed;right:20px;top:120px;width:380px;background:white;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.15);overflow:hidden;z-index:50;">
+                <div style="background:linear-gradient(to right,#f97316,#ea580c);color:white;padding:20px;">
+                    <h3 style="font-weight:bold;font-size:18px;display:flex;align-items:center;gap:8px;margin:0;">
+                        🛒 Bakul Pesanan
+                        <span id="cart-count-desktop" style="background:white;color:#ea580c;font-size:14px;padding:2px 8px;border-radius:9999px;margin-left:auto;">0</span>
+                    </h3>
+                </div>
+                <div style="padding:20px;">
+                    <div id="cart-empty-desktop" style="text-align:center;padding:32px 0;">
+                        <div style="width:64px;height:64px;background:#f3f4f6;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px auto;font-size:24px;">🛒</div>
+                        <p style="color:#6b7280;margin:0;">Bakul anda kosong</p>
                     </div>
-                    <div class="p-5">
-                        <div id="cart-empty-desktop" class="text-center py-8">
-                            <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <i class="fas fa-shopping-basket text-gray-400 text-2xl"></i>
-                            </div>
-                            <p class="text-gray-500">Bakul anda kosong</p>
-                        </div>
-                        <div id="cart-items-desktop" class="hidden space-y-3 max-h-[280px] overflow-y-auto"></div>
-                        <div id="cart-summary-desktop" class="hidden border-t border-gray-100 pt-4 mt-4 space-y-2">
-                            <div class="flex justify-between text-gray-600"><span>Subtotal</span><span>RM<span id="subtotal-desktop">0.00</span></span></div>
-                            <div class="flex justify-between text-gray-600"><span>Caj Delivery</span><span>RM<span id="delivery-fee-desktop">0.00</span></span></div>
-                            <div class="flex justify-between text-xl font-bold pt-2 border-t border-gray-100"><span>Jumlah</span><span class="text-orange-600">RM<span id="total-desktop">0.00</span></span></div>
-                        </div>
-                        <button id="checkout-btn-desktop" onclick="checkout()" class="hidden w-full mt-5 bg-gradient-to-r from-green-500 to-green-600 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3">
-                            <i class="fab fa-whatsapp text-2xl"></i> Hantar Pesanan
-                        </button>
+                    <div id="cart-items-desktop" style="display:none;max-height:280px;overflow-y:auto;"></div>
+                    <div id="cart-summary-desktop" style="display:none;border-top:1px solid #e5e7eb;padding-top:16px;margin-top:16px;">
+                        <div style="display:flex;justify-content:space-between;color:#6b7280;margin-bottom:8px;"><span>Subtotal</span><span>RM<span id="subtotal-desktop">0.00</span></span></div>
+                        <div style="display:flex;justify-content:space-between;color:#6b7280;margin-bottom:8px;"><span>Caj Delivery</span><span>RM<span id="delivery-fee-desktop">0.00</span></span></div>
+                        <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:bold;padding-top:8px;border-top:1px solid #e5e7eb;"><span>Jumlah</span><span style="color:#ea580c;">RM<span id="total-desktop">0.00</span></span></div>
                     </div>
+                    <button id="checkout-btn-desktop" onclick="deliveryCheckout()" style="display:none;width:100%;margin-top:20px;background:linear-gradient(to right,#22c55e,#16a34a);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;">
+                        📱 Hantar Pesanan via WhatsApp
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 
-    <div id="floating-cart-btn" class="lg:hidden fixed bottom-6 right-6 hidden z-50">
-        <button onclick="toggleMobileCart()" class="floating-cart bg-gradient-to-r from-orange-500 to-orange-600 text-white px-5 py-4 rounded-full shadow-2xl flex items-center gap-3">
-            <i class="fas fa-shopping-cart text-xl"></i>
-            <span class="font-bold">RM<span id="floating-total">0</span></span>
-            <span class="bg-white text-orange-600 text-sm font-bold w-6 h-6 rounded-full flex items-center justify-center" id="floating-count">0</span>
+    <!-- Floating Cart Button (Mobile) -->
+    <div id="delivery-floating-cart-btn" style="display:none;position:fixed;bottom:24px;right:24px;z-index:50;">
+        <button onclick="toggleDeliveryMobileCart()" style="background:linear-gradient(to right,#f97316,#ea580c);color:white;padding:16px 20px;border-radius:9999px;box-shadow:0 8px 24px rgba(234,88,12,0.4);display:flex;align-items:center;gap:12px;border:none;cursor:pointer;">
+            🛒
+            <span style="font-weight:bold;">RM<span id="floating-total">0</span></span>
+            <span style="background:white;color:#ea580c;font-size:14px;font-weight:bold;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;" id="floating-count">0</span>
         </button>
     </div>
 
-    <div id="mobile-cart-overlay" class="lg:hidden fixed inset-0 z-50 hidden">
-        <div class="absolute inset-0 bg-black/50" onclick="toggleMobileCart()"></div>
-        <div class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl max-h-[85vh] overflow-hidden">
-            <div class="p-4 border-b flex items-center justify-between">
-                <h3 class="font-bold text-lg">Bakul Pesanan</h3>
-                <button onclick="toggleMobileCart()" class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center"><i class="fas fa-times"></i></button>
+    <!-- Mobile Cart Overlay -->
+    <div id="delivery-mobile-cart-overlay" style="display:none;position:fixed;inset:0;z-index:100;">
+        <div style="position:absolute;inset:0;background:rgba(0,0,0,0.5);" onclick="toggleDeliveryMobileCart()"></div>
+        <div style="position:absolute;bottom:0;left:0;right:0;background:white;border-radius:24px 24px 0 0;max-height:85vh;overflow:hidden;">
+            <div style="padding:16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">
+                <h3 style="font-weight:bold;font-size:18px;margin:0;">Bakul Pesanan</h3>
+                <button onclick="toggleDeliveryMobileCart()" style="width:40px;height:40px;background:#f3f4f6;border-radius:50%;border:none;cursor:pointer;font-size:18px;">✕</button>
             </div>
-            <div class="p-4 max-h-[40vh] overflow-y-auto">
-                <div id="cart-empty-mobile" class="text-center py-8"><p class="text-gray-500">Bakul anda kosong</p></div>
-                <div id="cart-items-mobile" class="hidden space-y-3"></div>
+            <div style="padding:16px;max-height:40vh;overflow-y:auto;">
+                <div id="cart-empty-mobile" style="text-align:center;padding:32px 0;"><p style="color:#6b7280;margin:0;">Bakul anda kosong</p></div>
+                <div id="cart-items-mobile" style="display:none;"></div>
             </div>
-            <div id="cart-footer-mobile" class="hidden p-4 border-t bg-gray-50">
-                <div class="space-y-2 mb-4">
-                    <div class="flex justify-between"><span>Subtotal</span><span>RM<span id="subtotal-mobile">0</span></span></div>
-                    <div class="flex justify-between"><span>Caj Delivery</span><span>RM<span id="delivery-fee-mobile">0</span></span></div>
-                    <div class="flex justify-between font-bold text-lg"><span>Jumlah</span><span class="text-orange-600">RM<span id="total-mobile">0</span></span></div>
+            <div id="cart-footer-mobile" style="display:none;padding:16px;border-top:1px solid #e5e7eb;background:#f9fafb;">
+                <div style="margin-bottom:16px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Subtotal</span><span>RM<span id="subtotal-mobile">0</span></span></div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Caj Delivery</span><span>RM<span id="delivery-fee-mobile">0</span></span></div>
+                    <div style="display:flex;justify-content:space-between;font-weight:bold;font-size:18px;"><span>Jumlah</span><span style="color:#ea580c;">RM<span id="total-mobile">0</span></span></div>
                 </div>
-                <button onclick="checkout()" class="w-full bg-gradient-to-r from-green-500 to-green-600 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3">
-                    <i class="fab fa-whatsapp text-2xl"></i> Hantar WhatsApp
+                <button onclick="deliveryCheckout()" style="width:100%;background:linear-gradient(to right,#22c55e,#16a34a);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;">
+                    📱 Hantar WhatsApp
                 </button>
             </div>
         </div>
@@ -1074,181 +1094,239 @@ function handleContactSubmit(e) {{
 
                 html = html[:body_content_start] + page_html + html[body_end:]
 
-        # STEP 3: Add delivery button to navigation
-        delivery_button = '''<button onclick="showPage('order')" class="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg font-semibold transition flex items-center gap-2 shadow-md">
-    <i class="fas fa-motorcycle"></i>
-    <span class="hidden sm:inline">Pesan Delivery</span>
+        # STEP 3: Add delivery button - multiple injection points with INLINE STYLES
+        delivery_button_inline = f'''
+<!-- Delivery Button - BinaApp -->
+<button onclick="showDeliveryPage('order')" id="binaapp-delivery-btn" style="position:fixed;bottom:24px;left:24px;background:linear-gradient(135deg,#f97316,#ea580c);color:white;padding:14px 24px;border-radius:50px;font-weight:600;z-index:9999;display:flex;align-items:center;gap:8px;border:none;cursor:pointer;box-shadow:0 4px 20px rgba(234,88,12,0.4);font-family:sans-serif;font-size:15px;">
+    🛵 Pesan Delivery
 </button>'''
         
-        for pattern in ["</nav>", "</header>", '<a href="https://wa.me/']:
-            if pattern in html:
-                if pattern.startswith('<a href="https://wa.me/'):
-                    pos = html.find(pattern)
-                    html = html[:pos] + delivery_button + "\n" + html[pos:]
-                else:
-                    html = html.replace(pattern, delivery_button + "\n" + pattern, 1)
-                break
+        # Always inject the button before </body> if not already present
+        if "binaapp-delivery-btn" not in html and "</body>" in html:
+            html = html.replace("</body>", delivery_button_inline + "\n</body>")
 
-        # STEP 4: JavaScript - User's exact implementation
-        script = f'''<script>
-function showPage(page) {{
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById('page-' + page).classList.add('active');
-    window.scrollTo(0, 0);
-}}
+        # STEP 4: JavaScript - Complete delivery system with prefixed functions
+        script = f'''
+<script>
+// BinaApp Delivery System - Complete Implementation
+(function() {{
+    const DELIVERY_WHATSAPP = '{phone_clean}';
+    const DELIVERY_BUSINESS = '{business_name}';
+    const DELIVERY_MINIMUM = {minimum_order};
+    const deliveryZonesData = {zones_json};
+    const deliveryMenuData = {menu_json};
 
-const WHATSAPP_NUMBER = '{phone_clean}';
-const BUSINESS_NAME = '{business_name}';
-const MINIMUM_ORDER = {minimum_order};
-const deliveryZones = {zones_json};
-const menuItems = {menu_json};
+    let deliveryCart = [];
+    let deliverySelectedZone = null;
+    let deliveryFeeAmount = 0;
+    let deliveryCurrentCategory = 'all';
 
-let cart = [];
-let selectedZone = null;
-let deliveryFee = 0;
-let currentCategory = 'all';
+    // Page switching
+    window.showDeliveryPage = function(page) {{
+        document.querySelectorAll('.delivery-page').forEach(p => p.classList.remove('active'));
+        const targetPage = document.getElementById('page-' + page);
+        if (targetPage) {{
+            targetPage.classList.add('active');
+            window.scrollTo(0, 0);
+            // Show/hide cart sidebar on desktop
+            const sidebar = document.getElementById('delivery-cart-sidebar');
+            if (sidebar) {{
+                sidebar.style.display = page === 'order' ? 'block' : 'none';
+            }}
+        }}
+    }};
 
-function renderDeliveryZones() {{
-    const container = document.getElementById('delivery-zones');
-    container.innerHTML = deliveryZones.filter(z => z.active).map(zone => `
-        <button onclick="selectZone(${{zone.id}}, '${{zone.name}}', ${{zone.fee}})" id="zone-${{zone.id}}" class="zone-card p-4 rounded-xl text-left bg-gray-50">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center"><i class="fas fa-map-marker-alt text-orange-600"></i></div>
-                    <div><div class="font-semibold text-gray-900">${{zone.name}}</div><div class="text-sm text-gray-500">${{zone.time}}</div></div>
+    // Render zones
+    function renderDeliveryZones() {{
+        const container = document.getElementById('delivery-zones');
+        if (!container) return;
+        container.innerHTML = deliveryZonesData.filter(z => z.active).map(zone => `
+            <button onclick="selectDeliveryZone(${{zone.id}}, '${{zone.name}}', ${{zone.fee}})" id="delivery-zone-${{zone.id}}" class="delivery-zone-card" style="padding:16px;border-radius:12px;text-align:left;background:#f9fafb;border:2px solid transparent;cursor:pointer;">
+                <div style="display:flex;align-items:center;justify-content:space-between;">
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <div style="width:40px;height:40px;background:#fed7aa;border-radius:50%;display:flex;align-items:center;justify-content:center;">📍</div>
+                        <div><div style="font-weight:600;color:#111827;">${{zone.name}}</div><div style="font-size:14px;color:#6b7280;">${{zone.time}}</div></div>
+                    </div>
+                    <div style="color:#ea580c;font-weight:bold;">RM${{zone.fee}}</div>
                 </div>
-                <div class="text-orange-600 font-bold">RM${{zone.fee}}</div>
-            </div>
-        </button>
-    `).join('');
-}}
+            </button>
+        `).join('');
+    }}
 
-function renderMenuItems() {{
-    const container = document.getElementById('menu-grid');
-    const filtered = currentCategory === 'all' ? menuItems : menuItems.filter(i => i.category === currentCategory);
-    container.innerHTML = filtered.map(item => {{
-        const inCart = cart.find(c => c.id === item.id);
-        return `
-        <div class="menu-card bg-gray-50 rounded-xl overflow-hidden flex gap-3 p-3">
-            <div class="w-20 h-20 rounded-lg overflow-hidden flex-shrink-0">
-                <img src="${{item.image}}" alt="${{item.name}}" class="w-full h-full object-cover">
-            </div>
-            <div class="flex-1 flex flex-col justify-between min-w-0">
-                <div><h4 class="font-bold text-gray-900 truncate">${{item.name}}</h4><p class="text-xs text-gray-500 truncate">${{item.desc}}</p></div>
-                <div class="flex items-center justify-between mt-2">
-                    <span class="font-bold text-orange-600">RM${{item.price.toFixed(2)}}</span>
-                    ${{inCart ? `
-                        <div class="flex items-center gap-2">
-                            <button onclick="updateQty(${{item.id}}, -1)" class="qty-btn w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center"><i class="fas fa-minus text-xs"></i></button>
-                            <span class="font-bold w-6 text-center">${{inCart.qty}}</span>
-                            <button onclick="updateQty(${{item.id}}, 1)" class="qty-btn w-8 h-8 bg-orange-500 text-white rounded-full flex items-center justify-center"><i class="fas fa-plus text-xs"></i></button>
-                        </div>
-                    ` : `<button onclick="addToCart(${{item.id}})" class="bg-orange-500 text-white text-sm font-semibold py-2 px-4 rounded-full">+ Tambah</button>`}}
+    // Render menu
+    function renderDeliveryMenu() {{
+        const container = document.getElementById('delivery-menu-grid');
+        if (!container) return;
+        const filtered = deliveryCurrentCategory === 'all' ? deliveryMenuData : deliveryMenuData.filter(i => i.category === deliveryCurrentCategory);
+        container.innerHTML = filtered.map(item => {{
+            const inCart = deliveryCart.find(c => c.id === item.id);
+            return `
+            <div class="delivery-menu-card" style="background:#f9fafb;border-radius:12px;overflow:hidden;display:flex;gap:12px;padding:12px;">
+                <div style="width:80px;height:80px;border-radius:8px;overflow:hidden;flex-shrink:0;">
+                    <img src="${{item.image}}" alt="${{item.name}}" style="width:100%;height:100%;object-fit:cover;">
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;justify-content:space-between;min-width:0;">
+                    <div><h4 style="font-weight:bold;color:#111827;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${{item.name}}</h4><p style="font-size:12px;color:#6b7280;margin:4px 0 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${{item.desc}}</p></div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;">
+                        <span style="font-weight:bold;color:#ea580c;">RM${{item.price.toFixed(2)}}</span>
+                        ${{inCart ? `
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <button onclick="updateDeliveryQty(${{item.id}}, -1)" class="delivery-qty-btn" style="width:32px;height:32px;background:#e5e7eb;border-radius:50%;border:none;cursor:pointer;">-</button>
+                                <span style="font-weight:bold;width:24px;text-align:center;">${{inCart.qty}}</span>
+                                <button onclick="updateDeliveryQty(${{item.id}}, 1)" class="delivery-qty-btn" style="width:32px;height:32px;background:#f97316;color:white;border-radius:50%;border:none;cursor:pointer;">+</button>
+                            </div>
+                        ` : `<button onclick="addToDeliveryCart(${{item.id}})" style="background:#f97316;color:white;font-size:14px;font-weight:600;padding:8px 16px;border-radius:9999px;border:none;cursor:pointer;">+ Tambah</button>`}}
+                    </div>
+                </div>
+            </div>`;
+        }}).join('');
+    }}
+
+    // Select zone
+    window.selectDeliveryZone = function(id, name, fee) {{
+        document.querySelectorAll('.delivery-zone-card').forEach(el => el.classList.remove('selected'));
+        const zoneEl = document.getElementById('delivery-zone-' + id);
+        if (zoneEl) zoneEl.classList.add('selected');
+        deliverySelectedZone = {{ id, name, fee }};
+        deliveryFeeAmount = fee;
+        const zoneInfo = document.getElementById('selected-zone-info');
+        if (zoneInfo) zoneInfo.style.display = 'block';
+        const zoneName = document.getElementById('zone-name-display');
+        if (zoneName) zoneName.textContent = name;
+        const zoneFee = document.getElementById('zone-fee-display');
+        if (zoneFee) zoneFee.textContent = fee;
+        updateDeliveryCartDisplay();
+    }};
+
+    // Add to cart
+    window.addToDeliveryCart = function(id) {{
+        const item = deliveryMenuData.find(m => m.id === id);
+        if (item) {{
+            deliveryCart.push({{...item, qty: 1}});
+            updateDeliveryCartDisplay();
+            renderDeliveryMenu();
+        }}
+    }};
+
+    // Update quantity
+    window.updateDeliveryQty = function(id, delta) {{
+        const idx = deliveryCart.findIndex(c => c.id === id);
+        if (idx > -1) {{
+            deliveryCart[idx].qty += delta;
+            if (deliveryCart[idx].qty <= 0) deliveryCart.splice(idx, 1);
+        }}
+        updateDeliveryCartDisplay();
+        renderDeliveryMenu();
+    }};
+
+    // Update cart display
+    function updateDeliveryCartDisplay() {{
+        const subtotal = deliveryCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+        const total = subtotal + deliveryFeeAmount;
+        const count = deliveryCart.reduce((sum, item) => sum + item.qty, 0);
+        const hasItems = deliveryCart.length > 0;
+
+        ['desktop', 'mobile'].forEach(t => {{
+            const sub = document.getElementById('subtotal-' + t);
+            const fee = document.getElementById('delivery-fee-' + t);
+            const tot = document.getElementById('total-' + t);
+            if (sub) sub.textContent = subtotal.toFixed(2);
+            if (fee) fee.textContent = deliveryFeeAmount.toFixed(2);
+            if (tot) tot.textContent = total.toFixed(2);
+        }});
+
+        const cartCount = document.getElementById('cart-count-desktop');
+        if (cartCount) cartCount.textContent = count;
+        
+        const emptyD = document.getElementById('cart-empty-desktop');
+        const itemsD = document.getElementById('cart-items-desktop');
+        const summaryD = document.getElementById('cart-summary-desktop');
+        const checkoutD = document.getElementById('checkout-btn-desktop');
+        const emptyM = document.getElementById('cart-empty-mobile');
+        const itemsM = document.getElementById('cart-items-mobile');
+        const footerM = document.getElementById('cart-footer-mobile');
+        
+        if (emptyD) emptyD.style.display = hasItems ? 'none' : 'block';
+        if (itemsD) itemsD.style.display = hasItems ? 'block' : 'none';
+        if (summaryD) summaryD.style.display = hasItems ? 'block' : 'none';
+        if (checkoutD) checkoutD.style.display = hasItems ? 'block' : 'none';
+        if (emptyM) emptyM.style.display = hasItems ? 'none' : 'block';
+        if (itemsM) itemsM.style.display = hasItems ? 'block' : 'none';
+        if (footerM) footerM.style.display = hasItems ? 'block' : 'none';
+
+        const floatingBtn = document.getElementById('delivery-floating-cart-btn');
+        if (floatingBtn) {{
+            floatingBtn.style.display = hasItems ? 'block' : 'none';
+            const floatTotal = document.getElementById('floating-total');
+            const floatCount = document.getElementById('floating-count');
+            if (floatTotal) floatTotal.textContent = total.toFixed(0);
+            if (floatCount) floatCount.textContent = count;
+        }}
+
+        renderDeliveryCartItems();
+    }}
+
+    // Render cart items
+    function renderDeliveryCartItems() {{
+        const html = deliveryCart.map(item => `
+            <div style="display:flex;align-items:center;gap:12px;padding:12px;background:#f9fafb;border-radius:12px;margin-bottom:8px;">
+                <img src="${{item.image}}" style="width:48px;height:48px;border-radius:8px;object-fit:cover;">
+                <div style="flex:1;min-width:0;"><div style="font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${{item.name}}</div><div style="color:#ea580c;font-weight:bold;">RM${{(item.price * item.qty).toFixed(2)}}</div></div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <button onclick="updateDeliveryQty(${{item.id}}, -1)" style="width:28px;height:28px;background:#e5e7eb;border-radius:50%;border:none;cursor:pointer;font-size:12px;">-</button>
+                    <span style="font-weight:bold;width:16px;text-align:center;font-size:14px;">${{item.qty}}</span>
+                    <button onclick="updateDeliveryQty(${{item.id}}, 1)" style="width:28px;height:28px;background:#f97316;color:white;border-radius:50%;border:none;cursor:pointer;font-size:12px;">+</button>
                 </div>
             </div>
-        </div>`;
-    }}).join('');
-}}
+        `).join('');
+        const desktopItems = document.getElementById('cart-items-desktop');
+        const mobileItems = document.getElementById('cart-items-mobile');
+        if (desktopItems) desktopItems.innerHTML = html;
+        if (mobileItems) mobileItems.innerHTML = html;
+    }}
 
-function selectZone(id, name, fee) {{
-    document.querySelectorAll('.zone-card').forEach(el => el.classList.remove('selected'));
-    document.getElementById('zone-' + id).classList.add('selected');
-    selectedZone = {{ id, name, fee }};
-    deliveryFee = fee;
-    document.getElementById('selected-zone-info').classList.remove('hidden');
-    document.getElementById('zone-name-display').textContent = name;
-    document.getElementById('zone-fee-display').textContent = fee;
-    updateCartDisplay();
-}}
+    // Filter category
+    window.filterDeliveryCategory = function(category) {{
+        deliveryCurrentCategory = category;
+        document.querySelectorAll('.delivery-cat-btn').forEach(btn => {{
+            btn.style.background = '#f3f4f6';
+            btn.style.color = '#374151';
+        }});
+        event.target.style.background = '#f97316';
+        event.target.style.color = 'white';
+        renderDeliveryMenu();
+    }};
 
-function addToCart(id) {{
-    const item = menuItems.find(m => m.id === id);
-    if (item) {{ cart.push({{...item, qty: 1}}); updateCartDisplay(); renderMenuItems(); }}
-}}
+    // Toggle mobile cart
+    window.toggleDeliveryMobileCart = function() {{
+        const overlay = document.getElementById('delivery-mobile-cart-overlay');
+        if (overlay) {{
+            overlay.style.display = overlay.style.display === 'none' ? 'block' : 'none';
+        }}
+    }};
 
-function updateQty(id, delta) {{
-    const idx = cart.findIndex(c => c.id === id);
-    if (idx > -1) {{ cart[idx].qty += delta; if (cart[idx].qty <= 0) cart.splice(idx, 1); }}
-    updateCartDisplay(); renderMenuItems();
-}}
+    // Checkout
+    window.deliveryCheckout = function() {{
+        if (deliveryCart.length === 0) {{ alert('Sila tambah item ke dalam bakul'); return; }}
+        if (!deliverySelectedZone) {{ alert('Sila pilih kawasan delivery terlebih dahulu'); return; }}
+        const subtotal = deliveryCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+        if (subtotal < DELIVERY_MINIMUM) {{ alert('Minimum order adalah RM' + DELIVERY_MINIMUM); return; }}
+        const total = subtotal + deliveryFeeAmount;
 
-function updateCartDisplay() {{
-    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
-    const total = subtotal + deliveryFee;
-    const count = cart.reduce((sum, item) => sum + item.qty, 0);
-    const hasItems = cart.length > 0;
+        let msg = '🍛 *PESANAN BARU - ' + DELIVERY_BUSINESS + '*\\n\\n';
+        msg += '📍 *Kawasan:* ' + deliverySelectedZone.name + '\\n━━━━━━━━━━━━━━━━\\n\\n📝 *Pesanan:*\\n';
+        deliveryCart.forEach(item => {{ msg += '• ' + item.name + ' x' + item.qty + ' - RM' + (item.price * item.qty).toFixed(2) + '\\n'; }});
+        msg += '\\n━━━━━━━━━━━━━━━━\\nSubtotal: RM' + subtotal.toFixed(2) + '\\nCaj Delivery: RM' + deliveryFeeAmount.toFixed(2) + '\\n*JUMLAH: RM' + total.toFixed(2) + '*\\n\\nSila nyatakan alamat penuh. Terima kasih! 🙏';
+        window.open('https://wa.me/' + DELIVERY_WHATSAPP + '?text=' + encodeURIComponent(msg), '_blank');
+    }};
 
-    ['desktop', 'mobile'].forEach(t => {{
-        document.getElementById('subtotal-' + t).textContent = subtotal.toFixed(2);
-        document.getElementById('delivery-fee-' + t).textContent = deliveryFee.toFixed(2);
-        document.getElementById('total-' + t).textContent = total.toFixed(2);
+    // Initialize on DOM ready
+    document.addEventListener('DOMContentLoaded', function() {{
+        renderDeliveryZones();
+        renderDeliveryMenu();
+        console.log('🛵 BinaApp Delivery System loaded: ' + deliveryMenuData.length + ' items, ' + deliveryZonesData.length + ' zones');
     }});
-
-    document.getElementById('cart-count-desktop').textContent = count;
-    document.getElementById('cart-empty-desktop').classList.toggle('hidden', hasItems);
-    document.getElementById('cart-items-desktop').classList.toggle('hidden', !hasItems);
-    document.getElementById('cart-summary-desktop').classList.toggle('hidden', !hasItems);
-    document.getElementById('checkout-btn-desktop').classList.toggle('hidden', !hasItems);
-    document.getElementById('cart-empty-mobile').classList.toggle('hidden', hasItems);
-    document.getElementById('cart-items-mobile').classList.toggle('hidden', !hasItems);
-    document.getElementById('cart-footer-mobile').classList.toggle('hidden', !hasItems);
-
-    const floatingBtn = document.getElementById('floating-cart-btn');
-    if (hasItems) {{ floatingBtn.classList.remove('hidden'); document.getElementById('floating-total').textContent = total.toFixed(0); document.getElementById('floating-count').textContent = count; }}
-    else {{ floatingBtn.classList.add('hidden'); }}
-
-    const badge = document.getElementById('cart-badge-mobile');
-    if (count > 0) {{ badge.textContent = count; badge.classList.remove('hidden'); }} else {{ badge.classList.add('hidden'); }}
-
-    renderCartItems();
-}}
-
-function renderCartItems() {{
-    const html = cart.map(item => `
-        <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-            <img src="${{item.image}}" class="w-12 h-12 rounded-lg object-cover">
-            <div class="flex-1 min-w-0"><div class="font-semibold text-sm truncate">${{item.name}}</div><div class="text-orange-600 font-bold">RM${{(item.price * item.qty).toFixed(2)}}</div></div>
-            <div class="flex items-center gap-2">
-                <button onclick="updateQty(${{item.id}}, -1)" class="w-7 h-7 bg-gray-200 rounded-full flex items-center justify-center text-xs"><i class="fas fa-minus"></i></button>
-                <span class="font-bold w-4 text-center text-sm">${{item.qty}}</span>
-                <button onclick="updateQty(${{item.id}}, 1)" class="w-7 h-7 bg-orange-500 text-white rounded-full flex items-center justify-center text-xs"><i class="fas fa-plus"></i></button>
-            </div>
-        </div>
-    `).join('');
-    document.getElementById('cart-items-desktop').innerHTML = html;
-    document.getElementById('cart-items-mobile').innerHTML = html;
-}}
-
-function filterCategory(category) {{
-    currentCategory = category;
-    document.querySelectorAll('.cat-btn').forEach(btn => {{ btn.classList.remove('active','bg-orange-500','text-white'); btn.classList.add('bg-gray-100','text-gray-700'); }});
-    event.target.classList.add('active','bg-orange-500','text-white');
-    event.target.classList.remove('bg-gray-100','text-gray-700');
-    renderMenuItems();
-}}
-
-function toggleMobileCart() {{
-    document.getElementById('mobile-cart-overlay').classList.toggle('hidden');
-}}
-
-function checkout() {{
-    if (cart.length === 0) {{ alert('Sila tambah item ke dalam bakul'); return; }}
-    if (!selectedZone) {{ alert('Sila pilih kawasan delivery'); return; }}
-    const subtotal = cart.reduce((sum, item) => sum + (item.price * item.qty), 0);
-    if (subtotal < MINIMUM_ORDER) {{ alert('Minimum order adalah RM' + MINIMUM_ORDER); return; }}
-    const total = subtotal + deliveryFee;
-
-    let msg = '🍛 *PESANAN BARU - ' + BUSINESS_NAME + '*\\n\\n';
-    msg += '📍 *Kawasan:* ' + selectedZone.name + '\\n━━━━━━━━━━━━━━━━\\n\\n📝 *Pesanan:*\\n';
-    cart.forEach(item => {{ msg += '• ' + item.name + ' x' + item.qty + ' - RM' + (item.price * item.qty).toFixed(2) + '\\n'; }});
-    msg += '\\n━━━━━━━━━━━━━━━━\\nSubtotal: RM' + subtotal.toFixed(2) + '\\nCaj Delivery: RM' + deliveryFee.toFixed(2) + '\\n*JUMLAH: RM' + total.toFixed(2) + '*\\n\\nSila nyatakan alamat penuh. Terima kasih! 🙏';
-    window.open('https://wa.me/' + WHATSAPP_NUMBER + '?text=' + encodeURIComponent(msg), '_blank');
-}}
-
-document.addEventListener('DOMContentLoaded', function() {{
-    renderDeliveryZones();
-    renderMenuItems();
-}});
+}})();
 </script>'''
 
         if "</body>" in html:
@@ -1256,6 +1334,7 @@ document.addEventListener('DOMContentLoaded', function() {{
         else:
             html += script
 
+        logger.info(f"✅ Delivery system injected successfully")
         return html
 
     def inject_delivery_widget(
@@ -1361,14 +1440,22 @@ document.addEventListener('DOMContentLoaded', function() {{
             # create a default zone from those settings
             if not delivery_zones and user_data.get("delivery"):
                 delivery_data = user_data["delivery"]
+                # Handle fee - can be string ("RM5") or number (5)
+                fee_value = delivery_data.get("fee", "5")
+                if isinstance(fee_value, str):
+                    fee_value = float(fee_value.replace("RM", "").replace(",", "").strip()) if fee_value else 5.0
+                else:
+                    fee_value = float(fee_value) if fee_value else 5.0
+                    
                 default_zone = {
                     "id": "default",
                     "zone_name": delivery_data.get("area", "Kawasan Delivery"),
-                    "delivery_fee": float(delivery_data.get("fee", "5").replace("RM", "").strip()),
+                    "delivery_fee": fee_value,
                     "estimated_time": delivery_data.get("hours", "30-45 min"),
                     "is_active": True
                 }
                 delivery_zones = [default_zone]
+                logger.info(f"Created fallback delivery zone: {default_zone['zone_name']} - RM{fee_value}")
 
             # Always inject the ordering system structure
             html = self.inject_ordering_system(
