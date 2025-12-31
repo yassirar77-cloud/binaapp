@@ -395,16 +395,16 @@ async def publish_website(request: PublishRequest):
 
 def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: str) -> str:
     """
-    Inject BinaApp Delivery Widget if delivery features are detected in the HTML.
+    Inject standalone delivery page link if delivery features are detected in the HTML.
 
-    This is the CRITICAL FIX for the delivery widget not being injected.
-    The widget enables customers to place delivery orders directly from the website.
+    Instead of injecting a widget, we add a simple button that links to the
+    standalone delivery page at /delivery/[websiteId].
 
     Detection: Checks for ANY delivery-related content in the HTML
     """
-    # Check if widget is already injected
-    if 'delivery-widget.js' in html:
-        logger.info("📦 Delivery widget already present - skipping injection")
+    # Check if delivery link is already injected
+    if 'binaapp.my/delivery/' in html or '/delivery/' in html:
+        logger.info("📦 Delivery link already present - skipping injection")
         return html
 
     # More robust detection - check for ANY delivery-related markers
@@ -458,50 +458,32 @@ def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: 
         logger.info("📦 No delivery features detected - skipping widget injection")
         return html
 
-    logger.info("📦 Delivery features detected - injecting delivery widget")
+    logger.info("📦 Delivery features detected - injecting delivery page link")
 
-    # Try to extract WhatsApp number from existing links in the HTML
-    whatsapp_number = "+60123456789"  # Default
-    wa_match = re.search(r'wa\.me/(\+?\d+)', html)
-    if wa_match:
-        whatsapp_number = wa_match.group(1)
-        if not whatsapp_number.startswith('+'):
-            whatsapp_number = '+' + whatsapp_number
-        logger.info(f"📱 Extracted WhatsApp: {whatsapp_number}")
-
-    # Escape business name for JavaScript
-    safe_business_name = business_name.replace("'", "\\'").replace('"', '\\"')
-
-    # Create the delivery widget script
-    delivery_script = f'''
-<!-- BinaApp Delivery Widget -->
-<script src="https://binaapp-backend.onrender.com/widgets/delivery-widget.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {{
-    if (typeof BinaAppDelivery !== 'undefined') {{
-        BinaAppDelivery.init({{
-            websiteId: '{website_id}',
-            apiUrl: 'https://binaapp-backend.onrender.com',
-            whatsapp: '{whatsapp_number}',
-            businessName: '{safe_business_name}',
-            primaryColor: '#ea580c'
-        }});
-    }}
-}});
-</script>
+    # Create a simple floating button that links to the standalone delivery page
+    # This is much more reliable than widget injection - it always works!
+    delivery_button = f'''
+<!-- BinaApp Standalone Delivery Page Link -->
+<a href="https://binaapp.my/delivery/{website_id}"
+   target="_blank"
+   style="position: fixed; bottom: 24px; left: 24px; background: linear-gradient(135deg, #ea580c 0%, #dc2626 100%); color: white; padding: 14px 24px; border-radius: 50px; box-shadow: 0 4px 20px rgba(234, 88, 12, 0.4); z-index: 9999; display: flex; align-items: center; gap: 8px; font-weight: 600; text-decoration: none; font-size: 15px; transition: transform 0.2s, box-shadow 0.2s;"
+   onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 25px rgba(234, 88, 12, 0.5)';"
+   onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 20px rgba(234, 88, 12, 0.4)';">
+    🛵 Pesan Delivery
+</a>
 '''
 
     # Inject before </body>
     if '</body>' in html:
-        html = html.replace('</body>', delivery_script + '\n</body>')
-        logger.info(f"✅ Delivery widget injected for website {website_id}")
+        html = html.replace('</body>', delivery_button + '\n</body>')
+        logger.info(f"✅ Delivery button link injected for website {website_id}")
     elif '</BODY>' in html:
-        html = html.replace('</BODY>', delivery_script + '\n</BODY>')
-        logger.info(f"✅ Delivery widget injected for website {website_id} (uppercase)")
+        html = html.replace('</BODY>', delivery_button + '\n</BODY>')
+        logger.info(f"✅ Delivery button link injected for website {website_id} (uppercase)")
     else:
         # Fallback: append to end
-        html += delivery_script
-        logger.info(f"✅ Delivery widget appended for website {website_id} (no body tag)")
+        html += delivery_button
+        logger.info(f"✅ Delivery button link appended for website {website_id} (no body tag)")
 
     return html
 
