@@ -407,58 +407,8 @@ def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: 
         logger.info("📦 Delivery link already present - skipping injection")
         return html
 
-    # More robust detection - check for ANY delivery-related markers
-    delivery_markers = [
-        # Page structure markers
-        'id="page-order"',
-        "id='page-order'",
-        'id="delivery"',
-        "id='delivery'",
-        'id="delivery-zones"',
-        "id='delivery-zones'",
-        # Button/text markers
-        'Pesan Delivery',
-        'pesan delivery',
-        'Delivery Sendiri',
-        'delivery sendiri',
-        'Order Delivery',
-        'order delivery',
-        # Navigation markers
-        "showPage('order')",
-        'showPage("order")',
-        "showPage('delivery')",
-        # Emoji markers
-        '🛵',
-        # Class markers
-        'delivery-section',
-        'delivery-zone',
-        'delivery-order',
-        # WhatsApp order markers
-        'nak order delivery',
-        'Saya nak order',
-        # Menu ordering markers
-        'Pilih Kawasan Delivery',
-        'Bakul Pesanan',
-        'Troli Pesanan',
-    ]
-
-    has_delivery = any(marker in html for marker in delivery_markers)
-
-    # Log detection status
-    logger.info(f"🔍 Delivery widget detection for website {website_id}:")
-    logger.info(f"   - HTML length: {len(html)} chars")
-    logger.info(f"   - Delivery features detected: {has_delivery}")
-
-    if has_delivery:
-        # Log which markers were found
-        found_markers = [m for m in delivery_markers if m in html]
-        logger.info(f"   - Found markers: {found_markers[:3]}...")  # Show first 3
-
-    if not has_delivery:
-        logger.info("📦 No delivery features detected - skipping widget injection")
-        return html
-
-    logger.info("📦 Delivery features detected - injecting delivery page link")
+    # ALWAYS inject delivery button - no HTML detection needed
+    logger.info(f"📦 Injecting delivery button for website {website_id}")
 
     # Create a simple floating button that links to the standalone delivery page
     # This is much more reliable than widget injection - it always works!
