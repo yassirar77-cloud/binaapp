@@ -402,6 +402,19 @@ export default function CreatePage() {
     setError('')
 
     try {
+      // Provide backend with stable website id + delivery/menu context (for widget + DB rows)
+      const websiteId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+      const menuItemsForDelivery = (uploadedImages?.gallery || [])
+        .filter(g => !!g?.url)
+        .map((g, idx) => ({
+          name: g.name || `Menu Item ${idx + 1}`,
+          image_url: g.url
+        }))
+
       const response = await fetch(`${API_BASE_URL}/api/publish`, {
         method: 'POST',
         headers: {
@@ -411,7 +424,16 @@ export default function CreatePage() {
           html_content: generatedHtml,
           subdomain: cleanSubdomain,
           project_name: projectName,
-          user_id: user?.id || 'demo-user'
+          user_id: user?.id || 'demo-user',
+          website_id: websiteId,
+          features: selectedFeatures,
+          delivery: selectedFeatures.deliverySystem ? {
+            area: deliveryArea,
+            fee: deliveryFee,
+            minimum: minimumOrder,
+            hours: deliveryHours
+          } : null,
+          menu_items: menuItemsForDelivery
         })
       })
 
@@ -423,29 +445,9 @@ export default function CreatePage() {
       const data = await response.json()
       const publishedWebsiteUrl = data.url
 
-      // Save to Supabase websites table if user is logged in
-      if (supabase && user) {
-        const { error: dbError } = await supabase
-          .from('websites')
-          .insert({
-            user_id: user.id,
-            name: projectName,
-            subdomain: cleanSubdomain,
-            description: description.substring(0, 500),
-            template: templateUsed || 'general',
-            html_content: generatedHtml,
-            status: 'published',
-            published_url: publishedWebsiteUrl,
-          })
-
-        if (dbError) {
-          console.error('Error saving to database:', dbError)
-          // Don't fail the publish if database save fails
-          toast.error('Website diterbitkan tetapi gagal disimpan ke akaun')
-        } else {
-          toast.success('Website berjaya diterbitkan dan disimpan!')
-        }
-      }
+      // Backend publish now upserts `websites` + delivery tables (service role),
+      // so we no longer duplicate inserts from the client.
+      toast.success('Website berjaya diterbitkan!')
 
       setPublishedUrl(publishedWebsiteUrl)
       setShowPublishModal(false)
