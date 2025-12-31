@@ -31,6 +31,7 @@ from app.models.schemas import WebsiteGenerationRequest, Language
 from app.api.upload import router as upload_router
 from app.api.v1.endpoints.menu_delivery import router as menu_delivery_router
 from app.api.v1.router import api_router as v1_router
+from app.services.templates import template_service
 
 # Initialize AI service
 ai_service = AIService()
@@ -1560,7 +1561,17 @@ Output ONLY improved HTML."""
 
 # ==================== SIMPLE ASYNC GENERATION (NO BACKGROUND TASKS) ====================
 
-async def run_generation_task(job_id: str, description: str, user_email: str = "", user_id: str = "anonymous", images: list = None):
+async def run_generation_task(
+    job_id: str,
+    description: str,
+    user_email: str = "",
+    user_id: str = "anonymous",
+    images: list = None,
+    features: Optional[dict] = None,
+    delivery: Optional[dict] = None,
+    address: Optional[str] = None,
+    social_media: Optional[dict] = None,
+):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
     logger.info(f"🚀 TASK START: {job_id}")
@@ -1599,6 +1610,91 @@ async def run_generation_task(job_id: str, description: str, user_email: str = "
         html = ai_response.html_content
 
         logger.info(f"✅ Got HTML: {len(html)} chars")
+
+        # OPTIONAL: Inject delivery/ordering system if user requested it via /api/generate/start payload.
+        try:
+            selected_features = features or {}
+            delivery_cfg = delivery or None
+
+            # Features list for TemplateService (expects "delivery_system" token)
+            features_list = []
+            if selected_features.get("deliverySystem"):
+                features_list.append("delivery_system")
+            if selected_features.get("googleMap"):
+                features_list.append("maps")
+            if selected_features.get("contactForm"):
+                features_list.append("contact")
+            if selected_features.get("socialMedia"):
+                features_list.append("social")
+            if selected_features.get("whatsapp", True):
+                features_list.append("whatsapp")
+
+            # Build menu items from uploaded images (matches frontend format: [{url,name}, ...])
+            menu_items = []
+            if images:
+                default_prices = [15, 12, 18, 10, 20, 14, 16, 13]
+                for idx, img in enumerate(images):
+                    if isinstance(img, dict):
+                        img_url = img.get("url", "")
+                        img_name = img.get("name", f"Item {idx+1}")
+                    else:
+                        img_url = str(img)
+                        img_name = f"Item {idx+1}"
+                    if not img_name or img_name == "Hero Image":
+                        continue
+                    menu_items.append({
+                        "id": f"menu-{idx}",
+                        "name": img_name,
+                        "description": "Hidangan istimewa dari dapur kami",
+                        "price": default_prices[idx % len(default_prices)],
+                        "image_url": img_url,
+                        "category_id": "main",
+                        "is_available": True
+                    })
+
+            # Default delivery zone for ordering UI
+            delivery_zones = []
+            if selected_features.get("deliverySystem") and delivery_cfg:
+                try:
+                    fee_val = delivery_cfg.get("fee", 5)
+                    if isinstance(fee_val, str):
+                        fee_val = float(fee_val.replace("RM", "").strip())
+                    minimum_val = delivery_cfg.get("minimum", 30)
+                    if isinstance(minimum_val, str):
+                        minimum_val = float(minimum_val.replace("RM", "").strip())
+                except Exception:
+                    fee_val = 5
+                    minimum_val = 30
+
+                delivery_zones = [{
+                    "id": "default",
+                    "zone_name": delivery_cfg.get("area", "Kawasan Delivery"),
+                    "delivery_fee": float(fee_val),
+                    "minimum_order": float(minimum_val),
+                    "estimated_time": delivery_cfg.get("hours", "30-45 min"),
+                    "estimated_time_min": 30,
+                    "estimated_time_max": 45,
+                    "is_active": True
+                }]
+
+            user_data = {
+                "phone": "+60123456789",  # Best-effort; WhatsApp button is usually present in generated HTML
+                "address": address or "",
+                "email": "contact@business.com",
+                "url": "https://preview.binaapp.my",
+                "whatsapp_message": "Hi, I'm interested",
+                "business_name": description.split()[0] if description else "Business",
+                "menu_items": menu_items,
+                "delivery_zones": delivery_zones
+            }
+            if delivery_cfg:
+                user_data["delivery"] = delivery_cfg
+
+            if "delivery_system" in features_list or delivery_cfg:
+                html = template_service.inject_integrations(html, features_list, user_data)
+                logger.info("✅ Injected delivery/ordering system into generated HTML")
+        except Exception as inject_err:
+            logger.warning(f"⚠️ Delivery injection skipped due to error: {inject_err}")
 
         # Step 4: Update progress to 80%
         if supabase:
@@ -1661,6 +1757,10 @@ async def start_generation(request: Request):
     user_id = body.get("user_id", "anonymous")
     user_email = body.get("email", "")
     images = body.get("images", [])  # Extract uploaded images
+    features = body.get("features") or {}
+    delivery = body.get("delivery") or None
+    address = body.get("address") or None
+    social_media = body.get("social_media") or None
 
     # Get dish names from request
     dish_names = body.get("dish_names", [])
@@ -1749,7 +1849,7 @@ MANDATORY REQUIREMENTS:
     logger.info(f"   Dish names: {dish_names if dish_names else 'None'}")
     logger.info(f"   Uploaded images: {len(uploaded_images)} items" if uploaded_images else "   Uploaded images: None")
 
-    # Create job in Supabase
+    # Create job in Supabase (keep schema minimal to avoid column mismatch)
     if supabase:
         try:
             supabase.table("generation_jobs").insert({
@@ -1757,7 +1857,6 @@ MANDATORY REQUIREMENTS:
                 "status": "processing",
                 "progress": 0,
                 "description": description,
-                "email": user_email,
                 "user_id": user_id,
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat()
@@ -1771,7 +1870,17 @@ MANDATORY REQUIREMENTS:
             })
 
     # Run generation with asyncio (NOT BackgroundTasks!)
-    asyncio.create_task(run_generation_task(job_id, description, user_email, user_id, images))
+    asyncio.create_task(run_generation_task(
+        job_id,
+        description,
+        user_email,
+        user_id,
+        images,
+        features,
+        delivery,
+        address,
+        social_media
+    ))
 
     logger.info(f"🚀 Job started: {job_id}")
 
@@ -2016,6 +2125,11 @@ async def publish_website(request: Request):
     html_content = body.get("html_content") or body.get("html_code") or body.get("html") or ""
     subdomain = (body.get("subdomain") or "").lower().strip()
     project_name = body.get("project_name") or body.get("name") or subdomain
+    website_id = body.get("website_id")  # Optional: caller can provide stable UUID
+    user_id = body.get("user_id") or "anonymous"
+    features = body.get("features") or {}
+    delivery = body.get("delivery") or None
+    menu_items_payload = body.get("menu_items") or []
 
     logger.info(f"📤 Subdomain: {subdomain}, Name: {project_name}")
     logger.info(f"📤 HTML length: {len(html_content)} chars")
@@ -2033,6 +2147,134 @@ async def publish_website(request: Request):
         return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain too short (min 2 chars)"})
 
     try:
+        # Ensure we have a stable website UUID for delivery widget + DB rows
+        if not website_id:
+            website_id = str(uuid.uuid4())
+
+        delivery_enabled = bool(features.get("deliverySystem")) or bool(delivery)
+
+        # If delivery enabled, inject widget and persist minimal menu/zones/settings (service role bypasses RLS).
+        if delivery_enabled and supabase:
+            try:
+                api_base = "https://binaapp-backend.onrender.com"
+                widget_src = f"{api_base}/widgets/delivery-widget.js"
+                widget_init = f"""
+<!-- BinaApp Delivery Widget -->
+<script src="{widget_src}"></script>
+<script>
+  if (window.BinaAppDelivery && typeof window.BinaAppDelivery.init === 'function') {{
+    window.BinaAppDelivery.init({{
+      websiteId: '{website_id}',
+      apiUrl: '{api_base}/v1',
+      primaryColor: '#ea580c',
+      language: 'ms'
+    }});
+  }}
+</script>
+"""
+                if "</body>" in html_content:
+                    html_content = html_content.replace("</body>", widget_init + "\n</body>")
+                else:
+                    html_content += widget_init
+
+                # Upsert website record so FK inserts work
+                published_url = f"https://{subdomain}.binaapp.my"
+                supabase.table("websites").upsert({
+                    "id": website_id,
+                    "user_id": user_id,
+                    "name": project_name,
+                    "subdomain": subdomain,
+                    "status": "published",
+                    "published_url": published_url,
+                    "html_content": html_content,
+                    "updated_at": datetime.now().isoformat()
+                }, on_conflict="id").execute()
+
+                # Create a default category if none exists
+                cat_resp = supabase.table("menu_categories").select("id").eq("website_id", website_id).limit(1).execute()
+                if cat_resp.data:
+                    category_id = cat_resp.data[0]["id"]
+                else:
+                    cat_insert = supabase.table("menu_categories").insert({
+                        "website_id": website_id,
+                        "name": "Menu",
+                        "name_en": "Menu",
+                        "icon": "🍽️",
+                        "sort_order": 0,
+                        "is_active": True
+                    }).execute()
+                    category_id = cat_insert.data[0]["id"] if cat_insert.data else None
+
+                # Insert menu items (best-effort)
+                if menu_items_payload and category_id:
+                    items_to_insert = []
+                    default_prices = [15, 12, 18, 10, 20, 14, 16, 13]
+                    for idx, it in enumerate(menu_items_payload):
+                        if not isinstance(it, dict):
+                            continue
+                        name = it.get("name") or f"Item {idx+1}"
+                        img = it.get("image_url") or it.get("url") or None
+                        price = it.get("price")
+                        if price is None:
+                            price = default_prices[idx % len(default_prices)]
+                        try:
+                            price = float(str(price).replace("RM", "").strip())
+                        except Exception:
+                            price = float(default_prices[idx % len(default_prices)])
+                        items_to_insert.append({
+                            "website_id": website_id,
+                            "category_id": category_id,
+                            "name": name,
+                            "description": it.get("description") or "Hidangan istimewa dari dapur kami",
+                            "price": price,
+                            "image_url": img,
+                            "is_available": True,
+                            "is_popular": False,
+                            "preparation_time": 15,
+                            "sort_order": idx
+                        })
+                    if items_to_insert:
+                        supabase.table("menu_items").insert(items_to_insert).execute()
+
+                # Insert a default delivery zone + settings
+                if delivery:
+                    try:
+                        fee_val = delivery.get("fee", 5)
+                        if isinstance(fee_val, str):
+                            fee_val = float(fee_val.replace("RM", "").strip())
+                        minimum_val = delivery.get("minimum", 30)
+                        if isinstance(minimum_val, str):
+                            minimum_val = float(minimum_val.replace("RM", "").strip())
+                    except Exception:
+                        fee_val = 5
+                        minimum_val = 30
+
+                    zones_existing = supabase.table("delivery_zones").select("id").eq("website_id", website_id).limit(1).execute()
+                    if not zones_existing.data:
+                        supabase.table("delivery_zones").insert({
+                            "website_id": website_id,
+                            "zone_name": delivery.get("area") or "Kawasan Delivery",
+                            "delivery_fee": float(fee_val),
+                            "minimum_order": float(minimum_val),
+                            "estimated_time_min": 30,
+                            "estimated_time_max": 45,
+                            "is_active": True,
+                            "sort_order": 0
+                        }).execute()
+
+                    # Ensure delivery settings exist
+                    supabase.table("delivery_settings").upsert({
+                        "website_id": website_id,
+                        "minimum_order": float(minimum_val),
+                        "whatsapp_number": None,
+                        "use_own_riders": True,
+                        "updated_at": datetime.now().isoformat()
+                    }, on_conflict="website_id").execute()
+
+                logger.info(f"✅ Delivery widget + data prepared for website {website_id}")
+            except Exception as delivery_err:
+                logger.warning(f"⚠️ Delivery publish enhancements failed (continuing publish): {delivery_err}")
+
         # Upload HTML to Supabase Storage
         storage_url = f"{SUPABASE_URL}/storage/v1/object/websites/{subdomain}/index.html"
         storage_headers = {
@@ -2055,6 +2297,7 @@ async def publish_website(request: Request):
                 logger.info(f"✅ Published successfully: {subdomain}.binaapp.my")
                 return {
                     "success": True,
+                    "website_id": website_id,
                     "subdomain": subdomain,
                     "url": f"https://{subdomain}.binaapp.my",
                     "message": "Website published successfully! Visit your site at the URL above.",
