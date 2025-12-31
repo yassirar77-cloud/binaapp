@@ -394,48 +394,17 @@ async def publish_website(request: PublishRequest):
 
 
 def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: str) -> str:
-    """
-    Inject standalone delivery page link if delivery features are detected in the HTML.
-
-    Instead of injecting a widget, we add a simple button that links to the
-    standalone delivery page at /delivery/[websiteId].
-
-    Detection: Checks for ANY delivery-related content in the HTML
-    """
-    # Check if delivery link is already injected
-    if 'binaapp.my/delivery/' in html or '/delivery/' in html:
-        logger.info("📦 Delivery link already present - skipping injection")
-        return html
-
-    # ALWAYS inject delivery button - no HTML detection needed
-    logger.info(f"📦 Injecting delivery button for website {website_id}")
-
-    # Create a simple floating button that links to the standalone delivery page
-    # This is much more reliable than widget injection - it always works!
+    """ALWAYS inject delivery button - no detection needed"""
     delivery_button = f'''
-<!-- BinaApp Standalone Delivery Page Link -->
+<!-- BinaApp Delivery Button -->
 <a href="https://binaapp.my/delivery/{website_id}"
    target="_blank"
-   style="position: fixed; bottom: 24px; left: 24px; background: linear-gradient(135deg, #ea580c 0%, #dc2626 100%); color: white; padding: 14px 24px; border-radius: 50px; box-shadow: 0 4px 20px rgba(234, 88, 12, 0.4); z-index: 9999; display: flex; align-items: center; gap: 8px; font-weight: 600; text-decoration: none; font-size: 15px; transition: transform 0.2s, box-shadow 0.2s;"
-   onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 25px rgba(234, 88, 12, 0.5)';"
-   onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 20px rgba(234, 88, 12, 0.4)';">
+   style="position:fixed;bottom:24px;left:24px;background:linear-gradient(135deg,#f97316,#ea580c);color:white;padding:16px 24px;border-radius:50px;font-weight:600;z-index:9999;text-decoration:none;box-shadow:0 4px 20px rgba(234,88,12,0.4);">
     🛵 Pesan Delivery
-</a>
-'''
-
-    # Inject before </body>
-    if '</body>' in html:
-        html = html.replace('</body>', delivery_button + '\n</body>')
-        logger.info(f"✅ Delivery button link injected for website {website_id}")
-    elif '</BODY>' in html:
-        html = html.replace('</BODY>', delivery_button + '\n</BODY>')
-        logger.info(f"✅ Delivery button link injected for website {website_id} (uppercase)")
-    else:
-        # Fallback: append to end
-        html += delivery_button
-        logger.info(f"✅ Delivery button link appended for website {website_id} (no body tag)")
-
-    return html
+</a>'''
+    if "</body>" in html:
+        return html.replace("</body>", delivery_button + "\n</body>")
+    return html + delivery_button
 
 
 def validate_subdomain(subdomain: str) -> bool:

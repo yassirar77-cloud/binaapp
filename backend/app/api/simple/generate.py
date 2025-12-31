@@ -436,6 +436,17 @@ async def generate_website(request: SimpleGenerateRequest):
                 user_data
             )
 
+            # Inject delivery widget if deliverySystem is enabled
+            if request.features and request.features.get("deliverySystem") is True:
+                from app.api.simple.publish import inject_delivery_widget_if_needed
+                import uuid
+                website_id = str(uuid.uuid4())
+                html_content = inject_delivery_widget_if_needed(
+                    html=html_content,
+                    website_id=website_id,
+                    business_name=business_name
+                )
+
             logger.info("Website generated successfully!")
 
             return SimpleGenerateResponse(
