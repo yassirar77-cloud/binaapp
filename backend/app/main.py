@@ -1611,6 +1611,13 @@ async def run_generation_task(
 
         logger.info(f"✅ Got HTML: {len(html)} chars")
 
+        # Step 3: Update progress to 60% after AI generation
+        if supabase:
+            supabase.table("generation_jobs").update({
+                "progress": 60,
+                "updated_at": datetime.now().isoformat()
+            }).eq("job_id", job_id).execute()
+
         # OPTIONAL: Inject delivery/ordering system if user requested it via /api/generate/start payload.
         try:
             selected_features = features or {}
