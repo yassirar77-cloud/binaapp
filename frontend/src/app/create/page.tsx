@@ -145,6 +145,9 @@ export default function CreatePage() {
     gallery: true,           // Photo gallery section
   })
 
+  // Business type state - for dynamic categories and labels
+  const [businessType, setBusinessType] = useState<'auto' | 'food' | 'clothing' | 'services' | 'general'>('auto')
+
   // Delivery system states
   const [deliveryArea, setDeliveryArea] = useState('')
   const [deliveryFee, setDeliveryFee] = useState('')
@@ -223,6 +226,7 @@ export default function CreatePage() {
           images: allImages.length > 0 ? allImages : undefined,  // Send uploaded images with names
           gallery_metadata: uploadedImages.gallery,  // Pass full gallery metadata separately for AI context
           features: selectedFeatures,  // Pass selected features
+          business_type: businessType === 'auto' ? null : businessType,  // Pass business type for dynamic categories
           delivery: selectedFeatures.deliverySystem ? {
             area: deliveryArea,
             fee: deliveryFee,
@@ -564,6 +568,52 @@ export default function CreatePage() {
                   🇬🇧 English
                 </button>
               </div>
+            </div>
+
+            {/* Business Type Selector - for dynamic categories */}
+            <div className="mb-4">
+              <label className="block text-sm font-semibold mb-2 text-gray-700">
+                Jenis Perniagaan / Business Type:
+              </label>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                <button
+                  onClick={() => setBusinessType('auto')}
+                  className={`btn ${businessType === 'auto' ? 'btn-primary' : 'btn-outline'} text-sm`}
+                >
+                  🔍 Auto Detect
+                </button>
+                <button
+                  onClick={() => setBusinessType('food')}
+                  className={`btn ${businessType === 'food' ? 'btn-primary' : 'btn-outline'} text-sm`}
+                >
+                  🍛 Makanan
+                </button>
+                <button
+                  onClick={() => setBusinessType('clothing')}
+                  className={`btn ${businessType === 'clothing' ? 'btn-primary' : 'btn-outline'} text-sm`}
+                >
+                  👗 Pakaian
+                </button>
+                <button
+                  onClick={() => setBusinessType('services')}
+                  className={`btn ${businessType === 'services' ? 'btn-primary' : 'btn-outline'} text-sm`}
+                >
+                  🔧 Servis
+                </button>
+                <button
+                  onClick={() => setBusinessType('general')}
+                  className={`btn ${businessType === 'general' ? 'btn-primary' : 'btn-outline'} text-sm`}
+                >
+                  🛒 Lain-lain
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                {businessType === 'auto' && 'Sistem akan mengesan jenis perniagaan anda secara automatik'}
+                {businessType === 'food' && 'Kategori: Nasi, Lauk, Minuman | Label: Pesan Delivery'}
+                {businessType === 'clothing' && 'Kategori: Baju, Tudung, Aksesori | Label: Order Sekarang'}
+                {businessType === 'services' && 'Kategori: Perkhidmatan, Pakej | Label: Tempah Sekarang'}
+                {businessType === 'general' && 'Kategori: Produk, Lain-lain | Label: Beli Sekarang'}
+              </p>
             </div>
 
             <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg">

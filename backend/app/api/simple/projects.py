@@ -41,6 +41,7 @@ class UpdateProjectRequest(BaseModel):
     """Update project request"""
     name: Optional[str] = Field(None, min_length=2, max_length=100)
     html_code: Optional[str] = None
+    description: Optional[str] = Field(None, description="Business description for type detection")
 
 
 class DeleteResponse(BaseModel):
@@ -183,11 +184,12 @@ async def update_project(
             update_data["business_name"] = request.name
 
         if request.html_code:
-            # Inject delivery widget if needed
+            # Inject delivery widget with dynamic label based on business type
             html_to_save = inject_delivery_widget_if_needed(
                 request.html_code,
                 project_id,
-                request.name or website.get("business_name", "Business")
+                request.name or website.get("business_name", "Business"),
+                description=request.description or request.name or ""
             )
             update_data["html_content"] = html_to_save
 
