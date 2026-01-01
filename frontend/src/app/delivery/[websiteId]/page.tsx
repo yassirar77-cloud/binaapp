@@ -8,9 +8,11 @@ const WIDGET_URL = `${API_URL}/static/widgets/delivery-widget.js`;
 /**
  * Delivery Page
  * 
- * This page serves as a host for the BinaApp Delivery Widget.
- * All cart, zone selection, and checkout logic is handled by the injected widget.
- * The widget is the single source of truth for delivery ordering.
+ * Minimal host for the BinaApp Delivery Widget.
+ * The widget is the single source of truth for all ordering:
+ * - Cart management
+ * - Zone selection  
+ * - Checkout flow
  */
 export default function DeliveryPage() {
     const { websiteId } = useParams();
@@ -20,13 +22,11 @@ export default function DeliveryPage() {
     useEffect(() => {
         if (!websiteId) return;
 
-        // Inject the delivery widget script
         const script = document.createElement('script');
         script.src = WIDGET_URL;
         script.async = true;
 
         script.onload = () => {
-            // Initialize the widget once the script is loaded
             if (typeof window !== 'undefined' && (window as any).BinaAppDelivery) {
                 (window as any).BinaAppDelivery.init({
                     websiteId: websiteId,
@@ -48,13 +48,10 @@ export default function DeliveryPage() {
 
         document.body.appendChild(script);
 
-        // Cleanup on unmount
         return () => {
-            // Remove the script
             if (script.parentNode) {
                 script.parentNode.removeChild(script);
             }
-            // Remove widget elements if they exist
             const widget = document.getElementById('binaapp-widget');
             const modal = document.getElementById('binaapp-modal');
             if (widget) widget.remove();
@@ -66,8 +63,8 @@ export default function DeliveryPage() {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50">
                 <div className="text-center">
-                    <div className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-gray-600">Memuatkan delivery...</p>
+                    <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-gray-600">Memuatkan...</p>
                 </div>
             </div>
         );
@@ -77,11 +74,10 @@ export default function DeliveryPage() {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50">
                 <div className="text-center">
-                    <span className="text-5xl block mb-4">⚠️</span>
-                    <p className="text-gray-800 font-medium">{error}</p>
+                    <p className="text-gray-800 mb-4">{error}</p>
                     <button 
                         onClick={() => window.location.reload()}
-                        className="mt-4 px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                        className="px-4 py-2 bg-orange-500 text-white rounded-lg"
                     >
                         Cuba Semula
                     </button>
@@ -90,58 +86,15 @@ export default function DeliveryPage() {
         );
     }
 
-    // The page is now a minimal host - the widget handles everything
+    // Minimal UI - widget handles everything
     return (
-        <div className="min-h-screen bg-gray-100">
-            {/* Header */}
-            <header className="bg-gradient-to-r from-orange-500 to-orange-600 text-white py-6">
-                <div className="max-w-3xl mx-auto px-4 text-center">
-                    <span className="text-3xl mb-2 block">🛵</span>
-                    <h1 className="text-2xl font-bold">Pesan Delivery</h1>
-                    <p className="text-white/80 text-sm mt-1">
-                        Klik butang &quot;Pesan Sekarang&quot; di bawah untuk mula
-                    </p>
-                </div>
-            </header>
-
-            {/* Instructions */}
-            <main className="max-w-3xl mx-auto px-4 py-8">
-                <div className="bg-white rounded-xl shadow-sm p-6 text-center">
-                    <div className="text-6xl mb-4">🍽️</div>
-                    <h2 className="text-xl font-semibold text-gray-800 mb-2">
-                        Sedia untuk pesan?
-                    </h2>
-                    <p className="text-gray-600 mb-4">
-                        Klik butang &quot;Pesan Sekarang&quot; di sudut kanan bawah untuk melihat menu dan membuat pesanan.
-                    </p>
-                    <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
-                        <span>👇</span>
-                        <span>Butang order ada di bawah kanan</span>
-                    </div>
-                </div>
-
-                {/* Features info */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-                    <div className="bg-white rounded-xl p-4 text-center shadow-sm">
-                        <span className="text-2xl block mb-2">📋</span>
-                        <h3 className="font-medium text-gray-800">Menu Lengkap</h3>
-                        <p className="text-sm text-gray-500">Lihat semua menu yang tersedia</p>
-                    </div>
-                    <div className="bg-white rounded-xl p-4 text-center shadow-sm">
-                        <span className="text-2xl block mb-2">📍</span>
-                        <h3 className="font-medium text-gray-800">Pilih Kawasan</h3>
-                        <p className="text-sm text-gray-500">Pilih kawasan delivery anda</p>
-                    </div>
-                    <div className="bg-white rounded-xl p-4 text-center shadow-sm">
-                        <span className="text-2xl block mb-2">✅</span>
-                        <h3 className="font-medium text-gray-800">Checkout Mudah</h3>
-                        <p className="text-sm text-gray-500">Proses pesanan yang cepat</p>
-                    </div>
-                </div>
-            </main>
-
-            {/* The BinaApp Delivery Widget will be injected here automatically */}
-            {/* It provides the floating "Pesan Sekarang" button and handles all ordering */}
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+            <div className="text-center">
+                <p className="text-gray-700 text-lg">
+                    Pesan makanan melalui butang <strong>&apos;Pesan Sekarang&apos;</strong> di penjuru skrin
+                </p>
+            </div>
+            {/* Widget injects floating button at bottom-right */}
         </div>
     );
 }
