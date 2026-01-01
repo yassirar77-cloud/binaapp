@@ -65,6 +65,29 @@ export default function ProfilePage() {
   const [editingItem, setEditingItem] = useState<any | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [websiteId, setWebsiteId] = useState<string | null>(null);
+  const [businessType, setBusinessType] = useState<'food' | 'clothing' | 'services' | 'general'>('food');
+  
+  // Business type configurations for dynamic categories
+  const businessCategories = {
+    food: [
+      { id: 'nasi', name: '🍚 Nasi', icon: '🍚' },
+      { id: 'lauk', name: '🍗 Lauk', icon: '🍗' },
+      { id: 'minuman', name: '🥤 Minuman', icon: '🥤' },
+    ],
+    clothing: [
+      { id: 'baju', name: '👗 Baju', icon: '👗' },
+      { id: 'tudung', name: '🧕 Tudung', icon: '🧕' },
+      { id: 'aksesori', name: '👜 Aksesori', icon: '👜' },
+    ],
+    services: [
+      { id: 'servis', name: '🔧 Perkhidmatan', icon: '🔧' },
+      { id: 'pakej', name: '📦 Pakej', icon: '📦' },
+    ],
+    general: [
+      { id: 'produk', name: '🛍️ Produk', icon: '🛍️' },
+      { id: 'lain', name: '📦 Lain-lain', icon: '📦' },
+    ],
+  };
 
   useEffect(() => {
     const check = async () => {
@@ -417,13 +440,63 @@ export default function ProfilePage() {
         {activeTab === 'menu' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold">🍽️ Menu Delivery</h1>
+              <h1 className="text-2xl font-bold">🛒 Menu / Produk</h1>
               <button
                 onClick={() => setShowAddForm(true)}
                 className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
               >
                 + Tambah Item
               </button>
+            </div>
+            
+            {/* Business Type Selector */}
+            <div className="bg-white rounded-xl shadow p-4">
+              <label className="block text-sm font-medium mb-2">Jenis Perniagaan:</label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setBusinessType('food')}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    businessType === 'food' 
+                      ? 'bg-orange-500 text-white' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  🍛 Makanan
+                </button>
+                <button
+                  onClick={() => setBusinessType('clothing')}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    businessType === 'clothing' 
+                      ? 'bg-pink-500 text-white' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  👗 Pakaian
+                </button>
+                <button
+                  onClick={() => setBusinessType('services')}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    businessType === 'services' 
+                      ? 'bg-blue-500 text-white' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  🔧 Servis
+                </button>
+                <button
+                  onClick={() => setBusinessType('general')}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    businessType === 'general' 
+                      ? 'bg-green-500 text-white' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  🛒 Lain-lain
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                Kategori tersedia: {businessCategories[businessType].map(c => c.name).join(', ')}
+              </p>
             </div>
 
             {!websiteId ? (
@@ -445,6 +518,7 @@ export default function ProfilePage() {
                   setEditingItem(null);
                   setShowAddForm(false);
                 }}
+                categories={businessCategories[businessType]}
               />
             ) : menuItems.length === 0 ? (
               <div className="bg-white rounded-xl shadow p-8 text-center">
@@ -517,14 +591,27 @@ export default function ProfilePage() {
   );
 }
 
-// Menu Item Form Component
-function MenuItemForm({ item, onSave, onCancel }: { item: any, onSave: (data: any) => void, onCancel: () => void }) {
+// Menu Item Form Component - Now with dynamic categories
+function MenuItemForm({ 
+  item, 
+  onSave, 
+  onCancel, 
+  categories 
+}: { 
+  item: any, 
+  onSave: (data: any) => void, 
+  onCancel: () => void,
+  categories: { id: string, name: string, icon: string }[]
+}) {
+  // Get default category from the first category in the list
+  const defaultCategory = categories.length > 0 ? categories[0].id : 'produk';
+  
   const [formData, setFormData] = useState({
     id: item?.id || null,
     name: item?.name || '',
     price: item?.price || 0,
     description: item?.description || '',
-    category_id: item?.category_id || 'lauk',
+    category_id: item?.category_id || defaultCategory,
     image_url: item?.image_url || '',
     is_available: item?.is_available ?? true,
   });
@@ -545,7 +632,7 @@ function MenuItemForm({ item, onSave, onCancel }: { item: any, onSave: (data: an
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             className="w-full p-3 border rounded-lg"
-            placeholder="Nasi Kandar Biasa"
+            placeholder="Nama produk anda"
             required
           />
         </div>
@@ -570,9 +657,9 @@ function MenuItemForm({ item, onSave, onCancel }: { item: any, onSave: (data: an
             onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
             className="w-full p-3 border rounded-lg"
           >
-            <option value="nasi">🍚 Nasi</option>
-            <option value="lauk">🍗 Lauk</option>
-            <option value="minuman">🥤 Minuman</option>
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.id}>{cat.name}</option>
+            ))}
           </select>
         </div>
 

@@ -177,6 +177,9 @@ class PublishRequest(BaseModel):
     )
     project_name: str = Field(..., min_length=2, max_length=100, description="Project name")
     user_id: str = Field(default="demo-user", description="User ID")
+    description: Optional[str] = Field(default=None, description="Business description for type detection")
+    business_type: Optional[str] = Field(default=None, description="Business type: food, clothing, services, general")
+    language: Optional[str] = Field(default="ms", description="Language: ms or en")
 
     @validator('html_content', always=True)
     def set_html_content(cls, v, values):
@@ -304,11 +307,13 @@ async def publish_website(request: PublishRequest):
         project_id = str(uuid.uuid4())
         logger.info(f"✓ Generated project ID: {project_id}")
 
-        # CRITICAL FIX: Inject delivery widget if delivery features are detected
+        # CRITICAL FIX: Inject delivery widget with dynamic label based on business type
         html_content = inject_delivery_widget_if_needed(
             html_content,
             project_id,
-            request.project_name
+            request.project_name,
+            description=request.description or request.project_name,
+            language=request.language or "ms"
         )
 
         # Upload to Supabase Storage with retry logic
@@ -393,14 +398,20 @@ async def publish_website(request: PublishRequest):
         )
 
 
-def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: str) -> str:
-    """ALWAYS inject delivery button - no detection needed"""
+def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: str, description: str = "", language: str = "ms") -> str:
+    """ALWAYS inject delivery button - uses dynamic label based on business type"""
+    from app.services.business_types import detect_business_type, get_delivery_button_label
+    
+    # Detect business type from description or business name
+    business_type = detect_business_type(description or business_name)
+    button_label = get_delivery_button_label(business_type, language)
+    
     delivery_button = f'''
 <!-- BinaApp Delivery Button -->
 <a href="https://binaapp.my/delivery/{website_id}"
    target="_blank"
    style="position:fixed;bottom:24px;left:24px;background:linear-gradient(135deg,#f97316,#ea580c);color:white;padding:16px 24px;border-radius:50px;font-weight:600;z-index:9999;text-decoration:none;box-shadow:0 4px 20px rgba(234,88,12,0.4);">
-    🛵 Pesan Delivery
+    {button_label}
 </a>'''
     if "</body>" in html:
         return html.replace("</body>", delivery_button + "\n</body>")

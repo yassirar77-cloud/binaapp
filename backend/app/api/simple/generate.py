@@ -15,6 +15,7 @@ from app.services.ai_service import ai_service
 from app.services.templates import template_service
 from app.services.screenshot_service import screenshot_service
 from app.services.job_service import job_service, JobStatus
+from app.services.business_types import detect_business_type, detect_item_category, get_business_config
 from app.models.schemas import WebsiteGenerationRequest, Language
 from app.utils.content_moderation import is_content_allowed, log_blocked_attempt
 import re
@@ -47,6 +48,7 @@ class SimpleGenerateRequest(BaseModel):
     delivery: Optional[dict] = Field(default=None, description="Delivery system settings (area, fee, minimum, hours)")
     address: Optional[str] = Field(default=None, description="Full address for Google Map")
     social_media: Optional[dict] = Field(default=None, description="Social media handles (instagram, facebook, tiktok)")
+    business_type: Optional[str] = Field(default=None, description="Business type: food, clothing, services, general (auto-detected if not provided)")
 
 
 class SimpleGenerateResponse(BaseModel):
@@ -172,13 +174,12 @@ def extract_menu_items_from_html(html: str) -> List[dict]:
         if len(description) > 200:
             description = description[:197] + '...'
 
-        # Auto-detect category based on name
+        # Auto-detect category based on name and business type
+        # This will be updated with proper business_type when available
         name_lower = name.lower()
-        category = 'lauk'
-        if any(x in name_lower for x in ['nasi', 'rice', 'briyani', 'naan']):
-            category = 'nasi'
-        elif any(x in name_lower for x in ['air', 'minuman', 'drink', 'juice', 'tea', 'teh', 'kopi', 'coffee', 'smoothie']):
-            category = 'minuman'
+        # Default to food categories for backward compatibility
+        # The actual business_type-aware detection happens in templates.py
+        category = detect_item_category(name, "food")
 
         # Add menu item
         menu_item = {
@@ -621,7 +622,9 @@ async def generate_website(request: SimpleGenerateRequest):
                 html_content = inject_delivery_widget_if_needed(
                     html=html_content,
                     website_id=website_id,
-                    business_name=business_name
+                    business_name=business_name,
+                    description=request.description,
+                    language=request.language or "ms"
                 )
 
             logger.info("Website generated successfully!")

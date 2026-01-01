@@ -8,6 +8,16 @@ from loguru import logger
 import re
 import json
 
+from app.services.business_types import (
+    detect_business_type,
+    get_business_config,
+    get_categories_for_business_type,
+    detect_item_category,
+    generate_category_buttons_html,
+    get_delivery_button_label,
+    get_order_config,
+)
+
 
 class TemplateService:
     """Service for website template detection and feature injection"""
@@ -861,12 +871,26 @@ function handleContactSubmit(e) {{
         html: str,
         menu_items: List[Dict],
         delivery_zones: List[Dict],
-        business_info: Dict
+        business_info: Dict,
+        business_type: str = None,
+        language: str = "ms"
     ) -> str:
         """
         COMPLETE DELIVERY PAGE - With all dependencies included
         Uses inline styles to avoid CSS framework dependency issues
+        
+        Now supports dynamic business types:
+        - food: Restaurants, cafes (Nasi, Lauk, Minuman)
+        - clothing: Boutiques, fashion (Baju, Tudung, Aksesori)
+        - services: Service providers (Perkhidmatan, Pakej)
+        - general: Other businesses (Produk, Lain-lain)
         """
+        # Auto-detect business type if not provided
+        if not business_type:
+            description = business_info.get("description", business_info.get("name", ""))
+            business_type = detect_business_type(description)
+        
+        logger.info(f"🏢 Business type for delivery system: {business_type}")
         business_name = business_info.get("name", "Our Restaurant")
         phone_number = business_info.get("phone", "+60123456789")
 
@@ -880,21 +904,23 @@ function handleContactSubmit(e) {{
             else:
                 phone_clean = '+60' + phone_clean
 
-        # Format menu items with category auto-detection
+        # Get business config for this type
+        biz_config = get_business_config(business_type)
+        default_description = biz_config.get("item_description_default", "Produk berkualiti pilihan kami")
+        if language == "en":
+            default_description = biz_config.get("item_description_default_en", default_description)
+        
+        # Format menu items with dynamic category auto-detection based on business type
         formatted_menu = []
         for idx, item in enumerate(menu_items):
             name = item.get('name', f'Item {idx+1}')
-            category = 'lauk'
-            name_lower = name.lower()
-            if any(x in name_lower for x in ['nasi', 'rice', 'briyani']):
-                category = 'nasi'
-            elif any(x in name_lower for x in ['air', 'minuman', 'drink', 'juice', 'tea', 'kopi']):
-                category = 'minuman'
+            # Use dynamic category detection based on business type
+            category = detect_item_category(name, business_type)
 
             formatted_menu.append({
                 'id': idx + 1,
                 'name': name,
-                'desc': item.get('description', 'Hidangan istimewa dari dapur kami'),
+                'desc': item.get('description', default_description),
                 'price': float(item.get('price', 15)),
                 'image': item.get('image_url', 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80'),
                 'category': category
@@ -925,8 +951,18 @@ function handleContactSubmit(e) {{
         zones_json = json.dumps(formatted_zones)
         minimum_order = 30
         delivery_hours = '11am - 9pm'
+        
+        # Get dynamic labels and configuration based on business type
+        order_config = get_order_config(business_type, language)
+        button_label = get_delivery_button_label(business_type, language)
+        category_buttons_html = generate_category_buttons_html(business_type, language)
+        
+        order_emoji = order_config["order_emoji"]
+        order_title = order_config["order_title"]
+        page_title = order_config["page_title"]
+        whatsapp_closing = order_config["whatsapp_closing"]
 
-        logger.info(f"🛵 Injecting delivery system: {len(formatted_menu)} items, {len(formatted_zones)} zones")
+        logger.info(f"🛵 Injecting delivery system: {len(formatted_menu)} items, {len(formatted_zones)} zones, type: {business_type}")
 
         # STEP 1: Add Tailwind CSS and Font Awesome (CRITICAL!)
         css_libraries = '''
@@ -970,7 +1006,7 @@ function handleContactSubmit(e) {{
                 
                 # Complete delivery page HTML with inline styles as fallback
                 page_html = f'''<div id="page-home" class="delivery-page active">{body_content}</div>
-<div id="page-order" class="delivery-page">
+                <div id="page-order" class="delivery-page">
     <div style="background:linear-gradient(to right,#f97316,#ea580c);color:white;padding:24px 0;position:sticky;top:0;z-index:40;">
         <div style="max-width:1200px;margin:0 auto;padding:0 16px;">
             <div style="display:flex;align-items:center;justify-content:space-between;">
@@ -978,7 +1014,7 @@ function handleContactSubmit(e) {{
                     <button onclick="showDeliveryPage('home')" style="background:none;border:none;color:rgba(255,255,255,0.8);cursor:pointer;font-size:14px;margin-bottom:4px;display:flex;align-items:center;gap:4px;">
                         ← Kembali
                     </button>
-                    <h1 style="font-size:24px;font-weight:bold;margin:0;">🛵 Pesan Delivery</h1>
+                    <h1 style="font-size:24px;font-weight:bold;margin:0;">{button_label}</h1>
                     <p style="color:rgba(255,255,255,0.8);font-size:14px;margin:4px 0 0 0;">{business_name} • {delivery_hours}</p>
                 </div>
                 <button onclick="toggleDeliveryMobileCart()" id="mobile-cart-btn" style="display:none;background:rgba(255,255,255,0.2);border:none;padding:12px;border-radius:50%;cursor:pointer;position:relative;">
@@ -1021,10 +1057,7 @@ function handleContactSubmit(e) {{
                         </div>
                     </div>
                     <div style="display:flex;gap:8px;margin-bottom:24px;overflow-x:auto;padding-bottom:8px;">
-                        <button onclick="filterDeliveryCategory('all')" class="delivery-cat-btn active" style="background:#f97316;color:white;padding:8px 16px;border-radius:9999px;font-size:14px;font-weight:500;white-space:nowrap;border:none;cursor:pointer;">Semua</button>
-                        <button onclick="filterDeliveryCategory('nasi')" class="delivery-cat-btn" style="background:#f3f4f6;color:#374151;padding:8px 16px;border-radius:9999px;font-size:14px;font-weight:500;white-space:nowrap;border:none;cursor:pointer;">🍚 Nasi</button>
-                        <button onclick="filterDeliveryCategory('lauk')" class="delivery-cat-btn" style="background:#f3f4f6;color:#374151;padding:8px 16px;border-radius:9999px;font-size:14px;font-weight:500;white-space:nowrap;border:none;cursor:pointer;">🍗 Lauk</button>
-                        <button onclick="filterDeliveryCategory('minuman')" class="delivery-cat-btn" style="background:#f3f4f6;color:#374151;padding:8px 16px;border-radius:9999px;font-size:14px;font-weight:500;white-space:nowrap;border:none;cursor:pointer;">🥤 Minuman</button>
+                        {category_buttons_html}
                     </div>
                     <div id="delivery-menu-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;"></div>
                 </div>
@@ -1098,7 +1131,7 @@ function handleContactSubmit(e) {{
         delivery_button_inline = f'''
 <!-- Delivery Button - BinaApp -->
 <button onclick="showDeliveryPage('order')" id="binaapp-delivery-btn" style="position:fixed;bottom:24px;left:24px;background:linear-gradient(135deg,#f97316,#ea580c);color:white;padding:14px 24px;border-radius:50px;font-weight:600;z-index:9999;display:flex;align-items:center;gap:8px;border:none;cursor:pointer;box-shadow:0 4px 20px rgba(234,88,12,0.4);font-family:sans-serif;font-size:15px;">
-    🛵 Pesan Delivery
+    {button_label}
 </button>'''
         
         # Always inject the button before </body> if not already present
@@ -1305,7 +1338,7 @@ function handleContactSubmit(e) {{
         }}
     }};
 
-    // Checkout
+    // Checkout - Dynamic based on business type
     window.deliveryCheckout = function() {{
         if (deliveryCart.length === 0) {{ alert('Sila tambah item ke dalam bakul'); return; }}
         if (!deliverySelectedZone) {{ alert('Sila pilih kawasan delivery terlebih dahulu'); return; }}
@@ -1313,10 +1346,10 @@ function handleContactSubmit(e) {{
         if (subtotal < DELIVERY_MINIMUM) {{ alert('Minimum order adalah RM' + DELIVERY_MINIMUM); return; }}
         const total = subtotal + deliveryFeeAmount;
 
-        let msg = '🍛 *PESANAN BARU - ' + DELIVERY_BUSINESS + '*\\n\\n';
+        let msg = '{order_emoji} *{order_title} - ' + DELIVERY_BUSINESS + '*\\n\\n';
         msg += '📍 *Kawasan:* ' + deliverySelectedZone.name + '\\n━━━━━━━━━━━━━━━━\\n\\n📝 *Pesanan:*\\n';
         deliveryCart.forEach(item => {{ msg += '• ' + item.name + ' x' + item.qty + ' - RM' + (item.price * item.qty).toFixed(2) + '\\n'; }});
-        msg += '\\n━━━━━━━━━━━━━━━━\\nSubtotal: RM' + subtotal.toFixed(2) + '\\nCaj Delivery: RM' + deliveryFeeAmount.toFixed(2) + '\\n*JUMLAH: RM' + total.toFixed(2) + '*\\n\\nSila nyatakan alamat penuh. Terima kasih! 🙏';
+        msg += '\\n━━━━━━━━━━━━━━━━\\nSubtotal: RM' + subtotal.toFixed(2) + '\\nCaj Delivery: RM' + deliveryFeeAmount.toFixed(2) + '\\n*JUMLAH: RM' + total.toFixed(2) + '*\\n\\n{whatsapp_closing}';
         window.open('https://wa.me/' + DELIVERY_WHATSAPP + '?text=' + encodeURIComponent(msg), '_blank');
     }};
 
@@ -1342,21 +1375,34 @@ function handleContactSubmit(e) {{
         html: str,
         website_id: str,
         whatsapp_number: str,
-        primary_color: str = "#ea580c"
+        primary_color: str = "#ea580c",
+        business_type: str = None,
+        description: str = "",
+        language: str = "ms"
     ) -> str:
         """
         Inject BinaApp Delivery Widget
-        Shows floating "Pesan Sekarang" button for ordering
+        Shows floating button for ordering based on business type
 
         Args:
             html: Website HTML
             website_id: Website UUID
             whatsapp_number: WhatsApp number for orders
             primary_color: Brand color (hex)
+            business_type: Type of business (food, clothing, services, general)
+            description: Business description for auto-detection
+            language: "ms" or "en"
 
         Returns:
             HTML with delivery widget injected
         """
+        # Auto-detect business type if not provided
+        if not business_type:
+            business_type = detect_business_type(description)
+        
+        # Get dynamic button label
+        button_label = get_delivery_button_label(business_type, language)
+        
         # Clean WhatsApp number
         whatsapp_clean = re.sub(r'[^\d+]', '', whatsapp_number)
         if not whatsapp_clean.startswith('+'):
@@ -1375,7 +1421,7 @@ function handleContactSubmit(e) {{
    style="position:fixed;bottom:24px;left:24px;background:linear-gradient(135deg,#f97316,#ea580c);color:white;padding:16px 24px;border-radius:50px;font-weight:600;z-index:9999;display:flex;align-items:center;gap:8px;text-decoration:none;font-family:sans-serif;box-shadow:0 4px 20px rgba(234,88,12,0.4);transition:transform 0.2s,box-shadow 0.2s;"
    onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 25px rgba(234,88,12,0.5)';"
    onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 20px rgba(234,88,12,0.4)';">
-    🛵 Pesan Delivery
+    {button_label}
 </a>'''
 
         # Inject before </body>
