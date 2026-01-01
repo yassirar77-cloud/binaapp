@@ -873,12 +873,13 @@ function handleContactSubmit(e) {{
         delivery_zones: List[Dict],
         business_info: Dict,
         business_type: str = None,
-        language: str = "ms"
+        language: str = "ms",
+        description: str = ""
     ) -> str:
         """
         COMPLETE DELIVERY PAGE - With all dependencies included
         Uses inline styles to avoid CSS framework dependency issues
-        
+
         Now supports dynamic business types:
         - food: Restaurants, cafes (Nasi, Lauk, Minuman)
         - clothing: Boutiques, fashion (Baju, Tudung, Aksesori)
@@ -887,8 +888,8 @@ function handleContactSubmit(e) {{
         """
         # Auto-detect business type if not provided
         if not business_type:
-            description = business_info.get("description", business_info.get("name", ""))
-            business_type = detect_business_type(description)
+            desc_for_detection = description or business_info.get("description", business_info.get("name", ""))
+            business_type = detect_business_type(desc_for_detection)
         
         logger.info(f"🏢 Business type for delivery system: {business_type}")
         business_name = business_info.get("name", "Our Restaurant")
@@ -985,6 +986,33 @@ function handleContactSubmit(e) {{
 @keyframes deliveryFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
 @keyframes deliveryPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.1)} }
 .delivery-cart-badge { animation: deliveryPulse 2s infinite; }
+
+/* MOBILE RESPONSIVE FIXES */
+@media (max-width: 768px) {
+    /* Menu grid - single column on mobile */
+    #delivery-menu-grid { grid-template-columns: 1fr !important; }
+    /* Zone grid - single column on mobile */
+    #delivery-zones { grid-template-columns: 1fr !important; }
+    /* Hide desktop cart sidebar on mobile */
+    #delivery-cart-sidebar { display: none !important; }
+    /* Show mobile cart button */
+    #mobile-cart-btn { display: flex !important; }
+    /* Category buttons scroll on mobile */
+    .delivery-cat-btn { flex-shrink: 0; }
+    /* Full width buttons on mobile */
+    #page-order button[style*="fixed"] { width: calc(100% - 32px) !important; left: 16px !important; right: 16px !important; }
+    /* Mobile cart overlay */
+    .mobile-cart-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100; display: none; }
+    .mobile-cart-overlay.active { display: block; }
+    .mobile-cart-panel { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-radius: 24px 24px 0 0; max-height: 80vh; overflow-y: auto; z-index: 101; transform: translateY(100%); transition: transform 0.3s ease; }
+    .mobile-cart-panel.active { transform: translateY(0); }
+}
+@media (max-width: 480px) {
+    /* Smaller padding on very small screens */
+    #page-order > div:first-child > div { padding: 0 12px !important; }
+    /* Smaller header text */
+    #page-order h1 { font-size: 20px !important; }
+}
 </style>'''
         
         if "</head>" in html:
@@ -1166,6 +1194,15 @@ function handleContactSubmit(e) {{
             if (sidebar) {{
                 sidebar.style.display = page === 'order' ? 'block' : 'none';
             }}
+        }}
+    }};
+
+    // Mobile cart toggle
+    window.toggleDeliveryMobileCart = function() {{
+        const overlay = document.getElementById('delivery-mobile-cart-overlay');
+        if (overlay) {{
+            const isVisible = overlay.style.display === 'flex';
+            overlay.style.display = isVisible ? 'none' : 'flex';
         }}
     }};
 
@@ -1482,6 +1519,11 @@ function handleContactSubmit(e) {{
         if "contact" in features:
             html = self.inject_contact_form(html, user_data.get("email", ""))
 
+        # QR Code - Inject BEFORE delivery system so it ends up inside page-home div
+        # SKIP if widget is enabled (widget has its own flow)
+        if user_data.get("url") and not delivery_widget_enabled:
+            html = self.inject_qr_code(html, user_data["url"])
+
         # Delivery System handling
         if "delivery_system" in features or user_data.get("delivery"):
             website_id = user_data.get("website_id", "")
@@ -1510,7 +1552,7 @@ function handleContactSubmit(e) {{
                         fee_value = float(fee_value.replace("RM", "").replace(",", "").strip()) if fee_value else 5.0
                     else:
                         fee_value = float(fee_value) if fee_value else 5.0
-                        
+
                     default_zone = {
                         "id": "default",
                         "zone_name": delivery_data.get("area", "Kawasan Delivery"),
@@ -1521,6 +1563,10 @@ function handleContactSubmit(e) {{
                     delivery_zones = [default_zone]
                     logger.info(f"Created fallback delivery zone: {default_zone['zone_name']} - RM{fee_value}")
 
+                # Get business type for proper categories
+                business_type = user_data.get("business_type", "")
+                description = user_data.get("description", user_data.get("business_name", ""))
+
                 html = self.inject_ordering_system(
                     html,
                     menu_items,
@@ -1528,12 +1574,10 @@ function handleContactSubmit(e) {{
                     {
                         "name": user_data.get("business_name", "Our Business"),
                         "phone": user_data.get("phone", "+60123456789")
-                    }
+                    },
+                    business_type=business_type,
+                    description=description
                 )
-
-        # QR Code - SKIP if widget is enabled (widget has its own flow)
-        if user_data.get("url") and not delivery_widget_enabled:
-            html = self.inject_qr_code(html, user_data["url"])
 
         return html
 

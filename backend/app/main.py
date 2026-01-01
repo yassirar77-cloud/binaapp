@@ -1639,15 +1639,23 @@ async def run_generation_task(
             # Build menu items from uploaded images (matches frontend format: [{url,name}, ...])
             menu_items = []
 
+            # Detect business type from description for proper category assignment
+            from app.services.business_types import detect_business_type, detect_item_category
+            business_type = detect_business_type(description)
+            logger.info(f"🏢 Detected business type: {business_type}")
+
             # Extract menu items from generated HTML first
             from app.api.simple.generate import extract_menu_items_from_html
-            extracted_items = extract_menu_items_from_html(html)
+            extracted_items = extract_menu_items_from_html(html, business_type)
             if extracted_items:
                 logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
                 menu_items.extend(extracted_items)
 
             # Then add menu items from uploaded images
             if images:
+                from app.services.business_types import get_business_config
+                biz_config = get_business_config(business_type)
+                default_desc = biz_config.get("item_description_default", "Produk pilihan kami")
                 default_prices = [15, 12, 18, 10, 20, 14, 16, 13]
                 for idx, img in enumerate(images):
                     if isinstance(img, dict):
@@ -1658,13 +1666,15 @@ async def run_generation_task(
                         img_name = f"Item {idx+1}"
                     if not img_name or img_name == "Hero Image":
                         continue
+                    # Auto-detect category based on item name and business type
+                    category = detect_item_category(img_name, business_type)
                     menu_items.append({
                         "id": f"menu-{idx}",
                         "name": img_name,
-                        "description": "Hidangan istimewa dari dapur kami",
+                        "description": default_desc,
                         "price": default_prices[idx % len(default_prices)],
                         "image_url": img_url,
-                        "category_id": "main",
+                        "category_id": category,
                         "is_available": True
                     })
 

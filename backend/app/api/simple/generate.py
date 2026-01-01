@@ -15,7 +15,7 @@ from app.services.ai_service import ai_service
 from app.services.templates import template_service
 from app.services.screenshot_service import screenshot_service
 from app.services.job_service import job_service, JobStatus
-from app.services.business_types import detect_business_type, detect_item_category, get_business_config
+from app.services.business_types import detect_business_type, detect_item_category, get_business_config, get_categories_for_business_type
 from app.models.schemas import WebsiteGenerationRequest, Language
 from app.utils.content_moderation import is_content_allowed, log_blocked_attempt
 import re
@@ -121,84 +121,186 @@ async def fetch_menu_items_from_database(website_id: str) -> List[dict]:
         return []
 
 
-def extract_menu_items_from_html(html: str) -> List[dict]:
+def extract_menu_items_from_html(html: str, business_type: str = "food") -> List[dict]:
     """
-    Extract menu items from AI-generated HTML
-    Looks for common patterns: prices (RM X), item names, descriptions, images
+    Extract REAL menu items from AI-generated HTML gallery/menu section.
+
+    CRITICAL FIX: Only extract actual menu/product items, NOT:
+    - Operating hours ("Waktu Operasi")
+    - Price labels ("Harga")
+    - Generic section headers
+    - Contact information
+
+    Looks for gallery cards with: image, item name, price, description
     """
     menu_items = []
 
-    # Pattern 1: Look for price mentions (RM followed by number)
-    # Common patterns: "RM15", "RM 15", "RM15.00", "RM 15.00"
-    price_pattern = r'RM\s*(\d+(?:\.\d{2})?)'
+    # Skip words - these are NOT menu items
+    skip_words = [
+        'waktu', 'operasi', 'operating', 'hours', 'harga', 'price', 'hubungi',
+        'contact', 'alamat', 'address', 'lokasi', 'location', 'about', 'tentang',
+        'our story', 'delivery', 'penghantaran', 'menu', 'our menu', 'makanan',
+        'minuman', 'hidangan', 'footer', 'header', 'nav', 'copyright', 'powered',
+        'all rights', 'terma', 'terms', 'privacy', 'polisi', 'social', 'follow',
+        'subscribe', 'newsletter', 'email', 'phone', 'telefon', 'whatsapp',
+        'facebook', 'instagram', 'tiktok', 'twitter', 'scan', 'qr', 'code'
+    ]
 
-    # Find all sections that look like menu items
-    # They usually have: image, title/name, price, and optional description
+    # Price pattern - must be a reasonable menu item price (RM 1-500)
+    price_pattern = r'RM\s*(\d{1,3}(?:\.\d{2})?)'
 
-    # Split HTML into chunks based on common menu container patterns
-    # Look for patterns like <div class="menu-item"> or similar structures
-    item_sections = re.split(r'<(?:div|article|section)[^>]*(?:class|id)=["\'][^"\']*(?:menu|item|card|product)[^"\']*["\'][^>]*>', html, flags=re.IGNORECASE)
+    # APPROACH 1: Find gallery/menu section first, then extract items from there
+    # Look for sections that are likely to be menu/gallery sections
+    gallery_patterns = [
+        r'(?:id|class)=["\'][^"\']*(?:gallery|menu|products?|items?|grid)[^"\']*["\']',
+        r'<section[^>]*>.*?(?:menu|gallery|products?).*?</section>',
+    ]
 
+    # Find all div/section/article elements that contain both an image and a price
+    # This is more reliable than trying to split by class names
+    card_pattern = r'<(?:div|article|li)[^>]*>(?:(?!</(?:div|article|li)>).)*?<img[^>]+src=["\']([^"\']+)["\'][^>]*>(?:(?!</(?:div|article|li)>).)*?(?:<h[2-6][^>]*>([^<]+)</h[2-6]>|<(?:strong|b|span)[^>]*class=["\'][^"\']*(?:title|name)[^"\']*["\'][^>]*>([^<]+)</(?:strong|b|span)>)(?:(?!</(?:div|article|li)>).)*?RM\s*(\d{1,3}(?:\.\d{2})?)(?:(?!</(?:div|article|li)>).)*?</(?:div|article|li)>'
+
+    # Simpler approach: Find all image + title + price combinations
+    # Pattern for finding menu cards with structure: image, then title (h2-h6), then price
     item_id = 1
-    for section in item_sections:
-        if not section.strip() or len(section) < 50:
+
+    # Method 1: Look for structured menu cards
+    # Find blocks that contain: img src, heading text, RM price
+    structured_pattern = r'<(?:div|article|li|figure)[^>]*class=["\'][^"\']*(?:card|item|product|menu)[^"\']*["\'][^>]*>(.*?)</(?:div|article|li|figure)>'
+
+    blocks = re.findall(structured_pattern, html, re.IGNORECASE | re.DOTALL)
+
+    for block in blocks:
+        if len(block) < 50:
             continue
 
-        # Extract price
-        price_matches = re.findall(price_pattern, section)
-        if not price_matches:
+        # Must have an image
+        img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', block, re.IGNORECASE)
+        if not img_match:
             continue
-        price = float(price_matches[0])
+        image_url = img_match.group(1)
 
-        # Extract item name - look for headings or strong text near the price
-        name_match = re.search(r'<h[1-6][^>]*>([^<]+)</h[1-6]>|<(?:strong|b)[^>]*>([^<]+)</(?:strong|b)>', section, re.IGNORECASE)
-        if name_match:
-            name = (name_match.group(1) or name_match.group(2)).strip()
-            # Skip if name is too long (likely not a menu item name)
-            if len(name) > 100:
-                continue
-            # Skip generic headings
-            if name.lower() in ['menu', 'our menu', 'makanan', 'minuman', 'hidangan']:
-                continue
-        else:
+        # Skip placeholder/stock images indicators (but allow actual food images)
+        if 'placeholder' in image_url.lower() or 'via.placeholder' in image_url.lower():
             continue
 
-        # Extract image URL
-        img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', section, re.IGNORECASE)
-        image_url = img_match.group(1) if img_match else 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80'
+        # Must have a price
+        price_match = re.search(price_pattern, block)
+        if not price_match:
+            continue
+        price = float(price_match.group(1))
 
-        # Extract description - look for <p> tags near the price
-        desc_match = re.search(r'<p[^>]*>([^<]+)</p>', section, re.IGNORECASE)
-        description = desc_match.group(1).strip() if desc_match else 'Hidangan istimewa dari dapur kami'
-        # Clean up description
-        if len(description) > 200:
-            description = description[:197] + '...'
+        # Price sanity check - menu items usually RM 1 - RM 200
+        if price < 1 or price > 500:
+            continue
 
-        # Auto-detect category based on name and business type
-        # This will be updated with proper business_type when available
+        # Extract name from heading tags
+        name_match = re.search(r'<h[2-6][^>]*>([^<]+)</h[2-6]>', block, re.IGNORECASE)
+        if not name_match:
+            # Try finding name in span/div with title/name class
+            name_match = re.search(r'<(?:span|div|p)[^>]*class=["\'][^"\']*(?:title|name|heading)[^"\']*["\'][^>]*>([^<]+)</(?:span|div|p)>', block, re.IGNORECASE)
+
+        if not name_match:
+            continue
+
+        name = name_match.group(1).strip()
+
+        # Skip if name is too short or too long
+        if len(name) < 2 or len(name) > 60:
+            continue
+
+        # Skip if name contains skip words
         name_lower = name.lower()
-        # Default to food categories for backward compatibility
-        # The actual business_type-aware detection happens in templates.py
-        category = detect_item_category(name, "food")
+        if any(skip in name_lower for skip in skip_words):
+            continue
 
-        # Add menu item
+        # Skip if name is just numbers or special characters
+        if not re.search(r'[a-zA-Z\u0080-\uFFFF]{2,}', name):
+            continue
+
+        # Extract description (optional)
+        desc_match = re.search(r'<p[^>]*>([^<]{10,150})</p>', block, re.IGNORECASE)
+        description = desc_match.group(1).strip() if desc_match else ''
+
+        # Skip if description looks like operating hours or other non-menu text
+        if description:
+            desc_lower = description.lower()
+            if any(skip in desc_lower for skip in ['waktu', 'operasi', 'hour', 'am', 'pm', 'isnin', 'ahad', 'monday', 'sunday']):
+                description = ''
+
+        # Auto-detect category based on business type
+        category = detect_item_category(name, business_type)
+
+        # Create menu item
         menu_item = {
             "id": f"menu-{item_id}",
             "name": name,
-            "description": description,
+            "description": description if description else f"Produk pilihan kami",
             "price": price,
             "image_url": image_url,
             "category_id": category,
             "is_available": True
         }
         menu_items.append(menu_item)
-        logger.info(f"   Extracted from HTML: {name} - RM{price}")
+        logger.info(f"   ✓ Extracted menu item: {name} - RM{price} [{category}]")
         item_id += 1
 
-        # Limit to 20 items max to avoid too much data
+        # Limit to 20 items
         if len(menu_items) >= 20:
             break
 
+    # Method 2: If no items found with Method 1, try a more lenient approach
+    # Look for any h3/h4 + RM price combinations in the HTML
+    if not menu_items:
+        logger.info("   Trying lenient extraction method...")
+
+        # Find all headings followed by prices (within reasonable proximity)
+        heading_price_pattern = r'<h[3-5][^>]*>([^<]{2,50})</h[3-5]>(?:[^<]*<[^>]+>)*[^<]*RM\s*(\d{1,3}(?:\.\d{2})?)'
+
+        matches = re.findall(heading_price_pattern, html, re.IGNORECASE | re.DOTALL)
+
+        for name, price_str in matches:
+            name = name.strip()
+            price = float(price_str)
+
+            # Apply same filters
+            name_lower = name.lower()
+            if any(skip in name_lower for skip in skip_words):
+                continue
+            if len(name) < 2 or len(name) > 60:
+                continue
+            if price < 1 or price > 500:
+                continue
+
+            # Find nearby image
+            name_pos = html.find(name)
+            if name_pos > -1:
+                # Look for image within 500 chars before the name
+                search_region = html[max(0, name_pos-500):name_pos+500]
+                img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', search_region, re.IGNORECASE)
+                image_url = img_match.group(1) if img_match else 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80'
+            else:
+                image_url = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80'
+
+            category = detect_item_category(name, business_type)
+
+            menu_item = {
+                "id": f"menu-{item_id}",
+                "name": name,
+                "description": f"Produk pilihan kami",
+                "price": price,
+                "image_url": image_url,
+                "category_id": category,
+                "is_available": True
+            }
+            menu_items.append(menu_item)
+            logger.info(f"   ✓ Extracted (lenient): {name} - RM{price} [{category}]")
+            item_id += 1
+
+            if len(menu_items) >= 20:
+                break
+
+    logger.info(f"   Total extracted: {len(menu_items)} menu items")
     return menu_items
 
 
@@ -245,6 +347,10 @@ async def generate_website(request: SimpleGenerateRequest):
         logger.info("Step 1: Detecting website type...")
         website_type = template_service.detect_website_type(request.description)
         logger.info(f"✓ Detected website type: {website_type}")
+
+        # Detect business type for categories (food, clothing, services, general)
+        business_type = request.business_type or detect_business_type(request.description)
+        logger.info(f"✓ Detected business type: {business_type}")
 
         # Detect required features
         logger.info("Step 2: Detecting features...")
@@ -331,6 +437,10 @@ async def generate_website(request: SimpleGenerateRequest):
             logger.info(f"Creating menu items from {len(request.images)} uploaded images...")
             default_prices = [15, 12, 18, 10, 20, 14, 16, 13]  # Default prices for menu items
 
+            # Get business-type specific descriptions
+            biz_config = get_business_config(business_type)
+            default_desc = biz_config.get("item_description_default", "Produk pilihan kami")
+
             for idx, img in enumerate(request.images):
                 # Extract image data
                 if isinstance(img, dict):
@@ -348,18 +458,21 @@ async def generate_website(request: SimpleGenerateRequest):
                 if not img_name or img_name == 'Hero Image' or img_name == '':
                     continue
 
+                # Auto-detect category based on item name and business type
+                category = detect_item_category(img_name, business_type)
+
                 # Create menu item
                 menu_item = {
                     "id": f"menu-{idx}",
                     "name": img_name,
-                    "description": f"Hidangan istimewa dari dapur kami",  # Default description
+                    "description": default_desc,
                     "price": default_prices[idx % len(default_prices)],
                     "image_url": img_url,
-                    "category_id": "main",
+                    "category_id": category,
                     "is_available": True
                 }
                 menu_items.append(menu_item)
-                logger.info(f"   Added menu item: {img_name} - RM{menu_item['price']}")
+                logger.info(f"   Added menu item: {img_name} - RM{menu_item['price']} [{category}]")
 
         # Create delivery zones if delivery feature is enabled
         delivery_zones = []
@@ -383,6 +496,8 @@ async def generate_website(request: SimpleGenerateRequest):
             "url": "https://preview.binaapp.my",
             "whatsapp_message": "Hi, I'm interested",
             "business_name": business_name,
+            "business_type": business_type,  # For dynamic categories
+            "description": request.description,  # For business type detection
             "menu_items": menu_items,
             "delivery_zones": delivery_zones
         }
@@ -403,7 +518,7 @@ async def generate_website(request: SimpleGenerateRequest):
             # Extract menu items from generated HTML
             if dual_results.get("qwen") or dual_results.get("deepseek"):
                 html_to_parse = dual_results.get("qwen") or dual_results.get("deepseek")
-                extracted_items = extract_menu_items_from_html(html_to_parse)
+                extracted_items = extract_menu_items_from_html(html_to_parse, business_type)
                 if extracted_items:
                     logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
                     # Merge with uploaded image items (prioritize extracted items)
@@ -448,7 +563,7 @@ async def generate_website(request: SimpleGenerateRequest):
             html_content = await ai_service.generate_website_best(ai_request)
 
             # Extract menu items from generated HTML
-            extracted_items = extract_menu_items_from_html(html_content)
+            extracted_items = extract_menu_items_from_html(html_content, business_type)
             if extracted_items:
                 logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
                 # Merge with uploaded image items (prioritize extracted items)
@@ -484,7 +599,7 @@ async def generate_website(request: SimpleGenerateRequest):
             html_content = ai_response.html_content
 
             # Extract menu items from generated HTML
-            extracted_items = extract_menu_items_from_html(html_content)
+            extracted_items = extract_menu_items_from_html(html_content, business_type)
             if extracted_items:
                 logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
                 # Merge with uploaded image items (prioritize extracted items)
@@ -519,7 +634,7 @@ async def generate_website(request: SimpleGenerateRequest):
             # Extract menu items from first variation
             if variations_dict:
                 first_variation = list(variations_dict.values())[0]
-                extracted_items = extract_menu_items_from_html(first_variation.html_content)
+                extracted_items = extract_menu_items_from_html(first_variation.html_content, business_type)
                 if extracted_items:
                     logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
                     # Merge with uploaded image items (prioritize extracted items)
@@ -594,14 +709,14 @@ async def generate_website(request: SimpleGenerateRequest):
                     user_data["menu_items"] = menu_items
                 else:
                     # Priority 2: Extract from HTML if no database items
-                    extracted_items = extract_menu_items_from_html(html_content)
+                    extracted_items = extract_menu_items_from_html(html_content, business_type)
                     if extracted_items:
                         logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
                         menu_items = extracted_items + menu_items
                         user_data["menu_items"] = menu_items
             else:
                 # No website_id, extract from HTML
-                extracted_items = extract_menu_items_from_html(html_content)
+                extracted_items = extract_menu_items_from_html(html_content, business_type)
                 if extracted_items:
                     logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
                     menu_items = extracted_items + menu_items
