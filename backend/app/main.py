@@ -1631,6 +1631,15 @@ async def run_generation_task(
 
             # Build menu items from uploaded images (matches frontend format: [{url,name}, ...])
             menu_items = []
+
+            # Extract menu items from generated HTML first
+            from app.api.simple.generate import extract_menu_items_from_html
+            extracted_items = extract_menu_items_from_html(html)
+            if extracted_items:
+                logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
+                menu_items.extend(extracted_items)
+
+            # Then add menu items from uploaded images
             if images:
                 default_prices = [15, 12, 18, 10, 20, 14, 16, 13]
                 for idx, img in enumerate(images):
