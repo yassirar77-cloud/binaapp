@@ -1400,6 +1400,13 @@ function handleContactSubmit(e) {{
         """
         logger.info(f"Injecting integrations: {features}")
 
+        # Check if delivery widget is enabled (mutually exclusive with legacy delivery UI)
+        # Widget is enabled when: website_id exists AND delivery features are requested
+        delivery_widget_enabled = bool(
+            user_data.get("website_id") and 
+            ("delivery_system" in features or user_data.get("delivery"))
+        )
+
         # WhatsApp
         if "whatsapp" in features and user_data.get("phone"):
             html = self.inject_whatsapp_button(
@@ -1416,9 +1423,9 @@ function handleContactSubmit(e) {{
         if "cart" in features:
             html = self.inject_shopping_cart(html)
 
-        # Delivery System
-        if user_data.get("delivery") and user_data.get("phone"):
-            logger.info("Injecting delivery section")
+        # Legacy Delivery Section - SKIP if widget is enabled
+        if user_data.get("delivery") and user_data.get("phone") and not delivery_widget_enabled:
+            logger.info("Injecting legacy delivery section")
             html = self.inject_delivery_section(
                 html,
                 user_data["delivery"],
@@ -1429,60 +1436,57 @@ function handleContactSubmit(e) {{
         if "contact" in features:
             html = self.inject_contact_form(html, user_data.get("email", ""))
 
-        # Ordering System (check if delivery system feature is enabled)
+        # Delivery System handling
         if "delivery_system" in features or user_data.get("delivery"):
-            logger.info("Injecting ordering system (deliverySystem feature enabled)")
-            # Get menu items and delivery zones (may be empty initially)
-            menu_items = user_data.get("menu_items", [])
-            delivery_zones = user_data.get("delivery_zones", [])
-
-            # If no delivery zones exist yet but delivery settings were provided during generation,
-            # create a default zone from those settings
-            if not delivery_zones and user_data.get("delivery"):
-                delivery_data = user_data["delivery"]
-                # Handle fee - can be string ("RM5") or number (5)
-                fee_value = delivery_data.get("fee", "5")
-                if isinstance(fee_value, str):
-                    fee_value = float(fee_value.replace("RM", "").replace(",", "").strip()) if fee_value else 5.0
-                else:
-                    fee_value = float(fee_value) if fee_value else 5.0
-                    
-                default_zone = {
-                    "id": "default",
-                    "zone_name": delivery_data.get("area", "Kawasan Delivery"),
-                    "delivery_fee": fee_value,
-                    "estimated_time": delivery_data.get("hours", "30-45 min"),
-                    "is_active": True
-                }
-                delivery_zones = [default_zone]
-                logger.info(f"Created fallback delivery zone: {default_zone['zone_name']} - RM{fee_value}")
-
-            # Always inject the ordering system structure
-            html = self.inject_ordering_system(
-                html,
-                menu_items,
-                delivery_zones,
-                {
-                    "name": user_data.get("business_name", "Our Business"),
-                    "phone": user_data.get("phone", "+60123456789")
-                }
-            )
-
-            # Inject delivery widget for floating "Pesan Sekarang" button
             website_id = user_data.get("website_id", "")
             whatsapp = user_data.get("phone", "+60123456789")
             primary_color = user_data.get("primary_color", "#ea580c")
 
-            if website_id and whatsapp:
+            if delivery_widget_enabled:
+                # NEW: Only inject the delivery widget (single source of truth)
+                logger.info("Injecting delivery widget ONLY (legacy UI skipped)")
                 html = self.inject_delivery_widget(
                     html,
                     website_id,
                     whatsapp,
                     primary_color
                 )
+            else:
+                # LEGACY: Inject full ordering system when no website_id
+                logger.info("Injecting legacy ordering system (no website_id)")
+                menu_items = user_data.get("menu_items", [])
+                delivery_zones = user_data.get("delivery_zones", [])
 
-        # QR Code
-        if user_data.get("url"):
+                if not delivery_zones and user_data.get("delivery"):
+                    delivery_data = user_data["delivery"]
+                    fee_value = delivery_data.get("fee", "5")
+                    if isinstance(fee_value, str):
+                        fee_value = float(fee_value.replace("RM", "").replace(",", "").strip()) if fee_value else 5.0
+                    else:
+                        fee_value = float(fee_value) if fee_value else 5.0
+                        
+                    default_zone = {
+                        "id": "default",
+                        "zone_name": delivery_data.get("area", "Kawasan Delivery"),
+                        "delivery_fee": fee_value,
+                        "estimated_time": delivery_data.get("hours", "30-45 min"),
+                        "is_active": True
+                    }
+                    delivery_zones = [default_zone]
+                    logger.info(f"Created fallback delivery zone: {default_zone['zone_name']} - RM{fee_value}")
+
+                html = self.inject_ordering_system(
+                    html,
+                    menu_items,
+                    delivery_zones,
+                    {
+                        "name": user_data.get("business_name", "Our Business"),
+                        "phone": user_data.get("phone", "+60123456789")
+                    }
+                )
+
+        # QR Code - SKIP if widget is enabled (widget has its own flow)
+        if user_data.get("url") and not delivery_widget_enabled:
             html = self.inject_qr_code(html, user_data["url"])
 
         return html
