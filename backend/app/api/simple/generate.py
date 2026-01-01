@@ -17,6 +17,7 @@ from app.services.screenshot_service import screenshot_service
 from app.services.job_service import job_service, JobStatus
 from app.models.schemas import WebsiteGenerationRequest, Language
 from app.utils.content_moderation import is_content_allowed, log_blocked_attempt
+import re
 
 router = APIRouter()
 
@@ -80,6 +81,88 @@ class DualGenerateResponse(BaseModel):
     detected_features: List[str]
     template_used: str
     success: bool = True
+
+
+def extract_menu_items_from_html(html: str) -> List[dict]:
+    """
+    Extract menu items from AI-generated HTML
+    Looks for common patterns: prices (RM X), item names, descriptions, images
+    """
+    menu_items = []
+
+    # Pattern 1: Look for price mentions (RM followed by number)
+    # Common patterns: "RM15", "RM 15", "RM15.00", "RM 15.00"
+    price_pattern = r'RM\s*(\d+(?:\.\d{2})?)'
+
+    # Find all sections that look like menu items
+    # They usually have: image, title/name, price, and optional description
+
+    # Split HTML into chunks based on common menu container patterns
+    # Look for patterns like <div class="menu-item"> or similar structures
+    item_sections = re.split(r'<(?:div|article|section)[^>]*(?:class|id)=["\'][^"\']*(?:menu|item|card|product)[^"\']*["\'][^>]*>', html, flags=re.IGNORECASE)
+
+    item_id = 1
+    for section in item_sections:
+        if not section.strip() or len(section) < 50:
+            continue
+
+        # Extract price
+        price_matches = re.findall(price_pattern, section)
+        if not price_matches:
+            continue
+        price = float(price_matches[0])
+
+        # Extract item name - look for headings or strong text near the price
+        name_match = re.search(r'<h[1-6][^>]*>([^<]+)</h[1-6]>|<(?:strong|b)[^>]*>([^<]+)</(?:strong|b)>', section, re.IGNORECASE)
+        if name_match:
+            name = (name_match.group(1) or name_match.group(2)).strip()
+            # Skip if name is too long (likely not a menu item name)
+            if len(name) > 100:
+                continue
+            # Skip generic headings
+            if name.lower() in ['menu', 'our menu', 'makanan', 'minuman', 'hidangan']:
+                continue
+        else:
+            continue
+
+        # Extract image URL
+        img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', section, re.IGNORECASE)
+        image_url = img_match.group(1) if img_match else 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80'
+
+        # Extract description - look for <p> tags near the price
+        desc_match = re.search(r'<p[^>]*>([^<]+)</p>', section, re.IGNORECASE)
+        description = desc_match.group(1).strip() if desc_match else 'Hidangan istimewa dari dapur kami'
+        # Clean up description
+        if len(description) > 200:
+            description = description[:197] + '...'
+
+        # Auto-detect category based on name
+        name_lower = name.lower()
+        category = 'lauk'
+        if any(x in name_lower for x in ['nasi', 'rice', 'briyani', 'naan']):
+            category = 'nasi'
+        elif any(x in name_lower for x in ['air', 'minuman', 'drink', 'juice', 'tea', 'teh', 'kopi', 'coffee', 'smoothie']):
+            category = 'minuman'
+
+        # Add menu item
+        menu_item = {
+            "id": f"menu-{item_id}",
+            "name": name,
+            "description": description,
+            "price": price,
+            "image_url": image_url,
+            "category_id": category,
+            "is_available": True
+        }
+        menu_items.append(menu_item)
+        logger.info(f"   Extracted from HTML: {name} - RM{price}")
+        item_id += 1
+
+        # Limit to 20 items max to avoid too much data
+        if len(menu_items) >= 20:
+            break
+
+    return menu_items
 
 
 @router.post("/generate")
@@ -280,6 +363,16 @@ async def generate_website(request: SimpleGenerateRequest):
 
             dual_results = await ai_service.generate_website_dual(ai_request)
 
+            # Extract menu items from generated HTML
+            if dual_results.get("qwen") or dual_results.get("deepseek"):
+                html_to_parse = dual_results.get("qwen") or dual_results.get("deepseek")
+                extracted_items = extract_menu_items_from_html(html_to_parse)
+                if extracted_items:
+                    logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
+                    # Merge with uploaded image items (prioritize extracted items)
+                    menu_items = extracted_items + menu_items
+                    user_data["menu_items"] = menu_items
+
             # Inject integrations into both designs
             qwen_html = None
             deepseek_html = None
@@ -317,6 +410,14 @@ async def generate_website(request: SimpleGenerateRequest):
 
             html_content = await ai_service.generate_website_best(ai_request)
 
+            # Extract menu items from generated HTML
+            extracted_items = extract_menu_items_from_html(html_content)
+            if extracted_items:
+                logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
+                # Merge with uploaded image items (prioritize extracted items)
+                menu_items = extracted_items + menu_items
+                user_data["menu_items"] = menu_items
+
             # Inject integrations
             html_content = template_service.inject_integrations(
                 html_content,
@@ -345,6 +446,14 @@ async def generate_website(request: SimpleGenerateRequest):
             # Get the generated HTML
             html_content = ai_response.html_content
 
+            # Extract menu items from generated HTML
+            extracted_items = extract_menu_items_from_html(html_content)
+            if extracted_items:
+                logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
+                # Merge with uploaded image items (prioritize extracted items)
+                menu_items = extracted_items + menu_items
+                user_data["menu_items"] = menu_items
+
             # Inject additional integrations
             html_content = template_service.inject_integrations(
                 html_content,
@@ -369,6 +478,16 @@ async def generate_website(request: SimpleGenerateRequest):
             logger.info("=" * 80)
             variations_dict = await ai_service.generate_multi_style(ai_request)
             logger.info(f"✓ Received {len(variations_dict)} variations from AI service")
+
+            # Extract menu items from first variation
+            if variations_dict:
+                first_variation = list(variations_dict.values())[0]
+                extracted_items = extract_menu_items_from_html(first_variation.html_content)
+                if extracted_items:
+                    logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
+                    # Merge with uploaded image items (prioritize extracted items)
+                    menu_items = extracted_items + menu_items
+                    user_data["menu_items"] = menu_items
 
             # Process each variation
             variations = []
@@ -428,6 +547,14 @@ async def generate_website(request: SimpleGenerateRequest):
 
             # Get the generated HTML
             html_content = ai_response.html_content
+
+            # Extract menu items from generated HTML
+            extracted_items = extract_menu_items_from_html(html_content)
+            if extracted_items:
+                logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
+                # Merge with uploaded image items (prioritize extracted items)
+                menu_items = extracted_items + menu_items
+                user_data["menu_items"] = menu_items
 
             # Inject additional integrations
             html_content = template_service.inject_integrations(
