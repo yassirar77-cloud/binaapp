@@ -83,6 +83,42 @@ class DualGenerateResponse(BaseModel):
     success: bool = True
 
 
+async def fetch_menu_items_from_database(website_id: str) -> List[dict]:
+    """
+    Fetch menu items from database for a website
+    """
+    try:
+        from app.core.supabase import get_supabase_sync
+        supabase = get_supabase_sync()
+
+        result = supabase.table("menu_items")\
+            .select("*")\
+            .eq("website_id", website_id)\
+            .eq("is_available", True)\
+            .order("sort_order")\
+            .execute()
+
+        if result.data:
+            logger.info(f"✓ Fetched {len(result.data)} menu items from database")
+            # Convert database format to expected format
+            return [
+                {
+                    "id": item.get('id'),
+                    "name": item.get('name'),
+                    "description": item.get('description', 'Hidangan istimewa'),
+                    "price": float(item.get('price', 0)),
+                    "image_url": item.get('image_url', ''),
+                    "category_id": item.get('category_id', 'lauk'),
+                    "is_available": item.get('is_available', True)
+                }
+                for item in result.data
+            ]
+        return []
+    except Exception as e:
+        logger.error(f"Error fetching menu items from database: {e}")
+        return []
+
+
 def extract_menu_items_from_html(html: str) -> List[dict]:
     """
     Extract menu items from AI-generated HTML
@@ -548,13 +584,27 @@ async def generate_website(request: SimpleGenerateRequest):
             # Get the generated HTML
             html_content = ai_response.html_content
 
-            # Extract menu items from generated HTML
-            extracted_items = extract_menu_items_from_html(html_content)
-            if extracted_items:
-                logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
-                # Merge with uploaded image items (prioritize extracted items)
-                menu_items = extracted_items + menu_items
-                user_data["menu_items"] = menu_items
+            # Priority 1: Try to fetch from database if website_id exists
+            if user_data.get("website_id"):
+                db_menu_items = await fetch_menu_items_from_database(user_data["website_id"])
+                if db_menu_items:
+                    logger.info(f"✅ Using {len(db_menu_items)} menu items from DATABASE")
+                    menu_items = db_menu_items
+                    user_data["menu_items"] = menu_items
+                else:
+                    # Priority 2: Extract from HTML if no database items
+                    extracted_items = extract_menu_items_from_html(html_content)
+                    if extracted_items:
+                        logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
+                        menu_items = extracted_items + menu_items
+                        user_data["menu_items"] = menu_items
+            else:
+                # No website_id, extract from HTML
+                extracted_items = extract_menu_items_from_html(html_content)
+                if extracted_items:
+                    logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
+                    menu_items = extracted_items + menu_items
+                    user_data["menu_items"] = menu_items
 
             # Inject additional integrations
             html_content = template_service.inject_integrations(
