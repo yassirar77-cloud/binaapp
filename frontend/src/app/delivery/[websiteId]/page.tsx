@@ -7,19 +7,74 @@ const WIDGET_URL = `${API_URL}/static/widgets/delivery-widget.js`;
 const WIDGET_SCRIPT_ID = 'binaapp-delivery-widget-script';
 
 /**
- * Delivery Page
+ * =============================================================================
+ * DELIVERY PAGE - WIDGET HOST ONLY
+ * =============================================================================
  * 
- * Minimal host for the BinaApp Delivery Widget.
- * The widget is the single source of truth for all ordering:
+ * @deprecated PREVIOUS IMPLEMENTATION REMOVED
+ * 
+ * This page previously contained full delivery ordering logic including:
+ * - Cart state management (cart, CartItem, addToCart, updateQty)
+ * - Zone selection (zones, selectedZone, DeliveryZone)
+ * - Customer info form (customerInfo state)
+ * - Checkout flow (checkout function, WhatsApp integration)
+ * - Menu display with category filtering
+ * - Price calculations (subtotal, deliveryFee, total)
+ * 
+ * ALL OF THE ABOVE HAS BEEN REMOVED AND IS NOW DEPRECATED.
+ * 
+ * =============================================================================
+ * DO NOT ADD CART, ZONE, OR CHECKOUT LOGIC TO THIS PAGE
+ * =============================================================================
+ * 
+ * The BinaApp Delivery Widget is now the SINGLE SOURCE OF TRUTH for:
  * - Cart management
  * - Zone selection  
  * - Checkout flow
+ * - Order submission
+ * 
+ * This page is now a minimal host that only:
+ * 1. Injects the delivery widget script
+ * 2. Initializes the widget with websiteId
+ * 3. Provides fallback UI for errors/noscript
+ * 
+ * @see /frontend/public/widgets/delivery-widget.js - Widget source
+ * @see /backend/static/widgets/delivery-widget.js - Backend widget copy
+ * @see /WIDGET_INTEGRATION.md - Widget integration documentation
+ * 
+ * TODO: For widget customization or new features, modify the Delivery Widget
+ *       directly. Do NOT re-implement ordering logic in this page.
+ * 
+ * TODO: See WIDGET_INTEGRATION.md for widget API documentation:
+ *       - BinaAppDelivery.init(config)
+ *       - Widget configuration options
+ *       - Styling customization
+ * 
+ * =============================================================================
  */
 export default function DeliveryPage() {
     const { websiteId } = useParams();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const initAttempted = useRef(false);
+
+    // =========================================================================
+    // ⚠️  WARNING: DO NOT ADD STATE OR LOGIC BELOW THIS LINE
+    // =========================================================================
+    // 
+    // The following are DEPRECATED and must NOT be re-added:
+    // - const [cart, setCart] = useState([])           // ❌ DEPRECATED
+    // - const [zones, setZones] = useState([])         // ❌ DEPRECATED  
+    // - const [selectedZone, setSelectedZone] = ...    // ❌ DEPRECATED
+    // - const [customerInfo, setCustomerInfo] = ...    // ❌ DEPRECATED
+    // - const [menu, setMenu] = useState({})           // ❌ DEPRECATED
+    // - function addToCart() {}                        // ❌ DEPRECATED
+    // - function updateQty() {}                        // ❌ DEPRECATED
+    // - function checkout() {}                         // ❌ DEPRECATED
+    //
+    // All ordering logic is handled by the Delivery Widget.
+    // See file header comments for documentation.
+    // =========================================================================
 
     useEffect(() => {
         if (!websiteId) return;
@@ -168,7 +223,12 @@ export default function DeliveryPage() {
         );
     }
 
-    // Minimal UI - widget handles everything
+    // =========================================================================
+    // MINIMAL UI ONLY - Widget handles all ordering functionality
+    // =========================================================================
+    // ⚠️  DO NOT ADD: menu grids, cart drawers, zone selectors, checkout forms
+    //     All of these are provided by the injected Delivery Widget.
+    // =========================================================================
     return (
         <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
             <div className="text-center">
