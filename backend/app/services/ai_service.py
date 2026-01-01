@@ -858,14 +858,20 @@ class AIService:
         try:
             logger.info(f"🎨 Generating AI image for: {food_name}")
 
-            # Step 1: Generate detailed description using DeepSeek/Qwen
-            detailed_description = await self._generate_food_description(food_name)
-
-            if not detailed_description:
-                logger.warning(f"⚠️ Failed to generate description, using smart prompt fallback")
-                detailed_description = self._get_malaysian_prompt(food_name)
+            # Step 1: Check if it's a known Malaysian dish - prioritize Malaysian prompts
+            malaysian_prompt = self._get_malaysian_prompt(food_name)
+            if malaysian_prompt and "Malaysian" in malaysian_prompt:
+                # Known Malaysian dish - use predefined prompt for accuracy
+                detailed_description = malaysian_prompt
+                logger.info(f"🇲🇾 Using Malaysian-specific prompt: {detailed_description[:100]}...")
             else:
-                logger.info(f"📝 AI Description: {detailed_description[:100]}...")
+                # Unknown dish - generate description using AI
+                detailed_description = await self._generate_food_description(food_name)
+                if not detailed_description:
+                    logger.warning(f"⚠️ Failed to generate description, using generic fallback")
+                    detailed_description = malaysian_prompt or f"{food_name}, professional food photography, high quality, realistic"
+                else:
+                    logger.info(f"📝 AI Description: {detailed_description[:100]}...")
 
             # Step 2: Generate image with Stability AI using the detailed description
             image_url = await self._generate_stability_image(detailed_description)
@@ -892,22 +898,29 @@ class AIService:
         """
         try:
             # Prepare prompt for AI to generate image description
-            system_prompt = """You are an expert at creating detailed image prompts for AI image generation.
-Your task is to convert a food name into a detailed, vivid description suitable for Stability AI image generation.
+            system_prompt = """You are an expert at creating detailed image prompts for AI image generation, specializing in Malaysian cuisine.
+
+CRITICAL: Pay attention to the food's origin and style:
+- Malaysian dishes (nasi kandar, ayam goreng, ikan bakar, etc.) should be described in authentic Malaysian/Mamak style
+- Avoid confusing Malaysian food with Chinese, Thai, or other Asian cuisines
+- Use specific Malaysian ingredients and presentation (banana leaf, curry gravy, sambal, etc.)
 
 Focus on:
 - Visual appearance (colors, textures, arrangement)
-- Traditional presentation style
-- Serving method (banana leaf, plate, etc.)
-- Specific ingredients visible
+- Authentic traditional presentation (mamak style for Malaysian food)
+- Serving method (banana leaf, plate, traditional serving)
+- Specific ingredients visible (curry, rice, sambal for Malaysian)
 - Photography style (food photography, professional lighting)
 
-Keep the description concise (under 100 words) but highly descriptive."""
+Keep the description concise (under 100 words) but highly descriptive and culturally accurate."""
 
             user_prompt = f"""Create a detailed image generation prompt for: "{food_name}"
 
-If it's a Malaysian dish, describe it authentically with proper ingredients and presentation.
-If it's not Malaysian, describe it in its traditional style.
+IMPORTANT:
+- If this contains "nasi", "ayam", "ikan", "mee" or other Malay words, it's MALAYSIAN food
+- Describe Malaysian dishes authentically with curry, rice, sambal, banana leaf
+- DO NOT describe Malaysian food as Chinese food
+- Use "Malaysian" explicitly in the description for Malaysian dishes
 
 Format: Just the image description, no explanations."""
 
