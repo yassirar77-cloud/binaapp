@@ -113,7 +113,7 @@ export default function DeliveryPage() {
 
         document.body.appendChild(script);
 
-        function initializeWidget() {
+        async function initializeWidget() {
             try {
                 // Safeguard: check if BinaAppDelivery exists
                 if (typeof window === 'undefined') {
@@ -138,15 +138,55 @@ export default function DeliveryPage() {
                     return;
                 }
 
-                // Initialize widget
-                BinaAppDelivery.init({
+                // Fetch widget configuration from API first
+                let widgetConfig: any = {
                     websiteId: websiteId,
                     apiUrl: `${API_URL}/v1`,
                     primaryColor: '#ea580c',
-                    language: 'ms'
-                });
+                    language: 'ms',
+                    businessType: 'food', // default
+                };
 
-                console.log('[DeliveryPage] Widget initialized for websiteId:', websiteId);
+                try {
+                    const configRes = await fetch(`${API_URL}/v1/delivery/config/${websiteId}`);
+                    if (configRes.ok) {
+                        const config = await configRes.json();
+                        console.log('[DeliveryPage] Config loaded:', config);
+
+                        // Apply config to widget initialization
+                        widgetConfig = {
+                            websiteId: websiteId,
+                            apiUrl: `${API_URL}/v1`,
+                            businessType: config.business_type || 'food',
+                            primaryColor: config.primary_color || '#ea580c',
+                            language: config.language || 'ms',
+                            whatsappNumber: config.whatsapp_number || '',
+                            businessName: config.business_name || 'Kedai',
+                            // Payment options
+                            payment: {
+                                cod: config.payment?.cod ?? true,
+                                qr: config.payment?.qr ?? false,
+                                qrImage: config.payment?.qr_image || null
+                            },
+                            // Fulfillment options
+                            fulfillment: {
+                                delivery: config.fulfillment?.delivery ?? true,
+                                deliveryFee: config.fulfillment?.delivery_fee ?? 5,
+                                minOrder: config.fulfillment?.min_order ?? 20,
+                                deliveryArea: config.fulfillment?.delivery_area || '',
+                                pickup: config.fulfillment?.pickup ?? true,
+                                pickupAddress: config.fulfillment?.pickup_address || ''
+                            }
+                        };
+                    }
+                } catch (configError) {
+                    console.warn('[DeliveryPage] Could not load config, using defaults:', configError);
+                }
+
+                // Initialize widget with full configuration
+                BinaAppDelivery.init(widgetConfig);
+
+                console.log('[DeliveryPage] Widget initialized for websiteId:', websiteId, 'config:', widgetConfig);
                 setLoading(false);
 
             } catch (err) {
