@@ -154,6 +154,24 @@ export default function CreatePage() {
   const [minimumOrder, setMinimumOrder] = useState('')
   const [deliveryHours, setDeliveryHours] = useState('')
 
+  // Payment methods state (QR + COD only)
+  const [paymentMethods, setPaymentMethods] = useState({
+    cod: true,  // Cash on Delivery
+    qr: false   // QR Payment (DuitNow/TNG/Bank)
+  })
+  const [paymentQR, setPaymentQR] = useState<File | null>(null)
+  const [paymentQRPreview, setPaymentQRPreview] = useState<string>('')
+
+  // Fulfillment options state
+  const [fulfillment, setFulfillment] = useState({
+    delivery: true,
+    deliveryFee: '5.00',
+    minOrder: '20.00',
+    deliveryArea: '',
+    pickup: false,
+    pickupAddress: ''
+  })
+
   // Google Map state
   const [fullAddress, setFullAddress] = useState('')
 
@@ -161,6 +179,19 @@ export default function CreatePage() {
   const [instagram, setInstagram] = useState('')
   const [facebook, setFacebook] = useState('')
   const [tiktok, setTiktok] = useState('')
+
+  // Handle QR image upload
+  const handleQRUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setPaymentQR(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setPaymentQRPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
 
   useEffect(() => {
     checkUser()
@@ -239,7 +270,20 @@ export default function CreatePage() {
             instagram: instagram,
             facebook: facebook,
             tiktok: tiktok
-          } : null
+          } : null,
+          payment: {
+            cod: paymentMethods.cod,
+            qr: paymentMethods.qr,
+            qr_image: paymentQRPreview || null
+          },
+          fulfillment: {
+            delivery: fulfillment.delivery,
+            delivery_fee: fulfillment.deliveryFee,
+            min_order: fulfillment.minOrder,
+            delivery_area: fulfillment.deliveryArea,
+            pickup: fulfillment.pickup,
+            pickup_address: fulfillment.pickupAddress
+          }
         }),
       });
 
@@ -439,7 +483,20 @@ export default function CreatePage() {
             minimum: minimumOrder,
             hours: deliveryHours
           } : null,
-          menu_items: menuItemsForDelivery
+          menu_items: menuItemsForDelivery,
+          payment: {
+            cod: paymentMethods.cod,
+            qr: paymentMethods.qr,
+            qr_image: paymentQRPreview || null
+          },
+          fulfillment: {
+            delivery: fulfillment.delivery,
+            delivery_fee: fulfillment.deliveryFee,
+            min_order: fulfillment.minOrder,
+            delivery_area: fulfillment.deliveryArea,
+            pickup: fulfillment.pickup,
+            pickup_address: fulfillment.pickupAddress
+          }
         })
       })
 
@@ -863,6 +920,181 @@ export default function CreatePage() {
                 </div>
               </div>
             )}
+
+            {/* Payment Settings - QR + COD only */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border mt-6">
+              <h3 className="text-lg font-semibold mb-2">💳 Tetapan Pembayaran</h3>
+              <p className="text-gray-500 text-sm mb-4">Pilih cara pembayaran yang anda terima</p>
+              
+              {/* Payment Methods */}
+              <div className="space-y-3 mb-4">
+                {/* COD */}
+                <label className="flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer hover:border-orange-300 transition-colors">
+                  <input 
+                    type="checkbox" 
+                    checked={paymentMethods.cod}
+                    onChange={(e) => setPaymentMethods({...paymentMethods, cod: e.target.checked})}
+                    className="w-5 h-5 rounded accent-orange-500" 
+                  />
+                  <span className="text-2xl">💵</span>
+                  <div>
+                    <p className="font-semibold">Cash on Delivery (COD)</p>
+                    <p className="text-sm text-gray-500">Bayar tunai bila terima</p>
+                  </div>
+                </label>
+                
+                {/* QR Payment */}
+                <label className="flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer hover:border-orange-300 transition-colors">
+                  <input 
+                    type="checkbox"
+                    checked={paymentMethods.qr}
+                    onChange={(e) => setPaymentMethods({...paymentMethods, qr: e.target.checked})}
+                    className="w-5 h-5 rounded accent-orange-500" 
+                  />
+                  <span className="text-2xl">📱</span>
+                  <div>
+                    <p className="font-semibold">QR Payment</p>
+                    <p className="text-sm text-gray-500">DuitNow / TNG / Bank QR</p>
+                  </div>
+                </label>
+              </div>
+              
+              {/* QR Upload - Only show if QR payment enabled */}
+              {paymentMethods.qr && (
+                <div className="bg-orange-50 rounded-xl p-4 border border-orange-200">
+                  <p className="font-medium mb-3">📱 Muat Naik QR Pembayaran Anda</p>
+                  <div className="flex gap-4 items-start">
+                    {/* QR Upload Box */}
+                    <div className="w-32 h-32 border-2 border-dashed border-orange-300 rounded-xl bg-white flex-shrink-0">
+                      <label className="cursor-pointer w-full h-full flex flex-col items-center justify-center">
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          className="hidden"
+                          onChange={handleQRUpload} 
+                        />
+                        {paymentQRPreview ? (
+                          <img 
+                            src={paymentQRPreview} 
+                            alt="Payment QR"
+                            className="w-full h-full object-contain rounded-xl p-1" 
+                          />
+                        ) : (
+                          <>
+                            <span className="text-3xl mb-1">📷</span>
+                            <span className="text-xs text-gray-500">Upload QR</span>
+                          </>
+                        )}
+                      </label>
+                    </div>
+                    
+                    {/* Instructions */}
+                    <div className="flex-1 text-sm text-gray-600">
+                      <p className="font-medium text-gray-800 mb-2">Cara mendapatkan QR:</p>
+                      <ol className="list-decimal list-inside space-y-1">
+                        <li>Buka app bank / TNG / DuitNow</li>
+                        <li>Pergi ke &quot;Receive Money&quot; atau &quot;My QR&quot;</li>
+                        <li>Screenshot QR code anda</li>
+                        <li>Upload di sini</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Fulfillment Options */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border mt-6">
+              <h3 className="text-lg font-semibold mb-2">📦 Pilihan Penghantaran</h3>
+              <p className="text-gray-500 text-sm mb-4">Cara pelanggan terima pesanan</p>
+              
+              <div className="space-y-3">
+                {/* Delivery */}
+                <div className={`p-4 border-2 rounded-xl transition-colors ${fulfillment.delivery ? 'border-orange-500 bg-orange-50' : 'border-gray-200'}`}>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input 
+                      type="checkbox"
+                      checked={fulfillment.delivery}
+                      onChange={(e) => setFulfillment({...fulfillment, delivery: e.target.checked})}
+                      className="w-5 h-5 rounded accent-orange-500" 
+                    />
+                    <span className="text-2xl">🛵</span>
+                    <div className="flex-1">
+                      <p className="font-semibold">Delivery</p>
+                      <p className="text-sm text-gray-500">Hantar ke alamat pelanggan</p>
+                    </div>
+                  </label>
+                  
+                  {fulfillment.delivery && (
+                    <div className="mt-3 pl-10 grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm text-gray-600">Caj Delivery (RM)</label>
+                        <input 
+                          type="number" 
+                          placeholder="5.00" 
+                          step="0.50"
+                          value={fulfillment.deliveryFee}
+                          onChange={(e) => setFulfillment({...fulfillment, deliveryFee: e.target.value})}
+                          className="w-full p-2 border rounded-lg mt-1" 
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm text-gray-600">Min. Order (RM)</label>
+                        <input 
+                          type="number" 
+                          placeholder="20.00" 
+                          step="1"
+                          value={fulfillment.minOrder}
+                          onChange={(e) => setFulfillment({...fulfillment, minOrder: e.target.value})}
+                          className="w-full p-2 border rounded-lg mt-1" 
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="text-sm text-gray-600">Kawasan Delivery</label>
+                        <input 
+                          type="text" 
+                          placeholder="Shah Alam, Klang, Subang"
+                          value={fulfillment.deliveryArea}
+                          onChange={(e) => setFulfillment({...fulfillment, deliveryArea: e.target.value})}
+                          className="w-full p-2 border rounded-lg mt-1" 
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Pickup */}
+                <div className={`p-4 border-2 rounded-xl transition-colors ${fulfillment.pickup ? 'border-orange-500 bg-orange-50' : 'border-gray-200'}`}>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input 
+                      type="checkbox"
+                      checked={fulfillment.pickup}
+                      onChange={(e) => setFulfillment({...fulfillment, pickup: e.target.checked})}
+                      className="w-5 h-5 rounded accent-orange-500" 
+                    />
+                    <span className="text-2xl">🏪</span>
+                    <div className="flex-1">
+                      <p className="font-semibold">Self Pickup</p>
+                      <p className="text-sm text-gray-500">Pelanggan ambil di kedai</p>
+                    </div>
+                    <span className="text-green-600 font-bold">FREE</span>
+                  </label>
+                  
+                  {fulfillment.pickup && (
+                    <div className="mt-3 pl-10">
+                      <label className="text-sm text-gray-600">Alamat Pickup</label>
+                      <input 
+                        type="text" 
+                        placeholder="No. 123, Jalan ABC, Shah Alam"
+                        value={fulfillment.pickupAddress}
+                        onChange={(e) => setFulfillment({...fulfillment, pickupAddress: e.target.value})}
+                        className="w-full p-2 border rounded-lg mt-1" 
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
 
             {error && (
               <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">

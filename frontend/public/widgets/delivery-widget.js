@@ -232,10 +232,28 @@
             apiUrl: 'https://api.binaapp.my/v1',
             businessType: 'food',
             primaryColor: '#ea580c',
-            language: 'ms'
+            language: 'ms',
+            whatsappNumber: null,
+            businessName: 'Kedai'
         },
 
         businessConfig: null,
+
+        // Payment & Fulfillment settings (loaded from API or passed in config)
+        paymentConfig: {
+            cod: true,
+            qr: false,
+            qrImage: null
+        },
+
+        fulfillmentConfig: {
+            delivery: true,
+            deliveryFee: 5,
+            minOrder: 20,
+            deliveryArea: '',
+            pickup: false,
+            pickupAddress: ''
+        },
 
         state: {
             zones: [],
@@ -251,7 +269,11 @@
             selectedLocation: null,
             cakeMessage: '',
             currentView: 'menu', // menu | cart | checkout | tracking
-            orderNumber: null
+            orderNumber: null,
+            // New payment & fulfillment selections
+            selectedFulfillment: null, // 'delivery' | 'pickup'
+            selectedPayment: null, // 'cod' | 'qr'
+            deliveryAddress: ''
         },
 
         // Initialize widget
@@ -271,12 +293,43 @@
                 this.config.primaryColor = this.businessConfig.primaryColor;
             }
 
+            // Apply payment config if provided
+            if (options.payment) {
+                this.paymentConfig = {
+                    cod: options.payment.cod !== false,
+                    qr: options.payment.qr === true,
+                    qrImage: options.payment.qr_image || options.payment.qrImage || null
+                };
+            }
+
+            // Apply fulfillment config if provided
+            if (options.fulfillment) {
+                this.fulfillmentConfig = {
+                    delivery: options.fulfillment.delivery !== false,
+                    deliveryFee: parseFloat(options.fulfillment.delivery_fee || options.fulfillment.deliveryFee) || 5,
+                    minOrder: parseFloat(options.fulfillment.min_order || options.fulfillment.minOrder) || 20,
+                    deliveryArea: options.fulfillment.delivery_area || options.fulfillment.deliveryArea || '',
+                    pickup: options.fulfillment.pickup === true,
+                    pickupAddress: options.fulfillment.pickup_address || options.fulfillment.pickupAddress || ''
+                };
+            }
+
+            // Store WhatsApp number and business name
+            if (options.whatsappNumber) {
+                this.config.whatsappNumber = options.whatsappNumber.replace(/[^0-9]/g, '');
+            }
+            if (options.businessName) {
+                this.config.businessName = options.businessName;
+            }
+
             this.injectStyles();
             this.createWidget();
             this.loadData();
             this.initEventListeners();
 
             console.log('[BinaApp] Universal order widget initialized for:', this.config.businessType);
+            console.log('[BinaApp] Payment config:', this.paymentConfig);
+            console.log('[BinaApp] Fulfillment config:', this.fulfillmentConfig);
         },
 
         // Get business config helper
@@ -732,7 +785,48 @@
                 const menuData = await menuRes.json();
                 this.state.menu = menuData;
 
+                // Load website config for payment/fulfillment settings if not already set
+                try {
+                    const configRes = await fetch(`${this.config.apiUrl}/delivery/config/${this.config.websiteId}`);
+                    if (configRes.ok) {
+                        const websiteConfig = await configRes.json();
+                        
+                        // Apply payment config from API if not overridden
+                        if (websiteConfig.payment) {
+                            this.paymentConfig = {
+                                cod: websiteConfig.payment.cod !== false,
+                                qr: websiteConfig.payment.qr === true,
+                                qrImage: websiteConfig.payment.qr_image || this.paymentConfig.qrImage
+                            };
+                        }
+                        
+                        // Apply fulfillment config from API if not overridden
+                        if (websiteConfig.fulfillment) {
+                            this.fulfillmentConfig = {
+                                delivery: websiteConfig.fulfillment.delivery !== false,
+                                deliveryFee: parseFloat(websiteConfig.fulfillment.delivery_fee) || this.fulfillmentConfig.deliveryFee,
+                                minOrder: parseFloat(websiteConfig.fulfillment.min_order) || this.fulfillmentConfig.minOrder,
+                                deliveryArea: websiteConfig.fulfillment.delivery_area || this.fulfillmentConfig.deliveryArea,
+                                pickup: websiteConfig.fulfillment.pickup === true,
+                                pickupAddress: websiteConfig.fulfillment.pickup_address || this.fulfillmentConfig.pickupAddress
+                            };
+                        }
+                        
+                        // Get WhatsApp number and business name
+                        if (websiteConfig.whatsapp_number) {
+                            this.config.whatsappNumber = websiteConfig.whatsapp_number.replace(/[^0-9]/g, '');
+                        }
+                        if (websiteConfig.business_name) {
+                            this.config.businessName = websiteConfig.business_name;
+                        }
+                    }
+                } catch (configError) {
+                    console.log('[BinaApp] No additional config loaded, using defaults');
+                }
+
                 console.log('[BinaApp] Data loaded:', this.state);
+                console.log('[BinaApp] Payment config:', this.paymentConfig);
+                console.log('[BinaApp] Fulfillment config:', this.fulfillmentConfig);
             } catch (error) {
                 console.error('[BinaApp] Error loading data:', error);
             }
@@ -975,10 +1069,135 @@
         renderCheckout: function() {
             const config = this.getConfig();
             const features = config.features;
+            const payment = this.paymentConfig;
+            const fulfillment = this.fulfillmentConfig;
+            const subtotal = this.state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
             let html = '<form id="binaapp-checkout-form">';
 
-            // Appointment date (salon, services, bakery)
+            // ============================================
+            // STEP 1: FULFILLMENT SELECTION (Delivery/Pickup)
+            // ============================================
+            if (fulfillment.delivery || fulfillment.pickup) {
+                html += `
+                    <div class="binaapp-form-group">
+                        <label class="binaapp-form-label">📦 ${this.t('selectFulfillment')}</label>
+                        <div style="display:flex;flex-direction:column;gap:8px;">
+                `;
+
+                // Delivery option
+                if (fulfillment.delivery) {
+                    html += `
+                        <div class="binaapp-shipping-option" id="fulfillment-delivery"
+                             onclick="BinaAppDelivery.selectFulfillment('delivery')">
+                            <input type="radio" name="fulfillment" value="delivery">
+                            <span style="font-size:24px;">🛵</span>
+                            <div style="flex:1;">
+                                <p style="font-weight:600;margin:0;">Delivery</p>
+                                <p style="font-size:12px;color:#6b7280;margin:0;">${fulfillment.deliveryArea || 'Hantar ke alamat anda'}</p>
+                            </div>
+                            <span style="font-weight:bold;color:#ea580c;">RM${fulfillment.deliveryFee.toFixed(2)}</span>
+                        </div>
+                    `;
+                }
+
+                // Pickup option
+                if (fulfillment.pickup) {
+                    html += `
+                        <div class="binaapp-shipping-option" id="fulfillment-pickup"
+                             onclick="BinaAppDelivery.selectFulfillment('pickup')">
+                            <input type="radio" name="fulfillment" value="pickup">
+                            <span style="font-size:24px;">🏪</span>
+                            <div style="flex:1;">
+                                <p style="font-weight:600;margin:0;">Self Pickup</p>
+                                <p style="font-size:12px;color:#6b7280;margin:0;">${fulfillment.pickupAddress || 'Ambil di kedai'}</p>
+                            </div>
+                            <span style="font-weight:bold;color:#10b981;">FREE</span>
+                        </div>
+                    `;
+                }
+
+                html += `
+                        </div>
+                    </div>
+                `;
+
+                // Delivery address input (shown when delivery selected)
+                html += `
+                    <div class="binaapp-form-group" id="delivery-address-section" style="display:none;">
+                        <label class="binaapp-form-label">📍 ${this.t('deliveryAddress')}</label>
+                        <textarea class="binaapp-form-textarea" id="delivery-address" name="delivery_address" 
+                                  placeholder="Masukkan alamat penuh..." rows="3"></textarea>
+                    </div>
+                `;
+            }
+
+            // ============================================
+            // STEP 2: PAYMENT METHOD SELECTION
+            // ============================================
+            if (payment.cod || payment.qr) {
+                html += `
+                    <div class="binaapp-form-group">
+                        <label class="binaapp-form-label">💳 ${this.t('selectPayment')}</label>
+                        <div style="display:flex;flex-direction:column;gap:8px;">
+                `;
+
+                // COD option
+                if (payment.cod) {
+                    html += `
+                        <div class="binaapp-shipping-option" id="payment-cod"
+                             onclick="BinaAppDelivery.selectPayment('cod')">
+                            <input type="radio" name="payment" value="cod">
+                            <span style="font-size:24px;">💵</span>
+                            <div>
+                                <p style="font-weight:600;margin:0;">Bayar Tunai (COD)</p>
+                                <p style="font-size:12px;color:#6b7280;margin:0;">Bayar bila terima pesanan</p>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // QR Payment option
+                if (payment.qr) {
+                    html += `
+                        <div class="binaapp-shipping-option" id="payment-qr"
+                             onclick="BinaAppDelivery.selectPayment('qr')">
+                            <input type="radio" name="payment" value="qr">
+                            <span style="font-size:24px;">📱</span>
+                            <div>
+                                <p style="font-weight:600;margin:0;">QR Payment</p>
+                                <p style="font-size:12px;color:#6b7280;margin:0;">Scan & bayar sekarang</p>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                html += `
+                        </div>
+                    </div>
+                `;
+
+                // QR Code Display Section (shown when QR selected)
+                if (payment.qr && payment.qrImage) {
+                    html += `
+                        <div id="qr-payment-section" style="display:none;margin:16px 0;text-align:center;padding:20px;background:#f9fafb;border-radius:16px;">
+                            <p style="font-weight:600;margin-bottom:12px;">📱 Scan QR untuk bayar</p>
+                            <img src="${payment.qrImage}" alt="Payment QR" 
+                                 style="width:200px;height:200px;border:4px solid white;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);margin:0 auto;display:block;">
+                            <p style="font-size:14px;color:#6b7280;margin-top:12px;">
+                                Jumlah: <strong style="color:#ea580c;font-size:18px;">RM<span id="qr-amount">${subtotal.toFixed(2)}</span></strong>
+                            </p>
+                            <p style="font-size:12px;color:#9ca3af;margin-top:8px;">
+                                Screenshot bukti pembayaran & hantar via WhatsApp
+                            </p>
+                        </div>
+                    `;
+                }
+            }
+
+            // ============================================
+            // LEGACY: Appointment date (salon, services, bakery)
+            // ============================================
             if (features.appointmentDate) {
                 const today = new Date().toISOString().split('T')[0];
                 html += `
@@ -994,7 +1213,7 @@
                 html += `
                     <div class="binaapp-form-group">
                         <label class="binaapp-form-label">⏰ ${this.t('selectTime')}</label>
-                        <select class="binaapp-form-select" name="time_slot" required>
+                        <select class="binaapp-form-select" name="time_slot">
                             <option value="">-- ${this.t('selectTime')} --</option>
                             <option value="9:00 AM">9:00 AM</option>
                             <option value="10:00 AM">10:00 AM</option>
@@ -1027,70 +1246,6 @@
                 `;
             }
 
-            // Location choice (services)
-            if (features.locationChoice && config.locationOptions) {
-                html += `
-                    <div class="binaapp-form-group">
-                        <label class="binaapp-form-label">📍 ${this.t('selectLocation')}</label>
-                        ${config.locationOptions.map((opt, i) => `
-                            <div class="binaapp-shipping-option ${i === 0 ? 'selected' : ''}"
-                                 onclick="BinaAppDelivery.selectLocation('${opt.id}', ${opt.extraFee}, this)">
-                                <input type="radio" name="location" value="${opt.id}" ${i === 0 ? 'checked' : ''}>
-                                <div style="flex:1;">
-                                    <p style="font-weight:600;margin:0;">${opt.icon} ${opt.name}</p>
-                                </div>
-                                <span style="font-weight:bold;color:${opt.extraFee === 0 ? '#10b981' : '#ea580c'};">
-                                    ${opt.extraFee === 0 ? 'FREE' : '+RM' + opt.extraFee}
-                                </span>
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
-            }
-
-            // Zone selection (food)
-            if (features.deliveryZones && this.state.zones.length > 0) {
-                html += `
-                    <div class="binaapp-form-group">
-                        <label class="binaapp-form-label">${this.t('deliveryZone')}</label>
-                        <select class="binaapp-form-select" name="zone" required>
-                            <option value="">${this.t('selectZone')}</option>
-                `;
-
-                this.state.zones.forEach(zone => {
-                    html += `<option value="${zone.id}" data-fee="${zone.delivery_fee}">
-                        ${zone.zone_name} - RM ${parseFloat(zone.delivery_fee).toFixed(2)}
-                    </option>`;
-                });
-
-                html += `
-                        </select>
-                    </div>
-                `;
-            }
-
-            // Shipping options (clothing, general)
-            if (features.shippingOptions && config.shippingOptions) {
-                html += `
-                    <div class="binaapp-form-group">
-                        <label class="binaapp-form-label">📦 ${this.t('shippingMethod')}</label>
-                        ${config.shippingOptions.map((opt, i) => `
-                            <div class="binaapp-shipping-option ${i === 0 ? 'selected' : ''}"
-                                 onclick="BinaAppDelivery.selectShipping('${opt.id}', ${opt.price}, this)">
-                                <input type="radio" name="shipping" value="${opt.id}" ${i === 0 ? 'checked' : ''}>
-                                <div style="flex:1;">
-                                    <p style="font-weight:600;margin:0;">${opt.name}</p>
-                                    <p style="font-size:12px;color:#6b7280;margin:0;">${opt.desc}</p>
-                                </div>
-                                <span style="font-weight:bold;color:${opt.price === 0 ? '#10b981' : '#ea580c'};">
-                                    ${opt.price === 0 ? 'FREE' : 'RM' + opt.price}
-                                </span>
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
-            }
-
             // Custom message (bakery)
             if (features.customMessage) {
                 html += `
@@ -1103,7 +1258,9 @@
                 `;
             }
 
-            // Customer info
+            // ============================================
+            // CUSTOMER INFO
+            // ============================================
             html += `
                 <div class="binaapp-form-group">
                     <label class="binaapp-form-label">${this.t('name')}</label>
@@ -1116,22 +1273,35 @@
                 </div>
 
                 <div class="binaapp-form-group">
-                    <label class="binaapp-form-label">${this.t('email')} (${this.t('optional')})</label>
-                    <input type="email" class="binaapp-form-input" name="customer_email">
-                </div>
-
-                <div class="binaapp-form-group">
-                    <label class="binaapp-form-label">${this.t('address')}</label>
-                    <textarea class="binaapp-form-textarea" name="delivery_address" rows="3" required></textarea>
-                </div>
-
-                <div class="binaapp-form-group">
                     <label class="binaapp-form-label">${this.t('notes')} (${this.t('optional')})</label>
-                    <textarea class="binaapp-form-textarea" name="delivery_notes" rows="2"></textarea>
+                    <textarea class="binaapp-form-textarea" name="delivery_notes" rows="2" placeholder="Arahan khas..."></textarea>
+                </div>
+            `;
+
+            // ============================================
+            // ORDER SUMMARY
+            // ============================================
+            const deliveryFee = this.state.selectedFulfillment === 'delivery' ? this.fulfillmentConfig.deliveryFee : 0;
+            const total = subtotal + deliveryFee;
+
+            html += `
+                <div style="padding:16px;background:#f9fafb;border-radius:12px;margin:16px 0;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                        <span>Subtotal</span>
+                        <span>RM${subtotal.toFixed(2)}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px;" id="delivery-fee-row">
+                        <span>Delivery</span>
+                        <span id="checkout-delivery-fee">RM${deliveryFee.toFixed(2)}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;padding-top:8px;border-top:1px solid #e5e7eb;">
+                        <span>JUMLAH</span>
+                        <span style="color:${this.config.primaryColor};" id="checkout-total">RM${total.toFixed(2)}</span>
+                    </div>
                 </div>
 
                 <button type="submit" class="binaapp-checkout-btn">
-                    ${this.t('placeOrder')}
+                    📱 WhatsApp Pesanan
                 </button>
             </form>`;
 
@@ -1160,6 +1330,102 @@
             el.classList.add('selected');
             el.querySelector('input').checked = true;
             this.state.selectedLocation = { id, extraFee };
+        },
+
+        // Select fulfillment method (delivery or pickup)
+        selectFulfillment: function(method) {
+            this.state.selectedFulfillment = method;
+            
+            // Update UI - clear all selections first
+            const deliveryEl = document.getElementById('fulfillment-delivery');
+            const pickupEl = document.getElementById('fulfillment-pickup');
+            
+            if (deliveryEl) {
+                deliveryEl.classList.remove('selected');
+                const radio = deliveryEl.querySelector('input');
+                if (radio) radio.checked = false;
+            }
+            if (pickupEl) {
+                pickupEl.classList.remove('selected');
+                const radio = pickupEl.querySelector('input');
+                if (radio) radio.checked = false;
+            }
+            
+            // Select the chosen method
+            const selectedEl = document.getElementById('fulfillment-' + method);
+            if (selectedEl) {
+                selectedEl.classList.add('selected');
+                const radio = selectedEl.querySelector('input');
+                if (radio) radio.checked = true;
+            }
+            
+            // Show/hide address input
+            const addressSection = document.getElementById('delivery-address-section');
+            if (addressSection) {
+                addressSection.style.display = method === 'delivery' ? 'block' : 'none';
+            }
+            
+            // Update totals
+            this.updateCheckoutTotals();
+        },
+
+        // Select payment method (cod or qr)
+        selectPayment: function(method) {
+            this.state.selectedPayment = method;
+            
+            // Update UI - clear all selections first
+            const codEl = document.getElementById('payment-cod');
+            const qrEl = document.getElementById('payment-qr');
+            
+            if (codEl) {
+                codEl.classList.remove('selected');
+                const radio = codEl.querySelector('input');
+                if (radio) radio.checked = false;
+            }
+            if (qrEl) {
+                qrEl.classList.remove('selected');
+                const radio = qrEl.querySelector('input');
+                if (radio) radio.checked = false;
+            }
+            
+            // Select the chosen method
+            const selectedEl = document.getElementById('payment-' + method);
+            if (selectedEl) {
+                selectedEl.classList.add('selected');
+                const radio = selectedEl.querySelector('input');
+                if (radio) radio.checked = true;
+            }
+            
+            // Show/hide QR section
+            const qrSection = document.getElementById('qr-payment-section');
+            if (qrSection) {
+                qrSection.style.display = method === 'qr' ? 'block' : 'none';
+                
+                // Update QR amount
+                if (method === 'qr') {
+                    const qrAmountEl = document.getElementById('qr-amount');
+                    if (qrAmountEl) {
+                        const subtotal = this.state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                        const deliveryFee = this.state.selectedFulfillment === 'delivery' ? this.fulfillmentConfig.deliveryFee : 0;
+                        qrAmountEl.textContent = (subtotal + deliveryFee).toFixed(2);
+                    }
+                }
+            }
+        },
+
+        // Update checkout totals when fulfillment changes
+        updateCheckoutTotals: function() {
+            const subtotal = this.state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const deliveryFee = this.state.selectedFulfillment === 'delivery' ? this.fulfillmentConfig.deliveryFee : 0;
+            const total = subtotal + deliveryFee;
+            
+            const feeEl = document.getElementById('checkout-delivery-fee');
+            const totalEl = document.getElementById('checkout-total');
+            const qrAmountEl = document.getElementById('qr-amount');
+            
+            if (feeEl) feeEl.textContent = 'RM' + deliveryFee.toFixed(2);
+            if (totalEl) totalEl.textContent = 'RM' + total.toFixed(2);
+            if (qrAmountEl) qrAmountEl.textContent = total.toFixed(2);
         },
 
         // Render tracking view
@@ -1247,55 +1513,139 @@
             }
         },
 
-        // Submit order
+        // Submit order via WhatsApp
         submitOrder: async function(formData) {
             try {
                 const config = this.getConfig();
-                const orderData = {
-                    website_id: this.config.websiteId,
-                    business_type: this.config.businessType,
-                    customer_name: formData.get('customer_name'),
-                    customer_phone: formData.get('customer_phone'),
-                    customer_email: formData.get('customer_email'),
-                    delivery_address: formData.get('delivery_address'),
-                    delivery_notes: formData.get('delivery_notes'),
-                    delivery_zone_id: formData.get('zone'),
-                    payment_method: 'cod',
-                    items: this.state.cart.map(item => ({
-                        menu_item_id: item.id,
-                        quantity: item.quantity,
-                        size: item.size,
-                        color: item.color
-                    })),
-                    // Business-specific fields
-                    appointment_date: formData.get('appointment_date'),
-                    time_slot: formData.get('time_slot'),
-                    staff: formData.get('staff'),
-                    shipping_method: formData.get('shipping'),
-                    location: formData.get('location'),
-                    cake_message: formData.get('cake_message')
-                };
-
-                const response = await fetch(`${this.config.apiUrl}/delivery/orders`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(orderData)
-                });
-
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Failed to place order');
+                const payment = this.paymentConfig;
+                const fulfillment = this.fulfillmentConfig;
+                
+                // Validate selections
+                if ((fulfillment.delivery || fulfillment.pickup) && !this.state.selectedFulfillment) {
+                    alert(this.t('selectFulfillmentError'));
+                    return;
                 }
-
-                const result = await response.json();
-                this.state.orderNumber = result.order_number;
+                
+                if ((payment.cod || payment.qr) && !this.state.selectedPayment) {
+                    alert(this.t('selectPaymentError'));
+                    return;
+                }
+                
+                // Check minimum order for delivery
+                const subtotal = this.state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                if (this.state.selectedFulfillment === 'delivery' && subtotal < fulfillment.minOrder) {
+                    alert(`Minimum order untuk delivery adalah RM${fulfillment.minOrder.toFixed(2)}`);
+                    return;
+                }
+                
+                // Get form data
+                const customerName = formData.get('customer_name');
+                const customerPhone = formData.get('customer_phone');
+                const deliveryAddress = document.getElementById('delivery-address')?.value || formData.get('delivery_address') || '';
+                const deliveryNotes = formData.get('delivery_notes') || '';
+                const timeSlot = formData.get('time_slot') || '';
+                const appointmentDate = formData.get('appointment_date') || '';
+                const cakeMessage = formData.get('cake_message') || '';
+                
+                // Calculate totals
+                const deliveryFee = this.state.selectedFulfillment === 'delivery' ? fulfillment.deliveryFee : 0;
+                const total = subtotal + deliveryFee;
+                
+                // Build WhatsApp message
+                let msg = `${config.emoji} *${config.orderTitle} - ${this.config.businessName}*\n\n`;
+                
+                // Order items
+                msg += `📝 *Pesanan:*\n`;
+                this.state.cart.forEach(item => {
+                    msg += `• ${item.name}`;
+                    if (item.size) msg += ` (${item.size})`;
+                    if (item.color) msg += ` - ${item.color}`;
+                    msg += ` x${item.quantity} - RM${(item.price * item.quantity).toFixed(2)}\n`;
+                });
+                
+                msg += `\n━━━━━━━━━━━━━━━━\n`;
+                
+                // Customer info
+                msg += `👤 *Pelanggan:*\n`;
+                msg += `Nama: ${customerName}\n`;
+                msg += `Tel: ${customerPhone}\n`;
+                
+                msg += `\n━━━━━━━━━━━━━━━━\n`;
+                
+                // Fulfillment details
+                if (this.state.selectedFulfillment === 'delivery') {
+                    msg += `🛵 *Penghantaran:* Delivery\n`;
+                    msg += `📍 *Alamat:* ${deliveryAddress || '(Sila nyatakan alamat)'}\n`;
+                    msg += `💰 *Caj Delivery:* RM${deliveryFee.toFixed(2)}\n`;
+                } else {
+                    msg += `🏪 *Penghantaran:* Self Pickup\n`;
+                    msg += `📍 *Lokasi:* ${fulfillment.pickupAddress || 'Di kedai'}\n`;
+                }
+                
+                // Time slot if selected
+                if (timeSlot) {
+                    msg += `⏰ *Masa:* ${timeSlot}\n`;
+                }
+                
+                // Appointment date if selected
+                if (appointmentDate) {
+                    msg += `📅 *Tarikh:* ${appointmentDate}\n`;
+                }
+                
+                // Cake message if any
+                if (cakeMessage) {
+                    msg += `🎂 *Mesej Kek:* ${cakeMessage}\n`;
+                }
+                
+                // Special instructions
+                if (deliveryNotes) {
+                    msg += `📝 *Nota:* ${deliveryNotes}\n`;
+                }
+                
+                msg += `\n━━━━━━━━━━━━━━━━\n`;
+                
+                // Payment method
+                msg += `💳 *Cara Bayar:* ${this.state.selectedPayment === 'cod' ? 'Bayar Tunai (COD)' : 'QR Payment'}\n`;
+                
+                if (this.state.selectedPayment === 'qr') {
+                    msg += `✅ *Status:* Sudah bayar (bukti di bawah)\n`;
+                }
+                
+                // Totals
+                msg += `\n━━━━━━━━━━━━━━━━\n`;
+                msg += `Subtotal: RM${subtotal.toFixed(2)}\n`;
+                if (deliveryFee > 0) {
+                    msg += `Delivery: RM${deliveryFee.toFixed(2)}\n`;
+                }
+                msg += `\n*JUMLAH: RM${total.toFixed(2)}*\n\n`;
+                msg += `Terima kasih! 🙏`;
+                
+                // Get WhatsApp number
+                let whatsappNumber = this.config.whatsappNumber;
+                if (!whatsappNumber) {
+                    // Try to extract from page or prompt user
+                    whatsappNumber = prompt('Masukkan nombor WhatsApp penjual (contoh: 60123456789):');
+                    if (!whatsappNumber) {
+                        alert('Nombor WhatsApp diperlukan untuk menghantar pesanan');
+                        return;
+                    }
+                }
+                
+                // Clean the number
+                whatsappNumber = whatsappNumber.replace(/[^0-9]/g, '');
+                
+                // Open WhatsApp
+                const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(msg)}`;
+                window.open(whatsappUrl, '_blank');
+                
+                // Clear cart and close modal
                 this.state.cart = [];
+                this.state.selectedFulfillment = null;
+                this.state.selectedPayment = null;
                 this.updateCartBadge();
-
-                alert(this.t('orderPlacedSuccess') + '\n' + this.t('orderNumber') + ': ' + result.order_number);
                 this.closeModal();
+                
+                this.showNotification(this.t('orderSent'));
 
             } catch (error) {
                 console.error('[BinaApp] Order error:', error);
@@ -1365,7 +1715,18 @@
                     selectStaff: 'Pilih Staff',
                     selectLocation: 'Pilih Lokasi',
                     shippingMethod: 'Cara Penghantaran',
-                    cakeMessage: 'Mesej Atas Kek'
+                    cakeMessage: 'Mesej Atas Kek',
+                    // New payment & fulfillment translations
+                    selectFulfillment: 'Pilih Cara Terima',
+                    selectPayment: 'Cara Bayaran',
+                    deliveryAddress: 'Alamat Penghantaran',
+                    selectFulfillmentError: 'Sila pilih cara terima (Delivery/Pickup)',
+                    selectPaymentError: 'Sila pilih cara bayaran',
+                    orderSent: 'Pesanan dihantar ke WhatsApp!',
+                    delivery: 'Delivery',
+                    pickup: 'Self Pickup',
+                    cod: 'Bayar Tunai (COD)',
+                    qrPayment: 'QR Payment'
                 },
                 en: {
                     orderNow: 'Order Now',
@@ -1404,7 +1765,18 @@
                     selectStaff: 'Select Staff',
                     selectLocation: 'Select Location',
                     shippingMethod: 'Shipping Method',
-                    cakeMessage: 'Cake Message'
+                    cakeMessage: 'Cake Message',
+                    // New payment & fulfillment translations
+                    selectFulfillment: 'Select Delivery Method',
+                    selectPayment: 'Payment Method',
+                    deliveryAddress: 'Delivery Address',
+                    selectFulfillmentError: 'Please select delivery method (Delivery/Pickup)',
+                    selectPaymentError: 'Please select payment method',
+                    orderSent: 'Order sent to WhatsApp!',
+                    delivery: 'Delivery',
+                    pickup: 'Self Pickup',
+                    cod: 'Cash on Delivery (COD)',
+                    qrPayment: 'QR Payment'
                 }
             };
 
