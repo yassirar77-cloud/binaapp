@@ -125,180 +125,329 @@ def extract_menu_items_from_html(html: str, business_type: str = "food") -> List
     """
     Extract REAL menu items from AI-generated HTML gallery/menu section.
 
-    CRITICAL FIX: Only extract actual menu/product items, NOT:
-    - Operating hours ("Waktu Operasi")
+    Uses Python's built-in HTMLParser for reliable parsing.
+
+    CRITICAL: Only extract actual menu/product items, NOT:
+    - Operating hours ("Waktu Operasi", "Buka Setiap Hari")
     - Price labels ("Harga")
     - Generic section headers
     - Contact information
-
-    Looks for gallery cards with: image, item name, price, description
     """
+    from html.parser import HTMLParser
+
     menu_items = []
 
-    # Skip words - these are NOT menu items
+    # ========================================================================
+    # SKIP PHRASES - Full phrases that indicate NON-menu content
+    # These are checked FIRST before individual words
+    # ========================================================================
+    skip_phrases = [
+        # Operating hours (Malay)
+        'buka setiap hari', 'waktu operasi', 'waktu perniagaan', 'jam operasi',
+        'hari operasi', 'masa operasi', 'buka dari', 'buka pada', 'tutup pada',
+        'isnin hingga', 'ahad hingga', 'setiap hari', 'hari-hari',
+        'isnin - ahad', 'isnin-ahad', 'sabtu dan ahad',
+        # Operating hours (English)
+        'open daily', 'operating hours', 'business hours', 'opening hours',
+        'open every day', 'monday to', 'sunday to', 'daily from',
+        'mon - sun', 'mon-sun', 'saturday and sunday',
+        # Contact info
+        'hubungi kami', 'contact us', 'call us', 'whatsapp kami',
+        'alamat kami', 'our address', 'lokasi kami', 'our location',
+        # Section headers
+        'menu kami', 'our menu', 'makanan kami', 'our food',
+        'tentang kami', 'about us', 'kenali kami', 'our story',
+        'galeri kami', 'our gallery',
+        # Footer/header content
+        'hak cipta', 'copyright', 'all rights reserved', 'powered by',
+        'follow us', 'ikuti kami', 'social media',
+        # Navigation
+        'laman utama', 'home page', 'kembali ke', 'back to',
+        # Price labels (not actual prices)
+        'harga bermula', 'price starts', 'senarai harga', 'price list',
+    ]
+
+    # Skip words - individual words that indicate non-menu content
     skip_words = [
-        'waktu', 'operasi', 'operating', 'hours', 'harga', 'price', 'hubungi',
-        'contact', 'alamat', 'address', 'lokasi', 'location', 'about', 'tentang',
-        'our story', 'delivery', 'penghantaran', 'menu', 'our menu', 'makanan',
-        'minuman', 'hidangan', 'footer', 'header', 'nav', 'copyright', 'powered',
-        'all rights', 'terma', 'terms', 'privacy', 'polisi', 'social', 'follow',
-        'subscribe', 'newsletter', 'email', 'phone', 'telefon', 'whatsapp',
-        'facebook', 'instagram', 'tiktok', 'twitter', 'scan', 'qr', 'code'
+        'waktu', 'operasi', 'operating', 'hours', 'hubungi', 'contact',
+        'alamat', 'address', 'lokasi', 'location', 'tentang', 'about',
+        'footer', 'header', 'nav', 'navigation', 'copyright', 'powered',
+        'terma', 'terms', 'privacy', 'polisi', 'policy',
+        'subscribe', 'newsletter', 'telefon', 'telephone',
+        'facebook', 'instagram', 'tiktok', 'twitter', 'youtube',
+        'scan', 'imbas', 'qrcode',
     ]
 
-    # Price pattern - must be a reasonable menu item price (RM 1-500)
-    price_pattern = r'RM\s*(\d{1,3}(?:\.\d{2})?)'
+    # ========================================================================
+    # HTML PARSER - Extract structured data from HTML
+    # ========================================================================
+    class MenuCardParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.cards = []  # List of extracted cards
+            self.current_card = None
+            self.in_card = False
+            self.in_heading = False
+            self.in_paragraph = False
+            self.current_tag = None
+            self.card_depth = 0
+            self.heading_text = ""
+            self.paragraph_text = ""
+            self.found_sections = []  # Track sections like menu, gallery
+            self.in_menu_section = False
 
-    # APPROACH 1: Find gallery/menu section first, then extract items from there
-    # Look for sections that are likely to be menu/gallery sections
-    gallery_patterns = [
-        r'(?:id|class)=["\'][^"\']*(?:gallery|menu|products?|items?|grid)[^"\']*["\']',
-        r'<section[^>]*>.*?(?:menu|gallery|products?).*?</section>',
-    ]
+        def handle_starttag(self, tag, attrs):
+            attrs_dict = dict(attrs)
+            class_attr = attrs_dict.get('class', '').lower()
+            id_attr = attrs_dict.get('id', '').lower()
 
-    # Find all div/section/article elements that contain both an image and a price
-    # This is more reliable than trying to split by class names
-    card_pattern = r'<(?:div|article|li)[^>]*>(?:(?!</(?:div|article|li)>).)*?<img[^>]+src=["\']([^"\']+)["\'][^>]*>(?:(?!</(?:div|article|li)>).)*?(?:<h[2-6][^>]*>([^<]+)</h[2-6]>|<(?:strong|b|span)[^>]*class=["\'][^"\']*(?:title|name)[^"\']*["\'][^>]*>([^<]+)</(?:strong|b|span)>)(?:(?!</(?:div|article|li)>).)*?RM\s*(\d{1,3}(?:\.\d{2})?)(?:(?!</(?:div|article|li)>).)*?</(?:div|article|li)>'
+            # Detect menu/gallery sections
+            if tag in ['section', 'div']:
+                if any(x in class_attr or x in id_attr for x in ['menu', 'gallery', 'products', 'grid']):
+                    self.in_menu_section = True
+                    self.found_sections.append(tag)
 
-    # Simpler approach: Find all image + title + price combinations
-    # Pattern for finding menu cards with structure: image, then title (h2-h6), then price
+            # Detect card containers
+            if tag in ['div', 'article', 'li', 'figure']:
+                if any(x in class_attr for x in ['card', 'item', 'product', 'menu-item', 'gallery-item']):
+                    self.in_card = True
+                    self.card_depth += 1
+                    self.current_card = {
+                        'name': '',
+                        'image': '',
+                        'price': 0,
+                        'description': '',
+                        'raw_text': ''
+                    }
+
+            # Track nested depth
+            if self.in_card and tag in ['div', 'article', 'li', 'figure']:
+                self.card_depth += 1
+
+            # Get image URL
+            if tag == 'img' and self.in_card:
+                src = attrs_dict.get('src', '')
+                if src and 'placeholder' not in src.lower():
+                    self.current_card['image'] = src
+
+            # Track headings
+            if tag in ['h2', 'h3', 'h4', 'h5', 'h6']:
+                self.in_heading = True
+                self.heading_text = ""
+
+            # Track paragraphs
+            if tag == 'p':
+                self.in_paragraph = True
+                self.paragraph_text = ""
+
+        def handle_endtag(self, tag):
+            if tag in ['h2', 'h3', 'h4', 'h5', 'h6'] and self.in_heading:
+                self.in_heading = False
+                if self.in_card and self.heading_text.strip():
+                    self.current_card['name'] = self.heading_text.strip()
+
+            if tag == 'p' and self.in_paragraph:
+                self.in_paragraph = False
+                if self.in_card and self.paragraph_text.strip():
+                    # Store first paragraph as description
+                    if not self.current_card['description']:
+                        self.current_card['description'] = self.paragraph_text.strip()[:150]
+
+            # Close card
+            if self.in_card and tag in ['div', 'article', 'li', 'figure']:
+                self.card_depth -= 1
+                if self.card_depth <= 0:
+                    self.in_card = False
+                    self.card_depth = 0
+                    if self.current_card and self.current_card.get('name'):
+                        self.cards.append(self.current_card)
+                    self.current_card = None
+
+            # Exit menu section
+            if tag in ['section', 'div'] and self.found_sections:
+                if self.found_sections[-1] == tag:
+                    self.found_sections.pop()
+                    if not self.found_sections:
+                        self.in_menu_section = False
+
+        def handle_data(self, data):
+            text = data.strip()
+            if not text:
+                return
+
+            if self.in_heading:
+                self.heading_text += " " + text
+
+            if self.in_paragraph:
+                self.paragraph_text += " " + text
+
+            # Collect raw text for price extraction
+            if self.in_card and self.current_card:
+                self.current_card['raw_text'] += " " + text
+
+    # ========================================================================
+    # PARSE HTML
+    # ========================================================================
+    try:
+        parser = MenuCardParser()
+        parser.feed(html)
+        extracted_cards = parser.cards
+        logger.info(f"   HTMLParser found {len(extracted_cards)} potential cards")
+    except Exception as e:
+        logger.error(f"   HTMLParser error: {e}")
+        extracted_cards = []
+
+    # ========================================================================
+    # FALLBACK: Regex extraction if parser finds nothing
+    # ========================================================================
+    if not extracted_cards:
+        logger.info("   Using regex fallback extraction...")
+        # Find cards with class containing card/item/product
+        card_pattern = r'<(?:div|article|li|figure)[^>]*class=["\'][^"\']*(?:card|item|product|menu)[^"\']*["\'][^>]*>(.*?)</(?:div|article|li|figure)>'
+        blocks = re.findall(card_pattern, html, re.IGNORECASE | re.DOTALL)
+
+        for block in blocks:
+            if len(block) < 50:
+                continue
+
+            # Extract image
+            img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', block, re.IGNORECASE)
+            image = img_match.group(1) if img_match else ''
+
+            # Extract heading
+            name_match = re.search(r'<h[2-6][^>]*>([^<]+)</h[2-6]>', block, re.IGNORECASE)
+            name = name_match.group(1).strip() if name_match else ''
+
+            # Extract description
+            desc_match = re.search(r'<p[^>]*>([^<]{10,150})</p>', block, re.IGNORECASE)
+            desc = desc_match.group(1).strip() if desc_match else ''
+
+            if name:
+                extracted_cards.append({
+                    'name': name,
+                    'image': image,
+                    'description': desc,
+                    'raw_text': block,
+                    'price': 0
+                })
+
+    # ========================================================================
+    # PROCESS EXTRACTED CARDS
+    # ========================================================================
     item_id = 1
 
-    # Method 1: Look for structured menu cards
-    # Find blocks that contain: img src, heading text, RM price
-    structured_pattern = r'<(?:div|article|li|figure)[^>]*class=["\'][^"\']*(?:card|item|product|menu)[^"\']*["\'][^>]*>(.*?)</(?:div|article|li|figure)>'
-
-    blocks = re.findall(structured_pattern, html, re.IGNORECASE | re.DOTALL)
-
-    for block in blocks:
-        if len(block) < 50:
+    for card in extracted_cards:
+        name = card.get('name', '').strip()
+        if not name:
             continue
 
-        # Must have an image
-        img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', block, re.IGNORECASE)
-        if not img_match:
-            continue
-        image_url = img_match.group(1)
+        name_lower = name.lower()
 
-        # Skip placeholder/stock images indicators (but allow actual food images)
-        if 'placeholder' in image_url.lower() or 'via.placeholder' in image_url.lower():
-            continue
-
-        # Must have a price
-        price_match = re.search(price_pattern, block)
-        if not price_match:
-            continue
-        price = float(price_match.group(1))
-
-        # Price sanity check - menu items usually RM 1 - RM 200
-        if price < 1 or price > 500:
+        # ====================================================================
+        # SKIP CHECK 1: Full phrase matching (CRITICAL for "Buka Setiap Hari")
+        # ====================================================================
+        skip_this = False
+        for phrase in skip_phrases:
+            if phrase in name_lower:
+                logger.info(f"   ✗ Skipped (phrase match '{phrase}'): {name}")
+                skip_this = True
+                break
+        if skip_this:
             continue
 
-        # Extract name from heading tags
-        name_match = re.search(r'<h[2-6][^>]*>([^<]+)</h[2-6]>', block, re.IGNORECASE)
-        if not name_match:
-            # Try finding name in span/div with title/name class
-            name_match = re.search(r'<(?:span|div|p)[^>]*class=["\'][^"\']*(?:title|name|heading)[^"\']*["\'][^>]*>([^<]+)</(?:span|div|p)>', block, re.IGNORECASE)
-
-        if not name_match:
+        # ====================================================================
+        # SKIP CHECK 2: Individual word matching
+        # ====================================================================
+        if any(word in name_lower for word in skip_words):
+            logger.info(f"   ✗ Skipped (word match): {name}")
             continue
 
-        name = name_match.group(1).strip()
-
-        # Skip if name is too short or too long
+        # ====================================================================
+        # SKIP CHECK 3: Name too short or too long
+        # ====================================================================
         if len(name) < 2 or len(name) > 60:
             continue
 
-        # Skip if name contains skip words
-        name_lower = name.lower()
-        if any(skip in name_lower for skip in skip_words):
-            continue
-
-        # Skip if name is just numbers or special characters
+        # ====================================================================
+        # SKIP CHECK 4: Name is just numbers/special chars
+        # ====================================================================
         if not re.search(r'[a-zA-Z\u0080-\uFFFF]{2,}', name):
             continue
 
-        # Extract description (optional)
-        desc_match = re.search(r'<p[^>]*>([^<]{10,150})</p>', block, re.IGNORECASE)
-        description = desc_match.group(1).strip() if desc_match else ''
+        # ====================================================================
+        # SKIP CHECK 5: Looks like time pattern (7am, 10:00, etc.)
+        # ====================================================================
+        if re.search(r'\d{1,2}[:.]\d{2}|\d{1,2}\s*(am|pm|pagi|petang|malam)', name_lower):
+            logger.info(f"   ✗ Skipped (time pattern): {name}")
+            continue
 
-        # Skip if description looks like operating hours or other non-menu text
+        # ====================================================================
+        # EXTRACT PRICE from raw text
+        # ====================================================================
+        raw_text = card.get('raw_text', '')
+        price_match = re.search(r'RM\s*(\d{1,3}(?:\.\d{2})?)', raw_text, re.IGNORECASE)
+        price = float(price_match.group(1)) if price_match else 0
+
+        # Price sanity check (RM 1 - RM 500)
+        if price < 1 or price > 500:
+            # Try to find price in entire card block
+            price = 15.0  # Default price if not found
+
+        # ====================================================================
+        # GET IMAGE URL
+        # ====================================================================
+        image_url = card.get('image', '')
+        if not image_url or 'placeholder' in image_url.lower():
+            # Use business-type appropriate default image
+            if business_type == 'food':
+                image_url = 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=600&q=80'  # Malaysian food
+            elif business_type == 'clothing':
+                image_url = 'https://images.unsplash.com/photo-1445205170230-053b83016050?w=600&q=80'  # Fashion
+            else:
+                image_url = 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=600&q=80'  # Products
+
+        # ====================================================================
+        # GET DESCRIPTION
+        # ====================================================================
+        description = card.get('description', '')
         if description:
             desc_lower = description.lower()
-            if any(skip in desc_lower for skip in ['waktu', 'operasi', 'hour', 'am', 'pm', 'isnin', 'ahad', 'monday', 'sunday']):
+            # Skip if description looks like operating hours
+            if any(skip in desc_lower for skip in ['waktu', 'operasi', 'hour', 'am', 'pm', 'isnin', 'ahad', 'monday', 'sunday', 'buka', 'tutup']):
                 description = ''
 
-        # Auto-detect category based on business type
+        if not description:
+            if business_type == 'food':
+                description = 'Hidangan istimewa dari dapur kami'
+            elif business_type == 'clothing':
+                description = 'Koleksi pilihan berkualiti tinggi'
+            else:
+                description = 'Produk pilihan kami'
+
+        # ====================================================================
+        # DETECT CATEGORY based on business type
+        # ====================================================================
         category = detect_item_category(name, business_type)
 
-        # Create menu item
+        # ====================================================================
+        # CREATE MENU ITEM
+        # ====================================================================
         menu_item = {
             "id": f"menu-{item_id}",
             "name": name,
-            "description": description if description else f"Produk pilihan kami",
+            "description": description,
             "price": price,
             "image_url": image_url,
             "category_id": category,
             "is_available": True
         }
         menu_items.append(menu_item)
-        logger.info(f"   ✓ Extracted menu item: {name} - RM{price} [{category}]")
+        logger.info(f"   ✓ Extracted: {name} - RM{price} [{category}]")
         item_id += 1
 
         # Limit to 20 items
         if len(menu_items) >= 20:
             break
-
-    # Method 2: If no items found with Method 1, try a more lenient approach
-    # Look for any h3/h4 + RM price combinations in the HTML
-    if not menu_items:
-        logger.info("   Trying lenient extraction method...")
-
-        # Find all headings followed by prices (within reasonable proximity)
-        heading_price_pattern = r'<h[3-5][^>]*>([^<]{2,50})</h[3-5]>(?:[^<]*<[^>]+>)*[^<]*RM\s*(\d{1,3}(?:\.\d{2})?)'
-
-        matches = re.findall(heading_price_pattern, html, re.IGNORECASE | re.DOTALL)
-
-        for name, price_str in matches:
-            name = name.strip()
-            price = float(price_str)
-
-            # Apply same filters
-            name_lower = name.lower()
-            if any(skip in name_lower for skip in skip_words):
-                continue
-            if len(name) < 2 or len(name) > 60:
-                continue
-            if price < 1 or price > 500:
-                continue
-
-            # Find nearby image
-            name_pos = html.find(name)
-            if name_pos > -1:
-                # Look for image within 500 chars before the name
-                search_region = html[max(0, name_pos-500):name_pos+500]
-                img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', search_region, re.IGNORECASE)
-                image_url = img_match.group(1) if img_match else 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80'
-            else:
-                image_url = 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80'
-
-            category = detect_item_category(name, business_type)
-
-            menu_item = {
-                "id": f"menu-{item_id}",
-                "name": name,
-                "description": f"Produk pilihan kami",
-                "price": price,
-                "image_url": image_url,
-                "category_id": category,
-                "is_available": True
-            }
-            menu_items.append(menu_item)
-            logger.info(f"   ✓ Extracted (lenient): {name} - RM{price} [{category}]")
-            item_id += 1
-
-            if len(menu_items) >= 20:
-                break
 
     logger.info(f"   Total extracted: {len(menu_items)} menu items")
     return menu_items
