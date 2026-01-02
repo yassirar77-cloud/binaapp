@@ -6,6 +6,7 @@ import { API_BASE_URL } from '@/lib/env'
 interface GalleryImage {
   url: string
   name: string
+  price: string
 }
 
 interface VisualImageUploadProps {
@@ -22,11 +23,12 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
     preview: string
     url: string
     name: string
+    price: string
   }[]>([
-    { file: null, preview: '', url: '', name: '' },
-    { file: null, preview: '', url: '', name: '' },
-    { file: null, preview: '', url: '', name: '' },
-    { file: null, preview: '', url: '', name: '' }
+    { file: null, preview: '', url: '', name: '', price: '' },
+    { file: null, preview: '', url: '', name: '', price: '' },
+    { file: null, preview: '', url: '', name: '', price: '' },
+    { file: null, preview: '', url: '', name: '', price: '' }
   ])
 
   const [uploading, setUploading] = useState(false)
@@ -67,7 +69,7 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
           hero: url,
           gallery: galleryData
             .filter(g => g.url !== '')
-            .map(g => ({ url: g.url, name: g.name }))
+            .map(g => ({ url: g.url, name: g.name, price: g.price }))
         })
       } catch (error) {
         console.error('Hero upload failed:', error)
@@ -100,7 +102,7 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
           hero: heroUrl || null,
           gallery: updatedData
             .filter(g => g.url !== '')
-            .map(g => ({ url: g.url, name: g.name }))
+            .map(g => ({ url: g.url, name: g.name, price: g.price }))
         })
       } catch (error) {
         console.error(`Gallery ${index + 1} upload failed:`, error)
@@ -121,7 +123,21 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
       hero: heroUrl || null,
       gallery: newData
         .filter(g => g.url !== '')
-        .map(g => ({ url: g.url, name: g.name }))
+        .map(g => ({ url: g.url, name: g.name, price: g.price }))
+    })
+  }
+
+  const handleGalleryPriceChange = (index: number, price: string) => {
+    const newData = [...galleryData]
+    newData[index] = { ...newData[index], price }
+    setGalleryData(newData)
+
+    // Notify parent immediately when price changes
+    onImagesUploaded({
+      hero: heroUrl || null,
+      gallery: newData
+        .filter(g => g.url !== '')
+        .map(g => ({ url: g.url, name: g.name, price: g.price }))
     })
   }
 
@@ -133,20 +149,20 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
       hero: null,
       gallery: galleryData
         .filter(g => g.url !== '')
-        .map(g => ({ url: g.url, name: g.name }))
+        .map(g => ({ url: g.url, name: g.name, price: g.price }))
     })
   }
 
   const removeGallery = (index: number) => {
     const newData = [...galleryData]
-    newData[index] = { file: null, preview: '', url: '', name: '' }
+    newData[index] = { file: null, preview: '', url: '', name: '', price: '' }
     setGalleryData(newData)
 
     onImagesUploaded({
       hero: heroUrl || null,
       gallery: newData
         .filter(g => g.url !== '')
-        .map(g => ({ url: g.url, name: g.name }))
+        .map(g => ({ url: g.url, name: g.name, price: g.price }))
     })
   }
 
@@ -274,6 +290,20 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
                 onChange={(e) => handleGalleryNameChange(index, e.target.value)}
                 className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
+
+              {/* Price input */}
+              <div className="flex items-center gap-1">
+                <span className="text-sm font-medium text-gray-600">RM</span>
+                <input
+                  type="number"
+                  placeholder="0.00"
+                  step="0.50"
+                  min="0"
+                  value={galleryData[index].price}
+                  onChange={(e) => handleGalleryPriceChange(index, e.target.value)}
+                  className="flex-1 px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
             </div>
           ))}
         </div>

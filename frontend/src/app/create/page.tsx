@@ -122,7 +122,7 @@ export default function CreatePage() {
   const [copied, setCopied] = useState(false)
   const [uploadedImages, setUploadedImages] = useState<{
     hero: string | null
-    gallery: { url: string; name: string }[]
+    gallery: { url: string; name: string; price: string }[]
   }>({ hero: null, gallery: [] })
 
   const [multiStyle, setMultiStyle] = useState(true)
@@ -207,7 +207,8 @@ export default function CreatePage() {
       // Prepare images array - combine hero and gallery images with metadata
       const galleryWithMetadata = uploadedImages.gallery.map(g => ({
         url: g.url,
-        name: g.name || ''  // Ensure name is always a string
+        name: g.name || '',  // Ensure name is always a string
+        price: g.price || ''  // Include price
       }));
 
       const allImages = uploadedImages.hero
@@ -416,7 +417,8 @@ export default function CreatePage() {
         .filter(g => !!g?.url)
         .map((g, idx) => ({
           name: g.name || `Menu Item ${idx + 1}`,
-          image_url: g.url
+          image_url: g.url,
+          price: g.price ? parseFloat(g.price) : null
         }))
 
       const response = await fetch(`${API_BASE_URL}/api/publish`, {
