@@ -576,6 +576,150 @@ async def update_order_status(
 
 
 # =====================================================
+# WIDGET CONFIGURATION ENDPOINT
+# =====================================================
+
+@router.get("/config/{website_id}")
+async def get_widget_config(
+    website_id: str,
+    supabase: Client = Depends(get_supabase_client)
+):
+    """
+    Get widget configuration for a website.
+
+    Returns:
+    - businessType: detected from website's business_type or description
+    - payment: { cod, qr, qr_image }
+    - fulfillment: { delivery, pickup, delivery_fee, min_order, delivery_area, pickup_address }
+    - whatsapp_number
+    - business_name
+    - primary_color
+    - categories (based on business type)
+
+    **Public endpoint** - Used by customer ordering widget
+    """
+    from app.services.business_types import (
+        detect_business_type,
+        get_business_config,
+        get_categories_for_business_type
+    )
+
+    try:
+        # 1. Get website info
+        website_response = supabase.table("websites").select(
+            "id, name, business_type, whatsapp_number, description, language, location_address"
+        ).eq("id", website_id).execute()
+
+        website = None
+        if website_response.data:
+            website = website_response.data[0]
+
+        # 2. Get delivery settings
+        settings_response = supabase.table("delivery_settings").select("*").eq(
+            "website_id", website_id
+        ).execute()
+
+        settings = settings_response.data[0] if settings_response.data else None
+
+        # 3. Get first active delivery zone for default fee
+        zone_response = supabase.table("delivery_zones").select(
+            "zone_name, delivery_fee, minimum_order"
+        ).eq("website_id", website_id).eq("is_active", True).order("sort_order").limit(1).execute()
+
+        first_zone = zone_response.data[0] if zone_response.data else None
+
+        # 4. Determine business type
+        business_type = "general"
+        if website:
+            if website.get("business_type"):
+                business_type = website["business_type"]
+            elif website.get("description"):
+                business_type = detect_business_type(website["description"])
+            elif website.get("name"):
+                business_type = detect_business_type(website["name"])
+
+        # 5. Get business config for categories and colors
+        biz_config = get_business_config(business_type)
+
+        # 6. Build response with all configuration needed by widget
+        config = {
+            "website_id": website_id,
+            "business_type": business_type,
+            "business_name": website.get("name", "Kedai") if website else "Kedai",
+            "whatsapp_number": (
+                settings.get("whatsapp_number") if settings else None
+            ) or (
+                website.get("whatsapp_number") if website else None
+            ) or "",
+            "language": website.get("language", "ms") if website else "ms",
+            "primary_color": biz_config.get("primary_color", "#ea580c"),
+
+            # Payment options
+            "payment": {
+                "cod": settings.get("accept_cod", True) if settings else True,
+                "qr": settings.get("accept_online", False) if settings else False,
+                "qr_image": settings.get("qr_payment_image") if settings else None
+            },
+
+            # Fulfillment options
+            "fulfillment": {
+                "delivery": settings.get("delivery_enabled", True) if settings else True,
+                "delivery_fee": float(first_zone.get("delivery_fee", 5)) if first_zone else (
+                    float(settings.get("default_delivery_fee", 5)) if settings else 5.0
+                ),
+                "min_order": float(first_zone.get("minimum_order", 20)) if first_zone else (
+                    float(settings.get("minimum_order", 20)) if settings else 20.0
+                ),
+                "delivery_area": first_zone.get("zone_name", "") if first_zone else "",
+                "pickup": settings.get("pickup_enabled", True) if settings else True,
+                "pickup_address": settings.get("pickup_address") or (
+                    website.get("location_address") if website else ""
+                ) or ""
+            },
+
+            # Categories for this business type
+            "categories": biz_config.get("categories", []),
+
+            # Features for this business type
+            "features": biz_config.get("features", {})
+        }
+
+        logger.info(f"✅ Widget config loaded for {website_id}: type={business_type}")
+        return config
+
+    except Exception as e:
+        logger.error(f"Error fetching widget config: {e}")
+        # Return defaults instead of failing
+        return {
+            "website_id": website_id,
+            "business_type": "food",
+            "business_name": "Kedai",
+            "whatsapp_number": "",
+            "language": "ms",
+            "primary_color": "#ea580c",
+            "payment": {"cod": True, "qr": False, "qr_image": None},
+            "fulfillment": {
+                "delivery": True,
+                "delivery_fee": 5.0,
+                "min_order": 20.0,
+                "delivery_area": "",
+                "pickup": True,
+                "pickup_address": ""
+            },
+            "categories": [
+                {"id": "nasi", "name": "🍚 Nasi", "icon": "🍚"},
+                {"id": "lauk", "name": "🍗 Lauk", "icon": "🍗"},
+                {"id": "minuman", "name": "🥤 Minuman", "icon": "🥤"}
+            ],
+            "features": {
+                "delivery_zones": True,
+                "time_slots": True,
+                "special_instructions": True
+            }
+        }
+
+
+# =====================================================
 # HEALTH CHECK
 # =====================================================
 

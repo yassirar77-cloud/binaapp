@@ -790,7 +790,23 @@
                     const configRes = await fetch(`${this.config.apiUrl}/delivery/config/${this.config.websiteId}`);
                     if (configRes.ok) {
                         const websiteConfig = await configRes.json();
-                        
+
+                        // Apply business type from API if not already set
+                        if (websiteConfig.business_type && !this.config.businessType) {
+                            this.config.businessType = websiteConfig.business_type;
+                            this.businessConfig = BUSINESS_CONFIGS[websiteConfig.business_type] || BUSINESS_CONFIGS.general;
+                        }
+
+                        // Apply custom categories from API if provided
+                        if (websiteConfig.categories && websiteConfig.categories.length > 0) {
+                            // Merge API categories with the 'all' category
+                            this.businessConfig.categories = [
+                                { id: 'all', name: 'Semua', icon: '📋' },
+                                ...websiteConfig.categories
+                            ];
+                            console.log('[BinaApp] Using API categories:', this.businessConfig.categories);
+                        }
+
                         // Apply payment config from API if not overridden
                         if (websiteConfig.payment) {
                             this.paymentConfig = {
@@ -799,7 +815,7 @@
                                 qrImage: websiteConfig.payment.qr_image || this.paymentConfig.qrImage
                             };
                         }
-                        
+
                         // Apply fulfillment config from API if not overridden
                         if (websiteConfig.fulfillment) {
                             this.fulfillmentConfig = {
@@ -811,13 +827,18 @@
                                 pickupAddress: websiteConfig.fulfillment.pickup_address || this.fulfillmentConfig.pickupAddress
                             };
                         }
-                        
+
                         // Get WhatsApp number and business name
                         if (websiteConfig.whatsapp_number) {
                             this.config.whatsappNumber = websiteConfig.whatsapp_number.replace(/[^0-9]/g, '');
                         }
                         if (websiteConfig.business_name) {
                             this.config.businessName = websiteConfig.business_name;
+                        }
+
+                        // Apply primary color from API
+                        if (websiteConfig.primary_color) {
+                            this.config.primaryColor = websiteConfig.primary_color;
                         }
                     }
                 } catch (configError) {
