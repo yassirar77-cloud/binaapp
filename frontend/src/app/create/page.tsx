@@ -146,7 +146,7 @@ export default function CreatePage() {
   })
 
   // Business type state - for dynamic categories and labels
-  const [businessType, setBusinessType] = useState<'auto' | 'food' | 'clothing' | 'services' | 'general'>('auto')
+  const [businessType, setBusinessType] = useState<'auto' | 'food' | 'clothing' | 'salon' | 'services' | 'bakery' | 'general'>('auto')
 
   // Delivery system states
   const [deliveryArea, setDeliveryArea] = useState('')
@@ -573,48 +573,43 @@ export default function CreatePage() {
             </div>
 
             {/* Business Type Selector - for dynamic categories */}
-            <div className="mb-4">
-              <label className="block text-sm font-semibold mb-2 text-gray-700">
-                Jenis Perniagaan / Business Type:
-              </label>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                <button
-                  onClick={() => setBusinessType('auto')}
-                  className={`btn ${businessType === 'auto' ? 'btn-primary' : 'btn-outline'} text-sm`}
-                >
-                  🔍 Auto Detect
-                </button>
-                <button
-                  onClick={() => setBusinessType('food')}
-                  className={`btn ${businessType === 'food' ? 'btn-primary' : 'btn-outline'} text-sm`}
-                >
-                  🍛 Makanan
-                </button>
-                <button
-                  onClick={() => setBusinessType('clothing')}
-                  className={`btn ${businessType === 'clothing' ? 'btn-primary' : 'btn-outline'} text-sm`}
-                >
-                  👗 Pakaian
-                </button>
-                <button
-                  onClick={() => setBusinessType('services')}
-                  className={`btn ${businessType === 'services' ? 'btn-primary' : 'btn-outline'} text-sm`}
-                >
-                  🔧 Servis
-                </button>
-                <button
-                  onClick={() => setBusinessType('general')}
-                  className={`btn ${businessType === 'general' ? 'btn-primary' : 'btn-outline'} text-sm`}
-                >
-                  🛒 Lain-lain
-                </button>
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold mb-3">🏪 Jenis Perniagaan</h3>
+              <p className="text-gray-500 text-sm mb-3">Pilih jenis perniagaan anda</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { id: 'auto' as const, icon: '🔍', label: 'Auto Detect', desc: 'Sistem akan kesan automatik' },
+                  { id: 'food' as const, icon: '🍛', label: 'Restoran / Makanan', desc: 'Nasi, Lauk, Minuman' },
+                  { id: 'clothing' as const, icon: '👗', label: 'Pakaian / Butik', desc: 'Baju, Tudung, Aksesori' },
+                  { id: 'salon' as const, icon: '💇', label: 'Salon / Spa', desc: 'Potong, Rawatan, Warna' },
+                  { id: 'services' as const, icon: '🔧', label: 'Servis / Repair', desc: 'Perkhidmatan, Pakej' },
+                  { id: 'bakery' as const, icon: '🎂', label: 'Bakeri / Kek', desc: 'Kek, Pastri, Cookies' },
+                  { id: 'general' as const, icon: '🛒', label: 'Lain-lain', desc: 'Produk Umum' }
+                ].map(type => (
+                  <button
+                    key={type.id}
+                    type="button"
+                    onClick={() => setBusinessType(type.id)}
+                    className={`p-4 border-2 rounded-xl text-center transition ${
+                      businessType === type.id
+                        ? 'border-orange-500 bg-orange-50'
+                        : 'border-gray-200 hover:border-orange-300'
+                    }`}
+                  >
+                    <span className="text-3xl block mb-1">{type.icon}</span>
+                    <p className="text-sm font-medium">{type.label}</p>
+                    <p className="text-xs text-gray-500 mt-1">{type.desc}</p>
+                  </button>
+                ))}
               </div>
-              <p className="text-xs text-gray-500 mt-1">
-                {businessType === 'auto' && 'Sistem akan mengesan jenis perniagaan anda secara automatik'}
-                {businessType === 'food' && 'Kategori: Nasi, Lauk, Minuman | Label: Pesan Delivery'}
-                {businessType === 'clothing' && 'Kategori: Baju, Tudung, Aksesori | Label: Order Sekarang'}
-                {businessType === 'services' && 'Kategori: Perkhidmatan, Pakej | Label: Tempah Sekarang'}
-                {businessType === 'general' && 'Kategori: Produk, Lain-lain | Label: Beli Sekarang'}
+              <p className="text-xs text-gray-500 mt-2">
+                {businessType === 'auto' && '💡 Sistem akan mengesan jenis perniagaan anda secara automatik dari deskripsi'}
+                {businessType === 'food' && '🛵 Butang: "Pesan Delivery" | Kategori: Nasi, Lauk, Minuman'}
+                {businessType === 'clothing' && '🛍️ Butang: "Beli Sekarang" | Pilihan saiz & warna | Penghantaran'}
+                {businessType === 'salon' && '📅 Butang: "Tempah Sekarang" | Tarikh temujanji & pilih staff'}
+                {businessType === 'services' && '🔧 Butang: "Tempah Servis" | Tarikh & lokasi servis'}
+                {businessType === 'bakery' && '🎂 Butang: "Tempah Kek" | Pilihan saiz & mesej atas kek'}
+                {businessType === 'general' && '🛒 Butang: "Beli Sekarang" | Pilihan penghantaran'}
               </p>
             </div>
 
