@@ -18,16 +18,14 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
   const [heroPreview, setHeroPreview] = useState<string>('')
   const [heroUrl, setHeroUrl] = useState<string>('')
 
-  const [galleryData, setGalleryData] = useState<{
+  // Dynamic menu items - start with 1 empty item
+  const [menuItems, setMenuItems] = useState<{
     file: File | null
     preview: string
     url: string
     name: string
     price: string
   }[]>([
-    { file: null, preview: '', url: '', name: '', price: '' },
-    { file: null, preview: '', url: '', name: '', price: '' },
-    { file: null, preview: '', url: '', name: '', price: '' },
     { file: null, preview: '', url: '', name: '', price: '' }
   ])
 
@@ -51,6 +49,16 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
     throw new Error('Upload failed')
   }
 
+  // Notify parent of current state
+  const notifyParent = (items: typeof menuItems, hero: string | null) => {
+    onImagesUploaded({
+      hero: hero,
+      gallery: items
+        .filter(g => g.url !== '' || g.name !== '' || g.price !== '')
+        .map(g => ({ url: g.url, name: g.name, price: g.price }))
+    })
+  }
+
   const handleHeroUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
@@ -60,17 +68,11 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
 
       // Upload immediately
       setUploading(true)
-      setUploadProgress('Uploading hero image...')
+      setUploadProgress('Memuat naik gambar hero...')
       try {
         const url = await uploadImage(file)
         setHeroUrl(url)
-        // Notify parent
-        onImagesUploaded({
-          hero: url,
-          gallery: galleryData
-            .filter(g => g.url !== '')
-            .map(g => ({ url: g.url, name: g.name, price: g.price }))
-        })
+        notifyParent(menuItems, url)
       } catch (error) {
         console.error('Hero upload failed:', error)
       } finally {
@@ -80,32 +82,25 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
     }
   }
 
-  const handleGalleryUpload = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMenuImageUpload = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
       const preview = URL.createObjectURL(file)
-      const newData = [...galleryData]
-      newData[index] = { ...newData[index], file, preview }
-      setGalleryData(newData)
+      const newItems = [...menuItems]
+      newItems[index] = { ...newItems[index], file, preview }
+      setMenuItems(newItems)
 
       // Upload immediately
       setUploading(true)
-      setUploadProgress(`Uploading gallery image ${index + 1}...`)
+      setUploadProgress(`Memuat naik gambar item ${index + 1}...`)
       try {
         const url = await uploadImage(file)
-        const updatedData = [...newData]
-        updatedData[index] = { ...updatedData[index], url }
-        setGalleryData(updatedData)
-
-        // Notify parent
-        onImagesUploaded({
-          hero: heroUrl || null,
-          gallery: updatedData
-            .filter(g => g.url !== '')
-            .map(g => ({ url: g.url, name: g.name, price: g.price }))
-        })
+        const updatedItems = [...newItems]
+        updatedItems[index] = { ...updatedItems[index], url }
+        setMenuItems(updatedItems)
+        notifyParent(updatedItems, heroUrl || null)
       } catch (error) {
-        console.error(`Gallery ${index + 1} upload failed:`, error)
+        console.error(`Menu item ${index + 1} upload failed:`, error)
       } finally {
         setUploading(false)
         setUploadProgress('')
@@ -113,60 +108,52 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
     }
   }
 
-  const handleGalleryNameChange = (index: number, name: string) => {
-    const newData = [...galleryData]
-    newData[index] = { ...newData[index], name }
-    setGalleryData(newData)
-
-    // Notify parent immediately when name changes
-    onImagesUploaded({
-      hero: heroUrl || null,
-      gallery: newData
-        .filter(g => g.url !== '')
-        .map(g => ({ url: g.url, name: g.name, price: g.price }))
-    })
+  const handleNameChange = (index: number, name: string) => {
+    const newItems = [...menuItems]
+    newItems[index] = { ...newItems[index], name }
+    setMenuItems(newItems)
+    notifyParent(newItems, heroUrl || null)
   }
 
-  const handleGalleryPriceChange = (index: number, price: string) => {
-    const newData = [...galleryData]
-    newData[index] = { ...newData[index], price }
-    setGalleryData(newData)
-
-    // Notify parent immediately when price changes
-    onImagesUploaded({
-      hero: heroUrl || null,
-      gallery: newData
-        .filter(g => g.url !== '')
-        .map(g => ({ url: g.url, name: g.name, price: g.price }))
-    })
+  const handlePriceChange = (index: number, price: string) => {
+    const newItems = [...menuItems]
+    newItems[index] = { ...newItems[index], price }
+    setMenuItems(newItems)
+    notifyParent(newItems, heroUrl || null)
   }
 
   const removeHero = () => {
     setHeroImage(null)
     setHeroPreview('')
     setHeroUrl('')
-    onImagesUploaded({
-      hero: null,
-      gallery: galleryData
-        .filter(g => g.url !== '')
-        .map(g => ({ url: g.url, name: g.name, price: g.price }))
-    })
+    notifyParent(menuItems, null)
   }
 
-  const removeGallery = (index: number) => {
-    const newData = [...galleryData]
-    newData[index] = { file: null, preview: '', url: '', name: '', price: '' }
-    setGalleryData(newData)
-
-    onImagesUploaded({
-      hero: heroUrl || null,
-      gallery: newData
-        .filter(g => g.url !== '')
-        .map(g => ({ url: g.url, name: g.name, price: g.price }))
-    })
+  // Add new menu item
+  const addMenuItem = () => {
+    const newItems = [...menuItems, { file: null, preview: '', url: '', name: '', price: '' }]
+    setMenuItems(newItems)
   }
 
-  const uploadedCount = (heroImage ? 1 : 0) + galleryData.filter(g => g.file !== null).length
+  // Remove menu item (completely removes from array)
+  const removeMenuItem = (index: number) => {
+    if (menuItems.length > 1) {
+      const newItems = menuItems.filter((_, i) => i !== index)
+      setMenuItems(newItems)
+      notifyParent(newItems, heroUrl || null)
+    }
+  }
+
+  // Clear image from menu item (keeps the item, just removes the image)
+  const clearMenuImage = (index: number) => {
+    const newItems = [...menuItems]
+    newItems[index] = { ...newItems[index], file: null, preview: '', url: '' }
+    setMenuItems(newItems)
+    notifyParent(newItems, heroUrl || null)
+  }
+
+  const filledItemsCount = menuItems.filter(m => m.name || m.price || m.url).length
+  const uploadedCount = (heroImage ? 1 : 0) + menuItems.filter(m => m.file !== null).length
 
   return (
     <div className="bg-white rounded-xl p-6 shadow-lg mb-6">
@@ -228,90 +215,113 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
         />
       </div>
 
-      {/* GALLERY/PRODUCT IMAGES - 4 boxes */}
+      {/* MENU ITEMS - Unlimited */}
       <div>
         <label className="block text-sm font-medium mb-2">
-          📷 Gambar Produk / Galeri (4 gambar)
+          📷 Menu Produk (Unlimited)
         </label>
         <p className="text-xs text-gray-400 mb-3">
-          Gambar menu, produk, atau perkhidmatan anda / Images of your menu, products, or services
+          Tambah gambar, nama dan harga untuk setiap item menu anda
         </p>
 
-        <div className="grid grid-cols-2 gap-4">
-          {[0, 1, 2, 3].map((index) => (
-            <div key={index} className="space-y-2">
+        <div className="space-y-3">
+          {menuItems.map((item, index) => (
+            <div key={index} className="flex gap-3 items-center p-4 bg-gray-50 rounded-xl border border-gray-200">
               {/* Image upload box */}
               <div
-                className="border-2 border-dashed border-gray-300 rounded-xl p-2 text-center cursor-pointer hover:border-blue-500 transition h-32 flex items-center justify-center"
-                onClick={() => document.getElementById(`gallery-upload-${index}`)?.click()}
+                className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex-shrink-0 cursor-pointer hover:border-orange-400 transition flex items-center justify-center overflow-hidden"
+                onClick={() => document.getElementById(`menu-upload-${index}`)?.click()}
               >
-                {galleryData[index].preview ? (
+                {item.preview ? (
                   <div className="relative w-full h-full">
                     <img
-                      src={galleryData[index].preview}
-                      alt={`Product ${index + 1}`}
-                      className="w-full h-full object-cover rounded-lg"
+                      src={item.preview}
+                      alt={`Menu ${index + 1}`}
+                      className="w-full h-full object-cover"
                     />
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        removeGallery(index)
+                        clearMenuImage(index)
                       }}
-                      className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs hover:bg-red-600"
+                      className="absolute top-0 right-0 bg-red-500 text-white rounded-full w-5 h-5 text-xs hover:bg-red-600"
                       title="Remove image"
                     >✕</button>
-                    {galleryData[index].url && (
-                      <div className="absolute top-1 left-1 bg-green-500 text-white text-xs px-2 py-1 rounded">
+                    {item.url && (
+                      <div className="absolute bottom-0 left-0 right-0 bg-green-500 text-white text-xs text-center py-0.5">
                         ✓
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div>
+                  <div className="text-center">
                     <span className="text-2xl">📷</span>
-                    <p className="text-xs text-gray-500">Gambar {index + 1}</p>
                   </div>
                 )}
                 <input
-                  id={`gallery-upload-${index}`}
+                  id={`menu-upload-${index}`}
                   type="file"
                   accept="image/*"
                   className="hidden"
-                  onChange={(e) => handleGalleryUpload(index, e)}
+                  onChange={(e) => handleMenuImageUpload(index, e)}
                   disabled={uploading}
                 />
               </div>
 
-              {/* Dish name input */}
-              <input
-                type="text"
-                placeholder="Nama hidangan (cth: Nasi Lemak)"
-                value={galleryData[index].name}
-                onChange={(e) => handleGalleryNameChange(index, e.target.value)}
-                className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-
-              {/* Price input */}
-              <div className="flex items-center gap-1">
-                <span className="text-sm font-medium text-gray-600">RM</span>
+              {/* Name & Price inputs */}
+              <div className="flex-1 space-y-2">
                 <input
-                  type="number"
-                  placeholder="0.00"
-                  step="0.50"
-                  min="0"
-                  value={galleryData[index].price}
-                  onChange={(e) => handleGalleryPriceChange(index, e.target.value)}
-                  className="flex-1 px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  type="text"
+                  placeholder="Nama (cth: Nasi Lemak Special)"
+                  value={item.name}
+                  onChange={(e) => handleNameChange(index, e.target.value)}
+                  className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent"
                 />
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-gray-600">RM</span>
+                  <input
+                    type="number"
+                    placeholder="0.00"
+                    step="0.50"
+                    min="0"
+                    value={item.price}
+                    onChange={(e) => handlePriceChange(index, e.target.value)}
+                    className="w-28 px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+                  />
+                </div>
               </div>
+
+              {/* Remove button */}
+              {menuItems.length > 1 && (
+                <button
+                  onClick={() => removeMenuItem(index)}
+                  className="text-red-500 hover:bg-red-50 p-2 rounded-full transition flex-shrink-0"
+                  title="Buang item ini"
+                >
+                  🗑️
+                </button>
+              )}
             </div>
           ))}
         </div>
+
+        {/* Add more button */}
+        <button
+          onClick={addMenuItem}
+          className="w-full mt-4 py-3 border-2 border-dashed border-orange-300 rounded-xl text-orange-600 font-medium hover:bg-orange-50 transition"
+        >
+          ➕ Tambah Item Lagi
+        </button>
+
+        {/* Item count */}
+        <p className="text-sm text-gray-400 text-center mt-3">
+          {filledItemsCount} item ditambah
+        </p>
       </div>
 
       {/* Upload status */}
       <div className="mt-4 text-sm text-gray-500">
-        ✅ {uploadedCount} / 5 gambar dipilih ({galleryData.filter(g => g.url !== '').length + (heroUrl ? 1 : 0)} uploaded)
+        ✅ {uploadedCount} gambar dimuat naik
       </div>
     </div>
   )
