@@ -821,59 +821,6 @@ export default function CreatePage() {
               </div>
             </div>
 
-            {/* If Delivery selected, show delivery settings */}
-            {selectedFeatures.deliverySystem && (
-              <div className="bg-orange-50 rounded-xl p-6 mt-4 border border-orange-200">
-                <h4 className="font-bold text-orange-800 mb-3">🛵 Tetapan Delivery</h4>
-
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Kawasan Delivery</label>
-                    <input
-                      type="text"
-                      placeholder="cth: Shah Alam, Klang, Subang (5km radius)"
-                      className="w-full px-4 py-2 border rounded-lg"
-                      value={deliveryArea}
-                      onChange={(e) => setDeliveryArea(e.target.value)}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Caj Delivery</label>
-                    <input
-                      type="text"
-                      placeholder="cth: RM5 (dalam 3km), RM8 (3-5km)"
-                      className="w-full px-4 py-2 border rounded-lg"
-                      value={deliveryFee}
-                      onChange={(e) => setDeliveryFee(e.target.value)}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Minimum Order</label>
-                    <input
-                      type="text"
-                      placeholder="cth: RM20"
-                      className="w-full px-4 py-2 border rounded-lg"
-                      value={minimumOrder}
-                      onChange={(e) => setMinimumOrder(e.target.value)}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Waktu Delivery</label>
-                    <input
-                      type="text"
-                      placeholder="cth: 11am - 9pm"
-                      className="w-full px-4 py-2 border rounded-lg"
-                      value={deliveryHours}
-                      onChange={(e) => setDeliveryHours(e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* If Google Map selected, ask for address */}
             {selectedFeatures.googleMap && (
               <div className="bg-blue-50 rounded-xl p-6 mt-4 border border-blue-200">
