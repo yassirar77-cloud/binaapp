@@ -1571,6 +1571,8 @@ async def run_generation_task(
     delivery: Optional[dict] = None,
     address: Optional[str] = None,
     social_media: Optional[dict] = None,
+    payment: Optional[dict] = None,
+    business_name: Optional[str] = None,
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -1636,47 +1638,70 @@ async def run_generation_task(
             if selected_features.get("whatsapp", True):
                 features_list.append("whatsapp")
 
-            # Build menu items from uploaded images (matches frontend format: [{url,name}, ...])
+            # Build menu items from uploaded images (matches frontend format: [{url,name,price}, ...])
+            # CRITICAL FIX: ONLY use user's uploaded menu items - NEVER extract from AI-generated HTML!
+            # The AI was extracting random text like "Get In Touch", "WhatsApp" as menu items.
             menu_items = []
 
             # Detect business type from description for proper category assignment
             from app.services.business_types import detect_business_type, detect_item_category
+            from app.api.simple.generate import is_valid_menu_item_name
             business_type = detect_business_type(description)
             logger.info(f"🏢 Detected business type: {business_type}")
 
-            # Extract menu items from generated HTML first
-            from app.api.simple.generate import extract_menu_items_from_html
-            extracted_items = extract_menu_items_from_html(html, business_type)
-            if extracted_items:
-                logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
-                menu_items.extend(extracted_items)
+            # ⚠️ REMOVED: Do NOT extract menu items from AI-generated HTML!
+            # This was causing "Get In Touch", "OPEN SHOP", "WhatsApp" to appear as menu items.
+            # Only use user's uploaded items below.
 
-            # Then add menu items from uploaded images
+            # Build menu items ONLY from user-uploaded images
             if images:
                 from app.services.business_types import get_business_config
                 biz_config = get_business_config(business_type)
                 default_desc = biz_config.get("item_description_default", "Produk pilihan kami")
                 default_prices = [15, 12, 18, 10, 20, 14, 16, 13]
+                logger.info(f"🍽️ Processing {len(images)} user-uploaded images for menu items...")
+
                 for idx, img in enumerate(images):
                     if isinstance(img, dict):
                         img_url = img.get("url", "")
                         img_name = img.get("name", f"Item {idx+1}")
+                        # CRITICAL: Use user's price if provided
+                        user_price = img.get("price")
+                        if user_price:
+                            try:
+                                img_price = float(str(user_price).replace("RM", "").replace(",", "").strip())
+                            except (ValueError, TypeError):
+                                img_price = default_prices[idx % len(default_prices)]
+                        else:
+                            img_price = default_prices[idx % len(default_prices)]
                     else:
                         img_url = str(img)
                         img_name = f"Item {idx+1}"
-                    if not img_name or img_name == "Hero Image":
+                        img_price = default_prices[idx % len(default_prices)]
+
+                    # Skip empty names or hero images
+                    if not img_name or img_name == "Hero Image" or img_name.strip() == "":
                         continue
+
+                    # CRITICAL: Validate menu item name to prevent hallucinated items
+                    if not is_valid_menu_item_name(img_name):
+                        logger.warning(f"   ⚠️ Skipping invalid menu item: '{img_name}'")
+                        continue
+
                     # Auto-detect category based on item name and business type
                     category = detect_item_category(img_name, business_type)
                     menu_items.append({
                         "id": f"menu-{idx}",
                         "name": img_name,
                         "description": default_desc,
-                        "price": default_prices[idx % len(default_prices)],
+                        "price": img_price,
                         "image_url": img_url,
                         "category_id": category,
                         "is_available": True
                     })
+                    logger.info(f"   ✅ Added menu item: {img_name} - RM{img_price:.2f} [{category}]")
+
+                logger.info(f"🍽️ Created {len(menu_items)} valid menu items from user uploads")
 
             # Default delivery zone for ordering UI
             delivery_zones = []
@@ -1692,9 +1717,20 @@ async def run_generation_task(
                     fee_val = 5
                     minimum_val = 30
 
+                # CRITICAL: Get zone name from multiple possible fields
+                zone_name = (
+                    delivery_cfg.get("area") or
+                    delivery_cfg.get("zone_name") or
+                    delivery_cfg.get("delivery_area") or
+                    "Kawasan Delivery"
+                )
+                # Ensure zone_name is not empty
+                if not zone_name or zone_name.strip() == "":
+                    zone_name = "Kawasan Delivery"
+
                 delivery_zones = [{
                     "id": "default",
-                    "zone_name": delivery_cfg.get("area", "Kawasan Delivery"),
+                    "zone_name": zone_name,
                     "delivery_fee": float(fee_val),
                     "minimum_order": float(minimum_val),
                     "estimated_time": delivery_cfg.get("hours", "30-45 min"),
@@ -1702,19 +1738,51 @@ async def run_generation_task(
                     "estimated_time_max": 45,
                     "is_active": True
                 }]
+                logger.info(f"📍 Created delivery zone: {zone_name} - RM{fee_val:.2f}")
+
+            # FIXED: Use provided business_name, or extract intelligently from description
+            # Don't just use first word - extract meaningful business name
+            if business_name:
+                actual_business_name = business_name
+            elif description:
+                # Try to extract meaningful name from description (first 3-4 words that look like a name)
+                words = description.split()
+                # Take first 3 words if they form a reasonable business name
+                if len(words) >= 3:
+                    actual_business_name = " ".join(words[:3])
+                elif len(words) >= 1:
+                    actual_business_name = words[0]
+                else:
+                    actual_business_name = "Business"
+            else:
+                actual_business_name = "Business"
+
+            # Get phone number from delivery config if available
+            phone_number = "+60123456789"
+            if delivery_cfg and delivery_cfg.get("phone"):
+                phone_number = delivery_cfg.get("phone")
 
             user_data = {
-                "phone": "+60123456789",  # Best-effort; WhatsApp button is usually present in generated HTML
+                "phone": phone_number,
                 "address": address or "",
                 "email": "contact@business.com",
                 "url": "https://preview.binaapp.my",
                 "whatsapp_message": "Hi, I'm interested",
-                "business_name": description.split()[0] if description else "Business",
+                "business_name": actual_business_name,
+                "business_type": business_type,  # For dynamic categories
+                "description": description,  # For business type detection
                 "menu_items": menu_items,
                 "delivery_zones": delivery_zones
             }
+
+            # Add delivery config
             if delivery_cfg:
                 user_data["delivery"] = delivery_cfg
+
+            # CRITICAL: Add payment data for QR payment support
+            if payment:
+                user_data["payment"] = payment
+                logger.info(f"💳 Payment config: COD={payment.get('cod')}, QR={payment.get('qr')}, QR Image={'Yes' if payment.get('qr_image') else 'No'}")
 
             if "delivery_system" in features_list or delivery_cfg:
                 html = template_service.inject_integrations(html, features_list, user_data)
@@ -1787,6 +1855,8 @@ async def start_generation(request: Request):
     delivery = body.get("delivery") or None
     address = body.get("address") or None
     social_media = body.get("social_media") or None
+    payment = body.get("payment") or None  # Payment methods (cod, qr, qr_image)
+    business_name = body.get("business_name") or body.get("businessName") or None  # Actual business name
 
     # Get dish names from request
     dish_names = body.get("dish_names", [])
@@ -1905,7 +1975,9 @@ MANDATORY REQUIREMENTS:
         features,
         delivery,
         address,
-        social_media
+        social_media,
+        payment,
+        business_name
     ))
 
     logger.info(f"🚀 Job started: {job_id}")

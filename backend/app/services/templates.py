@@ -938,13 +938,19 @@ function handleContactSubmit(e) {{
         formatted_zones = []
         if delivery_zones:
             for idx, zone in enumerate(delivery_zones):
+                # CRITICAL: Ensure zone name is never empty
+                zone_name = zone.get('zone_name') or zone.get('name') or f'Zone {idx+1}'
+                if not zone_name or str(zone_name).strip() == '':
+                    zone_name = 'Kawasan Delivery'
+
                 formatted_zones.append({
                     'id': idx + 1,
-                    'name': zone.get('zone_name', zone.get('name', f'Zone {idx+1}')),
+                    'name': zone_name,
                     'fee': float(zone.get('delivery_fee', zone.get('fee', 5))),
                     'time': zone.get('estimated_time', zone.get('delivery_time', '30-45 min')),
                     'active': True
                 })
+                logger.info(f"   ✓ Zone: {zone_name} - RM{zone.get('delivery_fee', zone.get('fee', 5))}")
         else:
             # Default zone if none provided
             formatted_zones = [{
