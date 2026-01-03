@@ -905,6 +905,13 @@ function handleContactSubmit(e) {{
             else:
                 phone_clean = '+60' + phone_clean
 
+        # Extract payment data for QR payment support
+        payment_data = business_info.get("payment", {})
+        payment_qr_url = payment_data.get("qr_image", "") if payment_data else ""
+        payment_cod_enabled = payment_data.get("cod", True) if payment_data else True
+        payment_qr_enabled = payment_data.get("qr", False) if payment_data else False
+        logger.info(f"💳 Payment config: COD={payment_cod_enabled}, QR={payment_qr_enabled}, QR Image={'Yes' if payment_qr_url else 'No'}")
+
         # Get business config for this type
         biz_config = get_business_config(business_type)
         default_description = biz_config.get("item_description_default", "Produk berkualiti pilihan kami")
@@ -1110,6 +1117,11 @@ function handleContactSubmit(e) {{
                         <div style="display:flex;justify-content:space-between;color:#6b7280;margin-bottom:8px;"><span>Caj Delivery</span><span>RM<span id="delivery-fee-desktop">0.00</span></span></div>
                         <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:bold;padding-top:8px;border-top:1px solid #e5e7eb;"><span>Jumlah</span><span style="color:#ea580c;">RM<span id="total-desktop">0.00</span></span></div>
                     </div>
+                    <!-- Payment Options Section -->
+                    <div id="payment-section-desktop" style="display:none;border-top:1px solid #e5e7eb;padding-top:16px;margin-top:16px;">
+                        <h4 style="font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px;">💳 Cara Bayaran</h4>
+                        <div id="payment-options-desktop"></div>
+                    </div>
                     <button id="checkout-btn-desktop" onclick="deliveryCheckout()" style="display:none;width:100%;margin-top:20px;background:linear-gradient(to right,#22c55e,#16a34a);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;">
                         📱 Hantar Pesanan via WhatsApp
                     </button>
@@ -1145,6 +1157,11 @@ function handleContactSubmit(e) {{
                     <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Caj Delivery</span><span>RM<span id="delivery-fee-mobile">0</span></span></div>
                     <div style="display:flex;justify-content:space-between;font-weight:bold;font-size:18px;"><span>Jumlah</span><span style="color:#ea580c;">RM<span id="total-mobile">0</span></span></div>
                 </div>
+                <!-- Payment Options Section - Mobile -->
+                <div style="margin-bottom:16px;">
+                    <h4 style="font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px;">💳 Cara Bayaran</h4>
+                    <div id="payment-options-mobile"></div>
+                </div>
                 <button onclick="deliveryCheckout()" style="width:100%;background:linear-gradient(to right,#22c55e,#16a34a);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;">
                     📱 Hantar WhatsApp
                 </button>
@@ -1166,6 +1183,10 @@ function handleContactSubmit(e) {{
         if "binaapp-delivery-btn" not in html and "</body>" in html:
             html = html.replace("</body>", delivery_button_inline + "\n</body>")
 
+        # Convert Python booleans to JavaScript string for injection
+        payment_qr_enabled_js = "true" if payment_qr_enabled else "false"
+        payment_cod_enabled_js = "true" if payment_cod_enabled else "false"
+
         # STEP 4: JavaScript - Complete delivery system with prefixed functions
         script = f'''
 <script>
@@ -1177,10 +1198,16 @@ function handleContactSubmit(e) {{
     const deliveryZonesData = {zones_json};
     const deliveryMenuData = {menu_json};
 
+    // Payment configuration
+    const PAYMENT_QR_URL = '{payment_qr_url}';
+    const PAYMENT_COD_ENABLED = {payment_cod_enabled_js};
+    const PAYMENT_QR_ENABLED = {payment_qr_enabled_js};
+
     let deliveryCart = [];
     let deliverySelectedZone = null;
     let deliveryFeeAmount = 0;
     let deliveryCurrentCategory = 'all';
+    let selectedPaymentMethod = PAYMENT_COD_ENABLED ? 'cod' : (PAYMENT_QR_ENABLED ? 'qr' : 'cod');
 
     // Page switching
     window.showDeliveryPage = function(page) {{
@@ -1312,17 +1339,27 @@ function handleContactSubmit(e) {{
         const itemsD = document.getElementById('cart-items-desktop');
         const summaryD = document.getElementById('cart-summary-desktop');
         const checkoutD = document.getElementById('checkout-btn-desktop');
+        const paymentD = document.getElementById('payment-section-desktop');
         const emptyM = document.getElementById('cart-empty-mobile');
         const itemsM = document.getElementById('cart-items-mobile');
         const footerM = document.getElementById('cart-footer-mobile');
-        
+
         if (emptyD) emptyD.style.display = hasItems ? 'none' : 'block';
         if (itemsD) itemsD.style.display = hasItems ? 'block' : 'none';
         if (summaryD) summaryD.style.display = hasItems ? 'block' : 'none';
         if (checkoutD) checkoutD.style.display = hasItems ? 'block' : 'none';
+        if (paymentD) paymentD.style.display = hasItems ? 'block' : 'none';
         if (emptyM) emptyM.style.display = hasItems ? 'none' : 'block';
         if (itemsM) itemsM.style.display = hasItems ? 'block' : 'none';
         if (footerM) footerM.style.display = hasItems ? 'block' : 'none';
+
+        // Update QR total amount if payment method is QR
+        if (hasItems && selectedPaymentMethod === 'qr') {{
+            const qrTotal = document.getElementById('qr-total-amount');
+            const qrTotalMobile = document.getElementById('qr-total-amount-mobile');
+            if (qrTotal) qrTotal.textContent = total.toFixed(2);
+            if (qrTotalMobile) qrTotalMobile.textContent = total.toFixed(2);
+        }}
 
         const floatingBtn = document.getElementById('delivery-floating-cart-btn');
         if (floatingBtn) {{
@@ -1375,7 +1412,76 @@ function handleContactSubmit(e) {{
         }}
     }};
 
-    // Checkout - Dynamic based on business type
+    // Payment selection
+    window.selectPaymentMethod = function(method) {{
+        selectedPaymentMethod = method;
+        // Update UI
+        document.querySelectorAll('.payment-option').forEach(el => {{
+            el.classList.remove('selected');
+            el.style.borderColor = '#e5e7eb';
+        }});
+        const selected = document.querySelector('.payment-option[data-method="' + method + '"]');
+        if (selected) {{
+            selected.classList.add('selected');
+            selected.style.borderColor = '#f97316';
+        }}
+        // Show/hide QR display
+        const qrDisplay = document.getElementById('qr-payment-display');
+        const qrDisplayMobile = document.getElementById('qr-payment-display-mobile');
+        if (qrDisplay) qrDisplay.style.display = method === 'qr' ? 'block' : 'none';
+        if (qrDisplayMobile) qrDisplayMobile.style.display = method === 'qr' ? 'block' : 'none';
+        // Update QR total amount
+        if (method === 'qr') {{
+            const subtotal = deliveryCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+            const total = subtotal + deliveryFeeAmount;
+            const qrTotal = document.getElementById('qr-total-amount');
+            const qrTotalMobile = document.getElementById('qr-total-amount-mobile');
+            if (qrTotal) qrTotal.textContent = total.toFixed(2);
+            if (qrTotalMobile) qrTotalMobile.textContent = total.toFixed(2);
+        }}
+    }};
+
+    // Render payment options
+    function renderPaymentOptions() {{
+        const paymentHtml = [];
+        if (PAYMENT_COD_ENABLED) {{
+            paymentHtml.push(`
+                <div class="payment-option ${{selectedPaymentMethod === 'cod' ? 'selected' : ''}}" data-method="cod" onclick="selectPaymentMethod('cod')" style="display:flex;align-items:center;gap:12px;padding:12px;border:2px solid ${{selectedPaymentMethod === 'cod' ? '#f97316' : '#e5e7eb'}};border-radius:12px;cursor:pointer;margin-bottom:8px;">
+                    <span style="font-size:20px;">💵</span>
+                    <div><p style="font-weight:600;margin:0;">Bayar Tunai (COD)</p><p style="font-size:12px;color:#6b7280;margin:0;">Bayar bila terima</p></div>
+                </div>
+            `);
+        }}
+        if (PAYMENT_QR_ENABLED && PAYMENT_QR_URL) {{
+            paymentHtml.push(`
+                <div class="payment-option ${{selectedPaymentMethod === 'qr' ? 'selected' : ''}}" data-method="qr" onclick="selectPaymentMethod('qr')" style="display:flex;align-items:center;gap:12px;padding:12px;border:2px solid ${{selectedPaymentMethod === 'qr' ? '#f97316' : '#e5e7eb'}};border-radius:12px;cursor:pointer;margin-bottom:8px;">
+                    <span style="font-size:20px;">📱</span>
+                    <div><p style="font-weight:600;margin:0;">QR Payment</p><p style="font-size:12px;color:#6b7280;margin:0;">Scan & bayar sekarang</p></div>
+                </div>
+                <div id="qr-payment-display" style="display:${{selectedPaymentMethod === 'qr' ? 'block' : 'none'}};text-align:center;padding:16px;background:#f9fafb;border-radius:12px;margin-bottom:12px;">
+                    <p style="font-weight:600;margin-bottom:12px;">📱 Scan untuk bayar</p>
+                    <img src="${{PAYMENT_QR_URL}}" alt="Payment QR" style="width:180px;height:180px;border-radius:12px;border:4px solid white;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+                    <p style="margin-top:12px;font-size:14px;">Jumlah: <strong style="color:#ea580c;font-size:20px;">RM<span id="qr-total-amount">0.00</span></strong></p>
+                    <a href="${{PAYMENT_QR_URL}}" download="payment-qr.png" style="display:inline-flex;align-items:center;gap:8px;margin-top:12px;padding:10px 20px;background:#10b981;color:white;border-radius:8px;text-decoration:none;font-weight:500;">📥 Download QR</a>
+                    <p style="font-size:12px;color:#6b7280;margin-top:8px;">Screenshot bukti bayaran & hantar via WhatsApp</p>
+                </div>
+            `);
+        }}
+
+        // Inject payment options into desktop cart
+        const paymentContainer = document.getElementById('payment-options-desktop');
+        if (paymentContainer) paymentContainer.innerHTML = paymentHtml.join('');
+
+        // Inject payment options into mobile cart
+        const paymentContainerMobile = document.getElementById('payment-options-mobile');
+        if (paymentContainerMobile) {{
+            // Clone for mobile with mobile-specific IDs
+            const mobileHtml = paymentHtml.join('').replace('qr-payment-display', 'qr-payment-display-mobile').replace('qr-total-amount', 'qr-total-amount-mobile');
+            paymentContainerMobile.innerHTML = mobileHtml;
+        }}
+    }}
+
+    // Checkout - Dynamic based on business type with payment method
     window.deliveryCheckout = function() {{
         if (deliveryCart.length === 0) {{ alert('Sila tambah item ke dalam bakul'); return; }}
         if (!deliverySelectedZone) {{ alert('Sila pilih kawasan delivery terlebih dahulu'); return; }}
@@ -1384,9 +1490,19 @@ function handleContactSubmit(e) {{
         const total = subtotal + deliveryFeeAmount;
 
         let msg = '{order_emoji} *{order_title} - ' + DELIVERY_BUSINESS + '*\\n\\n';
-        msg += '📍 *Kawasan:* ' + deliverySelectedZone.name + '\\n━━━━━━━━━━━━━━━━\\n\\n📝 *Pesanan:*\\n';
+        msg += '📍 *Kawasan:* ' + deliverySelectedZone.name + '\\n';
+        msg += '💳 *Bayaran:* ' + (selectedPaymentMethod === 'cod' ? 'Tunai (COD)' : 'QR Payment') + '\\n';
+        if (selectedPaymentMethod === 'qr') {{
+            msg += '✅ *Status:* Sudah bayar\\n';
+            msg += '📸 *Bukti:* (Sila hantar screenshot)\\n';
+        }}
+        msg += '━━━━━━━━━━━━━━━━\\n\\n📝 *Pesanan:*\\n';
         deliveryCart.forEach(item => {{ msg += '• ' + item.name + ' x' + item.qty + ' - RM' + (item.price * item.qty).toFixed(2) + '\\n'; }});
-        msg += '\\n━━━━━━━━━━━━━━━━\\nSubtotal: RM' + subtotal.toFixed(2) + '\\nCaj Delivery: RM' + deliveryFeeAmount.toFixed(2) + '\\n*JUMLAH: RM' + total.toFixed(2) + '*\\n\\n{whatsapp_closing}';
+        msg += '\\n━━━━━━━━━━━━━━━━\\nSubtotal: RM' + subtotal.toFixed(2) + '\\nCaj Delivery: RM' + deliveryFeeAmount.toFixed(2) + '\\n*JUMLAH: RM' + total.toFixed(2) + '*\\n\\n';
+        if (selectedPaymentMethod === 'qr') {{
+            msg += '⚠️ Sila hantar bukti pembayaran bersama mesej ini.\\n\\n';
+        }}
+        msg += '{whatsapp_closing}';
         window.open('https://wa.me/' + DELIVERY_WHATSAPP + '?text=' + encodeURIComponent(msg), '_blank');
     }};
 
@@ -1394,7 +1510,9 @@ function handleContactSubmit(e) {{
     document.addEventListener('DOMContentLoaded', function() {{
         renderDeliveryZones();
         renderDeliveryMenu();
+        renderPaymentOptions();
         console.log('🛵 BinaApp Delivery System loaded: ' + deliveryMenuData.length + ' items, ' + deliveryZonesData.length + ' zones');
+        console.log('💳 Payment config: COD=' + PAYMENT_COD_ENABLED + ', QR=' + PAYMENT_QR_ENABLED);
     }});
 }})();
 </script>'''
@@ -1541,27 +1659,37 @@ function handleContactSubmit(e) {{
                 )
             else:
                 # LEGACY: Inject full ordering system when no website_id
-                logger.info("Injecting legacy ordering system (no website_id)")
                 menu_items = user_data.get("menu_items", [])
                 delivery_zones = user_data.get("delivery_zones", [])
+                payment_data = user_data.get("payment", {})
 
-                if not delivery_zones and user_data.get("delivery"):
-                    delivery_data = user_data["delivery"]
-                    fee_value = delivery_data.get("fee", "5")
+                logger.info(f"Injecting legacy ordering system - {len(menu_items)} menu items, {len(delivery_zones)} zones")
+
+                if not delivery_zones and (user_data.get("delivery") or user_data.get("fulfillment")):
+                    delivery_data = user_data.get("delivery", {})
+                    fulfillment_data = user_data.get("fulfillment", {})
+
+                    # Get fee from either source
+                    fee_value = delivery_data.get("fee") or fulfillment_data.get("delivery_fee") or "5"
                     if isinstance(fee_value, str):
-                        fee_value = float(fee_value.replace("RM", "").replace(",", "").strip()) if fee_value else 5.0
+                        fee_value = float(fee_value.replace("RM", "").replace(",", "").strip()) if fee_value.strip() else 5.0
                     else:
                         fee_value = float(fee_value) if fee_value else 5.0
 
+                    # Get zone name from either source - FIXED: Check fulfillment_data too
+                    area_from_delivery = (delivery_data.get("area") or "").strip()
+                    area_from_fulfillment = (fulfillment_data.get("delivery_area") or "").strip()
+                    zone_name = area_from_delivery if area_from_delivery else (area_from_fulfillment if area_from_fulfillment else "Kawasan Delivery")
+
                     default_zone = {
                         "id": "default",
-                        "zone_name": delivery_data.get("area", "Kawasan Delivery"),
+                        "zone_name": zone_name,
                         "delivery_fee": fee_value,
-                        "estimated_time": delivery_data.get("hours", "30-45 min"),
+                        "estimated_time": delivery_data.get("hours") or fulfillment_data.get("hours") or "30-45 min",
                         "is_active": True
                     }
                     delivery_zones = [default_zone]
-                    logger.info(f"Created fallback delivery zone: {default_zone['zone_name']} - RM{fee_value}")
+                    logger.info(f"Created fallback delivery zone: {zone_name} - RM{fee_value}")
 
                 # Get business type for proper categories
                 business_type = user_data.get("business_type", "")
@@ -1573,7 +1701,8 @@ function handleContactSubmit(e) {{
                     delivery_zones,
                     {
                         "name": user_data.get("business_name", "Our Business"),
-                        "phone": user_data.get("phone", "+60123456789")
+                        "phone": user_data.get("phone", "+60123456789"),
+                        "payment": payment_data  # Pass payment data for QR support
                     },
                     business_type=business_type,
                     description=description
