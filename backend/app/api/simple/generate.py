@@ -46,6 +46,7 @@ class SimpleGenerateRequest(BaseModel):
     mode: Optional[str] = Field(default="single", description="Generation mode: 'single', 'dual', 'best', or 'strategic'")
     features: Optional[dict] = Field(default=None, description="Selected features (whatsapp, googleMap, deliverySystem, etc.)")
     delivery: Optional[dict] = Field(default=None, description="Delivery system settings (area, fee, minimum, hours)")
+    fulfillment: Optional[dict] = Field(default=None, description="Fulfillment options (delivery, pickup, fees, area)")
     address: Optional[str] = Field(default=None, description="Full address for Google Map")
     social_media: Optional[dict] = Field(default=None, description="Social media handles (instagram, facebook, tiktok)")
     business_type: Optional[str] = Field(default=None, description="Business type: food, clothing, services, general (auto-detected if not provided)")
@@ -121,9 +122,101 @@ async def fetch_menu_items_from_database(website_id: str) -> List[dict]:
         return []
 
 
+# ========================================================================
+# INVALID MENU NAME VALIDATOR - Prevents AI from hallucinating menu items
+# ========================================================================
+
+# Exact match invalid names - these must match whole words
+INVALID_MENU_WORDS = [
+    # Feature/UI elements (NOT food!)
+    'whatsapp', 'hubungi', 'contact', 'call', 'message',
+    'facebook', 'instagram', 'tiktok', 'twitter', 'youtube', 'social',
+    # Business name prefixes (NOT food!)
+    'saya', 'kami', 'nama', 'name', 'kedai', 'restoran',
+    # Navigation/UI
+    'home', 'laman', 'menu', 'gallery', 'galeri', 'about', 'tentang',
+    'lokasi', 'location', 'alamat', 'address', 'order', 'pesanan',
+    # Generic greetings (NOT food!)
+    'welcome', 'hello', 'salam',
+    # Operating hours
+    'waktu', 'operasi', 'operating', 'hours', 'buka', 'tutup', 'open', 'close',
+    # Section headers
+    'kenali', 'story', 'footer', 'header', 'nav', 'copyright', 'powered',
+    # Other non-food
+    'scan', 'imbas', 'download', 'subscribe', 'newsletter',
+]
+
+# Phrase match - these should be substring matches
+INVALID_MENU_PHRASES = [
+    'selamat datang',  # Welcome greeting
+    'hubungi kami',    # Contact us
+    'contact us',
+    'ikuti kami',      # Follow us
+]
+
+
+def is_valid_menu_item_name(name: str) -> bool:
+    """
+    CRITICAL VALIDATION: Check if a name is a valid menu item name
+    
+    Returns False if name contains invalid keywords that indicate
+    it's NOT a real food/product item (e.g., "WhatsApp", "SAYA", "Hubungi")
+    
+    This prevents AI from hallucinating menu items from generated HTML content.
+    """
+    if not name or not isinstance(name, str):
+        return False
+    
+    # Clean and normalize
+    name_clean = name.strip()
+    name_lower = name_clean.lower()
+    
+    # Must be at least 2 characters
+    if len(name_clean) < 2:
+        return False
+    
+    # Must not be too long (probably a sentence, not a dish name)
+    if len(name_clean) > 60:
+        return False
+    
+    # Must contain at least one letter
+    if not re.search(r'[a-zA-Z\u0080-\uFFFF]', name_clean):
+        return False
+    
+    # Check against invalid phrases (substring match)
+    for phrase in INVALID_MENU_PHRASES:
+        if phrase in name_lower:
+            logger.debug(f"   ✗ Rejected menu name '{name}' - contains phrase '{phrase}'")
+            return False
+    
+    # Check against invalid words (whole word match only)
+    # Split name into words and check if any word matches exactly
+    name_words = set(re.split(r'[\s\-_.,;:!?]+', name_lower))
+    for invalid in INVALID_MENU_WORDS:
+        if invalid in name_words:
+            logger.debug(f"   ✗ Rejected menu name '{name}' - contains word '{invalid}'")
+            return False
+    
+    # Check for time patterns (7am, 10:00 - these are operating hours, not food)
+    if re.search(r'\d{1,2}[:.]\d{2}|\d{1,2}\s*(am|pm|pagi|petang|malam)', name_lower):
+        logger.debug(f"   ✗ Rejected menu name '{name}' - looks like time")
+        return False
+    
+    return True
+
+
 def extract_menu_items_from_html(html: str, business_type: str = "food") -> List[dict]:
     """
     Extract REAL menu items from AI-generated HTML gallery/menu section.
+    
+    ⚠️  DEPRECATED: This function should NOT be used for delivery menu items!
+    
+    The delivery system should ONLY use user-uploaded menu items with their
+    prices and names. Do NOT extract menu items from AI-generated HTML as
+    this causes hallucination issues (e.g., "WhatsApp" appearing as a menu item).
+    
+    This function is kept for backward compatibility but returns empty list
+    when user has uploaded their own menu items.
 
     Uses Python's built-in HTMLParser for reliable parsing.
 
@@ -168,6 +261,7 @@ def extract_menu_items_from_html(html: str, business_type: str = "food") -> List
     ]
 
     # Skip words - individual words that indicate non-menu content
+    # These are matched as whole words only (not substrings)
     skip_words = [
         'waktu', 'operasi', 'operating', 'hours', 'hubungi', 'contact',
         'alamat', 'address', 'lokasi', 'location', 'tentang', 'about',
@@ -175,7 +269,8 @@ def extract_menu_items_from_html(html: str, business_type: str = "food") -> List
         'terma', 'terms', 'privacy', 'polisi', 'policy',
         'subscribe', 'newsletter', 'telefon', 'telephone',
         'facebook', 'instagram', 'tiktok', 'twitter', 'youtube',
-        'scan', 'imbas', 'qrcode',
+        'scan', 'imbas', 'qrcode', 'whatsapp', 'saya', 'kami',
+        'welcome', 'selamat', 'datang', 'home', 'laman', 'gallery', 'galeri',
     ]
 
     # ========================================================================
@@ -581,10 +676,11 @@ async def generate_website(request: SimpleGenerateRequest):
                 logger.info(f"   Image {i+1}: {img}")
 
         # Create menu items from uploaded images (for ordering system)
+        # CRITICAL FIX: Only use user's uploaded items with their prices - NO AI extraction
         menu_items = []
         if request.images and len(request.images) > 0:
-            logger.info(f"Creating menu items from {len(request.images)} uploaded images...")
-            default_prices = [15, 12, 18, 10, 20, 14, 16, 13]  # Default prices for menu items
+            logger.info(f"🍽️ Creating menu items from {len(request.images)} user-uploaded images...")
+            default_prices = [15, 12, 18, 10, 20, 14, 16, 13]  # Fallback prices only if user didn't set
 
             # Get business-type specific descriptions
             biz_config = get_business_config(business_type)
@@ -595,9 +691,19 @@ async def generate_website(request: SimpleGenerateRequest):
                 if isinstance(img, dict):
                     img_url = img.get('url', '')
                     img_name = img.get('name', f'Item {idx+1}')
+                    # CRITICAL FIX: Use user's price if provided
+                    user_price = img.get('price')
+                    if user_price:
+                        try:
+                            img_price = float(str(user_price).replace('RM', '').replace(',', '').strip())
+                        except (ValueError, TypeError):
+                            img_price = default_prices[idx % len(default_prices)]
+                    else:
+                        img_price = default_prices[idx % len(default_prices)]
                 else:
                     img_url = str(img)
                     img_name = f'Item {idx+1}'
+                    img_price = default_prices[idx % len(default_prices)]
 
                 # Skip hero image (first image is usually hero)
                 if idx == 0 and 'hero' in img_name.lower():
@@ -605,6 +711,11 @@ async def generate_website(request: SimpleGenerateRequest):
 
                 # Skip empty names or "Hero Image"
                 if not img_name or img_name == 'Hero Image' or img_name == '':
+                    continue
+
+                # CRITICAL FIX: Validate menu item name to prevent hallucinated items
+                if not is_valid_menu_item_name(img_name):
+                    logger.warning(f"   ⚠️ Skipping invalid menu item name: '{img_name}'")
                     continue
 
                 # Auto-detect category based on item name and business type
@@ -615,27 +726,45 @@ async def generate_website(request: SimpleGenerateRequest):
                     "id": f"menu-{idx}",
                     "name": img_name,
                     "description": default_desc,
-                    "price": default_prices[idx % len(default_prices)],
+                    "price": img_price,  # FIXED: Use user's price
                     "image_url": img_url,
                     "category_id": category,
                     "is_available": True
                 }
                 menu_items.append(menu_item)
-                logger.info(f"   Added menu item: {img_name} - RM{menu_item['price']} [{category}]")
+                logger.info(f"   ✅ Added menu item: {img_name} - RM{img_price:.2f} [{category}]")
 
         # Create delivery zones if delivery feature is enabled
+        # CRITICAL FIX: Check BOTH request.delivery AND request.fulfillment for zone info
+        # Frontend sends area in request.delivery.area OR request.fulfillment.delivery_area
         delivery_zones = []
-        if request.features and request.features.get("deliverySystem") and request.delivery:
-            delivery_data = request.delivery
+        if request.features and request.features.get("deliverySystem"):
+            delivery_data = request.delivery or {}
+            fulfillment_data = request.fulfillment or {}
+            
+            # Get zone name from multiple sources (in order of priority)
+            zone_name = (
+                delivery_data.get("area") or 
+                fulfillment_data.get("delivery_area") or 
+                "Kawasan Delivery"
+            )
+            
+            # Get delivery fee from multiple sources
+            fee_raw = delivery_data.get("fee") or fulfillment_data.get("delivery_fee") or "5"
+            if isinstance(fee_raw, str):
+                fee_value = float(fee_raw.replace("RM", "").replace(",", "").strip()) if fee_raw else 5.0
+            else:
+                fee_value = float(fee_raw) if fee_raw else 5.0
+            
             default_zone = {
                 "id": "default",
-                "zone_name": delivery_data.get("area", "Kawasan Delivery"),
-                "delivery_fee": float(delivery_data.get("fee", "5").replace("RM", "").strip()) if isinstance(delivery_data.get("fee"), str) else delivery_data.get("fee", 5),
+                "zone_name": zone_name,
+                "delivery_fee": fee_value,
                 "estimated_time": delivery_data.get("hours", "30-45 min"),
                 "is_active": True
             }
             delivery_zones = [default_zone]
-            logger.info(f"Created default delivery zone: {default_zone['zone_name']} - RM{default_zone['delivery_fee']}")
+            logger.info(f"✅ Created delivery zone: {zone_name} - RM{fee_value:.2f}")
 
         # User data for integrations
         user_data = {
@@ -664,15 +793,14 @@ async def generate_website(request: SimpleGenerateRequest):
 
             dual_results = await ai_service.generate_website_dual(ai_request)
 
-            # Extract menu items from generated HTML
-            if dual_results.get("qwen") or dual_results.get("deepseek"):
-                html_to_parse = dual_results.get("qwen") or dual_results.get("deepseek")
-                extracted_items = extract_menu_items_from_html(html_to_parse, business_type)
-                if extracted_items:
-                    logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
-                    # Merge with uploaded image items (prioritize extracted items)
-                    menu_items = extracted_items + menu_items
-                    user_data["menu_items"] = menu_items
+            # CRITICAL FIX: Do NOT extract menu items from AI-generated HTML!
+            # This was causing hallucinated items like "WhatsApp", "SAYA" to appear as menu items.
+            # Only use user's uploaded menu items from the form.
+            if menu_items:
+                logger.info(f"✅ Using {len(menu_items)} user-uploaded menu items (NOT extracting from AI HTML)")
+                user_data["menu_items"] = menu_items
+            else:
+                logger.info("⚠️ No user-uploaded menu items found")
 
             # Inject integrations into both designs
             qwen_html = None
@@ -711,13 +839,14 @@ async def generate_website(request: SimpleGenerateRequest):
 
             html_content = await ai_service.generate_website_best(ai_request)
 
-            # Extract menu items from generated HTML
-            extracted_items = extract_menu_items_from_html(html_content, business_type)
-            if extracted_items:
-                logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
-                # Merge with uploaded image items (prioritize extracted items)
-                menu_items = extracted_items + menu_items
+            # CRITICAL FIX: Do NOT extract menu items from AI-generated HTML!
+            # This was causing hallucinated items like "WhatsApp", "SAYA" to appear as menu items.
+            # Only use user's uploaded menu items from the form.
+            if menu_items:
+                logger.info(f"✅ Using {len(menu_items)} user-uploaded menu items (NOT extracting from AI HTML)")
                 user_data["menu_items"] = menu_items
+            else:
+                logger.info("⚠️ No user-uploaded menu items found")
 
             # Inject integrations
             html_content = template_service.inject_integrations(
@@ -747,13 +876,14 @@ async def generate_website(request: SimpleGenerateRequest):
             # Get the generated HTML
             html_content = ai_response.html_content
 
-            # Extract menu items from generated HTML
-            extracted_items = extract_menu_items_from_html(html_content, business_type)
-            if extracted_items:
-                logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
-                # Merge with uploaded image items (prioritize extracted items)
-                menu_items = extracted_items + menu_items
+            # CRITICAL FIX: Do NOT extract menu items from AI-generated HTML!
+            # This was causing hallucinated items like "WhatsApp", "SAYA" to appear as menu items.
+            # Only use user's uploaded menu items from the form.
+            if menu_items:
+                logger.info(f"✅ Using {len(menu_items)} user-uploaded menu items (NOT extracting from AI HTML)")
                 user_data["menu_items"] = menu_items
+            else:
+                logger.info("⚠️ No user-uploaded menu items found")
 
             # Inject additional integrations
             html_content = template_service.inject_integrations(
@@ -780,15 +910,14 @@ async def generate_website(request: SimpleGenerateRequest):
             variations_dict = await ai_service.generate_multi_style(ai_request)
             logger.info(f"✓ Received {len(variations_dict)} variations from AI service")
 
-            # Extract menu items from first variation
-            if variations_dict:
-                first_variation = list(variations_dict.values())[0]
-                extracted_items = extract_menu_items_from_html(first_variation.html_content, business_type)
-                if extracted_items:
-                    logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
-                    # Merge with uploaded image items (prioritize extracted items)
-                    menu_items = extracted_items + menu_items
-                    user_data["menu_items"] = menu_items
+            # CRITICAL FIX: Do NOT extract menu items from AI-generated HTML!
+            # This was causing hallucinated items like "WhatsApp", "SAYA" to appear as menu items.
+            # Only use user's uploaded menu items from the form.
+            if menu_items:
+                logger.info(f"✅ Using {len(menu_items)} user-uploaded menu items (NOT extracting from AI HTML)")
+                user_data["menu_items"] = menu_items
+            else:
+                logger.info("⚠️ No user-uploaded menu items found")
 
             # Process each variation
             variations = []
@@ -849,27 +978,29 @@ async def generate_website(request: SimpleGenerateRequest):
             # Get the generated HTML
             html_content = ai_response.html_content
 
-            # Priority 1: Try to fetch from database if website_id exists
-            if user_data.get("website_id"):
+            # CRITICAL FIX: Do NOT extract menu items from AI-generated HTML!
+            # This was causing hallucinated items like "WhatsApp", "SAYA" to appear as menu items.
+            # 
+            # Priority order for menu items:
+            # 1. User's uploaded menu items (from request.images with names and prices)
+            # 2. Database menu items (if website_id exists)
+            # 3. DO NOT extract from AI-generated HTML!
+            
+            if menu_items:
+                # User uploaded menu items - use them
+                logger.info(f"✅ Using {len(menu_items)} user-uploaded menu items")
+                user_data["menu_items"] = menu_items
+            elif user_data.get("website_id"):
+                # Try database as fallback
                 db_menu_items = await fetch_menu_items_from_database(user_data["website_id"])
                 if db_menu_items:
                     logger.info(f"✅ Using {len(db_menu_items)} menu items from DATABASE")
                     menu_items = db_menu_items
                     user_data["menu_items"] = menu_items
                 else:
-                    # Priority 2: Extract from HTML if no database items
-                    extracted_items = extract_menu_items_from_html(html_content, business_type)
-                    if extracted_items:
-                        logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
-                        menu_items = extracted_items + menu_items
-                        user_data["menu_items"] = menu_items
+                    logger.info("⚠️ No menu items found in database and no user uploads")
             else:
-                # No website_id, extract from HTML
-                extracted_items = extract_menu_items_from_html(html_content, business_type)
-                if extracted_items:
-                    logger.info(f"✓ Extracted {len(extracted_items)} menu items from AI-generated HTML")
-                    menu_items = extracted_items + menu_items
-                    user_data["menu_items"] = menu_items
+                logger.info("⚠️ No user-uploaded menu items found")
 
             # Inject additional integrations
             html_content = template_service.inject_integrations(
@@ -1183,44 +1314,71 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
             user_data["delivery"] = request.delivery
 
         # CRITICAL: Create delivery zones if delivery feature is enabled
+        # CRITICAL FIX: Check BOTH request.delivery AND request.fulfillment for zone info
+        # Frontend sends area in request.delivery.area OR request.fulfillment.delivery_area
         delivery_zones = []
-        if request.features and request.features.get("deliverySystem") and request.delivery:
-            delivery_data = request.delivery
-            # Parse fee - handle both string and number formats
-            fee_value = delivery_data.get("fee", "5")
-            if isinstance(fee_value, str):
-                fee_value = float(fee_value.replace("RM", "").replace(",", "").strip()) if fee_value else 5
+        if request.features and request.features.get("deliverySystem"):
+            delivery_data = request.delivery or {}
+            fulfillment_data = request.fulfillment or {}
+            
+            # Get zone name from multiple sources (in order of priority)
+            zone_name = (
+                delivery_data.get("area") or 
+                fulfillment_data.get("delivery_area") or 
+                "Kawasan Delivery"
+            )
+            
+            # Get delivery fee from multiple sources
+            fee_raw = delivery_data.get("fee") or fulfillment_data.get("delivery_fee") or "5"
+            if isinstance(fee_raw, str):
+                fee_value = float(fee_raw.replace("RM", "").replace(",", "").strip()) if fee_raw else 5.0
             else:
-                fee_value = float(fee_value) if fee_value else 5
+                fee_value = float(fee_raw) if fee_raw else 5.0
                 
             default_zone = {
                 "id": "default",
-                "zone_name": delivery_data.get("area", "Kawasan Delivery"),
+                "zone_name": zone_name,
                 "delivery_fee": fee_value,
                 "estimated_time": delivery_data.get("hours", "30-45 min"),
                 "is_active": True
             }
             delivery_zones = [default_zone]
-            logger.info(f"Job {job_id}: Created delivery zone: {default_zone['zone_name']} - RM{default_zone['delivery_fee']}")
+            logger.info(f"Job {job_id}: ✅ Created delivery zone: {zone_name} - RM{fee_value:.2f}")
         
         # Add delivery_zones to user_data
         user_data["delivery_zones"] = delivery_zones
         logger.info(f"Job {job_id}: Delivery zones in user_data: {len(delivery_zones)}")
 
         # Create menu items from uploaded images (for ordering system)
+        # CRITICAL FIX: Use user's prices and validate names to prevent hallucinated items
         menu_items = []
         if request.images and len(request.images) > 0:
-            logger.info(f"Job {job_id}: Creating menu items from {len(request.images)} uploaded images...")
-            default_prices = [15, 12, 18, 10, 20, 14, 16, 13]  # Default prices for menu items
+            logger.info(f"Job {job_id}: 🍽️ Creating menu items from {len(request.images)} user-uploaded images...")
+            default_prices = [15, 12, 18, 10, 20, 14, 16, 13]  # Fallback prices only if user didn't set
+
+            # Get business-type specific descriptions
+            business_type = request.business_type or detect_business_type(request.description)
+            biz_config = get_business_config(business_type)
+            default_desc = biz_config.get("item_description_default", "Hidangan istimewa dari dapur kami")
 
             for idx, img in enumerate(request.images):
                 # Extract image data
                 if isinstance(img, dict):
                     img_url = img.get('url', '')
                     img_name = img.get('name', f'Item {idx+1}')
+                    # CRITICAL FIX: Use user's price if provided
+                    user_price = img.get('price')
+                    if user_price:
+                        try:
+                            img_price = float(str(user_price).replace('RM', '').replace(',', '').strip())
+                        except (ValueError, TypeError):
+                            img_price = default_prices[idx % len(default_prices)]
+                    else:
+                        img_price = default_prices[idx % len(default_prices)]
                 else:
                     img_url = str(img)
                     img_name = f'Item {idx+1}'
+                    img_price = default_prices[idx % len(default_prices)]
 
                 # Skip hero image (first image is usually hero)
                 if idx == 0 and 'hero' in img_name.lower():
@@ -1230,18 +1388,26 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
                 if not img_name or img_name == 'Hero Image' or img_name == '':
                     continue
 
+                # CRITICAL FIX: Validate menu item name to prevent hallucinated items
+                if not is_valid_menu_item_name(img_name):
+                    logger.warning(f"Job {job_id}:    ⚠️ Skipping invalid menu item name: '{img_name}'")
+                    continue
+
+                # Auto-detect category based on item name and business type
+                category = detect_item_category(img_name, business_type)
+
                 # Create menu item
                 menu_item = {
                     "id": f"menu-{idx}",
                     "name": img_name,
-                    "description": f"Hidangan istimewa dari dapur kami",  # Default description
-                    "price": default_prices[idx % len(default_prices)],
+                    "description": default_desc,
+                    "price": img_price,  # FIXED: Use user's price
                     "image_url": img_url,
-                    "category_id": "main",
+                    "category_id": category,  # FIXED: Use detected category
                     "is_available": True
                 }
                 menu_items.append(menu_item)
-                logger.info(f"   Added menu item: {img_name} - RM{menu_item['price']}")
+                logger.info(f"Job {job_id}:    ✅ Added menu item: {img_name} - RM{img_price:.2f} [{category}]")
 
         # Add menu items to user_data
         if menu_items:
