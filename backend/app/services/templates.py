@@ -919,20 +919,30 @@ function handleContactSubmit(e) {{
             default_description = biz_config.get("item_description_default_en", default_description)
         
         # Format menu items with dynamic category auto-detection based on business type
+        # CRITICAL: Use user's EXACT names - do not generate or modify names
         formatted_menu = []
         for idx, item in enumerate(menu_items):
-            name = item.get('name', f'Item {idx+1}')
+            # Use user's exact name - DO NOT fallback to generic names
+            raw_name = item.get('name', '')
+            name = raw_name.strip() if raw_name and raw_name.strip() else None
+            
+            # Skip items without valid names
+            if not name:
+                logger.warning(f"   ⚠️ Skipping menu item {idx} - no valid name (got: '{raw_name}')")
+                continue
+            
             # Use dynamic category detection based on business type
             category = detect_item_category(name, business_type)
 
             formatted_menu.append({
                 'id': idx + 1,
-                'name': name,
+                'name': name,  # User's exact name
                 'desc': item.get('description', default_description),
                 'price': float(item.get('price', 15)),
                 'image': item.get('image_url', 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80'),
                 'category': category
             })
+            logger.info(f"   ✅ Menu item: {name} - RM{float(item.get('price', 15)):.2f} [{category}]")
 
         # Format zones - ensure we have at least one default zone
         formatted_zones = []
@@ -1017,8 +1027,12 @@ function handleContactSubmit(e) {{
     /* Mobile cart overlay */
     .mobile-cart-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100; display: none; }
     .mobile-cart-overlay.active { display: block; }
-    .mobile-cart-panel { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-radius: 24px 24px 0 0; max-height: 80vh; overflow-y: auto; z-index: 101; transform: translateY(100%); transition: transform 0.3s ease; }
+    .mobile-cart-panel { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-radius: 24px 24px 0 0; max-height: 85vh; overflow-y: auto; z-index: 101; transform: translateY(100%); transition: transform 0.3s ease; padding-bottom: 20px; }
     .mobile-cart-panel.active { transform: translateY(0); }
+    /* Make cart footer scrollable content visible */
+    #cart-footer-mobile { padding-bottom: 100px !important; }
+    /* QR display mobile fixes */
+    #qr-payment-display-mobile { margin-bottom: 80px !important; }
 }
 @media (max-width: 480px) {
     /* Smaller padding on very small screens */
@@ -1458,21 +1472,21 @@ function handleContactSubmit(e) {{
                 </div>
             `);
         }}
-        if (PAYMENT_QR_ENABLED && PAYMENT_QR_URL) {{
-            paymentHtml.push(`
-                <div class="payment-option ${{selectedPaymentMethod === 'qr' ? 'selected' : ''}}" data-method="qr" onclick="selectPaymentMethod('qr')" style="display:flex;align-items:center;gap:12px;padding:12px;border:2px solid ${{selectedPaymentMethod === 'qr' ? '#f97316' : '#e5e7eb'}};border-radius:12px;cursor:pointer;margin-bottom:8px;">
-                    <span style="font-size:20px;">📱</span>
-                    <div><p style="font-weight:600;margin:0;">QR Payment</p><p style="font-size:12px;color:#6b7280;margin:0;">Scan & bayar sekarang</p></div>
-                </div>
-                <div id="qr-payment-display" style="display:${{selectedPaymentMethod === 'qr' ? 'block' : 'none'}};text-align:center;padding:16px;background:#f9fafb;border-radius:12px;margin-bottom:12px;">
-                    <p style="font-weight:600;margin-bottom:12px;">📱 Scan untuk bayar</p>
-                    <img src="${{PAYMENT_QR_URL}}" alt="Payment QR" style="width:180px;height:180px;border-radius:12px;border:4px solid white;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
-                    <p style="margin-top:12px;font-size:14px;">Jumlah: <strong style="color:#ea580c;font-size:20px;">RM<span id="qr-total-amount">0.00</span></strong></p>
-                    <a href="${{PAYMENT_QR_URL}}" download="payment-qr.png" style="display:inline-flex;align-items:center;gap:8px;margin-top:12px;padding:10px 20px;background:#10b981;color:white;border-radius:8px;text-decoration:none;font-weight:500;">📥 Download QR</a>
-                    <p style="font-size:12px;color:#6b7280;margin-top:8px;">Screenshot bukti bayaran & hantar via WhatsApp</p>
-                </div>
-            `);
-        }}
+                        if (PAYMENT_QR_ENABLED && PAYMENT_QR_URL) {{
+                            paymentHtml.push(`
+                                <div class="payment-option ${{selectedPaymentMethod === 'qr' ? 'selected' : ''}}" data-method="qr" onclick="selectPaymentMethod('qr')" style="display:flex;align-items:center;gap:12px;padding:12px;border:2px solid ${{selectedPaymentMethod === 'qr' ? '#f97316' : '#e5e7eb'}};border-radius:12px;cursor:pointer;margin-bottom:8px;">
+                                    <span style="font-size:20px;">📱</span>
+                                    <div><p style="font-weight:600;margin:0;">QR Payment</p><p style="font-size:12px;color:#6b7280;margin:0;">Scan & bayar sekarang</p></div>
+                                </div>
+                                <div id="qr-payment-display" style="display:${{selectedPaymentMethod === 'qr' ? 'block' : 'none'}};text-align:center;padding:20px;background:#f0fdf4;border-radius:16px;margin-bottom:100px;border:2px solid #bbf7d0;">
+                                    <p style="font-weight:600;margin-bottom:16px;font-size:16px;">📱 Scan untuk bayar</p>
+                                    <img src="${{PAYMENT_QR_URL}}" alt="Payment QR" style="width:200px;height:200px;border-radius:12px;border:4px solid white;box-shadow:0 4px 16px rgba(0,0,0,0.15);">
+                                    <p style="margin-top:16px;font-size:16px;">Jumlah: <strong style="color:#ea580c;font-size:24px;">RM<span id="qr-total-amount">0.00</span></strong></p>
+                                    <a href="${{PAYMENT_QR_URL}}" download="payment-qr.png" style="display:inline-flex;align-items:center;gap:8px;margin-top:16px;padding:14px 28px;background:#10b981;color:white;border-radius:10px;text-decoration:none;font-weight:600;font-size:16px;box-shadow:0 4px 12px rgba(16,185,129,0.3);">📥 Download QR</a>
+                                    <p style="font-size:13px;color:#6b7280;margin-top:12px;">Screenshot bukti bayaran & hantar via WhatsApp</p>
+                                </div>
+                            `);
+                        }}
 
         // Inject payment options into desktop cart
         const paymentContainer = document.getElementById('payment-options-desktop');

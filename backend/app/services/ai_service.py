@@ -1574,17 +1574,67 @@ Generate prompts now:"""
             return "clothing"
         return "default"
 
-    def _build_strict_prompt(self, name: str, desc: str, style: str, user_images: list = None) -> str:
+    def _build_strict_prompt(self, name: str, desc: str, style: str, user_images: list = None, language: str = "ms") -> str:
         """Build STRICT prompt that forbids placeholders"""
         biz_type = self._detect_type(desc)
         imgs = self.IMAGES.get(biz_type, self.IMAGES["default"])
 
         # Use user images if provided, otherwise use curated Unsplash
-        hero = user_images[0] if user_images and len(user_images) > 0 else imgs["hero"]
-        g1 = user_images[1] if user_images and len(user_images) > 1 else imgs["gallery"][0]
-        g2 = user_images[2] if user_images and len(user_images) > 2 else imgs["gallery"][1]
-        g3 = user_images[3] if user_images and len(user_images) > 3 else imgs["gallery"][2]
-        g4 = user_images[4] if user_images and len(user_images) > 4 else imgs["gallery"][3]
+        # Helper to extract URL from image (can be string or dict)
+        def get_url(img):
+            if isinstance(img, dict):
+                return img.get('url', img.get('URL', ''))
+            return str(img) if img else ''
+        
+        def get_name(img):
+            if isinstance(img, dict):
+                return img.get('name', '')
+            return ''
+        
+        # IMPORTANT: Separate hero image from product/gallery images
+        # Hero image is ONLY used if explicitly named 'Hero Image'
+        # Product/gallery images should NOT appear as hero background
+        hero = imgs["hero"]  # Default to curated hero
+        gallery_start_index = 0  # Start index for gallery images
+        
+        if user_images and len(user_images) > 0:
+            first_img_name = get_name(user_images[0])
+            # Only use first image as hero if it's explicitly a hero image
+            if first_img_name == 'Hero Image' or 'hero' in first_img_name.lower():
+                hero = get_url(user_images[0])
+                gallery_start_index = 1  # Gallery starts from index 1
+            # Otherwise, don't use any product image as hero - keep default
+            # Product images will be used in gallery section only
+        
+        # Gallery images - use user's product images (starting after hero if present)
+        g1 = get_url(user_images[gallery_start_index]) if user_images and len(user_images) > gallery_start_index else imgs["gallery"][0]
+        g2 = get_url(user_images[gallery_start_index + 1]) if user_images and len(user_images) > gallery_start_index + 1 else imgs["gallery"][1]
+        g3 = get_url(user_images[gallery_start_index + 2]) if user_images and len(user_images) > gallery_start_index + 2 else imgs["gallery"][2]
+        g4 = get_url(user_images[gallery_start_index + 3]) if user_images and len(user_images) > gallery_start_index + 3 else imgs["gallery"][3]
+
+        # Determine language instruction based on explicit language parameter
+        if language == "ms":
+            language_instruction = """5. LANGUAGE - BAHASA MALAYSIA (WAJIB):
+   PENTING: Hasilkan SEMUA kandungan dalam BAHASA MELAYU sepenuhnya!
+   ✅ Semua teks MESTI dalam Bahasa Melayu
+   ✅ Gunakan: "Selamat Datang", "Tentang Kami", "Hubungi Kami", "Menu", "Perkhidmatan"
+   ✅ Navigasi: "Laman Utama", "Menu", "Tentang", "Hubungi"
+   ✅ Butang: "Pesan Sekarang", "Hubungi Kami", "Lihat Menu"
+   ❌ JANGAN gunakan Bahasa Inggeris untuk kandungan
+   ❌ JANGAN tulis "Home", "About Us", "Contact", "Services" dalam English
+   
+   CONTOH TEKS YANG BETUL:
+   - Hero: "Selamat Datang ke [Nama Perniagaan]" 
+   - About: "Kami menyediakan perkhidmatan terbaik..."
+   - Contact: "Hubungi kami untuk sebarang pertanyaan"
+   - Footer: "Hak Cipta © 2024. Semua Hak Terpelihara."""
+        else:
+            language_instruction = """5. LANGUAGE - ENGLISH:
+   Generate ALL content in English
+   ✅ Use: "Welcome", "About Us", "Contact Us", "Menu", "Services"
+   ✅ Navigation: "Home", "Menu", "About", "Contact"
+   ✅ Buttons: "Order Now", "Contact Us", "View Menu"
+   Keep all text consistent in English throughout."""
 
         return f"""Generate a COMPLETE production-ready HTML website.
 
@@ -1592,6 +1642,7 @@ BUSINESS: {name}
 DESCRIPTION: {desc}
 STYLE: {style}
 TYPE: {biz_type}
+TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
 
 ===== CRITICAL RULES - MUST FOLLOW =====
 
@@ -1628,10 +1679,7 @@ TYPE: {biz_type}
    - Smooth animations and hover effects
    - Professional {style} design
 
-5. LANGUAGE:
-   - Use Bahasa Malaysia if description contains Malay words (saya, kami, untuk, etc.)
-   - Otherwise use English
-   - Keep consistent throughout
+{language_instruction}
 
 6. IMAGE REQUIREMENTS:
    - Use ONLY the exact URLs provided above
@@ -2126,11 +2174,15 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         # Build prompt WITH image URLs
         logger.info("🔷 STEP 2: DeepSeek generating HTML...")
+        # Get language from request (default to "ms" for Bahasa Malaysia)
+        language = request.language.value if hasattr(request, 'language') and request.language else "ms"
+        logger.info(f"   Language: {language}")
         prompt = self._build_strict_prompt(
             request.business_name,
             request.description,
             style or "modern",
-            request.uploaded_images
+            request.uploaded_images,
+            language
         )
 
         # Add image URLs to prompt with STRONG emphasis
@@ -2249,12 +2301,16 @@ IMPORTANT INSTRUCTIONS:
 
         for style, ai_pref in [("modern", "deepseek"), ("minimal", "qwen"), ("bold", "deepseek")]:
             logger.info(f"\n--- Generating {style.upper()} style ---")
+            
+            # Get language from request
+            language = request.language.value if hasattr(request, 'language') and request.language else "ms"
 
             prompt = self._build_strict_prompt(
                 request.business_name,
                 request.description,
                 style,
-                request.uploaded_images
+                request.uploaded_images,
+                language
             )
 
             # Try preferred AI first

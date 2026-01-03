@@ -868,6 +868,78 @@ export default function CreatePage() {
               </div>
             )}
 
+            {/* Delivery Settings - Only show if Delivery Sendiri is checked */}
+            {selectedFeatures.deliverySystem && (
+              <div className="bg-orange-50 rounded-xl p-6 mt-4 border border-orange-200">
+                <h4 className="font-bold text-orange-800 mb-3">🛵 Tetapan Delivery</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm text-gray-600">Caj Delivery (RM)</label>
+                    <input 
+                      type="number" 
+                      placeholder="5.00" 
+                      step="0.50"
+                      value={fulfillment.deliveryFee}
+                      onChange={(e) => setFulfillment({...fulfillment, deliveryFee: e.target.value})}
+                      className="w-full p-2 border rounded-lg mt-1" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm text-gray-600">Min. Order (RM)</label>
+                    <input 
+                      type="number" 
+                      placeholder="20.00" 
+                      step="1"
+                      value={fulfillment.minOrder}
+                      onChange={(e) => setFulfillment({...fulfillment, minOrder: e.target.value})}
+                      className="w-full p-2 border rounded-lg mt-1" 
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-sm text-gray-600">Kawasan Delivery</label>
+                    <input 
+                      type="text" 
+                      placeholder="Shah Alam, Klang, Subang"
+                      value={fulfillment.deliveryArea}
+                      onChange={(e) => setFulfillment({...fulfillment, deliveryArea: e.target.value})}
+                      className="w-full p-2 border rounded-lg mt-1" 
+                    />
+                  </div>
+                </div>
+
+                {/* Self Pickup Option - Nested under Delivery */}
+                <div className="mt-4 pt-4 border-t border-orange-200">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input 
+                      type="checkbox"
+                      checked={fulfillment.pickup}
+                      onChange={(e) => setFulfillment({...fulfillment, pickup: e.target.checked})}
+                      className="w-5 h-5 rounded accent-orange-500" 
+                    />
+                    <span className="text-xl">🏪</span>
+                    <div className="flex-1">
+                      <p className="font-semibold text-gray-800">Self Pickup</p>
+                      <p className="text-sm text-gray-500">Pelanggan ambil di kedai</p>
+                    </div>
+                    <span className="text-green-600 font-bold">FREE</span>
+                  </label>
+                  
+                  {fulfillment.pickup && (
+                    <div className="mt-3 pl-10">
+                      <label className="text-sm text-gray-600">Alamat Pickup</label>
+                      <input 
+                        type="text" 
+                        placeholder="No. 123, Jalan ABC, Shah Alam"
+                        value={fulfillment.pickupAddress}
+                        onChange={(e) => setFulfillment({...fulfillment, pickupAddress: e.target.value})}
+                        className="w-full p-2 border rounded-lg mt-1" 
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Payment Settings - QR + COD only */}
             <div className="bg-white rounded-2xl p-6 shadow-sm border mt-6">
               <h3 className="text-lg font-semibold mb-2">💳 Tetapan Pembayaran</h3>
@@ -948,99 +1020,6 @@ export default function CreatePage() {
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Fulfillment Options */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border mt-6">
-              <h3 className="text-lg font-semibold mb-2">📦 Pilihan Penghantaran</h3>
-              <p className="text-gray-500 text-sm mb-4">Cara pelanggan terima pesanan</p>
-              
-              <div className="space-y-3">
-                {/* Delivery */}
-                <div className={`p-4 border-2 rounded-xl transition-colors ${fulfillment.delivery ? 'border-orange-500 bg-orange-50' : 'border-gray-200'}`}>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input 
-                      type="checkbox"
-                      checked={fulfillment.delivery}
-                      onChange={(e) => setFulfillment({...fulfillment, delivery: e.target.checked})}
-                      className="w-5 h-5 rounded accent-orange-500" 
-                    />
-                    <span className="text-2xl">🛵</span>
-                    <div className="flex-1">
-                      <p className="font-semibold">Delivery</p>
-                      <p className="text-sm text-gray-500">Hantar ke alamat pelanggan</p>
-                    </div>
-                  </label>
-                  
-                  {fulfillment.delivery && (
-                    <div className="mt-3 pl-10 grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-sm text-gray-600">Caj Delivery (RM)</label>
-                        <input 
-                          type="number" 
-                          placeholder="5.00" 
-                          step="0.50"
-                          value={fulfillment.deliveryFee}
-                          onChange={(e) => setFulfillment({...fulfillment, deliveryFee: e.target.value})}
-                          className="w-full p-2 border rounded-lg mt-1" 
-                        />
-                      </div>
-                      <div>
-                        <label className="text-sm text-gray-600">Min. Order (RM)</label>
-                        <input 
-                          type="number" 
-                          placeholder="20.00" 
-                          step="1"
-                          value={fulfillment.minOrder}
-                          onChange={(e) => setFulfillment({...fulfillment, minOrder: e.target.value})}
-                          className="w-full p-2 border rounded-lg mt-1" 
-                        />
-                      </div>
-                      <div className="col-span-2">
-                        <label className="text-sm text-gray-600">Kawasan Delivery</label>
-                        <input 
-                          type="text" 
-                          placeholder="Shah Alam, Klang, Subang"
-                          value={fulfillment.deliveryArea}
-                          onChange={(e) => setFulfillment({...fulfillment, deliveryArea: e.target.value})}
-                          className="w-full p-2 border rounded-lg mt-1" 
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-                
-                {/* Pickup */}
-                <div className={`p-4 border-2 rounded-xl transition-colors ${fulfillment.pickup ? 'border-orange-500 bg-orange-50' : 'border-gray-200'}`}>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input 
-                      type="checkbox"
-                      checked={fulfillment.pickup}
-                      onChange={(e) => setFulfillment({...fulfillment, pickup: e.target.checked})}
-                      className="w-5 h-5 rounded accent-orange-500" 
-                    />
-                    <span className="text-2xl">🏪</span>
-                    <div className="flex-1">
-                      <p className="font-semibold">Self Pickup</p>
-                      <p className="text-sm text-gray-500">Pelanggan ambil di kedai</p>
-                    </div>
-                    <span className="text-green-600 font-bold">FREE</span>
-                  </label>
-                  
-                  {fulfillment.pickup && (
-                    <div className="mt-3 pl-10">
-                      <label className="text-sm text-gray-600">Alamat Pickup</label>
-                      <input 
-                        type="text" 
-                        placeholder="No. 123, Jalan ABC, Shah Alam"
-                        value={fulfillment.pickupAddress}
-                        onChange={(e) => setFulfillment({...fulfillment, pickupAddress: e.target.value})}
-                        className="w-full p-2 border rounded-lg mt-1" 
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
 
             {error && (
