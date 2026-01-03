@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0ea5e9"/>
+      <stop offset="100%" style="stop-color:#2563eb"/>
+    </linearGradient>
+  </defs>
+  <!-- Background with safe area for maskable icons (padding ~10%) -->
+  <rect width="512" height="512" rx="102" fill="url(#bg-gradient)"/>
+  <!-- "B" letter stylized -->
+  <path d="M176 128h80c44.183 0 80 35.817 80 80 0 26.51-12.917 50.012-32.787 64.561C329.019 286.179 352 319.307 352 358c0 52.467-42.533 95-95 95h-81c-17.673 0-32-14.327-32-32V160c0-17.673 14.327-32 32-32z" fill="white"/>
+  <path d="M192 176v64h48c17.673 0 32-14.327 32-32s-14.327-32-32-32h-48z" fill="url(#bg-gradient)"/>
+  <path d="M192 272v80h56c22.091 0 40-17.909 40-40s-17.909-40-40-40h-56z" fill="url(#bg-gradient)"/>
+  <!-- Sparkle/AI indicator -->
+  <circle cx="380" cy="132" r="24" fill="white" opacity="0.9"/>
+  <path d="M380 116v32M364 132h32M370 122l20 20M370 142l20-20" stroke="url(#bg-gradient)" stroke-width="4" stroke-linecap="round"/>
+</svg>

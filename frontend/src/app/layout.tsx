@@ -2,10 +2,11 @@
  * Root Layout Component
  */
 
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { Toaster } from 'react-hot-toast'
+import PWAProvider from '@/components/PWAProvider'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -13,6 +14,23 @@ export const metadata: Metadata = {
   title: 'BinaApp - AI Website Builder untuk SME Malaysia',
   description: 'Cipta website perniagaan anda dalam masa minit dengan AI. Untuk SME Malaysia.',
   keywords: ['website builder', 'AI', 'Malaysia', 'SME', 'no-code'],
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'BinaApp',
+  },
+  formatDetection: {
+    telephone: false,
+  },
+}
+
+export const viewport: Viewport = {
+  themeColor: '#0ea5e9',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 }
 
 export default function RootLayout({
@@ -22,8 +40,16 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ms">
+      <head>
+        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+        <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png" />
+        <link rel="apple-touch-icon" sizes="167x167" href="/icons/icon-192x192.png" />
+      </head>
       <body className={inter.className}>
-        {children}
+        <PWAProvider>
+          {children}
+        </PWAProvider>
         <Toaster
           position="top-right"
           toastOptions={{
