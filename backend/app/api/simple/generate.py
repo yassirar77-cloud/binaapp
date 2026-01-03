@@ -647,9 +647,13 @@ async def generate_website(request: SimpleGenerateRequest):
         business_name = extract_business_name(request.description)
         logger.info(f"✓ Business name: {business_name}")
 
-        # Detect language
-        language = detect_language(request.description)
-        logger.info(f"✓ Language: {language}")
+        # Use explicit language parameter from frontend, or detect from description
+        if request.language and request.language in ["ms", "en"]:
+            language = Language.MALAY if request.language == "ms" else Language.ENGLISH
+            logger.info(f"✓ Language (from request): {language.value}")
+        else:
+            language = detect_language(request.description)
+            logger.info(f"✓ Language (auto-detected): {language.value}")
 
         # Extract phone number if mentioned
         phone_number = extract_phone_number(request.description)
@@ -710,7 +714,10 @@ async def generate_website(request: SimpleGenerateRequest):
                 # Extract image data
                 if isinstance(img, dict):
                     img_url = img.get('url', '')
-                    img_name = img.get('name', f'Item {idx+1}')
+                    # CRITICAL FIX: Use user's EXACT name - do not modify or generate AI names
+                    raw_name = img.get('name', '')
+                    img_name = raw_name.strip() if raw_name and raw_name.strip() else None
+                    logger.info(f"   📝 Image {idx}: raw_name='{raw_name}', cleaned_name='{img_name}'")
                     # CRITICAL FIX: Use user's price if provided
                     user_price = img.get('price')
                     if user_price:
@@ -722,15 +729,22 @@ async def generate_website(request: SimpleGenerateRequest):
                         img_price = default_prices[idx % len(default_prices)]
                 else:
                     img_url = str(img)
-                    img_name = f'Item {idx+1}'
+                    img_name = None
                     img_price = default_prices[idx % len(default_prices)]
 
-                # Skip hero image (first image is usually hero)
-                if idx == 0 and 'hero' in img_name.lower():
+                # Skip hero image (name contains "hero")
+                if img_name and 'hero' in img_name.lower():
+                    logger.info(f"   ⏭️ Skipping hero image: {img_name}")
                     continue
 
-                # Skip empty names or "Hero Image"
-                if not img_name or img_name == 'Hero Image' or img_name == '':
+                # Skip items without valid names (can't create proper menu item without user's name)
+                if not img_name or img_name == 'Hero Image':
+                    logger.warning(f"   ⚠️ Skipping image {idx} - no valid name provided (user must enter a name)")
+                    continue
+                
+                # Skip empty URLs
+                if not img_url:
+                    logger.warning(f"   ⚠️ Skipping '{img_name}' - no image URL")
                     continue
 
                 # CRITICAL FIX: Validate menu item name to prevent hallucinated items
@@ -1269,7 +1283,11 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
                 features.remove("whatsapp")
 
         business_name = extract_business_name(request.description)
-        language = detect_language(request.description)
+        # Use explicit language parameter from frontend, or detect from description
+        if request.language and request.language in ["ms", "en"]:
+            language = Language.MALAY if request.language == "ms" else Language.ENGLISH
+        else:
+            language = detect_language(request.description)
         phone_number = extract_phone_number(request.description)
         address = request.address if request.address else extract_address(request.description)
 
@@ -1405,7 +1423,10 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
                 # Extract image data
                 if isinstance(img, dict):
                     img_url = img.get('url', '')
-                    img_name = img.get('name', f'Item {idx+1}')
+                    # CRITICAL FIX: Use user's EXACT name - do not modify or generate AI names
+                    raw_name = img.get('name', '')
+                    img_name = raw_name.strip() if raw_name and raw_name.strip() else None
+                    logger.info(f"Job {job_id}:    📝 Image {idx}: raw_name='{raw_name}', cleaned_name='{img_name}'")
                     # CRITICAL FIX: Use user's price if provided
                     user_price = img.get('price')
                     if user_price:
@@ -1417,15 +1438,22 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
                         img_price = default_prices[idx % len(default_prices)]
                 else:
                     img_url = str(img)
-                    img_name = f'Item {idx+1}'
+                    img_name = None
                     img_price = default_prices[idx % len(default_prices)]
 
-                # Skip hero image (first image is usually hero)
-                if idx == 0 and 'hero' in img_name.lower():
+                # Skip hero image (name contains "hero")
+                if img_name and 'hero' in img_name.lower():
+                    logger.info(f"Job {job_id}:    ⏭️ Skipping hero image: {img_name}")
                     continue
 
-                # Skip empty names or "Hero Image"
-                if not img_name or img_name == 'Hero Image' or img_name == '':
+                # Skip items without valid names (can't create proper menu item without user's name)
+                if not img_name or img_name == 'Hero Image':
+                    logger.warning(f"Job {job_id}:    ⚠️ Skipping image {idx} - no valid name provided (user must enter a name)")
+                    continue
+                
+                # Skip empty URLs
+                if not img_url:
+                    logger.warning(f"Job {job_id}:    ⚠️ Skipping '{img_name}' - no image URL")
                     continue
 
                 # CRITICAL FIX: Validate menu item name to prevent hallucinated items
@@ -1735,11 +1763,15 @@ async def generate_stream(request: SimpleGenerateRequest):
                     features.remove("whatsapp")
 
             business_name = extract_business_name(request.description)
-            language = detect_language(request.description)
+            # Use explicit language parameter from frontend, or detect from description
+            if request.language and request.language in ["ms", "en"]:
+                language = Language.MALAY if request.language == "ms" else Language.ENGLISH
+            else:
+                language = detect_language(request.description)
             phone_number = extract_phone_number(request.description)
             address = extract_address(request.description)
 
-            logger.info(f"✓ Type={website_type}, Features={features}")
+            logger.info(f"✓ Type={website_type}, Features={features}, Language={language.value}")
 
             # Progress 20%
             yield f"data: {json.dumps({'progress': 20, 'status': 'processing', 'message': 'Menyediakan reka bentuk...', 'detected_features': features, 'template_used': website_type})}\n\n"
@@ -1918,11 +1950,15 @@ async def generate_website_simple(request: SimpleGenerateRequest):
                 features.remove("whatsapp")
 
         business_name = extract_business_name(request.description)
-        language = detect_language(request.description)
+        # Use explicit language parameter from frontend, or detect from description
+        if request.language and request.language in ["ms", "en"]:
+            language = Language.MALAY if request.language == "ms" else Language.ENGLISH
+        else:
+            language = detect_language(request.description)
         phone_number = extract_phone_number(request.description)
         address = extract_address(request.description)
 
-        logger.info(f"✓ Type={website_type}, Features={features}")
+        logger.info(f"✓ Type={website_type}, Features={features}, Language={language.value}")
 
         # Try to generate custom images with Stability AI
         images = None
