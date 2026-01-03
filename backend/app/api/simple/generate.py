@@ -152,7 +152,26 @@ INVALID_MENU_PHRASES = [
     'selamat datang',  # Welcome greeting
     'hubungi kami',    # Contact us
     'contact us',
+    'get in touch',    # Contact section header
     'ikuti kami',      # Follow us
+    'follow us',
+    'open shop',       # Store header
+    'shop now',
+    'learn more',
+    'read more',
+    'our story',
+    'about us',
+    'find us',
+    'visit us',
+    'call now',
+    'book now',
+    'order now',       # Only when full phrase (not just 'order')
+    'get started',
+    'join us',
+    'view menu',       # Navigation text
+    'see all',
+    'view all',
+    'show more',
 ]
 
 
