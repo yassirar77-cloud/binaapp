@@ -50,6 +50,7 @@ class SimpleGenerateRequest(BaseModel):
     address: Optional[str] = Field(default=None, description="Full address for Google Map")
     social_media: Optional[dict] = Field(default=None, description="Social media handles (instagram, facebook, tiktok)")
     business_type: Optional[str] = Field(default=None, description="Business type: food, clothing, services, general (auto-detected if not provided)")
+    payment: Optional[dict] = Field(default=None, description="Payment methods (cod: bool, qr: bool, qr_image: str)")
 
 
 class SimpleGenerateResponse(BaseModel):
@@ -1295,14 +1296,20 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
             theme=request.theme
         )
 
-        # User data for integrations
+        # Detect business type FIRST - needed for categories and menu items
+        business_type = request.business_type or detect_business_type(request.description)
+        logger.info(f"Job {job_id}: 🏢 Business type: {business_type}")
+
+        # User data for integrations - INCLUDE business_type and description for proper category detection
         user_data = {
             "phone": phone_number if phone_number else "+60123456789",
             "address": address if address else "",
             "email": "contact@business.com",
             "url": "https://preview.binaapp.my",
             "whatsapp_message": "Hi, I'm interested",
-            "business_name": business_name
+            "business_name": business_name,
+            "business_type": business_type,  # CRITICAL: Pass for dynamic categories
+            "description": request.description,  # CRITICAL: Pass for business type detection
         }
 
         # Add social media to user_data if provided
@@ -1313,6 +1320,15 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
         if request.delivery:
             user_data["delivery"] = request.delivery
 
+        # Add fulfillment info to user_data if provided
+        if request.fulfillment:
+            user_data["fulfillment"] = request.fulfillment
+
+        # Add payment info to user_data if provided (for QR payment support)
+        if request.payment:
+            user_data["payment"] = request.payment
+            logger.info(f"Job {job_id}: 💳 Payment config - COD: {request.payment.get('cod')}, QR: {request.payment.get('qr')}, QR Image: {'Yes' if request.payment.get('qr_image') else 'No'}")
+
         # CRITICAL: Create delivery zones if delivery feature is enabled
         # CRITICAL FIX: Check BOTH request.delivery AND request.fulfillment for zone info
         # Frontend sends area in request.delivery.area OR request.fulfillment.delivery_area
@@ -1320,26 +1336,32 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
         if request.features and request.features.get("deliverySystem"):
             delivery_data = request.delivery or {}
             fulfillment_data = request.fulfillment or {}
-            
+
             # Get zone name from multiple sources (in order of priority)
-            zone_name = (
-                delivery_data.get("area") or 
-                fulfillment_data.get("delivery_area") or 
-                "Kawasan Delivery"
-            )
-            
+            # CRITICAL FIX: Strip whitespace and check for actual content
+            area_from_delivery = (delivery_data.get("area") or "").strip()
+            area_from_fulfillment = (fulfillment_data.get("delivery_area") or "").strip()
+            zone_name = area_from_delivery if area_from_delivery else (area_from_fulfillment if area_from_fulfillment else "Kawasan Delivery")
+
             # Get delivery fee from multiple sources
             fee_raw = delivery_data.get("fee") or fulfillment_data.get("delivery_fee") or "5"
             if isinstance(fee_raw, str):
-                fee_value = float(fee_raw.replace("RM", "").replace(",", "").strip()) if fee_raw else 5.0
+                fee_value = float(fee_raw.replace("RM", "").replace(",", "").strip()) if fee_raw.strip() else 5.0
             else:
                 fee_value = float(fee_raw) if fee_raw else 5.0
-                
+
+            # Get delivery hours/time from multiple sources
+            hours_raw = delivery_data.get("hours") or fulfillment_data.get("hours") or "30-45 min"
+            if isinstance(hours_raw, str):
+                hours_value = hours_raw.strip() if hours_raw.strip() else "30-45 min"
+            else:
+                hours_value = "30-45 min"
+
             default_zone = {
                 "id": "default",
                 "zone_name": zone_name,
                 "delivery_fee": fee_value,
-                "estimated_time": delivery_data.get("hours", "30-45 min"),
+                "estimated_time": hours_value,
                 "is_active": True
             }
             delivery_zones = [default_zone]
@@ -1356,8 +1378,7 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
             logger.info(f"Job {job_id}: 🍽️ Creating menu items from {len(request.images)} user-uploaded images...")
             default_prices = [15, 12, 18, 10, 20, 14, 16, 13]  # Fallback prices only if user didn't set
 
-            # Get business-type specific descriptions
-            business_type = request.business_type or detect_business_type(request.description)
+            # Get business-type specific descriptions (business_type already defined above)
             biz_config = get_business_config(business_type)
             default_desc = biz_config.get("item_description_default", "Hidangan istimewa dari dapur kami")
 
