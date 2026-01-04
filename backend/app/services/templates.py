@@ -17,6 +17,7 @@ from app.services.business_types import (
     get_delivery_button_label,
     get_order_config,
 )
+from app.services.menu_validator import log_menu_flow
 
 
 class TemplateService:
@@ -918,6 +919,11 @@ function handleContactSubmit(e) {{
         if language == "en":
             default_description = biz_config.get("item_description_default_en", default_description)
         
+        # =========================================================================
+        # RALPH LOOP: Log menu items received for injection
+        # =========================================================================
+        log_menu_flow("STEP 3: Menu items received in inject_ordering_system", menu_items)
+
         # Format menu items with dynamic category auto-detection based on business type
         # CRITICAL: Use user's EXACT names - do not generate or modify names
         formatted_menu = []
@@ -975,12 +981,18 @@ function handleContactSubmit(e) {{
         zones_json = json.dumps(formatted_zones)
         minimum_order = 30
         delivery_hours = '11am - 9pm'
-        
+
+        # =========================================================================
+        # RALPH LOOP: Final log before injecting into HTML
+        # This is the FINAL data that will appear in deliveryMenuData
+        # =========================================================================
+        log_menu_flow("STEP 4: FINAL formatted_menu (will become deliveryMenuData)", formatted_menu)
+
         # Get dynamic labels and configuration based on business type
         order_config = get_order_config(business_type, language)
         button_label = get_delivery_button_label(business_type, language)
         category_buttons_html = generate_category_buttons_html(business_type, language)
-        
+
         order_emoji = order_config["order_emoji"]
         order_title = order_config["order_title"]
         page_title = order_config["page_title"]
