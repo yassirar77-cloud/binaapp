@@ -700,7 +700,7 @@ async def generate_website(request: SimpleGenerateRequest):
                 logger.info(f"   Image {i+1}: {img}")
 
         # Create menu items from uploaded images (for ordering system)
-        # CRITICAL FIX: Only use user's uploaded items with their prices - NO AI extraction
+        # ENHANCED: Use AI image analysis to suggest names for unnamed images
         menu_items = []
         if request.images and len(request.images) > 0:
             logger.info(f"🍽️ Creating menu items from {len(request.images)} user-uploaded images...")
@@ -714,11 +714,10 @@ async def generate_website(request: SimpleGenerateRequest):
                 # Extract image data
                 if isinstance(img, dict):
                     img_url = img.get('url', '')
-                    # CRITICAL FIX: Use user's EXACT name - do not modify or generate AI names
                     raw_name = img.get('name', '')
                     img_name = raw_name.strip() if raw_name and raw_name.strip() else None
                     logger.info(f"   📝 Image {idx}: raw_name='{raw_name}', cleaned_name='{img_name}'")
-                    # CRITICAL FIX: Use user's price if provided
+                    # Use user's price if provided
                     user_price = img.get('price')
                     if user_price:
                         try:
@@ -736,18 +735,29 @@ async def generate_website(request: SimpleGenerateRequest):
                 if img_name and 'hero' in img_name.lower():
                     logger.info(f"   ⏭️ Skipping hero image: {img_name}")
                     continue
-
-                # Skip items without valid names (can't create proper menu item without user's name)
-                if not img_name or img_name == 'Hero Image':
-                    logger.warning(f"   ⚠️ Skipping image {idx} - no valid name provided (user must enter a name)")
-                    continue
                 
                 # Skip empty URLs
                 if not img_url:
-                    logger.warning(f"   ⚠️ Skipping '{img_name}' - no image URL")
+                    logger.warning(f"   ⚠️ Skipping image - no URL")
                     continue
 
-                # CRITICAL FIX: Validate menu item name to prevent hallucinated items
+                # ENHANCED: If no name provided, try AI image analysis to suggest a name
+                if not img_name or img_name == 'Hero Image':
+                    logger.info(f"   🔍 No name for image {idx}, attempting AI analysis...")
+                    try:
+                        analysis = await ai_service.analyze_uploaded_image(img_url)
+                        suggested_name = analysis.get('suggested_name')
+                        if suggested_name and is_valid_menu_item_name(suggested_name):
+                            img_name = suggested_name
+                            logger.info(f"   🤖 AI suggested name: '{img_name}' (category: {analysis.get('category')})")
+                        else:
+                            logger.warning(f"   ⚠️ Skipping image {idx} - no valid name and AI couldn't suggest one")
+                            continue
+                    except Exception as e:
+                        logger.warning(f"   ⚠️ AI analysis failed for image {idx}: {e}")
+                        continue
+
+                # Validate menu item name to prevent hallucinated items
                 if not is_valid_menu_item_name(img_name):
                     logger.warning(f"   ⚠️ Skipping invalid menu item name: '{img_name}'")
                     continue
@@ -760,7 +770,7 @@ async def generate_website(request: SimpleGenerateRequest):
                     "id": f"menu-{idx}",
                     "name": img_name,
                     "description": default_desc,
-                    "price": img_price,  # FIXED: Use user's price
+                    "price": img_price,
                     "image_url": img_url,
                     "category_id": category,
                     "is_available": True
@@ -1409,7 +1419,7 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
         logger.info(f"Job {job_id}: Delivery zones in user_data: {len(delivery_zones)}")
 
         # Create menu items from uploaded images (for ordering system)
-        # CRITICAL FIX: Use user's prices and validate names to prevent hallucinated items
+        # ENHANCED: Use AI image analysis to suggest names for unnamed images
         menu_items = []
         if request.images and len(request.images) > 0:
             logger.info(f"Job {job_id}: 🍽️ Creating menu items from {len(request.images)} user-uploaded images...")
@@ -1423,11 +1433,10 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
                 # Extract image data
                 if isinstance(img, dict):
                     img_url = img.get('url', '')
-                    # CRITICAL FIX: Use user's EXACT name - do not modify or generate AI names
                     raw_name = img.get('name', '')
                     img_name = raw_name.strip() if raw_name and raw_name.strip() else None
                     logger.info(f"Job {job_id}:    📝 Image {idx}: raw_name='{raw_name}', cleaned_name='{img_name}'")
-                    # CRITICAL FIX: Use user's price if provided
+                    # Use user's price if provided
                     user_price = img.get('price')
                     if user_price:
                         try:
@@ -1445,18 +1454,29 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
                 if img_name and 'hero' in img_name.lower():
                     logger.info(f"Job {job_id}:    ⏭️ Skipping hero image: {img_name}")
                     continue
-
-                # Skip items without valid names (can't create proper menu item without user's name)
-                if not img_name or img_name == 'Hero Image':
-                    logger.warning(f"Job {job_id}:    ⚠️ Skipping image {idx} - no valid name provided (user must enter a name)")
-                    continue
                 
                 # Skip empty URLs
                 if not img_url:
-                    logger.warning(f"Job {job_id}:    ⚠️ Skipping '{img_name}' - no image URL")
+                    logger.warning(f"Job {job_id}:    ⚠️ Skipping image - no URL")
                     continue
 
-                # CRITICAL FIX: Validate menu item name to prevent hallucinated items
+                # ENHANCED: If no name provided, try AI image analysis to suggest a name
+                if not img_name or img_name == 'Hero Image':
+                    logger.info(f"Job {job_id}:    🔍 No name for image {idx}, attempting AI analysis...")
+                    try:
+                        analysis = await ai_service.analyze_uploaded_image(img_url)
+                        suggested_name = analysis.get('suggested_name')
+                        if suggested_name and is_valid_menu_item_name(suggested_name):
+                            img_name = suggested_name
+                            logger.info(f"Job {job_id}:    🤖 AI suggested name: '{img_name}' (category: {analysis.get('category')})")
+                        else:
+                            logger.warning(f"Job {job_id}:    ⚠️ Skipping image {idx} - no valid name and AI couldn't suggest one")
+                            continue
+                    except Exception as e:
+                        logger.warning(f"Job {job_id}:    ⚠️ AI analysis failed for image {idx}: {e}")
+                        continue
+
+                # Validate menu item name to prevent hallucinated items
                 if not is_valid_menu_item_name(img_name):
                     logger.warning(f"Job {job_id}:    ⚠️ Skipping invalid menu item name: '{img_name}'")
                     continue
@@ -1469,9 +1489,9 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
                     "id": f"menu-{idx}",
                     "name": img_name,
                     "description": default_desc,
-                    "price": img_price,  # FIXED: Use user's price
+                    "price": img_price,
                     "image_url": img_url,
-                    "category_id": category,  # FIXED: Use detected category
+                    "category_id": category,
                     "is_available": True
                 }
                 menu_items.append(menu_item)
