@@ -16,6 +16,7 @@ from app.services.templates import template_service
 from app.services.screenshot_service import screenshot_service
 from app.services.job_service import job_service, JobStatus
 from app.services.business_types import detect_business_type, detect_item_category, get_business_config, get_categories_for_business_type
+from app.services.menu_validator import validate_and_extract_menu_items, log_menu_flow
 from app.models.schemas import WebsiteGenerationRequest, Language
 from app.utils.content_moderation import is_content_allowed, log_blocked_attempt
 import re
@@ -130,21 +131,39 @@ async def fetch_menu_items_from_database(website_id: str) -> List[dict]:
 # Exact match invalid names - these must match whole words
 INVALID_MENU_WORDS = [
     # Feature/UI elements (NOT food!)
-    'whatsapp', 'hubungi', 'contact', 'call', 'message',
+    'whatsapp', 'hubungi', 'contact', 'call', 'message', 'chat',
     'facebook', 'instagram', 'tiktok', 'twitter', 'youtube', 'social',
     # Business name prefixes (NOT food!)
-    'saya', 'kami', 'nama', 'name', 'kedai', 'restoran',
+    'saya', 'kami', 'nama', 'name', 'kedai', 'restoran', 'shop',
     # Navigation/UI
     'home', 'laman', 'menu', 'gallery', 'galeri', 'about', 'tentang',
     'lokasi', 'location', 'alamat', 'address', 'order', 'pesanan',
+    'footer', 'header', 'nav', 'hero', 'banner',
     # Generic greetings (NOT food!)
-    'welcome', 'hello', 'salam',
+    'welcome', 'selamat', 'hello', 'salam', 'professional',
     # Operating hours
     'waktu', 'operasi', 'operating', 'hours', 'buka', 'tutup', 'open', 'close',
     # Section headers
-    'kenali', 'story', 'footer', 'header', 'nav', 'copyright', 'powered',
+    'kenali', 'story', 'copyright', 'powered',
     # Other non-food
-    'scan', 'imbas', 'download', 'subscribe', 'newsletter',
+    'scan', 'imbas', 'download', 'subscribe', 'newsletter', 'book', 'booking', 'cart', 'checkout',
+    # =========================================================================
+    # SERVICE-TYPE HALLUCINATED TERMS - AI generates these for service businesses
+    # These appear alone without specific product context
+    # =========================================================================
+    'wedding',      # Photography hallucination
+    'model',        # Photography hallucination
+    'portrait',     # Photography hallucination
+    'photoshoot',   # Photography hallucination
+    'session',      # Generic session (e.g., "photo session")
+    'package',      # Generic package without specific name
+    'service',      # Generic service without specific name
+    'servis',       # Malay generic service
+    'perkhidmatan', # Malay generic service (when alone)
+    'consultation', # Generic consultation
+    'perundingan',  # Malay consultation
+    # Generic category names (NOT actual products)
+    'produk', 'product', 'item', 'barang', 'lain', 'other', 'misc',
 ]
 
 # Phrase match - these should be substring matches
@@ -172,6 +191,23 @@ INVALID_MENU_PHRASES = [
     'see all',
     'view all',
     'show more',
+    # =========================================================================
+    # SERVICE-TYPE HALLUCINATED PHRASES - AI generates these descriptions
+    # =========================================================================
+    'perkhidmatan profesional',  # "Professional service" - generic AI description
+    'perkhidmatan berkualiti',   # "Quality service" - generic AI description
+    'professional service',
+    'quality service',
+    'our services',
+    'perkhidmatan kami',
+    # Default/placeholder patterns
+    'item name',
+    'nama item',
+    'product name',
+    'nama produk',
+    'untitled',
+    'no name',
+    'sample',
 ]
 
 
@@ -741,21 +777,14 @@ async def generate_website(request: SimpleGenerateRequest):
                     logger.warning(f"   ⚠️ Skipping image - no URL")
                     continue
 
-                # ENHANCED: If no name provided, try AI image analysis to suggest a name
+                # =========================================================================
+                # RALPH LOOP FIX: NEVER let AI suggest menu item names!
+                # Only use names that the USER explicitly provided.
+                # This prevents hallucination of items like "Wedding", "Model", etc.
+                # =========================================================================
                 if not img_name or img_name == 'Hero Image':
-                    logger.info(f"   🔍 No name for image {idx}, attempting AI analysis...")
-                    try:
-                        analysis = await ai_service.analyze_uploaded_image(img_url)
-                        suggested_name = analysis.get('suggested_name')
-                        if suggested_name and is_valid_menu_item_name(suggested_name):
-                            img_name = suggested_name
-                            logger.info(f"   🤖 AI suggested name: '{img_name}' (category: {analysis.get('category')})")
-                        else:
-                            logger.warning(f"   ⚠️ Skipping image {idx} - no valid name and AI couldn't suggest one")
-                            continue
-                    except Exception as e:
-                        logger.warning(f"   ⚠️ AI analysis failed for image {idx}: {e}")
-                        continue
+                    logger.info(f"   ⏭️ RALPH LOOP: Skipping image {idx} - NO USER-PROVIDED NAME (AI fallback disabled)")
+                    continue
 
                 # Validate menu item name to prevent hallucinated items
                 if not is_valid_menu_item_name(img_name):
@@ -777,6 +806,11 @@ async def generate_website(request: SimpleGenerateRequest):
                 }
                 menu_items.append(menu_item)
                 logger.info(f"   ✅ Added menu item: {img_name} - RM{img_price:.2f} [{category}]")
+
+        # =========================================================================
+        # RALPH LOOP: Log menu items for debugging - trace data flow
+        # =========================================================================
+        log_menu_flow("STEP 1: Menu items created from user uploads", menu_items)
 
         # Create delivery zones if delivery feature is enabled
         # CRITICAL FIX: Check BOTH request.delivery AND request.fulfillment for zone info
@@ -810,6 +844,11 @@ async def generate_website(request: SimpleGenerateRequest):
             delivery_zones = [default_zone]
             logger.info(f"✅ Created delivery zone: {zone_name} - RM{fee_value:.2f}")
 
+        # =========================================================================
+        # RALPH LOOP: Final log before injection
+        # =========================================================================
+        log_menu_flow("STEP 2: Menu items before injection into user_data", menu_items)
+
         # User data for integrations
         user_data = {
             "phone": phone_number if phone_number else "+60123456789",
@@ -820,7 +859,7 @@ async def generate_website(request: SimpleGenerateRequest):
             "business_name": business_name,
             "business_type": business_type,  # For dynamic categories
             "description": request.description,  # For business type detection
-            "menu_items": menu_items,
+            "menu_items": menu_items,  # RALPH LOOP: ONLY user-uploaded items, NO AI hallucination
             "delivery_zones": delivery_zones
         }
 
