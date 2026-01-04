@@ -17,6 +17,7 @@ from app.services.screenshot_service import screenshot_service
 from app.services.job_service import job_service, JobStatus
 from app.services.business_types import detect_business_type, detect_item_category, get_business_config, get_categories_for_business_type
 from app.services.menu_validator import validate_and_extract_menu_items, log_menu_flow
+from app.services.menu_service import get_menu_items, create_default_delivery_zones
 from app.models.schemas import WebsiteGenerationRequest, Language
 from app.utils.content_moderation import is_content_allowed, log_blocked_attempt
 import re
@@ -735,114 +736,38 @@ async def generate_website(request: SimpleGenerateRequest):
             for i, img in enumerate(request.images):
                 logger.info(f"   Image {i+1}: {img}")
 
-        # Create menu items from uploaded images (for ordering system)
-        # ENHANCED: Use AI image analysis to suggest names for unnamed images
-        menu_items = []
-        if request.images and len(request.images) > 0:
-            logger.info(f"🍽️ Creating menu items from {len(request.images)} user-uploaded images...")
-            default_prices = [15, 12, 18, 10, 20, 14, 16, 13]  # Fallback prices only if user didn't set
-
-            # Get business-type specific descriptions
-            biz_config = get_business_config(business_type)
-            default_desc = biz_config.get("item_description_default", "Produk pilihan kami")
-
-            for idx, img in enumerate(request.images):
-                # Extract image data
-                if isinstance(img, dict):
-                    img_url = img.get('url', '')
-                    raw_name = img.get('name', '')
-                    img_name = raw_name.strip() if raw_name and raw_name.strip() else None
-                    logger.info(f"   📝 Image {idx}: raw_name='{raw_name}', cleaned_name='{img_name}'")
-                    # Use user's price if provided
-                    user_price = img.get('price')
-                    if user_price:
-                        try:
-                            img_price = float(str(user_price).replace('RM', '').replace(',', '').strip())
-                        except (ValueError, TypeError):
-                            img_price = default_prices[idx % len(default_prices)]
-                    else:
-                        img_price = default_prices[idx % len(default_prices)]
-                else:
-                    img_url = str(img)
-                    img_name = None
-                    img_price = default_prices[idx % len(default_prices)]
-
-                # Skip hero image (name contains "hero")
-                if img_name and 'hero' in img_name.lower():
-                    logger.info(f"   ⏭️ Skipping hero image: {img_name}")
-                    continue
-                
-                # Skip empty URLs
-                if not img_url:
-                    logger.warning(f"   ⚠️ Skipping image - no URL")
-                    continue
-
-                # =========================================================================
-                # RALPH LOOP FIX: NEVER let AI suggest menu item names!
-                # Only use names that the USER explicitly provided.
-                # This prevents hallucination of items like "Wedding", "Model", etc.
-                # =========================================================================
-                if not img_name or img_name == 'Hero Image':
-                    logger.info(f"   ⏭️ RALPH LOOP: Skipping image {idx} - NO USER-PROVIDED NAME (AI fallback disabled)")
-                    continue
-
-                # Validate menu item name to prevent hallucinated items
-                if not is_valid_menu_item_name(img_name):
-                    logger.warning(f"   ⚠️ Skipping invalid menu item name: '{img_name}'")
-                    continue
-
-                # Auto-detect category based on item name and business type
-                category = detect_item_category(img_name, business_type)
-
-                # Create menu item
-                menu_item = {
-                    "id": f"menu-{idx}",
-                    "name": img_name,
-                    "description": default_desc,
-                    "price": img_price,
-                    "image_url": img_url,
-                    "category_id": category,
-                    "is_available": True
-                }
-                menu_items.append(menu_item)
-                logger.info(f"   ✅ Added menu item: {img_name} - RM{img_price:.2f} [{category}]")
-
+        # =========================================================================
+        # COMPREHENSIVE MENU PIPELINE: Use menu_service for ALL scenarios
+        # Scenario A: User uploads items → Use exactly those items
+        # Scenario B: No user items + delivery enabled → Generate from business type
+        # Scenario C: Delivery not enabled → No menu needed
+        # =========================================================================
+        form_data_for_menu = {
+            'images': request.images if request.images else [],
+            'description': request.description,
+            'business_type': business_type,
+            'features': request.features,
+            'delivery': request.delivery,
+            'fulfillment': request.fulfillment,
+        }
+        
+        # Get menu items using comprehensive menu service
+        menu_items = get_menu_items(
+            form_data=form_data_for_menu,
+            features=request.features,
+            generate_images=True  # Enable Stability AI image generation for generated items
+        )
+        
         # =========================================================================
         # RALPH LOOP: Log menu items for debugging - trace data flow
         # =========================================================================
-        log_menu_flow("STEP 1: Menu items created from user uploads", menu_items)
+        log_menu_flow("STEP 1: Menu items from menu_service", menu_items)
 
         # Create delivery zones if delivery feature is enabled
-        # CRITICAL FIX: Check BOTH request.delivery AND request.fulfillment for zone info
-        # Frontend sends area in request.delivery.area OR request.fulfillment.delivery_area
+        # CRITICAL FIX: Use menu_service.create_default_delivery_zones for consistent handling
         delivery_zones = []
         if request.features and request.features.get("deliverySystem"):
-            delivery_data = request.delivery or {}
-            fulfillment_data = request.fulfillment or {}
-            
-            # Get zone name from multiple sources (in order of priority)
-            zone_name = (
-                delivery_data.get("area") or 
-                fulfillment_data.get("delivery_area") or 
-                "Kawasan Delivery"
-            )
-            
-            # Get delivery fee from multiple sources
-            fee_raw = delivery_data.get("fee") or fulfillment_data.get("delivery_fee") or "5"
-            if isinstance(fee_raw, str):
-                fee_value = float(fee_raw.replace("RM", "").replace(",", "").strip()) if fee_raw else 5.0
-            else:
-                fee_value = float(fee_raw) if fee_raw else 5.0
-            
-            default_zone = {
-                "id": "default",
-                "zone_name": zone_name,
-                "delivery_fee": fee_value,
-                "estimated_time": delivery_data.get("hours", "30-45 min"),
-                "is_active": True
-            }
-            delivery_zones = [default_zone]
-            logger.info(f"✅ Created delivery zone: {zone_name} - RM{fee_value:.2f}")
+            delivery_zones = create_default_delivery_zones(form_data_for_menu)
 
         # =========================================================================
         # RALPH LOOP: Final log before injection
@@ -1415,144 +1340,38 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
             user_data["payment"] = request.payment
             logger.info(f"Job {job_id}: 💳 Payment config - COD: {request.payment.get('cod')}, QR: {request.payment.get('qr')}, QR Image: {'Yes' if request.payment.get('qr_image') else 'No'}")
 
-        # CRITICAL: Create delivery zones if delivery feature is enabled
-        # CRITICAL FIX: Check BOTH request.delivery AND request.fulfillment for zone info
-        # Frontend sends area in request.delivery.area OR request.fulfillment.delivery_area
+        # =========================================================================
+        # COMPREHENSIVE MENU PIPELINE: Use menu_service for ALL scenarios
+        # =========================================================================
+        form_data_for_menu = {
+            'images': request.images if request.images else [],
+            'description': request.description,
+            'business_type': business_type,
+            'features': request.features,
+            'delivery': request.delivery,
+            'fulfillment': request.fulfillment,
+        }
+        
+        # Create delivery zones using menu_service
         delivery_zones = []
         if request.features and request.features.get("deliverySystem"):
-            delivery_data = request.delivery or {}
-            fulfillment_data = request.fulfillment or {}
-
-            # Get zone name from multiple sources (in order of priority)
-            # CRITICAL FIX: Strip whitespace and check for actual content
-            area_from_delivery = (delivery_data.get("area") or "").strip()
-            area_from_fulfillment = (fulfillment_data.get("delivery_area") or "").strip()
-            zone_name = area_from_delivery if area_from_delivery else (area_from_fulfillment if area_from_fulfillment else "Kawasan Delivery")
-
-            # Get delivery fee from multiple sources
-            fee_raw = delivery_data.get("fee") or fulfillment_data.get("delivery_fee") or "5"
-            if isinstance(fee_raw, str):
-                fee_value = float(fee_raw.replace("RM", "").replace(",", "").strip()) if fee_raw.strip() else 5.0
-            else:
-                fee_value = float(fee_raw) if fee_raw else 5.0
-
-            # Get delivery hours/time from multiple sources
-            hours_raw = delivery_data.get("hours") or fulfillment_data.get("hours") or "30-45 min"
-            if isinstance(hours_raw, str):
-                hours_value = hours_raw.strip() if hours_raw.strip() else "30-45 min"
-            else:
-                hours_value = "30-45 min"
-
-            default_zone = {
-                "id": "default",
-                "zone_name": zone_name,
-                "delivery_fee": fee_value,
-                "estimated_time": hours_value,
-                "is_active": True
-            }
-            delivery_zones = [default_zone]
-            logger.info(f"Job {job_id}: ✅ Created delivery zone: {zone_name} - RM{fee_value:.2f}")
+            delivery_zones = create_default_delivery_zones(form_data_for_menu)
+            logger.info(f"Job {job_id}: ✅ Created delivery zones: {len(delivery_zones)}")
         
         # Add delivery_zones to user_data
         user_data["delivery_zones"] = delivery_zones
         logger.info(f"Job {job_id}: Delivery zones in user_data: {len(delivery_zones)}")
 
-        # Create menu items from uploaded images (for ordering system)
-        # ENHANCED: Use AI image analysis to suggest names for unnamed images
-        menu_items = []
-        if request.images and len(request.images) > 0:
-            logger.info(f"Job {job_id}: 🍽️ Creating menu items from {len(request.images)} user-uploaded images...")
-            default_prices = [15, 12, 18, 10, 20, 14, 16, 13]  # Fallback prices only if user didn't set
-
-            # Get business-type specific descriptions (business_type already defined above)
-            biz_config = get_business_config(business_type)
-            default_desc = biz_config.get("item_description_default", "Hidangan istimewa dari dapur kami")
-
-            for idx, img in enumerate(request.images):
-                # Extract image data
-                if isinstance(img, dict):
-                    img_url = img.get('url', '')
-                    raw_name = img.get('name', '')
-                    img_name = raw_name.strip() if raw_name and raw_name.strip() else None
-                    logger.info(f"Job {job_id}:    📝 Image {idx}: raw_name='{raw_name}', cleaned_name='{img_name}'")
-                    # Use user's price if provided
-                    user_price = img.get('price')
-                    if user_price:
-                        try:
-                            img_price = float(str(user_price).replace('RM', '').replace(',', '').strip())
-                        except (ValueError, TypeError):
-                            img_price = default_prices[idx % len(default_prices)]
-                    else:
-                        img_price = default_prices[idx % len(default_prices)]
-                else:
-                    img_url = str(img)
-                    img_name = None
-                    img_price = default_prices[idx % len(default_prices)]
-
-                # Skip hero image (name contains "hero")
-                if img_name and 'hero' in img_name.lower():
-                    logger.info(f"Job {job_id}:    ⏭️ Skipping hero image: {img_name}")
-                    continue
-                
-                # Skip empty URLs
-                if not img_url:
-                    logger.warning(f"Job {job_id}:    ⚠️ Skipping image - no URL")
-                    continue
-
-                # ENHANCED: If no name provided, try AI image analysis to suggest a name
-                if not img_name or img_name == 'Hero Image':
-                    logger.info(f"Job {job_id}:    🔍 No name for image {idx}, attempting AI analysis...")
-                    try:
-                        analysis = await ai_service.analyze_uploaded_image(img_url)
-                        suggested_name = analysis.get('suggested_name')
-                        if suggested_name and is_valid_menu_item_name(suggested_name):
-                            img_name = suggested_name
-                            logger.info(f"Job {job_id}:    🤖 AI suggested name: '{img_name}' (category: {analysis.get('category')})")
-                        else:
-                            logger.warning(f"Job {job_id}:    ⚠️ Skipping image {idx} - no valid name and AI couldn't suggest one")
-                            continue
-                    except Exception as e:
-                        logger.warning(f"Job {job_id}:    ⚠️ AI analysis failed for image {idx}: {e}")
-                        continue
-
-                # Validate menu item name to prevent hallucinated items
-                if not is_valid_menu_item_name(img_name):
-                    logger.warning(f"Job {job_id}:    ⚠️ Skipping invalid menu item name: '{img_name}'")
-                    continue
-
-                # Auto-detect category based on item name and business type
-                category = detect_item_category(img_name, business_type)
-
-                # Create menu item
-                menu_item = {
-                    "id": f"menu-{idx}",
-                    "name": img_name,
-                    "description": default_desc,
-                    "price": img_price,
-                    "image_url": img_url,
-                    "category_id": category,
-                    "is_available": True
-                }
-                menu_items.append(menu_item)
-                logger.info(f"Job {job_id}:    ✅ Added menu item: {img_name} - RM{img_price:.2f} [{category}]")
-
+        # Get menu items using comprehensive menu service
+        menu_items = get_menu_items(
+            form_data=form_data_for_menu,
+            features=request.features,
+            generate_images=True  # Enable Stability AI image generation for generated items
+        )
+        
         # Add menu items to user_data
-        if menu_items:
-            user_data["menu_items"] = menu_items
-            logger.info(f"Job {job_id}: Created {len(menu_items)} menu items for ordering system")
-        else:
-            # Create default menu items if none provided but delivery is enabled
-            if request.features and request.features.get("deliverySystem"):
-                default_menu_items = [
-                    {"id": "1", "name": "Nasi Lemak Special", "description": "Nasi lemak dengan ayam goreng, sambal, dan telur", "price": 12.0, "image_url": "https://images.unsplash.com/photo-1598514983318-2f64f8f4796c?w=600&q=80", "category_id": "nasi"},
-                    {"id": "2", "name": "Nasi Goreng Kampung", "description": "Nasi goreng dengan ikan bilis dan telur mata", "price": 10.0, "image_url": "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=600&q=80", "category_id": "nasi"},
-                    {"id": "3", "name": "Ayam Goreng Berempah", "description": "Ayam goreng rangup dengan rempah pilihan", "price": 8.0, "image_url": "https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?w=600&q=80", "category_id": "lauk"},
-                    {"id": "4", "name": "Teh Tarik", "description": "Teh tarik panas atau sejuk", "price": 3.0, "image_url": "https://images.unsplash.com/photo-1571934811356-5cc061b6821f?w=600&q=80", "category_id": "minuman"},
-                ]
-                user_data["menu_items"] = default_menu_items
-                logger.info(f"Job {job_id}: Created {len(default_menu_items)} default menu items for delivery system")
-            else:
-                logger.warning(f"Job {job_id}: No menu items created - ordering system will be empty")
+        user_data["menu_items"] = menu_items
+        logger.info(f"Job {job_id}: Menu items in user_data: {len(menu_items)}")
 
         # Step 2: Generate 3 style variations
         job_service.update_progress(job_id, 20)
@@ -1862,8 +1681,27 @@ async def generate_stream(request: SimpleGenerateRequest):
                 "address": address if address else "",
                 "email": "contact@business.com",
                 "url": "https://preview.binaapp.my",
-                "whatsapp_message": "Hi, I'm interested"
+                "whatsapp_message": "Hi, I'm interested",
+                "business_name": business_name,
+                "business_type": detect_business_type(request.description),
+                "description": request.description,
             }
+
+            # Get menu items using menu service (for SSE mode)
+            form_data_for_menu = {
+                'images': request.images if request.images else [],
+                'description': request.description,
+                'business_type': user_data.get("business_type"),
+                'features': request.features,
+                'delivery': request.delivery,
+                'fulfillment': request.fulfillment,
+            }
+            menu_items = get_menu_items(form_data=form_data_for_menu, features=request.features)
+            user_data["menu_items"] = menu_items
+            
+            # Create delivery zones if needed
+            if request.features and request.features.get("deliverySystem"):
+                user_data["delivery_zones"] = create_default_delivery_zones(form_data_for_menu)
 
             # Multi-style generation
             if request.multi_style:
