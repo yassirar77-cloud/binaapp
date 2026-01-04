@@ -1573,6 +1573,7 @@ async def run_generation_task(
     social_media: Optional[dict] = None,
     payment: Optional[dict] = None,
     business_name: Optional[str] = None,
+    language: str = "ms",
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -1591,11 +1592,18 @@ async def run_generation_task(
         logger.info(f"🚀 Using ai_service 4-step generation for: {description[:50]}...")
 
         # Build AI generation request
+        # Respect explicit language selection from the client (no auto-detection).
+        lang = (language or "ms").lower().strip()
+        if lang in ["bm", "my", "malay", "bahasa", "bahasa melayu", "bahasa malaysia"]:
+            lang = "ms"
+        if lang not in ["ms", "en"]:
+            lang = "ms"
+
         ai_request = WebsiteGenerationRequest(
             description=description,
             business_name=description.split()[0] if description else "Business",  # Simple extraction
             business_type="business",  # Generic type
-            language=Language.MALAY if any(word in description.lower() for word in ['saya', 'kami', 'untuk']) else Language.ENGLISH,
+            language=Language.MALAY if lang == "ms" else Language.ENGLISH,
             subdomain="preview",
             include_whatsapp=True,
             whatsapp_number="+60123456789",
@@ -1857,6 +1865,7 @@ async def start_generation(request: Request):
     social_media = body.get("social_media") or None
     payment = body.get("payment") or None  # Payment methods (cod, qr, qr_image)
     business_name = body.get("business_name") or body.get("businessName") or None  # Actual business name
+    language = body.get("language") or "ms"
 
     # Get dish names from request
     dish_names = body.get("dish_names", [])
@@ -1881,6 +1890,13 @@ async def start_generation(request: Request):
         if uploaded_images.get("hero"):
             image_info += f"HERO IMAGE: {uploaded_images['hero']}\n\n"
 
+        # Respect language selection for menu item descriptions
+        lang = str(language or "ms").lower().strip()
+        if lang in ["bm", "my", "malay", "bahasa", "bahasa melayu", "bahasa malaysia"]:
+            lang = "ms"
+        if lang not in ["ms", "en"]:
+            lang = "ms"
+
         if len(gallery_urls) == 4:
             image_info += f"""CRITICAL - GALLERY IMAGES:
 You MUST include EXACTLY 4 menu/gallery items using these images:
@@ -1895,7 +1911,7 @@ Each gallery item MUST use the exact name and URL specified.
 
 MANDATORY REQUIREMENTS:
 1. Use the dish names provided above as menu item titles (EXACT names)
-2. Generate appropriate descriptions IN MALAY for each dish
+2. Generate appropriate descriptions IN {"BAHASA MALAYSIA" if lang == "ms" else "ENGLISH"} for each dish
 3. Use the EXACT image URLs provided above (DO NOT modify or replace)
 4. DO NOT use Unsplash or any placeholder URLs
 5. Make sure ALL 4 gallery images are included (not 3, not 2, but ALL 4)
@@ -1977,7 +1993,8 @@ MANDATORY REQUIREMENTS:
         address,
         social_media,
         payment,
-        business_name
+        business_name,
+        language
     ))
 
     logger.info(f"🚀 Job started: {job_id}")

@@ -237,7 +237,8 @@ async def generate_simple(request: GenerateRequest):
 
         # Step 2: HTML
         logger.info("🔷 Step 2: Generating HTML...")
-        is_malay = any(w in desc.lower() for w in ['saya', 'kami', 'kedai', 'jual'])
+        # Respect explicit language selection from the client (do not auto-detect).
+        is_malay = (request.language or "ms") == "ms"
 
         prompt = f"""Create a complete HTML website for: {desc}
 
@@ -254,7 +255,7 @@ REQUIREMENTS:
 3. Modern design with gradients
 4. Sections: Header, Hero, About, Services (3 cards), Gallery (4 images), Contact, Footer
 5. WhatsApp floating button (60123456789)
-6. {'Bahasa Malaysia' if is_malay else 'English'} content
+6. {'Bahasa Malaysia' if is_malay else 'English'} content (MUST be consistent)
 7. Use EXACT image URLs above
 
 Output ONLY the HTML code."""
