@@ -553,6 +553,163 @@ class AIService:
             logger.info(f"⚠️ No good match for '{text}' (best: {best_match} at {best_score:.2f})")
             return ("", best_score)
 
+    async def analyze_uploaded_image(self, image_url: str) -> Dict:
+        """
+        Analyze an uploaded image using AI Vision to detect its content.
+        
+        This helps:
+        1. Suggest names for images without user-provided names
+        2. Detect image content type (food, salon service, product, etc.)
+        3. Warn about mismatches between image content and business type
+        
+        Args:
+            image_url: URL of the uploaded image (Cloudinary or other CDN)
+            
+        Returns:
+            Dict with:
+            - suggested_name: Suggested item name
+            - category: Detected category (food, salon, clothing, etc.)
+            - description: Short description of the image
+            - confidence: Confidence level (high, medium, low)
+            - is_food: Boolean indicating if this appears to be food
+        """
+        logger.info(f"🔍 Analyzing uploaded image: {image_url[:60]}...")
+        
+        default_result = {
+            "suggested_name": None,
+            "category": "unknown",
+            "description": "Unable to analyze image",
+            "confidence": "low",
+            "is_food": False
+        }
+        
+        try:
+            # Use Qwen VL (Vision-Language) for image analysis
+            # Qwen-VL-Max supports image input via URL
+            if self.qwen_api_key:
+                logger.info("🟡 Using Qwen-VL for image analysis...")
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        f"{self.qwen_base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self.qwen_api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": "qwen-vl-max",
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {"url": image_url}
+                                        },
+                                        {
+                                            "type": "text",
+                                            "text": """Analyze this image and respond in JSON format:
+{
+  "suggested_name": "Item name in Malay or English (e.g., 'Nasi Lemak Special', 'Haircut Men')",
+  "category": "food|salon|clothing|product|other",
+  "description": "Brief description of what you see",
+  "is_food": true/false,
+  "food_type": "malaysian|western|asian|dessert|beverage|none"
+}
+
+If it's Malaysian food, suggest authentic Malay names.
+If it's a service (haircut, treatment), describe the service.
+Respond ONLY with valid JSON, no other text."""
+                                        }
+                                    ]
+                                }
+                            ],
+                            "temperature": 0.3,
+                            "max_tokens": 200
+                        }
+                    )
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        content = result["choices"][0]["message"]["content"].strip()
+                        logger.info(f"🟡 Qwen-VL response: {content[:100]}...")
+                        
+                        # Parse JSON response
+                        import json as json_module
+                        try:
+                            # Clean up response - remove markdown code blocks if present
+                            if content.startswith("```"):
+                                content = content.split("```")[1]
+                                if content.startswith("json"):
+                                    content = content[4:]
+                            content = content.strip()
+                            
+                            analysis = json_module.loads(content)
+                            analysis["confidence"] = "high"
+                            logger.info(f"✅ Image analyzed: {analysis.get('suggested_name')} - {analysis.get('category')}")
+                            return analysis
+                        except json_module.JSONDecodeError:
+                            logger.warning(f"⚠️ Could not parse Qwen-VL response as JSON")
+                    else:
+                        logger.warning(f"⚠️ Qwen-VL failed: {response.status_code}")
+            
+            # Fallback to DeepSeek (if it supports vision)
+            if self.deepseek_api_key:
+                logger.info("🔷 Trying DeepSeek for image analysis...")
+                # Note: DeepSeek chat doesn't support vision, but we can try
+                # to describe based on URL patterns or use a different approach
+                
+            return default_result
+            
+        except Exception as e:
+            logger.error(f"❌ Error analyzing image: {e}")
+            return default_result
+
+    async def analyze_images_batch(self, images: List[Dict]) -> List[Dict]:
+        """
+        Analyze a batch of uploaded images.
+        
+        Args:
+            images: List of image dicts with 'url' and optional 'name'
+            
+        Returns:
+            List of analysis results with suggested names and categories
+        """
+        results = []
+        for img in images:
+            url = img.get('url', '') if isinstance(img, dict) else str(img)
+            existing_name = img.get('name', '') if isinstance(img, dict) else ''
+            
+            if not url:
+                continue
+                
+            # Skip if user already provided a valid name
+            if existing_name and existing_name.strip() and existing_name != 'Hero Image':
+                results.append({
+                    "url": url,
+                    "user_name": existing_name,
+                    "suggested_name": existing_name,
+                    "category": "user_provided",
+                    "analyzed": False
+                })
+                continue
+            
+            # Analyze the image
+            analysis = await self.analyze_uploaded_image(url)
+            results.append({
+                "url": url,
+                "user_name": existing_name,
+                "suggested_name": analysis.get("suggested_name"),
+                "category": analysis.get("category", "unknown"),
+                "description": analysis.get("description"),
+                "is_food": analysis.get("is_food", False),
+                "analyzed": True
+            })
+            
+            # Small delay between API calls
+            await asyncio.sleep(0.5)
+        
+        return results
+
     async def test_api_connectivity(self) -> Dict[str, any]:
         """Test connectivity to both AI APIs"""
         results = {

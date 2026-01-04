@@ -1030,9 +1030,22 @@ function handleContactSubmit(e) {{
     .mobile-cart-panel { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-radius: 24px 24px 0 0; max-height: 85vh; overflow-y: auto; z-index: 101; transform: translateY(100%); transition: transform 0.3s ease; padding-bottom: 20px; }
     .mobile-cart-panel.active { transform: translateY(0); }
     /* Make cart footer scrollable content visible */
-    #cart-footer-mobile { padding-bottom: 100px !important; }
-    /* QR display mobile fixes */
-    #qr-payment-display-mobile { margin-bottom: 80px !important; }
+    #cart-footer-mobile { padding-bottom: 120px !important; }
+    /* QR display mobile fixes - increased margin for scrollability */
+    #qr-payment-display-mobile { margin-bottom: 140px !important; }
+    /* Ensure QR download button is always accessible */
+    #qr-payment-display-mobile a[download] { 
+        position: relative; 
+        z-index: 10; 
+        margin-bottom: 20px !important;
+        display: inline-block !important;
+    }
+    /* Fix cart overlay to allow scrolling */
+    .mobile-cart-overlay.active > div:last-child {
+        max-height: 90vh !important;
+        overflow-y: auto !important;
+        padding-bottom: env(safe-area-inset-bottom, 20px) !important;
+    }
 }
 @media (max-width: 480px) {
     /* Smaller padding on very small screens */
@@ -1162,16 +1175,16 @@ function handleContactSubmit(e) {{
     <!-- Mobile Cart Overlay -->
     <div id="delivery-mobile-cart-overlay" style="display:none;position:fixed;inset:0;z-index:100;">
         <div style="position:absolute;inset:0;background:rgba(0,0,0,0.5);" onclick="toggleDeliveryMobileCart()"></div>
-        <div style="position:absolute;bottom:0;left:0;right:0;background:white;border-radius:24px 24px 0 0;max-height:85vh;overflow:hidden;">
-            <div style="padding:16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">
+        <div style="position:absolute;bottom:0;left:0;right:0;background:white;border-radius:24px 24px 0 0;max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;">
+            <div style="position:sticky;top:0;z-index:10;padding:16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;background:white;border-radius:24px 24px 0 0;">
                 <h3 style="font-weight:bold;font-size:18px;margin:0;">Bakul Pesanan</h3>
                 <button onclick="toggleDeliveryMobileCart()" style="width:40px;height:40px;background:#f3f4f6;border-radius:50%;border:none;cursor:pointer;font-size:18px;">✕</button>
             </div>
-            <div style="padding:16px;max-height:40vh;overflow-y:auto;">
+            <div style="padding:16px;">
                 <div id="cart-empty-mobile" style="text-align:center;padding:32px 0;"><p style="color:#6b7280;margin:0;">Bakul anda kosong</p></div>
                 <div id="cart-items-mobile" style="display:none;"></div>
             </div>
-            <div id="cart-footer-mobile" style="display:none;padding:16px;border-top:1px solid #e5e7eb;background:#f9fafb;">
+            <div id="cart-footer-mobile" style="display:none;padding:16px;padding-bottom:140px;border-top:1px solid #e5e7eb;background:#f9fafb;">
                 <div style="margin-bottom:16px;">
                     <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Subtotal</span><span>RM<span id="subtotal-mobile">0</span></span></div>
                     <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Caj Delivery</span><span>RM<span id="delivery-fee-mobile">0</span></span></div>
@@ -1182,7 +1195,7 @@ function handleContactSubmit(e) {{
                     <h4 style="font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px;">💳 Cara Bayaran</h4>
                     <div id="payment-options-mobile"></div>
                 </div>
-                <button onclick="deliveryCheckout()" style="width:100%;background:linear-gradient(to right,#22c55e,#16a34a);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;">
+                <button onclick="deliveryCheckout()" style="width:100%;background:linear-gradient(to right,#22c55e,#16a34a);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;margin-bottom:env(safe-area-inset-bottom, 20px);">
                     📱 Hantar WhatsApp
                 </button>
             </div>
@@ -1478,12 +1491,12 @@ function handleContactSubmit(e) {{
                                     <span style="font-size:20px;">📱</span>
                                     <div><p style="font-weight:600;margin:0;">QR Payment</p><p style="font-size:12px;color:#6b7280;margin:0;">Scan & bayar sekarang</p></div>
                                 </div>
-                                <div id="qr-payment-display" style="display:${{selectedPaymentMethod === 'qr' ? 'block' : 'none'}};text-align:center;padding:20px;background:#f0fdf4;border-radius:16px;margin-bottom:100px;border:2px solid #bbf7d0;">
+                                <div id="qr-payment-display" style="display:${{selectedPaymentMethod === 'qr' ? 'block' : 'none'}};text-align:center;padding:20px;background:#f0fdf4;border-radius:16px;margin-bottom:140px;border:2px solid #bbf7d0;">
                                     <p style="font-weight:600;margin-bottom:16px;font-size:16px;">📱 Scan untuk bayar</p>
                                     <img src="${{PAYMENT_QR_URL}}" alt="Payment QR" style="width:200px;height:200px;border-radius:12px;border:4px solid white;box-shadow:0 4px 16px rgba(0,0,0,0.15);">
                                     <p style="margin-top:16px;font-size:16px;">Jumlah: <strong style="color:#ea580c;font-size:24px;">RM<span id="qr-total-amount">0.00</span></strong></p>
-                                    <a href="${{PAYMENT_QR_URL}}" download="payment-qr.png" style="display:inline-flex;align-items:center;gap:8px;margin-top:16px;padding:14px 28px;background:#10b981;color:white;border-radius:10px;text-decoration:none;font-weight:600;font-size:16px;box-shadow:0 4px 12px rgba(16,185,129,0.3);">📥 Download QR</a>
-                                    <p style="font-size:13px;color:#6b7280;margin-top:12px;">Screenshot bukti bayaran & hantar via WhatsApp</p>
+                                    <a href="${{PAYMENT_QR_URL}}" download="payment-qr.png" style="display:inline-flex;align-items:center;gap:8px;margin-top:16px;margin-bottom:20px;padding:14px 28px;background:#10b981;color:white;border-radius:10px;text-decoration:none;font-weight:600;font-size:16px;box-shadow:0 4px 12px rgba(16,185,129,0.3);">📥 Download QR</a>
+                                    <p style="font-size:13px;color:#6b7280;margin-top:12px;padding-bottom:30px;">Screenshot bukti bayaran & hantar via WhatsApp</p>
                                 </div>
                             `);
                         }}
