@@ -311,7 +311,7 @@ export default function CreatePage() {
         if (attempt > maxAttempts) {
           clearInterval(pollInterval);
           setError('Generation timed out after 5 minutes. Please try again with a shorter description.');
-          setLoading(false);
+          // Keep loading=true so the modal stays open with retry button
           return;
         }
 
@@ -338,8 +338,21 @@ export default function CreatePage() {
             // Set progress to 100% FIRST (before hiding modal)
             setProgress(100);
 
-            // Handle completed job
-            if (statusData.styles?.length > 0) {
+            // Handle completed job - backend returns 'variants' not 'styles'
+            if (statusData.variants?.length > 0) {
+              // Map variants to styleVariations format
+              const variations = statusData.variants.map((v: any) => ({
+                style: v.style,
+                html: v.html,
+                preview_image: v.preview_image,
+                thumbnail: v.thumbnail,
+                social_preview: v.social_preview
+              }));
+              setStyleVariations(variations);
+              setSelectedStyle(null);
+              console.log(`✅ Loaded ${variations.length} style variations`);
+            } else if (statusData.styles?.length > 0) {
+              // Fallback for backwards compatibility
               setStyleVariations(statusData.styles);
               setSelectedStyle(null);
             } else if (statusData.html) {
@@ -352,7 +365,8 @@ export default function CreatePage() {
           } else if (statusData.status === 'failed') {
             clearInterval(pollInterval);
             setError(statusData.error || 'Generation failed. Please try again.');
-            setLoading(false);
+            // Keep loading=true so the modal stays open with retry button
+            // User can click Cancel or Try Again in the modal
           }
           // If status is still 'processing', continue polling
         } catch (pollError: any) {
@@ -364,7 +378,8 @@ export default function CreatePage() {
     } catch (err: any) {
       console.error('Generation error:', err);
       setError(err.message || 'Error connecting to server. Please check your internet connection and try again.');
-      setLoading(false);
+      // Keep loading=true so the modal stays open with retry button
+      // User can click Cancel or Try Again in the modal
     }
   };
 
@@ -1049,20 +1064,61 @@ export default function CreatePage() {
             {loading && (
               <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
                 <div className="bg-gray-900 rounded-2xl p-8 max-w-2xl w-full mx-4">
-                  <div className="mb-6 relative">
-                    <CodeAnimation />
-                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-blue-500 rounded-full animate-ping"></div>
-                  </div>
+                  {error ? (
+                    /* Error State in Modal */
+                    <div className="text-center">
+                      <div className="mb-6">
+                        <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <span className="text-4xl">❌</span>
+                        </div>
+                        <h3 className="text-2xl font-bold text-white mb-2">Generation Failed</h3>
+                        <p className="text-gray-400 mb-4">Something went wrong while generating your website</p>
+                      </div>
 
-                  <div className="text-white mb-4 text-center">
-                    <div className="flex items-center justify-center gap-2 mb-2">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-                      <h3 className="text-2xl font-bold">Building your website...</h3>
+                      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-6 text-left">
+                        <p className="text-red-400 text-sm">{error}</p>
+                      </div>
+
+                      <div className="flex gap-3 justify-center">
+                        <button
+                          onClick={() => {
+                            setLoading(false);
+                            setError('');
+                            setProgress(0);
+                          }}
+                          className="px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            setError('');
+                            setProgress(0);
+                            handleGenerate();
+                          }}
+                          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition flex items-center gap-2"
+                        >
+                          <span>🔄</span> Try Again
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-gray-400">
-                      AI is writing production-ready HTML code for you
-                    </p>
-                  </div>
+                  ) : (
+                    /* Normal Loading State */
+                    <>
+                      <div className="mb-6 relative">
+                        <CodeAnimation />
+                        <div className="absolute -top-2 -right-2 w-6 h-6 bg-blue-500 rounded-full animate-ping"></div>
+                      </div>
+
+                      <div className="text-white mb-4 text-center">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                          <h3 className="text-2xl font-bold">Building your website...</h3>
+                        </div>
+                        <p className="text-gray-400">
+                          AI is writing production-ready HTML code for you
+                        </p>
+                      </div>
 
                   {/* Progress bar */}
                   <div className="mb-6">
@@ -1078,27 +1134,63 @@ export default function CreatePage() {
                   </div>
 
                   <div className="mt-6 space-y-3 text-left max-w-md mx-auto">
+                    {/* Step 1: Analyzing (10-25%) */}
                     <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-2 h-2 rounded-full ${progress >= 10 ? 'bg-blue-500 animate-pulse' : 'bg-gray-600'}`}></div>
-                      <span className="text-sm">Analyzing your business description...</span>
+                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                        progress >= 10 && progress < 30 ? 'bg-blue-500 animate-pulse' :
+                        progress >= 30 ? 'bg-green-500' : 'bg-gray-600'
+                      }`}></div>
+                      <span className={`text-sm ${progress >= 30 ? 'text-green-400' : ''}`}>
+                        {progress >= 30 ? '✓ ' : ''}Analyzing your business description...
+                      </span>
                     </div>
+                    {/* Step 2: Modern Style (30-50%) */}
                     <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-2 h-2 rounded-full ${progress >= 33 ? 'bg-purple-500 animate-pulse' : 'bg-gray-600'}`}></div>
-                      <span className="text-sm">Generating Modern style...</span>
+                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                        progress >= 30 && progress < 50 ? 'bg-purple-500 animate-pulse' :
+                        progress >= 50 ? 'bg-green-500' : 'bg-gray-600'
+                      }`}></div>
+                      <span className={`text-sm ${progress >= 50 ? 'text-green-400' : ''}`}>
+                        {progress >= 50 ? '✓ ' : ''}Generating Modern style...
+                      </span>
                     </div>
+                    {/* Step 3: Minimal Style (50-70%) */}
                     <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-2 h-2 rounded-full ${progress >= 66 ? 'bg-pink-500 animate-pulse' : 'bg-gray-600'}`}></div>
-                      <span className="text-sm">Generating Minimal style...</span>
+                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                        progress >= 50 && progress < 70 ? 'bg-pink-500 animate-pulse' :
+                        progress >= 70 ? 'bg-green-500' : 'bg-gray-600'
+                      }`}></div>
+                      <span className={`text-sm ${progress >= 70 ? 'text-green-400' : ''}`}>
+                        {progress >= 70 ? '✓ ' : ''}Generating Minimal style...
+                      </span>
                     </div>
+                    {/* Step 4: Bold Style (70-90%) */}
                     <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-2 h-2 rounded-full ${progress >= 99 ? 'bg-orange-500 animate-pulse' : 'bg-gray-600'}`}></div>
-                      <span className="text-sm">Generating Bold style...</span>
+                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                        progress >= 70 && progress < 90 ? 'bg-orange-500 animate-pulse' :
+                        progress >= 90 ? 'bg-green-500' : 'bg-gray-600'
+                      }`}></div>
+                      <span className={`text-sm ${progress >= 90 ? 'text-green-400' : ''}`}>
+                        {progress >= 90 ? '✓ ' : ''}Generating Bold style...
+                      </span>
+                    </div>
+                    {/* Step 5: Finalizing (90-100%) */}
+                    <div className="flex items-center gap-3 text-gray-300">
+                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                        progress >= 90 && progress < 100 ? 'bg-yellow-500 animate-pulse' :
+                        progress >= 100 ? 'bg-green-500' : 'bg-gray-600'
+                      }`}></div>
+                      <span className={`text-sm ${progress >= 100 ? 'text-green-400' : ''}`}>
+                        {progress >= 100 ? '✓ ' : ''}Finalizing website...
+                      </span>
                     </div>
                   </div>
 
                   <p className="text-xs text-gray-500 mt-6 text-center">
                     This usually takes 45-90 seconds. Progress updates every 3 seconds ⏱️
                   </p>
+                    </>
+                  )}
                 </div>
               </div>
             )}

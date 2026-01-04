@@ -1880,13 +1880,60 @@ Example gallery card:
 </div>
 """
 
+        # Build style-specific instructions
+        style_instructions = {
+            "modern": """
+STYLE DESIGN - MODERN (REQUIRED):
+- Use vibrant gradient backgrounds: from-purple-600 to-blue-600, from-blue-500 to-indigo-600
+- Add glassmorphism effect: bg-white/20 backdrop-blur-lg
+- Rounded corners everywhere: rounded-xl, rounded-2xl, rounded-3xl
+- Soft shadows: shadow-xl, shadow-2xl
+- Smooth hover transitions: transition-all duration-300
+- Floating elements with hover:scale-105
+- Modern gradient buttons
+- Use accent colors: purple, blue, indigo
+- Font: text-lg for body, headings with gradient text
+- Add subtle animations on scroll""",
+            "minimal": """
+STYLE DESIGN - MINIMAL (REQUIRED):
+- Maximum white space, clean layout
+- Primary colors: black (#000) and white (#fff) only
+- Very thin borders: border border-gray-200
+- NO or minimal shadows: shadow-none or shadow-sm only
+- Sharp edges preferred: rounded-none or rounded-sm
+- Simple serif fonts for headings
+- Thin line dividers
+- Lots of padding and margin for breathing room
+- Muted hover effects: hover:bg-gray-50
+- Monochromatic color scheme
+- Focus on typography hierarchy
+- NO gradients, NO vibrant colors""",
+            "bold": """
+STYLE DESIGN - BOLD (REQUIRED):
+- Vibrant, saturated colors: orange-500, red-500, yellow-400
+- Large, bold typography: text-4xl font-black, text-5xl font-black
+- High contrast: dark backgrounds with light text
+- Thick borders: border-4 border-orange-500
+- Big, chunky buttons: px-8 py-4 text-xl font-bold
+- Strong shadows: shadow-2xl
+- Eye-catching gradients: from-orange-500 to-red-600
+- Asymmetric layouts allowed
+- Bold hover effects: hover:scale-110
+- Use accent colors: orange, red, yellow, pink
+- Make everything stand out and attention-grabbing"""
+        }
+
+        style_guide = style_instructions.get(style, style_instructions["modern"])
+
         return f"""Generate a COMPLETE production-ready HTML website.
 
 BUSINESS: {name}
 DESCRIPTION: {desc}
-STYLE: {style}
+STYLE: {style.upper()}
 TYPE: {biz_type}
 TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
+
+{style_guide}
 
 ===== CRITICAL RULES - MUST FOLLOW =====
 
