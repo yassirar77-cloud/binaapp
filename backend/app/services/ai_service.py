@@ -1587,6 +1587,7 @@ Generate prompts now:"""
             "- Do NOT add new facts (no invented addresses, phone numbers, awards, years, prices, or claims).\n"
             "- Do NOT change any links (especially WhatsApp wa.me links).\n"
             "- Keep all image URLs unchanged.\n"
+            "- Keep the language consistent with the existing page (if it's Bahasa Malaysia, keep it fully Bahasa Malaysia; do NOT introduce English headings).\n"
             "- Only improve wording/clarity while preserving meaning.\n\n"
             f"{html}"
         )
@@ -1797,10 +1798,10 @@ Generate prompts now:"""
    ✅ Navigasi: "Laman Utama", "Menu", "Tentang", "Hubungi"
    ✅ Butang: "Pesan Sekarang", "Hubungi Kami", "Lihat Menu"
    ❌ JANGAN gunakan Bahasa Inggeris untuk kandungan
-   ❌ JANGAN tulis "Home", "About Us", "Contact", "Services" dalam English
+   ❌ JANGAN tulis tajuk/navigasi dalam English (contoh: Home, About Us, Contact, Services)
    
    CONTOH TEKS YANG BETUL:
-   - Hero: "Selamat Datang ke [Nama Perniagaan]" 
+   - Hero: "Selamat Datang ke Nama Perniagaan" 
    - About: "Kami menyediakan perkhidmatan terbaik..."
    - Contact: "Hubungi kami untuk sebarang pertanyaan"
    - Footer: "Hak Cipta © 2024. Semua Hak Terpelihara."""
@@ -1826,6 +1827,58 @@ Generate prompts now:"""
         address_line = ""
         if location_address and str(location_address).strip():
             address_line = f"   ✅ Address (use EXACTLY, do not invent): {str(location_address).strip()}"
+
+        examples = ""
+        if language == "ms":
+            examples = """
+
+CONTOH HERO (tunjuk imej penuh):
+<section id="home" class="relative h-[400px] bg-gray-100">
+    <img src="HERO_URL" alt="Imej Hero" class="w-full h-full object-contain">
+    <div class="absolute inset-0 bg-black/30 flex items-center">
+        <!-- kandungan -->
+    </div>
+</section>
+
+ATAU gaya cover tetapi tunjuk bahagian atas:
+<section id="home" class="relative h-[50vh] md:h-[400px]">
+    <img src="HERO_URL" alt="Imej Hero" class="w-full h-full object-cover object-top">
+</section>
+
+CONTOH KAD GALERI:
+<div class="rounded-xl overflow-hidden shadow-lg">
+  <img src="..." class="w-full h-48 object-cover" alt="Gambar produk">
+  <div class="p-4">
+    <h3>Nama Produk</h3>
+    <p>Penerangan ringkas</p>
+  </div>
+</div>
+"""
+        else:
+            examples = """
+
+Example hero that shows FULL image:
+<section id="home" class="relative h-[400px] bg-gray-100">
+    <img src="HERO_URL" alt="Hero Image" class="w-full h-full object-contain">
+    <div class="absolute inset-0 bg-black/30 flex items-center">
+        <!-- content -->
+    </div>
+</section>
+
+OR if you want cover style but show top:
+<section id="home" class="relative h-[50vh] md:h-[400px]">
+    <img src="HERO_URL" alt="Hero Image" class="w-full h-full object-cover object-top">
+</section>
+
+Example gallery card:
+<div class="rounded-xl overflow-hidden shadow-lg">
+  <img src="..." class="w-full h-48 object-cover" alt="Product image">
+  <div class="p-4">
+    <h3>Product Name</h3>
+    <p>Short description</p>
+  </div>
+</div>
+"""
 
         return f"""Generate a COMPLETE production-ready HTML website.
 
@@ -1889,27 +1942,7 @@ HERO SECTION - IMPORTANT:
 - OR use object-cover with object-top to show top of image
 - Background color behind image: bg-gray-100 or bg-white
 
-Example hero that shows FULL image:
-<section id="home" class="relative h-[400px] bg-gray-100">
-    <img src="HERO_URL" alt="..." class="w-full h-full object-contain">
-    <div class="absolute inset-0 bg-black/30 flex items-center">
-        <!-- content -->
-    </div>
-</section>
-
-OR if you want cover style but show top:
-<section id="home" class="relative h-[50vh] md:h-[400px]">
-    <img src="HERO_URL" alt="..." class="w-full h-full object-cover object-top">
-</section>
-
-   Example gallery card:
-   <div class="rounded-xl overflow-hidden shadow-lg">
-     <img src="..." class="w-full h-48 object-cover">
-     <div class="p-4">
-       <h3>Dish Name</h3>
-       <p>Description</p>
-     </div>
-   </div>
+{examples}
 
 Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HTML."""
 
