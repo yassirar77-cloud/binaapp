@@ -159,7 +159,8 @@ class AIService:
 
         # ===== GENERAL BUSINESS CATEGORIES =====
         "bakery": "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=600&q=80",
-        "kedai roti": "https://images.unsplash.com/photo-1509440159596-0249440159596-0249088772ff?w=600&q=80",
+        # Fix malformed Unsplash URL (was breaking image loads)
+        "kedai roti": "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=600&q=80",
         "cake": "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=600&q=80",
         "kek": "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=600&q=80",
 
@@ -183,7 +184,8 @@ class AIService:
         "coffee": "https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=600&q=80",
 
         "restaurant": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600&q=80",
-        "restoran": "https://images.unsplash.com/photo-517248135467-4c7edcad34c4?w=600&q=80",
+        # Fix malformed Unsplash URL (was breaking image loads)
+        "restoran": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600&q=80",
 
         # Generic fallback
         "business": "https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&q=80",
@@ -1579,8 +1581,16 @@ Generate prompts now:"""
 
     async def _improve_with_qwen(self, html: str, description: str) -> str:
         """Use Qwen to improve content"""
-        prompt = f"Improve this HTML content for Malaysian business. Make descriptions more appealing. Keep all image URLs unchanged.\n\n{html}"
-        improved = await self._call_qwen(prompt)
+        prompt = (
+            "Improve the copywriting in this HTML for a Malaysian business.\n"
+            "STRICT RULES:\n"
+            "- Do NOT add new facts (no invented addresses, phone numbers, awards, years, prices, or claims).\n"
+            "- Do NOT change any links (especially WhatsApp wa.me links).\n"
+            "- Keep all image URLs unchanged.\n"
+            "- Only improve wording/clarity while preserving meaning.\n\n"
+            f"{html}"
+        )
+        improved = await self._call_qwen(prompt, temperature=0.7)
         return improved if improved else html
 
     def get_fallback_images(self, description: str) -> Dict:
@@ -1731,7 +1741,16 @@ Generate prompts now:"""
             return "clothing"
         return "default"
 
-    def _build_strict_prompt(self, name: str, desc: str, style: str, user_images: list = None, language: str = "ms") -> str:
+    def _build_strict_prompt(
+        self,
+        name: str,
+        desc: str,
+        style: str,
+        user_images: list = None,
+        language: str = "ms",
+        whatsapp_number: Optional[str] = None,
+        location_address: Optional[str] = None,
+    ) -> str:
         """Build STRICT prompt that forbids placeholders"""
         biz_type = self._detect_type(desc)
         imgs = self.IMAGES.get(biz_type, self.IMAGES["default"])
@@ -1793,6 +1812,21 @@ Generate prompts now:"""
    ✅ Buttons: "Order Now", "Contact Us", "View Menu"
    Keep all text consistent in English throughout."""
 
+        # WhatsApp number normalization for wa.me links (digits only)
+        wa_raw = whatsapp_number or "60123456789"
+        wa_digits = re.sub(r"\D", "", str(wa_raw))
+        if wa_digits.startswith("0"):
+            wa_digits = "6" + wa_digits
+        elif wa_digits.startswith("1"):
+            wa_digits = "60" + wa_digits
+        if not wa_digits:
+            wa_digits = "60123456789"
+
+        # Only mention an address if we actually have one (avoid AI inventing locations)
+        address_line = ""
+        if location_address and str(location_address).strip():
+            address_line = f"   ✅ Address (use EXACTLY, do not invent): {str(location_address).strip()}"
+
         return f"""Generate a COMPLETE production-ready HTML website.
 
 BUSINESS: {name}
@@ -1826,7 +1860,9 @@ TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
    ✅ Real about section (2-3 sentences about the business)
    ✅ Real service names and descriptions (3-4 services)
    ✅ Real contact message
-   ✅ WhatsApp button linking to: https://wa.me/60123456789
+   ✅ WhatsApp button linking to: https://wa.me/{wa_digits}
+{address_line}
+   🚫 DO NOT invent phone numbers, addresses, city names, awards, certifications, years, or prices not provided.
 
 4. TECHNICAL REQUIREMENTS:
    - Single complete HTML file
@@ -1877,7 +1913,7 @@ OR if you want cover style but show top:
 
 Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HTML."""
 
-    async def _call_deepseek(self, prompt: str) -> Optional[str]:
+    async def _call_deepseek(self, prompt: str, temperature: float = 0.2) -> Optional[str]:
         """Call DeepSeek API"""
         if not self.deepseek_api_key:
             logger.warning("❌ DEEPSEEK_API_KEY not configured")
@@ -1894,9 +1930,15 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     },
                     json={
                         "model": "deepseek-chat",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.7,
-                        "max_tokens": 8000
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML.",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": temperature,
+                        "max_tokens": 8000,
                     }
                 )
                 if r.status_code == 200:
@@ -1909,7 +1951,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"🔷 DeepSeek ❌ Exception: {e}")
         return None
 
-    async def _call_qwen(self, prompt: str) -> Optional[str]:
+    async def _call_qwen(self, prompt: str, temperature: float = 0.2) -> Optional[str]:
         """Call Qwen API"""
         if not self.qwen_api_key:
             logger.warning("❌ QWEN_API_KEY not configured")
@@ -1926,9 +1968,15 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     },
                     json={
                         "model": "qwen-max",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.7,
-                        "max_tokens": 8000
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML.",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": temperature,
+                        "max_tokens": 8000,
                     }
                 )
                 if r.status_code == 200:
@@ -1983,6 +2031,56 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         return text.strip()
 
+    def _validate_generated_html(
+        self,
+        html: str,
+        required_image_urls: List[str],
+        required_wa_digits: str,
+    ) -> List[str]:
+        """
+        Validate AI output and detect common hallucination/constraint violations.
+        Returns list of human-readable errors (empty list means OK).
+        """
+        errors: List[str] = []
+        if not html or not isinstance(html, str):
+            return ["Empty HTML output"]
+
+        lower = html.lower()
+
+        # Basic structure
+        if "<html" not in lower or "</html>" not in lower:
+            errors.append("Missing <html> wrapper")
+        if "cdn.tailwindcss.com" not in lower:
+            errors.append("Missing Tailwind CDN script (cdn.tailwindcss.com)")
+
+        # Forbidden placeholder patterns
+        forbidden_substrings = [
+            "via.placeholder.com",
+            "placeholder.com",
+            "example.com",
+            "[business_tagline]",
+            "[about_text]",
+            "[service_",
+        ]
+        for s in forbidden_substrings:
+            if s in lower:
+                errors.append(f"Contains forbidden placeholder/text: '{s}'")
+
+        if re.search(r"\[[^\]]+\]", html):
+            errors.append("Contains bracket placeholder text like [SOMETHING]")
+
+        # WhatsApp link correctness
+        wa_expected = f"wa.me/{required_wa_digits}"
+        if wa_expected.lower() not in lower:
+            errors.append(f"Missing or incorrect WhatsApp link (expected '{wa_expected}')")
+
+        # Required image URLs (when user supplied)
+        for url in required_image_urls:
+            if url and url not in html:
+                errors.append(f"Missing required image URL in HTML: {url}")
+
+        return errors
+
     def _fix_menu_item_images(self, html: str) -> str:
         """
         Fix duplicate product/service images - ensure each item has a unique image
@@ -2030,6 +2128,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     item_name = re.sub(r'<[^>]+>', '', item_name).strip()
 
                     if not item_name or not img_url:
+                        continue
+
+                    # Never "fix" user-provided/CDN images (Cloudinary, etc.).
+                    # Only dedupe/replace known stock/placeholder sources.
+                    img_url_lower = img_url.lower()
+                    if (
+                        "images.unsplash.com" not in img_url_lower
+                        and "via.placeholder.com" not in img_url_lower
+                        and "placeholder.com" not in img_url_lower
+                    ):
                         continue
 
                     # Track this image URL
@@ -2246,20 +2354,19 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 return ''
 
             # Map uploaded images to expected keys
-            if len(request.uploaded_images) > 0:
+            # IMPORTANT: Only treat an uploaded image as HERO if explicitly named as hero.
+            gallery_start_index = 0
+            first_name = (get_image_name(request.uploaded_images[0]) or "").strip().lower()
+            if first_name == "hero image" or "hero" in first_name:
                 image_urls["hero"] = get_image_url(request.uploaded_images[0])
-            if len(request.uploaded_images) > 1:
-                image_urls["gallery1"] = get_image_url(request.uploaded_images[1])
-                image_urls["gallery1_name"] = get_image_name(request.uploaded_images[1])
-            if len(request.uploaded_images) > 2:
-                image_urls["gallery2"] = get_image_url(request.uploaded_images[2])
-                image_urls["gallery2_name"] = get_image_name(request.uploaded_images[2])
-            if len(request.uploaded_images) > 3:
-                image_urls["gallery3"] = get_image_url(request.uploaded_images[3])
-                image_urls["gallery3_name"] = get_image_name(request.uploaded_images[3])
-            if len(request.uploaded_images) > 4:
-                image_urls["gallery4"] = get_image_url(request.uploaded_images[4])
-                image_urls["gallery4_name"] = get_image_name(request.uploaded_images[4])
+                gallery_start_index = 1
+
+            # Gallery images start after hero (if present)
+            for i in range(1, 5):
+                idx = gallery_start_index + (i - 1)
+                if idx < len(request.uploaded_images):
+                    image_urls[f"gallery{i}"] = get_image_url(request.uploaded_images[idx])
+                    image_urls[f"gallery{i}_name"] = get_image_name(request.uploaded_images[idx])
 
             logger.info(f"   ✅ Using {len(image_urls)} user-uploaded images with metadata")
 
@@ -2339,7 +2446,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             request.description,
             style or "modern",
             request.uploaded_images,
-            language
+            language,
+            whatsapp_number=request.whatsapp_number,
+            location_address=request.location_address,
         )
 
         # Add image URLs to prompt with STRONG emphasis
@@ -2415,6 +2524,59 @@ IMPORTANT INSTRUCTIONS:
         # Extract HTML
         html = self._extract_html(html)
 
+        # Validate and retry once if the model ignored hard constraints
+        if html:
+            required_urls: List[str] = []
+            if request.uploaded_images and len(request.uploaded_images) > 0:
+                def _url(img):
+                    if isinstance(img, dict):
+                        return img.get("url", img.get("URL", ""))
+                    return str(img) if img else ""
+
+                def _name(img):
+                    if isinstance(img, dict):
+                        return img.get("name", "")
+                    return ""
+
+                gallery_start_index = 0
+                first_name = (_name(request.uploaded_images[0]) or "").strip().lower()
+                if first_name == "hero image" or "hero" in first_name:
+                    required_urls.append(_url(request.uploaded_images[0]))
+                    gallery_start_index = 1
+                for i in range(4):
+                    idx = gallery_start_index + i
+                    if idx < len(request.uploaded_images):
+                        required_urls.append(_url(request.uploaded_images[idx]))
+
+            wa_raw = request.whatsapp_number or "60123456789"
+            wa_digits = re.sub(r"\D", "", str(wa_raw))
+            if wa_digits.startswith("0"):
+                wa_digits = "6" + wa_digits
+            elif wa_digits.startswith("1"):
+                wa_digits = "60" + wa_digits
+            if not wa_digits:
+                wa_digits = "60123456789"
+
+            errors = self._validate_generated_html(
+                html,
+                required_image_urls=[u for u in required_urls if u],
+                required_wa_digits=wa_digits,
+            )
+            if errors:
+                logger.warning("⚠️ HTML validation failed; retrying once with stricter constraints")
+                retry_prompt = (
+                    prompt
+                    + "\n\n=== VALIDATION FAILURES (MUST FIX) ===\n"
+                    + "\n".join(f"- {e}" for e in errors)
+                    + "\nRegenerate the FULL HTML from scratch. Output ONLY HTML."
+                )
+                retry = await self._call_deepseek(retry_prompt, temperature=0.1)
+                if not retry:
+                    retry = await self._call_qwen(retry_prompt, temperature=0.1)
+                retry_html = self._extract_html(retry) if retry else None
+                if retry_html:
+                    html = retry_html
+
         # STEP 3: Improve content with Qwen
         if html:
             logger.info("🟡 STEP 3: Qwen improving content...")
@@ -2428,8 +2590,10 @@ IMPORTANT INSTRUCTIONS:
         html = self._fix_menu_item_images(html)
 
         # CRITICAL FIX: Generate AI images for Malaysian food items
-        # This replaces Unsplash URLs with Cloudinary URLs from Stability AI
-        html = await self._generate_ai_food_images(html)
+        # This replaces Unsplash URLs with Cloudinary URLs from Stability AI.
+        # Never override user-provided images.
+        if not (request.uploaded_images and len(request.uploaded_images) > 0):
+            html = await self._generate_ai_food_images(html)
 
         logger.info("✅ ALL STEPS COMPLETE")
         logger.info(f"   Final size: {len(html)} characters")
@@ -2467,7 +2631,9 @@ IMPORTANT INSTRUCTIONS:
                 request.description,
                 style,
                 request.uploaded_images,
-                language
+                language,
+                whatsapp_number=request.whatsapp_number,
+                location_address=request.location_address,
             )
 
             # Try preferred AI first
@@ -2482,12 +2648,67 @@ IMPORTANT INSTRUCTIONS:
 
             if html:
                 html = self._extract_html(html)
+
+                # Validate and retry once if constraints were ignored
+                if html:
+                    required_urls: List[str] = []
+                    if request.uploaded_images and len(request.uploaded_images) > 0:
+                        def _url(img):
+                            if isinstance(img, dict):
+                                return img.get("url", img.get("URL", ""))
+                            return str(img) if img else ""
+
+                        def _name(img):
+                            if isinstance(img, dict):
+                                return img.get("name", "")
+                            return ""
+
+                        gallery_start_index = 0
+                        first_name = (_name(request.uploaded_images[0]) or "").strip().lower()
+                        if first_name == "hero image" or "hero" in first_name:
+                            required_urls.append(_url(request.uploaded_images[0]))
+                            gallery_start_index = 1
+                        for i in range(4):
+                            idx = gallery_start_index + i
+                            if idx < len(request.uploaded_images):
+                                required_urls.append(_url(request.uploaded_images[idx]))
+
+                    wa_raw = request.whatsapp_number or "60123456789"
+                    wa_digits = re.sub(r"\D", "", str(wa_raw))
+                    if wa_digits.startswith("0"):
+                        wa_digits = "6" + wa_digits
+                    elif wa_digits.startswith("1"):
+                        wa_digits = "60" + wa_digits
+                    if not wa_digits:
+                        wa_digits = "60123456789"
+
+                    errors = self._validate_generated_html(
+                        html,
+                        required_image_urls=[u for u in required_urls if u],
+                        required_wa_digits=wa_digits,
+                    )
+                    if errors:
+                        logger.warning(f"⚠️ {style} HTML validation failed; retrying once")
+                        retry_prompt = (
+                            prompt
+                            + "\n\n=== VALIDATION FAILURES (MUST FIX) ===\n"
+                            + "\n".join(f"- {e}" for e in errors)
+                            + "\nRegenerate the FULL HTML from scratch. Output ONLY HTML."
+                        )
+                        retry = await self._call_deepseek(retry_prompt, temperature=0.1)
+                        if not retry:
+                            retry = await self._call_qwen(retry_prompt, temperature=0.1)
+                        retry_html = self._extract_html(retry) if retry else None
+                        if retry_html:
+                            html = retry_html
+
                 html = self._fix_placeholders(html, request.business_name, request.description)
                 html = self._fix_menu_item_images(html)
 
                 # CRITICAL FIX: Generate AI images for Malaysian food items
                 # This replaces Unsplash URLs with Cloudinary URLs from Stability AI
-                html = await self._generate_ai_food_images(html)
+                if not (request.uploaded_images and len(request.uploaded_images) > 0):
+                    html = await self._generate_ai_food_images(html)
 
                 results[style] = AIGenerationResponse(
                     html_content=html,
