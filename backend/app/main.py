@@ -30,6 +30,7 @@ from app.services.ai_service import AIService
 from app.models.schemas import WebsiteGenerationRequest, Language
 from app.api.upload import router as upload_router
 from app.api.v1.endpoints.menu_delivery import router as menu_delivery_router
+from app.api.v1.endpoints.health import router as health_router
 from app.api.v1.router import api_router as v1_router
 from app.services.templates import template_service
 
@@ -106,6 +107,7 @@ app = FastAPI(title="BinaApp Backend", version="4.0")
 app.include_router(upload_router, prefix="/api", tags=["Upload"])
 app.include_router(menu_delivery_router, prefix="/api/v1", tags=["Menu & Delivery"])
 app.include_router(v1_router, prefix="/v1")  # New delivery system + all v1 endpoints
+app.include_router(health_router, tags=["Health"])  # Health check endpoints
 
 # Mount static files for delivery widget
 static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
