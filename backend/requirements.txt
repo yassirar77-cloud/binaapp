@@ -11,6 +11,7 @@ email-validator
 # Database & Storage
 supabase>=2.0.0
 httpx
+requests
 
 # Authentication & Security
 python-jose[cryptography]
