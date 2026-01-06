@@ -148,6 +148,12 @@ export default function CreatePage() {
   // Business type state - for dynamic categories and labels
   const [businessType, setBusinessType] = useState<'auto' | 'food' | 'clothing' | 'salon' | 'services' | 'bakery' | 'general'>('auto')
 
+  // STRICT IMAGE CONTROL - Explicit user choice for images
+  // 'none' = No images (text-only website)
+  // 'upload' = Use only user-uploaded images
+  // 'ai' = Generate AI images with Stability AI
+  const [imageChoice, setImageChoice] = useState<'none' | 'upload' | 'ai'>('none')
+
   // Delivery system states
   const [deliveryArea, setDeliveryArea] = useState('')
   const [deliveryFee, setDeliveryFee] = useState('')
@@ -246,6 +252,12 @@ export default function CreatePage() {
         ? [{ url: uploadedImages.hero, name: 'Hero Image' }, ...galleryWithMetadata]
         : galleryWithMetadata;
 
+      // STRICT IMAGE CONTROL: Determine final image choice
+      // If user uploaded images, force 'upload' mode
+      // Otherwise, use the user's explicit selection
+      const finalImageChoice = allImages.length > 0 ? 'upload' : imageChoice;
+      console.log(`🖼️ Image Choice: ${finalImageChoice} (user selected: ${imageChoice}, has uploads: ${allImages.length > 0})`);
+
       const startResponse = await fetch('https://binaapp-backend.onrender.com/api/generate/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -259,6 +271,8 @@ export default function CreatePage() {
           gallery_metadata: uploadedImages.gallery,  // Pass full gallery metadata separately for AI context
           features: selectedFeatures,  // Pass selected features
           business_type: businessType === 'auto' ? null : businessType,  // Pass business type for dynamic categories
+          // STRICT IMAGE CONTROL: Send explicit image choice
+          image_choice: finalImageChoice,
           delivery: selectedFeatures.deliverySystem ? {
             area: deliveryArea,
             fee: deliveryFee,
@@ -743,6 +757,88 @@ export default function CreatePage() {
             </div>
 
             <VisualImageUpload onImagesUploaded={setUploadedImages} />
+
+            {/* STRICT IMAGE CONTROL - Explicit User Choice */}
+            <div className="bg-white rounded-xl p-6 shadow-lg mt-6 border-2 border-purple-200">
+              <h3 className="text-lg font-bold mb-2">🖼️ Gambar untuk Website</h3>
+              <p className="text-gray-500 text-sm mb-4">Pilih bagaimana anda mahu gambar dalam website anda</p>
+
+              <div className="space-y-3">
+                {/* Option 1: No Images */}
+                <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${
+                  imageChoice === 'none' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'
+                }`}>
+                  <input
+                    type="radio"
+                    name="imageChoice"
+                    value="none"
+                    checked={imageChoice === 'none'}
+                    onChange={() => setImageChoice('none')}
+                    className="w-5 h-5 text-purple-600"
+                  />
+                  <span className="text-2xl">📝</span>
+                  <div className="flex-1">
+                    <p className="font-semibold">Tiada Gambar</p>
+                    <p className="text-sm text-gray-500">Website teks sahaja, tanpa gambar</p>
+                  </div>
+                </label>
+
+                {/* Option 2: Upload Own Images */}
+                <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${
+                  imageChoice === 'upload' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'
+                }`}>
+                  <input
+                    type="radio"
+                    name="imageChoice"
+                    value="upload"
+                    checked={imageChoice === 'upload'}
+                    onChange={() => setImageChoice('upload')}
+                    className="w-5 h-5 text-purple-600"
+                  />
+                  <span className="text-2xl">📷</span>
+                  <div className="flex-1">
+                    <p className="font-semibold">Muat Naik Gambar Sendiri</p>
+                    <p className="text-sm text-gray-500">Gunakan gambar yang anda upload di atas</p>
+                  </div>
+                  {uploadedImages.gallery.length > 0 && (
+                    <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">
+                      {uploadedImages.gallery.length} gambar dimuat naik
+                    </span>
+                  )}
+                </label>
+
+                {/* Option 3: Generate AI Images */}
+                <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${
+                  imageChoice === 'ai' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'
+                }`}>
+                  <input
+                    type="radio"
+                    name="imageChoice"
+                    value="ai"
+                    checked={imageChoice === 'ai'}
+                    onChange={() => setImageChoice('ai')}
+                    className="w-5 h-5 text-purple-600"
+                  />
+                  <span className="text-2xl">✨</span>
+                  <div className="flex-1">
+                    <p className="font-semibold">Jana Gambar AI</p>
+                    <p className="text-sm text-gray-500">AI akan jana gambar untuk perniagaan anda</p>
+                  </div>
+                  <span className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full">
+                    Premium
+                  </span>
+                </label>
+              </div>
+
+              {/* Warning if upload selected but no images */}
+              {imageChoice === 'upload' && uploadedImages.gallery.length === 0 && !uploadedImages.hero && (
+                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-yellow-800 text-sm">
+                    ⚠️ Anda belum muat naik gambar. Sila muat naik gambar di bahagian atas atau pilih pilihan lain.
+                  </p>
+                </div>
+              )}
+            </div>
 
             {/* Feature Selector */}
             <div className="bg-white rounded-xl p-6 shadow-lg mt-6">

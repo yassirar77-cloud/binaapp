@@ -53,6 +53,11 @@ class SimpleGenerateRequest(BaseModel):
     social_media: Optional[dict] = Field(default=None, description="Social media handles (instagram, facebook, tiktok)")
     business_type: Optional[str] = Field(default=None, description="Business type: food, clothing, services, general (auto-detected if not provided)")
     payment: Optional[dict] = Field(default=None, description="Payment methods (cod: bool, qr: bool, qr_image: str)")
+    # STRICT IMAGE CONTROL - Images only appear when user explicitly requests them
+    image_choice: Optional[str] = Field(
+        default="none",
+        description="Image preference: 'none' (no images), 'upload' (user images only), 'ai' (generate AI images)"
+    )
 
 
 class SimpleGenerateResponse(BaseModel):
@@ -627,7 +632,27 @@ async def generate_website(request: SimpleGenerateRequest):
         logger.info(f"Generate previews: {request.generate_previews}")
         logger.info(f"Generation mode: {request.mode}")
         logger.info(f"Images: {len(request.images) if request.images else 0}")
+        logger.info(f"Image Choice: {request.image_choice}")  # STRICT IMAGE CONTROL
         logger.info("=" * 80)
+
+        # ============= STRICT IMAGE CONTROL =============
+        # Determine image settings based on user's explicit choice
+        image_choice = request.image_choice or "none"
+        user_has_uploaded_images = request.images and len(request.images) > 0
+
+        # Validate image choice vs uploaded images
+        if image_choice == "upload" and not user_has_uploaded_images:
+            # User selected upload but didn't upload - fallback to none
+            logger.warning("⚠️ User selected 'upload' but no images provided - using 'none'")
+            image_choice = "none"
+        elif user_has_uploaded_images and image_choice != "upload":
+            # User uploaded images but didn't select 'upload' - use their images
+            logger.info("📷 User uploaded images - automatically using 'upload' mode")
+            image_choice = "upload"
+
+        # Only generate AI images if explicitly requested
+        generate_ai_images = image_choice == "ai"
+        logger.info(f"🖼️ Image Mode: {image_choice} | Generate AI: {generate_ai_images}")
 
         # ==================== CONTENT MODERATION ====================
         # Check for illegal/harmful content BEFORE generation
@@ -749,13 +774,15 @@ async def generate_website(request: SimpleGenerateRequest):
             'features': request.features,
             'delivery': request.delivery,
             'fulfillment': request.fulfillment,
+            'image_choice': image_choice,  # STRICT IMAGE CONTROL
         }
-        
+
         # Get menu items using comprehensive menu service
+        # CRITICAL: Only generate AI images if user explicitly requested them
         menu_items = get_menu_items(
             form_data=form_data_for_menu,
             features=request.features,
-            generate_images=True  # Enable Stability AI image generation for generated items
+            generate_images=generate_ai_images  # STRICT: Only True if image_choice == "ai"
         )
         
         # =========================================================================
@@ -863,6 +890,14 @@ async def generate_website(request: SimpleGenerateRequest):
                 user_data
             )
 
+            # SAFETY GUARD: Apply strict image control
+            user_image_urls = [img.get('url') if isinstance(img, dict) else img for img in (request.images or [])]
+            html_content = template_service.apply_image_safety_guard(
+                html_content,
+                image_choice,
+                user_image_urls
+            )
+
             logger.info("✓ Best-of-both generation complete")
 
             return SimpleGenerateResponse(
@@ -898,6 +933,14 @@ async def generate_website(request: SimpleGenerateRequest):
                 html_content,
                 features,
                 user_data
+            )
+
+            # SAFETY GUARD: Apply strict image control
+            user_image_urls = [img.get('url') if isinstance(img, dict) else img for img in (request.images or [])]
+            html_content = template_service.apply_image_safety_guard(
+                html_content,
+                image_choice,
+                user_image_urls
             )
 
             logger.info("✓ Strategic generation complete")
@@ -1029,6 +1072,14 @@ async def generate_website(request: SimpleGenerateRequest):
                     description=request.description,
                     language=request.language or "ms"
                 )
+
+            # SAFETY GUARD: Apply strict image control
+            user_image_urls = [img.get('url') if isinstance(img, dict) else img for img in (request.images or [])]
+            html_content = template_service.apply_image_safety_guard(
+                html_content,
+                image_choice,
+                user_image_urls
+            )
 
             logger.info("Website generated successfully!")
 
@@ -1265,6 +1316,18 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
         phone_number = extract_phone_number(request.description)
         address = request.address if request.address else extract_address(request.description)
 
+        # ============= STRICT IMAGE CONTROL =============
+        image_choice = request.image_choice or "none"
+        user_has_uploaded_images = request.images and len(request.images) > 0
+
+        if image_choice == "upload" and not user_has_uploaded_images:
+            image_choice = "none"
+        elif user_has_uploaded_images and image_choice != "upload":
+            image_choice = "upload"
+
+        generate_ai_images = image_choice == "ai"
+        logger.info(f"Job {job_id}: 🖼️ Image Mode: {image_choice} | Generate AI: {generate_ai_images}")
+
         # Build feature instructions from user selections
         feature_instructions = ""
         if request.features:
@@ -1350,23 +1413,25 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
             'features': request.features,
             'delivery': request.delivery,
             'fulfillment': request.fulfillment,
+            'image_choice': image_choice,  # STRICT IMAGE CONTROL
         }
-        
+
         # Create delivery zones using menu_service
         delivery_zones = []
         if request.features and request.features.get("deliverySystem"):
             delivery_zones = create_default_delivery_zones(form_data_for_menu)
             logger.info(f"Job {job_id}: ✅ Created delivery zones: {len(delivery_zones)}")
-        
+
         # Add delivery_zones to user_data
         user_data["delivery_zones"] = delivery_zones
         logger.info(f"Job {job_id}: Delivery zones in user_data: {len(delivery_zones)}")
 
         # Get menu items using comprehensive menu service
+        # CRITICAL: Only generate AI images if user explicitly requested them
         menu_items = get_menu_items(
             form_data=form_data_for_menu,
             features=request.features,
-            generate_images=True  # Enable Stability AI image generation for generated items
+            generate_images=generate_ai_images  # STRICT: Only True if image_choice == "ai"
         )
         
         # Add menu items to user_data
@@ -1392,6 +1457,14 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
                     html_content,
                     features,
                     user_data
+                )
+
+                # SAFETY GUARD: Apply strict image control
+                user_image_urls = [img.get('url') if isinstance(img, dict) else img for img in (request.images or [])]
+                html_content = template_service.apply_image_safety_guard(
+                    html_content,
+                    image_choice,
+                    user_image_urls
                 )
 
                 variant = {
@@ -1675,6 +1748,18 @@ async def generate_stream(request: SimpleGenerateRequest):
                 theme=request.theme
             )
 
+            # ============= STRICT IMAGE CONTROL =============
+            image_choice = request.image_choice or "none"
+            user_has_uploaded_images = request.images and len(request.images) > 0
+
+            if image_choice == "upload" and not user_has_uploaded_images:
+                image_choice = "none"
+            elif user_has_uploaded_images and image_choice != "upload":
+                image_choice = "upload"
+
+            generate_ai_images = image_choice == "ai"
+            logger.info(f"🖼️ SSE Image Mode: {image_choice} | Generate AI: {generate_ai_images}")
+
             # User data for integrations
             user_data = {
                 "phone": phone_number if phone_number else "+60123456789",
@@ -1695,8 +1780,14 @@ async def generate_stream(request: SimpleGenerateRequest):
                 'features': request.features,
                 'delivery': request.delivery,
                 'fulfillment': request.fulfillment,
+                'image_choice': image_choice,  # STRICT IMAGE CONTROL
             }
-            menu_items = get_menu_items(form_data=form_data_for_menu, features=request.features)
+            # CRITICAL: Only generate AI images if user explicitly requested them
+            menu_items = get_menu_items(
+                form_data=form_data_for_menu,
+                features=request.features,
+                generate_images=generate_ai_images  # STRICT: Only True if image_choice == "ai"
+            )
             user_data["menu_items"] = menu_items
             
             # Create delivery zones if needed
@@ -1726,6 +1817,14 @@ async def generate_stream(request: SimpleGenerateRequest):
                         html_content,
                         features,
                         user_data
+                    )
+
+                    # SAFETY GUARD: Apply strict image control
+                    user_image_urls = [img.get('url') if isinstance(img, dict) else img for img in (request.images or [])]
+                    html_content = template_service.apply_image_safety_guard(
+                        html_content,
+                        image_choice,
+                        user_image_urls
                     )
 
                     variant = {
@@ -1763,6 +1862,14 @@ async def generate_stream(request: SimpleGenerateRequest):
                     html_content,
                     features,
                     user_data
+                )
+
+                # SAFETY GUARD: Apply strict image control
+                user_image_urls = [img.get('url') if isinstance(img, dict) else img for img in (request.images or [])]
+                html_content = template_service.apply_image_safety_guard(
+                    html_content,
+                    image_choice,
+                    user_image_urls
                 )
 
                 # Progress 100% - Completed

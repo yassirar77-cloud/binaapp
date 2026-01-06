@@ -236,54 +236,72 @@ FALLBACK_IMAGES = {
 def get_menu_items(
     form_data: dict,
     features: Optional[dict] = None,
-    generate_images: bool = True
+    generate_images: bool = False  # STRICT: Default to False - only True if user explicitly wants AI images
 ) -> List[Dict]:
     """
     COMPREHENSIVE MENU ITEM HANDLER
-    
-    This function handles ALL scenarios:
-    
-    SCENARIO A: User uploaded menu items → Validate and use EXACTLY those items
-    SCENARIO B: No user items but delivery enabled → Generate based on business type
-    SCENARIO C: Delivery not enabled → Return empty list
-    
+
+    This function handles ALL scenarios with STRICT image control:
+
+    SCENARIO A: User uploaded menu items → Validate and use EXACTLY those items (NO AI images)
+    SCENARIO B: No user items + delivery enabled + generate_images=True → Generate with AI images
+    SCENARIO C: No user items + delivery enabled + generate_images=False → Generate with stock images
+    SCENARIO D: Delivery not enabled → Return empty list
+
+    STRICT IMAGE RULES:
+    - generate_images=True → Use Stability AI to generate images
+    - generate_images=False → Use stock/fallback images only
+    - User uploaded images → NEVER use AI images, use user images only
+
     Args:
         form_data: The form data containing user inputs (images, description, businessType, etc.)
         features: Feature flags (deliverySystem, deliverySendiri, etc.)
-        generate_images: Whether to generate Stability AI images for generated items
-        
+        generate_images: STRICT - Only True if user explicitly selected "ai" for image_choice
+
     Returns:
         List of validated menu items ready for deliveryMenuData
     """
     logger.info("\n" + "=" * 70)
     logger.info("📦 MENU SERVICE: get_menu_items() CALLED")
+    logger.info(f"   generate_images param: {generate_images}")
+    logger.info(f"   image_choice from form: {form_data.get('image_choice', 'not set')}")
     logger.info("=" * 70)
-    
+
+    # STRICT: Check image_choice from form_data for additional safety
+    image_choice = form_data.get('image_choice', 'none')
+    if image_choice != 'ai' and generate_images:
+        logger.warning(f"⚠️ SAFETY: generate_images=True but image_choice='{image_choice}' - forcing to False")
+        generate_images = False
+
     # Step 1: Extract user-uploaded items
     user_items = extract_user_menu_items(form_data)
-    
+
     # Step 2: Validate user items
     validated_user_items = validate_user_menu_items(user_items, form_data)
-    
+
     if validated_user_items:
-        # SCENARIO A: User uploaded valid items → Use them
-        logger.info(f"✅ SCENARIO A: Using {len(validated_user_items)} USER-UPLOADED items")
+        # SCENARIO A: User uploaded valid items → Use them (NEVER generate AI images)
+        logger.info(f"✅ SCENARIO A: Using {len(validated_user_items)} USER-UPLOADED items (NO AI images)")
         log_menu_flow("FINAL MENU ITEMS (user-uploaded)", validated_user_items)
         return validated_user_items
-    
+
     # Step 3: Check if delivery is enabled
     delivery_enabled = is_delivery_enabled(form_data, features)
-    
+
     if not delivery_enabled:
-        # SCENARIO C: Delivery not enabled → No menu needed
-        logger.info("ℹ️ SCENARIO C: Delivery NOT enabled, returning empty menu")
+        # SCENARIO D: Delivery not enabled → No menu needed
+        logger.info("ℹ️ SCENARIO D: Delivery NOT enabled, returning empty menu")
         return []
-    
-    # SCENARIO B: No user items but delivery enabled → Generate from business type
-    logger.info("🤖 SCENARIO B: No user items, generating from business type")
+
+    # SCENARIO B/C: No user items but delivery enabled → Generate from business type
+    if generate_images:
+        logger.info("🤖 SCENARIO B: No user items + AI images requested, generating with Stability AI")
+    else:
+        logger.info("📷 SCENARIO C: No user items + NO AI images, generating with stock images")
+
     generated_items = generate_menu_from_business(form_data, generate_images)
-    
-    log_menu_flow("FINAL MENU ITEMS (AI-generated)", generated_items)
+
+    log_menu_flow(f"FINAL MENU ITEMS ({'AI-generated' if generate_images else 'stock images'})", generated_items)
     return generated_items
 
 
