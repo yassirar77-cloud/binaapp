@@ -7,6 +7,7 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import { Toaster } from 'react-hot-toast'
 import PWAProvider from '@/components/PWAProvider'
+import ChatWidget from '@/components/ChatWidget'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -50,6 +51,7 @@ export default function RootLayout({
         <PWAProvider>
           {children}
         </PWAProvider>
+        <ChatWidget />
         <Toaster
           position="top-right"
           toastOptions={{
