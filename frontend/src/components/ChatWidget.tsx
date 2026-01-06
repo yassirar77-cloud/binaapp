@@ -35,7 +35,7 @@ export default function ChatWidget() {
         setLoading(true);
 
         try {
-            const res = await fetch('/api/chat/support', {
+            const res = await fetch('/backend/api/chat/support', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
