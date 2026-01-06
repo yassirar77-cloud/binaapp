@@ -682,27 +682,57 @@ async def generate_website(request: SimpleGenerateRequest):
         logger.info("Step 2: Detecting features...")
         features = template_service.detect_features(request.description)
 
-        # Merge user-selected features from frontend
+        # CRITICAL FIX: Respect user selections - user explicitly chose what they want
+        # Priority: User selections > Auto-detection
         if request.features:
-            logger.info(f"User-selected features: {request.features}")
-            # Add features that user explicitly selected
-            if request.features.get("deliverySystem"):
-                if "delivery_system" not in features:
-                    features.append("delivery_system")
-            if request.features.get("googleMap"):
-                if "maps" not in features:
-                    features.append("maps")
-            if request.features.get("contactForm"):
-                if "contact" not in features:
-                    features.append("contact")
-            if request.features.get("socialMedia"):
-                if "social" not in features:
-                    features.append("social")
-            # WhatsApp is usually included by default, but respect if user disabled it
-            if not request.features.get("whatsapp", True) and "whatsapp" in features:
-                features.remove("whatsapp")
+            logger.info("=" * 60)
+            logger.info("USER FEATURE SELECTIONS (from frontend):")
+            logger.info(f"  Raw features dict: {request.features}")
+            logger.info(f"  WhatsApp: {request.features.get('whatsapp', False)}")
+            logger.info(f"  Google Map: {request.features.get('googleMap', False)}")
+            logger.info(f"  Delivery System: {request.features.get('deliverySystem', False)}")
+            logger.info(f"  Contact Form: {request.features.get('contactForm', False)}")
+            logger.info(f"  Social Media: {request.features.get('socialMedia', False)}")
+            logger.info(f"  Image Choice: {request.image_choice}")
+            logger.info("=" * 60)
 
-        logger.info(f"✓ Final features: {features}")
+            # Build features list based ONLY on user selections
+            features = []
+
+            # Add features that user explicitly enabled (checked boxes)
+            if request.features.get("whatsapp", False):
+                features.append("whatsapp")
+                logger.info("✓ WhatsApp: ENABLED by user")
+            else:
+                logger.info("✗ WhatsApp: DISABLED by user")
+
+            if request.features.get("deliverySystem", False):
+                features.append("delivery_system")
+                logger.info("✓ Delivery System: ENABLED by user")
+            else:
+                logger.info("✗ Delivery System: DISABLED by user")
+
+            if request.features.get("googleMap", False):
+                features.append("maps")
+                logger.info("✓ Google Map: ENABLED by user")
+            else:
+                logger.info("✗ Google Map: DISABLED by user")
+
+            if request.features.get("contactForm", False):
+                features.append("contact")
+                logger.info("✓ Contact Form: ENABLED by user")
+            else:
+                logger.info("✗ Contact Form: DISABLED by user")
+
+            if request.features.get("socialMedia", False):
+                features.append("social")
+                logger.info("✓ Social Media: ENABLED by user")
+            else:
+                logger.info("✗ Social Media: DISABLED by user")
+        else:
+            logger.warning("⚠️ No user features provided - using auto-detected features")
+
+        logger.info(f"✓ Final features list: {features}")
 
         # Extract business name from description (simple extraction)
         logger.info("Step 3: Extracting business information...")
@@ -1081,6 +1111,14 @@ async def generate_website(request: SimpleGenerateRequest):
                 user_image_urls
             )
 
+            # FINAL SAFETY NET: Sanitize HTML to remove any unauthorized content
+            html_content = sanitize_html(
+                html=html_content,
+                image_choice=image_choice,
+                features=features,
+                user_image_urls=user_image_urls
+            )
+
             logger.info("Website generated successfully!")
 
             return SimpleGenerateResponse(
@@ -1183,6 +1221,77 @@ def extract_address(description: str) -> Optional[str]:
                 return address
 
     return None
+
+
+def sanitize_html(html: str, image_choice: str, features: list, user_image_urls: list = None) -> str:
+    """
+    SAFETY NET: Remove unauthorized content from AI-generated HTML
+
+    This function ensures user selections are respected even if the AI ignores them.
+
+    Args:
+        html: The AI-generated HTML
+        image_choice: 'none', 'upload', or 'ai'
+        features: List of enabled features (e.g., ['whatsapp', 'maps'])
+        user_image_urls: List of user-uploaded image URLs (for 'upload' mode)
+
+    Returns:
+        Sanitized HTML with unauthorized content removed
+    """
+    import re
+
+    logger.info("🧹 SANITIZING HTML - Enforcing user selections...")
+    original_length = len(html)
+
+    # 1. IMAGE SANITIZATION
+    if image_choice == "none":
+        logger.info("🚫 Removing ALL images (user selected 'Tiada Gambar')")
+        # Remove all <img> tags
+        html = re.sub(r'<img[^>]*>', '', html, flags=re.IGNORECASE)
+        # Remove background-image CSS
+        html = re.sub(r'background-image:\s*url\([^)]*\)', '', html, flags=re.IGNORECASE)
+        html = re.sub(r'style="[^"]*background-image:[^"]*"', '', html, flags=re.IGNORECASE)
+
+    # Always remove stock images (Unsplash, Pexels, etc.) unless explicitly using AI images
+    if image_choice != "ai":
+        logger.info("🚫 Removing stock images (Unsplash, Pexels, placeholder)")
+        html = re.sub(r'<img[^>]*(?:unsplash|pexels|placeholder\.com|via\.placeholder)[^>]*>', '', html, flags=re.IGNORECASE)
+        html = re.sub(r'https?://(?:images\.)?unsplash\.com[^\s\'"<>]*', '', html, flags=re.IGNORECASE)
+        html = re.sub(r'https?://(?:www\.)?pexels\.com[^\s\'"<>]*', '', html, flags=re.IGNORECASE)
+        html = re.sub(r'https?://(?:via\.)?placeholder\.com[^\s\'"<>]*', '', html, flags=re.IGNORECASE)
+
+    # 2. FEATURE SANITIZATION
+    # WhatsApp - remove if not selected
+    if "whatsapp" not in features:
+        logger.info("🚫 Removing WhatsApp links (user did not select WhatsApp)")
+        # Remove WhatsApp links
+        html = re.sub(r'<a[^>]*(?:wa\.me|whatsapp)[^>]*>.*?</a>', '', html, flags=re.IGNORECASE | re.DOTALL)
+        html = re.sub(r'href="https?://wa\.me[^"]*"', 'href="#"', html, flags=re.IGNORECASE)
+        html = re.sub(r'href="https?://(?:api\.)?whatsapp\.com[^"]*"', 'href="#"', html, flags=re.IGNORECASE)
+        # Remove WhatsApp floating buttons
+        html = re.sub(r'<div[^>]*class="[^"]*(?:whatsapp|wa-float)[^"]*"[^>]*>.*?</div>', '', html, flags=re.IGNORECASE | re.DOTALL)
+
+    # Social Media - remove if not selected
+    if "social" not in features:
+        logger.info("🚫 Removing social media links (user did not select Social Media)")
+        html = re.sub(r'<a[^>]*(?:facebook\.com|instagram\.com|twitter\.com|tiktok\.com|youtube\.com)[^>]*>.*?</a>', '', html, flags=re.IGNORECASE | re.DOTALL)
+        html = re.sub(r'href="https?://(?:www\.)?(?:facebook|instagram|twitter|tiktok|youtube)\.com[^"]*"', 'href="#"', html, flags=re.IGNORECASE)
+
+    # Google Maps - remove if not selected
+    if "maps" not in features:
+        logger.info("🚫 Removing Google Maps (user did not select Google Map)")
+        html = re.sub(r'<iframe[^>]*google\.com/maps[^>]*>.*?</iframe>', '', html, flags=re.IGNORECASE | re.DOTALL)
+        html = re.sub(r'src="https?://maps\.google\.com[^"]*"', '', html, flags=re.IGNORECASE)
+
+    sanitized_length = len(html)
+    removed_bytes = original_length - sanitized_length
+
+    if removed_bytes > 0:
+        logger.info(f"✅ Sanitization complete - Removed {removed_bytes} bytes of unauthorized content")
+    else:
+        logger.info("✅ Sanitization complete - No unauthorized content found")
+
+    return html
 
 
 # ==================== ASYNC GENERATION ENDPOINTS ====================
@@ -1289,23 +1398,23 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
         website_type = template_service.detect_website_type(request.description)
         features = template_service.detect_features(request.description)
 
-        # Merge user-selected features from frontend
+        # CRITICAL FIX: Respect user selections - user explicitly chose what they want
+        # Priority: User selections > Auto-detection
         if request.features:
-            logger.info(f"User-selected features: {request.features}")
-            if request.features.get("deliverySystem"):
-                if "delivery_system" not in features:
-                    features.append("delivery_system")
-            if request.features.get("googleMap"):
-                if "maps" not in features:
-                    features.append("maps")
-            if request.features.get("contactForm"):
-                if "contact" not in features:
-                    features.append("contact")
-            if request.features.get("socialMedia"):
-                if "social" not in features:
-                    features.append("social")
-            if not request.features.get("whatsapp", True) and "whatsapp" in features:
-                features.remove("whatsapp")
+            logger.info(f"Job {job_id}: User-selected features: {request.features}")
+            # Build features list based ONLY on user selections
+            features = []
+            if request.features.get("whatsapp", False):
+                features.append("whatsapp")
+            if request.features.get("deliverySystem", False):
+                features.append("delivery_system")
+            if request.features.get("googleMap", False):
+                features.append("maps")
+            if request.features.get("contactForm", False):
+                features.append("contact")
+            if request.features.get("socialMedia", False):
+                features.append("social")
+            logger.info(f"Job {job_id}: Final features (user-selected): {features}")
 
         business_name = extract_business_name(request.description)
         # Use explicit language parameter from frontend, or detect from description
@@ -1695,23 +1804,23 @@ async def generate_stream(request: SimpleGenerateRequest):
             website_type = template_service.detect_website_type(request.description)
             features = template_service.detect_features(request.description)
 
-            # Merge user-selected features from frontend
+            # CRITICAL FIX: Respect user selections - user explicitly chose what they want
+            # Priority: User selections > Auto-detection
             if request.features:
-                logger.info(f"User-selected features: {request.features}")
-                if request.features.get("deliverySystem"):
-                    if "delivery_system" not in features:
-                        features.append("delivery_system")
-                if request.features.get("googleMap"):
-                    if "maps" not in features:
-                        features.append("maps")
-                if request.features.get("contactForm"):
-                    if "contact" not in features:
-                        features.append("contact")
-                if request.features.get("socialMedia"):
-                    if "social" not in features:
-                        features.append("social")
-                if not request.features.get("whatsapp", True) and "whatsapp" in features:
-                    features.remove("whatsapp")
+                logger.info(f"SSE: User-selected features: {request.features}")
+                # Build features list based ONLY on user selections
+                features = []
+                if request.features.get("whatsapp", False):
+                    features.append("whatsapp")
+                if request.features.get("deliverySystem", False):
+                    features.append("delivery_system")
+                if request.features.get("googleMap", False):
+                    features.append("maps")
+                if request.features.get("contactForm", False):
+                    features.append("contact")
+                if request.features.get("socialMedia", False):
+                    features.append("social")
+                logger.info(f"SSE: Final features (user-selected): {features}")
 
             business_name = extract_business_name(request.description)
             # Use explicit language parameter from frontend, or detect from description
@@ -1935,23 +2044,23 @@ async def generate_website_simple(request: SimpleGenerateRequest):
         website_type = template_service.detect_website_type(request.description)
         features = template_service.detect_features(request.description)
 
-        # Merge user-selected features from frontend
+        # CRITICAL FIX: Respect user selections - user explicitly chose what they want
+        # Priority: User selections > Auto-detection
         if request.features:
-            logger.info(f"User-selected features: {request.features}")
-            if request.features.get("deliverySystem"):
-                if "delivery_system" not in features:
-                    features.append("delivery_system")
-            if request.features.get("googleMap"):
-                if "maps" not in features:
-                    features.append("maps")
-            if request.features.get("contactForm"):
-                if "contact" not in features:
-                    features.append("contact")
-            if request.features.get("socialMedia"):
-                if "social" not in features:
-                    features.append("social")
-            if not request.features.get("whatsapp", True) and "whatsapp" in features:
-                features.remove("whatsapp")
+            logger.info(f"Simple JSON: User-selected features: {request.features}")
+            # Build features list based ONLY on user selections
+            features = []
+            if request.features.get("whatsapp", False):
+                features.append("whatsapp")
+            if request.features.get("deliverySystem", False):
+                features.append("delivery_system")
+            if request.features.get("googleMap", False):
+                features.append("maps")
+            if request.features.get("contactForm", False):
+                features.append("contact")
+            if request.features.get("socialMedia", False):
+                features.append("social")
+            logger.info(f"Simple JSON: Final features (user-selected): {features}")
 
         business_name = extract_business_name(request.description)
         # Use explicit language parameter from frontend, or detect from description
