@@ -1578,6 +1578,7 @@ async def run_generation_task(
     payment: Optional[dict] = None,
     business_name: Optional[str] = None,
     language: str = "ms",
+    image_choice: str = "none",
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -1595,6 +1596,26 @@ async def run_generation_task(
         # Step 2: Generate website using ai_service (4-step flow: Stability AI + Cloudinary + DeepSeek + Qwen)
         logger.info(f"🚀 Using ai_service 4-step generation for: {description[:50]}...")
 
+        # ==================== USER SELECTION ENFORCEMENT ====================
+        selected_features = features or {}
+
+        # WhatsApp: default to True only if caller didn't send feature flags
+        whatsapp_enabled = True
+        if isinstance(selected_features, dict) and "whatsapp" in selected_features:
+            whatsapp_enabled = bool(selected_features.get("whatsapp"))
+
+        # Normalize image choice so "upload without uploads" becomes "none"
+        user_has_uploaded_images = bool(images and len(images) > 0)
+        normalized_image_choice = (image_choice or "none").lower().strip()
+        if normalized_image_choice not in ["none", "upload", "ai"]:
+            normalized_image_choice = "none"
+        if normalized_image_choice == "upload" and not user_has_uploaded_images:
+            logger.warning("⚠️ image_choice='upload' but no images provided -> forcing 'none'")
+            normalized_image_choice = "none"
+        elif user_has_uploaded_images:
+            # If user uploaded images, we ALWAYS use them (upload mode)
+            normalized_image_choice = "upload"
+
         # Build AI generation request
         # Respect explicit language selection from the client (no auto-detection).
         lang = (language or "ms").lower().strip()
@@ -1609,21 +1630,60 @@ async def run_generation_task(
             business_type="business",  # Generic type
             language=Language.MALAY if lang == "ms" else Language.ENGLISH,
             subdomain="preview",
-            include_whatsapp=True,
-            whatsapp_number="+60123456789",
+            include_whatsapp=whatsapp_enabled,
+            whatsapp_number="+60123456789" if whatsapp_enabled else None,
             include_maps=False,
             location_address="",
             include_ecommerce=False,
             contact_email=None,
-            uploaded_images=images if images else []
+            # If user chose "none", do not pass any uploaded images through.
+            uploaded_images=(images if (images and normalized_image_choice != "none") else [])
         )
 
         # Call ai_service.generate_website() - This triggers the 4-step flow
         logger.info("🎨 Starting 4-step generation (Stability AI + Cloudinary + DeepSeek + Qwen)...")
-        ai_response = await ai_service.generate_website(ai_request)
+        logger.info(f"   ✅ WhatsApp enabled: {whatsapp_enabled}")
+        logger.info(f"   🖼️ Image choice: {normalized_image_choice}")
+        ai_response = await ai_service.generate_website(ai_request, image_choice=normalized_image_choice)
         html = ai_response.html_content
 
         logger.info(f"✅ Got HTML: {len(html)} chars")
+
+        # ==================== SAFETY NET (ENFORCE USER CHOICES) ====================
+        # Remove unwanted images (even if AI ignores prompt)
+        try:
+            user_image_urls = []
+            for img in (images or []):
+                if isinstance(img, dict):
+                    url = img.get("url") or img.get("URL") or ""
+                    if url:
+                        user_image_urls.append(url)
+                else:
+                    s = str(img)
+                    if s:
+                        user_image_urls.append(s)
+
+            html = template_service.apply_image_safety_guard(
+                html=html,
+                image_choice=normalized_image_choice,
+                user_images=user_image_urls
+            )
+        except Exception as guard_err:
+            logger.warning(f"⚠️ Image safety guard failed (continuing): {guard_err}")
+
+        # Remove WhatsApp if disabled (AI might still output it)
+        if not whatsapp_enabled:
+            try:
+                html_before = len(html)
+                # Remove WhatsApp links/buttons
+                html = re.sub(r'<a[^>]*(?:wa\.me|whatsapp)[^>]*>.*?</a>', '', html, flags=re.IGNORECASE | re.DOTALL)
+                html = re.sub(r'href="https?://wa\.me[^"]*"', 'href="#"', html, flags=re.IGNORECASE)
+                html = re.sub(r'href="https?://(?:api\.)?whatsapp\.com[^"]*"', 'href="#"', html, flags=re.IGNORECASE)
+                # Remove common floating button wrappers
+                html = re.sub(r'<div[^>]*class="[^"]*(?:whatsapp|wa-float)[^"]*"[^>]*>.*?</div>', '', html, flags=re.IGNORECASE | re.DOTALL)
+                logger.info(f"🚫 WhatsApp disabled: removed {max(0, html_before - len(html))} bytes")
+            except Exception as wa_err:
+                logger.warning(f"⚠️ WhatsApp sanitization failed (continuing): {wa_err}")
 
         # Step 3: Update progress to 60% after AI generation
         if supabase:
@@ -1634,7 +1694,6 @@ async def run_generation_task(
 
         # OPTIONAL: Inject delivery/ordering system if user requested it via /api/generate/start payload.
         try:
-            selected_features = features or {}
             delivery_cfg = delivery or None
 
             # Features list for TemplateService (expects "delivery_system" token)
@@ -1647,7 +1706,7 @@ async def run_generation_task(
                 features_list.append("contact")
             if selected_features.get("socialMedia"):
                 features_list.append("social")
-            if selected_features.get("whatsapp", True):
+            if whatsapp_enabled:
                 features_list.append("whatsapp")
 
             # Build menu items from uploaded images (matches frontend format: [{url,name,price}, ...])
@@ -1864,6 +1923,7 @@ async def start_generation(request: Request):
     user_email = body.get("email", "")
     images = body.get("images", [])  # Extract uploaded images
     features = body.get("features") or {}
+    image_choice = body.get("image_choice") or body.get("images_choice") or body.get("imageChoice") or "none"
     delivery = body.get("delivery") or None
     address = body.get("address") or None
     social_media = body.get("social_media") or None
@@ -1998,7 +2058,8 @@ MANDATORY REQUIREMENTS:
         social_media,
         payment,
         business_name,
-        language
+        language,
+        image_choice=image_choice
     ))
 
     logger.info(f"🚀 Job started: {job_id}")
