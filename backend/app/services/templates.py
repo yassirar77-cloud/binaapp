@@ -1784,26 +1784,67 @@ function handleContactSubmit(e) {{
 
         user_images = user_images or []
 
+        # ALWAYS remove banned stock image domains (security measure)
+        banned_domains = [
+            'images.unsplash.com',
+            'www.pexels.com',
+            'stock.adobe.com',
+            'placeholder.com',
+            'via.placeholder.com',
+            'picsum.photos',
+            'dummyimage.com',
+            'placehold.it',
+            'placeimg.com'
+        ]
+
+        for domain in banned_domains:
+            # Remove img tags from banned domains
+            html = re.sub(
+                rf'<img[^>]*src=["\']https?://{re.escape(domain)}[^"\']*["\'][^>]*/*>',
+                '',
+                html,
+                flags=re.IGNORECASE
+            )
+            # Remove URLs from banned domains in any attributes
+            html = re.sub(
+                rf'https?://{re.escape(domain)}[^"\')\s]*',
+                '',
+                html,
+                flags=re.IGNORECASE
+            )
+
         if image_choice == 'ai':
-            # User explicitly wanted AI images - keep everything
-            logger.info("🖼️ SAFETY GUARD: image_choice='ai' - keeping all images")
+            # User explicitly wanted AI images - keep everything (except banned stock images already removed above)
+            logger.info("🖼️ SAFETY GUARD: image_choice='ai' - keeping AI images (stock images removed)")
             return html
 
         if image_choice == 'none':
             # User wants NO images - remove all img tags and background-images
             logger.info("🚫 SAFETY GUARD: image_choice='none' - removing ALL images")
 
-            # Remove <img> tags (keep alt text for accessibility)
+            # Remove <img> tags completely
             img_pattern = r'<img[^>]*src=["\'][^"\']*["\'][^>]*/?>'
             html = re.sub(img_pattern, '', html, flags=re.IGNORECASE)
 
             # Remove background-image styles
             bg_pattern = r'background-image\s*:\s*url\([^)]*\)\s*;?'
-            html = re.sub(bg_pattern, '', html, flags=re.IGNORECASE)
+            html = re.sub(bg_pattern, 'background: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%)', html, flags=re.IGNORECASE)
+
+            # Remove style attributes with background-image
+            style_bg_pattern = r'style=["\']([^"\']*?)background-image:[^;]*;?([^"\']*?)["\']'
+            html = re.sub(
+                style_bg_pattern,
+                r'style="\1\2"',
+                html,
+                flags=re.IGNORECASE
+            )
 
             # Remove src attributes that might have images
             src_pattern = r'src=["\']https?://[^"\']*\.(jpg|jpeg|png|gif|webp|svg)["\']'
             html = re.sub(src_pattern, 'src=""', html, flags=re.IGNORECASE)
+
+            # Remove cloudinary URLs (AI generated images)
+            html = re.sub(r'https?://res\.cloudinary\.com/[^"\')\s]*', '', html, flags=re.IGNORECASE)
 
             logger.info("✅ SAFETY GUARD: All images removed from HTML")
             return html
