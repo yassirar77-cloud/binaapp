@@ -12,8 +12,22 @@ import os
 router = APIRouter()
 
 # Use DeepSeek API (faster and cheaper than Qwen)
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+# Check multiple possible environment variable names
+DEEPSEEK_API_KEY = (
+    os.getenv("DEEPSEEK_API_KEY") or
+    os.getenv("DEEPSEEK_KEY") or
+    os.getenv("DASHSCOPE_API_KEY")
+)
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
+
+# Debug: Log which env var was found
+if DEEPSEEK_API_KEY:
+    for var_name in ["DEEPSEEK_API_KEY", "DEEPSEEK_KEY", "DASHSCOPE_API_KEY"]:
+        if os.getenv(var_name):
+            print(f"✅ Using API key from: {var_name}")
+            break
+else:
+    print("❌ No API key found in: DEEPSEEK_API_KEY, DEEPSEEK_KEY, DASHSCOPE_API_KEY")
 
 # BinaApp support knowledge base
 SYSTEM_PROMPT = """Anda adalah BinaBot, pembantu sokongan pelanggan BinaApp. Respond dalam bahasa yang user guna (BM atau English).
@@ -73,8 +87,13 @@ async def customer_support_chat(request: ChatRequest):
         ChatResponse with AI-generated reply
     """
 
+    # Debug: Show API key configuration status
+    print(f"🔑 API Key configured: {bool(DEEPSEEK_API_KEY)}")
+    if DEEPSEEK_API_KEY:
+        print(f"🔑 Key preview: {DEEPSEEK_API_KEY[:10]}...")
+
     if not DEEPSEEK_API_KEY:
-        print("❌ ERROR: DEEPSEEK_API_KEY not set")
+        print("❌ ERROR: No DEEPSEEK_API_KEY found in environment")
         return ChatResponse(
             reply="Maaf, sistem chat belum dikonfigurasi. Sila hubungi WhatsApp support. 🙏",
             success=False
@@ -162,8 +181,9 @@ async def chat_test():
     """
     if not DEEPSEEK_API_KEY:
         return {
-            "error": "DEEPSEEK_API_KEY not configured",
-            "status": "failed"
+            "error": "No API key found",
+            "status": "failed",
+            "checked_vars": ["DEEPSEEK_API_KEY", "DEEPSEEK_KEY", "DASHSCOPE_API_KEY"]
         }
 
     try:
