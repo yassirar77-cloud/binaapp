@@ -928,6 +928,14 @@ async def generate_website(request: SimpleGenerateRequest):
                 user_image_urls
             )
 
+            # FINAL SAFETY NET: Sanitize HTML to remove any unauthorized content
+            html_content = sanitize_html(
+                html=html_content,
+                image_choice=image_choice,
+                features=features,
+                user_image_urls=user_image_urls
+            )
+
             logger.info("✓ Best-of-both generation complete")
 
             return SimpleGenerateResponse(
@@ -973,6 +981,14 @@ async def generate_website(request: SimpleGenerateRequest):
                 user_image_urls
             )
 
+            # FINAL SAFETY NET: Sanitize HTML to remove any unauthorized content
+            html_content = sanitize_html(
+                html=html_content,
+                image_choice=image_choice,
+                features=features,
+                user_image_urls=user_image_urls
+            )
+
             logger.info("✓ Strategic generation complete")
 
             return SimpleGenerateResponse(
@@ -1002,6 +1018,7 @@ async def generate_website(request: SimpleGenerateRequest):
 
             # Process each variation
             variations = []
+            user_image_urls = [img.get('url') if isinstance(img, dict) else img for img in (request.images or [])]
             for style, ai_response in variations_dict.items():
                 html_content = ai_response.html_content
 
@@ -1010,6 +1027,21 @@ async def generate_website(request: SimpleGenerateRequest):
                     html_content,
                     features,
                     user_data
+                )
+
+                # SAFETY GUARD: Apply strict image control
+                html_content = template_service.apply_image_safety_guard(
+                    html_content,
+                    image_choice,
+                    user_image_urls
+                )
+
+                # FINAL SAFETY NET: Sanitize HTML to remove any unauthorized content
+                html_content = sanitize_html(
+                    html=html_content,
+                    image_choice=image_choice,
+                    features=features,
+                    user_image_urls=user_image_urls
                 )
 
                 variations.append({
@@ -1576,6 +1608,15 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
                     user_image_urls
                 )
 
+                # FINAL SAFETY NET: Sanitize HTML to remove any unauthorized content
+                # This is CRITICAL - enforces user's image_choice and feature selections
+                html_content = sanitize_html(
+                    html=html_content,
+                    image_choice=image_choice,
+                    features=features,
+                    user_image_urls=user_image_urls
+                )
+
                 variant = {
                     "style": style,
                     "html": html_content,
@@ -1936,6 +1977,14 @@ async def generate_stream(request: SimpleGenerateRequest):
                         user_image_urls
                     )
 
+                    # FINAL SAFETY NET: Sanitize HTML to remove any unauthorized content
+                    html_content = sanitize_html(
+                        html=html_content,
+                        image_choice=image_choice,
+                        features=features,
+                        user_image_urls=user_image_urls
+                    )
+
                     variant = {
                         "style": style,
                         "html": html_content,
@@ -1979,6 +2028,14 @@ async def generate_stream(request: SimpleGenerateRequest):
                     html_content,
                     image_choice,
                     user_image_urls
+                )
+
+                # FINAL SAFETY NET: Sanitize HTML to remove any unauthorized content
+                html_content = sanitize_html(
+                    html=html_content,
+                    image_choice=image_choice,
+                    features=features,
+                    user_image_urls=user_image_urls
                 )
 
                 # Progress 100% - Completed
@@ -2159,6 +2216,14 @@ async def generate_website_simple(request: SimpleGenerateRequest):
             html_content,
             image_choice,
             user_image_urls
+        )
+
+        # FINAL SAFETY NET: Sanitize HTML to remove any unauthorized content
+        html_content = sanitize_html(
+            html=html_content,
+            image_choice=image_choice,
+            features=features,
+            user_image_urls=user_image_urls
         )
 
         logger.info("✅ Simple generation complete")
