@@ -258,6 +258,18 @@ export default function CreatePage() {
       const finalImageChoice = allImages.length > 0 ? 'upload' : imageChoice;
       console.log(`🖼️ Image Choice: ${finalImageChoice} (user selected: ${imageChoice}, has uploads: ${allImages.length > 0})`);
 
+      // ===== COMPREHENSIVE DEBUG LOGGING =====
+      console.log('==========================================');
+      console.log('📤 SENDING TO BACKEND:');
+      console.log('  🖼️ Image Choice:', finalImageChoice);
+      console.log('  ✅ Features:', selectedFeatures);
+      console.log('  📱 WhatsApp:', selectedFeatures.whatsapp);
+      console.log('  🗺️ Google Map:', selectedFeatures.googleMap);
+      console.log('  🚚 Delivery:', selectedFeatures.deliverySystem);
+      console.log('  📧 Contact Form:', selectedFeatures.contactForm);
+      console.log('  📱 Social Media:', selectedFeatures.socialMedia);
+      console.log('==========================================');
+
       const startResponse = await fetch('https://binaapp-backend.onrender.com/api/generate/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
