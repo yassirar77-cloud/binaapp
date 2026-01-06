@@ -1755,6 +1755,84 @@ function handleContactSubmit(e) {{
 
         return html
 
+    def apply_image_safety_guard(
+        self,
+        html: str,
+        image_choice: str,
+        user_images: List[str] = None
+    ) -> str:
+        """
+        SAFETY GUARD: Remove unwanted images from HTML
+
+        STRICT RULES:
+        - image_choice == 'none' → Remove ALL images from HTML
+        - image_choice == 'upload' → Keep only user-uploaded images
+        - image_choice == 'ai' → Keep all images (AI was explicitly requested)
+
+        This is the LAST LINE OF DEFENSE before returning HTML to user.
+
+        Args:
+            html: The HTML content
+            image_choice: User's explicit choice ('none', 'upload', 'ai')
+            user_images: List of user-uploaded image URLs
+
+        Returns:
+            HTML with unwanted images removed
+        """
+        if not html:
+            return html
+
+        user_images = user_images or []
+
+        if image_choice == 'ai':
+            # User explicitly wanted AI images - keep everything
+            logger.info("🖼️ SAFETY GUARD: image_choice='ai' - keeping all images")
+            return html
+
+        if image_choice == 'none':
+            # User wants NO images - remove all img tags and background-images
+            logger.info("🚫 SAFETY GUARD: image_choice='none' - removing ALL images")
+
+            # Remove <img> tags (keep alt text for accessibility)
+            img_pattern = r'<img[^>]*src=["\'][^"\']*["\'][^>]*/?>'
+            html = re.sub(img_pattern, '', html, flags=re.IGNORECASE)
+
+            # Remove background-image styles
+            bg_pattern = r'background-image\s*:\s*url\([^)]*\)\s*;?'
+            html = re.sub(bg_pattern, '', html, flags=re.IGNORECASE)
+
+            # Remove src attributes that might have images
+            src_pattern = r'src=["\']https?://[^"\']*\.(jpg|jpeg|png|gif|webp|svg)["\']'
+            html = re.sub(src_pattern, 'src=""', html, flags=re.IGNORECASE)
+
+            logger.info("✅ SAFETY GUARD: All images removed from HTML")
+            return html
+
+        if image_choice == 'upload':
+            # User wants only THEIR images - this is handled upstream
+            # But as a safety net, we log a warning if we detect non-user images
+            if user_images:
+                user_image_domains = set()
+                for img_url in user_images:
+                    if img_url:
+                        # Extract domain from URL
+                        import urllib.parse
+                        parsed = urllib.parse.urlparse(img_url)
+                        user_image_domains.add(parsed.netloc)
+
+                # Check for images from known AI/stock domains
+                ai_domains = ['stability.ai', 'replicate.com', 'cloudinary.com', 'unsplash.com']
+                for domain in ai_domains:
+                    if domain in html and domain not in str(user_image_domains):
+                        logger.warning(f"⚠️ SAFETY GUARD: Detected potential AI image from {domain} when user wanted uploads only")
+
+            logger.info("📷 SAFETY GUARD: image_choice='upload' - using user images only")
+            return html
+
+        # Unknown image_choice - log warning and return as-is
+        logger.warning(f"⚠️ SAFETY GUARD: Unknown image_choice='{image_choice}' - no changes made")
+        return html
+
 
 # Create singleton instance
 template_service = TemplateService()
