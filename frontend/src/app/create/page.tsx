@@ -270,7 +270,7 @@ export default function CreatePage() {
       console.log('  📱 Social Media:', selectedFeatures.socialMedia);
       console.log('==========================================');
 
-      const startResponse = await fetch('https://binaapp-backend.onrender.com/api/generate/start', {
+      const startResponse = await fetch(`${DIRECT_BACKEND_URL}/api/generate/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -342,9 +342,7 @@ export default function CreatePage() {
         }
 
         try {
-          const statusResponse = await fetch(
-            `https://binaapp-backend.onrender.com/api/generate/status/${jobId}`
-          );
+          const statusResponse = await fetch(`${DIRECT_BACKEND_URL}/api/generate/status/${jobId}`);
 
           if (!statusResponse.ok) {
             console.warn('Status check failed, retrying...');
