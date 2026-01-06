@@ -1023,7 +1023,7 @@ async def generate_website(request: SimpleGenerateRequest):
             logger.info("Step 4: SINGLE-STYLE GENERATION")
             logger.info("Calling AI service to generate website...")
             logger.info("=" * 80)
-            ai_response = await ai_service.generate_website(ai_request)
+            ai_response = await ai_service.generate_website(ai_request, image_choice=image_choice)
             logger.info("✓ Received response from AI service")
 
             # Get the generated HTML
@@ -1854,7 +1854,7 @@ async def generate_stream(request: SimpleGenerateRequest):
                 yield f"data: {json.dumps({'progress': 50, 'status': 'processing', 'message': 'AI sedang menulis kod...'})}\n\n"
 
                 # Generate website
-                ai_response = await ai_service.generate_website(ai_request)
+                ai_response = await ai_service.generate_website(ai_request, image_choice=image_choice)
                 html_content = ai_response.html_content
 
                 # Inject integrations
@@ -2034,7 +2034,7 @@ async def generate_website_simple(request: SimpleGenerateRequest):
 
         # Generate website
         logger.info("🔷 Generating HTML with AI...")
-        ai_response = await ai_service.generate_website(ai_request)
+        ai_response = await ai_service.generate_website(ai_request, image_choice=image_choice)
         html_content = ai_response.html_content
 
         # Inject integrations

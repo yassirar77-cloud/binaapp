@@ -1751,43 +1751,54 @@ Generate prompts now:"""
         language: str = "ms",
         whatsapp_number: Optional[str] = None,
         location_address: Optional[str] = None,
+        image_choice: str = "upload",  # NEW: none, upload, or ai
     ) -> str:
         """Build STRICT prompt that forbids placeholders"""
         biz_type = self._detect_type(desc)
         imgs = self.IMAGES.get(biz_type, self.IMAGES["default"])
 
-        # Use user images if provided, otherwise use curated Unsplash
-        # Helper to extract URL from image (can be string or dict)
-        def get_url(img):
-            if isinstance(img, dict):
-                return img.get('url', img.get('URL', ''))
-            return str(img) if img else ''
-        
-        def get_name(img):
-            if isinstance(img, dict):
-                return img.get('name', '')
-            return ''
-        
-        # IMPORTANT: Separate hero image from product/gallery images
-        # Hero image is ONLY used if explicitly named 'Hero Image'
-        # Product/gallery images should NOT appear as hero background
-        hero = imgs["hero"]  # Default to curated hero
-        gallery_start_index = 0  # Start index for gallery images
-        
-        if user_images and len(user_images) > 0:
-            first_img_name = get_name(user_images[0])
-            # Only use first image as hero if it's explicitly a hero image
-            if first_img_name == 'Hero Image' or 'hero' in first_img_name.lower():
-                hero = get_url(user_images[0])
-                gallery_start_index = 1  # Gallery starts from index 1
-            # Otherwise, don't use any product image as hero - keep default
-            # Product images will be used in gallery section only
-        
-        # Gallery images - use user's product images (starting after hero if present)
-        g1 = get_url(user_images[gallery_start_index]) if user_images and len(user_images) > gallery_start_index else imgs["gallery"][0]
-        g2 = get_url(user_images[gallery_start_index + 1]) if user_images and len(user_images) > gallery_start_index + 1 else imgs["gallery"][1]
-        g3 = get_url(user_images[gallery_start_index + 2]) if user_images and len(user_images) > gallery_start_index + 2 else imgs["gallery"][2]
-        g4 = get_url(user_images[gallery_start_index + 3]) if user_images and len(user_images) > gallery_start_index + 3 else imgs["gallery"][3]
+        # CRITICAL: Handle "no images" mode
+        if image_choice == "none":
+            # User explicitly wants NO images - set all image URLs to empty
+            logger.info("🚫 _build_strict_prompt: image_choice='none' - NO IMAGES MODE")
+            hero = ""
+            g1 = ""
+            g2 = ""
+            g3 = ""
+            g4 = ""
+        else:
+            # Use user images if provided, otherwise use curated Unsplash
+            # Helper to extract URL from image (can be string or dict)
+            def get_url(img):
+                if isinstance(img, dict):
+                    return img.get('url', img.get('URL', ''))
+                return str(img) if img else ''
+
+            def get_name(img):
+                if isinstance(img, dict):
+                    return img.get('name', '')
+                return ''
+
+            # IMPORTANT: Separate hero image from product/gallery images
+            # Hero image is ONLY used if explicitly named 'Hero Image'
+            # Product/gallery images should NOT appear as hero background
+            hero = imgs["hero"]  # Default to curated hero
+            gallery_start_index = 0  # Start index for gallery images
+
+            if user_images and len(user_images) > 0:
+                first_img_name = get_name(user_images[0])
+                # Only use first image as hero if it's explicitly a hero image
+                if first_img_name == 'Hero Image' or 'hero' in first_img_name.lower():
+                    hero = get_url(user_images[0])
+                    gallery_start_index = 1  # Gallery starts from index 1
+                # Otherwise, don't use any product image as hero - keep default
+                # Product images will be used in gallery section only
+
+            # Gallery images - use user's product images (starting after hero if present)
+            g1 = get_url(user_images[gallery_start_index]) if user_images and len(user_images) > gallery_start_index else imgs["gallery"][0]
+            g2 = get_url(user_images[gallery_start_index + 1]) if user_images and len(user_images) > gallery_start_index + 1 else imgs["gallery"][1]
+            g3 = get_url(user_images[gallery_start_index + 2]) if user_images and len(user_images) > gallery_start_index + 2 else imgs["gallery"][2]
+            g4 = get_url(user_images[gallery_start_index + 3]) if user_images and len(user_images) > gallery_start_index + 3 else imgs["gallery"][3]
 
         # Determine language instruction based on explicit language parameter
         if language == "ms":
@@ -1925,6 +1936,80 @@ STYLE DESIGN - BOLD (REQUIRED):
 
         style_guide = style_instructions.get(style, style_instructions["modern"])
 
+        # Build image-specific instructions based on image_choice
+        if image_choice == "none":
+            # NO IMAGES MODE - Tell AI explicitly to NOT use any images
+            image_instructions = """
+===== CRITICAL: NO IMAGES MODE =====
+
+🚫 ABSOLUTELY NO IMAGES ALLOWED:
+   ❌ DO NOT include ANY <img> tags
+   ❌ DO NOT use background-image CSS
+   ❌ DO NOT use any image URLs (Unsplash, Cloudinary, Pexels, etc.)
+   ❌ DO NOT use placeholder images
+   ❌ DO NOT use stock photos
+
+✅ INSTEAD USE:
+   ✅ Gradient backgrounds: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%)
+   ✅ Solid color backgrounds: bg-purple-600, bg-blue-500
+   ✅ Font Awesome icons: <i class="fas fa-icon-name"></i>
+   ✅ Emoji icons: 🍽️ 👕 🏠 ✨ etc.
+   ✅ Text-only design with good typography
+
+HERO SECTION (NO IMAGES):
+<section id="home" class="relative h-[50vh] md:h-[400px] overflow-hidden" style="background: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%);">
+    <div class="container mx-auto px-4 h-full flex items-center">
+        <div class="max-w-2xl text-white">
+            <h1 class="text-4xl md:text-6xl font-bold mb-4">{name}</h1>
+            <p class="text-xl md:text-2xl mb-8 bg-white/20 backdrop-blur-sm p-4 rounded-2xl">Your tagline here</p>
+            <a href="#contact" class="inline-block bg-white text-purple-600 px-8 py-3 rounded-full font-bold shadow-lg">
+                Call to Action <i class="fas fa-arrow-right ml-2"></i>
+            </a>
+        </div>
+    </div>
+</section>
+
+PRODUCT/SERVICE CARD (NO IMAGES):
+<div class="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition-all">
+    <div class="bg-gradient-to-br from-purple-500 to-blue-500 text-white w-16 h-16 rounded-2xl flex items-center justify-center mb-4">
+        <i class="fas fa-icon-here text-2xl"></i>
+    </div>
+    <h3 class="text-xl font-bold text-gray-800 mb-2">Product Name</h3>
+    <p class="text-gray-600 mb-4">Product description</p>
+    <button class="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-4 py-2 rounded-full">Action</button>
+</div>
+"""
+        else:
+            # WITH IMAGES MODE - Provide image URLs
+            image_instructions = f"""
+===== IMAGE INSTRUCTIONS =====
+
+1. USE THESE EXACT IMAGE URLS (copy-paste exactly as shown):
+   - HERO IMAGE: {hero}
+   - GALLERY IMAGE 1: {g1}
+   - GALLERY IMAGE 2: {g2}
+   - GALLERY IMAGE 3: {g3}
+   - GALLERY IMAGE 4: {g4}
+
+2. IMAGE REQUIREMENTS:
+   - Use ONLY the exact URLs provided above
+   - Do NOT modify the URLs
+   - Do NOT use any other image sources
+   - Do NOT use Unsplash, Pexels, or stock photos
+
+3. IMAGE SIZE GUIDELINES:
+   - Gallery images: Use 'h-48' or 'h-52' (NOT h-64 - too big!)
+   - Gallery images: Use 'object-cover' for proper fill
+
+HERO SECTION WITH IMAGE:
+- Use h-[50vh] or h-[400px] (NOT 60vh or 90vh - too tall!)
+- Use object-contain if image has logo/text
+- OR use object-cover with object-top
+- Background color: bg-gray-100 or bg-white
+
+{examples}
+"""
+
         return f"""Generate a COMPLETE production-ready HTML website.
 
 BUSINESS: {name}
@@ -1937,14 +2022,9 @@ TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
 
 ===== CRITICAL RULES - MUST FOLLOW =====
 
-1. USE THESE EXACT IMAGE URLS (copy-paste exactly as shown):
-   - HERO IMAGE: {hero}
-   - GALLERY IMAGE 1: {g1}
-   - GALLERY IMAGE 2: {g2}
-   - GALLERY IMAGE 3: {g3}
-   - GALLERY IMAGE 4: {g4}
+{image_instructions}
 
-2. ABSOLUTELY FORBIDDEN - DO NOT USE:
+ABSOLUTELY FORBIDDEN - DO NOT USE:
    ❌ via.placeholder.com
    ❌ placeholder.com
    ❌ example.com
@@ -1954,42 +2034,26 @@ TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
    ❌ [SERVICE_X_NAME]
    ❌ Any text with brackets
 
-3. MUST WRITE REAL CONTENT:
+MUST WRITE REAL CONTENT:
    ✅ Real business name: {name}
    ✅ Real catchy tagline based on the business description
-   ✅ Real about section (2-3 sentences about the business)
+   ✅ Real about section (2-3 sentences)
    ✅ Real service names and descriptions (3-4 services)
    ✅ Real contact message
-   ✅ WhatsApp button linking to: https://wa.me/{wa_digits}
+   ✅ WhatsApp button: https://wa.me/{wa_digits}
 {address_line}
-   🚫 DO NOT invent phone numbers, addresses, city names, awards, certifications, years, or prices not provided.
+   🚫 DO NOT invent phone numbers, addresses, cities, awards, certifications
 
-4. TECHNICAL REQUIREMENTS:
+TECHNICAL REQUIREMENTS:
    - Single complete HTML file
    - Tailwind CSS CDN: <script src="https://cdn.tailwindcss.com"></script>
+   - Font Awesome CDN (for icons): <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
    - Mobile responsive (critical!)
-   - Sections: Header with Navigation, Hero, About, Services/Gallery, Contact, Footer
+   - Sections: Header, Hero, About, Services/Gallery, Contact, Footer
    - Smooth animations and hover effects
    - Professional {style} design
 
 {language_instruction}
-
-6. IMAGE REQUIREMENTS:
-   - Use ONLY the exact URLs provided above
-   - Do NOT modify the URLs
-   - Do NOT use any other image sources
-
-7. IMAGE SIZE GUIDELINES:
-   - Gallery images: Use 'h-48' or 'h-52' (NOT h-64 - too big on desktop!)
-   - Gallery images: Use 'object-cover' for proper fill
-
-HERO SECTION - IMPORTANT:
-- Use h-[50vh] or h-[400px] (NOT 60vh or 90vh - too tall!)
-- Use object-contain (NOT object-cover) if image has logo/text
-- OR use object-cover with object-top to show top of image
-- Background color behind image: bg-gray-100 or bg-white
-
-{examples}
 
 Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HTML."""
 
@@ -2402,7 +2466,8 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
     async def generate_website(
         self,
         request: WebsiteGenerationRequest,
-        style: Optional[str] = None
+        style: Optional[str] = None,
+        image_choice: str = "upload"  # NEW: none, upload, or ai
     ) -> AIGenerationResponse:
         """Generate website with Stability AI + Cloudinary + DeepSeek + Qwen"""
 
@@ -2410,13 +2475,18 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         logger.info("🌐 WEBSITE GENERATION - FULL AI PIPELINE")
         logger.info(f"   Business: {request.business_name}")
         logger.info(f"   Style: {style or 'modern'}")
+        logger.info(f"   🖼️ Image Choice: {image_choice}")
         logger.info(f"   User Images: {len(request.uploaded_images) if request.uploaded_images else 0}")
         logger.info("=" * 80)
 
-        # Check if user uploaded images - skip AI image generation if so
+        # Check image_choice - skip ALL image generation if "none"
         image_urls = {}
 
-        if request.uploaded_images and len(request.uploaded_images) > 0:
+        if image_choice == "none":
+            logger.info("🚫 Image choice='none' - SKIPPING ALL image generation")
+            # Don't generate or use any images
+            pass
+        elif request.uploaded_images and len(request.uploaded_images) > 0:
             # User uploaded images - use them directly, skip AI generation
             logger.info(f"☁️ User uploaded {len(request.uploaded_images)} images - SKIPPING AI image generation")
             logger.info("   Using user-uploaded Cloudinary URLs...")
@@ -2516,7 +2586,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 logger.warning(f"   ⚠️ Failed: {failed}/5 images")
             logger.info(f"   Total URLs: {len(image_urls)} images ready for HTML generation")
 
-        # Build prompt WITH image URLs
+        # Build prompt WITH image URLs (or NO images if image_choice='none')
         logger.info("🔷 STEP 2: DeepSeek generating HTML...")
         # Get language from request (default to "ms" for Bahasa Malaysia)
         language = request.language.value if hasattr(request, 'language') and request.language else "ms"
@@ -2529,6 +2599,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             language,
             whatsapp_number=request.whatsapp_number,
             location_address=request.location_address,
+            image_choice=image_choice,  # CRITICAL: Pass image_choice to prompt builder
         )
 
         # Add image URLs to prompt with STRONG emphasis
