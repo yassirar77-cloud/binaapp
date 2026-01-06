@@ -3,9 +3,9 @@ Customer Support Chatbot using Qwen AI
 Provides instant customer support for BinaApp users
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List
 import httpx
 import os
 import logging
@@ -14,114 +14,34 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 # Qwen API configuration
-QWEN_API_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
 QWEN_API_KEY = os.getenv("QWEN_API_KEY")
 
-# BinaApp support knowledge base
-BINAAPP_SUPPORT_PROMPT = """
-Anda adalah pembantu sokongan pelanggan BinaApp. Nama anda "BinaBot".
+# Qwen API endpoints - try both formats
+DASHSCOPE_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+OPENAI_COMPATIBLE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
 
-## TENTANG BINAAPP:
-BinaApp adalah platform pembina website AI untuk SME Malaysia.
-- Bina website dalam 60 saat menggunakan AI
+# BinaApp support knowledge base (condensed for better performance)
+SYSTEM_PROMPT = """Anda adalah BinaBot, pembantu sokongan pelanggan BinaApp.
+
+TENTANG BINAAPP:
+- Platform pembina website AI untuk SME Malaysia
+- Bina website dalam 60 saat
 - Tiada perlu coding
-- Bahasa Melayu sepenuhnya
 
-## PELAN HARGA:
-1. PERCUMA (RM0):
-   - 1 website
-   - Subdomain: namaanda.binaapp.my
-   - BinaApp branding
-   - 3 AI generation/hari
+PELAN HARGA:
+- PERCUMA (RM0): 1 website, subdomain binaapp.my
+- PRO (RM19/bulan): 5 websites, custom domain
+- BUSINESS (RM39/bulan): Unlimited websites
 
-2. PRO (RM19/bulan):
-   - 5 websites
-   - Custom domain
-   - Tiada branding
-   - 20 AI generation/hari
-   - Analytics
+TROUBLESHOOTING:
+- Website stuck 20%: Refresh page, clear cache, cuba browser lain
+- Domain tak connect: Tunggu 24-48 jam untuk DNS propagate
+- Gambar tak upload: Max 5MB, format JPG/PNG sahaja
 
-3. BUSINESS (RM39/bulan):
-   - Unlimited websites
-   - Custom domain
-   - Tiada branding
-   - Unlimited AI generation
-   - Advanced analytics
-   - Email marketing
-
-## CIRI-CIRI UTAMA:
-- AI Website Builder: Jana website automatik dari description bisnes
-- Delivery System: Untuk restoran/F&B dengan menu online
-- Custom Domain: Sambung domain sendiri
-- PWA Support: Website boleh install macam app
-
-## TROUBLESHOOTING BIASA:
-
-### Website stuck at 20%:
-1. Refresh page (F5 atau Cmd+R)
-2. Clear browser cache
-3. Cuba browser lain (Chrome/Safari)
-4. Jika masih stuck, tunggu 2-3 minit
-
-### Custom domain tak connect:
-1. Pastikan DNS settings betul:
-   - CNAME: www → binaapp.my
-   - A Record: @ → [IP BinaApp]
-2. DNS ambil masa 24-48 jam untuk propagate
-3. Check domain status di Dashboard
-
-### Gambar tak upload:
-1. Max size: 5MB per gambar
-2. Format: JPG, PNG, WebP sahaja
-3. Cuba compress gambar dulu
-
-### Website tak publish:
-1. Check semua required fields filled
-2. Pastikan business name ada
-3. Cuba logout dan login semula
-
-### Delivery system tak muncul:
-1. Enable delivery di Dashboard → Settings
-2. Pastikan ada menu items
-3. Refresh page selepas enable
-
-## CARA CONTACT SUPPORT:
-- WhatsApp: 011-XXXX XXXX
-- Email: support@binaapp.my
-
-## CARA RESPOND:
-1. Jawab dalam bahasa yang user guna (BM atau English)
-2. Berikan step-by-step jelas
-3. Jika tak pasti, minta user contact WhatsApp support
-4. Sentiasa mesra dan helpful
-5. Guna emoji untuk friendly tone 😊
-
-## PERKARA YANG TIDAK BOLEH:
-- Jangan beri maklumat salah
-- Jangan promise features yang tiada
-- Jangan share internal/technical details
-- Jika soalan diluar BinaApp, politely redirect
-
-## CONTOH RESPONSES:
-
-User: "Macam mana nak buat website?"
-Response: "Senang je! 😊 Ikut langkah ni:
-1. Pergi ke binaapp.my
-2. Klik 'Mula Sekarang'
-3. Masukkan nama bisnes dan description
-4. AI akan generate website untuk anda dalam 60 saat!
-
-Ada apa-apa soalan lain?"
-
-User: "How much is pro plan?"
-Response: "The Pro plan is RM19/month! 🎉 You'll get:
-- 5 websites
-- Custom domain support
-- No BinaApp branding
-- 20 AI generations per day
-- Analytics dashboard
-
-Would you like to upgrade? Go to Dashboard → Billing → Upgrade"
+CARA RESPOND:
+- Jawab dalam bahasa user (BM atau English)
+- Ringkas dan jelas
+- Mesra dengan emoji 😊
 """
 
 
@@ -156,78 +76,120 @@ async def customer_support_chat(request: ChatRequest):
     """
 
     if not QWEN_API_KEY:
-        logger.error("Qwen API key not configured")
-        raise HTTPException(500, "Chatbot service not configured")
+        logger.error("❌ QWEN_API_KEY not set")
+        return ChatResponse(
+            reply="Maaf, sistem chat belum dikonfigurasi. Sila hubungi WhatsApp support.",
+            success=False
+        )
 
     try:
-        # Build messages array for Qwen API
-        messages = [
-            {"role": "system", "content": BINAAPP_SUPPORT_PROMPT}
-        ]
+        # Build messages array
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-        # Add conversation history (last 10 messages to keep context manageable)
-        for msg in request.history[-10:]:
-            messages.append({
-                "role": msg.role,
-                "content": msg.content
-            })
+        # Add conversation history (last 6 messages only for performance)
+        for msg in request.history[-6:]:
+            messages.append({"role": msg.role, "content": msg.content})
 
         # Add current user message
-        messages.append({
-            "role": "user",
-            "content": request.message
-        })
+        messages.append({"role": "user", "content": request.message})
 
-        logger.info(f"Processing chat request with {len(messages)} messages")
+        logger.info(f"📨 Chat request: {request.message[:50]}...")
 
-        # Call Qwen API
         async with httpx.AsyncClient(timeout=30.0) as client:
+
+            # TRY METHOD 1: OpenAI-compatible format (recommended)
+            logger.info("🔄 Trying OpenAI-compatible format...")
             response = await client.post(
-                QWEN_API_URL,
+                OPENAI_COMPATIBLE_URL,
                 headers={
                     "Authorization": f"Bearer {QWEN_API_KEY}",
                     "Content-Type": "application/json"
                 },
                 json={
                     "model": "qwen-turbo",
-                    "input": {
-                        "messages": messages
-                    },
-                    "parameters": {
-                        "max_tokens": 500,
-                        "temperature": 0.7,
-                        "top_p": 0.9
-                    }
+                    "messages": messages,
+                    "max_tokens": 300,
+                    "temperature": 0.7
                 }
             )
 
+            logger.info(f"📊 Qwen response status: {response.status_code}")
+
             if response.status_code == 200:
                 data = response.json()
-                reply = data.get("output", {}).get("text", "")
+                logger.info(f"✅ Qwen response received")
 
-                if not reply:
-                    logger.warning("Empty reply from Qwen API")
-                    reply = "Maaf, saya tidak dapat memproses soalan anda. Sila hubungi WhatsApp support kami. 🙏"
+                # OpenAI-compatible format
+                if "choices" in data:
+                    reply = data["choices"][0]["message"]["content"]
+                # DashScope format
+                elif "output" in data:
+                    output = data["output"]
+                    reply = output.get("text", "") or output.get("choices", [{}])[0].get("message", {}).get("content", "")
+                else:
+                    reply = ""
 
-                logger.info("Chat response generated successfully")
-                return ChatResponse(reply=reply, success=True)
+                if reply:
+                    logger.info(f"💬 Reply generated: {reply[:50]}...")
+                    return ChatResponse(reply=reply.strip(), success=True)
+                else:
+                    logger.warning(f"⚠️ Empty reply from Qwen. Response data: {data}")
+                    return ChatResponse(
+                        reply="Maaf, saya tidak faham. Boleh terangkan dengan lebih jelas? 🤔",
+                        success=True
+                    )
             else:
-                logger.error(f"Qwen API error: {response.status_code} - {response.text}")
+                logger.error(f"❌ Qwen API error (OpenAI format): {response.status_code}")
+                logger.error(f"Response: {response.text[:500]}")
+
+                # TRY METHOD 2: DashScope native format (fallback)
+                logger.info("🔄 Trying DashScope native format...")
+                response2 = await client.post(
+                    DASHSCOPE_URL,
+                    headers={
+                        "Authorization": f"Bearer {QWEN_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "qwen-turbo",
+                        "input": {"messages": messages},
+                        "parameters": {
+                            "max_tokens": 300,
+                            "temperature": 0.7
+                        }
+                    }
+                )
+
+                logger.info(f"📊 DashScope response status: {response2.status_code}")
+
+                if response2.status_code == 200:
+                    data2 = response2.json()
+                    logger.info(f"✅ DashScope response received")
+                    reply = data2.get("output", {}).get("text", "")
+                    if reply:
+                        logger.info(f"💬 Reply from DashScope: {reply[:50]}...")
+                        return ChatResponse(reply=reply.strip(), success=True)
+                else:
+                    logger.error(f"❌ DashScope API also failed: {response2.status_code}")
+                    logger.error(f"Response: {response2.text[:500]}")
+
                 return ChatResponse(
-                    reply="Maaf, sistem sedang sibuk. Sila cuba sebentar lagi atau hubungi WhatsApp support. 🙏",
+                    reply="Maaf, sistem sibuk sekarang. Cuba lagi sebentar atau hubungi WhatsApp. 🙏",
                     success=False
                 )
 
     except httpx.TimeoutException:
-        logger.error("Qwen API timeout")
+        logger.error("⏱️ Qwen API timeout")
         return ChatResponse(
-            reply="Maaf, sistem mengambil masa terlalu lama. Sila cuba lagi atau hubungi WhatsApp support. 🙏",
+            reply="Maaf, sambungan lambat. Sila cuba lagi. ⏳",
             success=False
         )
     except Exception as e:
-        logger.error(f"Chat error: {e}")
+        logger.error(f"❌ Chat error: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return ChatResponse(
-            reply="Maaf, berlaku ralat. Sila hubungi WhatsApp support kami untuk bantuan. 🙏",
+            reply="Maaf, berlaku ralat teknikal. Sila hubungi WhatsApp support. 🙏",
             success=False
         )
 
@@ -243,5 +205,73 @@ async def chat_health():
     return {
         "status": "ok",
         "qwen_configured": bool(QWEN_API_KEY),
+        "qwen_key_preview": QWEN_API_KEY[:10] + "..." if QWEN_API_KEY else None,
         "service": "BinaApp Customer Support Chatbot"
     }
+
+
+@router.get("/api/chat/test")
+async def chat_test():
+    """
+    Test Qwen API directly for debugging
+
+    Returns:
+        Test results with API response
+    """
+    if not QWEN_API_KEY:
+        return {
+            "error": "QWEN_API_KEY not configured",
+            "status": "failed"
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # Test OpenAI-compatible format
+            response = await client.post(
+                OPENAI_COMPATIBLE_URL,
+                headers={
+                    "Authorization": f"Bearer {QWEN_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "qwen-turbo",
+                    "messages": [{"role": "user", "content": "Hi, test message. Reply with 'OK'."}],
+                    "max_tokens": 50
+                }
+            )
+
+            result = {
+                "status_code": response.status_code,
+                "api_format": "openai-compatible",
+                "response": response.json() if response.status_code == 200 else response.text[:500]
+            }
+
+            # If OpenAI format fails, try DashScope format
+            if response.status_code != 200:
+                response2 = await client.post(
+                    DASHSCOPE_URL,
+                    headers={
+                        "Authorization": f"Bearer {QWEN_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "qwen-turbo",
+                        "input": {"messages": [{"role": "user", "content": "Hi, test message. Reply with 'OK'."}]},
+                        "parameters": {"max_tokens": 50}
+                    }
+                )
+
+                result["fallback"] = {
+                    "status_code": response2.status_code,
+                    "api_format": "dashscope-native",
+                    "response": response2.json() if response2.status_code == 200 else response2.text[:500]
+                }
+
+            return result
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "status": "exception"
+        }
