@@ -470,16 +470,20 @@ def is_delivery_enabled(form_data: dict, features: Optional[dict] = None) -> boo
 
 def generate_menu_from_business(
     form_data: dict,
-    generate_images: bool = True
+    generate_images: bool = False  # STRICT: Default to False - only True if user explicitly wants AI images
 ) -> List[Dict]:
     """
     Generate menu items based on business type and description.
-    
+
     This is called when:
     - User doesn't upload any menu items
     - But delivery is enabled
-    
+
     Generates appropriate items for the business type with optional Stability AI images.
+
+    STRICT IMAGE CONTROL:
+    - generate_images=True → Use Stability AI to generate images
+    - generate_images=False → Use stock/fallback images only (DEFAULT)
     """
     # Detect business type from description
     description = form_data.get('description', '') or form_data.get('business_description', '')

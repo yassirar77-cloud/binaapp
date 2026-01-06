@@ -1964,20 +1964,43 @@ async def generate_website_simple(request: SimpleGenerateRequest):
 
         logger.info(f"✓ Type={website_type}, Features={features}, Language={language.value}")
 
-        # Try to generate custom images with Stability AI
+        # ============= STRICT IMAGE CONTROL =============
+        # Determine image settings based on user's explicit choice
+        image_choice = request.image_choice or "none"
+        user_has_uploaded_images = request.images and len(request.images) > 0
+
+        # Validate image choice vs uploaded images
+        if image_choice == "upload" and not user_has_uploaded_images:
+            # User selected upload but didn't upload - fallback to none
+            logger.warning("⚠️ User selected 'upload' but no images provided - using 'none'")
+            image_choice = "none"
+        elif user_has_uploaded_images and image_choice != "upload":
+            # User uploaded images but didn't select 'upload' - use their images
+            logger.info("📷 User uploaded images - automatically using 'upload' mode")
+            image_choice = "upload"
+
+        # Only generate AI images if explicitly requested
+        generate_ai_images = image_choice == "ai"
+        logger.info(f"🖼️ Image Mode: {image_choice} | Generate AI: {generate_ai_images}")
+
+        # Try to generate custom images with Stability AI ONLY if user requested
         images = None
-        if ai_service.stability_api_key:
-            logger.info("🎨 Attempting Stability AI image generation...")
+        if user_has_uploaded_images:
+            # Use user-uploaded images
+            logger.info("📷 Using user-uploaded images")
+            images = {"gallery": request.images}
+        elif generate_ai_images and ai_service.stability_api_key:
+            logger.info("🎨 Attempting Stability AI image generation (user explicitly requested)...")
             images = await ai_service.generate_business_images(request.description)
             if images:
                 logger.info("🎨 ✅ Using Stability AI custom images")
             else:
                 logger.info("🎨 ⚠️ Stability AI failed, using fallback")
 
-        # Fallback to stock images
-        if not images:
+        # Fallback to stock images only if ai mode was selected but failed
+        if not images and generate_ai_images:
             images = ai_service.get_fallback_images(request.description)
-            logger.info("📸 Using stock images")
+            logger.info("📸 Using stock images (Stability AI fallback)")
 
         # Build AI generation request
         ai_request = WebsiteGenerationRequest(
@@ -2019,6 +2042,14 @@ async def generate_website_simple(request: SimpleGenerateRequest):
             html_content,
             features,
             user_data
+        )
+
+        # SAFETY GUARD: Apply strict image control
+        user_image_urls = [img.get('url') if isinstance(img, dict) else img for img in (request.images or [])]
+        html_content = template_service.apply_image_safety_guard(
+            html_content,
+            image_choice,
+            user_image_urls
         )
 
         logger.info("✅ Simple generation complete")
