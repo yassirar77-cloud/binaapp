@@ -875,11 +875,15 @@ function handleContactSubmit(e) {{
         business_info: Dict,
         business_type: str = None,
         language: str = "ms",
-        description: str = ""
+        description: str = "",
+        website_id: str = "",
+        api_url: str = "https://api.binaapp.my/v1"
     ) -> str:
         """
         COMPLETE DELIVERY PAGE - With all dependencies included
         Uses inline styles to avoid CSS framework dependency issues
+
+        BACKEND INTEGRATION: Creates orders via API and supports rider tracking
 
         Now supports dynamic business types:
         - food: Restaurants, cafes (Nasi, Lauk, Minuman)
@@ -1167,8 +1171,8 @@ function handleContactSubmit(e) {{
                         <h4 style="font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px;">💳 Cara Bayaran</h4>
                         <div id="payment-options-desktop"></div>
                     </div>
-                    <button id="checkout-btn-desktop" onclick="deliveryCheckout()" style="display:none;width:100%;margin-top:20px;background:linear-gradient(to right,#22c55e,#16a34a);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;">
-                        📱 Hantar Pesanan via WhatsApp
+                    <button id="checkout-btn-desktop" onclick="showCheckoutForm()" style="display:none;width:100%;margin-top:20px;background:linear-gradient(to right,#22c55e,#16a34a);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;">
+                        ✅ Teruskan Pesanan
                     </button>
                 </div>
             </div>
@@ -1207,10 +1211,104 @@ function handleContactSubmit(e) {{
                     <h4 style="font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px;">💳 Cara Bayaran</h4>
                     <div id="payment-options-mobile"></div>
                 </div>
-                <button onclick="deliveryCheckout()" style="width:100%;background:linear-gradient(to right,#22c55e,#16a34a);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;margin-bottom:env(safe-area-inset-bottom, 20px);">
-                    📱 Hantar WhatsApp
+                <button onclick="showCheckoutForm()" style="width:100%;background:linear-gradient(to right,#22c55e,#16a34a);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;margin-bottom:env(safe-area-inset-bottom, 20px);">
+                    ✅ Teruskan Pesanan
                 </button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Checkout Form Overlay -->
+<div id="checkout-form-overlay" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.5);">
+    <div style="position:absolute;bottom:0;left:0;right:0;background:white;border-radius:24px 24px 0 0;max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;">
+        <div style="position:sticky;top:0;z-index:10;padding:16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;background:white;border-radius:24px 24px 0 0;">
+            <h3 style="font-weight:bold;font-size:18px;margin:0;">📝 Maklumat Penghantaran</h3>
+            <button onclick="hideCheckoutForm()" style="width:40px;height:40px;background:#f3f4f6;border-radius:50%;border:none;cursor:pointer;font-size:18px;">✕</button>
+        </div>
+        <form id="checkout-form" onsubmit="submitOrderToBackend(event)" style="padding:16px;">
+            <div style="margin-bottom:16px;">
+                <label style="display:block;font-weight:600;margin-bottom:8px;">Nama Anda *</label>
+                <input type="text" id="customer-name" required placeholder="Contoh: Ahmad bin Ali" style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:12px;font-size:16px;box-sizing:border-box;">
+            </div>
+            <div style="margin-bottom:16px;">
+                <label style="display:block;font-weight:600;margin-bottom:8px;">No. Telefon *</label>
+                <input type="tel" id="customer-phone" required placeholder="Contoh: 0123456789" style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:12px;font-size:16px;box-sizing:border-box;">
+            </div>
+            <div style="margin-bottom:16px;">
+                <label style="display:block;font-weight:600;margin-bottom:8px;">Alamat Penghantaran *</label>
+                <textarea id="customer-address" required rows="3" placeholder="Alamat penuh termasuk poskod" style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:12px;font-size:16px;resize:vertical;box-sizing:border-box;"></textarea>
+            </div>
+            <div style="margin-bottom:16px;">
+                <label style="display:block;font-weight:600;margin-bottom:8px;">Nota Tambahan (pilihan)</label>
+                <textarea id="customer-notes" rows="2" placeholder="Contoh: Letak depan pintu" style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:12px;font-size:16px;resize:vertical;box-sizing:border-box;"></textarea>
+            </div>
+            <div id="checkout-summary" style="background:#f9fafb;padding:16px;border-radius:12px;margin-bottom:16px;">
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Subtotal</span><span>RM<span id="checkout-subtotal">0.00</span></span></div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span>Caj Delivery</span><span>RM<span id="checkout-delivery-fee">0.00</span></span></div>
+                <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:bold;padding-top:8px;border-top:1px solid #e5e7eb;"><span>Jumlah</span><span style="color:#ea580c;">RM<span id="checkout-total">0.00</span></span></div>
+            </div>
+            <button type="submit" id="submit-order-btn" style="width:100%;background:linear-gradient(to right,#22c55e,#16a34a);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;">
+                ✅ Hantar Pesanan
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Order Tracking View -->
+<div id="tracking-view-overlay" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.5);">
+    <div style="position:absolute;bottom:0;left:0;right:0;background:white;border-radius:24px 24px 0 0;max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;">
+        <div style="position:sticky;top:0;z-index:10;padding:16px;background:linear-gradient(135deg,#22c55e,#16a34a);color:white;border-radius:24px 24px 0 0;">
+            <div style="text-align:center;">
+                <div style="font-size:48px;margin-bottom:8px;">✅</div>
+                <h3 style="font-weight:bold;font-size:20px;margin:0 0 4px 0;">Pesanan Berjaya!</h3>
+                <p style="margin:0;opacity:0.9;" id="tracking-order-number">No. Pesanan: -</p>
+            </div>
+        </div>
+        <div style="padding:16px;">
+            <!-- Order Status -->
+            <div style="background:#f9fafb;padding:16px;border-radius:12px;margin-bottom:16px;">
+                <h4 style="font-weight:600;margin:0 0 12px 0;display:flex;align-items:center;gap:8px;">📦 Status Pesanan</h4>
+                <div id="order-status-display" style="display:flex;align-items:center;gap:12px;">
+                    <div style="width:48px;height:48px;background:#fef3c7;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;" id="status-emoji">⏳</div>
+                    <div>
+                        <p style="font-weight:600;margin:0;" id="status-text">Menunggu Pengesahan</p>
+                        <p style="font-size:14px;color:#6b7280;margin:4px 0 0 0;" id="status-time">-</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Rider Info (will be shown when assigned) -->
+            <div id="rider-info-section" style="display:none;background:#f0fdf4;padding:16px;border-radius:12px;margin-bottom:16px;border:2px solid #bbf7d0;">
+                <h4 style="font-weight:600;margin:0 0 12px 0;display:flex;align-items:center;gap:8px;">🛵 Maklumat Rider</h4>
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <div style="width:48px;height:48px;background:#dcfce7;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;" id="rider-avatar">🧑</div>
+                    <div style="flex:1;">
+                        <p style="font-weight:600;margin:0;" id="rider-name">-</p>
+                        <p style="font-size:14px;color:#6b7280;margin:4px 0 0 0;" id="rider-vehicle">-</p>
+                    </div>
+                    <a id="rider-call-btn" href="tel:" style="width:44px;height:44px;background:#22c55e;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;font-size:20px;">📞</a>
+                    <a id="rider-whatsapp-btn" href="" target="_blank" style="width:44px;height:44px;background:#25D366;border-radius:50%;display:flex;align-items:center;justify-content:center;text-decoration:none;">
+                        <svg viewBox="0 0 24 24" width="22" height="22" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/></svg>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Order Summary -->
+            <div style="background:#f9fafb;padding:16px;border-radius:12px;margin-bottom:16px;">
+                <h4 style="font-weight:600;margin:0 0 12px 0;display:flex;align-items:center;gap:8px;">📋 Ringkasan Pesanan</h4>
+                <div id="tracking-items-list"></div>
+                <div style="border-top:1px solid #e5e7eb;margin-top:12px;padding-top:12px;">
+                    <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:bold;"><span>Jumlah</span><span style="color:#ea580c;">RM<span id="tracking-total">0.00</span></span></div>
+                </div>
+            </div>
+
+            <button onclick="closeTrackingView()" style="width:100%;background:#f3f4f6;color:#374151;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;margin-bottom:16px;">
+                ✕ Tutup
+            </button>
+            <button onclick="refreshTracking()" style="width:100%;background:linear-gradient(to right,#3b82f6,#2563eb);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;">
+                🔄 Refresh Status
+            </button>
         </div>
     </div>
 </div>'''
@@ -1235,13 +1333,17 @@ function handleContactSubmit(e) {{
         # STEP 4: JavaScript - Complete delivery system with prefixed functions
         script = f'''
 <script>
-// BinaApp Delivery System - Complete Implementation
+// BinaApp Delivery System - Complete Implementation with Backend Integration
 (function() {{
     const DELIVERY_WHATSAPP = '{phone_clean}';
     const DELIVERY_BUSINESS = '{business_name}';
     const DELIVERY_MINIMUM = {minimum_order};
     const deliveryZonesData = {zones_json};
     const deliveryMenuData = {menu_json};
+
+    // Backend API configuration for real order creation and rider tracking
+    const API_URL = '{api_url}';
+    const WEBSITE_ID = '{website_id}';
 
     // Payment configuration
     const PAYMENT_QR_URL = '{payment_qr_url}';
@@ -1253,6 +1355,8 @@ function handleContactSubmit(e) {{
     let deliveryFeeAmount = 0;
     let deliveryCurrentCategory = 'all';
     let selectedPaymentMethod = PAYMENT_COD_ENABLED ? 'cod' : (PAYMENT_QR_ENABLED ? 'qr' : 'cod');
+    let currentOrderNumber = null;
+    let trackingPollInterval = null;
 
     // Page switching
     window.showDeliveryPage = function(page) {{
@@ -1526,38 +1630,291 @@ function handleContactSubmit(e) {{
         }}
     }}
 
-    // Checkout - Dynamic based on business type with payment method
-    window.deliveryCheckout = function() {{
+    // =====================================================
+    // CHECKOUT & ORDER CREATION (BACKEND-FIRST APPROACH)
+    // =====================================================
+
+    // Show checkout form overlay
+    window.showCheckoutForm = function() {{
         if (deliveryCart.length === 0) {{ alert('Sila tambah item ke dalam bakul'); return; }}
         if (!deliverySelectedZone) {{ alert('Sila pilih kawasan delivery terlebih dahulu'); return; }}
         const subtotal = deliveryCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
         if (subtotal < DELIVERY_MINIMUM) {{ alert('Minimum order adalah RM' + DELIVERY_MINIMUM); return; }}
-        const total = subtotal + deliveryFeeAmount;
 
-        let msg = '{order_emoji} *{order_title} - ' + DELIVERY_BUSINESS + '*\\n\\n';
-        msg += '📍 *Kawasan:* ' + deliverySelectedZone.name + '\\n';
-        msg += '💳 *Bayaran:* ' + (selectedPaymentMethod === 'cod' ? 'Tunai (COD)' : 'QR Payment') + '\\n';
-        if (selectedPaymentMethod === 'qr') {{
-            msg += '✅ *Status:* Sudah bayar\\n';
-            msg += '📸 *Bukti:* (Sila hantar screenshot)\\n';
-        }}
-        msg += '━━━━━━━━━━━━━━━━\\n\\n📝 *Pesanan:*\\n';
-        deliveryCart.forEach(item => {{ msg += '• ' + item.name + ' x' + item.qty + ' - RM' + (item.price * item.qty).toFixed(2) + '\\n'; }});
-        msg += '\\n━━━━━━━━━━━━━━━━\\nSubtotal: RM' + subtotal.toFixed(2) + '\\nCaj Delivery: RM' + deliveryFeeAmount.toFixed(2) + '\\n*JUMLAH: RM' + total.toFixed(2) + '*\\n\\n';
-        if (selectedPaymentMethod === 'qr') {{
-            msg += '⚠️ Sila hantar bukti pembayaran bersama mesej ini.\\n\\n';
-        }}
-        msg += '{whatsapp_closing}';
-        window.open('https://wa.me/' + DELIVERY_WHATSAPP + '?text=' + encodeURIComponent(msg), '_blank');
+        // Update checkout summary
+        const total = subtotal + deliveryFeeAmount;
+        document.getElementById('checkout-subtotal').textContent = subtotal.toFixed(2);
+        document.getElementById('checkout-delivery-fee').textContent = deliveryFeeAmount.toFixed(2);
+        document.getElementById('checkout-total').textContent = total.toFixed(2);
+
+        // Close mobile cart overlay if open
+        const mobileOverlay = document.getElementById('delivery-mobile-cart-overlay');
+        if (mobileOverlay) mobileOverlay.style.display = 'none';
+
+        // Show checkout form
+        document.getElementById('checkout-form-overlay').style.display = 'block';
     }};
 
-    // Initialize on DOM ready
+    // Hide checkout form
+    window.hideCheckoutForm = function() {{
+        document.getElementById('checkout-form-overlay').style.display = 'none';
+    }};
+
+    // Submit order to backend API
+    window.submitOrderToBackend = async function(event) {{
+        event.preventDefault();
+
+        const submitBtn = document.getElementById('submit-order-btn');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '⏳ Menghantar pesanan...';
+
+        try {{
+            const customerName = document.getElementById('customer-name').value.trim();
+            const customerPhone = document.getElementById('customer-phone').value.trim();
+            const customerAddress = document.getElementById('customer-address').value.trim();
+            const customerNotes = document.getElementById('customer-notes').value.trim();
+
+            const subtotal = deliveryCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+            const total = subtotal + deliveryFeeAmount;
+
+            // Build order payload for backend API
+            const orderPayload = {{
+                website_id: WEBSITE_ID,
+                customer_name: customerName,
+                customer_phone: customerPhone,
+                customer_email: null,
+                delivery_address: customerAddress,
+                delivery_notes: customerNotes || null,
+                delivery_zone_id: deliverySelectedZone ? deliverySelectedZone.id : null,
+                items: deliveryCart.map(item => ({{
+                    menu_item_id: item.id,
+                    quantity: item.qty,
+                    options: {{}},
+                    notes: null
+                }})),
+                payment_method: selectedPaymentMethod === 'qr' ? 'online' : 'cod'
+            }};
+
+            console.log('[BinaApp] Creating order via backend API...', orderPayload);
+
+            // Create order in backend
+            const response = await fetch(API_URL + '/delivery/orders', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify(orderPayload)
+            }});
+
+            if (response.ok) {{
+                const orderData = await response.json();
+                currentOrderNumber = orderData.order_number;
+                console.log('[BinaApp] ✅ Order created:', currentOrderNumber);
+
+                // Hide checkout form
+                hideCheckoutForm();
+
+                // Send WhatsApp notification to merchant
+                sendWhatsAppNotification(customerName, customerPhone, customerAddress, customerNotes, subtotal, total);
+
+                // Show tracking view
+                showTrackingView(orderData, subtotal, total);
+
+                // Clear cart
+                deliveryCart = [];
+                deliverySelectedZone = null;
+                deliveryFeeAmount = 0;
+                updateDeliveryCartDisplay();
+                renderDeliveryMenu();
+
+                // Reset form
+                document.getElementById('checkout-form').reset();
+
+            }} else {{
+                const errorText = await response.text();
+                let errorMessage = 'Gagal membuat pesanan';
+                try {{
+                    const errorJson = JSON.parse(errorText);
+                    errorMessage = errorJson.detail || errorMessage;
+                }} catch (e) {{
+                    errorMessage = errorText || errorMessage;
+                }}
+                console.error('[BinaApp] ❌ Order creation failed:', errorMessage);
+                alert('Gagal membuat pesanan: ' + errorMessage);
+            }}
+        }} catch (error) {{
+            console.error('[BinaApp] ❌ Order error:', error);
+            alert('Ralat rangkaian. Sila cuba lagi.');
+        }} finally {{
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalText;
+        }}
+    }};
+
+    // Send WhatsApp notification to merchant (notification only, not the main order flow)
+    function sendWhatsAppNotification(name, phone, address, notes, subtotal, total) {{
+        let msg = '🆕 *PESANAN BARU*\\n';
+        msg += '*No. Pesanan:* ' + currentOrderNumber + '\\n\\n';
+        msg += '{order_emoji} *{order_title} - ' + DELIVERY_BUSINESS + '*\\n\\n';
+        msg += '📍 *Kawasan:* ' + (deliverySelectedZone ? deliverySelectedZone.name : '-') + '\\n';
+        msg += '💳 *Bayaran:* ' + (selectedPaymentMethod === 'cod' ? 'Tunai (COD)' : 'QR Payment') + '\\n';
+        msg += '━━━━━━━━━━━━━━━━\\n\\n';
+        msg += '👤 *Pelanggan:*\\n';
+        msg += 'Nama: ' + name + '\\n';
+        msg += 'Tel: ' + phone + '\\n';
+        msg += 'Alamat: ' + address + '\\n';
+        if (notes) msg += 'Nota: ' + notes + '\\n';
+        msg += '\\n━━━━━━━━━━━━━━━━\\n\\n📝 *Pesanan:*\\n';
+        deliveryCart.forEach(item => {{ msg += '• ' + item.name + ' x' + item.qty + ' - RM' + (item.price * item.qty).toFixed(2) + '\\n'; }});
+        msg += '\\n━━━━━━━━━━━━━━━━\\nSubtotal: RM' + subtotal.toFixed(2) + '\\nCaj Delivery: RM' + deliveryFeeAmount.toFixed(2) + '\\n*JUMLAH: RM' + total.toFixed(2) + '*\\n\\n';
+        msg += '📱 *Urus pesanan di Dashboard BinaApp*';
+
+        if (DELIVERY_WHATSAPP) {{
+            window.open('https://wa.me/' + DELIVERY_WHATSAPP + '?text=' + encodeURIComponent(msg), '_blank');
+        }}
+    }}
+
+    // =====================================================
+    // ORDER TRACKING (REAL-TIME FROM BACKEND)
+    // =====================================================
+
+    // Status text mapping
+    const statusMap = {{
+        'pending': {{ text: 'Menunggu Pengesahan', emoji: '⏳', color: '#fef3c7' }},
+        'confirmed': {{ text: 'Pesanan Disahkan', emoji: '✅', color: '#dcfce7' }},
+        'preparing': {{ text: 'Sedang Disediakan', emoji: '👨‍🍳', color: '#dbeafe' }},
+        'ready': {{ text: 'Sedia Untuk Diambil', emoji: '📦', color: '#e0e7ff' }},
+        'picked_up': {{ text: 'Rider Sedang Mengambil', emoji: '🛵', color: '#fae8ff' }},
+        'delivering': {{ text: 'Sedang Dihantar', emoji: '🚀', color: '#ccfbf1' }},
+        'delivered': {{ text: 'Sudah Dihantar', emoji: '🎉', color: '#d1fae5' }},
+        'completed': {{ text: 'Selesai', emoji: '✨', color: '#d1fae5' }},
+        'cancelled': {{ text: 'Dibatalkan', emoji: '❌', color: '#fee2e2' }},
+        'rejected': {{ text: 'Ditolak', emoji: '🚫', color: '#fee2e2' }}
+    }};
+
+    // Show tracking view with order data
+    function showTrackingView(orderData, subtotal, total) {{
+        document.getElementById('tracking-order-number').textContent = 'No. Pesanan: ' + (orderData.order_number || currentOrderNumber);
+
+        // Update status
+        const status = orderData.status || 'pending';
+        const statusInfo = statusMap[status] || statusMap['pending'];
+        document.getElementById('status-emoji').textContent = statusInfo.emoji;
+        document.getElementById('status-emoji').style.background = statusInfo.color;
+        document.getElementById('status-text').textContent = statusInfo.text;
+        document.getElementById('status-time').textContent = new Date().toLocaleString('ms-MY');
+
+        // Update rider info if assigned
+        if (orderData.rider) {{
+            document.getElementById('rider-info-section').style.display = 'block';
+            document.getElementById('rider-name').textContent = orderData.rider.name || 'Rider';
+            document.getElementById('rider-vehicle').textContent = (orderData.rider.vehicle_type || 'Motosikal') + (orderData.rider.vehicle_plate ? ' • ' + orderData.rider.vehicle_plate : '');
+            document.getElementById('rider-call-btn').href = 'tel:' + (orderData.rider.phone || '');
+            document.getElementById('rider-whatsapp-btn').href = 'https://wa.me/' + (orderData.rider.phone || '').replace(/[^0-9]/g, '');
+            if (orderData.rider.photo_url) {{
+                document.getElementById('rider-avatar').innerHTML = '<img src="' + orderData.rider.photo_url + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">';
+            }}
+        }} else {{
+            document.getElementById('rider-info-section').style.display = 'none';
+        }}
+
+        // Update order items list
+        const itemsHtml = deliveryCart.map(item => `
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                <span>${{item.name}} x${{item.qty}}</span>
+                <span>RM${{(item.price * item.qty).toFixed(2)}}</span>
+            </div>
+        `).join('');
+        document.getElementById('tracking-items-list').innerHTML = itemsHtml;
+        document.getElementById('tracking-total').textContent = total.toFixed(2);
+
+        // Show tracking overlay
+        document.getElementById('tracking-view-overlay').style.display = 'block';
+
+        // Start auto-refresh
+        startTrackingPolling();
+    }}
+
+    // Load tracking data from API
+    async function loadTracking() {{
+        if (!currentOrderNumber) return;
+
+        try {{
+            const response = await fetch(API_URL + '/delivery/orders/' + currentOrderNumber + '/track');
+            if (response.ok) {{
+                const data = await response.json();
+                updateTrackingDisplay(data);
+            }}
+        }} catch (error) {{
+            console.error('[BinaApp] Tracking fetch error:', error);
+        }}
+    }}
+
+    // Update tracking display with API data
+    function updateTrackingDisplay(data) {{
+        const status = data.status || 'pending';
+        const statusInfo = statusMap[status] || statusMap['pending'];
+
+        document.getElementById('status-emoji').textContent = statusInfo.emoji;
+        document.getElementById('status-emoji').style.background = statusInfo.color;
+        document.getElementById('status-text').textContent = statusInfo.text;
+
+        if (data.updated_at) {{
+            document.getElementById('status-time').textContent = new Date(data.updated_at).toLocaleString('ms-MY');
+        }}
+
+        // Update rider info
+        if (data.rider) {{
+            document.getElementById('rider-info-section').style.display = 'block';
+            document.getElementById('rider-name').textContent = data.rider.name || 'Rider';
+            document.getElementById('rider-vehicle').textContent = (data.rider.vehicle_type || 'Motosikal') + (data.rider.vehicle_plate ? ' • ' + data.rider.vehicle_plate : '');
+            document.getElementById('rider-call-btn').href = 'tel:' + (data.rider.phone || '');
+            document.getElementById('rider-whatsapp-btn').href = 'https://wa.me/' + (data.rider.phone || '').replace(/[^0-9]/g, '');
+            if (data.rider.photo_url) {{
+                document.getElementById('rider-avatar').innerHTML = '<img src="' + data.rider.photo_url + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">';
+            }}
+        }} else {{
+            document.getElementById('rider-info-section').style.display = 'none';
+        }}
+
+        // Update total if available
+        if (data.total_amount) {{
+            document.getElementById('tracking-total').textContent = parseFloat(data.total_amount).toFixed(2);
+        }}
+    }}
+
+    // Start polling for tracking updates
+    function startTrackingPolling() {{
+        if (trackingPollInterval) clearInterval(trackingPollInterval);
+        trackingPollInterval = setInterval(loadTracking, 30000); // Every 30 seconds
+    }}
+
+    // Refresh tracking manually
+    window.refreshTracking = function() {{
+        loadTracking();
+    }};
+
+    // Close tracking view
+    window.closeTrackingView = function() {{
+        document.getElementById('tracking-view-overlay').style.display = 'none';
+        if (trackingPollInterval) {{
+            clearInterval(trackingPollInterval);
+            trackingPollInterval = null;
+        }}
+    }};
+
+    // =====================================================
+    // INITIALIZATION
+    // =====================================================
+
     document.addEventListener('DOMContentLoaded', function() {{
         renderDeliveryZones();
         renderDeliveryMenu();
         renderPaymentOptions();
-        console.log('🛵 BinaApp Delivery System loaded: ' + deliveryMenuData.length + ' items, ' + deliveryZonesData.length + ' zones');
-        console.log('💳 Payment config: COD=' + PAYMENT_COD_ENABLED + ', QR=' + PAYMENT_QR_ENABLED);
+        console.log('🛵 BinaApp Delivery System loaded (Backend-Connected)');
+        console.log('📡 API URL:', API_URL);
+        console.log('🏪 Website ID:', WEBSITE_ID);
+        console.log('📦 Menu items:', deliveryMenuData.length, ', Zones:', deliveryZonesData.length);
+        console.log('💳 Payment: COD=' + PAYMENT_COD_ENABLED + ', QR=' + PAYMENT_QR_ENABLED);
     }});
 }})();
 </script>'''
@@ -1692,23 +2049,17 @@ function handleContactSubmit(e) {{
             website_id = user_data.get("website_id", "")
             whatsapp = user_data.get("phone", "+60123456789")
             primary_color = user_data.get("primary_color", "#ea580c")
+            menu_items = user_data.get("menu_items", [])
+            delivery_zones = user_data.get("delivery_zones", [])
+            payment_data = user_data.get("payment", {})
 
-            if delivery_widget_enabled:
-                # NEW: Only inject the delivery widget (single source of truth)
-                logger.info("Injecting delivery widget ONLY (legacy UI skipped)")
-                html = self.inject_delivery_widget(
-                    html,
-                    website_id,
-                    whatsapp,
-                    primary_color
-                )
-            else:
-                # LEGACY: Inject full ordering system when no website_id
-                menu_items = user_data.get("menu_items", [])
-                delivery_zones = user_data.get("delivery_zones", [])
-                payment_data = user_data.get("payment", {})
+            # DECISION: Use inline ordering system when menu_items exist (full featured)
+            # Use external delivery page only when no menu_items (fallback)
+            use_inline_system = len(menu_items) > 0 or user_data.get("use_inline_delivery", False)
 
-                logger.info(f"Injecting legacy ordering system - {len(menu_items)} menu items, {len(delivery_zones)} zones")
+            if use_inline_system:
+                # INLINE ORDERING SYSTEM - Full featured with backend API integration
+                logger.info(f"Injecting inline ordering system with backend API - {len(menu_items)} menu items, {len(delivery_zones)} zones")
 
                 if not delivery_zones and (user_data.get("delivery") or user_data.get("fulfillment")):
                     delivery_data = user_data.get("delivery", {})
@@ -1740,6 +2091,9 @@ function handleContactSubmit(e) {{
                 business_type = user_data.get("business_type", "")
                 description = user_data.get("description", user_data.get("business_name", ""))
 
+                # Generate a website_id if not available (for backend order creation)
+                ordering_website_id = website_id if website_id else ""
+
                 html = self.inject_ordering_system(
                     html,
                     menu_items,
@@ -1750,8 +2104,21 @@ function handleContactSubmit(e) {{
                         "payment": payment_data  # Pass payment data for QR support
                     },
                     business_type=business_type,
-                    description=description
+                    description=description,
+                    website_id=ordering_website_id,
+                    api_url="https://api.binaapp.my/v1"
                 )
+            elif website_id:
+                # EXTERNAL DELIVERY PAGE - Fallback when no menu_items but website_id exists
+                logger.info(f"Injecting external delivery page button for website {website_id}")
+                html = self.inject_delivery_widget(
+                    html,
+                    website_id,
+                    whatsapp,
+                    primary_color
+                )
+            else:
+                logger.warning("Delivery system requested but no menu_items and no website_id - skipping")
 
         return html
 
