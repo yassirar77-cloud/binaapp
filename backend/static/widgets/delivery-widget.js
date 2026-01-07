@@ -1837,7 +1837,7 @@
             }
         },
 
-        // Submit order via API (and optionally WhatsApp)
+        // Submit order via API (backend-first, WhatsApp as notification)
         submitOrder: async function(formData) {
             try {
                 const config = this.getConfig();
@@ -1881,8 +1881,20 @@
                 const deliveryFee = this.state.selectedFulfillment === 'delivery' ? fulfillment.deliveryFee : 0;
                 const total = subtotal + deliveryFee;
 
-                // Create an order in the BinaApp delivery system (activates Phase 1 flow)
+                // Show loading state
+                const submitBtn = document.querySelector('#binaapp-checkout-form button[type="submit"]');
+                const originalBtnText = submitBtn ? submitBtn.innerHTML : '';
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '⏳ ' + this.t('creatingOrder') + '...';
+                }
+
+                // ============================================
+                // STEP 1: CREATE ORDER IN BACKEND (REQUIRED)
+                // ============================================
                 let createdOrder = null;
+                let orderError = null;
+
                 try {
                     const orderPayload = {
                         website_id: this.config.websiteId,
@@ -1908,6 +1920,8 @@
                         payment_method: this.state.selectedPayment === 'qr' ? 'online' : 'cod'
                     };
 
+                    console.log('[BinaApp] Creating order in backend...', orderPayload);
+
                     const createRes = await fetch(`${this.config.apiUrl}/delivery/orders`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1917,13 +1931,40 @@
                     if (createRes.ok) {
                         createdOrder = await createRes.json();
                         this.state.orderNumber = createdOrder.order_number || null;
+                        console.log('[BinaApp] ✅ Order created:', this.state.orderNumber);
                     } else {
-                        const text = await createRes.text();
-                        console.warn('[BinaApp] Order API create failed, falling back to WhatsApp-only:', text);
+                        const errorText = await createRes.text();
+                        let errorMessage = 'Failed to create order';
+                        try {
+                            const errorJson = JSON.parse(errorText);
+                            errorMessage = errorJson.detail || errorMessage;
+                        } catch (e) {
+                            errorMessage = errorText || errorMessage;
+                        }
+                        orderError = errorMessage;
+                        console.error('[BinaApp] ❌ Order creation failed:', errorMessage);
                     }
                 } catch (createErr) {
-                    console.warn('[BinaApp] Order API create error, falling back to WhatsApp-only:', createErr);
+                    orderError = createErr.message || 'Network error';
+                    console.error('[BinaApp] ❌ Order creation error:', createErr);
                 }
+
+                // Restore button state
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalBtnText;
+                }
+
+                // If backend order failed, show error and stop
+                if (!createdOrder || !this.state.orderNumber) {
+                    alert(this.t('orderCreationFailed') + (orderError ? ': ' + orderError : ''));
+                    return;
+                }
+
+                // ============================================
+                // ORDER CREATED SUCCESSFULLY - Now build notification
+                // ============================================
+                // WhatsApp is now just a notification, not the core flow
                 
                 // Build WhatsApp message
                 let msg = `${config.emoji} *${config.orderTitle} - ${this.config.businessName}*\n\n`;
@@ -1994,28 +2035,35 @@
                 msg += `\n*JUMLAH: RM${total.toFixed(2)}*\n\n`;
                 msg += `Terima kasih! 🙏`;
                 
+                // ============================================
+                // STEP 2: SEND WHATSAPP NOTIFICATION TO MERCHANT
+                // ============================================
+                // Order is already saved in backend - WhatsApp is just a notification
+                
+                // Include order number in WhatsApp message (always present now)
+                msg = `*🆕 PESANAN BARU*\n*No. Pesanan:* ${this.state.orderNumber}\n\n` + msg;
+                msg += `\n\n📱 *Lihat & urus pesanan di Dashboard BinaApp*`;
+
                 // Get WhatsApp number
                 let whatsappNumber = this.config.whatsappNumber;
-                if (!whatsappNumber) {
-                    // Try to extract from page or prompt user
-                    whatsappNumber = prompt('Masukkan nombor WhatsApp penjual (contoh: 60123456789):');
-                    if (!whatsappNumber) {
-                        alert('Nombor WhatsApp diperlukan untuk menghantar pesanan');
-                        return;
-                    }
+                
+                if (whatsappNumber) {
+                    // Clean the number
+                    whatsappNumber = whatsappNumber.replace(/[^0-9]/g, '');
+                    
+                    // Open WhatsApp (merchant notification)
+                    const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(msg)}`;
+                    window.open(whatsappUrl, '_blank');
+                    
+                    console.log('[BinaApp] ✅ WhatsApp notification sent to merchant');
+                } else {
+                    // No WhatsApp number configured - just log it
+                    console.log('[BinaApp] ℹ️ No WhatsApp number configured, skipping notification');
                 }
                 
-                // Clean the number
-                whatsappNumber = whatsappNumber.replace(/[^0-9]/g, '');
-                
-                // If an order was created, include order number in the WhatsApp message
-                if (this.state.orderNumber) {
-                    msg = `*No. Pesanan:* ${this.state.orderNumber}\n\n` + msg;
-                }
-
-                // Open WhatsApp (merchant notification)
-                const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(msg)}`;
-                window.open(whatsappUrl, '_blank');
+                // ============================================
+                // STEP 3: SHOW SUCCESS & TRACKING VIEW
+                // ============================================
                 
                 // Clear cart and reset selections
                 this.state.cart = [];
@@ -2023,14 +2071,11 @@
                 this.state.selectedPayment = null;
                 this.updateCartBadge();
                 
-                // If we created an order, keep modal open for tracking
-                if (this.state.orderNumber) {
-                    this.showView('tracking');
-                } else {
-                    this.closeModal();
-                }
+                // Show success notification
+                this.showNotification(this.t('orderCreatedSuccess'));
                 
-                this.showNotification(this.t('orderSent'));
+                // Show tracking view (order is in backend, can be tracked)
+                this.showView('tracking');
 
             } catch (error) {
                 console.error('[BinaApp] Order error:', error);
@@ -2128,7 +2173,11 @@
                     statusHistory: 'Sejarah Status',
                     eta: 'Anggaran Tiba',
                     minutes: 'minit',
-                    autoRefreshNote: 'Tekan butang untuk muat semula status terkini'
+                    autoRefreshNote: 'Tekan butang untuk muat semula status terkini',
+                    // Order creation
+                    creatingOrder: 'Membuat pesanan',
+                    orderCreationFailed: 'Gagal membuat pesanan',
+                    orderCreatedSuccess: 'Pesanan berjaya dibuat!'
                 },
                 en: {
                     orderNow: 'Order Now',
@@ -2195,7 +2244,11 @@
                     statusHistory: 'Status History',
                     eta: 'Est. Arrival',
                     minutes: 'mins',
-                    autoRefreshNote: 'Tap refresh button to get latest status'
+                    autoRefreshNote: 'Tap refresh button to get latest status',
+                    // Order creation
+                    creatingOrder: 'Creating order',
+                    orderCreationFailed: 'Failed to create order',
+                    orderCreatedSuccess: 'Order created successfully!'
                 }
             };
 

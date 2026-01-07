@@ -1578,36 +1578,193 @@
             const order = this.state.trackingData.order || {};
             const rider = this.state.trackingData.rider || null;
             const eta = this.state.trackingData.eta_minutes;
+            const statusHistory = this.state.trackingData.status_history || [];
+
+            // Status badge colors
+            const statusColors = {
+                pending: '#fbbf24',
+                confirmed: '#3b82f6',
+                preparing: '#f97316',
+                ready: '#10b981',
+                picked_up: '#8b5cf6',
+                delivering: '#06b6d4',
+                delivered: '#22c55e',
+                completed: '#22c55e',
+                cancelled: '#ef4444',
+                rejected: '#ef4444'
+            };
+
+            const statusBgColor = statusColors[order.status] || '#6b7280';
 
             return `
                 <div style="display:flex;flex-direction:column;gap:12px;">
-                    <div style="padding:16px;background:#f9fafb;border-radius:12px;">
-                        <div style="font-weight:700;font-size:16px;">${this.t('orderNumber')}: ${this.state.orderNumber}</div>
-                        <div style="margin-top:6px;color:#374151;">${this.t('status')}: <strong>${order.status || '-'}</strong></div>
-                        ${eta != null ? `<div style="margin-top:6px;color:#374151;">ETA: ~${eta} min</div>` : ''}
+                    <!-- Order Status Header -->
+                    <div style="padding:20px;background:linear-gradient(135deg, ${statusBgColor}15 0%, ${statusBgColor}25 100%);border-radius:16px;border:2px solid ${statusBgColor}40;">
+                        <div style="display:flex;align-items:center;gap:12px;">
+                            <div style="width:48px;height:48px;background:${statusBgColor};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;">
+                                ${this.getStatusEmoji(order.status)}
+                            </div>
+                            <div style="flex:1;">
+                                <div style="font-weight:700;font-size:14px;color:#6b7280;">${this.t('orderNumber')}</div>
+                                <div style="font-weight:800;font-size:18px;color:#1f2937;">${this.state.orderNumber}</div>
+                            </div>
+                        </div>
+                        <div style="margin-top:12px;padding:12px;background:white;border-radius:12px;">
+                            <div style="font-size:12px;color:#6b7280;text-transform:uppercase;">${this.t('status')}</div>
+                            <div style="font-weight:700;font-size:16px;color:${statusBgColor};">${this.getStatusText(order.status)}</div>
+                            ${eta != null ? `<div style="margin-top:4px;font-size:14px;color:#374151;">⏱️ ${this.t('eta')}: ~${eta} ${this.t('minutes')}</div>` : ''}
+                        </div>
                     </div>
 
-                    <div style="padding:16px;border:1px solid #e5e7eb;border-radius:12px;">
-                        <div style="font-weight:700;margin-bottom:8px;">${this.t('riderInfo')}</div>
+                    <!-- Rider Info Section -->
+                    <div style="padding:16px;background:white;border:2px solid ${rider ? '#10b981' : '#e5e7eb'};border-radius:16px;">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                            <span style="font-size:20px;">${rider ? '🛵' : '⏳'}</span>
+                            <span style="font-weight:700;font-size:16px;">${this.t('riderInfo')}</span>
+                            ${rider ? `<span style="background:#10b981;color:white;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;">${this.t('assigned')}</span>` : ''}
+                        </div>
                         ${rider ? `
-                            <div><strong>${rider.name || '-'}</strong></div>
-                            <div style="color:#6b7280;margin-top:4px;">${rider.vehicle_type || ''} ${rider.vehicle_plate ? `• ${rider.vehicle_plate}` : ''}</div>
-                            <div style="margin-top:8px;">
-                                <a href="tel:${rider.phone}" style="color:${this.config.primaryColor};font-weight:600;text-decoration:none;">
-                                    📞 ${rider.phone}
+                            <div style="display:flex;align-items:center;gap:12px;">
+                                <div style="width:56px;height:56px;background:#f3f4f6;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;">
+                                    ${rider.photo_url ? `<img src="${rider.photo_url}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">` : '🧑'}
+                                </div>
+                                <div style="flex:1;">
+                                    <div style="font-weight:700;font-size:16px;color:#1f2937;">${rider.name || '-'}</div>
+                                    <div style="color:#6b7280;font-size:14px;margin-top:2px;">
+                                        ${rider.vehicle_type ? this.getVehicleEmoji(rider.vehicle_type) + ' ' : ''}
+                                        ${rider.vehicle_type || ''}
+                                        ${rider.vehicle_plate ? ` • ${rider.vehicle_plate}` : ''}
+                                    </div>
+                                    ${rider.rating ? `<div style="color:#fbbf24;font-size:14px;margin-top:2px;">⭐ ${rider.rating}</div>` : ''}
+                                </div>
+                            </div>
+                            <div style="margin-top:12px;display:flex;gap:8px;">
+                                <a href="tel:${rider.phone}" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:12px;background:#10b981;color:white;border-radius:12px;text-decoration:none;font-weight:600;">
+                                    📞 ${this.t('callRider')}
+                                </a>
+                                <a href="https://wa.me/${(rider.phone || '').replace(/[^0-9]/g, '')}" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:12px;background:#25d366;color:white;border-radius:12px;text-decoration:none;font-weight:600;">
+                                    💬 WhatsApp
                                 </a>
                             </div>
-                            <div style="margin-top:8px;font-size:12px;color:#6b7280;">${this.t('noGpsPhase1')}</div>
                         ` : `
-                            <div style="color:#6b7280;">${this.t('riderNotAssigned')}</div>
+                            <div style="text-align:center;padding:16px;background:#f9fafb;border-radius:12px;">
+                                <div style="font-size:32px;margin-bottom:8px;">🔍</div>
+                                <div style="color:#6b7280;font-size:14px;">${this.t('riderNotAssigned')}</div>
+                                <div style="color:#9ca3af;font-size:12px;margin-top:4px;">${this.t('riderWillBeAssigned')}</div>
+                            </div>
                         `}
                     </div>
 
-                    <button class="binaapp-checkout-btn" onclick="BinaAppDelivery.loadTracking()">
-                        ${this.t('refresh')}
+                    <!-- Status Timeline -->
+                    ${statusHistory.length > 0 ? `
+                    <div style="padding:16px;background:#f9fafb;border-radius:16px;">
+                        <div style="font-weight:700;margin-bottom:12px;">📋 ${this.t('statusHistory')}</div>
+                        <div style="display:flex;flex-direction:column;gap:8px;">
+                            ${statusHistory.slice(-5).reverse().map((h, idx) => `
+                                <div style="display:flex;align-items:center;gap:12px;${idx === 0 ? 'font-weight:600;' : 'opacity:0.7;'}">
+                                    <div style="width:8px;height:8px;background:${idx === 0 ? statusBgColor : '#9ca3af'};border-radius:50%;"></div>
+                                    <div style="flex:1;">
+                                        <span>${this.getStatusText(h.status)}</span>
+                                        ${h.notes ? `<span style="color:#6b7280;font-size:12px;"> - ${h.notes}</span>` : ''}
+                                    </div>
+                                    <div style="font-size:12px;color:#9ca3af;">${this.formatTime(h.created_at)}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    ` : ''}
+
+                    <!-- Phase 1 Note -->
+                    <div style="padding:12px;background:#fef3c7;border-radius:12px;text-align:center;">
+                        <div style="font-size:12px;color:#92400e;">
+                            📍 ${this.t('noGpsPhase1')}
+                        </div>
+                    </div>
+
+                    <!-- Refresh Button -->
+                    <button class="binaapp-checkout-btn" onclick="BinaAppDelivery.loadTracking()" style="background:linear-gradient(to right, ${this.config.primaryColor}, ${this.adjustColor(this.config.primaryColor, -20)});">
+                        🔄 ${this.t('refresh')}
                     </button>
+
+                    <!-- Auto-refresh notice -->
+                    <div style="text-align:center;font-size:12px;color:#9ca3af;">
+                        ${this.t('autoRefreshNote')}
+                    </div>
                 </div>
             `;
+        },
+
+        // Get status emoji
+        getStatusEmoji: function(status) {
+            const emojis = {
+                pending: '⏳',
+                confirmed: '✅',
+                preparing: '👨‍🍳',
+                ready: '📦',
+                picked_up: '🛵',
+                delivering: '🚀',
+                delivered: '🎉',
+                completed: '✨',
+                cancelled: '❌',
+                rejected: '🚫'
+            };
+            return emojis[status] || '📋';
+        },
+
+        // Get status text in current language
+        getStatusText: function(status) {
+            const lang = this.config.language;
+            const texts = {
+                ms: {
+                    pending: 'Menunggu Pengesahan',
+                    confirmed: 'Disahkan',
+                    preparing: 'Sedang Disediakan',
+                    ready: 'Siap untuk Diambil',
+                    picked_up: 'Rider Sudah Ambil',
+                    delivering: 'Dalam Perjalanan',
+                    delivered: 'Telah Dihantar',
+                    completed: 'Selesai',
+                    cancelled: 'Dibatalkan',
+                    rejected: 'Ditolak'
+                },
+                en: {
+                    pending: 'Pending Confirmation',
+                    confirmed: 'Confirmed',
+                    preparing: 'Being Prepared',
+                    ready: 'Ready for Pickup',
+                    picked_up: 'Picked Up by Rider',
+                    delivering: 'On the Way',
+                    delivered: 'Delivered',
+                    completed: 'Completed',
+                    cancelled: 'Cancelled',
+                    rejected: 'Rejected'
+                }
+            };
+            return (texts[lang] || texts.en)[status] || status;
+        },
+
+        // Get vehicle emoji
+        getVehicleEmoji: function(type) {
+            const emojis = {
+                motorcycle: '🏍️',
+                bicycle: '🚲',
+                car: '🚗'
+            };
+            return emojis[type] || '🛵';
+        },
+
+        // Format timestamp
+        formatTime: function(timestamp) {
+            if (!timestamp) return '';
+            try {
+                const date = new Date(timestamp);
+                return date.toLocaleTimeString(this.config.language === 'ms' ? 'ms-MY' : 'en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (e) {
+                return '';
+            }
         },
 
         // Attach event listeners for views
@@ -1680,7 +1837,7 @@
             }
         },
 
-        // Submit order via API (and optionally WhatsApp)
+        // Submit order via API (backend-first, WhatsApp as notification)
         submitOrder: async function(formData) {
             try {
                 const config = this.getConfig();
@@ -1724,8 +1881,20 @@
                 const deliveryFee = this.state.selectedFulfillment === 'delivery' ? fulfillment.deliveryFee : 0;
                 const total = subtotal + deliveryFee;
 
-                // Create an order in the BinaApp delivery system (activates Phase 1 flow)
+                // Show loading state
+                const submitBtn = document.querySelector('#binaapp-checkout-form button[type="submit"]');
+                const originalBtnText = submitBtn ? submitBtn.innerHTML : '';
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '⏳ ' + this.t('creatingOrder') + '...';
+                }
+
+                // ============================================
+                // STEP 1: CREATE ORDER IN BACKEND (REQUIRED)
+                // ============================================
                 let createdOrder = null;
+                let orderError = null;
+
                 try {
                     const orderPayload = {
                         website_id: this.config.websiteId,
@@ -1751,6 +1920,8 @@
                         payment_method: this.state.selectedPayment === 'qr' ? 'online' : 'cod'
                     };
 
+                    console.log('[BinaApp] Creating order in backend...', orderPayload);
+
                     const createRes = await fetch(`${this.config.apiUrl}/delivery/orders`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1760,13 +1931,40 @@
                     if (createRes.ok) {
                         createdOrder = await createRes.json();
                         this.state.orderNumber = createdOrder.order_number || null;
+                        console.log('[BinaApp] ✅ Order created:', this.state.orderNumber);
                     } else {
-                        const text = await createRes.text();
-                        console.warn('[BinaApp] Order API create failed, falling back to WhatsApp-only:', text);
+                        const errorText = await createRes.text();
+                        let errorMessage = 'Failed to create order';
+                        try {
+                            const errorJson = JSON.parse(errorText);
+                            errorMessage = errorJson.detail || errorMessage;
+                        } catch (e) {
+                            errorMessage = errorText || errorMessage;
+                        }
+                        orderError = errorMessage;
+                        console.error('[BinaApp] ❌ Order creation failed:', errorMessage);
                     }
                 } catch (createErr) {
-                    console.warn('[BinaApp] Order API create error, falling back to WhatsApp-only:', createErr);
+                    orderError = createErr.message || 'Network error';
+                    console.error('[BinaApp] ❌ Order creation error:', createErr);
                 }
+
+                // Restore button state
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalBtnText;
+                }
+
+                // If backend order failed, show error and stop
+                if (!createdOrder || !this.state.orderNumber) {
+                    alert(this.t('orderCreationFailed') + (orderError ? ': ' + orderError : ''));
+                    return;
+                }
+
+                // ============================================
+                // ORDER CREATED SUCCESSFULLY - Now build notification
+                // ============================================
+                // WhatsApp is now just a notification, not the core flow
                 
                 // Build WhatsApp message
                 let msg = `${config.emoji} *${config.orderTitle} - ${this.config.businessName}*\n\n`;
@@ -1837,28 +2035,35 @@
                 msg += `\n*JUMLAH: RM${total.toFixed(2)}*\n\n`;
                 msg += `Terima kasih! 🙏`;
                 
+                // ============================================
+                // STEP 2: SEND WHATSAPP NOTIFICATION TO MERCHANT
+                // ============================================
+                // Order is already saved in backend - WhatsApp is just a notification
+                
+                // Include order number in WhatsApp message (always present now)
+                msg = `*🆕 PESANAN BARU*\n*No. Pesanan:* ${this.state.orderNumber}\n\n` + msg;
+                msg += `\n\n📱 *Lihat & urus pesanan di Dashboard BinaApp*`;
+
                 // Get WhatsApp number
                 let whatsappNumber = this.config.whatsappNumber;
-                if (!whatsappNumber) {
-                    // Try to extract from page or prompt user
-                    whatsappNumber = prompt('Masukkan nombor WhatsApp penjual (contoh: 60123456789):');
-                    if (!whatsappNumber) {
-                        alert('Nombor WhatsApp diperlukan untuk menghantar pesanan');
-                        return;
-                    }
+                
+                if (whatsappNumber) {
+                    // Clean the number
+                    whatsappNumber = whatsappNumber.replace(/[^0-9]/g, '');
+                    
+                    // Open WhatsApp (merchant notification)
+                    const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(msg)}`;
+                    window.open(whatsappUrl, '_blank');
+                    
+                    console.log('[BinaApp] ✅ WhatsApp notification sent to merchant');
+                } else {
+                    // No WhatsApp number configured - just log it
+                    console.log('[BinaApp] ℹ️ No WhatsApp number configured, skipping notification');
                 }
                 
-                // Clean the number
-                whatsappNumber = whatsappNumber.replace(/[^0-9]/g, '');
-                
-                // If an order was created, include order number in the WhatsApp message
-                if (this.state.orderNumber) {
-                    msg = `*No. Pesanan:* ${this.state.orderNumber}\n\n` + msg;
-                }
-
-                // Open WhatsApp (merchant notification)
-                const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(msg)}`;
-                window.open(whatsappUrl, '_blank');
+                // ============================================
+                // STEP 3: SHOW SUCCESS & TRACKING VIEW
+                // ============================================
                 
                 // Clear cart and reset selections
                 this.state.cart = [];
@@ -1866,14 +2071,11 @@
                 this.state.selectedPayment = null;
                 this.updateCartBadge();
                 
-                // If we created an order, keep modal open for tracking
-                if (this.state.orderNumber) {
-                    this.showView('tracking');
-                } else {
-                    this.closeModal();
-                }
+                // Show success notification
+                this.showNotification(this.t('orderCreatedSuccess'));
                 
-                this.showNotification(this.t('orderSent'));
+                // Show tracking view (order is in backend, can be tracked)
+                this.showView('tracking');
 
             } catch (error) {
                 console.error('[BinaApp] Order error:', error);
@@ -1941,8 +2143,9 @@
                     refresh: 'Muat Semula',
                     status: 'Status',
                     riderInfo: 'Info Rider',
-                    riderNotAssigned: 'Rider belum ditetapkan.',
-                    noGpsPhase1: 'Nota: Lokasi/GPS rider tidak dipaparkan (Phase 1).',
+                    riderNotAssigned: 'Rider belum ditetapkan',
+                    riderWillBeAssigned: 'Rider akan ditetapkan sebentar lagi',
+                    noGpsPhase1: 'Lokasi GPS rider akan dipaparkan dalam versi akan datang',
                     zoneAffectsFees: 'Caj dan minimum order ikut kawasan yang dipilih.',
                     selectZoneError: 'Sila pilih kawasan penghantaran terlebih dahulu.',
                     selectSize: 'Pilih Saiz',
@@ -1963,7 +2166,18 @@
                     delivery: 'Delivery',
                     pickup: 'Self Pickup',
                     cod: 'Bayar Tunai (COD)',
-                    qrPayment: 'QR Payment'
+                    qrPayment: 'QR Payment',
+                    // Enhanced tracking translations
+                    assigned: 'Ditetapkan',
+                    callRider: 'Hubungi Rider',
+                    statusHistory: 'Sejarah Status',
+                    eta: 'Anggaran Tiba',
+                    minutes: 'minit',
+                    autoRefreshNote: 'Tekan butang untuk muat semula status terkini',
+                    // Order creation
+                    creatingOrder: 'Membuat pesanan',
+                    orderCreationFailed: 'Gagal membuat pesanan',
+                    orderCreatedSuccess: 'Pesanan berjaya dibuat!'
                 },
                 en: {
                     orderNow: 'Order Now',
@@ -2000,8 +2214,9 @@
                     refresh: 'Refresh',
                     status: 'Status',
                     riderInfo: 'Rider Info',
-                    riderNotAssigned: 'Rider not assigned yet.',
-                    noGpsPhase1: 'Note: Rider GPS/location is not shown (Phase 1).',
+                    riderNotAssigned: 'Rider not assigned yet',
+                    riderWillBeAssigned: 'Rider will be assigned shortly',
+                    noGpsPhase1: 'Rider GPS location will be available in future updates',
                     zoneAffectsFees: 'Fees and minimum order depend on selected zone.',
                     selectZoneError: 'Please select a delivery zone first.',
                     selectSize: 'Select Size',
@@ -2022,7 +2237,18 @@
                     delivery: 'Delivery',
                     pickup: 'Self Pickup',
                     cod: 'Cash on Delivery (COD)',
-                    qrPayment: 'QR Payment'
+                    qrPayment: 'QR Payment',
+                    // Enhanced tracking translations
+                    assigned: 'Assigned',
+                    callRider: 'Call Rider',
+                    statusHistory: 'Status History',
+                    eta: 'Est. Arrival',
+                    minutes: 'mins',
+                    autoRefreshNote: 'Tap refresh button to get latest status',
+                    // Order creation
+                    creatingOrder: 'Creating order',
+                    orderCreationFailed: 'Failed to create order',
+                    orderCreatedSuccess: 'Order created successfully!'
                 }
             };
 
