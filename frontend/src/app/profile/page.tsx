@@ -60,9 +60,11 @@ export default function ProfilePage() {
   const [updatingOrder, setUpdatingOrder] = useState<string | null>(null);
   const [riders, setRiders] = useState<any[]>([]);
   const [loadingRiders, setLoadingRiders] = useState(false);
+  const [ridersError, setRidersError] = useState<string>('');
   const [assigningRider, setAssigningRider] = useState<string | null>(null);
   const [deliverySettings, setDeliverySettings] = useState<any | null>(null);
   const [updatingSettings, setUpdatingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string>('');
   const [newRider, setNewRider] = useState({
     name: '',
     phone: '',
@@ -205,6 +207,7 @@ export default function ProfilePage() {
   const fetchRiders = async () => {
     if (!websiteId) return;
     setLoadingRiders(true);
+    setRidersError('');
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
@@ -218,6 +221,9 @@ export default function ProfilePage() {
       setRiders(data || []);
     } catch (error) {
       console.error('Failed to fetch riders:', error);
+      setRidersError(
+        'Tak boleh load riders. Semak backend ENV: SUPABASE_URL + SUPABASE_ANON_KEY, dan Vercel NEXT_PUBLIC_API_URL betul.'
+      );
     } finally {
       setLoadingRiders(false);
     }
@@ -225,6 +231,7 @@ export default function ProfilePage() {
 
   const fetchDeliverySettings = async () => {
     if (!websiteId) return;
+    setSettingsError('');
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
@@ -238,6 +245,9 @@ export default function ProfilePage() {
       setDeliverySettings(data);
     } catch (error) {
       console.error('Failed to fetch delivery settings:', error);
+      setSettingsError(
+        'Tak boleh load delivery settings. Semak backend ENV: SUPABASE_URL + SUPABASE_ANON_KEY.'
+      );
     }
   };
 
@@ -512,6 +522,11 @@ export default function ProfilePage() {
               </div>
             ) : (
               <div className="bg-white rounded-xl shadow p-4">
+                {settingsError && (
+                  <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                    {settingsError}
+                  </div>
+                )}
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2 className="font-bold text-lg">🛵 Own Riders</h2>
@@ -534,6 +549,12 @@ export default function ProfilePage() {
                 {(deliverySettings?.use_own_riders ?? true) && (
                   <div className="mt-4 border-t pt-4">
                     <h3 className="font-semibold mb-2">Riders</h3>
+
+                    {ridersError && (
+                      <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                        {ridersError}
+                      </div>
+                    )}
 
                     {/* Add Rider */}
                     <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">

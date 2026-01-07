@@ -3,7 +3,8 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
-const WIDGET_URL = `${API_URL}/static/widgets/delivery-widget.js`;
+// Backend mounts widgets at `/widgets` (not `/static/widgets`)
+const WIDGET_URL = `${API_URL}/widgets/delivery-widget.js`;
 const WIDGET_SCRIPT_ID = 'binaapp-delivery-widget-script';
 
 /**
