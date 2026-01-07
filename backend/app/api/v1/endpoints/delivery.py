@@ -4,11 +4,15 @@ Handles real-time food delivery and order tracking
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from supabase import Client
 from typing import List, Optional
 from loguru import logger
 from decimal import Decimal
 from datetime import datetime
+from pydantic import BaseModel
+import os
+from supabase import create_client
 
 from app.core.supabase import get_supabase_client
 from app.models.delivery_schemas import (
@@ -30,9 +34,46 @@ from app.models.delivery_schemas import (
     OrderStatusUpdate,
     RiderInfoResponse,
     RiderLocationResponse,
+    RiderResponse,
+    RiderCreateBusiness,
+    AssignRiderRequest,
+    DeliverySettingsResponse,
+    DeliverySettingsUpdate,
 )
 
 router = APIRouter(prefix="/delivery", tags=["Delivery System"])
+bearer_scheme = HTTPBearer()
+
+
+# =====================================================
+# AUTHENTICATED (RLS) SUPABASE CLIENT
+# =====================================================
+
+def get_supabase_rls_client(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> Client:
+    """
+    Create a Supabase client that uses the caller's Supabase JWT for RLS.
+
+    This is required for business/admin operations so we do NOT bypass Row Level Security.
+    """
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+    SUPABASE_ANON_KEY = (
+        os.getenv("SUPABASE_ANON_KEY")
+        or os.getenv("SUPABASE_KEY")  # fallback (some envs reuse this name)
+        or ""
+    )
+
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Supabase not configured for authenticated requests (missing SUPABASE_URL / SUPABASE_ANON_KEY)",
+        )
+
+    client: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+    # Apply JWT for PostgREST calls (enforces RLS)
+    client.postgrest.auth(credentials.credentials)
+    return client
 
 
 # =====================================================
@@ -256,19 +297,23 @@ async def create_order(
         # Create menu items lookup
         menu_items_map = {item['id']: item for item in items_response.data}
 
-        # 2. Get delivery zone for fee
-        zone_response = supabase.table("delivery_zones").select("*").eq(
-            "id", order.delivery_zone_id
-        ).execute()
+        # 2. Get delivery zone for fee (optional for pickup orders)
+        zone = None
+        delivery_fee = 0.0
 
-        if not zone_response.data:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid delivery zone"
-            )
+        if order.delivery_zone_id:
+            zone_response = supabase.table("delivery_zones").select("*").eq(
+                "id", order.delivery_zone_id
+            ).execute()
 
-        zone = zone_response.data[0]
-        delivery_fee = float(zone['delivery_fee'])
+            if not zone_response.data:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid delivery zone"
+                )
+
+            zone = zone_response.data[0]
+            delivery_fee = float(zone['delivery_fee'])
 
         # 3. Calculate order totals
         subtotal = Decimal("0")
@@ -292,8 +337,8 @@ async def create_order(
                 "notes": item_create.notes
             })
 
-        # Check minimum order
-        if subtotal < Decimal(str(zone['minimum_order'])):
+        # Check minimum order (only when delivery zone is provided)
+        if zone and subtotal < Decimal(str(zone.get('minimum_order', 0))):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Minimum order is RM{zone['minimum_order']}"
@@ -319,7 +364,7 @@ async def create_order(
             "payment_status": "pending",
             "status": "pending",
             "estimated_prep_time": 30,  # Default 30 minutes
-            "estimated_delivery_time": zone['estimated_time_min']
+            "estimated_delivery_time": zone['estimated_time_min'] if zone else None
         }
 
         order_response = supabase.table("delivery_orders").insert(order_data).execute()
@@ -417,6 +462,10 @@ async def track_order(
         status_history = [convert_db_row_to_dict(h) for h in history_response.data]
 
         # 4. Get rider info if assigned
+        #
+        # Phase 1 requirement:
+        # - Do NOT expose rider GPS / realtime tracking data publicly.
+        # - Only return basic rider info once assigned.
         rider = None
         rider_location = None
         eta_minutes = None
@@ -428,14 +477,9 @@ async def track_order(
 
             if rider_response.data:
                 rider = convert_db_row_to_dict(rider_response.data[0])
-
-                # Get latest rider location
-                location_response = supabase.table("rider_locations").select("*").eq(
-                    "order_id", order_id
-                ).order("recorded_at", desc=True).limit(1).execute()
-
-                if location_response.data:
-                    rider_location = convert_db_row_to_dict(location_response.data[0])
+                # Phase 1: explicitly do not expose GPS fields publicly
+                rider["current_latitude"] = None
+                rider["current_longitude"] = None
 
                 # TODO: Calculate ETA using Google Maps API
                 eta_minutes = order.get('estimated_delivery_time', 30)
@@ -445,7 +489,7 @@ async def track_order(
             "items": items,
             "status_history": status_history,
             "rider": rider,
-            "rider_location": rider_location,
+            "rider_location": rider_location,  # Always None in Phase 1
             "eta_minutes": eta_minutes
         }
 
@@ -462,6 +506,28 @@ async def track_order(
 # =====================================================
 # BUSINESS ORDER MANAGEMENT ENDPOINTS
 # =====================================================
+
+@router.get("/admin/orders", response_model=List[OrderResponse])
+async def get_my_business_orders(
+    status_filter: Optional[str] = None,
+    supabase: Client = Depends(get_supabase_rls_client),
+):
+    """
+    Get orders for the authenticated user's websites (RLS enforced).
+    """
+    try:
+        query = supabase.table("delivery_orders").select("*").order("created_at", desc=True)
+        if status_filter:
+            query = query.eq("status", status_filter)
+        orders_response = query.execute()
+        return [convert_db_row_to_dict(o) for o in (orders_response.data or [])]
+    except Exception as e:
+        logger.error(f"Error fetching authenticated business orders: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch orders: {str(e)}",
+        )
+
 
 @router.get("/orders/business/{user_id}", response_model=List[OrderResponse])
 async def get_business_orders(
@@ -504,6 +570,71 @@ async def get_business_orders(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch orders: {str(e)}"
+        )
+
+
+@router.put("/admin/orders/{order_id}/status", response_model=OrderResponse)
+async def update_order_status_admin(
+    order_id: str,
+    status_update: OrderStatusUpdate,
+    supabase: Client = Depends(get_supabase_rls_client),
+):
+    """
+    Update order status (RLS enforced).
+    """
+    try:
+        # 1. Get current order (RLS will restrict)
+        order_response = supabase.table("delivery_orders").select("*").eq("id", order_id).execute()
+        if not order_response.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+        current_order = order_response.data[0]
+        new_status = status_update.status.value
+
+        # 2. Prepare update data with timestamp
+        update_data = {"status": new_status}
+        timestamp_field = f"{new_status}_at"
+        if timestamp_field in [
+            "confirmed_at",
+            "preparing_at",
+            "ready_at",
+            "picked_up_at",
+            "delivered_at",
+            "completed_at",
+            "cancelled_at",
+        ]:
+            update_data[timestamp_field] = datetime.utcnow().isoformat()
+
+        updated_response = supabase.table("delivery_orders").update(update_data).eq("id", order_id).execute()
+        if not updated_response.data:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update order status")
+
+        # Also insert explicit history row (in addition to DB trigger), so Phase 1 admin UI works
+        # even if triggers are disabled in some environments.
+        try:
+            supabase.table("order_status_history").insert(
+                {
+                    "order_id": order_id,
+                    "status": new_status,
+                    "notes": status_update.notes,
+                    "updated_by": "business",
+                }
+            ).execute()
+        except Exception as history_err:
+            logger.warning(f"⚠️ Could not insert order_status_history (continuing): {history_err}")
+
+        logger.info(
+            f"✅ Order {current_order.get('order_number')} status updated: {current_order.get('status')} → {new_status}"
+        )
+        return convert_db_row_to_dict(updated_response.data[0])
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating order status (admin): {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update order status: {str(e)}",
         )
 
 
@@ -572,6 +703,158 @@ async def update_order_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update order status: {str(e)}"
+        )
+
+
+@router.put("/admin/orders/{order_id}/assign-rider", response_model=OrderResponse)
+async def assign_rider_to_order(
+    order_id: str,
+    payload: AssignRiderRequest,
+    supabase: Client = Depends(get_supabase_rls_client),
+):
+    """
+    Assign (or unassign) a rider to an order (RLS enforced).
+    Phase 1: supports "Own Riders" only (rider.website_id must match order.website_id).
+    """
+    try:
+        order_resp = supabase.table("delivery_orders").select("id, order_number, website_id").eq("id", order_id).execute()
+        if not order_resp.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+        order = order_resp.data[0]
+
+        rider_id = payload.rider_id
+        if rider_id:
+            rider_resp = supabase.table("riders").select("id, website_id, is_active").eq("id", rider_id).execute()
+            if not rider_resp.data:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid rider")
+            rider = rider_resp.data[0]
+            if not rider.get("is_active", True):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rider is inactive")
+            if str(rider.get("website_id")) != str(order.get("website_id")):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rider does not belong to this website")
+
+        updated = supabase.table("delivery_orders").update({"rider_id": rider_id}).eq("id", order_id).execute()
+        if not updated.data:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to assign rider")
+
+        # Optional history note
+        try:
+            supabase.table("order_status_history").insert(
+                {
+                    "order_id": order_id,
+                    "status": updated.data[0].get("status", "pending"),
+                    "notes": "Rider assigned" if rider_id else "Rider unassigned",
+                    "updated_by": "business",
+                }
+            ).execute()
+        except Exception as history_err:
+            logger.warning(f"⚠️ Could not insert order_status_history for rider assignment (continuing): {history_err}")
+
+        logger.info(f"✅ Rider assignment updated for order {order.get('order_number')}: rider_id={rider_id}")
+        return convert_db_row_to_dict(updated.data[0])
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error assigning rider: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to assign rider: {str(e)}",
+        )
+
+
+@router.get("/admin/websites/{website_id}/riders", response_model=List[RiderResponse])
+async def list_riders(
+    website_id: str,
+    supabase: Client = Depends(get_supabase_rls_client),
+):
+    """List riders for a website (RLS enforced)."""
+    try:
+        resp = supabase.table("riders").select("*").eq("website_id", website_id).order("created_at", desc=True).execute()
+        return [convert_db_row_to_dict(r) for r in (resp.data or [])]
+    except Exception as e:
+        logger.error(f"Error listing riders: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list riders: {str(e)}",
+        )
+
+
+@router.post("/admin/websites/{website_id}/riders", response_model=RiderResponse)
+async def create_rider(
+    website_id: str,
+    rider: RiderCreateBusiness,
+    supabase: Client = Depends(get_supabase_rls_client),
+):
+    """Create a rider for a website (Phase 1: no rider app auth)."""
+    try:
+        data = rider.dict()
+        data["website_id"] = website_id
+        resp = supabase.table("riders").insert(data).execute()
+        if not resp.data:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create rider")
+        return convert_db_row_to_dict(resp.data[0])
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating rider: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create rider: {str(e)}",
+        )
+
+
+@router.get("/admin/websites/{website_id}/settings", response_model=DeliverySettingsResponse)
+async def get_delivery_settings_admin(
+    website_id: str,
+    supabase: Client = Depends(get_supabase_rls_client),
+):
+    """Get delivery settings for a website (RLS enforced). Creates defaults if missing."""
+    try:
+        resp = supabase.table("delivery_settings").select("*").eq("website_id", website_id).execute()
+        if resp.data:
+            return convert_db_row_to_dict(resp.data[0])
+
+        # Create defaults
+        inserted = supabase.table("delivery_settings").insert({"website_id": website_id}).execute()
+        if not inserted.data:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to initialize delivery settings")
+        return convert_db_row_to_dict(inserted.data[0])
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching delivery settings (admin): {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch delivery settings: {str(e)}",
+        )
+
+
+@router.put("/admin/websites/{website_id}/settings", response_model=DeliverySettingsResponse)
+async def update_delivery_settings_admin(
+    website_id: str,
+    update: DeliverySettingsUpdate,
+    supabase: Client = Depends(get_supabase_rls_client),
+):
+    """Update delivery settings for a website (RLS enforced)."""
+    try:
+        # Ensure row exists
+        existing = supabase.table("delivery_settings").select("id").eq("website_id", website_id).execute()
+        if not existing.data:
+            supabase.table("delivery_settings").insert({"website_id": website_id}).execute()
+
+        payload = update.dict(exclude_unset=True)
+        updated = supabase.table("delivery_settings").update(payload).eq("website_id", website_id).execute()
+        if not updated.data:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update delivery settings")
+        return convert_db_row_to_dict(updated.data[0])
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating delivery settings (admin): {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update delivery settings: {str(e)}",
         )
 
 

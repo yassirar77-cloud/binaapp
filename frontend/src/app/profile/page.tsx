@@ -58,6 +58,18 @@ export default function ProfilePage() {
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [updatingOrder, setUpdatingOrder] = useState<string | null>(null);
+  const [riders, setRiders] = useState<any[]>([]);
+  const [loadingRiders, setLoadingRiders] = useState(false);
+  const [assigningRider, setAssigningRider] = useState<string | null>(null);
+  const [deliverySettings, setDeliverySettings] = useState<any | null>(null);
+  const [updatingSettings, setUpdatingSettings] = useState(false);
+  const [newRider, setNewRider] = useState({
+    name: '',
+    phone: '',
+    vehicle_type: 'motorcycle',
+    vehicle_plate: '',
+  });
+  const [creatingRider, setCreatingRider] = useState(false);
 
   // Menu state
   const [menuItems, setMenuItems] = useState<any[]>([]);
@@ -131,10 +143,12 @@ export default function ProfilePage() {
 
   // Fetch orders when orders tab is active
   useEffect(() => {
-    if (activeTab === 'orders' && user?.id) {
+    if (activeTab === 'orders' && user?.id && websiteId) {
       fetchOrders();
+      fetchRiders();
+      fetchDeliverySettings();
     }
-  }, [activeTab, user?.id]);
+  }, [activeTab, user?.id, websiteId]);
 
   // Fetch menu items when menu tab is active
   useEffect(() => {
@@ -147,7 +161,15 @@ export default function ProfilePage() {
     if (!user?.id) return;
     setLoadingOrders(true);
     try {
-      const data = await apiFetch(`/v1/delivery/orders/business/${user.id}`);
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Session not found');
+
+      const data = await apiFetch(`/v1/delivery/admin/orders`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
       setOrders(data);
     } catch (error) {
       console.error('Failed to fetch orders:', error);
@@ -159,9 +181,16 @@ export default function ProfilePage() {
   const updateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
     setUpdatingOrder(orderId);
     try {
-      await apiFetch(`/v1/delivery/orders/${orderId}/status`, {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Session not found');
+
+      await apiFetch(`/v1/delivery/admin/orders/${orderId}/status`, {
         method: 'PUT',
         body: JSON.stringify({ status: newStatus }),
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
       // Refresh orders
       await fetchOrders();
@@ -170,6 +199,131 @@ export default function ProfilePage() {
       alert('Gagal mengemas kini status pesanan');
     } finally {
       setUpdatingOrder(null);
+    }
+  };
+
+  const fetchRiders = async () => {
+    if (!websiteId) return;
+    setLoadingRiders(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Session not found');
+
+      const data = await apiFetch(`/v1/delivery/admin/websites/${websiteId}/riders`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      setRiders(data || []);
+    } catch (error) {
+      console.error('Failed to fetch riders:', error);
+    } finally {
+      setLoadingRiders(false);
+    }
+  };
+
+  const fetchDeliverySettings = async () => {
+    if (!websiteId) return;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Session not found');
+
+      const data = await apiFetch(`/v1/delivery/admin/websites/${websiteId}/settings`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      setDeliverySettings(data);
+    } catch (error) {
+      console.error('Failed to fetch delivery settings:', error);
+    }
+  };
+
+  const updateUseOwnRiders = async (value: boolean) => {
+    if (!websiteId) return;
+    setUpdatingSettings(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Session not found');
+
+      const updated = await apiFetch(`/v1/delivery/admin/websites/${websiteId}/settings`, {
+        method: 'PUT',
+        body: JSON.stringify({ use_own_riders: value }),
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      setDeliverySettings(updated);
+      // Refresh riders/orders UI
+      await fetchRiders();
+      await fetchOrders();
+    } catch (error) {
+      console.error('Failed to update delivery settings:', error);
+      alert('Gagal mengemas kini tetapan rider');
+    } finally {
+      setUpdatingSettings(false);
+    }
+  };
+
+  const assignRiderToOrder = async (orderId: string, riderId: string | null) => {
+    setAssigningRider(orderId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Session not found');
+
+      await apiFetch(`/v1/delivery/admin/orders/${orderId}/assign-rider`, {
+        method: 'PUT',
+        body: JSON.stringify({ rider_id: riderId }),
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      await fetchOrders();
+    } catch (error) {
+      console.error('Failed to assign rider:', error);
+      alert('Gagal assign rider');
+    } finally {
+      setAssigningRider(null);
+    }
+  };
+
+  const createRider = async () => {
+    if (!websiteId) return;
+    if (!newRider.name.trim() || !newRider.phone.trim()) {
+      alert('Sila isi nama dan telefon rider');
+      return;
+    }
+
+    setCreatingRider(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error('Session not found');
+
+      await apiFetch(`/v1/delivery/admin/websites/${websiteId}/riders`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: newRider.name,
+          phone: newRider.phone,
+          vehicle_type: newRider.vehicle_type,
+          vehicle_plate: newRider.vehicle_plate || null,
+        }),
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      setNewRider({ name: '', phone: '', vehicle_type: 'motorcycle', vehicle_plate: '' });
+      await fetchRiders();
+    } catch (error) {
+      console.error('Failed to create rider:', error);
+      alert('Gagal tambah rider');
+    } finally {
+      setCreatingRider(false);
     }
   };
 
@@ -351,6 +505,87 @@ export default function ProfilePage() {
               </button>
             </div>
 
+            {/* Rider System Settings (Phase 1) */}
+            {!websiteId ? (
+              <div className="bg-white rounded-xl shadow p-4">
+                <p className="text-gray-700">Anda perlu ada website untuk aktifkan sistem rider.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl shadow p-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="font-bold text-lg">🛵 Own Riders</h2>
+                    <p className="text-sm text-gray-600">
+                      Aktifkan untuk guna rider sendiri dan assign rider pada pesanan.
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm font-medium">
+                    <input
+                      type="checkbox"
+                      checked={(deliverySettings?.use_own_riders ?? true) === true}
+                      onChange={(e) => updateUseOwnRiders(e.target.checked)}
+                      disabled={updatingSettings}
+                      className="w-4 h-4"
+                    />
+                    {updatingSettings ? '...' : 'Enable'}
+                  </label>
+                </div>
+
+                {(deliverySettings?.use_own_riders ?? true) && (
+                  <div className="mt-4 border-t pt-4">
+                    <h3 className="font-semibold mb-2">Riders</h3>
+
+                    {/* Add Rider */}
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                      <input
+                        value={newRider.name}
+                        onChange={(e) => setNewRider({ ...newRider, name: e.target.value })}
+                        placeholder="Nama rider"
+                        className="p-2 border rounded-lg"
+                      />
+                      <input
+                        value={newRider.phone}
+                        onChange={(e) => setNewRider({ ...newRider, phone: e.target.value })}
+                        placeholder="Telefon"
+                        className="p-2 border rounded-lg"
+                      />
+                      <input
+                        value={newRider.vehicle_plate}
+                        onChange={(e) => setNewRider({ ...newRider, vehicle_plate: e.target.value })}
+                        placeholder="Plate (optional)"
+                        className="p-2 border rounded-lg"
+                      />
+                      <button
+                        onClick={createRider}
+                        disabled={creatingRider}
+                        className="py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+                      >
+                        {creatingRider ? '...' : '+ Tambah'}
+                      </button>
+                    </div>
+
+                    {/* Riders List */}
+                    <div className="mt-3 text-sm text-gray-700">
+                      {loadingRiders ? (
+                        <p>Memuat riders...</p>
+                      ) : riders.length === 0 ? (
+                        <p className="text-gray-500">Belum ada rider. Tambah rider untuk mula assign.</p>
+                      ) : (
+                        <ul className="space-y-1">
+                          {riders.map((r) => (
+                            <li key={r.id} className="flex items-center justify-between">
+                              <span className="font-medium">{r.name}</span>
+                              <span className="text-gray-500">{r.phone}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {loadingOrders && orders.length === 0 ? (
               <div className="bg-white rounded-xl shadow p-8 text-center">
                 <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto" />
@@ -407,6 +642,38 @@ export default function ProfilePage() {
                         </div>
                       </div>
                     </div>
+
+                    {/* Rider Assignment (Phase 1) */}
+                    {(deliverySettings?.use_own_riders ?? true) && (
+                      <div className="border-t pt-4 mb-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <div className="text-sm">
+                            <span className="text-gray-500">Rider:</span>{' '}
+                            <span className="font-medium">
+                              {order.rider_id
+                                ? (riders.find((r) => r.id === order.rider_id)?.name || '—')
+                                : 'Belum assign'}
+                            </span>
+                          </div>
+                          <select
+                            value={order.rider_id || ''}
+                            onChange={(e) => assignRiderToOrder(order.id, e.target.value ? e.target.value : null)}
+                            disabled={assigningRider === order.id || loadingRiders}
+                            className="p-2 border rounded-lg text-sm"
+                          >
+                            <option value="">-- Pilih rider --</option>
+                            {riders.map((r) => (
+                              <option key={r.id} value={r.id}>
+                                {r.name} ({r.phone})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {assigningRider === order.id && (
+                          <p className="text-xs text-gray-500 mt-2">Mengemas kini rider...</p>
+                        )}
+                      </div>
+                    )}
 
                     {/* Action Buttons */}
                     {nextStatus && (

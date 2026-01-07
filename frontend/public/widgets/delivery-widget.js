@@ -270,6 +270,9 @@
             cakeMessage: '',
             currentView: 'menu', // menu | cart | checkout | tracking
             orderNumber: null,
+            trackingLoading: false,
+            trackingError: null,
+            trackingData: null,
             // New payment & fulfillment selections
             selectedFulfillment: null, // 'delivery' | 'pickup'
             selectedPayment: null, // 'cod' | 'qr'
@@ -889,10 +892,49 @@
                 case 'tracking':
                     title.textContent = this.t('trackOrder');
                     body.innerHTML = this.renderTracking();
+                    this.loadTracking();
                     break;
             }
 
             this.attachViewEventListeners(view);
+        },
+
+        // Load order tracking data (Phase 1: no live GPS maps)
+        loadTracking: async function() {
+            try {
+                if (!this.state.orderNumber) return;
+
+                this.state.trackingLoading = true;
+                this.state.trackingError = null;
+                this.state.trackingData = null;
+
+                const body = document.getElementById('binaapp-modal-body');
+                if (body && this.state.currentView === 'tracking') {
+                    body.innerHTML = this.renderTracking();
+                }
+
+                const res = await fetch(`${this.config.apiUrl}/delivery/orders/${this.state.orderNumber}/track`);
+                if (!res.ok) {
+                    const text = await res.text();
+                    throw new Error(text || 'Failed to load tracking');
+                }
+                const data = await res.json();
+
+                this.state.trackingData = data;
+                this.state.trackingLoading = false;
+
+                if (body && this.state.currentView === 'tracking') {
+                    body.innerHTML = this.renderTracking();
+                }
+            } catch (err) {
+                console.error('[BinaApp] Tracking load error:', err);
+                this.state.trackingLoading = false;
+                this.state.trackingError = this.t('trackingLoadFailed');
+                const body = document.getElementById('binaapp-modal-body');
+                if (body && this.state.currentView === 'tracking') {
+                    body.innerHTML = this.renderTracking();
+                }
+            }
         },
 
         // Render category buttons
@@ -1151,6 +1193,23 @@
                                   placeholder="Masukkan alamat penuh..." rows="3"></textarea>
                     </div>
                 `;
+
+                // Delivery zone selection (shown when delivery selected and zones exist)
+                html += `
+                    <div class="binaapp-form-group" id="delivery-zone-section" style="display:none;">
+                        <label class="binaapp-form-label">🗺️ ${this.t('deliveryZone')}</label>
+                        <select class="binaapp-form-select" id="delivery-zone-select" name="delivery_zone_id"
+                                onchange="BinaAppDelivery.selectZone(this.value)">
+                            <option value="">-- ${this.t('selectZone')} --</option>
+                            ${(this.state.zones || []).map(z => `
+                                <option value="${z.id}">
+                                    ${z.zone_name} • RM${parseFloat(z.delivery_fee || 0).toFixed(2)} • Min RM${parseFloat(z.minimum_order || 0).toFixed(2)}
+                                </option>
+                            `).join('')}
+                        </select>
+                        <p style="font-size:12px;color:#6b7280;margin-top:6px;">${this.t('zoneAffectsFees')}</p>
+                    </div>
+                `;
             }
 
             // ============================================
@@ -1385,6 +1444,13 @@
             if (addressSection) {
                 addressSection.style.display = method === 'delivery' ? 'block' : 'none';
             }
+
+            // Show/hide delivery zones (only if zones exist)
+            const zoneSection = document.getElementById('delivery-zone-section');
+            if (zoneSection) {
+                const hasZones = (this.state.zones || []).length > 0;
+                zoneSection.style.display = (method === 'delivery' && hasZones) ? 'block' : 'none';
+            }
             
             // Update totals
             this.updateCheckoutTotals();
@@ -1437,7 +1503,11 @@
         // Update checkout totals when fulfillment changes
         updateCheckoutTotals: function() {
             const subtotal = this.state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const deliveryFee = this.state.selectedFulfillment === 'delivery' ? this.fulfillmentConfig.deliveryFee : 0;
+            const deliveryFee = this.state.selectedFulfillment === 'delivery'
+                ? (this.state.selectedZone && this.state.selectedZone.delivery_fee != null
+                    ? parseFloat(this.state.selectedZone.delivery_fee)
+                    : this.fulfillmentConfig.deliveryFee)
+                : 0;
             const total = subtotal + deliveryFee;
             
             const feeEl = document.getElementById('checkout-delivery-fee');
@@ -1449,17 +1519,93 @@
             if (qrAmountEl) qrAmountEl.textContent = total.toFixed(2);
         },
 
+        // Select delivery zone
+        selectZone: function(zoneId) {
+            if (!zoneId) {
+                this.state.selectedZone = null;
+            } else {
+                const zone = (this.state.zones || []).find(z => z.id === zoneId);
+                this.state.selectedZone = zone || null;
+
+                // Reflect fee/minimum into checkout logic
+                if (zone) {
+                    if (zone.zone_name) this.fulfillmentConfig.deliveryArea = zone.zone_name;
+                    if (zone.delivery_fee != null) this.fulfillmentConfig.deliveryFee = parseFloat(zone.delivery_fee);
+                    if (zone.minimum_order != null) this.fulfillmentConfig.minOrder = parseFloat(zone.minimum_order);
+                }
+            }
+
+            this.updateCheckoutTotals();
+        },
+
         // Render tracking view
         renderTracking: function() {
             if (!this.state.orderNumber) {
                 return '<div class="binaapp-cart-empty">' + this.t('noActiveOrder') + '</div>';
             }
 
+            if (this.state.trackingLoading) {
+                return `
+                    <div class="binaapp-tracking-status">
+                        <div class="binaapp-spinner"></div>
+                        <p>${this.t('loadingOrderStatus')}</p>
+                        <p><strong>${this.t('orderNumber')}: ${this.state.orderNumber}</strong></p>
+                    </div>
+                `;
+            }
+
+            if (this.state.trackingError) {
+                return `
+                    <div class="binaapp-cart-empty">
+                        <p>${this.state.trackingError}</p>
+                        <button class="binaapp-checkout-btn" onclick="BinaAppDelivery.loadTracking()">
+                            ${this.t('retry')}
+                        </button>
+                    </div>
+                `;
+            }
+
+            if (!this.state.trackingData) {
+                return `
+                    <div class="binaapp-tracking-status">
+                        <div class="binaapp-spinner"></div>
+                        <p>${this.t('loadingOrderStatus')}</p>
+                        <p><strong>${this.t('orderNumber')}: ${this.state.orderNumber}</strong></p>
+                    </div>
+                `;
+            }
+
+            const order = this.state.trackingData.order || {};
+            const rider = this.state.trackingData.rider || null;
+            const eta = this.state.trackingData.eta_minutes;
+
             return `
-                <div class="binaapp-tracking-status">
-                    <div class="binaapp-spinner"></div>
-                    <p>${this.t('loadingOrderStatus')}</p>
-                    <p><strong>${this.t('orderNumber')}: ${this.state.orderNumber}</strong></p>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="padding:16px;background:#f9fafb;border-radius:12px;">
+                        <div style="font-weight:700;font-size:16px;">${this.t('orderNumber')}: ${this.state.orderNumber}</div>
+                        <div style="margin-top:6px;color:#374151;">${this.t('status')}: <strong>${order.status || '-'}</strong></div>
+                        ${eta != null ? `<div style="margin-top:6px;color:#374151;">ETA: ~${eta} min</div>` : ''}
+                    </div>
+
+                    <div style="padding:16px;border:1px solid #e5e7eb;border-radius:12px;">
+                        <div style="font-weight:700;margin-bottom:8px;">${this.t('riderInfo')}</div>
+                        ${rider ? `
+                            <div><strong>${rider.name || '-'}</strong></div>
+                            <div style="color:#6b7280;margin-top:4px;">${rider.vehicle_type || ''} ${rider.vehicle_plate ? `• ${rider.vehicle_plate}` : ''}</div>
+                            <div style="margin-top:8px;">
+                                <a href="tel:${rider.phone}" style="color:${this.config.primaryColor};font-weight:600;text-decoration:none;">
+                                    📞 ${rider.phone}
+                                </a>
+                            </div>
+                            <div style="margin-top:8px;font-size:12px;color:#6b7280;">${this.t('noGpsPhase1')}</div>
+                        ` : `
+                            <div style="color:#6b7280;">${this.t('riderNotAssigned')}</div>
+                        `}
+                    </div>
+
+                    <button class="binaapp-checkout-btn" onclick="BinaAppDelivery.loadTracking()">
+                        ${this.t('refresh')}
+                    </button>
                 </div>
             `;
         },
@@ -1534,7 +1680,7 @@
             }
         },
 
-        // Submit order via WhatsApp
+        // Submit order via API (and optionally WhatsApp)
         submitOrder: async function(formData) {
             try {
                 const config = this.getConfig();
@@ -1558,6 +1704,12 @@
                     alert(`Minimum order untuk delivery adalah RM${fulfillment.minOrder.toFixed(2)}`);
                     return;
                 }
+
+                // Require delivery zone when zones exist (needed for correct fee/minimum + backend validation)
+                if (this.state.selectedFulfillment === 'delivery' && (this.state.zones || []).length > 0 && !this.state.selectedZone) {
+                    alert(this.t('selectZoneError'));
+                    return;
+                }
                 
                 // Get form data
                 const customerName = formData.get('customer_name');
@@ -1571,6 +1723,50 @@
                 // Calculate totals
                 const deliveryFee = this.state.selectedFulfillment === 'delivery' ? fulfillment.deliveryFee : 0;
                 const total = subtotal + deliveryFee;
+
+                // Create an order in the BinaApp delivery system (activates Phase 1 flow)
+                let createdOrder = null;
+                try {
+                    const orderPayload = {
+                        website_id: this.config.websiteId,
+                        customer_name: customerName,
+                        customer_phone: customerPhone,
+                        customer_email: null,
+                        delivery_address: this.state.selectedFulfillment === 'delivery'
+                            ? (deliveryAddress || '(Alamat diperlukan)')
+                            : (fulfillment.pickupAddress || 'Self Pickup'),
+                        delivery_notes: deliveryNotes || null,
+                        delivery_zone_id: this.state.selectedFulfillment === 'delivery'
+                            ? (this.state.selectedZone ? this.state.selectedZone.id : null)
+                            : null,
+                        items: this.state.cart.map(item => ({
+                            menu_item_id: item.id,
+                            quantity: item.quantity,
+                            options: {
+                                size: item.size || null,
+                                color: item.color || null
+                            },
+                            notes: null
+                        })),
+                        payment_method: this.state.selectedPayment === 'qr' ? 'online' : 'cod'
+                    };
+
+                    const createRes = await fetch(`${this.config.apiUrl}/delivery/orders`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(orderPayload)
+                    });
+
+                    if (createRes.ok) {
+                        createdOrder = await createRes.json();
+                        this.state.orderNumber = createdOrder.order_number || null;
+                    } else {
+                        const text = await createRes.text();
+                        console.warn('[BinaApp] Order API create failed, falling back to WhatsApp-only:', text);
+                    }
+                } catch (createErr) {
+                    console.warn('[BinaApp] Order API create error, falling back to WhatsApp-only:', createErr);
+                }
                 
                 // Build WhatsApp message
                 let msg = `${config.emoji} *${config.orderTitle} - ${this.config.businessName}*\n\n`;
@@ -1655,16 +1851,27 @@
                 // Clean the number
                 whatsappNumber = whatsappNumber.replace(/[^0-9]/g, '');
                 
-                // Open WhatsApp
+                // If an order was created, include order number in the WhatsApp message
+                if (this.state.orderNumber) {
+                    msg = `*No. Pesanan:* ${this.state.orderNumber}\n\n` + msg;
+                }
+
+                // Open WhatsApp (merchant notification)
                 const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(msg)}`;
                 window.open(whatsappUrl, '_blank');
                 
-                // Clear cart and close modal
+                // Clear cart and reset selections
                 this.state.cart = [];
                 this.state.selectedFulfillment = null;
                 this.state.selectedPayment = null;
                 this.updateCartBadge();
-                this.closeModal();
+                
+                // If we created an order, keep modal open for tracking
+                if (this.state.orderNumber) {
+                    this.showView('tracking');
+                } else {
+                    this.closeModal();
+                }
                 
                 this.showNotification(this.t('orderSent'));
 
@@ -1729,6 +1936,15 @@
                     trackOrder: 'Jejak Pesanan',
                     noActiveOrder: 'Tiada pesanan aktif',
                     loadingOrderStatus: 'Memuatkan status pesanan...',
+                    trackingLoadFailed: 'Gagal memuatkan maklumat pesanan. Cuba lagi.',
+                    retry: 'Cuba Lagi',
+                    refresh: 'Muat Semula',
+                    status: 'Status',
+                    riderInfo: 'Info Rider',
+                    riderNotAssigned: 'Rider belum ditetapkan.',
+                    noGpsPhase1: 'Nota: Lokasi/GPS rider tidak dipaparkan (Phase 1).',
+                    zoneAffectsFees: 'Caj dan minimum order ikut kawasan yang dipilih.',
+                    selectZoneError: 'Sila pilih kawasan penghantaran terlebih dahulu.',
                     selectSize: 'Pilih Saiz',
                     selectColor: 'Pilih Warna',
                     selectDate: 'Pilih Tarikh',
@@ -1779,6 +1995,15 @@
                     trackOrder: 'Track Order',
                     noActiveOrder: 'No active order',
                     loadingOrderStatus: 'Loading order status...',
+                    trackingLoadFailed: 'Failed to load order details. Please try again.',
+                    retry: 'Retry',
+                    refresh: 'Refresh',
+                    status: 'Status',
+                    riderInfo: 'Rider Info',
+                    riderNotAssigned: 'Rider not assigned yet.',
+                    noGpsPhase1: 'Note: Rider GPS/location is not shown (Phase 1).',
+                    zoneAffectsFees: 'Fees and minimum order depend on selected zone.',
+                    selectZoneError: 'Please select a delivery zone first.',
                     selectSize: 'Select Size',
                     selectColor: 'Select Color',
                     selectDate: 'Select Date',

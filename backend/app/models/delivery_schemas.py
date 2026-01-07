@@ -206,7 +206,7 @@ class OrderCreate(BaseModel):
     delivery_latitude: Optional[Decimal] = None
     delivery_longitude: Optional[Decimal] = None
     delivery_notes: Optional[str] = None
-    delivery_zone_id: str
+    delivery_zone_id: Optional[str] = None
     items: List[OrderItemCreate] = Field(min_length=1)
     payment_method: PaymentMethod = PaymentMethod.COD
 
@@ -386,6 +386,19 @@ class RiderLocationUpdate(BaseModel):
 
 class RiderStatusUpdate(BaseModel):
     is_online: bool
+
+
+class RiderCreateBusiness(RiderBase):
+    """
+    Phase 1 (Business Dashboard) rider creation payload.
+
+    We do not activate rider authentication / rider app yet (Phase 2),
+    so this schema intentionally omits password/auth fields.
+    """
+
+
+class AssignRiderRequest(BaseModel):
+    rider_id: Optional[str] = None
 
 
 # =====================================================

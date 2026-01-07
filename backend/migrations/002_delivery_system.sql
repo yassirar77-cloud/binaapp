@@ -341,6 +341,78 @@ CREATE POLICY "Users can manage own riders" ON riders
         website_id IN (SELECT id FROM websites WHERE user_id = auth.uid())
     );
 
+-- Delivery Settings
+DROP POLICY IF EXISTS "Users can view own delivery settings" ON delivery_settings;
+CREATE POLICY "Users can view own delivery settings" ON delivery_settings
+    FOR SELECT USING (
+        website_id IN (SELECT id FROM websites WHERE user_id = auth.uid())
+    );
+
+DROP POLICY IF EXISTS "Users can manage own delivery settings" ON delivery_settings;
+CREATE POLICY "Users can manage own delivery settings" ON delivery_settings
+    FOR ALL USING (
+        website_id IN (SELECT id FROM websites WHERE user_id = auth.uid())
+    )
+    WITH CHECK (
+        website_id IN (SELECT id FROM websites WHERE user_id = auth.uid())
+    );
+
+-- Order Status History (Business owner access only; public tracking is served via API)
+DROP POLICY IF EXISTS "Users can view own order status history" ON order_status_history;
+CREATE POLICY "Users can view own order status history" ON order_status_history
+    FOR SELECT USING (
+        order_id IN (
+            SELECT o.id
+            FROM delivery_orders o
+            WHERE o.website_id IN (SELECT id FROM websites WHERE user_id = auth.uid())
+        )
+    );
+
+DROP POLICY IF EXISTS "Users can manage own order status history" ON order_status_history;
+CREATE POLICY "Users can manage own order status history" ON order_status_history
+    FOR ALL USING (
+        order_id IN (
+            SELECT o.id
+            FROM delivery_orders o
+            WHERE o.website_id IN (SELECT id FROM websites WHERE user_id = auth.uid())
+        )
+    )
+    WITH CHECK (
+        order_id IN (
+            SELECT o.id
+            FROM delivery_orders o
+            WHERE o.website_id IN (SELECT id FROM websites WHERE user_id = auth.uid())
+        )
+    );
+
+-- Rider Locations (Phase 2: keep non-public; allow business owners for their orders only)
+DROP POLICY IF EXISTS "Users can view rider locations for own orders" ON rider_locations;
+CREATE POLICY "Users can view rider locations for own orders" ON rider_locations
+    FOR SELECT USING (
+        order_id IN (
+            SELECT o.id
+            FROM delivery_orders o
+            WHERE o.website_id IN (SELECT id FROM websites WHERE user_id = auth.uid())
+        )
+    );
+
+DROP POLICY IF EXISTS "Users can manage rider locations for own orders" ON rider_locations;
+CREATE POLICY "Users can manage rider locations for own orders" ON rider_locations
+    FOR ALL USING (
+        order_id IN (
+            SELECT o.id
+            FROM delivery_orders o
+            WHERE o.website_id IN (SELECT id FROM websites WHERE user_id = auth.uid())
+        )
+    )
+    WITH CHECK (
+        order_id IN (
+            SELECT o.id
+            FROM delivery_orders o
+            WHERE o.website_id IN (SELECT id FROM websites WHERE user_id = auth.uid())
+        )
+    );
+
 -- =====================================================
 -- RLS POLICIES - Public Access (for customer ordering)
 -- =====================================================

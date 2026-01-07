@@ -94,4 +94,6 @@ export interface DeliveryOrder {
   cancelled_at?: string
   estimated_prep_time?: number
   estimated_delivery_time?: number
+  delivery_zone_id?: string | null
+  rider_id?: string | null
 }

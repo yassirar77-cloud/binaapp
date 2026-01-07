@@ -12,11 +12,13 @@ export async function apiFetch(
   const timeoutId = setTimeout(() => controller.abort(), timeout)
 
   try {
+    const extraHeaders = (options?.headers || {}) as Record<string, string>
     const res = await fetch(`${API_BASE}${path}`, {
       headers: {
         'Content-Type': 'application/json',
+        ...extraHeaders,
       },
-      ...options,
+      ...{ ...options, headers: undefined },
       signal: controller.signal,
     })
 
