@@ -1115,21 +1115,27 @@ async def generate_website(request: SimpleGenerateRequest):
             else:
                 logger.info("⚠️ No user-uploaded menu items found")
 
-            # Inject additional integrations
+            # Generate website_id early if delivery system is enabled (needed for backend order creation)
+            import uuid
+            generated_website_id = None
+            if request.features and request.features.get("deliverySystem") is True:
+                generated_website_id = str(uuid.uuid4())
+                user_data["website_id"] = generated_website_id
+                logger.info(f"✅ Generated website_id for delivery system: {generated_website_id}")
+
+            # Inject additional integrations (now has website_id for backend order creation)
             html_content = template_service.inject_integrations(
                 html_content,
                 features,
                 user_data
             )
 
-            # Inject delivery widget if deliverySystem is enabled
-            if request.features and request.features.get("deliverySystem") is True:
+            # Inject delivery widget button if deliverySystem is enabled
+            if generated_website_id:
                 from app.api.simple.publish import inject_delivery_widget_if_needed
-                import uuid
-                website_id = str(uuid.uuid4())
                 html_content = inject_delivery_widget_if_needed(
                     html=html_content,
-                    website_id=website_id,
+                    website_id=generated_website_id,
                     business_name=business_name,
                     description=request.description,
                     language=request.language or "ms"
