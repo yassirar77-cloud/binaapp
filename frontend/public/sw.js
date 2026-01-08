@@ -1,8 +1,9 @@
-const CACHE_NAME = 'binaapp-v1';
+const CACHE_NAME = 'binaapp-v2';  // Updated for Phase 2
 const urlsToCache = [
   '/',
   '/create',
   '/profile',
+  '/rider',  // Phase 2: Rider PWA
   '/manifest.json',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png'
@@ -44,8 +45,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Skip API requests - always fetch from network
-  if (event.request.url.includes('/api/')) {
+  // Skip API requests - always fetch from network (Phase 2: includes /v1/ endpoints)
+  if (event.request.url.includes('/api/') || event.request.url.includes('/v1/')) {
     return;
   }
 
@@ -79,5 +80,46 @@ self.addEventListener('fetch', (event) => {
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
+  }
+});
+
+// Push notifications (Phase 2 - Rider App)
+self.addEventListener('push', (event) => {
+  const data = event.data ? event.data.json() : {};
+
+  const options = {
+    body: data.body || 'Pesanan baru tersedia!',
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-72x72.png',
+    vibrate: [200, 100, 200],
+    tag: data.tag || 'notification',
+    data: data,
+    actions: [
+      { action: 'view', title: 'Lihat Pesanan' },
+      { action: 'dismiss', title: 'Tutup' }
+    ]
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'BinaApp Rider', options)
+  );
+});
+
+// Notification click handler
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  if (event.action === 'view' || !event.action) {
+    event.waitUntil(
+      clients.openWindow(event.notification.data.url || '/rider')
+    );
+  }
+});
+
+// Background sync for GPS updates (future enhancement)
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'sync-gps-updates') {
+    console.log('[SW] Background sync: Sending queued GPS updates');
+    // TODO: Send queued GPS updates when back online
   }
 });
