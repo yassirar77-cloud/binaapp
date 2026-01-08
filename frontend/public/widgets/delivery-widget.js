@@ -2156,7 +2156,21 @@
                 const timeSlot = formData.get('time_slot') || '';
                 const appointmentDate = formData.get('appointment_date') || '';
                 const cakeMessage = formData.get('cake_message') || '';
-                
+
+                // Validate required fields
+                if (!customerName || !customerName.trim()) {
+                    alert('Sila masukkan nama anda');
+                    return;
+                }
+                if (!customerPhone || !customerPhone.trim()) {
+                    alert('Sila masukkan nombor telefon anda');
+                    return;
+                }
+                if (!deliveryAddress || !deliveryAddress.trim()) {
+                    alert('Sila masukkan alamat penghantaran');
+                    return;
+                }
+
                 // Calculate totals
                 const deliveryFee = this.state.selectedFulfillment === 'delivery' ? fulfillment.deliveryFee : 0;
                 const total = subtotal + deliveryFee;
@@ -2178,13 +2192,13 @@
                 try {
                     const orderPayload = {
                         website_id: this.config.websiteId,
-                        customer_name: customerName,
-                        customer_phone: customerPhone,
-                        customer_email: null,
+                        customer_name: customerName || "",
+                        customer_phone: customerPhone || "",
+                        customer_email: "",
                         delivery_address: this.state.selectedFulfillment === 'delivery'
                             ? (deliveryAddress || '(Alamat diperlukan)')
                             : (fulfillment.pickupAddress || 'Self Pickup'),
-                        delivery_notes: deliveryNotes || null,
+                        delivery_notes: deliveryNotes || "",
                         delivery_zone_id: this.state.selectedFulfillment === 'delivery'
                             ? (this.state.selectedZone ? this.state.selectedZone.id : null)
                             : null,
@@ -2192,10 +2206,10 @@
                             menu_item_id: item.id,
                             quantity: item.quantity,
                             options: {
-                                size: item.size || null,
-                                color: item.color || null
+                                size: item.size || "",
+                                color: item.color || ""
                             },
-                            notes: null
+                            notes: ""
                         })),
                         payment_method: this.state.selectedPayment === 'qr' ? 'online' : 'cod'
                     };
