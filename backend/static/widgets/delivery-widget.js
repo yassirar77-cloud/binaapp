@@ -2189,12 +2189,15 @@
                             ? (this.state.selectedZone ? this.state.selectedZone.id : null)
                             : null,
                         items: this.state.cart.map(item => ({
-                            menu_item_id: item.id,
-                            quantity: item.quantity,
-                            options: {
-                                size: item.size || null,
-                                color: item.color || null
-                            },
+                            menu_item_id: item.id.toString(),
+                            quantity: parseInt(item.quantity),
+                            // Only include options if they exist
+                            ...(item.size || item.color ? {
+                                options: {
+                                    ...(item.size && { size: item.size }),
+                                    ...(item.color && { color: item.color })
+                                }
+                            } : {}),
                             notes: null
                         })),
                         payment_method: this.state.selectedPayment === 'qr' ? 'online' : 'cod'
@@ -2217,12 +2220,23 @@
                         let errorMessage = 'Failed to create order';
                         try {
                             const errorJson = JSON.parse(errorText);
-                            errorMessage = errorJson.detail || errorMessage;
+                            // Handle Pydantic validation errors (array of error objects)
+                            if (Array.isArray(errorJson.detail)) {
+                                errorMessage = errorJson.detail.map(err => {
+                                    const field = err.loc ? err.loc.join('.') : 'unknown';
+                                    return `${field}: ${err.msg}`;
+                                }).join('; ');
+                            } else if (typeof errorJson.detail === 'object') {
+                                // Handle object error details
+                                errorMessage = JSON.stringify(errorJson.detail);
+                            } else {
+                                errorMessage = errorJson.detail || errorMessage;
+                            }
                         } catch (e) {
                             errorMessage = errorText || errorMessage;
                         }
                         orderError = errorMessage;
-                        console.error('[BinaApp] ❌ Order creation failed:', errorMessage);
+                        console.error('[BinaApp] ❌ Order creation failed:', errorMessage, errorJson || errorText);
                     }
                 } catch (createErr) {
                     orderError = createErr.message || 'Network error';
