@@ -2148,25 +2148,26 @@
                     return;
                 }
                 
-                // Get form data
-                const customerName = formData.get('customer_name');
-                const customerPhone = formData.get('customer_phone');
-                const deliveryAddress = document.getElementById('delivery-address')?.value || formData.get('delivery_address') || '';
-                const deliveryNotes = formData.get('delivery_notes') || '';
-                const timeSlot = formData.get('time_slot') || '';
-                const appointmentDate = formData.get('appointment_date') || '';
-                const cakeMessage = formData.get('cake_message') || '';
+                // Get form data - ensure all values are strings (never null/undefined)
+                const customerName = (formData.get('customer_name') || '').toString().trim();
+                const customerPhone = (formData.get('customer_phone') || '').toString().trim();
+                const deliveryAddress = (document.getElementById('delivery-address')?.value || formData.get('delivery_address') || '').toString().trim();
+                const deliveryNotes = (formData.get('delivery_notes') || '').toString().trim();
+                const timeSlot = (formData.get('time_slot') || '').toString().trim();
+                const appointmentDate = (formData.get('appointment_date') || '').toString().trim();
+                const cakeMessage = (formData.get('cake_message') || '').toString().trim();
 
                 // Validate required fields
-                if (!customerName || !customerName.trim()) {
+                if (!customerName) {
                     alert('Sila masukkan nama anda');
                     return;
                 }
-                if (!customerPhone || !customerPhone.trim()) {
+                if (!customerPhone) {
                     alert('Sila masukkan nombor telefon anda');
                     return;
                 }
-                if (!deliveryAddress || !deliveryAddress.trim()) {
+                // Only require delivery address when delivery is selected (not for pickup)
+                if (this.state.selectedFulfillment === 'delivery' && !deliveryAddress) {
                     alert('Sila masukkan alamat penghantaran');
                     return;
                 }
@@ -2190,15 +2191,16 @@
                 let orderError = null;
 
                 try {
+                    // Build order payload - all string fields are guaranteed non-null from validation above
                     const orderPayload = {
                         website_id: this.config.websiteId,
-                        customer_name: customerName || "",
-                        customer_phone: customerPhone || "",
+                        customer_name: customerName,  // Already validated as non-empty string
+                        customer_phone: customerPhone,  // Already validated as non-empty string
                         customer_email: "",
                         delivery_address: this.state.selectedFulfillment === 'delivery'
-                            ? (deliveryAddress || '(Alamat diperlukan)')
+                            ? deliveryAddress  // Already validated as non-empty string for delivery
                             : (fulfillment.pickupAddress || 'Self Pickup'),
-                        delivery_notes: deliveryNotes || "",
+                        delivery_notes: deliveryNotes,  // Already converted to string (may be empty)
                         delivery_zone_id: this.state.selectedFulfillment === 'delivery'
                             ? (this.state.selectedZone ? this.state.selectedZone.id : null)
                             : null,
@@ -2206,8 +2208,8 @@
                             menu_item_id: item.id,
                             quantity: item.quantity,
                             options: {
-                                size: item.size || "",
-                                color: item.color || ""
+                                size: (item.size || '').toString(),
+                                color: (item.color || '').toString()
                             },
                             notes: ""
                         })),
