@@ -720,22 +720,35 @@ async def assign_rider_to_order(
     """
     Assign (or unassign) a rider to an order (RLS enforced).
     Phase 1: supports "Own Riders" only (rider.website_id must match order.website_id).
+    Phase 2+: Sends WhatsApp notification to rider when assigned.
     """
     try:
-        order_resp = supabase.table("delivery_orders").select("id, order_number, website_id").eq("id", order_id).execute()
+        # Get full order details for WhatsApp notification
+        order_resp = supabase.table("delivery_orders").select(
+            "id, order_number, website_id, customer_name, customer_phone, "
+            "delivery_address, total_amount"
+        ).eq("id", order_id).execute()
+
         if not order_resp.data:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
         order = order_resp.data[0]
 
         rider_id = payload.rider_id
+        rider_info = None
+
         if rider_id:
-            rider_resp = supabase.table("riders").select("id, website_id, is_active").eq("id", rider_id).execute()
+            # Get full rider details for notification
+            rider_resp = supabase.table("riders").select(
+                "id, website_id, is_active, name, phone"
+            ).eq("id", rider_id).execute()
+
             if not rider_resp.data:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid rider")
-            rider = rider_resp.data[0]
-            if not rider.get("is_active", True):
+            rider_info = rider_resp.data[0]
+
+            if not rider_info.get("is_active", True):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rider is inactive")
-            if str(rider.get("website_id")) != str(order.get("website_id")):
+            if str(rider_info.get("website_id")) != str(order.get("website_id")):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rider does not belong to this website")
 
         updated = supabase.table("delivery_orders").update({"rider_id": rider_id}).eq("id", order_id).execute()
@@ -756,7 +769,40 @@ async def assign_rider_to_order(
             logger.warning(f"⚠️ Could not insert order_status_history for rider assignment (continuing): {history_err}")
 
         logger.info(f"✅ Rider assignment updated for order {order.get('order_number')}: rider_id={rider_id}")
-        return convert_db_row_to_dict(updated.data[0])
+
+        # Return response with WhatsApp notification info
+        response_data = convert_db_row_to_dict(updated.data[0])
+
+        # Add WhatsApp notification details if rider was assigned
+        if rider_id and rider_info:
+            # Format phone number for WhatsApp (remove non-digits)
+            rider_phone = rider_info.get('phone', '').replace('+', '').replace(' ', '').replace('-', '')
+
+            # Create WhatsApp message
+            message = (
+                f"🛵 *Pesanan Baru!*\n\n"
+                f"Order: #{order.get('order_number')}\n"
+                f"Pelanggan: {order.get('customer_name')}\n"
+                f"Telefon: {order.get('customer_phone')}\n"
+                f"Alamat: {order.get('delivery_address')}\n"
+                f"Jumlah: RM {order.get('total_amount', 0):.2f}\n\n"
+                f"Buka rider app: https://binaapp.my/rider\n"
+                f"Login dengan Rider ID anda untuk lihat pesanan."
+            )
+
+            # URL encode the message
+            import urllib.parse
+            encoded_message = urllib.parse.quote(message)
+
+            # Add WhatsApp link to response
+            response_data['whatsapp_notification'] = {
+                'rider_name': rider_info.get('name'),
+                'rider_phone': rider_phone,
+                'whatsapp_link': f"https://wa.me/{rider_phone}?text={encoded_message}",
+                'message_preview': message
+            }
+
+        return response_data
 
     except HTTPException:
         raise

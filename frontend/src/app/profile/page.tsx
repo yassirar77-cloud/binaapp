@@ -285,14 +285,29 @@ export default function ProfilePage() {
       const token = session?.access_token;
       if (!token) throw new Error('Session not found');
 
-      await apiFetch(`/v1/delivery/admin/orders/${orderId}/assign-rider`, {
+      const response = await apiFetch(`/v1/delivery/admin/orders/${orderId}/assign-rider`, {
         method: 'PUT',
         body: JSON.stringify({ rider_id: riderId }),
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
+
       await fetchOrders();
+
+      // Show WhatsApp notification option if rider was assigned
+      if (riderId && response.whatsapp_notification) {
+        const { rider_name, whatsapp_link } = response.whatsapp_notification;
+        const shouldNotify = confirm(
+          `✅ Rider ${rider_name} telah di-assign!\n\n` +
+          `Hantar notifikasi WhatsApp kepada rider sekarang?`
+        );
+
+        if (shouldNotify) {
+          // Open WhatsApp in new tab
+          window.open(whatsapp_link, '_blank');
+        }
+      }
     } catch (error) {
       console.error('Failed to assign rider:', error);
       alert('Gagal assign rider');
@@ -692,6 +707,34 @@ export default function ProfilePage() {
                         </div>
                         {assigningRider === order.id && (
                           <p className="text-xs text-gray-500 mt-2">Mengemas kini rider...</p>
+                        )}
+
+                        {/* Quick Action Buttons (Phase 2+) */}
+                        {order.rider_id && riders.find((r) => r.id === order.rider_id) && (
+                          <div className="mt-3 grid grid-cols-3 gap-2">
+                            <a
+                              href={`https://wa.me/${(riders.find((r) => r.id === order.rider_id)?.phone || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hi ${riders.find((r) => r.id === order.rider_id)?.name}, ada pesanan untuk anda!\n\nOrder: ${order.order_number}\nPelanggan: ${order.customer_name}\nAlamat: ${order.delivery_address}`)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center justify-center gap-1 px-3 py-2 bg-green-500 text-white rounded-lg text-xs font-medium hover:bg-green-600 transition-colors"
+                            >
+                              💬 WhatsApp
+                            </a>
+                            <a
+                              href={`tel:${riders.find((r) => r.id === order.rider_id)?.phone || ''}`}
+                              className="flex items-center justify-center gap-1 px-3 py-2 bg-blue-500 text-white rounded-lg text-xs font-medium hover:bg-blue-600 transition-colors"
+                            >
+                              📞 Call
+                            </a>
+                            <a
+                              href={`/track?order=${order.order_number}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center justify-center gap-1 px-3 py-2 bg-purple-500 text-white rounded-lg text-xs font-medium hover:bg-purple-600 transition-colors"
+                            >
+                              🗺️ Track
+                            </a>
+                          </div>
                         )}
                       </div>
                     )}
