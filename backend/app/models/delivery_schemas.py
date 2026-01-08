@@ -52,6 +52,10 @@ class VehicleType(str, Enum):
 class DeliveryZoneBase(BaseModel):
     zone_name: str
     zone_polygon: Optional[Dict[str, Any]] = None  # GeoJSON
+    # Circle-based zone (for Leaflet map display)
+    center_lat: Optional[Decimal] = None  # Zone center latitude
+    center_lng: Optional[Decimal] = None  # Zone center longitude
+    radius_km: Optional[Decimal] = Field(default=Decimal("5.0"), ge=0)  # Radius in km
     delivery_fee: Decimal = Field(default=Decimal("5.00"), ge=0)
     minimum_order: Decimal = Field(default=Decimal("20.00"), ge=0)
     estimated_time_min: int = Field(default=30, ge=0)
@@ -67,6 +71,10 @@ class DeliveryZoneCreate(DeliveryZoneBase):
 class DeliveryZoneUpdate(BaseModel):
     zone_name: Optional[str] = None
     zone_polygon: Optional[Dict[str, Any]] = None
+    # Circle-based zone (for Leaflet map display)
+    center_lat: Optional[Decimal] = None
+    center_lng: Optional[Decimal] = None
+    radius_km: Optional[Decimal] = None
     delivery_fee: Optional[Decimal] = None
     minimum_order: Optional[Decimal] = None
     estimated_time_min: Optional[int] = None
