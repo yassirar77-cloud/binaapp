@@ -461,25 +461,30 @@ async def track_order(
 
         status_history = [convert_db_row_to_dict(h) for h in history_response.data]
 
-        # 4. Get rider info if assigned
-        #
-        # Phase 1 requirement:
-        # - Do NOT expose rider GPS / realtime tracking data publicly.
-        # - Only return basic rider info once assigned.
+        # 4. Get rider info if assigned (Phase 2: now includes GPS)
         rider = None
         rider_location = None
         eta_minutes = None
 
         if order.get('rider_id'):
             rider_response = supabase.table("riders").select(
-                "id, name, phone, photo_url, vehicle_type, vehicle_plate, rating, current_latitude, current_longitude"
+                "id, name, phone, photo_url, vehicle_type, vehicle_plate, rating, "
+                "current_latitude, current_longitude, last_location_update"
             ).eq("id", order['rider_id']).execute()
 
             if rider_response.data:
                 rider = convert_db_row_to_dict(rider_response.data[0])
-                # Phase 1: explicitly do not expose GPS fields publicly
-                rider["current_latitude"] = None
-                rider["current_longitude"] = None
+
+                # Phase 2: Return GPS coordinates for real-time tracking
+                # (GPS fields will be null if rider hasn't sent location yet)
+
+                # Build rider_location object if GPS available
+                if rider.get('current_latitude') and rider.get('current_longitude'):
+                    rider_location = {
+                        "latitude": rider['current_latitude'],
+                        "longitude": rider['current_longitude'],
+                        "recorded_at": rider.get('last_location_update')
+                    }
 
                 # TODO: Calculate ETA using Google Maps API
                 eta_minutes = order.get('estimated_delivery_time', 30)
@@ -489,7 +494,7 @@ async def track_order(
             "items": items,
             "status_history": status_history,
             "rider": rider,
-            "rider_location": rider_location,  # Always None in Phase 1
+            "rider_location": rider_location,
             "eta_minutes": eta_minutes
         }
 
@@ -1390,6 +1395,183 @@ def get_status_message(status: str, has_rider: bool) -> str:
 
 
 # =====================================================
+# RIDER GPS LOCATION UPDATES (PHASE 2)
+# =====================================================
+
+@router.put("/riders/{rider_id}/location")
+async def update_rider_location(
+    rider_id: str,
+    location: RiderLocationUpdate,
+    order_id: Optional[str] = None,
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Update rider's GPS location (Phase 2).
+
+    Called by rider mobile app to send GPS updates every 15 seconds.
+
+    Updates:
+    - riders.current_latitude
+    - riders.current_longitude
+    - riders.last_location_update
+
+    Also logs to rider_locations table for tracking history.
+
+    **Phase 2 Note:** Authentication will be added in Feature #3 (rider app).
+    For now, this is a public endpoint to enable testing.
+    """
+    try:
+        # Validate rider exists
+        rider_response = supabase.table("riders").select("id, name, is_active").eq(
+            "id", rider_id
+        ).execute()
+
+        if not rider_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Rider not found"
+            )
+
+        rider = rider_response.data[0]
+
+        if not rider.get("is_active", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Rider account is inactive"
+            )
+
+        # Update rider's current location
+        update_data = {
+            "current_latitude": float(location.latitude),
+            "current_longitude": float(location.longitude),
+            "last_location_update": datetime.utcnow().isoformat()
+        }
+
+        updated_rider = supabase.table("riders").update(update_data).eq(
+            "id", rider_id
+        ).execute()
+
+        if not updated_rider.data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update rider location"
+            )
+
+        # Log to rider_locations history table
+        location_history = {
+            "rider_id": rider_id,
+            "order_id": order_id,  # Optional: associate with specific order
+            "latitude": float(location.latitude),
+            "longitude": float(location.longitude),
+            "recorded_at": datetime.utcnow().isoformat()
+        }
+
+        try:
+            supabase.table("rider_locations").insert(location_history).execute()
+        except Exception as history_error:
+            # Log error but don't fail the request
+            logger.warning(f"Failed to log rider location history: {history_error}")
+
+        logger.info(
+            f"✅ Rider {rider.get('name')} location updated: "
+            f"{location.latitude}, {location.longitude}"
+        )
+
+        return {
+            "success": True,
+            "message": "Location updated successfully",
+            "rider_id": rider_id,
+            "latitude": float(location.latitude),
+            "longitude": float(location.longitude),
+            "updated_at": update_data["last_location_update"]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating rider location: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update rider location: {str(e)}"
+        )
+
+
+@router.get("/riders/{rider_id}/location")
+async def get_rider_location(
+    rider_id: str,
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Get rider's current GPS location (Phase 2).
+
+    Returns current location from riders table.
+    """
+    try:
+        rider_response = supabase.table("riders").select(
+            "id, name, current_latitude, current_longitude, last_location_update, is_online"
+        ).eq("id", rider_id).execute()
+
+        if not rider_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Rider not found"
+            )
+
+        rider = rider_response.data[0]
+
+        return {
+            "rider_id": rider["id"],
+            "rider_name": rider["name"],
+            "latitude": rider.get("current_latitude"),
+            "longitude": rider.get("current_longitude"),
+            "last_update": rider.get("last_location_update"),
+            "is_online": rider.get("is_online", False)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting rider location: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get rider location: {str(e)}"
+        )
+
+
+@router.get("/riders/{rider_id}/location/history")
+async def get_rider_location_history(
+    rider_id: str,
+    limit: int = 50,
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Get rider's GPS location history (Phase 2).
+
+    Returns recent location updates from rider_locations table.
+    Useful for debugging and analytics.
+    """
+    try:
+        history_response = supabase.table("rider_locations").select(
+            "latitude, longitude, recorded_at, order_id"
+        ).eq("rider_id", rider_id).order(
+            "recorded_at", desc=True
+        ).limit(limit).execute()
+
+        return {
+            "rider_id": rider_id,
+            "count": len(history_response.data or []),
+            "history": [convert_db_row_to_dict(h) for h in (history_response.data or [])]
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting rider location history: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get rider location history: {str(e)}"
+        )
+
+
+# =====================================================
 # HEALTH CHECK
 # =====================================================
 
@@ -1399,12 +1581,14 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "BinaApp Delivery System",
-        "version": "1.1.0",  # Updated version
+        "version": "2.0.0",  # Updated version for Phase 2
         "timestamp": datetime.utcnow().isoformat(),
         "features": {
             "rider_system": True,
             "order_tracking": True,
             "phase_1_complete": True,
-            "phase_2_gps_tracking": False  # Not yet enabled
+            "phase_2_gps_tracking": True,  # Now enabled!
+            "phase_2_google_maps": True,
+            "phase_2_gps_updates": True
         }
     }
