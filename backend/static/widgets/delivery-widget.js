@@ -276,6 +276,13 @@
             // New payment & fulfillment selections
             selectedFulfillment: null, // 'delivery' | 'pickup'
             selectedPayment: null, // 'cod' | 'qr'
+            // Google Maps (Phase 2)
+            map: null,
+            riderMarker: null,
+            customerMarker: null,
+            routeLine: null,
+            mapsLoaded: false,
+            trackingInterval: null,
             deliveryAddress: ''
         },
 
@@ -865,6 +872,8 @@
         // Close modal
         closeModal: function() {
             document.getElementById('binaapp-modal').classList.remove('active');
+            // Stop tracking polling when modal is closed (Phase 2)
+            this.stopTrackingPolling();
         },
 
         // Show different views
@@ -925,6 +934,19 @@
 
                 if (body && this.state.currentView === 'tracking') {
                     body.innerHTML = this.renderTracking();
+
+                    // Initialize map if rider has GPS (Phase 2)
+                    setTimeout(() => {
+                        this.initializeMap();
+                    }, 200);
+
+                    // Start polling if not already started
+                    if (!this.state.trackingInterval) {
+                        this.startTrackingPolling();
+                    }
+                } else {
+                    // Update marker if map already initialized
+                    this.updateRiderMarker();
                 }
             } catch (err) {
                 console.error('[BinaApp] Tracking load error:', err);
@@ -934,6 +956,240 @@
                 if (body && this.state.currentView === 'tracking') {
                     body.innerHTML = this.renderTracking();
                 }
+            }
+        },
+
+        // Load Google Maps API (Phase 2)
+        loadGoogleMaps: function() {
+            return new Promise((resolve, reject) => {
+                // Check if already loaded
+                if (window.google && window.google.maps) {
+                    this.state.mapsLoaded = true;
+                    resolve();
+                    return;
+                }
+
+                // Check if script is already being loaded
+                if (this.state.mapsLoading) {
+                    // Wait for existing load
+                    const checkInterval = setInterval(() => {
+                        if (this.state.mapsLoaded) {
+                            clearInterval(checkInterval);
+                            resolve();
+                        }
+                    }, 100);
+                    return;
+                }
+
+                this.state.mapsLoading = true;
+
+                // Load Google Maps script
+                const script = document.createElement('script');
+                // Replace with your actual Google Maps API key
+                script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyBYour_API_Key_Here&libraries=geometry`;
+                script.async = true;
+                script.defer = true;
+                script.onload = () => {
+                    this.state.mapsLoaded = true;
+                    this.state.mapsLoading = false;
+                    resolve();
+                };
+                script.onerror = () => {
+                    this.state.mapsLoading = false;
+                    console.error('[BinaApp] Failed to load Google Maps');
+                    reject(new Error('Failed to load Google Maps'));
+                };
+                document.head.appendChild(script);
+            });
+        },
+
+        // Initialize Google Map (Phase 2)
+        initializeMap: async function() {
+            try {
+                if (!this.state.trackingData) return;
+
+                const rider = this.state.trackingData.rider;
+                const order = this.state.trackingData.order;
+
+                // Check if rider has GPS coordinates
+                if (!rider || !rider.current_latitude || !rider.current_longitude) {
+                    console.log('[BinaApp] Rider GPS not available yet');
+                    return;
+                }
+
+                // Load Google Maps if not already loaded
+                if (!this.state.mapsLoaded) {
+                    await this.loadGoogleMaps();
+                }
+
+                // Wait for map container to be in DOM
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                const mapContainer = document.getElementById('binaapp-rider-map');
+                if (!mapContainer) {
+                    console.error('[BinaApp] Map container not found');
+                    return;
+                }
+
+                // Get rider and customer coordinates
+                const riderLat = parseFloat(rider.current_latitude);
+                const riderLng = parseFloat(rider.current_longitude);
+                const customerLat = order.delivery_latitude ? parseFloat(order.delivery_latitude) : null;
+                const customerLng = order.delivery_longitude ? parseFloat(order.delivery_longitude) : null;
+
+                // Calculate center point
+                let centerLat = riderLat;
+                let centerLng = riderLng;
+                let zoom = 15;
+
+                if (customerLat && customerLng) {
+                    // Center between rider and customer
+                    centerLat = (riderLat + customerLat) / 2;
+                    centerLng = (riderLng + customerLng) / 2;
+                    // Adjust zoom based on distance
+                    const distance = this.calculateDistance(riderLat, riderLng, customerLat, customerLng);
+                    if (distance > 10) zoom = 12;
+                    else if (distance > 5) zoom = 13;
+                    else if (distance > 2) zoom = 14;
+                }
+
+                // Initialize map
+                this.state.map = new google.maps.Map(mapContainer, {
+                    center: { lat: centerLat, lng: centerLng },
+                    zoom: zoom,
+                    disableDefaultUI: false,
+                    zoomControl: true,
+                    mapTypeControl: false,
+                    streetViewControl: false,
+                    fullscreenControl: false
+                });
+
+                // Add rider marker
+                this.state.riderMarker = new google.maps.Marker({
+                    position: { lat: riderLat, lng: riderLng },
+                    map: this.state.map,
+                    title: rider.name || 'Rider',
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 10,
+                        fillColor: '#10b981',
+                        fillOpacity: 1,
+                        strokeColor: '#fff',
+                        strokeWeight: 3
+                    },
+                    label: {
+                        text: '🛵',
+                        fontSize: '18px'
+                    }
+                });
+
+                // Add customer marker if coordinates available
+                if (customerLat && customerLng) {
+                    this.state.customerMarker = new google.maps.Marker({
+                        position: { lat: customerLat, lng: customerLng },
+                        map: this.state.map,
+                        title: 'Delivery Location',
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            scale: 8,
+                            fillColor: '#ef4444',
+                            fillOpacity: 1,
+                            strokeColor: '#fff',
+                            strokeWeight: 2
+                        },
+                        label: {
+                            text: '📍',
+                            fontSize: '16px'
+                        }
+                    });
+
+                    // Draw route line
+                    this.state.routeLine = new google.maps.Polyline({
+                        path: [
+                            { lat: riderLat, lng: riderLng },
+                            { lat: customerLat, lng: customerLng }
+                        ],
+                        geodesic: true,
+                        strokeColor: '#3b82f6',
+                        strokeOpacity: 0.7,
+                        strokeWeight: 3,
+                        map: this.state.map
+                    });
+
+                    // Fit bounds to show both markers
+                    const bounds = new google.maps.LatLngBounds();
+                    bounds.extend({ lat: riderLat, lng: riderLng });
+                    bounds.extend({ lat: customerLat, lng: customerLng });
+                    this.state.map.fitBounds(bounds);
+                }
+
+                console.log('[BinaApp] Map initialized successfully');
+            } catch (error) {
+                console.error('[BinaApp] Map initialization error:', error);
+            }
+        },
+
+        // Update rider marker position (Phase 2)
+        updateRiderMarker: function() {
+            if (!this.state.trackingData || !this.state.riderMarker) return;
+
+            const rider = this.state.trackingData.rider;
+            if (!rider || !rider.current_latitude || !rider.current_longitude) return;
+
+            const newLat = parseFloat(rider.current_latitude);
+            const newLng = parseFloat(rider.current_longitude);
+
+            // Update marker position with animation
+            this.state.riderMarker.setPosition({ lat: newLat, lng: newLng });
+
+            // Update route line if customer marker exists
+            if (this.state.customerMarker && this.state.routeLine) {
+                const customerPos = this.state.customerMarker.getPosition();
+                this.state.routeLine.setPath([
+                    { lat: newLat, lng: newLng },
+                    { lat: customerPos.lat(), lng: customerPos.lng() }
+                ]);
+            }
+
+            // Pan map to keep rider visible
+            if (this.state.map) {
+                this.state.map.panTo({ lat: newLat, lng: newLng });
+            }
+        },
+
+        // Calculate distance between two coordinates (in km)
+        calculateDistance: function(lat1, lng1, lat2, lng2) {
+            const R = 6371; // Earth's radius in km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                     Math.sin(dLng/2) * Math.sin(dLng/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        },
+
+        // Start automatic tracking polling (Phase 2)
+        startTrackingPolling: function() {
+            // Stop any existing interval
+            this.stopTrackingPolling();
+
+            // Poll every 15 seconds
+            this.state.trackingInterval = setInterval(() => {
+                if (this.state.currentView === 'tracking' && this.state.orderNumber) {
+                    this.loadTracking();
+                }
+            }, 15000);
+
+            console.log('[BinaApp] Started tracking polling');
+        },
+
+        // Stop tracking polling
+        stopTrackingPolling: function() {
+            if (this.state.trackingInterval) {
+                clearInterval(this.state.trackingInterval);
+                this.state.trackingInterval = null;
+                console.log('[BinaApp] Stopped tracking polling');
             }
         },
 
@@ -1624,6 +1880,16 @@
                             ${rider ? `<span style="background:#10b981;color:white;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;">${this.t('assigned')}</span>` : ''}
                         </div>
                         ${rider ? `
+                            <!-- Google Map (Phase 2) -->
+                            ${rider.current_latitude && rider.current_longitude ? `
+                                <div id="binaapp-rider-map" style="width:100%;height:250px;border-radius:12px;margin-bottom:12px;background:#f3f4f6;position:relative;overflow:hidden;">
+                                    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;">
+                                        <div class="binaapp-spinner" style="margin:0 auto 8px;"></div>
+                                        <div style="color:#6b7280;font-size:12px;">Loading map...</div>
+                                    </div>
+                                </div>
+                            ` : ''}
+
                             <div style="display:flex;align-items:center;gap:12px;">
                                 <div style="width:56px;height:56px;background:#f3f4f6;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;">
                                     ${rider.photo_url ? `<img src="${rider.photo_url}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">` : '🧑'}
@@ -1636,6 +1902,15 @@
                                         ${rider.vehicle_plate ? ` • ${rider.vehicle_plate}` : ''}
                                     </div>
                                     ${rider.rating ? `<div style="color:#fbbf24;font-size:14px;margin-top:2px;">⭐ ${rider.rating}</div>` : ''}
+                                    ${rider.current_latitude && rider.current_longitude ? `
+                                        <div style="color:#10b981;font-size:12px;margin-top:4px;">
+                                            📍 ${this.t('liveTracking')}
+                                        </div>
+                                    ` : `
+                                        <div style="color:#9ca3af;font-size:12px;margin-top:4px;">
+                                            📍 ${this.t('gpsNotAvailable')}
+                                        </div>
+                                    `}
                                 </div>
                             </div>
                             <div style="margin-top:12px;display:flex;gap:8px;">
@@ -1674,12 +1949,17 @@
                     </div>
                     ` : ''}
 
-                    <!-- Phase 1 Note -->
-                    <div style="padding:12px;background:#fef3c7;border-radius:12px;text-align:center;">
-                        <div style="font-size:12px;color:#92400e;">
-                            📍 ${this.t('noGpsPhase1')}
+                    <!-- GPS Tracking Status (Phase 2) -->
+                    ${rider && rider.current_latitude && rider.current_longitude ? `
+                        <div style="padding:12px;background:#d1fae5;border-radius:12px;text-align:center;">
+                            <div style="font-size:12px;color:#065f46;font-weight:600;">
+                                📡 ${this.t('liveTrackingActive')}
+                            </div>
+                            <div style="font-size:11px;color:#047857;margin-top:2px;">
+                                ${this.t('updatesEvery15Seconds')}
+                            </div>
                         </div>
-                    </div>
+                    ` : ''}
 
                     <!-- Refresh Button -->
                     <button class="binaapp-checkout-btn" onclick="BinaAppDelivery.loadTracking()" style="background:linear-gradient(to right, ${this.config.primaryColor}, ${this.adjustColor(this.config.primaryColor, -20)});">
@@ -2146,6 +2426,10 @@
                     riderNotAssigned: 'Rider belum ditetapkan',
                     riderWillBeAssigned: 'Rider akan ditetapkan sebentar lagi',
                     noGpsPhase1: 'Lokasi GPS rider akan dipaparkan dalam versi akan datang',
+                    liveTracking: 'Pengesanan Langsung',
+                    liveTrackingActive: 'Pengesanan GPS Aktif',
+                    gpsNotAvailable: 'GPS tidak tersedia lagi',
+                    updatesEvery15Seconds: 'Dikemas kini setiap 15 saat',
                     zoneAffectsFees: 'Caj dan minimum order ikut kawasan yang dipilih.',
                     selectZoneError: 'Sila pilih kawasan penghantaran terlebih dahulu.',
                     selectSize: 'Pilih Saiz',
@@ -2217,6 +2501,10 @@
                     riderNotAssigned: 'Rider not assigned yet',
                     riderWillBeAssigned: 'Rider will be assigned shortly',
                     noGpsPhase1: 'Rider GPS location will be available in future updates',
+                    liveTracking: 'Live Tracking',
+                    liveTrackingActive: 'GPS Tracking Active',
+                    gpsNotAvailable: 'GPS not available yet',
+                    updatesEvery15Seconds: 'Updates every 15 seconds',
                     zoneAffectsFees: 'Fees and minimum order depend on selected zone.',
                     selectZoneError: 'Please select a delivery zone first.',
                     selectSize: 'Select Size',
