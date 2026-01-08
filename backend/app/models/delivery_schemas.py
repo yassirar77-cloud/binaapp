@@ -53,7 +53,7 @@ class DeliveryZoneBase(BaseModel):
     zone_name: str
     zone_polygon: Optional[Dict[str, Any]] = None  # GeoJSON
     delivery_fee: Decimal = Field(default=Decimal("5.00"), ge=0)
-    minimum_order: Decimal = Field(default=Decimal("30.00"), ge=0)
+    minimum_order: Decimal = Field(default=Decimal("20.00"), ge=0)
     estimated_time_min: int = Field(default=30, ge=0)
     estimated_time_max: int = Field(default=45, ge=0)
     is_active: bool = True
@@ -413,7 +413,7 @@ class DeliveryHoursDay(BaseModel):
 
 class DeliverySettingsBase(BaseModel):
     delivery_hours: Optional[Dict[str, DeliveryHoursDay]] = None
-    minimum_order: Decimal = Decimal("30.00")
+    minimum_order: Decimal = Decimal("20.00")
     max_delivery_distance: Decimal = Decimal("10.00")  # km
     auto_accept_orders: bool = False
     notify_whatsapp: bool = True
