@@ -4,7 +4,7 @@ POST /api/publish - Publish website to Supabase Storage
 """
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional
 from loguru import logger
 from datetime import datetime
@@ -181,16 +181,20 @@ class PublishRequest(BaseModel):
     business_type: Optional[str] = Field(default=None, description="Business type: food, clothing, services, general")
     language: Optional[str] = Field(default="ms", description="Language: ms or en")
 
-    @validator('html_content', always=True)
-    def set_html_content(cls, v, values):
+    @model_validator(mode='before')
+    @classmethod
+    def set_html_content(cls, values):
         """Automatically handle multiple field names for HTML content"""
-        if v:
-            return v
-        if values.get('html_code'):
-            return values.get('html_code')
-        if values.get('html'):
-            return values.get('html')
-        return None
+        # In Pydantic V2, model_validator receives all values
+        if isinstance(values, dict):
+            html_content = values.get('html_content')
+            if html_content:
+                return values
+            # Try alternate field names
+            html_content = values.get('html_code') or values.get('html')
+            if html_content:
+                values['html_content'] = html_content
+        return values
 
     class Config:
         # Allow extra fields without error
