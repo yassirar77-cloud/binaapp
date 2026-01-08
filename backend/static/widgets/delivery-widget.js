@@ -276,7 +276,7 @@
             // New payment & fulfillment selections
             selectedFulfillment: null, // 'delivery' | 'pickup'
             selectedPayment: null, // 'cod' | 'qr'
-            // Google Maps (Phase 2)
+            // Leaflet Map (FREE - No API key needed!)
             map: null,
             riderMarker: null,
             customerMarker: null,
@@ -959,11 +959,11 @@
             }
         },
 
-        // Load Google Maps API (Phase 2)
-        loadGoogleMaps: function() {
+        // Load Leaflet (FREE - No API key required!)
+        loadLeaflet: function() {
             return new Promise((resolve, reject) => {
                 // Check if already loaded
-                if (window.google && window.google.maps) {
+                if (window.L) {
                     this.state.mapsLoaded = true;
                     resolve();
                     return;
@@ -983,27 +983,38 @@
 
                 this.state.mapsLoading = true;
 
-                // Load Google Maps script
+                // Add Leaflet CSS
+                if (!document.querySelector('link[href*="leaflet"]')) {
+                    const css = document.createElement('link');
+                    css.rel = 'stylesheet';
+                    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+                    css.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+                    css.crossOrigin = '';
+                    document.head.appendChild(css);
+                }
+
+                // Load Leaflet JS (FREE - No API key needed!)
                 const script = document.createElement('script');
-                // Replace with your actual Google Maps API key
-                script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyBYour_API_Key_Here&libraries=geometry`;
+                script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+                script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+                script.crossOrigin = '';
                 script.async = true;
-                script.defer = true;
                 script.onload = () => {
                     this.state.mapsLoaded = true;
                     this.state.mapsLoading = false;
+                    console.log('[BinaApp] Leaflet loaded successfully (FREE!)');
                     resolve();
                 };
                 script.onerror = () => {
                     this.state.mapsLoading = false;
-                    console.error('[BinaApp] Failed to load Google Maps');
-                    reject(new Error('Failed to load Google Maps'));
+                    console.error('[BinaApp] Failed to load Leaflet');
+                    reject(new Error('Failed to load Leaflet'));
                 };
                 document.head.appendChild(script);
             });
         },
 
-        // Initialize Google Map (Phase 2)
+        // Initialize Map with Leaflet + OpenStreetMap (FREE!)
         initializeMap: async function() {
             try {
                 if (!this.state.trackingData) return;
@@ -1017,9 +1028,9 @@
                     return;
                 }
 
-                // Load Google Maps if not already loaded
+                // Load Leaflet if not already loaded (FREE!)
                 if (!this.state.mapsLoaded) {
-                    await this.loadGoogleMaps();
+                    await this.loadLeaflet();
                 }
 
                 // Wait for map container to be in DOM
@@ -1053,83 +1064,75 @@
                     else if (distance > 2) zoom = 14;
                 }
 
-                // Initialize map
-                this.state.map = new google.maps.Map(mapContainer, {
-                    center: { lat: centerLat, lng: centerLng },
-                    zoom: zoom,
-                    disableDefaultUI: false,
+                // Destroy existing map if any
+                if (this.state.map) {
+                    this.state.map.remove();
+                }
+
+                // Initialize Leaflet map (FREE!)
+                this.state.map = L.map(mapContainer, {
                     zoomControl: true,
-                    mapTypeControl: false,
-                    streetViewControl: false,
-                    fullscreenControl: false
+                    attributionControl: true
+                }).setView([centerLat, centerLng], zoom);
+
+                // Add OpenStreetMap tiles (FREE - No API key needed!)
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+                    maxZoom: 19
+                }).addTo(this.state.map);
+
+                // Create rider icon
+                const riderIcon = L.divIcon({
+                    html: '<div style="background:#10b981;width:36px;height:36px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:18px;">🛵</div>',
+                    iconSize: [36, 36],
+                    iconAnchor: [18, 18],
+                    className: 'binaapp-rider-marker'
                 });
 
                 // Add rider marker
-                this.state.riderMarker = new google.maps.Marker({
-                    position: { lat: riderLat, lng: riderLng },
-                    map: this.state.map,
-                    title: rider.name || 'Rider',
-                    icon: {
-                        path: google.maps.SymbolPath.CIRCLE,
-                        scale: 10,
-                        fillColor: '#10b981',
-                        fillOpacity: 1,
-                        strokeColor: '#fff',
-                        strokeWeight: 3
-                    },
-                    label: {
-                        text: '🛵',
-                        fontSize: '18px'
-                    }
-                });
+                this.state.riderMarker = L.marker([riderLat, riderLng], { icon: riderIcon })
+                    .addTo(this.state.map)
+                    .bindPopup(`<b>${rider.name || 'Rider'}</b><br>🛵 Sedang menghantar`);
 
                 // Add customer marker if coordinates available
                 if (customerLat && customerLng) {
-                    this.state.customerMarker = new google.maps.Marker({
-                        position: { lat: customerLat, lng: customerLng },
-                        map: this.state.map,
-                        title: 'Delivery Location',
-                        icon: {
-                            path: google.maps.SymbolPath.CIRCLE,
-                            scale: 8,
-                            fillColor: '#ef4444',
-                            fillOpacity: 1,
-                            strokeColor: '#fff',
-                            strokeWeight: 2
-                        },
-                        label: {
-                            text: '📍',
-                            fontSize: '16px'
-                        }
+                    const customerIcon = L.divIcon({
+                        html: '<div style="background:#ef4444;width:32px;height:32px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:16px;">📍</div>',
+                        iconSize: [32, 32],
+                        iconAnchor: [16, 16],
+                        className: 'binaapp-customer-marker'
                     });
+
+                    this.state.customerMarker = L.marker([customerLat, customerLng], { icon: customerIcon })
+                        .addTo(this.state.map)
+                        .bindPopup('<b>Lokasi Penghantaran</b><br>📍 Alamat anda');
 
                     // Draw route line
-                    this.state.routeLine = new google.maps.Polyline({
-                        path: [
-                            { lat: riderLat, lng: riderLng },
-                            { lat: customerLat, lng: customerLng }
-                        ],
-                        geodesic: true,
-                        strokeColor: '#3b82f6',
-                        strokeOpacity: 0.7,
-                        strokeWeight: 3,
-                        map: this.state.map
-                    });
+                    this.state.routeLine = L.polyline([
+                        [riderLat, riderLng],
+                        [customerLat, customerLng]
+                    ], {
+                        color: '#3b82f6',
+                        weight: 4,
+                        opacity: 0.7,
+                        dashArray: '10, 10'
+                    }).addTo(this.state.map);
 
                     // Fit bounds to show both markers
-                    const bounds = new google.maps.LatLngBounds();
-                    bounds.extend({ lat: riderLat, lng: riderLng });
-                    bounds.extend({ lat: customerLat, lng: customerLng });
-                    this.state.map.fitBounds(bounds);
+                    const bounds = L.latLngBounds([
+                        [riderLat, riderLng],
+                        [customerLat, customerLng]
+                    ]);
+                    this.state.map.fitBounds(bounds, { padding: [50, 50] });
                 }
 
-                console.log('[BinaApp] Map initialized successfully');
+                console.log('[BinaApp] Map initialized successfully with Leaflet + OpenStreetMap (FREE!)');
             } catch (error) {
                 console.error('[BinaApp] Map initialization error:', error);
             }
         },
 
-        // Update rider marker position (Phase 2)
+        // Update rider marker position (Leaflet)
         updateRiderMarker: function() {
             if (!this.state.trackingData || !this.state.riderMarker) return;
 
@@ -1139,21 +1142,21 @@
             const newLat = parseFloat(rider.current_latitude);
             const newLng = parseFloat(rider.current_longitude);
 
-            // Update marker position with animation
-            this.state.riderMarker.setPosition({ lat: newLat, lng: newLng });
+            // Update marker position
+            this.state.riderMarker.setLatLng([newLat, newLng]);
 
             // Update route line if customer marker exists
             if (this.state.customerMarker && this.state.routeLine) {
-                const customerPos = this.state.customerMarker.getPosition();
-                this.state.routeLine.setPath([
-                    { lat: newLat, lng: newLng },
-                    { lat: customerPos.lat(), lng: customerPos.lng() }
+                const customerLatLng = this.state.customerMarker.getLatLng();
+                this.state.routeLine.setLatLngs([
+                    [newLat, newLng],
+                    [customerLatLng.lat, customerLatLng.lng]
                 ]);
             }
 
             // Pan map to keep rider visible
             if (this.state.map) {
-                this.state.map.panTo({ lat: newLat, lng: newLng });
+                this.state.map.panTo([newLat, newLng]);
             }
         },
 
@@ -2148,25 +2151,26 @@
                     return;
                 }
                 
-                // Get form data
-                const customerName = formData.get('customer_name');
-                const customerPhone = formData.get('customer_phone');
-                const deliveryAddress = document.getElementById('delivery-address')?.value || formData.get('delivery_address') || '';
-                const deliveryNotes = formData.get('delivery_notes') || '';
-                const timeSlot = formData.get('time_slot') || '';
-                const appointmentDate = formData.get('appointment_date') || '';
-                const cakeMessage = formData.get('cake_message') || '';
+                // Get form data - ensure all values are strings (never null/undefined)
+                const customerName = (formData.get('customer_name') || '').toString().trim();
+                const customerPhone = (formData.get('customer_phone') || '').toString().trim();
+                const deliveryAddress = (document.getElementById('delivery-address')?.value || formData.get('delivery_address') || '').toString().trim();
+                const deliveryNotes = (formData.get('delivery_notes') || '').toString().trim();
+                const timeSlot = (formData.get('time_slot') || '').toString().trim();
+                const appointmentDate = (formData.get('appointment_date') || '').toString().trim();
+                const cakeMessage = (formData.get('cake_message') || '').toString().trim();
 
                 // Validate required fields
-                if (!customerName || !customerName.trim()) {
+                if (!customerName) {
                     alert('Sila masukkan nama anda');
                     return;
                 }
-                if (!customerPhone || !customerPhone.trim()) {
+                if (!customerPhone) {
                     alert('Sila masukkan nombor telefon anda');
                     return;
                 }
-                if (!deliveryAddress || !deliveryAddress.trim()) {
+                // Only require delivery address when delivery is selected (not for pickup)
+                if (this.state.selectedFulfillment === 'delivery' && !deliveryAddress) {
                     alert('Sila masukkan alamat penghantaran');
                     return;
                 }
@@ -2190,15 +2194,16 @@
                 let orderError = null;
 
                 try {
+                    // Build order payload - all string fields are guaranteed non-null from validation above
                     const orderPayload = {
                         website_id: this.config.websiteId,
-                        customer_name: customerName || "",
-                        customer_phone: customerPhone || "",
+                        customer_name: customerName,  // Already validated as non-empty string
+                        customer_phone: customerPhone,  // Already validated as non-empty string
                         customer_email: "",
                         delivery_address: this.state.selectedFulfillment === 'delivery'
-                            ? (deliveryAddress || '(Alamat diperlukan)')
+                            ? deliveryAddress  // Already validated as non-empty string for delivery
                             : (fulfillment.pickupAddress || 'Self Pickup'),
-                        delivery_notes: deliveryNotes || "",
+                        delivery_notes: deliveryNotes,  // Already converted to string (may be empty)
                         delivery_zone_id: this.state.selectedFulfillment === 'delivery'
                             ? (this.state.selectedZone ? this.state.selectedZone.id : null)
                             : null,
@@ -2206,8 +2211,8 @@
                             menu_item_id: item.id,
                             quantity: item.quantity,
                             options: {
-                                size: item.size || "",
-                                color: item.color || ""
+                                size: (item.size || '').toString(),
+                                color: (item.color || '').toString()
                             },
                             notes: ""
                         })),
