@@ -1734,7 +1734,25 @@ function handleContactSubmit(e) {{
                 let errorMessage = 'Gagal membuat pesanan';
                 try {{
                     const errorJson = JSON.parse(errorText);
-                    errorMessage = errorJson.detail || errorMessage;
+                    if (errorJson.detail) {{
+                        // Handle array of error objects (validation errors)
+                        if (Array.isArray(errorJson.detail)) {{
+                            errorMessage = errorJson.detail.map(err => {{
+                                if (typeof err === 'object' && err.msg) {{
+                                    return err.msg;
+                                }} else if (typeof err === 'string') {{
+                                    return err;
+                                }} else {{
+                                    return JSON.stringify(err);
+                                }}
+                            }}).join(', ');
+                        }} else if (typeof errorJson.detail === 'string') {{
+                            errorMessage = errorJson.detail;
+                        }} else {{
+                            // For other object types, stringify them
+                            errorMessage = JSON.stringify(errorJson.detail);
+                        }}
+                    }}
                 }} catch (e) {{
                     errorMessage = errorText || errorMessage;
                 }}
