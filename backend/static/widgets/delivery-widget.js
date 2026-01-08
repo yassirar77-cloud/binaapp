@@ -1444,9 +1444,12 @@
                 // Delivery address input (shown when delivery selected)
                 html += `
                     <div class="binaapp-form-group" id="delivery-address-section" style="display:none;">
-                        <label class="binaapp-form-label">📍 ${this.t('deliveryAddress')}</label>
-                        <textarea class="binaapp-form-textarea" id="delivery-address" name="delivery_address" 
-                                  placeholder="Masukkan alamat penuh..." rows="3"></textarea>
+                        <label class="binaapp-form-label" style="display:block;font-size:16px;font-weight:600;margin-bottom:8px;">
+                            📍 ${this.t('deliveryAddress')} *
+                        </label>
+                        <textarea class="binaapp-form-textarea" id="delivery-address" name="delivery_address"
+                                  placeholder="Contoh: No 123, Jalan Shah Alam, 40000 Selangor" rows="3"
+                                  style="width:100%;padding:12px;border:2px solid #d1d5db;border-radius:8px;font-size:15px;resize:vertical;"></textarea>
                     </div>
                 `;
 
@@ -1599,18 +1602,30 @@
             // ============================================
             html += `
                 <div class="binaapp-form-group">
-                    <label class="binaapp-form-label">${this.t('name')}</label>
-                    <input type="text" class="binaapp-form-input" name="customer_name" required>
+                    <label class="binaapp-form-label" style="display:block;font-size:16px;font-weight:600;margin-bottom:8px;">
+                        📝 ${this.t('name')} *
+                    </label>
+                    <input type="text" class="binaapp-form-input" name="customer_name" required
+                           placeholder="Contoh: Ahmad bin Ali"
+                           style="width:100%;padding:12px;border:2px solid #d1d5db;border-radius:8px;font-size:15px;">
                 </div>
 
                 <div class="binaapp-form-group">
-                    <label class="binaapp-form-label">${this.t('phone')}</label>
-                    <input type="tel" class="binaapp-form-input" name="customer_phone" required>
+                    <label class="binaapp-form-label" style="display:block;font-size:16px;font-weight:600;margin-bottom:8px;">
+                        📱 ${this.t('phone')} *
+                    </label>
+                    <input type="tel" class="binaapp-form-input" name="customer_phone" required
+                           placeholder="Contoh: 0123456789"
+                           style="width:100%;padding:12px;border:2px solid #d1d5db;border-radius:8px;font-size:15px;">
                 </div>
 
                 <div class="binaapp-form-group">
-                    <label class="binaapp-form-label">${this.t('notes')} (${this.t('optional')})</label>
-                    <textarea class="binaapp-form-textarea" name="delivery_notes" rows="2" placeholder="Arahan khas..."></textarea>
+                    <label class="binaapp-form-label" style="display:block;font-size:16px;font-weight:600;margin-bottom:8px;">
+                        💬 ${this.t('notes')} (${this.t('optional')})
+                    </label>
+                    <textarea class="binaapp-form-textarea" name="delivery_notes" rows="2"
+                              placeholder="Contoh: Letak depan pintu, call bila sampai..."
+                              style="width:100%;padding:12px;border:2px solid #d1d5db;border-radius:8px;font-size:15px;resize:vertical;"></textarea>
                 </div>
             `;
 
@@ -2148,15 +2163,31 @@
                     return;
                 }
                 
-                // Get form data
-                const customerName = formData.get('customer_name');
-                const customerPhone = formData.get('customer_phone');
-                const deliveryAddress = document.getElementById('delivery-address')?.value || formData.get('delivery_address') || '';
-                const deliveryNotes = formData.get('delivery_notes') || '';
-                const timeSlot = formData.get('time_slot') || '';
-                const appointmentDate = formData.get('appointment_date') || '';
-                const cakeMessage = formData.get('cake_message') || '';
-                
+                // Get form data - ensure all values are strings
+                const customerName = String(formData.get('customer_name') || '').trim();
+                const customerPhone = String(formData.get('customer_phone') || '').trim();
+                const deliveryAddress = String(document.getElementById('delivery-address')?.value || formData.get('delivery_address') || '').trim();
+                const deliveryNotes = String(formData.get('delivery_notes') || '').trim();
+                const timeSlot = String(formData.get('time_slot') || '').trim();
+                const appointmentDate = String(formData.get('appointment_date') || '').trim();
+                const cakeMessage = String(formData.get('cake_message') || '').trim();
+
+                // Validate required fields
+                if (!customerName || customerName.length < 2) {
+                    alert('❌ Sila masukkan nama penuh anda');
+                    return;
+                }
+
+                if (!customerPhone || customerPhone.length < 10) {
+                    alert('❌ Sila masukkan nombor telefon yang sah (min 10 digit)');
+                    return;
+                }
+
+                if (this.state.selectedFulfillment === 'delivery' && (!deliveryAddress || deliveryAddress.length < 10)) {
+                    alert('❌ Sila masukkan alamat penghantaran lengkap');
+                    return;
+                }
+
                 // Calculate totals
                 const deliveryFee = this.state.selectedFulfillment === 'delivery' ? fulfillment.deliveryFee : 0;
                 const total = subtotal + deliveryFee;
