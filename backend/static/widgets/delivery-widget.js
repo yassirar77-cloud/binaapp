@@ -1444,12 +1444,9 @@
                 // Delivery address input (shown when delivery selected)
                 html += `
                     <div class="binaapp-form-group" id="delivery-address-section" style="display:none;">
-                        <label class="binaapp-form-label" style="display:block;font-size:16px;font-weight:600;margin-bottom:8px;">
-                            📍 ${this.t('deliveryAddress')} *
-                        </label>
-                        <textarea class="binaapp-form-textarea" id="delivery-address" name="delivery_address"
-                                  placeholder="Contoh: No 123, Jalan Shah Alam, 40000 Selangor" rows="3"
-                                  style="width:100%;padding:12px;border:2px solid #d1d5db;border-radius:8px;font-size:15px;resize:vertical;"></textarea>
+                        <label class="binaapp-form-label">📍 ${this.t('deliveryAddress')}</label>
+                        <textarea class="binaapp-form-textarea" id="delivery-address" name="delivery_address" 
+                                  placeholder="Masukkan alamat penuh..." rows="3"></textarea>
                     </div>
                 `;
 
@@ -1602,30 +1599,18 @@
             // ============================================
             html += `
                 <div class="binaapp-form-group">
-                    <label class="binaapp-form-label" style="display:block;font-size:16px;font-weight:600;margin-bottom:8px;">
-                        📝 ${this.t('name')} *
-                    </label>
-                    <input type="text" class="binaapp-form-input" name="customer_name" required
-                           placeholder="Contoh: Ahmad bin Ali"
-                           style="width:100%;padding:12px;border:2px solid #d1d5db;border-radius:8px;font-size:15px;">
+                    <label class="binaapp-form-label">${this.t('name')}</label>
+                    <input type="text" class="binaapp-form-input" name="customer_name" required>
                 </div>
 
                 <div class="binaapp-form-group">
-                    <label class="binaapp-form-label" style="display:block;font-size:16px;font-weight:600;margin-bottom:8px;">
-                        📱 ${this.t('phone')} *
-                    </label>
-                    <input type="tel" class="binaapp-form-input" name="customer_phone" required
-                           placeholder="Contoh: 0123456789"
-                           style="width:100%;padding:12px;border:2px solid #d1d5db;border-radius:8px;font-size:15px;">
+                    <label class="binaapp-form-label">${this.t('phone')}</label>
+                    <input type="tel" class="binaapp-form-input" name="customer_phone" required>
                 </div>
 
                 <div class="binaapp-form-group">
-                    <label class="binaapp-form-label" style="display:block;font-size:16px;font-weight:600;margin-bottom:8px;">
-                        💬 ${this.t('notes')} (${this.t('optional')})
-                    </label>
-                    <textarea class="binaapp-form-textarea" name="delivery_notes" rows="2"
-                              placeholder="Contoh: Letak depan pintu, call bila sampai..."
-                              style="width:100%;padding:12px;border:2px solid #d1d5db;border-radius:8px;font-size:15px;resize:vertical;"></textarea>
+                    <label class="binaapp-form-label">${this.t('notes')} (${this.t('optional')})</label>
+                    <textarea class="binaapp-form-textarea" name="delivery_notes" rows="2" placeholder="Arahan khas..."></textarea>
                 </div>
             `;
 
@@ -2163,28 +2148,26 @@
                     return;
                 }
                 
-                // Get form data - ensure all values are strings
-                const customerName = String(formData.get('customer_name') || '').trim();
-                const customerPhone = String(formData.get('customer_phone') || '').trim();
-                const deliveryAddress = String(document.getElementById('delivery-address')?.value || formData.get('delivery_address') || '').trim();
-                const deliveryNotes = String(formData.get('delivery_notes') || '').trim();
-                const timeSlot = String(formData.get('time_slot') || '').trim();
-                const appointmentDate = String(formData.get('appointment_date') || '').trim();
-                const cakeMessage = String(formData.get('cake_message') || '').trim();
+                // Get form data
+                const customerName = formData.get('customer_name');
+                const customerPhone = formData.get('customer_phone');
+                const deliveryAddress = document.getElementById('delivery-address')?.value || formData.get('delivery_address') || '';
+                const deliveryNotes = formData.get('delivery_notes') || '';
+                const timeSlot = formData.get('time_slot') || '';
+                const appointmentDate = formData.get('appointment_date') || '';
+                const cakeMessage = formData.get('cake_message') || '';
 
                 // Validate required fields
-                if (!customerName || customerName.length < 2) {
-                    alert('❌ Sila masukkan nama penuh anda');
+                if (!customerName || !customerName.trim()) {
+                    alert('Sila masukkan nama anda');
                     return;
                 }
-
-                if (!customerPhone || customerPhone.length < 10) {
-                    alert('❌ Sila masukkan nombor telefon yang sah (min 10 digit)');
+                if (!customerPhone || !customerPhone.trim()) {
+                    alert('Sila masukkan nombor telefon anda');
                     return;
                 }
-
-                if (this.state.selectedFulfillment === 'delivery' && (!deliveryAddress || deliveryAddress.length < 10)) {
-                    alert('❌ Sila masukkan alamat penghantaran lengkap');
+                if (!deliveryAddress || !deliveryAddress.trim()) {
+                    alert('Sila masukkan alamat penghantaran');
                     return;
                 }
 
@@ -2209,27 +2192,24 @@
                 try {
                     const orderPayload = {
                         website_id: this.config.websiteId,
-                        customer_name: customerName,
-                        customer_phone: customerPhone,
-                        customer_email: null,
+                        customer_name: customerName || "",
+                        customer_phone: customerPhone || "",
+                        customer_email: "",
                         delivery_address: this.state.selectedFulfillment === 'delivery'
                             ? (deliveryAddress || '(Alamat diperlukan)')
                             : (fulfillment.pickupAddress || 'Self Pickup'),
-                        delivery_notes: deliveryNotes || null,
+                        delivery_notes: deliveryNotes || "",
                         delivery_zone_id: this.state.selectedFulfillment === 'delivery'
                             ? (this.state.selectedZone ? this.state.selectedZone.id : null)
                             : null,
                         items: this.state.cart.map(item => ({
-                            menu_item_id: item.id.toString(),
-                            quantity: parseInt(item.quantity),
-                            // Only include options if they exist
-                            ...(item.size || item.color ? {
-                                options: {
-                                    ...(item.size && { size: item.size }),
-                                    ...(item.color && { color: item.color })
-                                }
-                            } : {}),
-                            notes: null
+                            menu_item_id: item.id,
+                            quantity: item.quantity,
+                            options: {
+                                size: item.size || "",
+                                color: item.color || ""
+                            },
+                            notes: ""
                         })),
                         payment_method: this.state.selectedPayment === 'qr' ? 'online' : 'cod'
                     };
@@ -2251,23 +2231,30 @@
                         let errorMessage = 'Failed to create order';
                         try {
                             const errorJson = JSON.parse(errorText);
-                            // Handle Pydantic validation errors (array of error objects)
-                            if (Array.isArray(errorJson.detail)) {
-                                errorMessage = errorJson.detail.map(err => {
-                                    const field = err.loc ? err.loc.join('.') : 'unknown';
-                                    return `${field}: ${err.msg}`;
-                                }).join('; ');
-                            } else if (typeof errorJson.detail === 'object') {
-                                // Handle object error details
-                                errorMessage = JSON.stringify(errorJson.detail);
-                            } else {
-                                errorMessage = errorJson.detail || errorMessage;
+                            if (errorJson.detail) {
+                                // Handle array of error objects (validation errors)
+                                if (Array.isArray(errorJson.detail)) {
+                                    errorMessage = errorJson.detail.map(err => {
+                                        if (typeof err === 'object' && err.msg) {
+                                            return err.msg;
+                                        } else if (typeof err === 'string') {
+                                            return err;
+                                        } else {
+                                            return JSON.stringify(err);
+                                        }
+                                    }).join(', ');
+                                } else if (typeof errorJson.detail === 'string') {
+                                    errorMessage = errorJson.detail;
+                                } else {
+                                    // For other object types, stringify them
+                                    errorMessage = JSON.stringify(errorJson.detail);
+                                }
                             }
                         } catch (e) {
                             errorMessage = errorText || errorMessage;
                         }
                         orderError = errorMessage;
-                        console.error('[BinaApp] ❌ Order creation failed:', errorMessage, errorJson || errorText);
+                        console.error('[BinaApp] ❌ Order creation failed:', errorMessage);
                     }
                 } catch (createErr) {
                     orderError = createErr.message || 'Network error';

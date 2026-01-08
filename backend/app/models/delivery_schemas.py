@@ -199,19 +199,33 @@ class OrderItemResponse(BaseModel):
 
 class OrderCreate(BaseModel):
     website_id: str
-    customer_name: str
-    customer_phone: str
-    customer_email: Optional[str] = None
-    delivery_address: str
+    customer_name: str = ""
+    customer_phone: str = ""
+    customer_email: Optional[str] = ""
+    delivery_address: str = ""
     delivery_latitude: Optional[Decimal] = None
     delivery_longitude: Optional[Decimal] = None
-    delivery_notes: Optional[str] = None
+    delivery_notes: Optional[str] = ""
     delivery_zone_id: Optional[str] = None
     items: List[OrderItemCreate] = Field(min_length=1)
     payment_method: PaymentMethod = PaymentMethod.COD
 
+    @validator('customer_name', 'delivery_address')
+    def validate_required_strings(cls, v, field):
+        """Ensure required string fields are not empty"""
+        if not v or not v.strip():
+            field_names = {
+                'customer_name': 'Nama pelanggan',
+                'delivery_address': 'Alamat penghantaran'
+            }
+            raise ValueError(f'{field_names.get(field.name, field.name)} diperlukan')
+        return v.strip()
+
     @validator('customer_phone')
     def validate_phone(cls, v):
+        """Validate and format phone number"""
+        if not v or not v.strip():
+            raise ValueError('Nombor telefon diperlukan')
         # Basic phone validation
         phone = v.strip().replace(' ', '').replace('-', '')
         if not phone.startswith('+'):
