@@ -34,6 +34,7 @@ from app.models.delivery_schemas import (
     OrderStatusUpdate,
     RiderInfoResponse,
     RiderLocationResponse,
+    RiderLocationUpdate,
     RiderResponse,
     RiderCreateBusiness,
     AssignRiderRequest,
