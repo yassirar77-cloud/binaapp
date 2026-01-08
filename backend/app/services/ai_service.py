@@ -13,6 +13,7 @@ import re
 from loguru import logger
 from typing import Optional, List, Dict, Tuple
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
+from app.services.business_types import get_business_config, detect_business_type
 from difflib import SequenceMatcher
 import cloudinary
 import cloudinary.uploader
@@ -1757,6 +1758,77 @@ Generate prompts now:"""
         biz_type = self._detect_type(desc)
         imgs = self.IMAGES.get(biz_type, self.IMAGES["default"])
 
+        # Get business type for colors - map old types to new system
+        business_type_map = {
+            "restaurant": "food",
+            "cafe": "food",
+            "food": "food",
+            "clothing": "clothing",
+            "salon": "salon",
+            "services": "services",
+            "bakery": "bakery",
+            "default": "general"
+        }
+        detected_biz_type = business_type_map.get(biz_type, "general")
+
+        # Use proper business type detection
+        try:
+            detected_biz_type = detect_business_type(desc)
+        except:
+            pass
+
+        business_config = get_business_config(detected_biz_type)
+        primary_color = business_config.get("primary_color", "#3b82f6")
+
+        # Generate color scheme based on business type
+        color_map = {
+            "#ea580c": {  # food (orange)
+                "gradient": "from-orange-600 to-red-500",
+                "accent": "orange-600",
+                "hover": "orange-700",
+                "light": "orange-50",
+                "names": "orange, red, amber"
+            },
+            "#ec4899": {  # clothing (pink)
+                "gradient": "from-pink-600 to-purple-500",
+                "accent": "pink-600",
+                "hover": "pink-700",
+                "light": "pink-50",
+                "names": "pink, purple, rose"
+            },
+            "#8b5cf6": {  # salon (purple)
+                "gradient": "from-purple-600 to-indigo-500",
+                "accent": "purple-600",
+                "hover": "purple-700",
+                "light": "purple-50",
+                "names": "purple, indigo, violet"
+            },
+            "#3b82f6": {  # services (blue)
+                "gradient": "from-blue-600 to-cyan-500",
+                "accent": "blue-600",
+                "hover": "blue-700",
+                "light": "blue-50",
+                "names": "blue, cyan, sky"
+            },
+            "#f59e0b": {  # bakery (amber)
+                "gradient": "from-amber-600 to-orange-500",
+                "accent": "amber-600",
+                "hover": "amber-700",
+                "light": "amber-50",
+                "names": "amber, yellow, orange"
+            },
+            "#10b981": {  # general (green)
+                "gradient": "from-green-600 to-teal-500",
+                "accent": "green-600",
+                "hover": "green-700",
+                "light": "green-50",
+                "names": "green, teal, emerald"
+            }
+        }
+
+        colors = color_map.get(primary_color, color_map["#3b82f6"])
+        logger.info(f"🎨 Using color scheme for {detected_biz_type}: {primary_color} -> {colors['names']}")
+
         # CRITICAL: Handle "no images" mode
         if image_choice == "none":
             # User explicitly wants NO images - set all image URLs to empty
@@ -1891,20 +1963,22 @@ Example gallery card:
 </div>
 """
 
-        # Build style-specific instructions
+        # Build style-specific instructions with business-aware colors
         style_instructions = {
-            "modern": """
+            "modern": f"""
 STYLE DESIGN - MODERN (REQUIRED):
-- Use vibrant gradient backgrounds: from-purple-600 to-blue-600, from-blue-500 to-indigo-600
+- Use vibrant gradient backgrounds: {colors['gradient']} (matching business type)
 - Add glassmorphism effect: bg-white/20 backdrop-blur-lg
 - Rounded corners everywhere: rounded-xl, rounded-2xl, rounded-3xl
 - Soft shadows: shadow-xl, shadow-2xl
 - Smooth hover transitions: transition-all duration-300
 - Floating elements with hover:scale-105
-- Modern gradient buttons
-- Use accent colors: purple, blue, indigo
+- Modern gradient buttons using business colors
+- Use accent colors: {colors['names']} (warm for food, cool for services, elegant for fashion)
 - Font: text-lg for body, headings with gradient text
-- Add subtle animations on scroll""",
+- Add subtle animations on scroll
+- Navigation: Solid white background with shadow-lg for readability
+- Hero: Use business-appropriate colors, NOT generic purple/blue""",
             "minimal": """
 STYLE DESIGN - MINIMAL (REQUIRED):
 - Maximum white space, clean layout
@@ -1939,7 +2013,7 @@ STYLE DESIGN - BOLD (REQUIRED):
         # Build image-specific instructions based on image_choice
         if image_choice == "none":
             # NO IMAGES MODE - Tell AI explicitly to NOT use any images
-            image_instructions = """
+            image_instructions = f"""
 ===== CRITICAL: NO IMAGES MODE =====
 
 🚫 ABSOLUTELY NO IMAGES ALLOWED:
@@ -1950,34 +2024,64 @@ STYLE DESIGN - BOLD (REQUIRED):
    ❌ DO NOT use stock photos
 
 ✅ INSTEAD USE:
-   ✅ Gradient backgrounds: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%)
-   ✅ Solid color backgrounds: bg-purple-600, bg-blue-500
+   ✅ Business-appropriate gradient backgrounds (warm colors for food, elegant for fashion, cool for services)
+   ✅ Solid color backgrounds matching business type
    ✅ Font Awesome icons: <i class="fas fa-icon-name"></i>
    ✅ Emoji icons: 🍽️ 👕 🏠 ✨ etc.
    ✅ Text-only design with good typography
 
-HERO SECTION (NO IMAGES):
-<section id="home" class="relative h-[50vh] md:h-[400px] overflow-hidden" style="background: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%);">
-    <div class="container mx-auto px-4 h-full flex items-center">
-        <div class="max-w-2xl text-white">
-            <h1 class="text-4xl md:text-6xl font-bold mb-4">{name}</h1>
-            <p class="text-xl md:text-2xl mb-8 bg-white/20 backdrop-blur-sm p-4 rounded-2xl">Your tagline here</p>
-            <a href="#contact" class="inline-block bg-white text-purple-600 px-8 py-3 rounded-full font-bold shadow-lg">
-                Call to Action <i class="fas fa-arrow-right ml-2"></i>
+NAVIGATION BAR (MUST BE READABLE):
+<header class="fixed top-0 left-0 w-full z-50 bg-white shadow-lg">
+    <nav class="container mx-auto px-4 py-4 flex justify-between items-center">
+        <a href="#home" class="text-2xl font-bold text-{colors['accent']}">{name}</a>
+        <ul class="hidden md:flex space-x-6">
+            <li><a href="#home" class="text-gray-700 hover:text-{colors['accent']} font-medium">Home</a></li>
+            <li><a href="#menu" class="text-gray-700 hover:text-{colors['accent']} font-medium">Menu</a></li>
+            <li><a href="#about" class="text-gray-700 hover:text-{colors['accent']} font-medium">About</a></li>
+            <li><a href="#contact" class="text-gray-700 hover:text-{colors['accent']} font-medium">Contact</a></li>
+        </ul>
+        <a href="#delivery" class="bg-{colors['accent']} text-white px-6 py-2 rounded-full font-semibold hover:bg-{colors['hover']}">Order Now</a>
+    </nav>
+</header>
+
+HERO SECTION (NO IMAGES) - Use business-appropriate colors:
+<section id="home" class="relative h-[60vh] md:h-[500px] overflow-hidden">
+    <div class="absolute inset-0 bg-gradient-to-br {colors['gradient']}">
+        <div class="absolute inset-0 bg-black/20"></div>
+    </div>
+    <div class="relative container mx-auto px-4 h-full flex items-center justify-center">
+        <div class="max-w-3xl text-center text-white">
+            <h1 class="text-5xl md:text-7xl font-bold mb-6 drop-shadow-2xl">{name}</h1>
+            <p class="text-xl md:text-2xl mb-8 bg-white/20 backdrop-blur-sm p-6 rounded-3xl inline-block">Your compelling tagline here</p>
+            <a href="#menu" class="inline-block bg-white text-{colors['accent']} px-10 py-4 rounded-full font-bold text-lg shadow-2xl hover:shadow-3xl transition-all hover:scale-105">
+                View Menu <i class="fas fa-arrow-right ml-2"></i>
             </a>
         </div>
     </div>
 </section>
 
-PRODUCT/SERVICE CARD (NO IMAGES):
-<div class="bg-white rounded-2xl shadow-xl p-6 hover:shadow-2xl transition-all">
-    <div class="bg-gradient-to-br from-purple-500 to-blue-500 text-white w-16 h-16 rounded-2xl flex items-center justify-center mb-4">
-        <i class="fas fa-icon-here text-2xl"></i>
+PRODUCT/SERVICE CARD (NO IMAGES) - Consistent design:
+<div class="bg-white rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl transition-all">
+    <!-- If no image, use colored placeholder -->
+    <div class="w-full h-48 bg-gradient-to-br {colors['gradient']} flex items-center justify-center">
+        <i class="fas fa-utensils text-6xl text-white opacity-40"></i>
     </div>
-    <h3 class="text-xl font-bold text-gray-800 mb-2">Product Name</h3>
-    <p class="text-gray-600 mb-4">Product description</p>
-    <button class="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-4 py-2 rounded-full">Action</button>
+    <div class="p-6">
+        <h3 class="text-2xl font-bold text-gray-800 mb-2">Product/Service Name</h3>
+        <p class="text-gray-600 mb-4">Brief description of the item or service</p>
+        <div class="flex justify-between items-center">
+            <span class="text-{colors['accent']} font-bold text-xl">RM10.00</span>
+            <button class="bg-{colors['accent']} text-white px-6 py-2 rounded-full hover:bg-{colors['hover']} transition-all">Order</button>
+        </div>
+    </div>
 </div>
+
+IMPORTANT DESIGN RULES:
+- Navigation MUST have solid white background for readability
+- Hero section should use business-appropriate colors (warm for food, elegant for fashion)
+- All cards must be consistent in structure and styling
+- Use rounded-2xl for modern feel
+- Add hover effects for interactivity
 """
         else:
             # WITH IMAGES MODE - Provide image URLs
@@ -2000,12 +2104,47 @@ PRODUCT/SERVICE CARD (NO IMAGES):
 3. IMAGE SIZE GUIDELINES:
    - Gallery images: Use 'h-48' or 'h-52' (NOT h-64 - too big!)
    - Gallery images: Use 'object-cover' for proper fill
+   - All gallery cards MUST be consistent in height and structure
+
+NAVIGATION BAR (MUST BE READABLE):
+<header class="fixed top-0 left-0 w-full z-50 bg-white shadow-lg">
+    <nav class="container mx-auto px-4 py-4 flex justify-between items-center">
+        <a href="#home" class="text-2xl font-bold text-{colors['accent']}">{name}</a>
+        <ul class="hidden md:flex space-x-6">
+            <li><a href="#menu" class="text-gray-700 hover:text-{colors['accent']} font-medium">Menu</a></li>
+            <li><a href="#about" class="text-gray-700 hover:text-{colors['accent']} font-medium">About</a></li>
+            <li><a href="#contact" class="text-gray-700 hover:text-{colors['accent']} font-medium">Contact</a></li>
+        </ul>
+        <a href="#delivery" class="bg-{colors['accent']} text-white px-6 py-2 rounded-full font-semibold hover:bg-{colors['hover']}">Order Now</a>
+    </nav>
+</header>
 
 HERO SECTION WITH IMAGE:
-- Use h-[50vh] or h-[400px] (NOT 60vh or 90vh - too tall!)
+- Use h-[60vh] or h-[500px] for good proportion
 - Use object-contain if image has logo/text
-- OR use object-cover with object-top
-- Background color: bg-gray-100 or bg-white
+- OR use object-cover with object-center for full coverage
+- Add dark overlay (bg-black/40) for text readability
+- Background color: bg-{colors['light']} or bg-gray-100
+
+GALLERY/MENU CARDS - MUST BE CONSISTENT:
+<div class="bg-white rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl transition-all">
+    <img src="..." class="w-full h-48 object-cover" alt="Item name">
+    <div class="p-6">
+        <h3 class="text-2xl font-bold text-gray-800 mb-2">Item Name</h3>
+        <p class="text-gray-600 mb-4">Description here</p>
+        <div class="flex justify-between items-center">
+            <span class="text-{colors['accent']} font-bold text-xl">RM10.00</span>
+            <button class="bg-{colors['accent']} text-white px-6 py-2 rounded-full hover:bg-{colors['hover']}">Order</button>
+        </div>
+    </div>
+</div>
+
+IMPORTANT DESIGN RULES:
+- Navigation MUST have solid white background for readability (NOT transparent!)
+- All menu/product cards MUST have identical structure and height
+- Use business-appropriate colors ({colors['names']}) throughout
+- Ensure visual hierarchy: larger headings, readable body text
+- Add proper whitespace and padding
 
 {examples}
 """
