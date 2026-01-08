@@ -1571,6 +1571,168 @@ async def get_rider_location_history(
         )
 
 
+@router.get("/riders/{rider_id}/orders")
+async def get_rider_orders(
+    rider_id: str,
+    status_filter: Optional[str] = None,
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Get orders assigned to a specific rider (Phase 2).
+
+    Returns list of orders where rider_id matches.
+    Used by rider mobile app to show assigned deliveries.
+
+    Query Parameters:
+    - status_filter: Filter by status (e.g., "ready", "picked_up", "delivering")
+    """
+    try:
+        # Validate rider exists
+        rider_response = supabase.table("riders").select("id, name").eq(
+            "id", rider_id
+        ).execute()
+
+        if not rider_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Rider not found"
+            )
+
+        # Build query
+        query = supabase.table("delivery_orders").select(
+            "id, order_number, customer_name, customer_phone, customer_email, "
+            "delivery_address, delivery_latitude, delivery_longitude, "
+            "subtotal, delivery_fee, total_amount, payment_method, payment_status, "
+            "status, created_at, confirmed_at, ready_at, picked_up_at, delivered_at, "
+            "estimated_prep_time, estimated_delivery_time"
+        ).eq("rider_id", rider_id)
+
+        # Apply status filter if provided
+        if status_filter:
+            query = query.eq("status", status_filter)
+
+        # Order by created_at descending (newest first)
+        query = query.order("created_at", desc=True).limit(50)
+
+        orders_response = query.execute()
+
+        orders = [convert_db_row_to_dict(o) for o in (orders_response.data or [])]
+
+        return {
+            "rider_id": rider_id,
+            "rider_name": rider_response.data[0]["name"],
+            "count": len(orders),
+            "orders": orders
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting rider orders: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get rider orders: {str(e)}"
+        )
+
+
+@router.put("/riders/{rider_id}/orders/{order_id}/status")
+async def update_order_status_by_rider(
+    rider_id: str,
+    order_id: str,
+    status_update: dict,
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Update order status by rider (Phase 2).
+
+    Allows rider to update order status from rider mobile app.
+    Validates that the order is assigned to the rider.
+
+    Body:
+    - status: New status (e.g., "picked_up", "delivering", "delivered")
+    - notes: Optional notes
+    """
+    try:
+        new_status = status_update.get("status")
+        notes = status_update.get("notes", "")
+
+        if not new_status:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Status field is required"
+            )
+
+        # Validate order belongs to this rider
+        order_response = supabase.table("delivery_orders").select(
+            "id, order_number, rider_id, status"
+        ).eq("id", order_id).execute()
+
+        if not order_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Order not found"
+            )
+
+        order = order_response.data[0]
+
+        if order.get("rider_id") != rider_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Order not assigned to this rider"
+            )
+
+        # Update order status
+        update_data = {"status": new_status}
+
+        # Update timestamp fields based on status
+        now = datetime.utcnow().isoformat()
+        if new_status == "picked_up":
+            update_data["picked_up_at"] = now
+        elif new_status == "delivering":
+            update_data["picked_up_at"] = order.get("picked_up_at") or now
+        elif new_status == "delivered":
+            update_data["delivered_at"] = now
+        elif new_status == "completed":
+            update_data["completed_at"] = now
+
+        updated_order = supabase.table("delivery_orders").update(update_data).eq(
+            "id", order_id
+        ).execute()
+
+        # Log to order history
+        history_entry = {
+            "order_id": order_id,
+            "status": new_status,
+            "notes": notes or f"Updated by rider",
+            "created_at": now
+        }
+
+        try:
+            supabase.table("order_status_history").insert(history_entry).execute()
+        except Exception as history_error:
+            logger.warning(f"Failed to log order history: {history_error}")
+
+        logger.info(f"✅ Rider {rider_id} updated order {order['order_number']} to {new_status}")
+
+        return {
+            "success": True,
+            "message": "Order status updated",
+            "order_id": order_id,
+            "order_number": order["order_number"],
+            "new_status": new_status,
+            "updated_at": now
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating order status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update order status: {str(e)}"
+        )
+
+
 # =====================================================
 # HEALTH CHECK
 # =====================================================
