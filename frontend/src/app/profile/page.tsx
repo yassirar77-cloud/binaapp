@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 import { apiFetch } from '@/lib/api';
 import { DeliveryOrder, OrderStatus } from '@/types';
 
@@ -43,7 +43,6 @@ function getActionLabel(current: OrderStatus): string {
 }
 
 export default function ProfilePage() {
-  const supabase = createClientComponentClient();
   const router = useRouter();
   const [state, setState] = useState<'loading' | 'auth' | 'noauth'>('loading');
   const [user, setUser] = useState<any>(null);
@@ -105,24 +104,33 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const check = async () => {
-      await new Promise(r => setTimeout(r, 100));
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        setUser(session.user);
-        setState('auth');
-        const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle();
-        if (data) setProfile({ full_name: data.full_name || '', business_name: data.business_name || '', phone: data.phone || '' });
-      } else {
+      if (!supabase) {
+        setState('noauth');
+        return;
+      }
+
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          setUser(user);
+          setState('auth');
+          const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+          if (data) setProfile({ full_name: data.full_name || '', business_name: data.business_name || '', phone: data.phone || '' });
+        } else {
+          setState('noauth');
+        }
+      } catch (error) {
+        console.error('Error checking user:', error);
         setState('noauth');
       }
     };
     check();
-  }, [supabase]);
+  }, []);
 
   // Fetch user's website_id
   useEffect(() => {
     const fetchWebsiteId = async () => {
-      if (!user?.id) return;
+      if (!user?.id || !supabase) return;
       try {
         const { data } = await supabase
           .from('websites')
@@ -141,7 +149,7 @@ export default function ProfilePage() {
     if (user?.id) {
       fetchWebsiteId();
     }
-  }, [user?.id, supabase]);
+  }, [user?.id]);
 
   // Fetch orders when orders tab is active
   useEffect(() => {
@@ -160,7 +168,7 @@ export default function ProfilePage() {
   }, [activeTab, websiteId]);
 
   const fetchOrders = async () => {
-    if (!user?.id) return;
+    if (!user?.id || !supabase) return;
     setLoadingOrders(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -181,6 +189,7 @@ export default function ProfilePage() {
   };
 
   const updateOrderStatus = async (orderId: string, newStatus: OrderStatus) => {
+    if (!supabase) return;
     setUpdatingOrder(orderId);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -205,7 +214,7 @@ export default function ProfilePage() {
   };
 
   const fetchRiders = async () => {
-    if (!websiteId) return;
+    if (!websiteId || !supabase) return;
     setLoadingRiders(true);
     setRidersError('');
     try {
@@ -230,7 +239,7 @@ export default function ProfilePage() {
   };
 
   const fetchDeliverySettings = async () => {
-    if (!websiteId) return;
+    if (!websiteId || !supabase) return;
     setSettingsError('');
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -252,7 +261,7 @@ export default function ProfilePage() {
   };
 
   const updateUseOwnRiders = async (value: boolean) => {
-    if (!websiteId) return;
+    if (!websiteId || !supabase) return;
     setUpdatingSettings(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -279,6 +288,7 @@ export default function ProfilePage() {
   };
 
   const assignRiderToOrder = async (orderId: string, riderId: string | null) => {
+    if (!supabase) return;
     setAssigningRider(orderId);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -317,7 +327,7 @@ export default function ProfilePage() {
   };
 
   const createRider = async () => {
-    if (!websiteId) return;
+    if (!websiteId || !supabase) return;
     if (!newRider.name.trim() || !newRider.phone.trim()) {
       alert('Sila isi nama dan telefon rider');
       return;
@@ -418,6 +428,7 @@ export default function ProfilePage() {
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!supabase) return;
     setSaving(true);
     await supabase.from('profiles').upsert({ id: user.id, email: user.email, ...profile, updated_at: new Date().toISOString() });
     setSaving(false);
@@ -510,7 +521,7 @@ export default function ProfilePage() {
             <button onClick={() => router.push('/my-projects')} className="w-full mt-4 py-3 border rounded-lg hover:bg-gray-50 transition-colors">
               Kembali
             </button>
-            <button onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }} className="w-full mt-2 py-3 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+            <button onClick={async () => { if (supabase) await supabase.auth.signOut(); router.push('/login'); }} className="w-full mt-2 py-3 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
               Log Keluar
             </button>
           </div>
