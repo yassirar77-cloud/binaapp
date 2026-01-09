@@ -95,6 +95,118 @@ def convert_db_row_to_dict(row: dict) -> dict:
 
 
 # =====================================================
+# CUSTOMER & CONVERSATION HELPERS
+# =====================================================
+
+async def get_or_create_customer(supabase: Client, website_id: str, phone: str, name: str, address: str = "") -> dict:
+    """Get existing customer or create new one for the website"""
+    try:
+        # Check if customer exists
+        result = supabase.table("website_customers").select("*").eq(
+            "website_id", website_id
+        ).eq("phone", phone).execute()
+
+        if result.data:
+            # Update existing customer info
+            customer = result.data[0]
+            supabase.table("website_customers").update({
+                "name": name,
+                "address": address,
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq("id", customer["id"]).execute()
+            logger.info(f"[Customer] Found existing customer: {customer['id']}")
+            return customer
+        else:
+            # Create new customer
+            import uuid
+            customer_data = {
+                "id": str(uuid.uuid4()),
+                "website_id": website_id,
+                "phone": phone,
+                "name": name,
+                "address": address
+            }
+            insert_result = supabase.table("website_customers").insert(customer_data).execute()
+            if insert_result.data:
+                logger.info(f"[Customer] Created new customer: {customer_data['id']}")
+                return insert_result.data[0]
+            return customer_data
+    except Exception as e:
+        logger.error(f"[Customer] Error: {e}")
+        return None
+
+
+async def create_order_conversation(supabase: Client, order_id: str, order_number: str, website_id: str,
+                                     customer_id: str, customer_name: str, customer_phone: str) -> dict:
+    """Create chat conversation for an order"""
+    try:
+        import uuid
+
+        # Get website owner
+        website = supabase.table("websites").select("user_id").eq("id", website_id).single().execute()
+        owner_id = website.data["user_id"] if website.data else None
+
+        conversation_data = {
+            "id": str(uuid.uuid4()),
+            "order_id": order_id,
+            "website_id": website_id,
+            "customer_id": customer_id,
+            "customer_name": customer_name,
+            "customer_phone": customer_phone,
+            "owner_id": owner_id,
+            "status": "active"
+        }
+
+        result = supabase.table("chat_conversations").insert(conversation_data).execute()
+
+        if result.data:
+            conversation = result.data[0]
+            logger.info(f"[Chat] Created conversation {conversation['id']} for order {order_number}")
+            return conversation
+        return conversation_data
+    except Exception as e:
+        logger.error(f"[Chat] Error creating conversation: {e}")
+        return None
+
+
+async def send_system_message(supabase: Client, conversation_id: str, content: str) -> None:
+    """Send a system message to a conversation"""
+    try:
+        import uuid
+        supabase.table("chat_messages").insert({
+            "id": str(uuid.uuid4()),
+            "conversation_id": conversation_id,
+            "sender_type": "system",
+            "message_type": "status",
+            "content": content
+        }).execute()
+    except Exception as e:
+        logger.error(f"[Chat] Error sending system message: {e}")
+
+
+async def create_notification(supabase: Client, user_type: str, user_id: str, website_id: str = None,
+                              order_id: str = None, conversation_id: str = None,
+                              notif_type: str = "new_order", title: str = "", body: str = "") -> None:
+    """Create a notification for a user"""
+    try:
+        import uuid
+        supabase.table("notifications").insert({
+            "id": str(uuid.uuid4()),
+            "user_type": user_type,
+            "user_id": user_id,
+            "website_id": website_id,
+            "order_id": order_id,
+            "conversation_id": conversation_id,
+            "type": notif_type,
+            "title": title,
+            "body": body
+        }).execute()
+        logger.info(f"[Notification] Created {notif_type} for {user_type}:{user_id}")
+    except Exception as e:
+        logger.error(f"[Notification] Error: {e}")
+
+
+# =====================================================
 # ZONE & COVERAGE ENDPOINTS
 # =====================================================
 
@@ -407,11 +519,70 @@ async def create_order(
                 detail=f"Failed to save order items: {str(items_error)}"
             )
 
-        # 6. TODO: Send notifications (WhatsApp, Email)
+        # 6. Register/Get customer
+        customer = await get_or_create_customer(
+            supabase=supabase,
+            website_id=order.website_id,
+            phone=order.customer_phone,
+            name=order.customer_name,
+            address=order.delivery_address
+        )
+        customer_id = customer["id"] if customer else None
+
+        # 7. Create chat conversation for this order
+        conversation = None
+        conversation_id = None
+        if customer_id:
+            conversation = await create_order_conversation(
+                supabase=supabase,
+                order_id=order_id,
+                order_number=created_order['order_number'],
+                website_id=order.website_id,
+                customer_id=customer_id,
+                customer_name=order.customer_name,
+                customer_phone=order.customer_phone
+            )
+            conversation_id = conversation["id"] if conversation else None
+
+            # Update order with customer_id and conversation_id
+            supabase.table("delivery_orders").update({
+                "customer_id": customer_id,
+                "conversation_id": conversation_id
+            }).eq("id", order_id).execute()
+
+            # Send system message to conversation
+            await send_system_message(
+                supabase=supabase,
+                conversation_id=conversation_id,
+                content=f"Pesanan baru #{created_order['order_number']}\n"
+                        f"{order.customer_name}\n"
+                        f"{order.delivery_address}\n"
+                        f"RM{total_amount:.2f}"
+            )
+
+        # 8. Create notification for owner
+        website_result = supabase.table("websites").select("user_id").eq("id", order.website_id).single().execute()
+        if website_result.data:
+            owner_id = website_result.data["user_id"]
+            await create_notification(
+                supabase=supabase,
+                user_type="owner",
+                user_id=owner_id,
+                website_id=order.website_id,
+                order_id=order_id,
+                conversation_id=conversation_id,
+                notif_type="new_order",
+                title="Pesanan Baru!",
+                body=f"{order.customer_name} - RM{total_amount:.2f}"
+            )
+
         logger.info(f"✅ Order created: {created_order['order_number']} - Total: RM{total_amount}")
 
-        # 7. Return created order
-        return convert_db_row_to_dict(created_order)
+        # 9. Return created order with conversation_id and customer_id
+        result = convert_db_row_to_dict(created_order)
+        result["conversation_id"] = conversation_id
+        result["customer_id"] = customer_id
+        return result
 
     except HTTPException:
         raise
@@ -1280,6 +1451,39 @@ async def assign_rider_to_order_public(
         except Exception as history_err:
             logger.warning(f"⚠️ Could not insert order_status_history: {history_err}")
 
+        # Get conversation_id and update chat
+        order_with_conv = supabase.table("delivery_orders").select("conversation_id").eq("id", order_id).single().execute()
+        conversation_id = order_with_conv.data.get("conversation_id") if order_with_conv.data else None
+
+        if conversation_id and rider_id:
+            # Add rider to conversation
+            try:
+                supabase.table("chat_conversations").update({
+                    "rider_id": rider_id
+                }).eq("id", conversation_id).execute()
+            except Exception as conv_err:
+                logger.warning(f"⚠️ Could not update conversation with rider: {conv_err}")
+
+            # Send system message
+            await send_system_message(
+                supabase=supabase,
+                conversation_id=conversation_id,
+                content=f"Rider ditugaskan: {rider.get('name')}\n{rider.get('phone', '')}"
+            )
+
+            # Notify rider
+            await create_notification(
+                supabase=supabase,
+                user_type="rider",
+                user_id=rider_id,
+                website_id=order.get("website_id"),
+                order_id=order_id,
+                conversation_id=conversation_id,
+                notif_type="order_assigned",
+                title="Pesanan Baru Ditugaskan!",
+                body=f"Hantar ke: #{order.get('order_number')}"
+            )
+
         logger.info(f"✅ Rider assignment updated for order {order.get('order_number')}")
         return convert_db_row_to_dict(updated.data[0])
 
@@ -1347,6 +1551,26 @@ async def update_order_status_public(
             "updated_by": "business"
         }
         supabase.table("order_status_history").insert(history_data).execute()
+
+        # Send status update to chat
+        conversation_id = current_order.get("conversation_id")
+        if conversation_id:
+            status_messages = {
+                "confirmed": "Pesanan disahkan! Sedang menyediakan pesanan anda.",
+                "preparing": "Pesanan sedang disediakan",
+                "ready": "Pesanan sedia untuk diambil",
+                "picked_up": "Rider telah mengambil pesanan",
+                "delivering": "Pesanan dalam perjalanan",
+                "delivered": "Pesanan telah dihantar!",
+                "completed": "Pesanan selesai. Terima kasih!",
+                "cancelled": "Pesanan dibatalkan"
+            }
+            if new_status in status_messages:
+                await send_system_message(
+                    supabase=supabase,
+                    conversation_id=conversation_id,
+                    content=status_messages[new_status]
+                )
 
         logger.info(
             f"✅ Order {current_order['order_number']} status updated: "
