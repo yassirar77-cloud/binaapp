@@ -5,6 +5,11 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { apiFetch } from '@/lib/api';
 import { DeliveryOrder, OrderStatus } from '@/types';
+import dynamic from 'next/dynamic';
+
+// Dynamically import chat components to avoid SSR issues
+const ChatList = dynamic(() => import('@/components/ChatList'), { ssr: false });
+const BinaChat = dynamic(() => import('@/components/BinaChat'), { ssr: false });
 
 // Status badge colors and labels
 const statusConfig: Record<OrderStatus, { bg: string; text: string; label: string }> = {
@@ -51,7 +56,11 @@ export default function ProfilePage() {
   const [msg, setMsg] = useState('');
 
   // Tab state
-  const [activeTab, setActiveTab] = useState<'profile' | 'orders' | 'menu'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'orders' | 'menu' | 'chat'>('profile');
+
+  // Chat state
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>(undefined);
 
   // Orders state
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
@@ -517,6 +526,16 @@ export default function ProfilePage() {
           >
             🍽️ Menu
           </button>
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`flex-1 py-4 px-6 font-medium transition-colors ${
+              activeTab === 'chat'
+                ? 'bg-blue-500 text-white'
+                : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            💬 Chat
+          </button>
         </div>
 
         {/* Profile Tab */}
@@ -951,6 +970,62 @@ export default function ProfilePage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Chat Tab */}
+        {activeTab === 'chat' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between mb-4">
+              <h1 className="text-2xl font-bold">💬 Chat dengan Pelanggan</h1>
+            </div>
+
+            {!websiteId ? (
+              <div className="bg-white rounded-xl shadow p-8 text-center">
+                <div className="text-5xl mb-4">📝</div>
+                <h2 className="text-lg font-semibold mb-2">Tiada Website</h2>
+                <p className="text-gray-600">Anda perlu ada website untuk menggunakan sistem chat.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl shadow overflow-hidden">
+                <div className="grid grid-cols-1 md:grid-cols-3 h-[600px]">
+                  {/* Chat List */}
+                  <div className={`${selectedConversationId ? 'hidden md:block' : ''} border-r`}>
+                    <ChatList
+                      websiteId={websiteId}
+                      onSelectConversation={(conversationId, orderId) => {
+                        setSelectedConversationId(conversationId);
+                        setSelectedOrderId(orderId);
+                      }}
+                      selectedConversationId={selectedConversationId || undefined}
+                    />
+                  </div>
+
+                  {/* Chat Window */}
+                  <div className={`col-span-2 ${!selectedConversationId ? 'hidden md:flex' : 'flex'} flex-col`}>
+                    {selectedConversationId ? (
+                      <BinaChat
+                        conversationId={selectedConversationId}
+                        userType="owner"
+                        userId={user?.id || ''}
+                        userName={profile.full_name || profile.business_name || 'Owner'}
+                        orderId={selectedOrderId}
+                        showMap={true}
+                        onClose={() => setSelectedConversationId(null)}
+                      />
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center bg-gray-50">
+                        <div className="text-center text-gray-400">
+                          <div className="text-6xl mb-4">💬</div>
+                          <p className="text-lg">Pilih perbualan untuk mula chat</p>
+                          <p className="text-sm mt-2">Chat dengan pelanggan dan rider anda di sini</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>
