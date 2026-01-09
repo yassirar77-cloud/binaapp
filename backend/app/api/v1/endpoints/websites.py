@@ -20,6 +20,7 @@ from app.models.schemas import (
 from app.services.supabase_client import supabase_service
 from app.services.ai_service import ai_service
 from app.services.storage_service import storage_service
+from app.services.templates import WebsiteTemplates
 from app.core.security import get_current_user
 from app.core.config import settings
 
@@ -117,14 +118,39 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
         # Generate HTML using AI
         ai_response = await ai_service.generate_website(request)
 
+        html_content = ai_response.html_content
+        integrations = ai_response.integrations_included
+
+        # CRITICAL: Inject delivery widget if ecommerce/delivery is enabled
+        if request.include_ecommerce:
+            logger.info(f"🛒 Delivery mode enabled - injecting delivery widget for website {website_id}")
+
+            # Initialize template service
+            template_service = WebsiteTemplates()
+
+            # Inject delivery widget with website_id
+            html_content = template_service.inject_delivery_widget(
+                html=html_content,
+                website_id=website_id,
+                whatsapp_number=request.whatsapp_number or "+60123456789",
+                primary_color="#ea580c",  # Default orange color
+                business_type=request.business_type,
+                description=request.description,
+                language=request.language.value if hasattr(request, 'language') and request.language else "ms"
+            )
+
+            # Update integrations list to include delivery
+            integrations = ["BinaApp Delivery", "WhatsApp Contact", "Mobile Responsive", "Cloudinary Images"]
+            logger.info(f"✅ Delivery widget injected successfully for website {website_id}")
+
         # Update website with generated content
         update_data = {
-            "html_content": ai_response.html_content,
+            "html_content": html_content,
             "status": WebsiteStatus.DRAFT,
             "meta_title": ai_response.meta_title,
             "meta_description": ai_response.meta_description,
             "sections": ai_response.sections,
-            "integrations": ai_response.integrations_included,
+            "integrations": integrations,
             "updated_at": datetime.utcnow().isoformat()
         }
 
