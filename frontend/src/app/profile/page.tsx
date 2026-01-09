@@ -56,6 +56,7 @@ export default function ProfilePage() {
   // Orders state
   const [orders, setOrders] = useState<DeliveryOrder[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
+  const [ordersError, setOrdersError] = useState<string>('');
   const [updatingOrder, setUpdatingOrder] = useState<string | null>(null);
   const [riders, setRiders] = useState<any[]>([]);
   const [loadingRiders, setLoadingRiders] = useState(false);
@@ -170,6 +171,7 @@ export default function ProfilePage() {
   const fetchOrders = async () => {
     if (!user?.id || !supabase) return;
     setLoadingOrders(true);
+    setOrdersError('');
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
@@ -181,8 +183,14 @@ export default function ProfilePage() {
         },
       });
       setOrders(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to fetch orders:', error);
+      const errorMsg = error.message?.includes('timed out')
+        ? '⚠️ Backend tidak menjawab. Sila tunggu sebentar dan refresh.'
+        : error.message?.includes('Failed to fetch')
+        ? '⚠️ Tidak dapat sambung ke backend. Periksa sambungan internet.'
+        : '⚠️ Gagal load pesanan. Sila cuba lagi.';
+      setOrdersError(errorMsg);
     } finally {
       setLoadingOrders(false);
     }
@@ -228,11 +236,14 @@ export default function ProfilePage() {
         },
       });
       setRiders(data || []);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to fetch riders:', error);
-      setRidersError(
-        'Tak boleh load riders. Semak backend ENV: SUPABASE_URL + SUPABASE_ANON_KEY, dan Vercel NEXT_PUBLIC_API_URL betul.'
-      );
+      const errorMsg = error.message?.includes('timed out')
+        ? 'Backend tidak menjawab. Sila tunggu sebentar.'
+        : error.message?.includes('Failed to fetch')
+        ? 'Tidak dapat sambung ke backend.'
+        : 'Gagal load riders.';
+      setRidersError(errorMsg);
     } finally {
       setLoadingRiders(false);
     }
@@ -252,11 +263,14 @@ export default function ProfilePage() {
         },
       });
       setDeliverySettings(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to fetch delivery settings:', error);
-      setSettingsError(
-        'Tak boleh load delivery settings. Semak backend ENV: SUPABASE_URL + SUPABASE_ANON_KEY.'
-      );
+      const errorMsg = error.message?.includes('timed out')
+        ? 'Backend tidak menjawab. Sila tunggu sebentar.'
+        : error.message?.includes('Failed to fetch')
+        ? 'Tidak dapat sambung ke backend.'
+        : 'Gagal load tetapan rider.';
+      setSettingsError(errorMsg);
     }
   };
 
@@ -370,6 +384,7 @@ export default function ProfilePage() {
       setMenuItems(data);
     } catch (error) {
       console.error('Failed to fetch menu items:', error);
+      // Silent fail - menu will show empty state
     } finally {
       setLoadingMenu(false);
     }
@@ -633,7 +648,19 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {loadingOrders && orders.length === 0 ? (
+            {ordersError ? (
+              <div className="bg-white rounded-xl shadow p-8 text-center">
+                <div className="text-5xl mb-4">⚠️</div>
+                <h2 className="text-lg font-semibold mb-2">Masalah Sambungan</h2>
+                <p className="text-gray-600 mb-4">{ordersError}</p>
+                <button
+                  onClick={fetchOrders}
+                  className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                >
+                  Cuba Lagi
+                </button>
+              </div>
+            ) : loadingOrders && orders.length === 0 ? (
               <div className="bg-white rounded-xl shadow p-8 text-center">
                 <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto" />
                 <p className="mt-4 text-gray-600">Memuat pesanan...</p>
