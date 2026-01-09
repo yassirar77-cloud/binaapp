@@ -1753,6 +1753,7 @@ Generate prompts now:"""
         whatsapp_number: Optional[str] = None,
         location_address: Optional[str] = None,
         image_choice: str = "upload",  # NEW: none, upload, or ai
+        include_ecommerce: bool = False,  # NEW: Enable delivery mode
     ) -> str:
         """Build STRICT prompt that forbids placeholders"""
         biz_type = self._detect_type(desc)
@@ -2179,9 +2180,16 @@ MUST WRITE REAL CONTENT:
    ✅ Real about section (2-3 sentences)
    ✅ Real service names and descriptions (3-4 services)
    ✅ Real contact message
-   ✅ WhatsApp button: https://wa.me/{wa_digits}
+   {"✅ WhatsApp contact button ONLY in footer/contact section: https://wa.me/" + wa_digits if include_ecommerce else "✅ WhatsApp button for orders: https://wa.me/" + wa_digits}
 {address_line}
    🚫 DO NOT invent phone numbers, addresses, cities, awards, certifications
+
+{"ORDERING SYSTEM - DELIVERY MODE:" if include_ecommerce else ""}
+{"   🛒 DO NOT add WhatsApp order buttons in menu/product cards" if include_ecommerce else ""}
+{"   🛒 DO NOT add 'Order via WhatsApp' buttons for products" if include_ecommerce else ""}
+{"   🛒 Menu items should show product name, description, and price ONLY" if include_ecommerce else ""}
+{"   🛒 A separate ordering system will be integrated later" if include_ecommerce else ""}
+{"   ✅ WhatsApp button is ONLY for contact/inquiries in footer section" if include_ecommerce else ""}
 
 TECHNICAL REQUIREMENTS:
    - Single complete HTML file
@@ -2739,6 +2747,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             whatsapp_number=request.whatsapp_number,
             location_address=request.location_address,
             image_choice=image_choice,  # CRITICAL: Pass image_choice to prompt builder
+            include_ecommerce=request.include_ecommerce,  # CRITICAL: Pass delivery mode flag
         )
 
         # Add image URLs to prompt with STRONG emphasis
@@ -2888,6 +2897,12 @@ IMPORTANT INSTRUCTIONS:
         logger.info("✅ ALL STEPS COMPLETE")
         logger.info(f"   Final size: {len(html)} characters")
 
+        # Determine integrations based on mode
+        if request.include_ecommerce:
+            integrations = ["Delivery System (to be injected)", "WhatsApp Contact", "Mobile Responsive", "Cloudinary Images"]
+        else:
+            integrations = ["WhatsApp", "Contact Form", "Mobile Responsive", "Cloudinary Images"]
+
         return AIGenerationResponse(
             html_content=html,
             css_content=None,
@@ -2895,7 +2910,7 @@ IMPORTANT INSTRUCTIONS:
             meta_title=request.business_name,
             meta_description=f"{request.business_name} - {request.description[:150]}",
             sections=["Header", "Hero", "About", "Services", "Gallery", "Contact", "Footer"],
-            integrations_included=["WhatsApp", "Contact Form", "Mobile Responsive", "Cloudinary Images"]
+            integrations_included=integrations
         )
 
     async def generate_multi_style(
