@@ -883,6 +883,14 @@ function handleContactSubmit(e) {{
         - services: Service providers (Perkhidmatan, Pakej)
         - general: Other businesses (Produk, Lain-lain)
         """
+        # CRITICAL: Ensure website_id is never empty for BinaApp Chat integration
+        if not website_id or website_id.strip() == "":
+            logger.error("❌ CRITICAL: website_id is empty! Chat and order creation will fail.")
+            logger.error("Orders require a valid website_id to create conversations and link customers.")
+            raise ValueError("website_id is required for ordering system. Cannot inject without valid website_id.")
+
+        logger.info(f"✅ Injecting ordering system for website_id: {website_id}")
+
         # Auto-detect business type if not provided
         if not business_type:
             desc_for_detection = description or business_info.get("description", business_info.get("name", ""))
@@ -1002,6 +1010,9 @@ function handleContactSubmit(e) {{
 <script src="https://cdn.tailwindcss.com"></script>
 <!-- Font Awesome for Icons -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<!-- Leaflet Map for Rider Tracking -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 /* Delivery System Styles */
 .delivery-page { display: none; }
@@ -1286,6 +1297,61 @@ function handleContactSubmit(e) {{
                 </div>
             </div>
 
+            <!-- BinaApp Chat & Map Section -->
+            <div id="chat-section" style="display:none;margin-bottom:16px;">
+                <!-- Rider Location Map -->
+                <div id="rider-map-container" style="display:none;background:#f9fafb;padding:16px;border-radius:12px;margin-bottom:16px;border:2px solid #e0e7ff;">
+                    <h4 style="font-weight:600;margin:0 0 12px 0;display:flex;align-items:center;gap:8px;justify-content:space-between;">
+                        <span>🗺️ Lokasi Rider</span>
+                        <button onclick="toggleMapSize()" style="background:#3b82f6;color:white;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;">Expand</button>
+                    </h4>
+                    <div id="rider-map" style="width:100%;height:250px;border-radius:12px;"></div>
+                    <p style="font-size:12px;color:#6b7280;margin:8px 0 0 0;text-align:center;" id="map-last-update">Menunggu lokasi rider...</p>
+                </div>
+
+                <!-- Chat Interface -->
+                <div style="background:#f9fafb;border-radius:12px;border:2px solid #dbeafe;overflow:hidden;margin-bottom:16px;">
+                    <div style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;padding:12px 16px;">
+                        <h4 style="font-weight:600;margin:0;display:flex;align-items:center;gap:8px;">
+                            💬 Chat dengan Pemikedai
+                            <span id="chat-status" style="width:8px;height:8px;background:#22c55e;border-radius:50%;margin-left:auto;"></span>
+                        </h4>
+                    </div>
+
+                    <!-- Messages Container -->
+                    <div id="chat-messages" style="height:300px;overflow-y:auto;padding:16px;background:white;display:flex;flex-direction:column;gap:12px;">
+                        <div style="text-align:center;color:#6b7280;font-size:14px;padding:20px;">
+                            <p>Menyambung ke chat...</p>
+                        </div>
+                    </div>
+
+                    <!-- Typing Indicator -->
+                    <div id="typing-indicator" style="display:none;padding:8px 16px;background:#f0f9ff;font-size:13px;color:#6b7280;font-style:italic;">
+                        Pemikedai sedang menaip...
+                    </div>
+
+                    <!-- Input Area -->
+                    <div style="padding:12px;background:#f9fafb;border-top:2px solid #e5e7eb;">
+                        <div style="display:flex;gap:8px;align-items:flex-end;">
+                            <button onclick="showImageUpload()" style="background:#e5e7eb;border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:18px;flex-shrink:0;">📷</button>
+                            <textarea id="chat-input" placeholder="Tulis mesej..." onkeypress="handleChatKeyPress(event)" oninput="handleTyping()" style="flex:1;padding:10px;border:2px solid #e5e7eb;border-radius:8px;resize:none;font-size:14px;font-family:inherit;min-height:40px;max-height:100px;"></textarea>
+                            <button onclick="sendChatMessage()" style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:600;flex-shrink:0;">Hantar</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Image Upload Input (Hidden) -->
+                <input type="file" id="chat-image-input" accept="image/*" style="display:none;" onchange="handleImageUpload(event)" />
+
+                <!-- Payment Proof Upload Button -->
+                <div id="payment-proof-section" style="display:none;margin-bottom:16px;">
+                    <button onclick="showPaymentUpload()" style="width:100%;background:linear-gradient(135deg,#10b981,#059669);color:white;border:none;padding:14px;border-radius:12px;cursor:pointer;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;">
+                        📸 Hantar Bukti Bayaran
+                    </button>
+                    <input type="file" id="payment-proof-input" accept="image/*" style="display:none;" onchange="handlePaymentUpload(event)" />
+                </div>
+            </div>
+
             <!-- Order Summary -->
             <div style="background:#f9fafb;padding:16px;border-radius:12px;margin-bottom:16px;">
                 <h4 style="font-weight:600;margin:0 0 12px 0;display:flex;align-items:center;gap:8px;">📋 Ringkasan Pesanan</h4>
@@ -1349,6 +1415,50 @@ function handleContactSubmit(e) {{
     let selectedPaymentMethod = PAYMENT_COD_ENABLED ? 'cod' : (PAYMENT_QR_ENABLED ? 'qr' : 'cod');
     let currentOrderNumber = null;
     let trackingPollInterval = null;
+
+    // =====================================================
+    // CUSTOMER IDENTITY & BINAAPP CHAT STATE MANAGEMENT
+    // =====================================================
+
+    // Customer identity persistence with localStorage
+    let customerId = localStorage.getItem('binaapp_customer_id_' + WEBSITE_ID) || null;
+    let customerName = localStorage.getItem('binaapp_customer_name_' + WEBSITE_ID) || null;
+    let customerPhone = localStorage.getItem('binaapp_customer_phone_' + WEBSITE_ID) || null;
+
+    // Chat state variables
+    let currentConversationId = null;
+    let chatWebSocket = null;
+    let chatMessages = [];
+    let chatConnected = false;
+    let reconnectAttempts = 0;
+    let chatTypingTimeout = null;
+    let riderLocationMarker = null;
+    let chatMap = null;
+
+    // WebSocket URL derived from API_URL
+    const WS_URL = API_URL.replace('https://', 'wss://').replace('http://', 'ws://');
+
+    // Save customer identity to localStorage
+    function saveCustomerIdentity(id, name, phone) {{
+        customerId = id;
+        customerName = name;
+        customerPhone = phone;
+        localStorage.setItem('binaapp_customer_id_' + WEBSITE_ID, id);
+        localStorage.setItem('binaapp_customer_name_' + WEBSITE_ID, name);
+        localStorage.setItem('binaapp_customer_phone_' + WEBSITE_ID, phone);
+        console.log('[BinaChat] ✅ Customer identity saved:', id);
+    }}
+
+    // Clear customer identity (for testing/logout)
+    window.clearCustomerIdentity = function() {{
+        localStorage.removeItem('binaapp_customer_id_' + WEBSITE_ID);
+        localStorage.removeItem('binaapp_customer_name_' + WEBSITE_ID);
+        localStorage.removeItem('binaapp_customer_phone_' + WEBSITE_ID);
+        customerId = null;
+        customerName = null;
+        customerPhone = null;
+        console.log('[BinaChat] Customer identity cleared');
+    }};
 
     // Page switching
     window.showDeliveryPage = function(page) {{
@@ -1702,14 +1812,36 @@ function handleContactSubmit(e) {{
                 currentOrderNumber = orderData.order_number;
                 console.log('[BinaApp] ✅ Order created:', currentOrderNumber);
 
+                // CRITICAL: Save customer identity from order response
+                if (orderData.customer_id) {{
+                    saveCustomerIdentity(
+                        orderData.customer_id,
+                        customerName,
+                        customerPhone
+                    );
+                }}
+
+                // CRITICAL: Save conversation ID for BinaApp Chat
+                if (orderData.conversation_id) {{
+                    currentConversationId = orderData.conversation_id;
+                    console.log('[BinaChat] ✅ Conversation created:', currentConversationId);
+                }}
+
                 // Hide checkout form
                 hideCheckoutForm();
 
                 // Send WhatsApp notification to merchant
                 sendWhatsAppNotification(customerName, customerPhone, customerAddress, customerNotes, subtotal, total);
 
-                // Show tracking view
+                // Show tracking view with chat
                 showTrackingView(orderData, subtotal, total);
+
+                // Initialize BinaApp Chat if conversation exists
+                if (currentConversationId && customerId) {{
+                    setTimeout(() => {{
+                        initializeChat();
+                    }}, 1000); // Delay to let tracking view render first
+                }}
 
                 // Clear cart
                 deliveryCart = [];
@@ -1910,6 +2042,503 @@ function handleContactSubmit(e) {{
             clearInterval(trackingPollInterval);
             trackingPollInterval = null;
         }}
+        // Close WebSocket connection
+        if (chatWebSocket) {{
+            chatWebSocket.close();
+            chatWebSocket = null;
+        }}
+        // Reset chat state
+        chatConnected = false;
+        chatMessages = [];
+        currentConversationId = null;
+        // Destroy map
+        if (chatMap) {{
+            chatMap.remove();
+            chatMap = null;
+            riderLocationMarker = null;
+        }}
+    }};
+
+    // =====================================================
+    // BINAAPP CHAT SYSTEM - WEBSOCKET & MESSAGING
+    // =====================================================
+
+    // Initialize chat connection
+    function initializeChat() {{
+        if (!currentConversationId || !customerId || !WEBSITE_ID) {{
+            console.error('[BinaChat] ❌ Missing required IDs:', {{ currentConversationId, customerId, WEBSITE_ID }});
+            return;
+        }}
+
+        console.log('[BinaChat] 🚀 Initializing chat...');
+
+        // Show chat section
+        const chatSection = document.getElementById('chat-section');
+        if (chatSection) chatSection.style.display = 'block';
+
+        // Show payment proof button if QR payment selected
+        if (selectedPaymentMethod === 'qr') {{
+            const paymentSection = document.getElementById('payment-proof-section');
+            if (paymentSection) paymentSection.style.display = 'block';
+        }}
+
+        // Load existing messages first
+        loadChatMessages();
+
+        // Connect WebSocket
+        connectChat();
+
+        console.log('[BinaChat] ✅ Chat initialized');
+    }}
+
+    // Load chat messages from API
+    async function loadChatMessages() {{
+        try {{
+            const response = await fetch(`${{API_URL}}/chat/conversations/${{currentConversationId}}`);
+            if (!response.ok) throw new Error('Failed to load messages');
+
+            const data = await response.json();
+            chatMessages = data.messages || [];
+            console.log('[BinaChat] ✅ Loaded', chatMessages.length, 'messages');
+            renderChatMessages();
+            scrollChatToBottom();
+        }} catch (error) {{
+            console.error('[BinaChat] ❌ Error loading messages:', error);
+            addSystemMessage('Ralat memuatkan mesej. Sila refresh.');
+        }}
+    }}
+
+    // Connect to WebSocket
+    function connectChat() {{
+        if (chatWebSocket && chatWebSocket.readyState === WebSocket.OPEN) {{
+            console.log('[BinaChat] Already connected');
+            return;
+        }}
+
+        const wsUrl = `${{WS_URL}}/chat/ws/${{currentConversationId}}/customer/${{customerId}}`;
+        console.log('[BinaChat] Connecting to:', wsUrl);
+
+        chatWebSocket = new WebSocket(wsUrl);
+
+        chatWebSocket.onopen = () => {{
+            console.log('[BinaChat] ✅ WebSocket connected');
+            chatConnected = true;
+            reconnectAttempts = 0;
+            updateChatStatus(true);
+
+            // Send ping every 30 seconds to keep connection alive
+            setInterval(() => {{
+                if (chatWebSocket && chatWebSocket.readyState === WebSocket.OPEN) {{
+                    chatWebSocket.send(JSON.stringify({{ type: 'ping' }}));
+                }}
+            }}, 30000);
+        }};
+
+        chatWebSocket.onmessage = (event) => {{
+            try {{
+                const data = JSON.parse(event.data);
+                handleChatMessage(data);
+            }} catch (error) {{
+                console.error('[BinaChat] ❌ Error parsing message:', error);
+            }}
+        }};
+
+        chatWebSocket.onerror = (error) => {{
+            console.error('[BinaChat] ❌ WebSocket error:', error);
+            updateChatStatus(false);
+        }};
+
+        chatWebSocket.onclose = () => {{
+            console.log('[BinaChat] 🔌 Disconnected');
+            chatConnected = false;
+            updateChatStatus(false);
+
+            // Attempt to reconnect (max 5 attempts)
+            if (reconnectAttempts < 5) {{
+                reconnectAttempts++;
+                console.log(`[BinaChat] 🔄 Reconnecting... attempt ${{reconnectAttempts}}`);
+                setTimeout(connectChat, 3000 * reconnectAttempts);
+            }}
+        }};
+    }}
+
+    // Handle incoming WebSocket messages
+    function handleChatMessage(data) {{
+        switch (data.type) {{
+            case 'new_message':
+                chatMessages.push(data.message);
+                renderChatMessages();
+                scrollChatToBottom();
+
+                // Mark as read if from owner/rider
+                if (data.message.sender_type !== 'customer') {{
+                    markMessagesAsRead();
+                }}
+                break;
+
+            case 'typing':
+                if (data.user_type !== 'customer') {{
+                    showTypingIndicator(data.is_typing);
+                }}
+                break;
+
+            case 'rider_location':
+                updateRiderLocation(data.data);
+                break;
+
+            case 'rider_assigned':
+                addSystemMessage(`🛵 Rider ${{data.rider_name}} telah ditugaskan untuk penghantaran anda.`);
+                break;
+
+            case 'pong':
+                // Keep-alive response
+                break;
+
+            default:
+                console.log('[BinaChat] Unknown message type:', data.type);
+        }}
+    }}
+
+    // Send chat message
+    window.sendChatMessage = function() {{
+        const input = document.getElementById('chat-input');
+        const message = input.value.trim();
+
+        if (!message || !chatWebSocket || chatWebSocket.readyState !== WebSocket.OPEN) {{
+            return;
+        }}
+
+        // Send via WebSocket
+        chatWebSocket.send(JSON.stringify({{
+            type: 'message',
+            sender_name: customerName || 'Pelanggan',
+            message_type: 'text',
+            content: message
+        }}));
+
+        // Clear input
+        input.value = '';
+        input.style.height = '40px';
+    }};
+
+    // Handle Enter key press
+    window.handleChatKeyPress = function(event) {{
+        if (event.key === 'Enter' && !event.shiftKey) {{
+            event.preventDefault();
+            sendChatMessage();
+        }}
+    }};
+
+    // Handle typing indicator
+    window.handleTyping = function() {{
+        if (!chatWebSocket || chatWebSocket.readyState !== WebSocket.OPEN) return;
+
+        // Auto-resize textarea
+        const input = document.getElementById('chat-input');
+        input.style.height = '40px';
+        input.style.height = Math.min(input.scrollHeight, 100) + 'px';
+
+        // Send typing indicator
+        if (chatTypingTimeout) clearTimeout(chatTypingTimeout);
+
+        chatWebSocket.send(JSON.stringify({{
+            type: 'typing',
+            is_typing: true
+        }}));
+
+        chatTypingTimeout = setTimeout(() => {{
+            chatWebSocket.send(JSON.stringify({{
+                type: 'typing',
+                is_typing: false
+            }}));
+        }}, 1000);
+    }};
+
+    // Render chat messages
+    function renderChatMessages() {{
+        const container = document.getElementById('chat-messages');
+        if (!container) return;
+
+        if (chatMessages.length === 0) {{
+            container.innerHTML = '<div style="text-align:center;color:#6b7280;font-size:14px;padding:20px;"><p>Belum ada mesej. Mulakan perbualan!</p></div>';
+            return;
+        }}
+
+        container.innerHTML = chatMessages.map(msg => {{
+            const isCustomer = msg.sender_type === 'customer';
+            const isSystem = msg.sender_type === 'system';
+
+            if (isSystem) {{
+                return `
+                    <div style="text-align:center;font-size:13px;color:#6b7280;padding:8px;background:#f9fafb;border-radius:8px;">
+                        ${{escapeHtml(msg.content)}}
+                    </div>
+                `;
+            }}
+
+            const alignment = isCustomer ? 'flex-end' : 'flex-start';
+            const bgColor = isCustomer ? '#dbeafe' : '#f3f4f6';
+            const textAlign = isCustomer ? 'right' : 'left';
+
+            let contentHtml = '';
+            if (msg.message_type === 'image' || msg.message_type === 'payment') {{
+                contentHtml = `
+                    <img src="${{msg.media_url}}" alt="Image" style="max-width:100%;border-radius:8px;margin-bottom:8px;cursor:pointer;" onclick="window.open('${{msg.media_url}}', '_blank')">
+                    <p style="margin:0;font-size:13px;">${{escapeHtml(msg.content)}}</p>
+                `;
+            }} else {{
+                contentHtml = `<p style="margin:0;">${{escapeHtml(msg.content)}}</p>`;
+            }}
+
+            const time = new Date(msg.created_at).toLocaleTimeString('ms-MY', {{ hour: '2-digit', minute: '2-digit' }});
+
+            return `
+                <div style="display:flex;justify-content:${{alignment}};align-items:flex-end;gap:8px;">
+                    ${{!isCustomer ? '<div style="width:32px;height:32px;background:#e0e7ff;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px;">👤</div>' : ''}}
+                    <div style="max-width:70%;background:${{bgColor}};padding:10px 14px;border-radius:12px;text-align:${{textAlign}};">
+                        ${{!isCustomer ? `<p style="margin:0 0 4px 0;font-size:12px;font-weight:600;color:#374151;">${{escapeHtml(msg.sender_name || 'Pemikedai')}}</p>` : ''}}
+                        ${{contentHtml}}
+                        <p style="margin:4px 0 0 0;font-size:11px;color:#6b7280;">${{time}}</p>
+                    </div>
+                    ${{isCustomer ? '<div style="width:32px;height:32px;background:#dbeafe;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px;">👤</div>' : ''}}
+                </div>
+            `;
+        }}).join('');
+    }}
+
+    // Scroll chat to bottom
+    function scrollChatToBottom() {{
+        const container = document.getElementById('chat-messages');
+        if (container) {{
+            container.scrollTop = container.scrollHeight;
+        }}
+    }}
+
+    // Show typing indicator
+    function showTypingIndicator(show) {{
+        const indicator = document.getElementById('typing-indicator');
+        if (indicator) {{
+            indicator.style.display = show ? 'block' : 'none';
+        }}
+    }}
+
+    // Update chat connection status
+    function updateChatStatus(connected) {{
+        const statusDot = document.getElementById('chat-status');
+        if (statusDot) {{
+            statusDot.style.background = connected ? '#22c55e' : '#ef4444';
+        }}
+    }}
+
+    // Add system message
+    function addSystemMessage(text) {{
+        chatMessages.push({{
+            id: 'sys_' + Date.now(),
+            conversation_id: currentConversationId,
+            sender_type: 'system',
+            message_type: 'status',
+            content: text,
+            created_at: new Date().toISOString(),
+            is_read: true
+        }});
+        renderChatMessages();
+        scrollChatToBottom();
+    }}
+
+    // Mark messages as read
+    async function markMessagesAsRead() {{
+        try {{
+            await fetch(`${{API_URL}}/chat/messages/mark-read`, {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{
+                    conversation_id: currentConversationId,
+                    user_type: 'customer'
+                }})
+            }});
+        }} catch (error) {{
+            console.error('[BinaChat] ❌ Error marking messages as read:', error);
+        }}
+    }}
+
+    // Image upload handling
+    window.showImageUpload = function() {{
+        document.getElementById('chat-image-input').click();
+    }};
+
+    window.handleImageUpload = async function(event) {{
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('conversation_id', currentConversationId);
+        formData.append('sender_type', 'customer');
+        formData.append('sender_id', customerId);
+        formData.append('sender_name', customerName || 'Pelanggan');
+
+        try {{
+            addSystemMessage('📤 Menghantar gambar...');
+
+            const response = await fetch(`${{API_URL}}/chat/messages/upload-image`, {{
+                method: 'POST',
+                body: formData
+            }});
+
+            if (!response.ok) throw new Error('Upload failed');
+
+            addSystemMessage('✅ Gambar dihantar');
+
+            // Clear input
+            event.target.value = '';
+        }} catch (error) {{
+            console.error('[BinaChat] ❌ Image upload error:', error);
+            addSystemMessage('❌ Gagal menghantar gambar');
+        }}
+    }};
+
+    // Payment proof upload
+    window.showPaymentUpload = function() {{
+        document.getElementById('payment-proof-input').click();
+    }};
+
+    window.handlePaymentUpload = async function(event) {{
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('conversation_id', currentConversationId);
+        formData.append('sender_id', customerId);
+        formData.append('sender_name', customerName || 'Pelanggan');
+        formData.append('order_id', currentOrderNumber);
+
+        // Get total amount
+        const subtotal = deliveryCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
+        const total = subtotal + deliveryFeeAmount;
+        formData.append('amount', total);
+
+        try {{
+            addSystemMessage('📤 Menghantar bukti bayaran...');
+
+            const response = await fetch(`${{API_URL}}/chat/messages/upload-payment`, {{
+                method: 'POST',
+                body: formData
+            }});
+
+            if (!response.ok) throw new Error('Upload failed');
+
+            addSystemMessage('✅ Bukti bayaran dihantar. Menunggu pengesahan.');
+
+            // Hide payment button after successful upload
+            const paymentSection = document.getElementById('payment-proof-section');
+            if (paymentSection) paymentSection.style.display = 'none';
+
+            // Clear input
+            event.target.value = '';
+        }} catch (error) {{
+            console.error('[BinaChat] ❌ Payment upload error:', error);
+            addSystemMessage('❌ Gagal menghantar bukti bayaran');
+        }}
+    }};
+
+    // Escape HTML for XSS protection
+    function escapeHtml(text) {{
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }}
+
+    // =====================================================
+    // RIDER LOCATION TRACKING WITH LEAFLET MAP
+    // =====================================================
+
+    // Update rider location on map
+    function updateRiderLocation(locationData) {{
+        const {{ latitude, longitude, heading, speed, timestamp }} = locationData;
+
+        // Initialize map if not exists
+        if (!chatMap) {{
+            initializeRiderMap(latitude, longitude);
+        }}
+
+        // Update marker position
+        if (riderLocationMarker) {{
+            riderLocationMarker.setLatLng([latitude, longitude]);
+
+            // Rotate marker if heading available
+            if (heading !== undefined) {{
+                const icon = riderLocationMarker.getElement();
+                if (icon) {{
+                    icon.style.transform = `rotate(${{heading}}deg)`;
+                }}
+            }}
+        }} else {{
+            // Create new marker
+            const icon = window.L.icon({{
+                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+                iconSize: [25, 41],
+                iconAnchor: [12, 41],
+                popupAnchor: [1, -34],
+                shadowSize: [41, 41]
+            }});
+
+            riderLocationMarker = window.L.marker([latitude, longitude], {{ icon: icon }})
+                .addTo(chatMap)
+                .bindPopup('🛵 Lokasi Rider');
+        }}
+
+        // Center map on rider
+        chatMap.setView([latitude, longitude], 15);
+
+        // Show map container
+        const mapContainer = document.getElementById('rider-map-container');
+        if (mapContainer) mapContainer.style.display = 'block';
+
+        // Update timestamp
+        const updateTime = new Date(timestamp).toLocaleTimeString('ms-MY');
+        const updateEl = document.getElementById('map-last-update');
+        if (updateEl) updateEl.textContent = `Dikemaskini: ${{updateTime}}${{speed ? ` • ${{Math.round(speed)}} km/j` : ''}}`;
+
+        console.log('[BinaChat] 🗺️ Rider location updated:', latitude, longitude);
+    }}
+
+    // Initialize Leaflet map
+    function initializeRiderMap(lat, lng) {{
+        const mapEl = document.getElementById('rider-map');
+        if (!mapEl || !window.L) {{
+            console.error('[BinaChat] ❌ Map element or Leaflet not available');
+            return;
+        }}
+
+        chatMap = window.L.map('rider-map').setView([lat, lng], 15);
+
+        window.L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 19
+        }}).addTo(chatMap);
+
+        console.log('[BinaChat] 🗺️ Map initialized');
+    }}
+
+    // Toggle map size
+    window.toggleMapSize = function() {{
+        const mapEl = document.getElementById('rider-map');
+        const btn = event.target;
+
+        if (mapEl.style.height === '250px') {{
+            mapEl.style.height = '400px';
+            btn.textContent = 'Collapse';
+        }} else {{
+            mapEl.style.height = '250px';
+            btn.textContent = 'Expand';
+        }}
+
+        // Invalidate map size after transition
+        setTimeout(() => {{
+            if (chatMap) chatMap.invalidateSize();
+        }}, 300);
     }};
 
     // =====================================================
