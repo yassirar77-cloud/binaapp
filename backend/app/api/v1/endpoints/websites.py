@@ -20,7 +20,7 @@ from app.models.schemas import (
 from app.services.supabase_client import supabase_service
 from app.services.ai_service import ai_service
 from app.services.storage_service import storage_service
-from app.services.templates import WebsiteTemplates
+from app.services.templates import TemplateService
 from app.core.security import get_current_user
 from app.core.config import settings
 
@@ -126,7 +126,7 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
             logger.info(f"🛒 Delivery mode enabled - injecting delivery widget for website {website_id}")
 
             # Initialize template service
-            template_service = WebsiteTemplates()
+            template_service = TemplateService()
 
             # Inject delivery widget with website_id
             html_content = template_service.inject_delivery_widget(
