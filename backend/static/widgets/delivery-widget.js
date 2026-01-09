@@ -1964,6 +1964,13 @@
                         </div>
                     ` : ''}
 
+                    <!-- Chat with Seller Button -->
+                    ${this.state.conversationId ? `
+                    <button class="binaapp-checkout-btn" onclick="BinaAppDelivery.openChat()" style="background:linear-gradient(to right, #3b82f6, #2563eb);">
+                        💬 ${this.t('chatWithSeller')}
+                    </button>
+                    ` : ''}
+
                     <!-- Refresh Button -->
                     <button class="binaapp-checkout-btn" onclick="BinaAppDelivery.loadTracking()" style="background:linear-gradient(to right, ${this.config.primaryColor}, ${this.adjustColor(this.config.primaryColor, -20)});">
                         🔄 ${this.t('refresh')}
@@ -2230,7 +2237,15 @@
                     if (createRes.ok) {
                         createdOrder = await createRes.json();
                         this.state.orderNumber = createdOrder.order_number || null;
-                        console.log('[BinaApp] ✅ Order created:', this.state.orderNumber);
+                        this.state.conversationId = createdOrder.conversation_id || null;
+                        this.state.customerId = createdOrder.customer_id || null;
+                        // Store for future orders
+                        if (this.state.customerId) {
+                            localStorage.setItem('binaapp_customer_id', this.state.customerId);
+                            localStorage.setItem('binaapp_customer_phone', customerPhone);
+                            localStorage.setItem('binaapp_customer_name', customerName);
+                        }
+                        console.log('[BinaApp] ✅ Order created:', this.state.orderNumber, 'conversation:', this.state.conversationId);
                     } else {
                         const errorText = await createRes.text();
                         let errorMessage = 'Failed to create order';
@@ -2400,6 +2415,21 @@
             }
         },
 
+        // Open chat with seller
+        openChat: function() {
+            if (!this.state.conversationId || !this.state.customerId) {
+                this.showNotification('Chat tidak tersedia');
+                return;
+            }
+
+            const chatUrl = `${window.location.origin}/chat/${this.state.conversationId}?customer=${this.state.customerId}&name=${encodeURIComponent(localStorage.getItem('binaapp_customer_name') || 'Pelanggan')}`;
+
+            // For now, open in a new tab - later can be a modal
+            window.open(chatUrl, '_blank');
+
+            console.log('[BinaApp] Opening chat:', this.state.conversationId);
+        },
+
         // Show notification
         showNotification: function(message) {
             const notification = document.createElement('div');
@@ -2498,7 +2528,9 @@
                     // Order creation
                     creatingOrder: 'Membuat pesanan',
                     orderCreationFailed: 'Gagal membuat pesanan',
-                    orderCreatedSuccess: 'Pesanan berjaya dibuat!'
+                    orderCreatedSuccess: 'Pesanan berjaya dibuat!',
+                    // Chat
+                    chatWithSeller: 'Chat dengan Penjual'
                 },
                 en: {
                     orderNow: 'Order Now',
@@ -2573,7 +2605,9 @@
                     // Order creation
                     creatingOrder: 'Creating order',
                     orderCreationFailed: 'Failed to create order',
-                    orderCreatedSuccess: 'Order created successfully!'
+                    orderCreatedSuccess: 'Order created successfully!',
+                    // Chat
+                    chatWithSeller: 'Chat with Seller'
                 }
             };
 
