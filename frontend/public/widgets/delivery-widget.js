@@ -2212,8 +2212,8 @@
                             : (fulfillment.pickupAddress || 'Self Pickup'),
                         delivery_notes: deliveryNotes,  // Already converted to string (may be empty)
                         delivery_zone_id: this.state.selectedFulfillment === 'delivery'
-                            ? (this.state.selectedZone ? String(this.state.selectedZone.id) : "")
-                            : "",
+                            ? (this.state.selectedZone ? String(this.state.selectedZone.id) : null)
+                            : null,
                         items: this.state.cart.map(item => ({
                             menu_item_id: item.id,
                             quantity: item.quantity,

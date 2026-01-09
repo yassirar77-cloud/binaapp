@@ -220,15 +220,23 @@ class OrderCreate(BaseModel):
     delivery_latitude: Optional[Decimal] = None
     delivery_longitude: Optional[Decimal] = None
     delivery_notes: str = ""
-    delivery_zone_id: str = ""
+    delivery_zone_id: Optional[str] = None
     items: List[OrderItemCreate] = Field(min_length=1)
     payment_method: PaymentMethod = PaymentMethod.COD
 
-    @field_validator('customer_email', 'delivery_notes', 'delivery_zone_id', mode='before')
+    @field_validator('customer_email', 'delivery_notes', mode='before')
     @classmethod
     def convert_none_to_empty(cls, v):
         """Convert None to empty string for optional string fields"""
         return "" if v is None else str(v)
+
+    @field_validator('delivery_zone_id', mode='before')
+    @classmethod
+    def validate_zone_id(cls, v):
+        """Convert empty string or None to None for optional UUID field"""
+        if v == '' or v is None:
+            return None
+        return str(v)
 
     @field_validator('customer_name', 'delivery_address')
     @classmethod
