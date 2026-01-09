@@ -114,23 +114,41 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const check = async () => {
+      console.log('[Profile] Checking authentication...');
+      console.log('[Profile] Supabase client exists:', !!supabase);
+      console.log('[Profile] NEXT_PUBLIC_SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'SET' : '❌ NOT SET');
+      console.log('[Profile] NEXT_PUBLIC_SUPABASE_ANON_KEY:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'SET' : '❌ NOT SET');
+
       if (!supabase) {
+        console.error('[Profile] ⚠️ Supabase not initialized - missing environment variables!');
+        console.error('[Profile] Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel');
         setState('noauth');
         return;
       }
 
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user }, error } = await supabase.auth.getUser();
+        console.log('[Profile] Auth check result:', {
+          user: user?.email || null,
+          error: error?.message || null
+        });
+
         if (user) {
           setUser(user);
           setState('auth');
+          console.log('[Profile] ✅ User authenticated:', user.email);
+
           const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-          if (data) setProfile({ full_name: data.full_name || '', business_name: data.business_name || '', phone: data.phone || '' });
+          if (data) {
+            setProfile({ full_name: data.full_name || '', business_name: data.business_name || '', phone: data.phone || '' });
+            console.log('[Profile] ✅ Profile data loaded');
+          }
         } else {
+          console.warn('[Profile] ❌ No user found - user needs to log in');
           setState('noauth');
         }
       } catch (error) {
-        console.error('Error checking user:', error);
+        console.error('[Profile] ❌ Error checking user:', error);
         setState('noauth');
       }
     };
@@ -480,16 +498,62 @@ export default function ProfilePage() {
     </div>
   );
 
-  if (state === 'noauth') return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="bg-white p-8 rounded-xl shadow text-center max-w-md w-full">
-        <div className="text-5xl mb-4">🔐</div>
-        <h1 className="text-xl font-bold mb-2">Sila Log Masuk</h1>
-        <p className="text-gray-600 mb-6">Anda perlu log masuk untuk melihat profil</p>
-        <button onClick={() => router.push('/login')} className="w-full py-3 bg-blue-500 text-white rounded-lg">Log Masuk</button>
+  if (state === 'noauth') {
+    // Check if Supabase is configured
+    const isSupabaseConfigured = !!supabase;
+
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <div className="bg-white p-8 rounded-xl shadow text-center max-w-md w-full">
+          {!isSupabaseConfigured ? (
+            // Configuration Error
+            <>
+              <div className="text-5xl mb-4">⚠️</div>
+              <h1 className="text-xl font-bold mb-2 text-red-600">Configuration Error</h1>
+              <p className="text-gray-600 mb-4">
+                Supabase tidak dikonfigurasi dengan betul. Sila hubungi admin.
+              </p>
+              <div className="text-left bg-red-50 border border-red-200 p-4 rounded-lg mb-4">
+                <p className="font-semibold text-sm mb-2">Missing Environment Variables:</p>
+                <ul className="text-xs font-mono space-y-1">
+                  {!process.env.NEXT_PUBLIC_SUPABASE_URL && (
+                    <li className="text-red-600">❌ NEXT_PUBLIC_SUPABASE_URL</li>
+                  )}
+                  {!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && (
+                    <li className="text-red-600">❌ NEXT_PUBLIC_SUPABASE_ANON_KEY</li>
+                  )}
+                </ul>
+              </div>
+              <p className="text-xs text-gray-500">
+                Buka browser console (F12) untuk maklumat lanjut.
+              </p>
+              <button
+                onClick={() => router.push('/')}
+                className="w-full mt-4 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+              >
+                Kembali ke Home
+              </button>
+            </>
+          ) : (
+            // Not Logged In
+            <>
+              <div className="text-5xl mb-4">🔐</div>
+              <h1 className="text-xl font-bold mb-2">Sila Log Masuk</h1>
+              <p className="text-gray-600 mb-6">
+                Anda perlu log masuk untuk melihat profil
+              </p>
+              <button
+                onClick={() => router.push('/login')}
+                className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+              >
+                Log Masuk
+              </button>
+            </>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
