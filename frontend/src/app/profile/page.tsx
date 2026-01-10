@@ -40,7 +40,16 @@ export default function ProfilePage() {
       setLoading(true)
 
       // EXACT SAME METHOD AS MY-PROJECTS PAGE
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+      // Handle auth errors (expired token, invalid session, etc.)
+      if (authError) {
+        console.error('Auth error:', authError)
+        // Clear any stale auth data
+        await supabase.auth.signOut()
+        router.push('/login')
+        return
+      }
 
       if (!user) {
         router.push('/login')
@@ -131,8 +140,16 @@ export default function ProfilePage() {
 
       if (error) {
         console.error('Error loading orders:', error)
+        // Check if it's an auth error
+        if (error.message?.includes('JWT') || error.message?.includes('token')) {
+          console.error('Auth token expired, redirecting to login...')
+          await supabase.auth.signOut()
+          router.push('/login')
+          return
+        }
       } else {
         setOrders(data || [])
+        console.log(`✅ Loaded ${data?.length || 0} orders`)
       }
     } catch (error) {
       console.error('Error loading orders:', error)
