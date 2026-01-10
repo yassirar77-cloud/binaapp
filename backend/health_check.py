@@ -325,7 +325,20 @@ def run_all_checks() -> HealthReport:
 # =============================================================================
 
 def is_telegram_configured() -> bool:
-    return bool(Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_CHAT_ID)
+    """Check if Telegram credentials are configured."""
+    configured = bool(Config.TELEGRAM_BOT_TOKEN and Config.TELEGRAM_CHAT_ID)
+    if not configured:
+        logger.debug("Telegram not configured: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing")
+    return configured
+
+
+def escape_markdown(text: str) -> str:
+    """Escape special Markdown characters for Telegram."""
+    # Characters that need escaping in Telegram Markdown
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
 
 
 def format_telegram_message(report: HealthReport) -> str:
@@ -361,9 +374,11 @@ def format_telegram_message(report: HealthReport) -> str:
         time_str = f" ({check.response_time_ms:.0f}ms)" if check.response_time_ms else ""
         lines.append(f"{check_emoji} {check.name}{time_str}")
 
+    # Escape hostname to prevent Markdown issues
+    hostname = escape_markdown(report.server_info.get('hostname', 'unknown'))
     lines.extend([
         "",
-        f"🖥️ Server: {report.server_info.get('hostname', 'unknown')}",
+        f"🖥️ Server: {hostname}",
         "",
         "_Please investigate if critical._"
     ])
@@ -371,10 +386,10 @@ def format_telegram_message(report: HealthReport) -> str:
     return "\n".join(lines)
 
 
-def send_telegram_alert(report: HealthReport, dry_run: bool = False) -> bool:
-    """Send alert to Telegram."""
+def send_telegram_alert(report: HealthReport, dry_run: bool = False, max_retries: int = 3) -> bool:
+    """Send alert to Telegram with retry logic."""
     if not is_telegram_configured():
-        logger.warning("Telegram not configured")
+        logger.warning("⚠️ Telegram NOT configured - set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
         return False
 
     message = format_telegram_message(report)
@@ -386,26 +401,113 @@ def send_telegram_alert(report: HealthReport, dry_run: bool = False) -> bool:
         print("=" * 50 + "\n")
         return True
 
+    url = f"https://api.telegram.org/bot{Config.TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        'chat_id': Config.TELEGRAM_CHAT_ID,
+        'text': message,
+        'parse_mode': 'Markdown',
+        'disable_web_page_preview': True
+    }
+
+    import time
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.debug(f"Telegram send attempt {attempt}/{max_retries}")
+            response = requests.post(url, json=payload, timeout=10)
+
+            if response.status_code == 200:
+                logger.info("✅ Telegram alert sent successfully!")
+                return True
+            else:
+                # Log full error details
+                error_detail = response.text[:200] if response.text else "No response body"
+                logger.error(f"Telegram API error (attempt {attempt}): HTTP {response.status_code}")
+                logger.error(f"Telegram error details: {error_detail}")
+
+                # Don't retry on auth errors (wrong token/chat_id)
+                if response.status_code in [400, 401, 403, 404]:
+                    logger.error("❌ Telegram config error - check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
+                    return False
+
+        except requests.exceptions.Timeout:
+            logger.warning(f"Telegram timeout (attempt {attempt}/{max_retries})")
+        except requests.exceptions.ConnectionError as e:
+            logger.warning(f"Telegram connection error (attempt {attempt}): {str(e)[:100]}")
+        except Exception as e:
+            logger.error(f"Telegram unexpected error (attempt {attempt}): {e}")
+
+        if attempt < max_retries:
+            wait_time = 2 ** attempt  # Exponential backoff: 2, 4, 8 seconds
+            logger.info(f"Retrying in {wait_time}s...")
+            time.sleep(wait_time)
+
+    logger.error(f"❌ Failed to send Telegram alert after {max_retries} attempts")
+    return False
+
+
+def send_test_telegram_message() -> bool:
+    """Send a test message to verify Telegram configuration."""
+    if not is_telegram_configured():
+        print("\n❌ ERROR: Telegram is NOT configured!")
+        print("   Set these environment variables:")
+        print("   - TELEGRAM_BOT_TOKEN: Get from @BotFather on Telegram")
+        print("   - TELEGRAM_CHAT_ID: Your chat/group ID")
+        print("\n   To get your chat ID:")
+        print("   1. Message your bot on Telegram")
+        print("   2. Visit: https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates")
+        print("   3. Look for 'chat': {'id': YOUR_CHAT_ID}")
+        return False
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    hostname = os.uname().nodename if hasattr(os, 'uname') else 'unknown'
+
+    message = (
+        "🧪 *BINAAPP TEST MESSAGE*\n\n"
+        "✅ Telegram integration is working\\!\n\n"
+        f"⏰ Time: {timestamp}\n"
+        f"🖥️ Server: {escape_markdown(hostname)}\n\n"
+        "_This is a test message from health\\_check\\.py_"
+    )
+
     try:
         url = f"https://api.telegram.org/bot{Config.TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             'chat_id': Config.TELEGRAM_CHAT_ID,
             'text': message,
-            'parse_mode': 'Markdown',
+            'parse_mode': 'MarkdownV2',
             'disable_web_page_preview': True
         }
 
         response = requests.post(url, json=payload, timeout=10)
 
         if response.status_code == 200:
-            logger.info("✅ Telegram alert sent!")
+            print("\n✅ SUCCESS! Test message sent to Telegram!")
+            print(f"   Bot Token: {Config.TELEGRAM_BOT_TOKEN[:10]}...{Config.TELEGRAM_BOT_TOKEN[-5:]}")
+            print(f"   Chat ID: {Config.TELEGRAM_CHAT_ID}")
             return True
         else:
-            logger.error(f"Telegram error: {response.status_code}")
+            print(f"\n❌ FAILED! Telegram API error: {response.status_code}")
+            print(f"   Response: {response.text[:300]}")
+
+            # Provide helpful hints based on error code
+            if response.status_code == 400:
+                print("\n   Hint: Bad request - check your chat ID format")
+            elif response.status_code == 401:
+                print("\n   Hint: Unauthorized - your bot token is invalid")
+            elif response.status_code == 403:
+                print("\n   Hint: Forbidden - bot may be blocked or chat ID is wrong")
+            elif response.status_code == 404:
+                print("\n   Hint: Not found - bot token doesn't exist")
             return False
 
+    except requests.exceptions.Timeout:
+        print("\n❌ FAILED! Connection timeout to Telegram API")
+        return False
+    except requests.exceptions.ConnectionError as e:
+        print(f"\n❌ FAILED! Connection error: {str(e)[:100]}")
+        return False
     except Exception as e:
-        logger.error(f"Failed to send Telegram: {e}")
+        print(f"\n❌ FAILED! Unexpected error: {e}")
         return False
 
 
@@ -447,18 +549,71 @@ def get_exit_code(status: Status) -> int:
 # MAIN
 # =============================================================================
 
+def print_telegram_status():
+    """Print current Telegram configuration status."""
+    print("\n📱 Telegram Configuration Status:")
+    print("-" * 40)
+
+    if Config.TELEGRAM_BOT_TOKEN:
+        masked_token = f"{Config.TELEGRAM_BOT_TOKEN[:10]}...{Config.TELEGRAM_BOT_TOKEN[-5:]}"
+        print(f"   TELEGRAM_BOT_TOKEN: {masked_token}")
+    else:
+        print("   TELEGRAM_BOT_TOKEN: ❌ NOT SET")
+
+    if Config.TELEGRAM_CHAT_ID:
+        print(f"   TELEGRAM_CHAT_ID: {Config.TELEGRAM_CHAT_ID}")
+    else:
+        print("   TELEGRAM_CHAT_ID: ❌ NOT SET")
+
+    if is_telegram_configured():
+        print("\n   ✅ Telegram is configured")
+    else:
+        print("\n   ⚠️ Telegram is NOT configured - alerts will not be sent!")
+        print("   Run with --test after setting env vars to verify")
+    print("-" * 40)
+
+
 def main() -> int:
     """Main entry point."""
-    parser = argparse.ArgumentParser(description='BinaApp Health Check')
+    parser = argparse.ArgumentParser(
+        description='BinaApp Health Check - Monitor services and send Telegram alerts',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python health_check.py              # Run checks, alert only on CRITICAL
+  python health_check.py --test       # Test Telegram connection
+  python health_check.py --force      # Always send Telegram alert
+  python health_check.py --dry-run    # Show what would be sent without sending
+  python health_check.py --json       # Output as JSON
+
+Environment Variables Required:
+  TELEGRAM_BOT_TOKEN  - Get from @BotFather on Telegram
+  TELEGRAM_CHAT_ID    - Your chat or group ID
+        """
+    )
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
-    parser.add_argument('--dry-run', action='store_true', help='Do not send alerts')
+    parser.add_argument('--dry-run', action='store_true', help='Show message without sending')
     parser.add_argument('--json', action='store_true', help='Output as JSON')
     parser.add_argument('--quiet', '-q', action='store_true', help='Minimal output')
+    parser.add_argument('--test', '-t', action='store_true', help='Send test message to Telegram')
+    parser.add_argument('--force', '-f', action='store_true', help='Always send Telegram alert (not just on CRITICAL)')
+    parser.add_argument('--status', '-s', action='store_true', help='Show Telegram configuration status')
 
     args = parser.parse_args()
 
     global logger
     logger = setup_logging(verbose=args.verbose)
+
+    # Show Telegram status
+    if args.status:
+        print_telegram_status()
+        return 0
+
+    # Test mode - just send test message
+    if args.test:
+        print_telegram_status()
+        success = send_test_telegram_message()
+        return 0 if success else 1
 
     try:
         report = run_all_checks()
@@ -467,6 +622,7 @@ def main() -> int:
             output = {
                 'status': report.overall_status.value,
                 'timestamp': report.timestamp.isoformat(),
+                'telegram_configured': is_telegram_configured(),
                 'checks': [
                     {
                         'name': c.name,
@@ -480,11 +636,23 @@ def main() -> int:
             print(json.dumps(output, indent=2))
         elif not args.quiet:
             print_report(report, verbose=args.verbose)
+            # Show Telegram status in verbose mode
+            if args.verbose:
+                print_telegram_status()
 
-        # Send Telegram ONLY if CRITICAL
-        if report.overall_status == Status.CRITICAL:
-            logger.warning("🚨 CRITICAL - Sending Telegram alert")
-            send_telegram_alert(report, dry_run=args.dry_run)
+        # Determine if we should send alert
+        should_send = False
+        if args.force:
+            should_send = True
+            logger.info("📤 Sending Telegram alert (--force flag)")
+        elif report.overall_status == Status.CRITICAL:
+            should_send = True
+            logger.warning("🚨 CRITICAL status - Sending Telegram alert")
+
+        if should_send:
+            success = send_telegram_alert(report, dry_run=args.dry_run)
+            if not success and not args.dry_run:
+                logger.warning("⚠️ Telegram alert was not sent - check configuration")
 
         return get_exit_code(report.overall_status)
 
