@@ -30,6 +30,31 @@ export default function ProfilePage() {
     loadUserData()
   }, [])
 
+  // Set up auth state listener for mobile browsers
+  useEffect(() => {
+    if (!supabase) return
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('[Profile] Auth event:', event, 'Has session:', !!session)
+
+        if (event === 'SIGNED_OUT') {
+          router.push('/login')
+        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          if (session?.user) {
+            setUser(session.user)
+            // Reload data after sign in
+            loadUserData()
+          }
+        }
+      }
+    )
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [supabase, router])
+
   useEffect(() => {
     if (user && websites.length > 0) {
       loadOrders()
@@ -46,30 +71,58 @@ export default function ProfilePage() {
     try {
       setLoading(true)
 
-      // EXACT SAME METHOD AS MY-PROJECTS PAGE
-      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      // MOBILE FIX: Try to get session first
+      console.log('[Profile] Checking auth session...')
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
 
-      // Handle auth errors (expired token, invalid session, etc.)
-      if (authError) {
-        console.error('Auth error:', authError)
-        // Clear any stale auth data
+      // If no session, try to refresh (crucial for mobile browsers)
+      if (!session && !sessionError) {
+        console.log('[Profile] No session found, attempting refresh...')
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+
+        if (refreshError) {
+          console.error('[Profile] Refresh error:', refreshError)
+          // Don't redirect immediately - wait a moment for client hydration
+          setTimeout(() => {
+            router.push('/login')
+          }, 500)
+          return
+        }
+
+        if (refreshData.session?.user) {
+          console.log('[Profile] ✅ Session refreshed successfully')
+          setUser(refreshData.session.user)
+        } else {
+          console.log('[Profile] No session after refresh, redirecting...')
+          setTimeout(() => {
+            router.push('/login')
+          }, 500)
+          return
+        }
+      } else if (sessionError) {
+        console.error('[Profile] Session error:', sessionError)
         await supabase.auth.signOut()
         router.push('/login')
         return
-      }
-
-      if (!user) {
-        router.push('/login')
+      } else if (session?.user) {
+        console.log('[Profile] ✅ Session found:', session.user.email)
+        setUser(session.user)
+      } else {
+        console.log('[Profile] No user in session, redirecting...')
+        setTimeout(() => {
+          router.push('/login')
+        }, 500)
         return
       }
 
-      setUser(user)
+      const currentUser = session?.user
+      if (!currentUser) return
 
       // Load profile
       const { data: profileData } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', user.id)
+        .eq('id', currentUser.id)
         .maybeSingle()
 
       if (profileData) {
@@ -84,7 +137,7 @@ export default function ProfilePage() {
       const { data: websitesData } = await supabase
         .from('websites')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', currentUser.id)
         .order('created_at', { ascending: false })
 
       setWebsites(websitesData || [])
@@ -300,7 +353,11 @@ export default function ProfilePage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-600 text-sm">Memeriksa sesi...</p>
+          <p className="text-gray-400 text-xs mt-2">Sila tunggu sebentar</p>
+        </div>
       </div>
     )
   }
