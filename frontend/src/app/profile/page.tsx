@@ -5,6 +5,11 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
+import dynamic from 'next/dynamic'
+
+// Dynamically import chat components to avoid SSR issues
+const ChatList = dynamic(() => import('@/components/ChatList'), { ssr: false })
+const BinaChat = dynamic(() => import('@/components/BinaChat'), { ssr: false })
 
 export default function ProfilePage() {
   const router = useRouter()
@@ -16,8 +21,10 @@ export default function ProfilePage() {
   const [websites, setWebsites] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
   const [riders, setRiders] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'websites' | 'orders'>('websites')
+  const [activeTab, setActiveTab] = useState<'websites' | 'orders' | 'chat'>('websites')
   const [loadingOrders, setLoadingOrders] = useState(false)
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
+  const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     loadUserData()
@@ -185,24 +192,32 @@ export default function ProfilePage() {
     if (!supabase) return
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('delivery_orders')
         .update({
           status: 'confirmed',
           confirmed_at: new Date().toISOString()
         })
         .eq('id', orderId)
+        .select()
 
       if (error) {
         console.error('Error confirming order:', error)
-        alert('❌ Gagal mengesahkan pesanan')
+        console.error('Error details:', JSON.stringify(error, null, 2))
+        alert(`❌ Gagal mengesahkan pesanan\n\nError: ${error.message}\n\nCode: ${error.code}\n\nSila check console untuk details.`)
+
+        // Check if it's an RLS/permission error
+        if (error.code === 'PGRST301' || error.message?.includes('policy')) {
+          alert('⚠️ RLS Policy Issue: Sila run migration 006_fix_owner_orders_access.sql di Supabase SQL Editor')
+        }
       } else {
+        console.log('✅ Order confirmed successfully:', data)
         alert('✅ Pesanan disahkan!')
         loadOrders()
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error confirming order:', error)
-      alert('❌ Gagal mengesahkan pesanan')
+      alert(`❌ Gagal mengesahkan pesanan\n\nError: ${error?.message || 'Unknown error'}\n\nSila check console.`)
     }
   }
 
@@ -213,24 +228,27 @@ export default function ProfilePage() {
     if (!reason) return
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('delivery_orders')
         .update({
           status: 'cancelled',
           cancelled_at: new Date().toISOString()
         })
         .eq('id', orderId)
+        .select()
 
       if (error) {
         console.error('Error rejecting order:', error)
-        alert('❌ Gagal menolak pesanan')
+        console.error('Error details:', JSON.stringify(error, null, 2))
+        alert(`❌ Gagal menolak pesanan\n\nError: ${error.message}`)
       } else {
+        console.log('✅ Order rejected successfully:', data)
         alert('✅ Pesanan ditolak')
         loadOrders()
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error rejecting order:', error)
-      alert('❌ Gagal menolak pesanan')
+      alert(`❌ Gagal menolak pesanan\n\nError: ${error?.message || 'Unknown error'}`)
     }
   }
 
@@ -238,24 +256,27 @@ export default function ProfilePage() {
     if (!supabase) return
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('delivery_orders')
         .update({
           status: 'assigned',
           rider_id: riderId
         })
         .eq('id', orderId)
+        .select()
 
       if (error) {
         console.error('Error assigning rider:', error)
-        alert('❌ Gagal assign rider')
+        console.error('Error details:', JSON.stringify(error, null, 2))
+        alert(`❌ Gagal assign rider\n\nError: ${error.message}`)
       } else {
+        console.log('✅ Rider assigned successfully:', data)
         alert('✅ Rider ditetapkan!')
         loadOrders()
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error assigning rider:', error)
-      alert('❌ Gagal assign rider')
+      alert(`❌ Gagal assign rider\n\nError: ${error?.message || 'Unknown error'}`)
     }
   }
 
@@ -393,6 +414,16 @@ export default function ProfilePage() {
                 }`}
               >
                 📦 Pesanan ({orders.filter(o => o.status === 'pending').length} baru)
+              </button>
+              <button
+                onClick={() => setActiveTab('chat')}
+                className={`px-6 py-3 font-medium transition-colors ${
+                  activeTab === 'chat'
+                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                💬 Chat
               </button>
             </div>
 
@@ -624,6 +655,64 @@ export default function ProfilePage() {
                         </div>
                       )
                     })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Chat Tab */}
+            {activeTab === 'chat' && (
+              <div>
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-2xl font-bold">💬 Chat Pelanggan</h2>
+                </div>
+
+                {websites.length === 0 ? (
+                  <div className="text-center py-12">
+                    <div className="text-6xl mb-4">🌐</div>
+                    <p className="text-gray-500 mb-4">Tiada website untuk chat</p>
+                    <Link href="/create" className="inline-block bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600">
+                      ✨ Bina Website Sekarang
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="flex h-[600px] border rounded-lg overflow-hidden bg-white">
+                    {/* Chat List - Left Panel */}
+                    <div className="w-80 border-r bg-gray-50">
+                      {websites.length > 0 && (
+                        <ChatList
+                          websiteId={websites[0].id}
+                          onSelectConversation={(conversationId: string, orderId?: string) => {
+                            setSelectedConversationId(conversationId)
+                            setSelectedOrderId(orderId)
+                          }}
+                          selectedConversationId={selectedConversationId || undefined}
+                          className="h-full"
+                        />
+                      )}
+                    </div>
+
+                    {/* Chat Area - Right Panel */}
+                    <div className="flex-1 bg-white">
+                      {selectedConversationId && websites.length > 0 ? (
+                        <BinaChat
+                          conversationId={selectedConversationId}
+                          userType="owner"
+                          userId={websites[0].id}
+                          userName={profile.business_name || profile.full_name || 'Pemilik Kedai'}
+                          orderId={selectedOrderId}
+                          showMap={true}
+                          className="h-full"
+                        />
+                      ) : (
+                        <div className="h-full flex items-center justify-center text-gray-500">
+                          <div className="text-center">
+                            <div className="text-6xl mb-4">💬</div>
+                            <p className="text-lg">Pilih perbualan untuk mula chat</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
