@@ -11,6 +11,14 @@ export const supabase =
           persistSession: true,
           detectSessionInUrl: true,
           storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+          // Mobile browser support
+          flowType: 'pkce', // Better for mobile browsers
+          debug: process.env.NODE_ENV === 'development',
+        },
+        global: {
+          headers: {
+            'X-Client-Info': 'binaapp-web',
+          },
         },
       })
     : null
