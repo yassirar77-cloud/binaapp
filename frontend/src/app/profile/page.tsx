@@ -667,6 +667,25 @@ export default function ProfilePage() {
                   <h2 className="text-2xl font-bold">💬 Chat Pelanggan</h2>
                 </div>
 
+                {/* Info Banner about Chat Setup */}
+                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <span className="text-2xl">💡</span>
+                    <div className="flex-1">
+                      <h3 className="font-bold text-blue-900 mb-1">Chat System Setup Required</h3>
+                      <p className="text-sm text-blue-800 mb-2">
+                        To enable real-time messaging with customers, run the chat migration in Supabase:
+                      </p>
+                      <code className="text-xs bg-white px-2 py-1 rounded border border-blue-300 block mb-2">
+                        backend/migrations/004_chat_system.sql
+                      </code>
+                      <p className="text-xs text-blue-700">
+                        After migration, refresh this page to start chatting with customers!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 {websites.length === 0 ? (
                   <div className="text-center py-12">
                     <div className="text-6xl mb-4">🌐</div>
