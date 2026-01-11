@@ -16,6 +16,7 @@ requests
 # Authentication & Security
 python-jose[cryptography]
 passlib[bcrypt]
+bcrypt==4.1.2
 python-dotenv
 
 # AI Integration

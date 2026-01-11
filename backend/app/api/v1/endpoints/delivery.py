@@ -13,6 +13,7 @@ from datetime import datetime
 from pydantic import BaseModel
 import os
 from supabase import create_client
+import bcrypt
 
 from app.core.supabase import get_supabase_client
 from app.models.delivery_schemas import (
@@ -92,6 +93,25 @@ def convert_db_row_to_dict(row: dict) -> dict:
         else:
             result[key] = value
     return result
+
+
+def hash_password(password: str) -> str:
+    """Hash password using bcrypt"""
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify password against hash"""
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode('utf-8'),
+            hashed_password.encode('utf-8')
+        )
+    except Exception as e:
+        logger.error(f"Password verification error: {e}")
+        return False
 
 
 # =====================================================
@@ -1013,6 +1033,12 @@ async def create_rider(
     try:
         data = rider.dict()
         data["website_id"] = website_id
+
+        # Hash password before storing (SECURITY FIX)
+        if "password" in data and data["password"]:
+            data["password"] = hash_password(data["password"])
+            logger.info(f"Creating rider with hashed password")
+
         resp = supabase.table("riders").insert(data).execute()
         if not resp.data:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create rider")
@@ -1310,6 +1336,12 @@ async def create_website_rider(
     try:
         data = rider.dict()
         data["website_id"] = website_id
+
+        # Hash password before storing (SECURITY FIX)
+        if "password" in data and data["password"]:
+            data["password"] = hash_password(data["password"])
+            logger.info(f"Creating rider with hashed password")
+
         resp = supabase.table("riders").insert(data).execute()
         if not resp.data:
             raise HTTPException(
@@ -2057,9 +2089,9 @@ async def rider_login(
                 detail="Akaun rider tidak aktif. Sila hubungi pentadbir."
             )
 
-        # Verify password (simple comparison - in production, use bcrypt)
+        # Verify password using bcrypt (SECURITY FIX)
         stored_password = rider.get("password", "")
-        if stored_password != credentials.password:
+        if not verify_password(credentials.password, stored_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Nombor telefon atau kata laluan salah"

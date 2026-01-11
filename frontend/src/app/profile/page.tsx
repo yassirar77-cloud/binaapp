@@ -22,12 +22,14 @@ export default function ProfilePage() {
   const [websites, setWebsites] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
   const [riders, setRiders] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'websites' | 'orders' | 'chat'>('websites')
+  const [activeTab, setActiveTab] = useState<'websites' | 'orders' | 'riders' | 'chat'>('websites')
   const [loadingOrders, setLoadingOrders] = useState(false)
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>(undefined)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showChatList, setShowChatList] = useState(true)
+  const [showAddRider, setShowAddRider] = useState(false)
+  const [editingRider, setEditingRider] = useState<any>(null)
 
   // Load Eruda console for mobile debugging
   useEffect(() => {
@@ -240,22 +242,19 @@ export default function ProfilePage() {
   }
 
   async function loadRiders() {
-    if (!supabase || websites.length === 0) return
+    if (websites.length === 0) return
 
     try {
-      const websiteIds = websites.map(w => w.id)
+      const websiteId = websites[0].id
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/admin/websites/${websiteId}/riders`
+      )
 
-      const { data, error } = await supabase
-        .from('riders')
-        .select('*')
-        .or(`website_id.in.(${websiteIds.join(',')}),website_id.is.null`)
-        .eq('is_active', true)
-        .order('name')
-
-      if (error) {
-        console.error('Error loading riders:', error)
-      } else {
+      if (response.ok) {
+        const data = await response.json()
         setRiders(data || [])
+      } else {
+        console.error('Error loading riders:', response.statusText)
       }
     } catch (error) {
       console.error('Error loading riders:', error)
@@ -369,6 +368,203 @@ export default function ProfilePage() {
     }
     const badge = badges[status] || { label: status, color: 'bg-gray-100 text-gray-800' }
     return <span className={`px-3 py-1 rounded-full text-xs font-medium ${badge.color}`}>{badge.label}</span>
+  }
+
+  // Rider Form Component
+  function AddRiderForm({ websiteId, editData, onSuccess, onCancel }: any) {
+    const [formData, setFormData] = useState(editData || {
+      name: '',
+      email: '',
+      phone: '',
+      password: '',
+      vehicle_type: 'motorcycle',
+      vehicle_plate: '',
+      vehicle_model: '',
+      is_active: true
+    })
+    const [loading, setLoading] = useState(false)
+
+    async function handleSubmit(e: React.FormEvent) {
+      e.preventDefault()
+      setLoading(true)
+
+      try {
+        const url = editData
+          ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/riders/${editData.id}`
+          : `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/admin/websites/${websiteId}/riders`
+
+        const method = editData ? 'PUT' : 'POST'
+
+        const response = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
+        })
+
+        if (response.ok) {
+          alert(editData ? 'Rider dikemaskini!' : 'Rider berjaya ditambah!')
+          onSuccess()
+        } else {
+          const error = await response.json()
+          alert('Gagal: ' + (error.detail || 'Sila cuba lagi'))
+        }
+      } catch (error) {
+        console.error('Error:', error)
+        alert('Ralat sistem. Sila cuba lagi.')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    return (
+      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-lg p-6 space-y-4">
+        <h3 className="text-xl font-bold text-gray-900 mb-4">
+          {editData ? '✏️ Edit Rider' : '➕ Tambah Rider Baru'}
+        </h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Name */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Nama Penuh *
+            </label>
+            <input
+              type="text"
+              required
+              value={formData.name}
+              onChange={(e) => setFormData({...formData, name: e.target.value})}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              placeholder="Ahmad bin Ali"
+            />
+          </div>
+
+          {/* Phone */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              No. Telefon *
+            </label>
+            <input
+              type="tel"
+              required
+              value={formData.phone}
+              onChange={(e) => setFormData({...formData, phone: e.target.value})}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              placeholder="0123456789"
+            />
+          </div>
+
+          {/* Email */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Email (pilihan)
+            </label>
+            <input
+              type="email"
+              value={formData.email || ''}
+              onChange={(e) => setFormData({...formData, email: e.target.value})}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              placeholder="rider@example.com"
+            />
+          </div>
+
+          {/* Password - only show for new riders */}
+          {!editData && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Kata Laluan *
+              </label>
+              <input
+                type="password"
+                required
+                value={formData.password}
+                onChange={(e) => setFormData({...formData, password: e.target.value})}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                placeholder="Min 6 aksara"
+                minLength={6}
+              />
+            </div>
+          )}
+
+          {/* Vehicle Type */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Jenis Kenderaan *
+            </label>
+            <select
+              required
+              value={formData.vehicle_type}
+              onChange={(e) => setFormData({...formData, vehicle_type: e.target.value})}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+            >
+              <option value="motorcycle">🏍️ Motosikal</option>
+              <option value="car">🚗 Kereta</option>
+              <option value="bicycle">🚲 Basikal</option>
+              <option value="scooter">🛴 Skuter</option>
+            </select>
+          </div>
+
+          {/* Vehicle Plate */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              No. Plat Kenderaan *
+            </label>
+            <input
+              type="text"
+              required
+              value={formData.vehicle_plate}
+              onChange={(e) => setFormData({...formData, vehicle_plate: e.target.value.toUpperCase()})}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              placeholder="ABC1234"
+            />
+          </div>
+
+          {/* Vehicle Model */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Model Kenderaan (pilihan)
+            </label>
+            <input
+              type="text"
+              value={formData.vehicle_model || ''}
+              onChange={(e) => setFormData({...formData, vehicle_model: e.target.value})}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              placeholder="Honda Wave 125"
+            />
+          </div>
+
+          {/* Active Status */}
+          <div className="flex items-center">
+            <input
+              type="checkbox"
+              id="is_active"
+              checked={formData.is_active}
+              onChange={(e) => setFormData({...formData, is_active: e.target.checked})}
+              className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+            />
+            <label htmlFor="is_active" className="ml-2 text-sm font-medium text-gray-700">
+              Aktif (boleh terima pesanan)
+            </label>
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-4">
+          <button
+            type="submit"
+            disabled={loading}
+            className="flex-1 bg-orange-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-orange-700 disabled:opacity-50 min-h-[44px]"
+          >
+            {loading ? 'Menyimpan...' : (editData ? 'Kemaskini' : 'Tambah Rider')}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-6 py-3 border border-gray-300 rounded-lg font-semibold hover:bg-gray-50 min-h-[44px]"
+          >
+            Batal
+          </button>
+        </div>
+      </form>
+    )
   }
 
   // Show loading while checking authentication
@@ -551,6 +747,16 @@ export default function ProfilePage() {
                 }`}
               >
                 📦 <span className="hidden sm:inline">Pesanan </span>({orders.filter(o => o.status === 'pending').length})
+              </button>
+              <button
+                onClick={() => setActiveTab('riders')}
+                className={`px-4 md:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm md:text-base min-h-[44px] ${
+                  activeTab === 'riders'
+                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                🛵 <span className="hidden sm:inline">Rider </span>({riders.length})
               </button>
               <button
                 onClick={() => setActiveTab('chat')}
@@ -793,6 +999,187 @@ export default function ProfilePage() {
                       )
                     })}
                   </div>
+                )}
+              </div>
+            )}
+
+            {/* Riders Tab */}
+            {activeTab === 'riders' && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">🛵 Pengurusan Rider</h2>
+                    <p className="text-gray-600 mt-1">
+                      Urus rider untuk penghantaran pesanan
+                    </p>
+                  </div>
+
+                  {!showAddRider && !editingRider && (
+                    <button
+                      onClick={() => setShowAddRider(true)}
+                      className="bg-orange-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-orange-700 flex items-center gap-2 min-h-[44px]"
+                    >
+                      ➕ Tambah Rider
+                    </button>
+                  )}
+                </div>
+
+                {/* Add/Edit Form */}
+                {(showAddRider || editingRider) && (
+                  <AddRiderForm
+                    websiteId={websites[0]?.id}
+                    editData={editingRider}
+                    onSuccess={() => {
+                      setShowAddRider(false)
+                      setEditingRider(null)
+                      loadRiders()
+                    }}
+                    onCancel={() => {
+                      setShowAddRider(false)
+                      setEditingRider(null)
+                    }}
+                  />
+                )}
+
+                {/* Riders List */}
+                {!showAddRider && !editingRider && (
+                  <>
+                    {riders.length === 0 ? (
+                      <div className="text-center py-12 bg-gray-50 rounded-lg">
+                        <div className="text-6xl mb-4">🛵</div>
+                        <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                          Tiada Rider Lagi
+                        </h3>
+                        <p className="text-gray-600 mb-6">
+                          Tambah rider pertama anda untuk mula mengurus penghantaran
+                        </p>
+                        <button
+                          onClick={() => setShowAddRider(true)}
+                          className="bg-orange-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-orange-700 inline-flex items-center gap-2 min-h-[44px]"
+                        >
+                          ➕ Tambah Rider Pertama
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {riders.map((rider) => (
+                          <div
+                            key={rider.id}
+                            className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow"
+                          >
+                            {/* Rider Header */}
+                            <div className="flex items-start justify-between mb-4">
+                              <div>
+                                <h3 className="text-lg font-bold text-gray-900">{rider.name}</h3>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                                    rider.is_online
+                                      ? 'bg-green-100 text-green-800'
+                                      : rider.is_active
+                                      ? 'bg-gray-100 text-gray-800'
+                                      : 'bg-red-100 text-red-800'
+                                  }`}>
+                                    {rider.is_online ? '🟢 Online' : rider.is_active ? '⚪ Offline' : '🔴 Tidak Aktif'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setEditingRider(rider)}
+                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg min-h-[44px] min-w-[44px]"
+                                  title="Edit"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    if (confirm(`Nyahaktifkan ${rider.name}?`)) {
+                                      try {
+                                        const response = await fetch(
+                                          `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/riders/${rider.id}`,
+                                          {
+                                            method: 'PUT',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ is_active: false })
+                                          }
+                                        )
+                                        if (response.ok) {
+                                          alert('Rider dinyahaktifkan')
+                                          loadRiders()
+                                        } else {
+                                          alert('Gagal menyahaktifkan rider')
+                                        }
+                                      } catch (error) {
+                                        console.error('Error:', error)
+                                        alert('Ralat sistem')
+                                      }
+                                    }
+                                  }}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg min-h-[44px] min-w-[44px]"
+                                  title="Nyahaktif"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Rider Info */}
+                            <div className="space-y-2 text-sm">
+                              <div className="flex items-center gap-2 text-gray-700">
+                                <span>📱</span>
+                                <a href={`tel:${rider.phone}`} className="hover:text-orange-600">
+                                  {rider.phone}
+                                </a>
+                              </div>
+
+                              {rider.email && (
+                                <div className="flex items-center gap-2 text-gray-700">
+                                  <span>📧</span>
+                                  <span className="truncate">{rider.email}</span>
+                                </div>
+                              )}
+
+                              <div className="flex items-center gap-2 text-gray-700">
+                                <span>
+                                  {rider.vehicle_type === 'motorcycle' ? '🏍️' :
+                                   rider.vehicle_type === 'car' ? '🚗' :
+                                   rider.vehicle_type === 'bicycle' ? '🚲' : '🛴'}
+                                </span>
+                                <span className="font-semibold">{rider.vehicle_plate}</span>
+                                {rider.vehicle_model && (
+                                  <span className="text-gray-500">• {rider.vehicle_model}</span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2 text-gray-700 pt-2 border-t">
+                                <span>📊</span>
+                                <span><strong>{rider.total_deliveries || 0}</strong> penghantaran selesai</span>
+                              </div>
+                            </div>
+
+                            {/* Quick Actions */}
+                            <div className="flex gap-2 mt-4 pt-4 border-t">
+                              <a
+                                href={`tel:${rider.phone}`}
+                                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg text-center text-sm font-semibold hover:bg-blue-700 min-h-[44px] flex items-center justify-center"
+                              >
+                                📞 Call
+                              </a>
+                              <a
+                                href={`https://wa.me/${rider.phone.replace(/^0/, '60')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg text-center text-sm font-semibold hover:bg-green-700 min-h-[44px] flex items-center justify-center"
+                              >
+                                💬 WhatsApp
+                              </a>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
