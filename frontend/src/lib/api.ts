@@ -1,10 +1,41 @@
+import { supabase } from './supabase'
+
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   'https://binaapp-backend.onrender.com'
 
+/**
+ * Get current auth token from Supabase session
+ * CRITICAL: Mobile browsers block cross-domain cookies, so we MUST
+ * send JWT token in Authorization header for all API requests
+ */
+async function getAuthToken(): Promise<string | null> {
+  if (!supabase) return null
+
+  try {
+    const { data: { session }, error } = await supabase.auth.getSession()
+
+    if (error) {
+      console.error('[API] Error getting session:', error)
+      return null
+    }
+
+    if (session?.access_token) {
+      return session.access_token
+    }
+
+    // Try to refresh if no session
+    const { data: refreshData } = await supabase.auth.refreshSession()
+    return refreshData.session?.access_token || null
+  } catch (err) {
+    console.error('[API] Error getting auth token:', err)
+    return null
+  }
+}
+
 export async function apiFetch(
   path: string,
-  options?: RequestInit & { timeout?: number }
+  options?: RequestInit & { timeout?: number; skipAuth?: boolean }
 ) {
   // Default timeout: 2 minutes for mobile compatibility
   const timeout = options?.timeout || 120000
@@ -13,6 +44,19 @@ export async function apiFetch(
 
   try {
     const extraHeaders = (options?.headers || {}) as Record<string, string>
+
+    // CRITICAL FIX: Get JWT token and add to Authorization header
+    // This works on mobile browsers where cookies are blocked
+    if (!options?.skipAuth) {
+      const token = await getAuthToken()
+      if (token) {
+        extraHeaders['Authorization'] = `Bearer ${token}`
+        console.log('[API] Added Authorization header for:', path)
+      } else {
+        console.warn('[API] No auth token available for:', path)
+      }
+    }
+
     const res = await fetch(`${API_BASE}${path}`, {
       headers: {
         'Content-Type': 'application/json',
@@ -26,6 +70,7 @@ export async function apiFetch(
 
     if (!res.ok) {
       const text = await res.text()
+      console.error('[API] Request failed:', res.status, text)
       throw new Error(text || 'API request failed')
     }
 
