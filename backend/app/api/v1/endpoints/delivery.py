@@ -13,6 +13,7 @@ from datetime import datetime
 from pydantic import BaseModel
 import os
 from supabase import create_client
+import bcrypt
 
 from app.core.supabase import get_supabase_client
 from app.models.delivery_schemas import (
@@ -40,6 +41,11 @@ from app.models.delivery_schemas import (
     AssignRiderRequest,
     DeliverySettingsResponse,
     DeliverySettingsUpdate,
+)
+from app.utils.whatsapp import (
+    notify_owner_new_order,
+    notify_rider_assigned,
+    notify_customer_status_update,
 )
 
 router = APIRouter(prefix="/delivery", tags=["Delivery System"])
@@ -92,6 +98,25 @@ def convert_db_row_to_dict(row: dict) -> dict:
         else:
             result[key] = value
     return result
+
+
+def hash_password(password: str) -> str:
+    """Hash password using bcrypt"""
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed.decode('utf-8')
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify password against hash"""
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode('utf-8'),
+            hashed_password.encode('utf-8')
+        )
+    except Exception as e:
+        logger.error(f"Password verification error: {e}")
+        return False
 
 
 # =====================================================
@@ -576,6 +601,25 @@ async def create_order(
                 body=f"{order.customer_name} - RM{total_amount:.2f}"
             )
 
+            # NEW: Send WhatsApp notification to owner
+            try:
+                # Get owner's phone number
+                owner_profile = supabase.table("profiles").select("phone").eq("id", owner_id).single().execute()
+                if owner_profile.data and owner_profile.data.get("phone"):
+                    notify_owner_new_order(
+                        owner_phone=owner_profile.data["phone"],
+                        order_number=created_order['order_number'],
+                        customer_name=order.customer_name,
+                        customer_phone=order.customer_phone,
+                        total_amount=float(total_amount),
+                        items=order_items_data,
+                        delivery_address=order.delivery_address
+                    )
+                    logger.info(f"📱 WhatsApp notification sent to owner for order {created_order['order_number']}")
+            except Exception as wa_error:
+                logger.warning(f"⚠️ Failed to send WhatsApp to owner: {wa_error}")
+                # Don't fail the order creation if WhatsApp fails
+
         logger.info(f"✅ Order created: {created_order['order_number']} - Total: RM{total_amount}")
 
         # 9. Return created order with conversation_id and customer_id
@@ -803,6 +847,32 @@ async def update_order_status_admin(
         logger.info(
             f"✅ Order {current_order.get('order_number')} status updated: {current_order.get('status')} → {new_status}"
         )
+
+        # NEW: Send WhatsApp notification to customer on status changes
+        if new_status in ['confirmed', 'ready', 'picked_up', 'delivering', 'delivered']:
+            try:
+                # Get rider info if available
+                rider_name = None
+                rider_phone = None
+                if current_order.get('rider_id'):
+                    rider_resp = supabase.table("riders").select("name, phone").eq("id", current_order['rider_id']).single().execute()
+                    if rider_resp.data:
+                        rider_name = rider_resp.data.get('name')
+                        rider_phone = rider_resp.data.get('phone')
+
+                notify_customer_status_update(
+                    customer_phone=current_order['customer_phone'],
+                    order_number=current_order['order_number'],
+                    status=new_status,
+                    rider_name=rider_name,
+                    rider_phone=rider_phone,
+                    eta_minutes=15  # TODO: Calculate based on GPS distance
+                )
+                logger.info(f"📱 WhatsApp status update sent to customer for order {current_order['order_number']}")
+            except Exception as wa_error:
+                logger.warning(f"⚠️ Failed to send WhatsApp to customer: {wa_error}")
+                # Don't fail the status update if WhatsApp fails
+
         return convert_db_row_to_dict(updated_response.data[0])
 
     except HTTPException:
@@ -942,6 +1012,23 @@ async def assign_rider_to_order(
 
         logger.info(f"✅ Rider assignment updated for order {order.get('order_number')}: rider_id={rider_id}")
 
+        # NEW: Send WhatsApp notification to rider
+        if rider_id and rider_info:
+            try:
+                notify_rider_assigned(
+                    rider_phone=rider_info['phone'],
+                    rider_name=rider_info['name'],
+                    order_number=order['order_number'],
+                    customer_name=order['customer_name'],
+                    customer_phone=order['customer_phone'],
+                    delivery_address=order['delivery_address'],
+                    total_amount=order['total_amount']
+                )
+                logger.info(f"📱 WhatsApp notification sent to rider {rider_info['name']} for order {order['order_number']}")
+            except Exception as wa_error:
+                logger.warning(f"⚠️ Failed to send WhatsApp to rider: {wa_error}")
+                # Don't fail the assignment if WhatsApp fails
+
         # Return response with WhatsApp notification info
         response_data = convert_db_row_to_dict(updated.data[0])
 
@@ -1013,6 +1100,12 @@ async def create_rider(
     try:
         data = rider.dict()
         data["website_id"] = website_id
+
+        # Hash password before storing (SECURITY FIX)
+        if "password" in data and data["password"]:
+            data["password"] = hash_password(data["password"])
+            logger.info(f"Creating rider with hashed password")
+
         resp = supabase.table("riders").insert(data).execute()
         if not resp.data:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create rider")
@@ -1310,6 +1403,12 @@ async def create_website_rider(
     try:
         data = rider.dict()
         data["website_id"] = website_id
+
+        # Hash password before storing (SECURITY FIX)
+        if "password" in data and data["password"]:
+            data["password"] = hash_password(data["password"])
+            logger.info(f"Creating rider with hashed password")
+
         resp = supabase.table("riders").insert(data).execute()
         if not resp.data:
             raise HTTPException(
@@ -2057,9 +2156,9 @@ async def rider_login(
                 detail="Akaun rider tidak aktif. Sila hubungi pentadbir."
             )
 
-        # Verify password (simple comparison - in production, use bcrypt)
+        # Verify password using bcrypt (SECURITY FIX)
         stored_password = rider.get("password", "")
-        if stored_password != credentials.password:
+        if not verify_password(credentials.password, stored_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Nombor telefon atau kata laluan salah"
