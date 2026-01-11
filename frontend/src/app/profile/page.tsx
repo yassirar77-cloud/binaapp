@@ -29,6 +29,19 @@ export default function ProfilePage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showChatList, setShowChatList] = useState(true)
 
+  // Load Eruda console for mobile debugging
+  useEffect(() => {
+    if (typeof window !== 'undefined' && /mobile/i.test(navigator.userAgent)) {
+      const script = document.createElement('script')
+      script.src = 'https://cdn.jsdelivr.net/npm/eruda'
+      document.body.appendChild(script)
+      script.onload = () => {
+        (window as any).eruda.init()
+        console.log('[Eruda] Mobile console initialized! Tap the floating button in bottom-right corner.')
+      }
+    }
+  }, [])
+
   useEffect(() => {
     loadUserData()
   }, [])
