@@ -14,6 +14,7 @@ const BinaChat = dynamic(() => import('@/components/BinaChat'), { ssr: false })
 export default function ProfilePage() {
   const router = useRouter()
   const [loading, setLoading] = useState(true)
+  const [authChecking, setAuthChecking] = useState(true) // NEW: Separate auth checking state
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState({ full_name: '', business_name: '', phone: '' })
   const [saving, setSaving] = useState(false)
@@ -27,6 +28,7 @@ export default function ProfilePage() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>(undefined)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showChatList, setShowChatList] = useState(true)
+  const [debugInfo, setDebugInfo] = useState<string[]>([]) // NEW: Debug logging
 
   useEffect(() => {
     loadUserData()
@@ -41,10 +43,13 @@ export default function ProfilePage() {
         console.log('[Profile] Auth event:', event, 'Has session:', !!session)
 
         if (event === 'SIGNED_OUT') {
+          setAuthChecking(false)
+          setUser(null)
           router.push('/login')
         } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           if (session?.user) {
             setUser(session.user)
+            setAuthChecking(false) // Auth successful!
             // Reload data after sign in
             loadUserData()
           }
@@ -67,71 +72,106 @@ export default function ProfilePage() {
   async function loadUserData() {
     if (!supabase) {
       setLoading(false)
+      setAuthChecking(false)
       return
     }
 
     try {
       setLoading(true)
+      setAuthChecking(true)
+
+      // Detect mobile browser
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        typeof navigator !== 'undefined' ? navigator.userAgent : ''
+      )
+
+      const debugLog = (msg: string) => {
+        console.log(msg)
+        setDebugInfo(prev => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`])
+      }
 
       // MOBILE FIX: Try to get session first
-      console.log('[Profile] Checking auth session...')
-      console.log('[Profile] localStorage keys:', Object.keys(localStorage).filter(k => k.includes('supabase')))
+      debugLog(`[Profile] Starting auth check (Mobile: ${isMobile})`)
+      debugLog(`[Profile] localStorage keys: ${Object.keys(localStorage).filter(k => k.includes('supabase')).join(', ')}`)
+
+      // Check if tokens exist in localStorage (mobile debug)
+      if (typeof localStorage !== 'undefined') {
+        const storageKeys = Object.keys(localStorage).filter(k => k.includes('supabase') || k.includes('auth'))
+        debugLog(`[Profile] Found ${storageKeys.length} auth-related storage keys`)
+        if (storageKeys.length === 0) {
+          debugLog('[Profile] ⚠️ No auth tokens in localStorage! User not logged in.')
+        }
+      }
 
       let { data: { session }, error: sessionError } = await supabase.auth.getSession()
 
-      console.log('[Profile] Initial session check:', {
-        hasSession: !!session,
-        hasUser: !!session?.user,
-        email: session?.user?.email
-      })
+      debugLog(`[Profile] Initial session check: ${session ? '✅ Session found' : '❌ No session'} (Email: ${session?.user?.email || 'none'})`)
 
-      // If no session, try to refresh (crucial for mobile browsers)
-      if (!session && !sessionError) {
-        console.log('[Profile] No session found, attempting refresh...')
+      // CRITICAL: If no session, try multiple times on mobile before giving up
+      if (!session && !sessionError && isMobile) {
+        debugLog('[Profile] 📱 Mobile browser detected - attempting session refresh...')
+
+        // Try refresh up to 2 times with delay (mobile networks can be slow)
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          debugLog(`[Profile] Refresh attempt ${attempt}/2...`)
+
+          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
+
+          if (refreshError) {
+            debugLog(`[Profile] ❌ Refresh attempt ${attempt} failed: ${refreshError.message}`)
+            if (attempt < 2) {
+              // Wait before retrying
+              await new Promise(resolve => setTimeout(resolve, 1000))
+              continue
+            }
+          } else if (refreshData.session?.user) {
+            debugLog(`[Profile] ✅ Refresh attempt ${attempt} succeeded: ${refreshData.session.user.email}`)
+            session = refreshData.session
+            setUser(refreshData.session.user)
+            setAuthChecking(false) // Auth successful!
+            break
+          }
+        }
+      } else if (!session && !sessionError) {
+        // Desktop: single refresh attempt
+        debugLog('[Profile] 🖥️ Desktop browser - attempting session refresh...')
         const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
 
-        console.log('[Profile] Refresh attempt:', {
-          hasRefreshSession: !!refreshData.session,
-          hasUser: !!refreshData.session?.user,
-          error: refreshError?.message
-        })
-
         if (refreshError) {
-          console.error('[Profile] Refresh error:', refreshError)
-          // Longer delay for mobile hydration
-          setTimeout(() => {
-            console.log('[Profile] Redirecting to login after refresh error')
-            router.push('/login')
-          }, 1500)
-          return
-        }
-
-        if (refreshData.session?.user) {
-          console.log('[Profile] ✅ Session refreshed successfully:', refreshData.session.user.email)
-          // CRITICAL FIX: Update session variable to use refreshed session!
+          debugLog(`[Profile] ❌ Refresh failed: ${refreshError.message}`)
+        } else if (refreshData.session?.user) {
+          debugLog(`[Profile] ✅ Session refreshed: ${refreshData.session.user.email}`)
           session = refreshData.session
           setUser(refreshData.session.user)
-        } else {
-          console.log('[Profile] No session after refresh, redirecting...')
-          setTimeout(() => {
-            router.push('/login')
-          }, 1500)
-          return
+          setAuthChecking(false) // Auth successful!
         }
-      } else if (sessionError) {
+      }
+
+      // Handle session errors
+      if (sessionError) {
         console.error('[Profile] Session error:', sessionError)
-        console.log('[Profile] Clearing stale session...')
+        debugLog(`[Profile] ❌ Session error: ${sessionError.message}`)
+        debugLog('[Profile] Clearing stale session...')
         await supabase.auth.signOut()
-        router.push('/login')
+        setAuthChecking(false)
+        setTimeout(() => router.push('/login'), 500)
         return
-      } else if (session?.user) {
-        console.log('[Profile] ✅ Session found:', session.user.email)
+      }
+
+      // Final check: Do we have a valid session?
+      if (session?.user) {
+        debugLog(`[Profile] ✅ FINAL: User authenticated: ${session.user.email}`)
         setUser(session.user)
+        setAuthChecking(false) // Auth successful!
       } else {
-        console.log('[Profile] No user in session, redirecting...')
+        debugLog('[Profile] ❌ FINAL: No valid session found')
+        setAuthChecking(false)
+        // Give mobile browsers extra time to hydrate
+        const redirectDelay = isMobile ? 2000 : 1000
         setTimeout(() => {
+          debugLog('[Profile] Redirecting to login...')
           router.push('/login')
-        }, 1500)
+        }, redirectDelay)
         return
       }
 
@@ -377,26 +417,57 @@ export default function ProfilePage() {
     return <span className={`px-3 py-1 rounded-full text-xs font-medium ${badge.color}`}>{badge.label}</span>
   }
 
-  if (loading) {
+  // Show loading while checking authentication
+  if (loading || authChecking) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
+        <div className="text-center max-w-md mx-auto px-4">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600 text-sm">Memeriksa sesi...</p>
-          <p className="text-gray-400 text-xs mt-2">Sila tunggu sebentar</p>
+          <p className="text-gray-600 text-sm font-medium">
+            {authChecking ? 'Memeriksa pengesahan...' : 'Memuatkan data...'}
+          </p>
+          <p className="text-gray-400 text-xs mt-2">
+            {authChecking ? 'Sila tunggu, kami sedang sahkan sesi anda' : 'Sila tunggu sebentar'}
+          </p>
+
+          {/* Debug info - only show in development */}
+          {process.env.NODE_ENV === 'development' && debugInfo.length > 0 && (
+            <div className="mt-6 p-4 bg-gray-100 rounded-lg text-left max-h-48 overflow-y-auto">
+              <p className="text-xs font-mono text-gray-600 mb-2">Debug Log:</p>
+              {debugInfo.slice(-10).map((log, i) => (
+                <p key={i} className="text-[10px] font-mono text-gray-500">{log}</p>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     )
   }
 
+  // Only show "Sila Log Masuk" if auth check is complete AND no user
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-800 mb-4">Sila Log Masuk</h1>
-          <Link href="/login" className="text-blue-500 hover:underline">
+        <div className="text-center max-w-md mx-auto px-4">
+          <div className="text-6xl mb-4">🔒</div>
+          <h1 className="text-2xl font-bold text-gray-800 mb-2">Sesi Tamat</h1>
+          <p className="text-gray-600 text-sm mb-6">Sila log masuk semula untuk teruskan</p>
+          <Link
+            href="/login"
+            className="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-medium min-h-[44px] transition-colors"
+          >
             Log Masuk
           </Link>
+
+          {/* Debug info for mobile testing */}
+          {debugInfo.length > 0 && (
+            <div className="mt-6 p-4 bg-gray-100 rounded-lg text-left max-h-48 overflow-y-auto">
+              <p className="text-xs font-mono text-gray-600 mb-2">Debug Info (Hantar ke developer jika ada masalah):</p>
+              {debugInfo.slice(-10).map((log, i) => (
+                <p key={i} className="text-[10px] font-mono text-gray-500">{log}</p>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     )
