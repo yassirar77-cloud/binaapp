@@ -951,6 +951,29 @@ export default function ProfilePage() {
                               </>
                             )}
 
+                            {/* WhatsApp Quick Actions */}
+                            {order.customer_phone && (
+                              <a
+                                href={`https://wa.me/${order.customer_phone.replace(/^0/, '60')}?text=Hi%20${encodeURIComponent(order.customer_name)},%20ini%20dari%20${encodeURIComponent(websites[0]?.name || 'kedai')}%20mengenai%20pesanan%20${order.order_number}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-1 bg-green-600 text-white px-4 py-3 min-h-[44px] rounded-lg hover:bg-green-700 active:bg-green-800 font-medium text-sm md:text-base text-center flex items-center justify-center gap-2"
+                              >
+                                💬 WhatsApp Customer
+                              </a>
+                            )}
+
+                            {riderInfo && riderInfo.phone && (
+                              <a
+                                href={`https://wa.me/${riderInfo.phone.replace(/^0/, '60')}?text=Hi%20${encodeURIComponent(riderInfo.name)},%20mengenai%20order%20${order.order_number}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex-1 bg-orange-600 text-white px-4 py-3 min-h-[44px] rounded-lg hover:bg-orange-700 active:bg-orange-800 font-medium text-sm md:text-base text-center flex items-center justify-center gap-2"
+                              >
+                                🛵 WhatsApp Rider
+                              </a>
+                            )}
+
                             {order.status === 'confirmed' && (
                               <div className="flex-1">
                                 <label className="block text-sm font-medium text-gray-700 mb-2">

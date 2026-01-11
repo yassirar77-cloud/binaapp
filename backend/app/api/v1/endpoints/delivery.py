@@ -42,6 +42,11 @@ from app.models.delivery_schemas import (
     DeliverySettingsResponse,
     DeliverySettingsUpdate,
 )
+from app.utils.whatsapp import (
+    notify_owner_new_order,
+    notify_rider_assigned,
+    notify_customer_status_update,
+)
 
 router = APIRouter(prefix="/delivery", tags=["Delivery System"])
 bearer_scheme = HTTPBearer()
@@ -596,6 +601,25 @@ async def create_order(
                 body=f"{order.customer_name} - RM{total_amount:.2f}"
             )
 
+            # NEW: Send WhatsApp notification to owner
+            try:
+                # Get owner's phone number
+                owner_profile = supabase.table("profiles").select("phone").eq("id", owner_id).single().execute()
+                if owner_profile.data and owner_profile.data.get("phone"):
+                    notify_owner_new_order(
+                        owner_phone=owner_profile.data["phone"],
+                        order_number=created_order['order_number'],
+                        customer_name=order.customer_name,
+                        customer_phone=order.customer_phone,
+                        total_amount=float(total_amount),
+                        items=order_items_data,
+                        delivery_address=order.delivery_address
+                    )
+                    logger.info(f"📱 WhatsApp notification sent to owner for order {created_order['order_number']}")
+            except Exception as wa_error:
+                logger.warning(f"⚠️ Failed to send WhatsApp to owner: {wa_error}")
+                # Don't fail the order creation if WhatsApp fails
+
         logger.info(f"✅ Order created: {created_order['order_number']} - Total: RM{total_amount}")
 
         # 9. Return created order with conversation_id and customer_id
@@ -823,6 +847,32 @@ async def update_order_status_admin(
         logger.info(
             f"✅ Order {current_order.get('order_number')} status updated: {current_order.get('status')} → {new_status}"
         )
+
+        # NEW: Send WhatsApp notification to customer on status changes
+        if new_status in ['confirmed', 'ready', 'picked_up', 'delivering', 'delivered']:
+            try:
+                # Get rider info if available
+                rider_name = None
+                rider_phone = None
+                if current_order.get('rider_id'):
+                    rider_resp = supabase.table("riders").select("name, phone").eq("id", current_order['rider_id']).single().execute()
+                    if rider_resp.data:
+                        rider_name = rider_resp.data.get('name')
+                        rider_phone = rider_resp.data.get('phone')
+
+                notify_customer_status_update(
+                    customer_phone=current_order['customer_phone'],
+                    order_number=current_order['order_number'],
+                    status=new_status,
+                    rider_name=rider_name,
+                    rider_phone=rider_phone,
+                    eta_minutes=15  # TODO: Calculate based on GPS distance
+                )
+                logger.info(f"📱 WhatsApp status update sent to customer for order {current_order['order_number']}")
+            except Exception as wa_error:
+                logger.warning(f"⚠️ Failed to send WhatsApp to customer: {wa_error}")
+                # Don't fail the status update if WhatsApp fails
+
         return convert_db_row_to_dict(updated_response.data[0])
 
     except HTTPException:
@@ -961,6 +1011,23 @@ async def assign_rider_to_order(
             logger.warning(f"⚠️ Could not insert order_status_history for rider assignment (continuing): {history_err}")
 
         logger.info(f"✅ Rider assignment updated for order {order.get('order_number')}: rider_id={rider_id}")
+
+        # NEW: Send WhatsApp notification to rider
+        if rider_id and rider_info:
+            try:
+                notify_rider_assigned(
+                    rider_phone=rider_info['phone'],
+                    rider_name=rider_info['name'],
+                    order_number=order['order_number'],
+                    customer_name=order['customer_name'],
+                    customer_phone=order['customer_phone'],
+                    delivery_address=order['delivery_address'],
+                    total_amount=order['total_amount']
+                )
+                logger.info(f"📱 WhatsApp notification sent to rider {rider_info['name']} for order {order['order_number']}")
+            except Exception as wa_error:
+                logger.warning(f"⚠️ Failed to send WhatsApp to rider: {wa_error}")
+                # Don't fail the assignment if WhatsApp fails
 
         # Return response with WhatsApp notification info
         response_data = convert_db_row_to_dict(updated.data[0])
