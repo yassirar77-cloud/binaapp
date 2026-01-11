@@ -46,6 +46,25 @@ export default function RootLayout({
         <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
         <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png" />
         <link rel="apple-touch-icon" sizes="167x167" href="/icons/icon-192x192.png" />
+
+        {/* Eruda Mobile Console - Only show in development */}
+        {process.env.NODE_ENV === 'development' && (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `
+                (function() {
+                  var script = document.createElement('script');
+                  script.src = 'https://cdn.jsdelivr.net/npm/eruda';
+                  document.body.appendChild(script);
+                  script.onload = function() {
+                    eruda.init();
+                    console.log('[Eruda] Mobile debugging console loaded! Tap the button in bottom-right corner.');
+                  }
+                })();
+              `
+            }}
+          />
+        )}
       </head>
       <body className={inter.className}>
         <PWAProvider>
