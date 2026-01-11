@@ -73,34 +73,52 @@ export default function ProfilePage() {
 
       // MOBILE FIX: Try to get session first
       console.log('[Profile] Checking auth session...')
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      console.log('[Profile] localStorage keys:', Object.keys(localStorage).filter(k => k.includes('supabase')))
+
+      let { data: { session }, error: sessionError } = await supabase.auth.getSession()
+
+      console.log('[Profile] Initial session check:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        email: session?.user?.email
+      })
 
       // If no session, try to refresh (crucial for mobile browsers)
       if (!session && !sessionError) {
         console.log('[Profile] No session found, attempting refresh...')
         const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
 
+        console.log('[Profile] Refresh attempt:', {
+          hasRefreshSession: !!refreshData.session,
+          hasUser: !!refreshData.session?.user,
+          error: refreshError?.message
+        })
+
         if (refreshError) {
           console.error('[Profile] Refresh error:', refreshError)
-          // Don't redirect immediately - wait a moment for client hydration
+          // Longer delay for mobile hydration
           setTimeout(() => {
+            console.log('[Profile] Redirecting to login after refresh error')
             router.push('/login')
-          }, 500)
+          }, 1500)
           return
         }
 
         if (refreshData.session?.user) {
-          console.log('[Profile] ✅ Session refreshed successfully')
+          console.log('[Profile] ✅ Session refreshed successfully:', refreshData.session.user.email)
+          // CRITICAL FIX: Update session variable to use refreshed session!
+          session = refreshData.session
           setUser(refreshData.session.user)
         } else {
           console.log('[Profile] No session after refresh, redirecting...')
           setTimeout(() => {
             router.push('/login')
-          }, 500)
+          }, 1500)
           return
         }
       } else if (sessionError) {
         console.error('[Profile] Session error:', sessionError)
+        console.log('[Profile] Clearing stale session...')
         await supabase.auth.signOut()
         router.push('/login')
         return
@@ -111,12 +129,19 @@ export default function ProfilePage() {
         console.log('[Profile] No user in session, redirecting...')
         setTimeout(() => {
           router.push('/login')
-        }, 500)
+        }, 1500)
         return
       }
 
       const currentUser = session?.user
-      if (!currentUser) return
+      if (!currentUser) {
+        console.log('[Profile] ERROR: currentUser is null after session check!')
+        console.log('[Profile] Session state:', session)
+        setLoading(false)
+        return
+      }
+
+      console.log('[Profile] Loading data for user:', currentUser.email)
 
       // Load profile
       const { data: profileData } = await supabase
