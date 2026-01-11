@@ -25,6 +25,8 @@ export default function ProfilePage() {
   const [loadingOrders, setLoadingOrders] = useState(false)
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>(undefined)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [showChatList, setShowChatList] = useState(true)
 
   useEffect(() => {
     loadUserData()
@@ -402,14 +404,16 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header - SAME AS MY-PROJECTS */}
+      {/* Header - Mobile Responsive */}
       <header className="bg-white border-b sticky top-0 z-40">
         <nav className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
             <span className="text-2xl">✨</span>
             <span className="text-xl font-bold">BinaApp</span>
           </Link>
-          <div className="flex items-center gap-4">
+
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex items-center gap-4">
             <Link href="/my-projects" className="text-sm text-gray-600 hover:text-gray-900">
               Website Saya
             </Link>
@@ -420,23 +424,69 @@ export default function ProfilePage() {
               Log Keluar
             </button>
           </div>
+
+          {/* Mobile Hamburger Button */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="md:hidden p-2 text-gray-600 hover:text-gray-900 focus:outline-none"
+            aria-label="Toggle menu"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {mobileMenuOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
         </nav>
+
+        {/* Mobile Menu */}
+        {mobileMenuOpen && (
+          <div className="md:hidden border-t bg-white">
+            <div className="flex flex-col py-2">
+              <Link
+                href="/my-projects"
+                className="px-4 py-3 text-sm text-gray-600 hover:bg-gray-50 active:bg-gray-100"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Website Saya
+              </Link>
+              <Link
+                href="/create"
+                className="px-4 py-3 text-sm text-gray-600 hover:bg-gray-50 active:bg-gray-100"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Bina Website
+              </Link>
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false)
+                  handleLogout()
+                }}
+                className="px-4 py-3 text-sm text-red-500 hover:bg-gray-50 active:bg-gray-100 text-left"
+              >
+                Log Keluar
+              </button>
+            </div>
+          </div>
+        )}
       </header>
 
-      <div className="py-12">
+      <div className="py-6 md:py-12">
         <div className="max-w-4xl mx-auto px-4">
           {/* Profile Section */}
-          <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
-            <h1 className="text-3xl font-bold mb-6">👤 Profil Saya</h1>
+          <div className="bg-white rounded-xl shadow-lg p-4 md:p-8 mb-6 md:mb-8">
+            <h1 className="text-2xl md:text-3xl font-bold mb-4 md:mb-6">👤 Profil Saya</h1>
             {msg && (
               <div className={`p-4 rounded-lg mb-6 ${msg.includes('✅') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                 {msg}
               </div>
             )}
-            <form onSubmit={saveProfile} className="space-y-6">
+            <form onSubmit={saveProfile} className="space-y-4 md:space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
-                <input type="email" value={user.email || ''} disabled className="w-full p-3 bg-gray-100 rounded-lg border" />
+                <input type="email" value={user.email || ''} disabled className="w-full p-3 bg-gray-100 rounded-lg border text-sm md:text-base" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Nama Penuh</label>
@@ -445,7 +495,7 @@ export default function ProfilePage() {
                   value={profile.full_name}
                   onChange={(e) => setProfile({ ...profile, full_name: e.target.value })}
                   placeholder="Nama anda"
-                  className="w-full p-3 border rounded-lg"
+                  className="w-full p-3 border rounded-lg text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
@@ -455,7 +505,7 @@ export default function ProfilePage() {
                   value={profile.business_name}
                   onChange={(e) => setProfile({ ...profile, business_name: e.target.value })}
                   placeholder="Nama perniagaan"
-                  className="w-full p-3 border rounded-lg"
+                  className="w-full p-3 border rounded-lg text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
@@ -465,41 +515,42 @@ export default function ProfilePage() {
                   value={profile.phone}
                   onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
                   placeholder="01X-XXX XXXX"
-                  className="w-full p-3 border rounded-lg"
+                  className="w-full p-3 border rounded-lg text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <button type="submit" disabled={saving} className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-medium disabled:opacity-50">
+              <button type="submit" disabled={saving} className="w-full py-3 md:py-3 min-h-[44px] bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-medium disabled:opacity-50 active:bg-blue-700 transition-colors">
                 {saving ? 'Menyimpan...' : '💾 Simpan Profil'}
               </button>
             </form>
           </div>
 
           {/* Tabs Navigation */}
-          <div className="bg-white rounded-xl shadow-lg p-8">
-            <div className="flex gap-2 mb-6 border-b">
+          <div className="bg-white rounded-xl shadow-lg p-4 md:p-8">
+            {/* Mobile-friendly scrollable tabs */}
+            <div className="flex gap-2 mb-6 border-b overflow-x-auto scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0">
               <button
                 onClick={() => setActiveTab('websites')}
-                className={`px-6 py-3 font-medium transition-colors ${
+                className={`px-4 md:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm md:text-base min-h-[44px] ${
                   activeTab === 'websites'
                     ? 'text-blue-600 border-b-2 border-blue-600'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                🌐 Website Saya ({websites.length})
+                🌐 <span className="hidden sm:inline">Website Saya </span>({websites.length})
               </button>
               <button
                 onClick={() => setActiveTab('orders')}
-                className={`px-6 py-3 font-medium transition-colors ${
+                className={`px-4 md:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm md:text-base min-h-[44px] ${
                   activeTab === 'orders'
                     ? 'text-blue-600 border-b-2 border-blue-600'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
-                📦 Pesanan ({orders.filter(o => o.status === 'pending').length} baru)
+                📦 <span className="hidden sm:inline">Pesanan </span>({orders.filter(o => o.status === 'pending').length})
               </button>
               <button
                 onClick={() => setActiveTab('chat')}
-                className={`px-6 py-3 font-medium transition-colors ${
+                className={`px-4 md:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm md:text-base min-h-[44px] ${
                   activeTab === 'chat'
                     ? 'text-blue-600 border-b-2 border-blue-600'
                     : 'text-gray-500 hover:text-gray-700'
@@ -512,27 +563,27 @@ export default function ProfilePage() {
             {/* Websites Tab */}
             {activeTab === 'websites' && (
               <div>
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-2xl font-bold">🌐 Website Saya</h2>
-                  <Link href="/create" className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 text-sm font-medium">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
+                  <h2 className="text-xl md:text-2xl font-bold">🌐 Website Saya</h2>
+                  <Link href="/create" className="w-full sm:w-auto bg-blue-500 text-white px-4 py-2.5 min-h-[44px] rounded-lg hover:bg-blue-600 active:bg-blue-700 text-sm font-medium text-center flex items-center justify-center">
                     + Bina Website Baru
                   </Link>
                 </div>
 
                 {websites.length === 0 ? (
-                  <div className="text-center py-12">
-                    <div className="text-6xl mb-4">🌐</div>
-                    <p className="text-gray-500 mb-6">Tiada website lagi</p>
-                    <Link href="/create" className="inline-block bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600">
+                  <div className="text-center py-12 px-4">
+                    <div className="text-4xl md:text-6xl mb-4">🌐</div>
+                    <p className="text-gray-500 mb-6 text-sm md:text-base">Tiada website lagi</p>
+                    <Link href="/create" className="inline-block bg-blue-500 text-white px-6 py-3 min-h-[44px] rounded-lg hover:bg-blue-600 active:bg-blue-700 text-sm md:text-base">
                       ✨ Bina Website Sekarang
                     </Link>
                   </div>
                 ) : (
                   <div className="space-y-4">
                     {websites.map((site) => (
-                      <div key={site.id} className="border rounded-lg p-4 hover:border-blue-300 hover:bg-blue-50">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
+                      <div key={site.id} className="border rounded-lg p-4 hover:border-blue-300 hover:bg-blue-50 transition-colors">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                          <div className="flex-1 w-full sm:w-auto">
                             <h3 className="font-semibold text-lg">{site.name}</h3>
                             {site.subdomain && (
                               <a href={`https://${site.subdomain}.binaapp.my`} target="_blank" className="text-blue-500 hover:underline text-sm">
@@ -541,13 +592,13 @@ export default function ProfilePage() {
                             )}
                             <p className="text-xs text-gray-500 mt-1">Dibuat: {new Date(site.created_at).toLocaleDateString('ms-MY')}</p>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex flex-col sm:flex-row gap-2 mt-3 sm:mt-0">
                             {site.published_url && (
-                              <a href={site.published_url} target="_blank" className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 text-sm">
+                              <a href={site.published_url} target="_blank" className="bg-green-500 text-white px-4 py-2 min-h-[44px] rounded-lg hover:bg-green-600 active:bg-green-700 text-sm flex items-center justify-center">
                                 👁 Lihat
                               </a>
                             )}
-                            <Link href={`/editor/${site.id}`} className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 text-sm">
+                            <Link href={`/editor/${site.id}`} className="bg-blue-500 text-white px-4 py-2 min-h-[44px] rounded-lg hover:bg-blue-600 active:bg-blue-700 text-sm flex items-center justify-center">
                               ✏️ Edit
                             </Link>
                           </div>
@@ -562,12 +613,12 @@ export default function ProfilePage() {
             {/* Orders Tab */}
             {activeTab === 'orders' && (
               <div>
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-2xl font-bold">📦 Pesanan</h2>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-3">
+                  <h2 className="text-xl md:text-2xl font-bold">📦 Pesanan</h2>
                   <button
                     onClick={loadOrders}
                     disabled={loadingOrders}
-                    className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 text-sm font-medium disabled:opacity-50"
+                    className="w-full sm:w-auto bg-blue-500 text-white px-4 py-2.5 min-h-[44px] rounded-lg hover:bg-blue-600 active:bg-blue-700 text-sm font-medium disabled:opacity-50"
                   >
                     {loadingOrders ? '⏳ Loading...' : '🔄 Refresh'}
                   </button>
@@ -576,21 +627,21 @@ export default function ProfilePage() {
                 {loadingOrders ? (
                   <div className="text-center py-12">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-                    <p className="text-gray-500 mt-4">Loading orders...</p>
+                    <p className="text-gray-500 mt-4 text-sm md:text-base">Loading orders...</p>
                   </div>
                 ) : orders.length === 0 ? (
-                  <div className="text-center py-12">
-                    <div className="text-6xl mb-4">📦</div>
-                    <p className="text-gray-500">Tiada pesanan lagi</p>
+                  <div className="text-center py-12 px-4">
+                    <div className="text-4xl md:text-6xl mb-4">📦</div>
+                    <p className="text-gray-500 text-sm md:text-base">Tiada pesanan lagi</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
                     {orders.map((order) => {
                       const riderInfo = riders.find(r => r.id === order.rider_id)
                       return (
-                        <div key={order.id} className="border rounded-lg p-6 bg-white shadow-sm">
+                        <div key={order.id} className="border rounded-lg p-4 md:p-6 bg-white shadow-sm">
                           {/* Order Header */}
-                          <div className="flex justify-between items-start mb-4">
+                          <div className="flex flex-col sm:flex-row justify-between items-start gap-2 mb-4">
                             <div>
                               <h3 className="text-xl font-bold text-gray-900">#{order.order_number}</h3>
                               <p className="text-sm text-gray-500">
@@ -608,17 +659,17 @@ export default function ProfilePage() {
 
                           {/* Customer Info */}
                           <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                            <p className="text-sm">
+                            <p className="text-xs md:text-sm break-words">
                               <span className="font-medium">👤 Pelanggan:</span> {order.customer_name}
                             </p>
-                            <p className="text-sm">
-                              <span className="font-medium">📱 Telefon:</span> {order.customer_phone}
+                            <p className="text-xs md:text-sm">
+                              <span className="font-medium">📱 Telefon:</span> <a href={`tel:${order.customer_phone}`} className="text-blue-500 hover:underline">{order.customer_phone}</a>
                             </p>
-                            <p className="text-sm">
+                            <p className="text-xs md:text-sm break-words">
                               <span className="font-medium">📍 Alamat:</span> {order.delivery_address}
                             </p>
                             {order.delivery_notes && (
-                              <p className="text-sm">
+                              <p className="text-xs md:text-sm break-words">
                                 <span className="font-medium">📝 Nota:</span> {order.delivery_notes}
                               </p>
                             )}
@@ -626,12 +677,12 @@ export default function ProfilePage() {
 
                           {/* Order Items */}
                           <div className="mb-4">
-                            <p className="font-medium text-sm mb-2">🍽️ Item Pesanan:</p>
+                            <p className="font-medium text-xs md:text-sm mb-2">🍽️ Item Pesanan:</p>
                             <div className="space-y-1">
                               {order.order_items?.map((item: any) => (
-                                <div key={item.id} className="flex justify-between text-sm">
-                                  <span>{item.quantity}x {item.item_name}</span>
-                                  <span className="font-medium">RM{item.total_price.toFixed(2)}</span>
+                                <div key={item.id} className="flex justify-between text-xs md:text-sm gap-2">
+                                  <span className="flex-1 break-words">{item.quantity}x {item.item_name}</span>
+                                  <span className="font-medium whitespace-nowrap">RM{item.total_price.toFixed(2)}</span>
                                 </div>
                               ))}
                             </div>
@@ -657,14 +708,14 @@ export default function ProfilePage() {
                           {/* Rider Info */}
                           {order.rider_id && riderInfo && (
                             <div className="mb-4 p-3 bg-blue-50 rounded-lg">
-                              <p className="text-sm">
+                              <p className="text-xs md:text-sm">
                                 <span className="font-medium">🛵 Rider:</span> {riderInfo.name}
                               </p>
-                              <p className="text-sm">
-                                <span className="font-medium">📱 Telefon Rider:</span> {riderInfo.phone}
+                              <p className="text-xs md:text-sm">
+                                <span className="font-medium">📱 Telefon Rider:</span> <a href={`tel:${riderInfo.phone}`} className="text-blue-500 hover:underline">{riderInfo.phone}</a>
                               </p>
                               {riderInfo.vehicle_plate && (
-                                <p className="text-sm">
+                                <p className="text-xs md:text-sm">
                                   <span className="font-medium">🏍️ No Plat:</span> {riderInfo.vehicle_plate}
                                 </p>
                               )}
@@ -672,18 +723,18 @@ export default function ProfilePage() {
                           )}
 
                           {/* Action Buttons */}
-                          <div className="flex gap-2 mt-4">
+                          <div className="flex flex-col sm:flex-row gap-2 mt-4">
                             {order.status === 'pending' && (
                               <>
                                 <button
                                   onClick={() => confirmOrder(order.id)}
-                                  className="flex-1 bg-green-500 text-white px-4 py-3 rounded-lg hover:bg-green-600 font-medium"
+                                  className="flex-1 bg-green-500 text-white px-4 py-3 min-h-[44px] rounded-lg hover:bg-green-600 active:bg-green-700 font-medium text-sm md:text-base"
                                 >
                                   ✅ TERIMA PESANAN
                                 </button>
                                 <button
                                   onClick={() => rejectOrder(order.id)}
-                                  className="flex-1 bg-red-500 text-white px-4 py-3 rounded-lg hover:bg-red-600 font-medium"
+                                  className="flex-1 bg-red-500 text-white px-4 py-3 min-h-[44px] rounded-lg hover:bg-red-600 active:bg-red-700 font-medium text-sm md:text-base"
                                 >
                                   ❌ TOLAK
                                 </button>
@@ -704,7 +755,7 @@ export default function ProfilePage() {
                                         assignRider(order.id, e.target.value)
                                       }
                                     }}
-                                    className="w-full border rounded-lg px-4 py-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    className="w-full border rounded-lg px-4 py-3 min-h-[44px] text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     defaultValue=""
                                   >
                                     <option value="">-- Pilih Rider --</option>
@@ -719,7 +770,7 @@ export default function ProfilePage() {
                             )}
 
                             {['assigned', 'preparing', 'ready', 'picked_up', 'delivering'].includes(order.status) && (
-                              <div className="flex-1 text-center py-3 bg-blue-50 rounded-lg">
+                              <div className="flex-1 text-center py-3 min-h-[44px] bg-blue-50 rounded-lg flex items-center justify-center">
                                 <p className="text-sm text-blue-700 font-medium">
                                   ✓ Pesanan sedang diproses
                                 </p>
@@ -727,7 +778,7 @@ export default function ProfilePage() {
                             )}
 
                             {['delivered', 'completed'].includes(order.status) && (
-                              <div className="flex-1 text-center py-3 bg-green-50 rounded-lg">
+                              <div className="flex-1 text-center py-3 min-h-[44px] bg-green-50 rounded-lg flex items-center justify-center">
                                 <p className="text-sm text-green-700 font-medium">
                                   ✓ Pesanan selesai
                                 </p>
@@ -746,7 +797,7 @@ export default function ProfilePage() {
             {activeTab === 'chat' && (
               <div>
                 <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-2xl font-bold">💬 Chat Pelanggan</h2>
+                  <h2 className="text-xl md:text-2xl font-bold">💬 Chat Pelanggan</h2>
                 </div>
 
                 {/* Info Banner about Chat Setup */}
@@ -769,32 +820,60 @@ export default function ProfilePage() {
                 </div>
 
                 {websites.length === 0 ? (
-                  <div className="text-center py-12">
-                    <div className="text-6xl mb-4">🌐</div>
-                    <p className="text-gray-500 mb-4">Tiada website untuk chat</p>
-                    <Link href="/create" className="inline-block bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600">
+                  <div className="text-center py-12 px-4">
+                    <div className="text-4xl md:text-6xl mb-4">🌐</div>
+                    <p className="text-gray-500 mb-4 text-sm md:text-base">Tiada website untuk chat</p>
+                    <Link href="/create" className="inline-block bg-blue-500 text-white px-6 py-3 min-h-[44px] rounded-lg hover:bg-blue-600 active:bg-blue-700 text-sm md:text-base">
                       ✨ Bina Website Sekarang
                     </Link>
                   </div>
                 ) : (
-                  <div className="flex h-[600px] border rounded-lg overflow-hidden bg-white">
+                  <div className="flex flex-col md:flex-row h-[calc(100vh-300px)] md:h-[600px] max-h-[800px] border rounded-lg overflow-hidden bg-white">
+                    {/* Mobile: Toggle Chat List Button */}
+                    <div className="md:hidden bg-gray-100 p-2 border-b">
+                      <button
+                        onClick={() => setShowChatList(!showChatList)}
+                        className="w-full py-2 px-4 bg-orange-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 min-h-[44px]"
+                      >
+                        {showChatList ? (
+                          <>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                            Senarai Perbualan
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                            </svg>
+                            Kembali ke Senarai
+                          </>
+                        )}
+                      </button>
+                    </div>
+
                     {/* Chat List - Left Panel */}
-                    <div className="w-80 border-r bg-gray-50">
+                    <div className={`${showChatList ? 'flex' : 'hidden'} md:flex w-full md:w-80 border-r bg-gray-50 flex-shrink-0`}>
                       {websites.length > 0 && (
                         <ChatList
                           websiteId={websites[0].id}
                           onSelectConversation={(conversationId: string, orderId?: string) => {
                             setSelectedConversationId(conversationId)
                             setSelectedOrderId(orderId)
+                            // On mobile, hide chat list when conversation is selected
+                            if (window.innerWidth < 768) {
+                              setShowChatList(false)
+                            }
                           }}
                           selectedConversationId={selectedConversationId || undefined}
-                          className="h-full"
+                          className="h-full w-full"
                         />
                       )}
                     </div>
 
                     {/* Chat Area - Right Panel */}
-                    <div className="flex-1 bg-white">
+                    <div className={`${!showChatList ? 'flex' : 'hidden'} md:flex flex-1 bg-white`}>
                       {selectedConversationId && websites.length > 0 ? (
                         <BinaChat
                           conversationId={selectedConversationId}
@@ -803,13 +882,13 @@ export default function ProfilePage() {
                           userName={profile.business_name || profile.full_name || 'Pemilik Kedai'}
                           orderId={selectedOrderId}
                           showMap={true}
-                          className="h-full"
+                          className="h-full w-full"
                         />
                       ) : (
-                        <div className="h-full flex items-center justify-center text-gray-500">
-                          <div className="text-center">
-                            <div className="text-6xl mb-4">💬</div>
-                            <p className="text-lg">Pilih perbualan untuk mula chat</p>
+                        <div className="h-full flex items-center justify-center text-gray-500 w-full">
+                          <div className="text-center p-4">
+                            <div className="text-4xl md:text-6xl mb-4">💬</div>
+                            <p className="text-sm md:text-lg">Pilih perbualan untuk mula chat</p>
                           </div>
                         </div>
                       )}
