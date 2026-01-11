@@ -27,7 +27,8 @@ interface Rider {
 export default function RiderApp() {
   // Authentication
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [riderId, setRiderId] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
   const [rider, setRider] = useState<Rider | null>(null);
   const [loginError, setLoginError] = useState('');
 
@@ -45,12 +46,18 @@ export default function RiderApp() {
   // Status updates
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
-  // Check for saved rider ID on mount
+  // Check for saved rider credentials on mount
   useEffect(() => {
-    const savedRiderId = localStorage.getItem('rider_id');
-    if (savedRiderId) {
-      setRiderId(savedRiderId);
-      handleLogin(savedRiderId);
+    const savedRider = localStorage.getItem('rider_data');
+    if (savedRider) {
+      try {
+        const riderData = JSON.parse(savedRider);
+        setRider(riderData);
+        setIsLoggedIn(true);
+      } catch (error) {
+        console.error('Failed to parse saved rider data:', error);
+        localStorage.removeItem('rider_data');
+      }
     }
   }, []);
 
@@ -74,32 +81,31 @@ export default function RiderApp() {
   }, [isLoggedIn, rider]);
 
   // Handle login
-  const handleLogin = async (id?: string) => {
-    const riderIdToUse = id || riderId;
-    if (!riderIdToUse.trim()) {
-      setLoginError('Sila masukkan Rider ID');
+  const handleLogin = async () => {
+    if (!phone.trim() || !password.trim()) {
+      setLoginError('Sila masukkan nombor telefon dan kata laluan');
       return;
     }
 
     try {
-      // Validate rider exists
-      const response = await apiFetch(`/v1/delivery/riders/${riderIdToUse}/location`);
+      const response = await apiFetch('/v1/delivery/riders/login', {
+        method: 'POST',
+        body: JSON.stringify({
+          phone: phone,
+          password: password
+        })
+      });
 
-      if (response.rider_id) {
-        setRider({
-          id: response.rider_id,
-          name: response.rider_name,
-          phone: '',
-          vehicle_type: '',
-          vehicle_plate: ''
-        });
+      if (response.success && response.rider) {
+        setRider(response.rider);
         setIsLoggedIn(true);
-        localStorage.setItem('rider_id', riderIdToUse);
+        localStorage.setItem('rider_data', JSON.stringify(response.rider));
         setLoginError('');
+        console.log('✅ Login successful:', response.rider.name);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
-      setLoginError('Rider ID tidak sah atau tidak wujud');
+      setLoginError(error.message || 'Nombor telefon atau kata laluan salah');
     }
   };
 
@@ -108,10 +114,11 @@ export default function RiderApp() {
     stopGPSTracking();
     setIsLoggedIn(false);
     setRider(null);
-    setRiderId('');
+    setPhone('');
+    setPassword('');
     setOrders([]);
     setActiveOrder(null);
-    localStorage.removeItem('rider_id');
+    localStorage.removeItem('rider_data');
   };
 
   // Start GPS tracking
@@ -300,15 +307,28 @@ export default function RiderApp() {
           <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Rider ID
+                Nombor Telefon
               </label>
               <input
-                type="text"
-                value={riderId}
-                onChange={(e) => setRiderId(e.target.value)}
-                placeholder="Masukkan Rider ID anda"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="Contoh: 0123456789"
                 className="w-full p-4 border-2 border-gray-300 rounded-xl focus:border-green-500 focus:outline-none text-lg"
                 autoFocus
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Kata Laluan
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Masukkan kata laluan"
+                className="w-full p-4 border-2 border-gray-300 rounded-xl focus:border-green-500 focus:outline-none text-lg"
               />
             </div>
 

@@ -2005,6 +2005,88 @@ async def update_order_status_by_rider(
 
 
 # =====================================================
+# RIDER AUTHENTICATION
+# =====================================================
+
+class RiderLoginRequest(BaseModel):
+    phone: str
+    password: str
+
+
+@router.post("/riders/login")
+async def rider_login(
+    credentials: RiderLoginRequest,
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Authenticate rider using phone number and password.
+
+    Body:
+    - phone: Rider's phone number
+    - password: Rider's password
+
+    Returns rider info if authentication successful.
+    """
+    try:
+        # Clean phone number (remove spaces, dashes, etc.)
+        phone = credentials.phone.replace(" ", "").replace("-", "").strip()
+
+        if not phone or not credentials.password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number and password are required"
+            )
+
+        # Find rider by phone number
+        rider_response = supabase.table("riders").select(
+            "id, name, phone, password, website_id, vehicle_type, vehicle_plate, status"
+        ).eq("phone", phone).execute()
+
+        if not rider_response.data or len(rider_response.data) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Nombor telefon atau kata laluan salah"
+            )
+
+        rider = rider_response.data[0]
+
+        # Check if rider is active
+        if rider.get("status") != "active":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Akaun rider tidak aktif. Sila hubungi pentadbir."
+            )
+
+        # Verify password (simple comparison - in production, use bcrypt)
+        stored_password = rider.get("password", "")
+        if stored_password != credentials.password:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Nombor telefon atau kata laluan salah"
+            )
+
+        # Remove password from response
+        rider.pop("password", None)
+
+        logger.info(f"✅ Rider {rider['name']} ({phone}) logged in successfully")
+
+        return {
+            "success": True,
+            "message": "Login berjaya",
+            "rider": rider
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error during rider login: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Login gagal: {str(e)}"
+        )
+
+
+# =====================================================
 # HEALTH CHECK
 # =====================================================
 

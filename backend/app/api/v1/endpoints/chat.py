@@ -259,20 +259,36 @@ async def get_website_conversations(website_id: str, status: str = None):
     try:
         supabase = get_supabase()
 
-        query = supabase.table("chat_conversations").select(
-            "*, chat_messages(id, content, sender_type, created_at)"
-        ).eq("website_id", website_id)
+        # Get conversations without nested query to avoid JOIN issues
+        query = supabase.table("chat_conversations").select("*").eq("website_id", website_id)
 
         if status:
             query = query.eq("status", status)
 
         result = query.order("updated_at", desc=True).execute()
+        conversations = result.data or []
 
-        return {"conversations": result.data or []}
+        # Fetch last message for each conversation separately
+        for conv in conversations:
+            try:
+                messages = supabase.table("chat_messages").select(
+                    "id, content, sender_type, created_at"
+                ).eq("conversation_id", conv["id"]).order(
+                    "created_at", desc=True
+                ).limit(10).execute()
+
+                # Reverse to get chronological order
+                conv["chat_messages"] = list(reversed(messages.data or []))
+            except Exception as msg_err:
+                logger.warning(f"[Chat] Failed to fetch messages for conversation {conv['id']}: {msg_err}")
+                conv["chat_messages"] = []
+
+        logger.info(f"[Chat] Retrieved {len(conversations)} conversations for website {website_id}")
+        return {"conversations": conversations}
 
     except Exception as e:
-        logger.error(f"[Chat] Failed to get website conversations: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"[Chat] Failed to get website conversations: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to load conversations: {str(e)}")
 
 
 @router.get("/conversations/order/{order_id}")

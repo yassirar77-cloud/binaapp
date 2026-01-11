@@ -2255,20 +2255,32 @@
                                 // Handle array of error objects (validation errors)
                                 if (Array.isArray(errorJson.detail)) {
                                     errorMessage = errorJson.detail.map(err => {
-                                        if (typeof err === 'object' && err.msg) {
-                                            return err.msg;
-                                        } else if (typeof err === 'string') {
+                                        if (typeof err === 'string') {
                                             return err;
-                                        } else {
-                                            return JSON.stringify(err);
+                                        } else if (typeof err === 'object' && err !== null) {
+                                            // Check for common error message properties
+                                            const msg = err.msg || err.message || err.error || err.description;
+                                            if (msg) return msg;
+                                            // If error has a loc property (field location), format it nicely
+                                            if (err.loc && Array.isArray(err.loc)) {
+                                                const field = err.loc[err.loc.length - 1];
+                                                return `${field}: ${err.msg || 'Invalid value'}`;
+                                            }
+                                            // Last resort: try to extract meaningful info
+                                            return Object.values(err).filter(v => typeof v === 'string').join(' ') || 'Validation error';
                                         }
+                                        return String(err);
                                     }).join(', ');
                                 } else if (typeof errorJson.detail === 'string') {
                                     errorMessage = errorJson.detail;
-                                } else {
-                                    // For other object types, stringify them
-                                    errorMessage = JSON.stringify(errorJson.detail);
+                                } else if (typeof errorJson.detail === 'object' && errorJson.detail !== null) {
+                                    // Single error object
+                                    errorMessage = errorJson.detail.message || errorJson.detail.msg || errorJson.detail.error || JSON.stringify(errorJson.detail);
                                 }
+                            } else if (errorJson.message) {
+                                errorMessage = errorJson.message;
+                            } else if (errorJson.error) {
+                                errorMessage = errorJson.error;
                             }
                         } catch (e) {
                             errorMessage = errorText || errorMessage;
