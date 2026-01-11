@@ -28,7 +28,6 @@ export default function ProfilePage() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>(undefined)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showChatList, setShowChatList] = useState(true)
-  const [debugInfo, setDebugInfo] = useState<string[]>([]) // NEW: Debug logging
 
   useEffect(() => {
     loadUserData()
@@ -80,100 +79,42 @@ export default function ProfilePage() {
       setLoading(true)
       setAuthChecking(true)
 
-      // Detect mobile browser
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-        typeof navigator !== 'undefined' ? navigator.userAgent : ''
-      )
+      // SIMPLIFIED: Middleware now handles auth, so we just load the session
+      // No need for aggressive redirects or mobile-specific retry logic
+      console.log('[Profile] Loading user session...')
 
-      const debugLog = (msg: string) => {
-        console.log(msg)
-        setDebugInfo(prev => [...prev, `${new Date().toLocaleTimeString()}: ${msg}`])
-      }
+      // Small delay to ensure session is hydrated (especially on mobile)
+      await new Promise(resolve => setTimeout(resolve, 300))
 
-      // MOBILE FIX: Try to get session first
-      debugLog(`[Profile] Starting auth check (Mobile: ${isMobile})`)
-      debugLog(`[Profile] localStorage keys: ${Object.keys(localStorage).filter(k => k.includes('supabase')).join(', ')}`)
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
 
-      // Check if tokens exist in localStorage (mobile debug)
-      if (typeof localStorage !== 'undefined') {
-        const storageKeys = Object.keys(localStorage).filter(k => k.includes('supabase') || k.includes('auth'))
-        debugLog(`[Profile] Found ${storageKeys.length} auth-related storage keys`)
-        if (storageKeys.length === 0) {
-          debugLog('[Profile] ⚠️ No auth tokens in localStorage! User not logged in.')
-        }
-      }
+      console.log('[Profile] Session check:', {
+        hasSession: !!session,
+        email: session?.user?.email,
+        error: sessionError?.message
+      })
 
-      let { data: { session }, error: sessionError } = await supabase.auth.getSession()
-
-      debugLog(`[Profile] Initial session check: ${session ? '✅ Session found' : '❌ No session'} (Email: ${session?.user?.email || 'none'})`)
-
-      // CRITICAL: If no session, try multiple times on mobile before giving up
-      if (!session && !sessionError && isMobile) {
-        debugLog('[Profile] 📱 Mobile browser detected - attempting session refresh...')
-
-        // Try refresh up to 2 times with delay (mobile networks can be slow)
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          debugLog(`[Profile] Refresh attempt ${attempt}/2...`)
-
-          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
-
-          if (refreshError) {
-            debugLog(`[Profile] ❌ Refresh attempt ${attempt} failed: ${refreshError.message}`)
-            if (attempt < 2) {
-              // Wait before retrying
-              await new Promise(resolve => setTimeout(resolve, 1000))
-              continue
-            }
-          } else if (refreshData.session?.user) {
-            debugLog(`[Profile] ✅ Refresh attempt ${attempt} succeeded: ${refreshData.session.user.email}`)
-            session = refreshData.session
-            setUser(refreshData.session.user)
-            setAuthChecking(false) // Auth successful!
-            break
-          }
-        }
-      } else if (!session && !sessionError) {
-        // Desktop: single refresh attempt
-        debugLog('[Profile] 🖥️ Desktop browser - attempting session refresh...')
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession()
-
-        if (refreshError) {
-          debugLog(`[Profile] ❌ Refresh failed: ${refreshError.message}`)
-        } else if (refreshData.session?.user) {
-          debugLog(`[Profile] ✅ Session refreshed: ${refreshData.session.user.email}`)
-          session = refreshData.session
-          setUser(refreshData.session.user)
-          setAuthChecking(false) // Auth successful!
-        }
-      }
-
-      // Handle session errors
       if (sessionError) {
         console.error('[Profile] Session error:', sessionError)
-        debugLog(`[Profile] ❌ Session error: ${sessionError.message}`)
-        debugLog('[Profile] Clearing stale session...')
-        await supabase.auth.signOut()
+        // Middleware will redirect, just set states
         setAuthChecking(false)
-        setTimeout(() => router.push('/login'), 500)
+        setLoading(false)
         return
       }
 
-      // Final check: Do we have a valid session?
-      if (session?.user) {
-        debugLog(`[Profile] ✅ FINAL: User authenticated: ${session.user.email}`)
-        setUser(session.user)
-        setAuthChecking(false) // Auth successful!
-      } else {
-        debugLog('[Profile] ❌ FINAL: No valid session found')
+      if (!session?.user) {
+        console.log('[Profile] No session found - middleware should redirect')
+        // Don't redirect here - middleware handles it
+        // Just set the states and let middleware do its job
         setAuthChecking(false)
-        // Give mobile browsers extra time to hydrate
-        const redirectDelay = isMobile ? 2000 : 1000
-        setTimeout(() => {
-          debugLog('[Profile] Redirecting to login...')
-          router.push('/login')
-        }, redirectDelay)
+        setLoading(false)
         return
       }
+
+      // SUCCESS: We have a valid session
+      console.log('[Profile] ✅ Session valid:', session.user.email)
+      setUser(session.user)
+      setAuthChecking(false)
 
       const currentUser = session?.user
       if (!currentUser) {
@@ -426,25 +367,14 @@ export default function ProfilePage() {
           <p className="text-gray-600 text-sm font-medium">
             {authChecking ? 'Memeriksa pengesahan...' : 'Memuatkan data...'}
           </p>
-          <p className="text-gray-400 text-xs mt-2">
-            {authChecking ? 'Sila tunggu, kami sedang sahkan sesi anda' : 'Sila tunggu sebentar'}
-          </p>
-
-          {/* Debug info - only show in development */}
-          {process.env.NODE_ENV === 'development' && debugInfo.length > 0 && (
-            <div className="mt-6 p-4 bg-gray-100 rounded-lg text-left max-h-48 overflow-y-auto">
-              <p className="text-xs font-mono text-gray-600 mb-2">Debug Log:</p>
-              {debugInfo.slice(-10).map((log, i) => (
-                <p key={i} className="text-[10px] font-mono text-gray-500">{log}</p>
-              ))}
-            </div>
-          )}
+          <p className="text-gray-400 text-xs mt-2">Sila tunggu sebentar</p>
         </div>
       </div>
     )
   }
 
   // Only show "Sila Log Masuk" if auth check is complete AND no user
+  // Note: Middleware should have already redirected, but this is a fallback
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -458,16 +388,6 @@ export default function ProfilePage() {
           >
             Log Masuk
           </Link>
-
-          {/* Debug info for mobile testing */}
-          {debugInfo.length > 0 && (
-            <div className="mt-6 p-4 bg-gray-100 rounded-lg text-left max-h-48 overflow-y-auto">
-              <p className="text-xs font-mono text-gray-600 mb-2">Debug Info (Hantar ke developer jika ada masalah):</p>
-              {debugInfo.slice(-10).map((log, i) => (
-                <p key={i} className="text-[10px] font-mono text-gray-500">{log}</p>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     )
