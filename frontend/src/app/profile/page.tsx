@@ -242,19 +242,36 @@ export default function ProfilePage() {
   }
 
   async function loadRiders() {
-    if (websites.length === 0) return
+    if (!supabase || websites.length === 0) return
 
     try {
       const websiteId = websites[0].id
+
+      // Get the session token for authentication
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session) {
+        console.error('[Riders] No session available')
+        return
+      }
+
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/admin/websites/${websiteId}/riders`
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/admin/websites/${websiteId}/riders`,
+        {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          }
+        }
       )
 
       if (response.ok) {
         const data = await response.json()
         setRiders(data || [])
+        console.log(`✅ Loaded ${data?.length || 0} riders`)
       } else {
-        console.error('Error loading riders:', response.statusText)
+        const errorText = await response.text()
+        console.error('Error loading riders:', response.status, errorText)
       }
     } catch (error) {
       console.error('Error loading riders:', error)
