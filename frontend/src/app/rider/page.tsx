@@ -205,7 +205,7 @@ export default function RiderApp() {
     setLoginError('');
 
     try {
-      const response = await riderApiFetch('/v1/delivery/riders/login', {
+      const response = await riderApiFetch('/api/v1/delivery/riders/login', {
         method: 'POST',
         body: JSON.stringify({
           phone: phone.replace(/\s/g, ''),
@@ -333,7 +333,7 @@ export default function RiderApp() {
     if (!rider || isOffline) return;
 
     try {
-      await riderApiFetch(`/v1/delivery/riders/${rider.id}/location`, {
+      await riderApiFetch(`/api/v1/delivery/riders/${rider.id}/location`, {
         method: 'PUT',
         body: JSON.stringify({
           latitude: lat,
@@ -355,7 +355,7 @@ export default function RiderApp() {
 
     setLoadingOrders(true);
     try {
-      const response = await riderApiFetch(`/v1/delivery/riders/${rider.id}/orders`);
+      const response = await riderApiFetch(`/api/v1/delivery/riders/${rider.id}/orders`);
 
       const fetchedOrders: RiderOrder[] = response.orders || [];
       setOrders(fetchedOrders);
@@ -382,7 +382,7 @@ export default function RiderApp() {
 
     setUpdatingStatus(true);
     try {
-      await riderApiFetch(`/v1/delivery/riders/${rider.id}/orders/${orderId}/status`, {
+      await riderApiFetch(`/api/v1/delivery/riders/${rider.id}/orders/${orderId}/status`, {
         method: 'PUT',
         body: JSON.stringify({
           status: newStatus,
