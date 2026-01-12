@@ -322,6 +322,184 @@ async def publish_website(
         )
 
 
+@router.post("/{website_id}/fix-widget")
+async def fix_website_widget(website_id: str):
+    """
+    Fix existing website HTML to add data-website-id to delivery widget script tag
+    This is a maintenance endpoint to update websites created before the fix
+    """
+    try:
+        import re
+
+        logger.info(f"Fixing widget for website: {website_id}")
+
+        # Get website
+        website = await supabase_service.get_website(website_id)
+
+        if not website:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Website not found"
+            )
+
+        html_content = website.get('html_content', '')
+
+        if not html_content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Website has no HTML content"
+            )
+
+        logger.info(f"Original HTML length: {len(html_content)}")
+
+        # Check if already has data-website-id
+        if 'data-website-id' in html_content:
+            logger.info("Already has data-website-id")
+            return {
+                "success": True,
+                "message": "Website already has data-website-id",
+                "website_id": website_id,
+                "subdomain": website.get('subdomain'),
+                "changed": False
+            }
+
+        # Pattern to match old script tag (with or without init script)
+        old_pattern = r'<script\s+src="[^"]*delivery-widget\.js"[^>]*>\s*</script>\s*(?:<script>.*?BinaAppDelivery\.init\(.*?\).*?</script>)?'
+
+        # Check if pattern exists
+        if not re.search(old_pattern, html_content, re.DOTALL):
+            logger.warning("No delivery widget script tag found")
+            return {
+                "success": False,
+                "message": "No delivery widget script tag found in HTML",
+                "website_id": website_id,
+                "subdomain": website.get('subdomain'),
+                "changed": False
+            }
+
+        # New script tag with data-website-id
+        new_script = f'''<script
+  src="https://binaapp-backend.onrender.com/widgets/delivery-widget.js"
+  data-website-id="{website_id}"
+  data-api-url="https://binaapp-backend.onrender.com"
+  data-primary-color="#ea580c"
+  data-language="ms"
+></script>
+<div id="binaapp-widget"></div>'''
+
+        # Replace old script with new script
+        new_html = re.sub(old_pattern, new_script, html_content, flags=re.DOTALL)
+
+        if new_html == html_content:
+            logger.warning("Pattern didn't match, trying simpler pattern")
+            # Try simpler pattern
+            simple_pattern = r'<script\s+src="[^"]*delivery-widget\.js"[^>]*>\s*</script>'
+            new_html = re.sub(simple_pattern, new_script, html_content)
+
+        if new_html == html_content:
+            return {
+                "success": False,
+                "message": "Could not find or replace script tag",
+                "website_id": website_id,
+                "subdomain": website.get('subdomain'),
+                "changed": False
+            }
+
+        logger.info(f"New HTML length: {len(new_html)}")
+        logger.info("Updating database...")
+
+        # Update website
+        await supabase_service.update_website(website_id, {
+            "html_content": new_html,
+            "updated_at": datetime.utcnow().isoformat()
+        })
+
+        logger.info(f"✅ Successfully fixed website: {website['subdomain']}")
+
+        return {
+            "success": True,
+            "message": f"Website HTML updated successfully",
+            "website_id": website_id,
+            "subdomain": website.get('subdomain'),
+            "changed": True,
+            "url": f"https://{website.get('subdomain')}.binaapp.my"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fixing website widget: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fix website: {str(e)}"
+        )
+
+
+@router.post("/fix-all-widgets")
+async def fix_all_website_widgets():
+    """
+    Fix ALL websites to add data-website-id to delivery widget script tags
+    This is a maintenance endpoint to batch update all websites
+    """
+    try:
+        logger.info("Fixing widgets for all websites...")
+
+        # Get all websites
+        websites = await supabase_service.supabase.table('websites')\
+            .select('id, subdomain, html_content')\
+            .execute()
+
+        if not websites.data:
+            return {
+                "success": True,
+                "message": "No websites found",
+                "fixed": 0,
+                "skipped": 0,
+                "failed": 0
+            }
+
+        results = {
+            "fixed": [],
+            "skipped": [],
+            "failed": []
+        }
+
+        for website in websites.data:
+            website_id = website['id']
+            subdomain = website.get('subdomain', 'unknown')
+
+            try:
+                # Call the fix endpoint for each website
+                result = await fix_website_widget(website_id)
+
+                if result['changed']:
+                    results['fixed'].append(subdomain)
+                else:
+                    results['skipped'].append(subdomain)
+
+            except Exception as e:
+                logger.error(f"Failed to fix {subdomain}: {e}")
+                results['failed'].append(subdomain)
+
+        logger.info(f"✅ Batch fix complete: {len(results['fixed'])} fixed, {len(results['skipped'])} skipped, {len(results['failed'])} failed")
+
+        return {
+            "success": True,
+            "message": "Batch fix completed",
+            "fixed": len(results['fixed']),
+            "skipped": len(results['skipped']),
+            "failed": len(results['failed']),
+            "details": results
+        }
+
+    except Exception as e:
+        logger.error(f"Error in batch fix: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Batch fix failed: {str(e)}"
+        )
+
+
 @router.get("/by-domain/{domain}")
 async def get_website_by_domain(domain: str):
     """
