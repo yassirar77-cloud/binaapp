@@ -58,7 +58,7 @@ export default function ChatList({
     const loadConversations = useCallback(async () => {
         try {
             setIsLoading(true);
-            const res = await fetch(`${API_URL}/v1/chat/conversations/website/${websiteId}`);
+            const res = await fetch(`${API_URL}/api/v1/chat/conversations/website/${websiteId}`);
             if (!res.ok) throw new Error('Failed to load conversations');
 
             const data = await res.json();

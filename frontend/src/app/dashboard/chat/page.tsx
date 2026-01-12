@@ -60,7 +60,7 @@ export default function ChatDashboardPage() {
                 const userId = user.id;
 
                 // Fetch user's websites
-                const res = await fetch(`${API_URL}/v1/websites/user/${userId}`);
+                const res = await fetch(`${API_URL}/api/v1/websites/user/${userId}`);
                 if (!res.ok) throw new Error('Failed to load websites');
 
                 const data = await res.json();

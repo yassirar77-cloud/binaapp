@@ -142,14 +142,14 @@ export default function DeliveryPage() {
                 // Fetch widget configuration from API first
                 let widgetConfig: any = {
                     websiteId: websiteId,
-                    apiUrl: `${API_URL}/v1`,
+                    apiUrl: `${API_URL}/api/v1`,
                     primaryColor: '#ea580c',
                     language: 'ms',
                     businessType: 'food', // default
                 };
 
                 try {
-                    const configRes = await fetch(`${API_URL}/v1/delivery/config/${websiteId}`);
+                    const configRes = await fetch(`${API_URL}/api/v1/delivery/config/${websiteId}`);
                     if (configRes.ok) {
                         const config = await configRes.json();
                         console.log('[DeliveryPage] Config loaded:', config);
@@ -157,7 +157,7 @@ export default function DeliveryPage() {
                         // Apply config to widget initialization
                         widgetConfig = {
                             websiteId: websiteId,
-                            apiUrl: `${API_URL}/v1`,
+                            apiUrl: `${API_URL}/api/v1`,
                             businessType: config.business_type || 'food',
                             primaryColor: config.primary_color || '#ea580c',
                             language: config.language || 'ms',

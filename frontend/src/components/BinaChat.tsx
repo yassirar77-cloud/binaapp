@@ -119,7 +119,7 @@ export default function BinaChat({
     const loadMessages = useCallback(async () => {
         try {
             setIsLoading(true);
-            const res = await fetch(`${API_URL}/v1/chat/conversations/${conversationId}`);
+            const res = await fetch(`${API_URL}/api/v1/chat/conversations/${conversationId}`);
             if (!res.ok) throw new Error('Failed to load messages');
 
             const data = await res.json();

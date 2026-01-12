@@ -47,7 +47,7 @@ export default function CustomerChatButton({
             setError(null);
 
             // First check if conversation exists for this order
-            const checkRes = await fetch(`${API_URL}/v1/chat/conversations/order/${orderId}`);
+            const checkRes = await fetch(`${API_URL}/api/v1/chat/conversations/order/${orderId}`);
             const checkData = await checkRes.json();
 
             if (checkData.exists && checkData.conversation) {
@@ -58,7 +58,7 @@ export default function CustomerChatButton({
             }
 
             // Create new conversation
-            const createRes = await fetch(`${API_URL}/v1/chat/conversations/create`, {
+            const createRes = await fetch(`${API_URL}/api/v1/chat/conversations/create`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
