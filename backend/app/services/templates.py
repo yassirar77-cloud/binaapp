@@ -869,7 +869,7 @@ function handleContactSubmit(e) {{
         language: str = "ms",
         description: str = "",
         website_id: str = "",
-        api_url: str = "https://api.binaapp.my/v1"
+        api_url: str = "https://binaapp-backend.onrender.com/api/v1"
     ) -> str:
         """
         COMPLETE DELIVERY PAGE - With all dependencies included
@@ -2745,7 +2745,7 @@ function handleContactSubmit(e) {{
                     business_type=business_type,
                     description=description,
                     website_id=ordering_website_id,
-                    api_url="https://api.binaapp.my/v1"
+                    api_url="https://binaapp-backend.onrender.com/api/v1"
                 )
             elif website_id:
                 # EXTERNAL DELIVERY PAGE - Fallback when no menu_items but website_id exists
