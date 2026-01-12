@@ -43,7 +43,7 @@ export default function RiderChat({
     useEffect(() => {
         const loadConversation = async () => {
             try {
-                const res = await fetch(`${API_URL}/v1/chat/conversations/order/${orderId}`);
+                const res = await fetch(`${API_URL}/api/v1/chat/conversations/order/${orderId}`);
                 const data = await res.json();
 
                 if (data.exists && data.conversation) {
@@ -84,7 +84,7 @@ export default function RiderChat({
 
                     try {
                         // Send to API
-                        await fetch(`${API_URL}/v1/chat/rider/update-location`, {
+                        await fetch(`${API_URL}/api/v1/chat/rider/update-location`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
