@@ -406,6 +406,14 @@ export default function ProfilePage() {
       setLoading(true)
 
       try {
+        // Get the session token for authentication
+        const { data: { session } } = await supabase.auth.getSession()
+
+        if (!session) {
+          alert('Sila log masuk semula')
+          return
+        }
+
         const url = editData
           ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/riders/${editData.id}`
           : `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/admin/websites/${websiteId}/riders`
@@ -414,7 +422,10 @@ export default function ProfilePage() {
 
         const response = await fetch(url, {
           method,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Authorization': `Bearer ${(await supabase?.auth.getSession())?.data.session?.access_token}`,
+            'Content-Type': 'application/json'
+          },
           body: JSON.stringify(formData)
         })
 
