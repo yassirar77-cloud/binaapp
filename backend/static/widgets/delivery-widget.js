@@ -2747,4 +2747,73 @@
             return translations[lang]?.[key] || translations.en[key] || key;
         }
     };
+    // Auto-initialize from data attributes if present
+    (function autoInit() {
+        const currentScript = document.currentScript || document.querySelector('script[data-website-id]');
+
+        if (currentScript) {
+            const websiteId = currentScript.getAttribute('data-website-id');
+            const apiUrl = currentScript.getAttribute('data-api-url');
+            const primaryColor = currentScript.getAttribute('data-primary-color');
+            const language = currentScript.getAttribute('data-language');
+            const businessType = currentScript.getAttribute('data-business-type');
+
+            if (websiteId) {
+                console.log('[BinaApp] Auto-initializing from data attributes');
+                console.log('[BinaApp] Website ID:', websiteId);
+
+                // Auto-initialize widget
+                const config = {
+                    websiteId: websiteId
+                };
+
+                if (apiUrl) config.apiUrl = apiUrl;
+                if (primaryColor) config.primaryColor = primaryColor;
+                if (language) config.language = language;
+                if (businessType) config.businessType = businessType;
+
+                // Initialize with a small delay to ensure DOM is ready
+                setTimeout(() => {
+                    window.BinaAppDelivery.init(config);
+                }, 100);
+            } else {
+                console.warn('[BinaApp] No website ID found in script tag data attributes');
+                console.log('[BinaApp] Will try to fetch by domain or wait for manual init()');
+
+                // Try to fetch website_id from backend using current domain as fallback
+                const hostname = window.location.hostname;
+                if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+                    console.log('[BinaApp] Attempting to fetch website_id for domain:', hostname);
+
+                    const apiBaseUrl = apiUrl || 'https://binaapp-backend.onrender.com';
+                    fetch(`${apiBaseUrl}/api/v1/websites/by-domain/${hostname}`)
+                        .then(response => {
+                            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                            return response.json();
+                        })
+                        .then(website => {
+                            console.log('[BinaApp] ✅ Found website by domain:', website.id);
+
+                            const config = {
+                                websiteId: website.id,
+                                apiUrl: apiBaseUrl
+                            };
+
+                            if (primaryColor) config.primaryColor = primaryColor;
+                            if (language) config.language = language;
+                            if (businessType) config.businessType = businessType;
+
+                            setTimeout(() => {
+                                window.BinaAppDelivery.init(config);
+                            }, 100);
+                        })
+                        .catch(error => {
+                            console.error('[BinaApp] ❌ Failed to fetch website by domain:', error);
+                            console.log('[BinaApp] Widget initialization deferred - call BinaAppDelivery.init() manually');
+                        });
+                }
+            }
+        }
+    })();
+
 })();
