@@ -2340,17 +2340,14 @@ async def publish_website(request: Request):
                 widget_src = f"{api_base}/widgets/delivery-widget.js"
                 widget_init = f"""
 <!-- BinaApp Delivery Widget -->
-<script src="{widget_src}"></script>
-<script>
-  if (window.BinaAppDelivery && typeof window.BinaAppDelivery.init === 'function') {{
-    window.BinaAppDelivery.init({{
-      websiteId: '{website_id}',
-      apiUrl: '{api_base}/api/v1',
-      primaryColor: '#ea580c',
-      language: 'ms'
-    }});
-  }}
-</script>
+<script
+  src="{widget_src}"
+  data-website-id="{website_id}"
+  data-api-url="{api_base}"
+  data-primary-color="#ea580c"
+  data-language="ms"
+></script>
+<div id="binaapp-widget"></div>
 """
                 if "</body>" in html_content:
                     html_content = html_content.replace("</body>", widget_init + "\n</body>")

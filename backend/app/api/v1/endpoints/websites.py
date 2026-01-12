@@ -322,6 +322,65 @@ async def publish_website(
         )
 
 
+@router.get("/by-domain/{domain}")
+async def get_website_by_domain(domain: str):
+    """
+    Get website by domain name (subdomain or custom domain)
+    This endpoint is public to allow widget initialization
+    """
+    try:
+        # Remove port if present
+        domain = domain.split(':')[0].strip().lower()
+
+        # Remove .binaapp.my suffix if present
+        domain = domain.replace('.binaapp.my', '')
+
+        logger.info(f"Looking up website by domain: {domain}")
+
+        # Try subdomain first
+        result = await supabase_service.supabase.table('websites')\
+            .select('id, business_name, subdomain, custom_domain, status')\
+            .eq('subdomain', domain)\
+            .maybeSingle()\
+            .execute()
+
+        # If not found, try custom domain
+        if not result.data:
+            result = await supabase_service.supabase.table('websites')\
+                .select('id, business_name, subdomain, custom_domain, status')\
+                .eq('custom_domain', f"{domain}.binaapp.my")\
+                .maybeSingle()\
+                .execute()
+
+        # Still not found, try with .binaapp.my appended
+        if not result.data:
+            result = await supabase_service.supabase.table('websites')\
+                .select('id, business_name, subdomain, custom_domain, status')\
+                .eq('subdomain', domain)\
+                .or_(f'custom_domain.eq.{domain}')\
+                .maybeSingle()\
+                .execute()
+
+        if not result.data:
+            logger.warning(f"Website not found for domain: {domain}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Website not found for domain: {domain}"
+            )
+
+        logger.info(f"Found website: {result.data.get('id')} for domain: {domain}")
+        return result.data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error finding website by domain {domain}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to lookup website: {str(e)}"
+        )
+
+
 @router.delete("/{website_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_website(
     website_id: str,
