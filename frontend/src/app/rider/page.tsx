@@ -37,6 +37,7 @@ export default function RiderApp() {
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const watchIdRef = useRef<number | null>(null);
+  const lastGpsSentRef = useRef<number>(0); // Throttle GPS updates to every 15 seconds
 
   // Orders
   const [orders, setOrders] = useState<RiderOrder[]>([]);
@@ -131,8 +132,8 @@ export default function RiderApp() {
     // Request permission and start watching position
     const options = {
       enableHighAccuracy: true,
-      timeout: 5000,
-      maximumAge: 0
+      timeout: 10000,
+      maximumAge: 5000 // Allow cached position up to 5 seconds old
     };
 
     watchIdRef.current = navigator.geolocation.watchPosition(
@@ -141,8 +142,12 @@ export default function RiderApp() {
         setCurrentLocation({ lat: latitude, lng: longitude });
         setGpsActive(true);
 
-        // Send to API
-        sendLocationToAPI(latitude, longitude);
+        // Throttle GPS updates to every 15 seconds to prevent API overload
+        const now = Date.now();
+        if (now - lastGpsSentRef.current >= 15000) {
+          sendLocationToAPI(latitude, longitude);
+          lastGpsSentRef.current = now;
+        }
       },
       (error) => {
         console.error('GPS error:', error);
@@ -153,6 +158,22 @@ export default function RiderApp() {
         }
       },
       options
+    );
+
+    // Send initial GPS immediately
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setCurrentLocation({ lat: latitude, lng: longitude });
+        setGpsActive(true);
+        sendLocationToAPI(latitude, longitude);
+        lastGpsSentRef.current = Date.now();
+        console.log('✅ Initial GPS sent');
+      },
+      (error) => {
+        console.error('Initial GPS error:', error);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
     );
 
     console.log('✅ GPS tracking started');

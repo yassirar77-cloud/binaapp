@@ -1819,11 +1819,14 @@
                                     ${rider.rating ? `<div style="color:#fbbf24;font-size:14px;margin-top:2px;">⭐ ${rider.rating}</div>` : ''}
                                     ${rider.current_latitude && rider.current_longitude ? `
                                         <div style="color:#10b981;font-size:12px;margin-top:4px;">
-                                            📍 ${this.t('liveTracking')}
+                                            📍 ${this.t('liveTracking')} - ${this.t('updatesEvery15Seconds')}
                                         </div>
                                     ` : `
-                                        <div style="color:#9ca3af;font-size:12px;margin-top:4px;">
-                                            📍 ${this.t('gpsNotAvailable')}
+                                        <div style="color:#f59e0b;font-size:12px;margin-top:4px;">
+                                            ⏳ ${this.t('gpsNotAvailable')}
+                                        </div>
+                                        <div style="color:#9ca3af;font-size:11px;margin-top:2px;">
+                                            ${this.t('updatesEvery15Seconds')}
                                         </div>
                                     `}
                                 </div>
@@ -2624,7 +2627,7 @@
                     yourDestination: 'Destinasi Anda',
                     deliveryLocation: 'Lokasi penghantaran',
                     liveTrackingActive: 'Pengesanan GPS Aktif',
-                    gpsNotAvailable: 'GPS tidak tersedia lagi',
+                    gpsNotAvailable: 'Menunggu GPS rider aktif',
                     updatesEvery15Seconds: 'Dikemas kini setiap 15 saat',
                     zoneAffectsFees: 'Caj dan minimum order ikut kawasan yang dipilih.',
                     selectZoneError: 'Sila pilih kawasan penghantaran terlebih dahulu.',
@@ -2704,7 +2707,7 @@
                     yourDestination: 'Your Destination',
                     deliveryLocation: 'Delivery location',
                     liveTrackingActive: 'GPS Tracking Active',
-                    gpsNotAvailable: 'GPS not available yet',
+                    gpsNotAvailable: 'Waiting for rider GPS',
                     updatesEvery15Seconds: 'Updates every 15 seconds',
                     zoneAffectsFees: 'Fees and minimum order depend on selected zone.',
                     selectZoneError: 'Please select a delivery zone first.',

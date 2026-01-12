@@ -119,7 +119,7 @@ export default function BinaChat({
     const loadMessages = useCallback(async () => {
         try {
             setIsLoading(true);
-            const res = await fetch(`${API_URL}/v1/chat/conversations/${conversationId}`);
+            const res = await fetch(`${API_URL}/api/v1/chat/conversations/${conversationId}`);
             if (!res.ok) throw new Error('Failed to load messages');
 
             const data = await res.json();
@@ -141,7 +141,7 @@ export default function BinaChat({
     const connectWebSocket = useCallback(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-        const ws = new WebSocket(`${WS_URL}/v1/chat/ws/${conversationId}/${userType}/${userId}`);
+        const ws = new WebSocket(`${WS_URL}/api/v1/chat/ws/${conversationId}/${userType}/${userId}`);
 
         ws.onopen = () => {
             console.log('[BinaChat] Connected');
