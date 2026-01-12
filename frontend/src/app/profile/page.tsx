@@ -420,13 +420,18 @@ export default function ProfilePage() {
 
         const method = editData ? 'PUT' : 'POST'
 
+        // Filter out empty password when editing (only include if user wants to change it)
+        const submitData = editData && !formData.password
+          ? { ...formData, password: undefined }
+          : formData
+
         const response = await fetch(url, {
           method,
           headers: {
             'Authorization': `Bearer ${(await supabase?.auth.getSession())?.data.session?.access_token}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify(formData)
+          body: JSON.stringify(submitData)
         })
 
         if (response.ok) {
@@ -495,23 +500,24 @@ export default function ProfilePage() {
             />
           </div>
 
-          {/* Password - only show for new riders */}
-          {!editData && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Kata Laluan *
-              </label>
-              <input
-                type="password"
-                required
-                value={formData.password}
-                onChange={(e) => setFormData({...formData, password: e.target.value})}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                placeholder="Min 6 aksara"
-                minLength={6}
-              />
-            </div>
-          )}
+          {/* Password */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Kata Laluan {editData ? '(kosongkan jika tidak mahu tukar)' : '*'}
+            </label>
+            <input
+              type="password"
+              required={!editData}
+              value={formData.password || ''}
+              onChange={(e) => setFormData({...formData, password: e.target.value})}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              placeholder={editData ? "Masukkan kata laluan baru" : "Min 6 aksara"}
+              minLength={6}
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Rider akan guna kata laluan ini untuk login di binaapp.my/rider
+            </p>
+          </div>
 
           {/* Vehicle Type */}
           <div>
