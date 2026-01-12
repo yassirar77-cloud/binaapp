@@ -276,14 +276,16 @@
             // New payment & fulfillment selections
             selectedFulfillment: null, // 'delivery' | 'pickup'
             selectedPayment: null, // 'cod' | 'qr'
-            // Leaflet Map (FREE - No API key needed!)
-            map: null,
+            // Leaflet Map (FREE - No API key needed!) - Phase 3
+            riderMap: null,
             riderMarker: null,
             customerMarker: null,
             routeLine: null,
-            mapsLoaded: false,
+            mapDistance: null,
+            mapETA: null,
             trackingInterval: null,
-            deliveryAddress: ''
+            deliveryAddress: '',
+            conversationId: null
         },
 
         // Initialize widget
@@ -1014,7 +1016,7 @@
             });
         },
 
-        // Initialize Map with Leaflet + OpenStreetMap (FREE!)
+        // Initialize Map with Leaflet + OpenStreetMap (FREE!) - Updated for Phase 3
         initializeMap: async function() {
             try {
                 if (!this.state.trackingData) return;
@@ -1028,111 +1030,30 @@
                     return;
                 }
 
-                // Load Leaflet if not already loaded (FREE!)
-                if (!this.state.mapsLoaded) {
-                    await this.loadLeaflet();
-                }
-
-                // Wait for map container to be in DOM
-                await new Promise(resolve => setTimeout(resolve, 100));
-
-                const mapContainer = document.getElementById('binaapp-rider-map');
-                if (!mapContainer) {
-                    console.error('[BinaApp] Map container not found');
-                    return;
-                }
-
                 // Get rider and customer coordinates
                 const riderLat = parseFloat(rider.current_latitude);
                 const riderLng = parseFloat(rider.current_longitude);
-                const customerLat = order.delivery_latitude ? parseFloat(order.delivery_latitude) : null;
-                const customerLng = order.delivery_longitude ? parseFloat(order.delivery_longitude) : null;
 
-                // Calculate center point
-                let centerLat = riderLat;
-                let centerLng = riderLng;
-                let zoom = 15;
+                // Use customer delivery coordinates if available, otherwise default to KL
+                const customerLat = order.delivery_latitude ? parseFloat(order.delivery_latitude) : 3.1390;
+                const customerLng = order.delivery_longitude ? parseFloat(order.delivery_longitude) : 101.6869;
 
-                if (customerLat && customerLng) {
-                    // Center between rider and customer
-                    centerLat = (riderLat + customerLat) / 2;
-                    centerLng = (riderLng + customerLng) / 2;
-                    // Adjust zoom based on distance
-                    const distance = this.calculateDistance(riderLat, riderLng, customerLat, customerLng);
-                    if (distance > 10) zoom = 12;
-                    else if (distance > 5) zoom = 13;
-                    else if (distance > 2) zoom = 14;
-                }
+                // Call the new Leaflet.js initialization function
+                await this.initRiderTrackingMap(
+                    riderLat,
+                    riderLng,
+                    customerLat,
+                    customerLng,
+                    rider.name || 'Rider'
+                );
 
-                // Destroy existing map if any
-                if (this.state.map) {
-                    this.state.map.remove();
-                }
-
-                // Initialize Leaflet map (FREE!)
-                this.state.map = L.map(mapContainer, {
-                    zoomControl: true,
-                    attributionControl: true
-                }).setView([centerLat, centerLng], zoom);
-
-                // Add OpenStreetMap tiles (FREE - No API key needed!)
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-                    maxZoom: 19
-                }).addTo(this.state.map);
-
-                // Create rider icon
-                const riderIcon = L.divIcon({
-                    html: '<div style="background:#10b981;width:36px;height:36px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:18px;">🛵</div>',
-                    iconSize: [36, 36],
-                    iconAnchor: [18, 18],
-                    className: 'binaapp-rider-marker'
-                });
-
-                // Add rider marker
-                this.state.riderMarker = L.marker([riderLat, riderLng], { icon: riderIcon })
-                    .addTo(this.state.map)
-                    .bindPopup(`<b>${rider.name || 'Rider'}</b><br>🛵 Sedang menghantar`);
-
-                // Add customer marker if coordinates available
-                if (customerLat && customerLng) {
-                    const customerIcon = L.divIcon({
-                        html: '<div style="background:#ef4444;width:32px;height:32px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:16px;">📍</div>',
-                        iconSize: [32, 32],
-                        iconAnchor: [16, 16],
-                        className: 'binaapp-customer-marker'
-                    });
-
-                    this.state.customerMarker = L.marker([customerLat, customerLng], { icon: customerIcon })
-                        .addTo(this.state.map)
-                        .bindPopup('<b>Lokasi Penghantaran</b><br>📍 Alamat anda');
-
-                    // Draw route line
-                    this.state.routeLine = L.polyline([
-                        [riderLat, riderLng],
-                        [customerLat, customerLng]
-                    ], {
-                        color: '#3b82f6',
-                        weight: 4,
-                        opacity: 0.7,
-                        dashArray: '10, 10'
-                    }).addTo(this.state.map);
-
-                    // Fit bounds to show both markers
-                    const bounds = L.latLngBounds([
-                        [riderLat, riderLng],
-                        [customerLat, customerLng]
-                    ]);
-                    this.state.map.fitBounds(bounds, { padding: [50, 50] });
-                }
-
-                console.log('[BinaApp] Map initialized successfully with Leaflet + OpenStreetMap (FREE!)');
+                console.log('[BinaApp] Map initialized successfully via initRiderTrackingMap');
             } catch (error) {
                 console.error('[BinaApp] Map initialization error:', error);
             }
         },
 
-        // Update rider marker position (Leaflet)
+        // Update rider marker position (Leaflet) - Updated for Phase 3
         updateRiderMarker: function() {
             if (!this.state.trackingData || !this.state.riderMarker) return;
 
@@ -1142,21 +1063,12 @@
             const newLat = parseFloat(rider.current_latitude);
             const newLng = parseFloat(rider.current_longitude);
 
-            // Update marker position
-            this.state.riderMarker.setLatLng([newLat, newLng]);
+            // Call our new updateRiderPosition function
+            this.updateRiderPosition(newLat, newLng);
 
-            // Update route line if customer marker exists
-            if (this.state.customerMarker && this.state.routeLine) {
-                const customerLatLng = this.state.customerMarker.getLatLng();
-                this.state.routeLine.setLatLngs([
-                    [newLat, newLng],
-                    [customerLatLng.lat, customerLatLng.lng]
-                ]);
-            }
-
-            // Pan map to keep rider visible
-            if (this.state.map) {
-                this.state.map.panTo([newLat, newLng]);
+            // Pan map to keep rider visible (use correct state variable)
+            if (this.state.riderMap) {
+                this.state.riderMap.panTo([newLat, newLng]);
             }
         },
 
@@ -2057,6 +1969,220 @@
             }
         },
 
+        // ============================================
+        // PHASE 3: LEAFLET.JS GPS TRACKING FUNCTIONS
+        // ============================================
+
+        // Load Leaflet CSS
+        loadLeafletCSS: function() {
+            if (document.getElementById('binaapp-leaflet-css')) return;
+
+            const link = document.createElement('link');
+            link.id = 'binaapp-leaflet-css';
+            link.rel = 'stylesheet';
+            link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+            link.crossOrigin = '';
+            document.head.appendChild(link);
+            console.log('[BinaApp] Leaflet CSS loaded');
+        },
+
+        // Load Leaflet JavaScript
+        loadLeafletJS: function() {
+            return new Promise((resolve, reject) => {
+                if (window.L) {
+                    resolve(window.L);
+                    return;
+                }
+
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+                script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+                script.crossOrigin = '';
+                script.onload = () => {
+                    console.log('[BinaApp] Leaflet JS loaded');
+                    resolve(window.L);
+                };
+                script.onerror = reject;
+                document.body.appendChild(script);
+            });
+        },
+
+        // Initialize rider tracking map
+        initRiderTrackingMap: async function(riderLat, riderLng, customerLat, customerLng, riderName) {
+            try {
+                this.loadLeafletCSS();
+                const L = await this.loadLeafletJS();
+
+                // Wait for container to be in DOM
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                const container = document.getElementById('binaapp-rider-map');
+                if (!container) {
+                    console.error('[BinaApp Map] Container not found');
+                    return;
+                }
+
+                // Clear existing map
+                if (this.state.riderMap) {
+                    this.state.riderMap.remove();
+                    this.state.riderMap = null;
+                }
+
+                // Create map centered on rider
+                this.state.riderMap = L.map('binaapp-rider-map', {
+                    zoomControl: true,
+                    attributionControl: true
+                }).setView([riderLat, riderLng], 14);
+
+                // Add OpenStreetMap tiles (FREE!)
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+                    maxZoom: 19,
+                    minZoom: 10
+                }).addTo(this.state.riderMap);
+
+                // Custom rider icon (motorcycle)
+                const riderIcon = L.divIcon({
+                    html: `
+                        <div style="
+                            width: 50px;
+                            height: 50px;
+                            background: linear-gradient(135deg, #ea580c 0%, #fb923c 100%);
+                            border-radius: 50%;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.5);
+                            border: 4px solid white;
+                            font-size: 26px;
+                        ">
+                            🛵
+                        </div>
+                    `,
+                    className: '',
+                    iconSize: [50, 50],
+                    iconAnchor: [25, 25],
+                    popupAnchor: [0, -25]
+                });
+
+                // Custom customer icon (location pin)
+                const customerIcon = L.divIcon({
+                    html: `
+                        <div style="
+                            width: 40px;
+                            height: 40px;
+                            background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+                            border-radius: 50% 50% 50% 0;
+                            transform: rotate(-45deg);
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.5);
+                            border: 3px solid white;
+                        ">
+                            <span style="transform: rotate(45deg); font-size: 20px;">📍</span>
+                        </div>
+                    `,
+                    className: '',
+                    iconSize: [40, 40],
+                    iconAnchor: [20, 40],
+                    popupAnchor: [0, -40]
+                });
+
+                // Add rider marker
+                this.state.riderMarker = L.marker([riderLat, riderLng], { icon: riderIcon })
+                    .addTo(this.state.riderMap)
+                    .bindPopup(`
+                        <div style="text-align: center; font-family: system-ui; padding: 8px;">
+                            <strong style="font-size: 16px; display: block; margin-bottom: 4px;">
+                                🛵 ${riderName}
+                            </strong>
+                            <span style="font-size: 13px; color: #666;">
+                                ${this.t('riderOnTheWay')}
+                            </span>
+                        </div>
+                    `);
+
+                // Add customer marker
+                this.state.customerMarker = L.marker([customerLat, customerLng], { icon: customerIcon })
+                    .addTo(this.state.riderMap)
+                    .bindPopup(`
+                        <div style="text-align: center; font-family: system-ui; padding: 8px;">
+                            <strong style="font-size: 16px; display: block; margin-bottom: 4px;">
+                                📍 ${this.t('yourDestination')}
+                            </strong>
+                            <span style="font-size: 13px; color: #666;">
+                                ${this.t('deliveryLocation')}
+                            </span>
+                        </div>
+                    `);
+
+                // Draw route line
+                this.state.routeLine = L.polyline(
+                    [[riderLat, riderLng], [customerLat, customerLng]],
+                    {
+                        color: '#ea580c',
+                        weight: 4,
+                        opacity: 0.7,
+                        dashArray: '10, 10',
+                        lineCap: 'round'
+                    }
+                ).addTo(this.state.riderMap);
+
+                // Calculate distance (Haversine formula)
+                const R = 6371; // Earth's radius in km
+                const dLat = (customerLat - riderLat) * Math.PI / 180;
+                const dLng = (customerLng - riderLng) * Math.PI / 180;
+                const a =
+                    Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(riderLat * Math.PI / 180) * Math.cos(customerLat * Math.PI / 180) *
+                    Math.sin(dLng/2) * Math.sin(dLng/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                const distance = R * c;
+
+                // Estimate ETA (30 km/h average city speed)
+                const etaMinutes = Math.ceil((distance / 30) * 60);
+
+                // Fit map to show both markers
+                const bounds = L.latLngBounds([
+                    [riderLat, riderLng],
+                    [customerLat, customerLng]
+                ]);
+                this.state.riderMap.fitBounds(bounds, { padding: [80, 80] });
+
+                // Store distance and ETA in state
+                this.state.mapDistance = distance;
+                this.state.mapETA = etaMinutes;
+
+                console.log('[BinaApp Map] Initialized successfully - Distance:', distance.toFixed(1), 'km, ETA:', etaMinutes, 'min');
+
+            } catch (error) {
+                console.error('[BinaApp Map] Failed to initialize:', error);
+            }
+        },
+
+        // Update rider position on map
+        updateRiderPosition: function(newLat, newLng) {
+            if (!this.state.riderMarker || !this.state.riderMap) {
+                console.warn('[BinaApp Map] Map not initialized, cannot update position');
+                return;
+            }
+
+            const newLatLng = [newLat, newLng];
+
+            // Smooth animation
+            this.state.riderMarker.setLatLng(newLatLng);
+
+            // Update route line
+            if (this.state.routeLine && this.state.customerMarker) {
+                const customerLatLng = this.state.customerMarker.getLatLng();
+                this.state.routeLine.setLatLngs([newLatLng, [customerLatLng.lat, customerLatLng.lng]]);
+            }
+
+            console.log('[BinaApp Map] Rider position updated:', newLat.toFixed(6), newLng.toFixed(6));
+        },
+
         // Attach event listeners for views
         attachViewEventListeners: function(view) {
             if (view === 'checkout') {
@@ -2494,6 +2620,9 @@
                     riderWillBeAssigned: 'Rider akan ditetapkan sebentar lagi',
                     noGpsPhase1: 'Lokasi GPS rider akan dipaparkan dalam versi akan datang',
                     liveTracking: 'Pengesanan Langsung',
+                    riderOnTheWay: 'Rider sedang dalam perjalanan',
+                    yourDestination: 'Destinasi Anda',
+                    deliveryLocation: 'Lokasi penghantaran',
                     liveTrackingActive: 'Pengesanan GPS Aktif',
                     gpsNotAvailable: 'GPS tidak tersedia lagi',
                     updatesEvery15Seconds: 'Dikemas kini setiap 15 saat',
@@ -2571,6 +2700,9 @@
                     riderWillBeAssigned: 'Rider will be assigned shortly',
                     noGpsPhase1: 'Rider GPS location will be available in future updates',
                     liveTracking: 'Live Tracking',
+                    riderOnTheWay: 'Rider is on the way',
+                    yourDestination: 'Your Destination',
+                    deliveryLocation: 'Delivery location',
                     liveTrackingActive: 'GPS Tracking Active',
                     gpsNotAvailable: 'GPS not available yet',
                     updatesEvery15Seconds: 'Updates every 15 seconds',
