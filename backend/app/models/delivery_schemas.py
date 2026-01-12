@@ -405,6 +405,7 @@ class RiderUpdate(BaseModel):
     vehicle_plate: Optional[str] = None
     vehicle_model: Optional[str] = None
     is_active: Optional[bool] = None
+    password: Optional[str] = Field(default=None, min_length=6)  # For password reset
 
 
 class RiderResponse(RiderBase):
@@ -434,11 +435,10 @@ class RiderStatusUpdate(BaseModel):
 
 class RiderCreateBusiness(RiderBase):
     """
-    Phase 1 (Business Dashboard) rider creation payload.
-
-    We do not activate rider authentication / rider app yet (Phase 2),
-    so this schema intentionally omits password/auth fields.
+    Business Dashboard rider creation payload.
+    Includes password for Rider PWA authentication.
     """
+    password: str = Field(min_length=6)  # Required for Rider PWA login
 
 
 class AssignRiderRequest(BaseModel):

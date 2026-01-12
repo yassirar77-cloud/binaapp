@@ -1120,6 +1120,51 @@ async def create_rider(
         )
 
 
+@router.put("/riders/{rider_id}", response_model=RiderResponse)
+async def update_rider(
+    rider_id: str,
+    update_data: RiderUpdate,
+    supabase: Client = Depends(get_supabase_rls_client),
+):
+    """
+    Update a rider (with RLS authentication).
+
+    Supports updating all rider fields including password reset.
+    Password will be hashed before storage.
+    """
+    try:
+        # Convert to dict and filter out None values
+        data = {k: v for k, v in update_data.dict().items() if v is not None}
+
+        if not data:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No valid fields to update"
+            )
+
+        # Hash password if provided
+        if "password" in data and data["password"]:
+            data["password"] = hash_password(data["password"])
+            logger.info(f"Updating rider {rider_id} with new hashed password")
+
+        resp = supabase.table("riders").update(data).eq("id", rider_id).execute()
+
+        if not resp.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Rider not found"
+            )
+        return convert_db_row_to_dict(resp.data[0])
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating rider: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update rider: {str(e)}",
+        )
+
+
 @router.get("/admin/websites/{website_id}/settings", response_model=DeliverySettingsResponse)
 async def get_delivery_settings_admin(
     website_id: str,
