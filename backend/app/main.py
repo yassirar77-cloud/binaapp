@@ -107,7 +107,7 @@ app = FastAPI(title="BinaApp Backend", version="4.0")
 # Include routers
 app.include_router(upload_router, prefix="/api", tags=["Upload"])
 app.include_router(menu_delivery_router, prefix="/api/v1", tags=["Menu & Delivery"])
-app.include_router(v1_router, prefix="/v1")  # New delivery system + all v1 endpoints
+app.include_router(v1_router, prefix="/api/v1")  # New delivery system + all v1 endpoints
 app.include_router(health_router, tags=["Health"])  # Health check endpoints
 app.include_router(chatbot_router, tags=["Chatbot"])  # Customer support chatbot
 
