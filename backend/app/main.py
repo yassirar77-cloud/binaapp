@@ -2345,7 +2345,7 @@ async def publish_website(request: Request):
   if (window.BinaAppDelivery && typeof window.BinaAppDelivery.init === 'function') {{
     window.BinaAppDelivery.init({{
       websiteId: '{website_id}',
-      apiUrl: '{api_base}/v1',
+      apiUrl: '{api_base}/api/v1',
       primaryColor: '#ea580c',
       language: 'ms'
     }});

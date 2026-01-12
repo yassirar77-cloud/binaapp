@@ -14,7 +14,7 @@
  * <script>
  *   BinaAppDelivery.init({
  *     websiteId: 'your-website-id',
- *     apiUrl: 'https://api.binaapp.my/v1',
+ *     apiUrl: 'https://binaapp-backend.onrender.com/api/v1',
  *     businessType: 'food', // food, clothing, salon, services, bakery, general
  *     primaryColor: '#ea580c',
  *     language: 'ms'  // 'ms' or 'en'
@@ -229,7 +229,7 @@
     window.BinaAppDelivery = {
         config: {
             websiteId: null,
-            apiUrl: 'https://api.binaapp.my/v1',
+            apiUrl: 'https://binaapp-backend.onrender.com/api/v1',
             businessType: 'food',
             primaryColor: '#ea580c',
             language: 'ms',
