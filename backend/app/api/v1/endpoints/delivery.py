@@ -1166,6 +1166,104 @@ async def update_rider(
         )
 
 
+@router.put("/riders/{rider_id}/status")
+async def update_rider_status(
+    rider_id: str,
+    status_data: dict,
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Update rider status (activate/deactivate).
+
+    Body:
+    - status: "active" or "inactive"
+
+    This is a soft delete - rider remains in database but is marked inactive.
+    """
+    try:
+        new_status = status_data.get("status", "inactive")
+
+        # Validate status value
+        if new_status not in ["active", "inactive"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Status mesti 'active' atau 'inactive'"
+            )
+
+        # Update rider status
+        resp = supabase.table("riders").update({
+            "status": new_status,
+            "is_active": new_status == "active"
+        }).eq("id", rider_id).execute()
+
+        if not resp.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Rider tidak dijumpai"
+            )
+
+        action = "diaktifkan" if new_status == "active" else "dinyahaktifkan"
+        logger.info(f"✅ Rider {rider_id} {action}")
+
+        return {
+            "success": True,
+            "message": f"Rider berjaya {action}",
+            "rider": convert_db_row_to_dict(resp.data[0])
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating rider status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal mengemas kini status rider: {str(e)}"
+        )
+
+
+@router.delete("/riders/{rider_id}")
+async def delete_rider(
+    rider_id: str,
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Permanently delete a rider (hard delete).
+
+    Warning: This cannot be undone. Use PUT /riders/{rider_id}/status
+    for soft delete (deactivation) instead.
+    """
+    try:
+        # First check if rider exists
+        check_resp = supabase.table("riders").select("id, name").eq("id", rider_id).execute()
+
+        if not check_resp.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Rider tidak dijumpai"
+            )
+
+        rider_name = check_resp.data[0].get("name", "Unknown")
+
+        # Delete the rider
+        resp = supabase.table("riders").delete().eq("id", rider_id).execute()
+
+        logger.info(f"✅ Rider {rider_name} ({rider_id}) deleted permanently")
+
+        return {
+            "success": True,
+            "message": f"Rider {rider_name} berjaya dipadam"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting rider: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal memadam rider: {str(e)}"
+        )
+
+
 @router.get("/admin/websites/{website_id}/settings", response_model=DeliverySettingsResponse)
 async def get_delivery_settings_admin(
     website_id: str,
@@ -1512,6 +1610,99 @@ async def update_website_rider(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update rider: {str(e)}",
+        )
+
+
+@router.put("/website/{website_id}/riders/{rider_id}/status")
+async def update_website_rider_status(
+    website_id: str,
+    rider_id: str,
+    status_data: dict,
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Update rider status for a website (activate/deactivate).
+
+    Body:
+    - status: "active" or "inactive"
+    """
+    try:
+        new_status = status_data.get("status", "inactive")
+
+        if new_status not in ["active", "inactive"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Status mesti 'active' atau 'inactive'"
+            )
+
+        resp = supabase.table("riders").update({
+            "status": new_status,
+            "is_active": new_status == "active"
+        }).eq("id", rider_id).eq("website_id", website_id).execute()
+
+        if not resp.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Rider tidak dijumpai"
+            )
+
+        action = "diaktifkan" if new_status == "active" else "dinyahaktifkan"
+        logger.info(f"✅ Rider {rider_id} {action}")
+
+        return {
+            "success": True,
+            "message": f"Rider berjaya {action}",
+            "rider": convert_db_row_to_dict(resp.data[0])
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating rider status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal mengemas kini status rider: {str(e)}"
+        )
+
+
+@router.delete("/website/{website_id}/riders/{rider_id}")
+async def delete_website_rider(
+    website_id: str,
+    rider_id: str,
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Permanently delete a rider for a website.
+    """
+    try:
+        check_resp = supabase.table("riders").select("id, name").eq(
+            "id", rider_id
+        ).eq("website_id", website_id).execute()
+
+        if not check_resp.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Rider tidak dijumpai"
+            )
+
+        rider_name = check_resp.data[0].get("name", "Unknown")
+
+        supabase.table("riders").delete().eq("id", rider_id).eq("website_id", website_id).execute()
+
+        logger.info(f"✅ Rider {rider_name} ({rider_id}) deleted")
+
+        return {
+            "success": True,
+            "message": f"Rider {rider_name} berjaya dipadam"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting rider: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Gagal memadam rider: {str(e)}"
         )
 
 
