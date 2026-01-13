@@ -28,6 +28,8 @@ export default function ProfilePage() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>(undefined)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [showChatList, setShowChatList] = useState(true)
+  const [chatEnabled, setChatEnabled] = useState(true) // Default to true - API is working
+  const [chatLoading, setChatLoading] = useState(true)
   const [showAddRider, setShowAddRider] = useState(false)
   const [editingRider, setEditingRider] = useState<any>(null)
 
@@ -82,6 +84,38 @@ export default function ProfilePage() {
       loadRiders()
     }
   }, [user, websites])
+
+  // Check if chat API is working when chat tab is active
+  useEffect(() => {
+    if (activeTab === 'chat' && websites.length > 0) {
+      checkChatApi()
+    }
+  }, [activeTab, websites])
+
+  async function checkChatApi() {
+    try {
+      setChatLoading(true)
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
+      const response = await fetch(`${apiUrl}/api/v1/chat/conversations`, {
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      })
+
+      if (response.ok) {
+        setChatEnabled(true) // API works = chat enabled
+        console.log('[Chat] API is working ✅')
+      } else {
+        setChatEnabled(false)
+        console.log('[Chat] API returned error:', response.status)
+      }
+    } catch (error) {
+      console.error('[Chat] API check failed:', error)
+      setChatEnabled(false)
+    } finally {
+      setChatLoading(false)
+    }
+  }
 
   async function loadUserData() {
     if (!supabase) {
@@ -1248,24 +1282,36 @@ export default function ProfilePage() {
                   <h2 className="text-xl md:text-2xl font-bold">💬 Chat Pelanggan</h2>
                 </div>
 
-                {/* Info Banner about Chat Setup */}
-                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <div className="flex items-start gap-3">
-                    <span className="text-2xl">💡</span>
-                    <div className="flex-1">
-                      <h3 className="font-bold text-blue-900 mb-1">Chat System Setup Required</h3>
-                      <p className="text-sm text-blue-800 mb-2">
-                        To enable real-time messaging with customers, run the chat migration in Supabase:
-                      </p>
-                      <code className="text-xs bg-white px-2 py-1 rounded border border-blue-300 block mb-2">
-                        backend/migrations/004_chat_system.sql
-                      </code>
-                      <p className="text-xs text-blue-700">
-                        After migration, refresh this page to start chatting with customers!
-                      </p>
+                {/* Loading indicator while checking chat API */}
+                {chatLoading && (
+                  <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-orange-500"></div>
+                      <span className="text-gray-600">Menyemak sistem chat...</span>
                     </div>
                   </div>
-                </div>
+                )}
+
+                {/* Error Banner - Only show if API check failed */}
+                {!chatEnabled && !chatLoading && (
+                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl">⚠️</span>
+                      <div className="flex-1">
+                        <h3 className="font-bold text-red-900 mb-1">Chat Tidak Dapat Dihubungi</h3>
+                        <p className="text-sm text-red-800 mb-2">
+                          Sistem chat tidak dapat dihubungi. Sila cuba semula atau hubungi sokongan.
+                        </p>
+                        <button
+                          onClick={() => checkChatApi()}
+                          className="text-sm bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1 rounded"
+                        >
+                          Cuba Semula
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {websites.length === 0 ? (
                   <div className="text-center py-12 px-4">
