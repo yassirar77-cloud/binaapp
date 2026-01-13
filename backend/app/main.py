@@ -111,13 +111,17 @@ app.include_router(v1_router, prefix="/api/v1")  # New delivery system + all v1 
 app.include_router(health_router, tags=["Health"])  # Health check endpoints
 app.include_router(chatbot_router, tags=["Chatbot"])  # Customer support chatbot
 
-# Mount static files for delivery widget
+# Mount static files for widgets (chat, delivery, etc.)
+# Files are accessible at /static/widgets/chat-widget.js, etc.
 static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 if os.path.exists(static_dir):
-    widgets_path = os.path.join(static_dir, "widgets")
-    if os.path.exists(widgets_path):
-        app.mount("/widgets", StaticFiles(directory=widgets_path), name="widgets")
-        logger.info(f"✅ Static widgets directory mounted: {widgets_path}")
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    logger.info(f"✅ Static directory mounted at /static: {static_dir}")
+else:
+    # Create the directory structure if it doesn't exist
+    os.makedirs(os.path.join(static_dir, "widgets"), exist_ok=True)
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    logger.info(f"✅ Static directory created and mounted: {static_dir}")
 
 # CORS - CRITICAL: allow_credentials must be False when using wildcard origins
 app.add_middleware(
