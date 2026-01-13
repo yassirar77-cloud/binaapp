@@ -159,6 +159,21 @@ def get_supabase():
 # REST API ENDPOINTS
 # =====================================================
 
+@router.get("/conversations")
+async def list_conversations():
+    """Get all conversations (returns empty array if none exist)"""
+    try:
+        supabase = get_supabase()
+
+        result = supabase.table("chat_conversations").select("*").order("updated_at", desc=True).execute()
+
+        return result.data or []
+
+    except Exception as e:
+        logger.error(f"[Chat] Failed to list conversations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/conversations/create")
 async def create_conversation(request: CreateConversationRequest):
     """Create a new chat conversation for an order"""
