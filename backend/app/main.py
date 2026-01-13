@@ -7,6 +7,7 @@ from typing import Optional, List
 import httpx
 import os
 import logging
+from pathlib import Path
 import base64
 import re
 import cloudinary
@@ -113,15 +114,26 @@ app.include_router(chatbot_router, tags=["Chatbot"])  # Customer support chatbot
 
 # Mount static files for widgets (chat, delivery, etc.)
 # Files are accessible at /static/widgets/chat-widget.js, etc.
-static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
-if os.path.exists(static_dir):
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
-    logger.info(f"✅ Static directory mounted at /static: {static_dir}")
+# Use pathlib for reliable path resolution
+static_dir = Path(__file__).parent.parent / "static"
+static_dir_str = str(static_dir.resolve())
+logger.info(f"📁 Static directory path: {static_dir_str}")
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=static_dir_str), name="static")
+    # Verify widgets exist
+    widgets_dir = static_dir / "widgets"
+    if widgets_dir.exists():
+        widget_files = list(widgets_dir.glob("*.js"))
+        logger.info(f"✅ Static directory mounted at /static: {static_dir_str}")
+        logger.info(f"📦 Widget files found: {[f.name for f in widget_files]}")
+    else:
+        logger.warning(f"⚠️ Widgets directory not found at {widgets_dir}")
 else:
     # Create the directory structure if it doesn't exist
-    os.makedirs(os.path.join(static_dir, "widgets"), exist_ok=True)
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
-    logger.info(f"✅ Static directory created and mounted: {static_dir}")
+    widgets_dir = static_dir / "widgets"
+    widgets_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/static", StaticFiles(directory=static_dir_str), name="static")
+    logger.info(f"✅ Static directory created and mounted: {static_dir_str}")
 
 # CORS - CRITICAL: allow_credentials must be False when using wildcard origins
 app.add_middleware(
