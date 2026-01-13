@@ -252,13 +252,18 @@ export default function ChatList({
                 ) : filteredConversations.length === 0 ? (
                     <div className="p-8 text-center text-gray-500">
                         <div className="text-4xl mb-2">&#128172;</div>
-                        <div className="text-sm">
+                        <div className="text-sm font-medium">
                             {filter === 'all'
                                 ? 'Tiada perbualan lagi'
                                 : filter === 'active'
                                 ? 'Tiada perbualan aktif'
                                 : 'Tiada perbualan ditutup'}
                         </div>
+                        {filter === 'all' && (
+                            <div className="text-xs text-gray-400 mt-2">
+                                Pelanggan boleh chat melalui butang di website anda
+                            </div>
+                        )}
                     </div>
                 ) : (
                     filteredConversations.map(renderConversation)

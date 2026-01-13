@@ -1380,9 +1380,12 @@ export default function ProfilePage() {
                         />
                       ) : (
                         <div className="h-full flex items-center justify-center text-gray-500 w-full">
-                          <div className="text-center p-4">
+                          <div className="text-center p-4 max-w-md">
                             <div className="text-4xl md:text-6xl mb-4">💬</div>
-                            <p className="text-sm md:text-lg">Pilih perbualan untuk mula chat</p>
+                            <p className="text-sm md:text-lg font-medium mb-2">Pilih perbualan untuk mula chat</p>
+                            <p className="text-xs md:text-sm text-gray-400">
+                              Pelanggan boleh bertanya soalan melalui butang chat di website anda sebelum membuat pesanan
+                            </p>
                           </div>
                         </div>
                       )}
