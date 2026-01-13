@@ -143,6 +143,16 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
             integrations = ["BinaApp Delivery", "WhatsApp Contact", "Mobile Responsive", "Cloudinary Images"]
             logger.info(f"✅ Delivery widget injected successfully for website {website_id}")
 
+        # ALWAYS inject chat widget for customer-owner communication
+        # This allows customers to ask questions before ordering
+        template_service = TemplateService()
+        html_content = template_service.inject_chat_widget(
+            html=html_content,
+            website_id=website_id,
+            api_url="https://binaapp-backend.onrender.com"
+        )
+        logger.info(f"✅ Chat widget injected for website {website_id}")
+
         # Update website with generated content
         update_data = {
             "html_content": html_content,

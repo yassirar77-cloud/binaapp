@@ -2630,6 +2630,40 @@ function handleContactSubmit(e) {{
         logger.info(f"✅ Delivery button link injected for website {website_id}")
         return html
 
+    def inject_chat_widget(
+        self,
+        html: str,
+        website_id: str,
+        api_url: str = "https://binaapp-backend.onrender.com"
+    ) -> str:
+        """
+        Inject BinaApp Chat Widget for customer-owner communication
+        Shows floating chat button on restaurant websites
+
+        Args:
+            html: Website HTML
+            website_id: Website UUID
+            api_url: Backend API URL
+
+        Returns:
+            HTML with chat widget injected
+        """
+        # Chat widget script tag
+        chat_widget = f'''
+<!-- BinaApp Chat Widget - Customer to Owner Chat -->
+<script src="{api_url}/static/widgets/chat-widget.js"
+        data-website-id="{website_id}"
+        data-api-url="{api_url}"></script>'''
+
+        # Inject before </body>
+        if "</body>" in html:
+            html = html.replace("</body>", chat_widget + "\n</body>")
+        else:
+            html += chat_widget
+
+        logger.info(f"✅ Chat widget injected for website {website_id}")
+        return html
+
 
     def inject_integrations(
         self,
@@ -2758,6 +2792,13 @@ function handleContactSubmit(e) {{
                 )
             else:
                 logger.warning("Delivery system requested but no menu_items and no website_id - skipping")
+
+        # Chat Widget - Always inject when website_id exists
+        # This enables customer-to-owner chat on all restaurant websites
+        website_id = user_data.get("website_id", "")
+        if website_id:
+            api_url = user_data.get("api_url", "https://binaapp-backend.onrender.com")
+            html = self.inject_chat_widget(html, website_id, api_url)
 
         return html
 
