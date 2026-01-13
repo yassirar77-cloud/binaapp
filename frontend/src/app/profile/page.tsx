@@ -1183,23 +1183,86 @@ export default function ProfilePage() {
                                 >
                                   ✏️
                                 </button>
+                                {rider.is_active !== false ? (
+                                  <button
+                                    onClick={async () => {
+                                      if (confirm(`Nyahaktifkan ${rider.name}?`)) {
+                                        try {
+                                          const response = await fetch(
+                                            `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/riders/${rider.id}/status`,
+                                            {
+                                              method: 'PUT',
+                                              headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({ status: 'inactive' })
+                                            }
+                                          )
+                                          if (response.ok) {
+                                            alert('Rider dinyahaktifkan')
+                                            loadRiders()
+                                          } else {
+                                            const error = await response.json()
+                                            alert('Gagal menyahaktifkan rider: ' + (error.detail || 'Unknown error'))
+                                          }
+                                        } catch (error) {
+                                          console.error('Error:', error)
+                                          alert('Ralat sistem')
+                                        }
+                                      }
+                                    }}
+                                    className="p-2 text-yellow-600 hover:bg-yellow-50 rounded-lg min-h-[44px] min-w-[44px]"
+                                    title="Nyahaktif"
+                                  >
+                                    ⏸️
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={async () => {
+                                      if (confirm(`Aktifkan semula ${rider.name}?`)) {
+                                        try {
+                                          const response = await fetch(
+                                            `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/riders/${rider.id}/status`,
+                                            {
+                                              method: 'PUT',
+                                              headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({ status: 'active' })
+                                            }
+                                          )
+                                          if (response.ok) {
+                                            alert('Rider diaktifkan semula')
+                                            loadRiders()
+                                          } else {
+                                            const error = await response.json()
+                                            alert('Gagal mengaktifkan rider: ' + (error.detail || 'Unknown error'))
+                                          }
+                                        } catch (error) {
+                                          console.error('Error:', error)
+                                          alert('Ralat sistem')
+                                        }
+                                      }
+                                    }}
+                                    className="p-2 text-green-600 hover:bg-green-50 rounded-lg min-h-[44px] min-w-[44px]"
+                                    title="Aktifkan Semula"
+                                  >
+                                    ▶️
+                                  </button>
+                                )}
                                 <button
                                   onClick={async () => {
-                                    if (confirm(`Nyahaktifkan ${rider.name}?`)) {
+                                    if (confirm(`PADAM ${rider.name}? Tindakan ini tidak boleh dibatalkan.`)) {
                                       try {
                                         const response = await fetch(
                                           `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/riders/${rider.id}`,
                                           {
-                                            method: 'PUT',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ is_active: false })
+                                            method: 'DELETE',
+                                            headers: { 'Content-Type': 'application/json' }
                                           }
                                         )
                                         if (response.ok) {
-                                          alert('Rider dinyahaktifkan')
+                                          alert('Rider berjaya dipadam')
                                           loadRiders()
                                         } else {
-                                          alert('Gagal menyahaktifkan rider')
+                                          const error = await response.json()
+                                          alert('Gagal memadam rider: ' + (error.detail || 'Unknown error'))
                                         }
                                       } catch (error) {
                                         console.error('Error:', error)
@@ -1208,7 +1271,7 @@ export default function ProfilePage() {
                                     }
                                   }}
                                   className="p-2 text-red-600 hover:bg-red-50 rounded-lg min-h-[44px] min-w-[44px]"
-                                  title="Nyahaktif"
+                                  title="Padam"
                                 >
                                   🗑️
                                 </button>
