@@ -109,12 +109,20 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password against hash"""
+    """Verify password against hash or plain text (legacy support)"""
     try:
-        return bcrypt.checkpw(
-            plain_password.encode('utf-8'),
-            hashed_password.encode('utf-8')
-        )
+        # Check if stored password is a bcrypt hash (starts with $2a$, $2b$, or $2y$)
+        if hashed_password and hashed_password.startswith(('$2a$', '$2b$', '$2y$')):
+            # It's a bcrypt hash - verify normally
+            return bcrypt.checkpw(
+                plain_password.encode('utf-8'),
+                hashed_password.encode('utf-8')
+            )
+        else:
+            # Legacy plain text password - compare directly
+            # This supports riders created before hashing was implemented
+            logger.warning("Legacy plain text password detected - should migrate to hashed")
+            return plain_password == hashed_password
     except Exception as e:
         logger.error(f"Password verification error: {e}")
         return False
