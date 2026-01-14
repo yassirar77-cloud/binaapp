@@ -510,6 +510,256 @@ async def fix_all_website_widgets():
         )
 
 
+@router.get("/{website_id}/health")
+async def check_website_health(website_id: str):
+    """
+    Check if website has all required components including delivery widget
+    This is a diagnostic endpoint to verify website health
+    """
+    try:
+        logger.info(f"Health check for website: {website_id}")
+
+        # Get website HTML
+        website = await supabase_service.get_website(website_id)
+
+        if not website:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Website not found"
+            )
+
+        html = website.get('html_content', '')
+
+        # Check for required components
+        checks = {
+            'has_html_content': len(html) > 100,
+            'has_delivery_button': 'binaapp.my/delivery' in html or 'delivery-widget.js' in html,
+            'has_website_id_in_delivery': f'/delivery/{website_id}' in html or f'data-website-id="{website_id}"' in html,
+            'has_body_tag': '</body>' in html,
+            'has_head_tag': '</head>' in html,
+        }
+
+        all_passed = all(checks.values())
+
+        return {
+            "website_id": website_id,
+            "subdomain": website.get('subdomain'),
+            "healthy": all_passed,
+            "checks": checks,
+            "issues": [k for k, v in checks.items() if not v],
+            "html_length": len(html)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking website health: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Health check failed: {str(e)}"
+        )
+
+
+@router.post("/{website_id}/repair-delivery")
+async def repair_website_delivery(website_id: str):
+    """
+    COMPREHENSIVE REPAIR: Add delivery button if COMPLETELY MISSING
+    This fixes websites that never had the delivery widget injected
+    """
+    try:
+        from app.services.business_types import detect_business_type, get_delivery_button_label
+
+        logger.info(f"🔧 Repairing delivery widget for website: {website_id}")
+
+        # Get website
+        website = await supabase_service.get_website(website_id)
+
+        if not website:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Website not found"
+            )
+
+        html_content = website.get('html_content', '')
+        business_name = website.get('business_name', '')
+        subdomain = website.get('subdomain', '')
+
+        if not html_content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Website has no HTML content"
+            )
+
+        # Check if delivery button already exists
+        if 'binaapp.my/delivery' in html_content or 'delivery-widget.js' in html_content:
+            # Check if it has the correct website_id
+            if f'/delivery/{website_id}' in html_content:
+                logger.info(f"✅ Website {subdomain} already has correct delivery button")
+                return {
+                    "success": True,
+                    "message": "Website already has delivery button with correct ID",
+                    "website_id": website_id,
+                    "subdomain": subdomain,
+                    "changed": False
+                }
+
+        logger.info(f"❌ Delivery button missing or has wrong ID - INJECTING...")
+
+        # Detect business type and get appropriate button label
+        business_type = detect_business_type(business_name)
+        button_label = get_delivery_button_label(business_type, "ms")
+
+        # Delivery button HTML
+        delivery_button = f'''
+<!-- BinaApp Delivery Button - CRITICAL: DO NOT REMOVE! -->
+<a href="https://binaapp.my/delivery/{website_id}"
+   target="_blank"
+   id="binaapp-delivery-btn"
+   style="position:fixed;bottom:24px;left:24px;background:linear-gradient(135deg,#f97316,#ea580c);color:white;padding:16px 24px;border-radius:50px;font-weight:600;z-index:9999;text-decoration:none;box-shadow:0 4px 20px rgba(234,88,12,0.4);font-family:sans-serif;display:flex;align-items:center;gap:8px;transition:transform 0.2s,box-shadow 0.2s;"
+   onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 25px rgba(234,88,12,0.5)';"
+   onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 20px rgba(234,88,12,0.4)';">
+    🛵 {button_label}
+</a>
+'''
+
+        # Inject before </body>
+        if "</body>" in html_content:
+            new_html = html_content.replace("</body>", delivery_button + "\n</body>")
+        else:
+            new_html = html_content + delivery_button
+
+        # Update database
+        await supabase_service.update_website(website_id, {
+            "html_content": new_html,
+            "updated_at": datetime.utcnow().isoformat()
+        })
+
+        logger.info(f"✅ Successfully repaired website: {subdomain}")
+
+        return {
+            "success": True,
+            "message": f"Delivery button added successfully",
+            "website_id": website_id,
+            "subdomain": subdomain,
+            "changed": True,
+            "url": f"https://{subdomain}.binaapp.my"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error repairing website: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to repair website: {str(e)}"
+        )
+
+
+@router.post("/repair-all-delivery")
+async def repair_all_websites_delivery():
+    """
+    BATCH REPAIR: Add delivery button to ALL websites that are missing it
+    This is a one-time fix for all existing websites
+    """
+    try:
+        from app.services.business_types import detect_business_type, get_delivery_button_label
+
+        logger.info("🔧 Starting batch repair for ALL websites...")
+
+        # Get all websites
+        websites = await supabase_service.supabase.table('websites')\
+            .select('id, subdomain, business_name, html_content')\
+            .execute()
+
+        if not websites.data:
+            return {
+                "success": True,
+                "message": "No websites found",
+                "fixed": 0,
+                "skipped": 0,
+                "failed": 0
+            }
+
+        results = {
+            "fixed": [],
+            "skipped": [],
+            "failed": []
+        }
+
+        for website in websites.data:
+            website_id = website['id']
+            subdomain = website.get('subdomain', 'unknown')
+            business_name = website.get('business_name', '')
+            html_content = website.get('html_content', '')
+
+            try:
+                if not html_content:
+                    results['failed'].append(f"{subdomain}: No HTML content")
+                    continue
+
+                # Check if delivery button already exists with correct ID
+                if f'/delivery/{website_id}' in html_content:
+                    results['skipped'].append(subdomain)
+                    logger.info(f"✅ {subdomain}: Already has correct delivery button")
+                    continue
+
+                logger.info(f"❌ {subdomain}: Missing delivery button - FIXING...")
+
+                # Detect business type and get button label
+                business_type = detect_business_type(business_name)
+                button_label = get_delivery_button_label(business_type, "ms")
+
+                # Delivery button HTML
+                delivery_button = f'''
+<!-- BinaApp Delivery Button - CRITICAL: DO NOT REMOVE! -->
+<a href="https://binaapp.my/delivery/{website_id}"
+   target="_blank"
+   id="binaapp-delivery-btn"
+   style="position:fixed;bottom:24px;left:24px;background:linear-gradient(135deg,#f97316,#ea580c);color:white;padding:16px 24px;border-radius:50px;font-weight:600;z-index:9999;text-decoration:none;box-shadow:0 4px 20px rgba(234,88,12,0.4);font-family:sans-serif;display:flex;align-items:center;gap:8px;transition:transform 0.2s,box-shadow 0.2s;"
+   onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 25px rgba(234,88,12,0.5)';"
+   onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 20px rgba(234,88,12,0.4)';">
+    🛵 {button_label}
+</a>
+'''
+
+                # Inject before </body>
+                if "</body>" in html_content:
+                    new_html = html_content.replace("</body>", delivery_button + "\n</body>")
+                else:
+                    new_html = html_content + delivery_button
+
+                # Update database
+                await supabase_service.update_website(website_id, {
+                    "html_content": new_html,
+                    "updated_at": datetime.utcnow().isoformat()
+                })
+
+                results['fixed'].append(subdomain)
+                logger.info(f"✅ {subdomain}: FIXED!")
+
+            except Exception as e:
+                logger.error(f"Failed to fix {subdomain}: {e}")
+                results['failed'].append(f"{subdomain}: {str(e)}")
+
+        logger.info(f"✅ Batch repair complete: {len(results['fixed'])} fixed, {len(results['skipped'])} skipped, {len(results['failed'])} failed")
+
+        return {
+            "success": True,
+            "message": "Batch repair completed",
+            "fixed": len(results['fixed']),
+            "skipped": len(results['skipped']),
+            "failed": len(results['failed']),
+            "details": results
+        }
+
+    except Exception as e:
+        logger.error(f"Error in batch repair: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Batch repair failed: {str(e)}"
+        )
+
+
 @router.get("/by-domain/{domain}")
 async def get_website_by_domain(domain: str):
     """
