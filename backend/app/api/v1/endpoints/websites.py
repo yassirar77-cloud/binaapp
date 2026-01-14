@@ -569,18 +569,21 @@ async def get_website_by_domain(domain: str):
         )
 
 
-@router.delete("/{website_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{website_id}")
 async def delete_website(
     website_id: str,
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Delete a website
+    Delete a website and all related data
     """
     try:
+        logger.info(f"Delete request for website: {website_id}")
+
         website = await supabase_service.get_website(website_id)
 
         if not website:
+            logger.warning(f"Website not found: {website_id}")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Website not found"
@@ -588,6 +591,7 @@ async def delete_website(
 
         # Check ownership
         if website["user_id"] != current_user.get("sub"):
+            logger.warning(f"Unauthorized delete attempt by {current_user.get('sub')} for website {website_id}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to delete this website"
@@ -595,21 +599,41 @@ async def delete_website(
 
         # Delete from storage if published
         if website["status"] == WebsiteStatus.PUBLISHED:
-            await storage_service.delete_website(
-                user_id=current_user.get("sub"),
-                subdomain=website["subdomain"]
+            logger.info(f"Deleting published website from storage: {website['subdomain']}")
+            try:
+                await storage_service.delete_website(
+                    user_id=current_user.get("sub"),
+                    subdomain=website["subdomain"]
+                )
+                logger.info(f"✅ Storage deleted for: {website['subdomain']}")
+            except Exception as storage_error:
+                logger.error(f"Storage delete error (continuing anyway): {storage_error}")
+
+        # Delete from database (CASCADE will handle related tables)
+        logger.info(f"Deleting website from database: {website_id}")
+        delete_result = await supabase_service.delete_website(website_id)
+
+        if not delete_result.get("success"):
+            logger.error(f"Database delete failed: {delete_result.get('message')}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=delete_result.get("message", "Failed to delete website from database")
             )
 
-        # Delete from database
-        await supabase_service.delete_website(website_id)
+        logger.info(f"✅ Website deleted successfully: {website_id} ({website.get('subdomain')})")
 
-        logger.info(f"Website deleted: {website_id}")
+        return {
+            "success": True,
+            "message": "Website deleted successfully",
+            "website_id": website_id,
+            "subdomain": website.get("subdomain")
+        }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error deleting website: {e}")
+        logger.error(f"Unexpected error deleting website {website_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete website"
+            detail=f"Failed to delete website: {str(e)}"
         )

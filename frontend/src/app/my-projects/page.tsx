@@ -66,24 +66,60 @@ export default function MyProjectsPage() {
     }
   }
 
-  async function deleteWebsite(id: string) {
-    if (!confirm('Adakah anda pasti mahu padam website ini?')) return
+  async function deleteWebsite(id: string, websiteName: string) {
+    // Enhanced confirmation dialog
+    const confirmed = confirm(
+      `Adakah anda pasti mahu memadam "${websiteName}"?\n\n` +
+      `Ini akan memadam:\n` +
+      `• Website dan semua kandungan\n` +
+      `• Semua menu items\n` +
+      `• Semua pesanan\n` +
+      `• Semua data berkaitan\n\n` +
+      `Tindakan ini TIDAK BOLEH dibatalkan!`
+    )
+
+    if (!confirmed) return
     if (!supabase) return
 
     try {
       setDeleting(id)
 
-      const { error } = await supabase
-        .from('websites')
-        .delete()
-        .eq('id', id)
+      // Get auth token
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        alert('Sila log masuk semula')
+        router.push('/login')
+        return
+      }
 
-      if (error) throw error
+      // Call backend API endpoint instead of direct Supabase delete
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
+      const response = await fetch(`${API_URL}/api/v1/websites/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      })
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        throw new Error(errorData.detail || `HTTP ${response.status}`)
+      }
+
+      const result = await response.json()
+      console.log('Delete success:', result)
+
+      // Remove from local state
       setWebsites(websites.filter((w) => w.id !== id))
+
+      // Show success message
+      alert(`✅ Website "${websiteName}" berjaya dipadam!`)
+
     } catch (error) {
       console.error('Error deleting website:', error)
-      alert('Ralat memadam website. Sila cuba lagi.')
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      alert(`❌ Ralat memadam website:\n${errorMessage}\n\nSila cuba lagi atau hubungi sokongan.`)
     } finally {
       setDeleting(null)
     }
@@ -251,7 +287,7 @@ export default function MyProjectsPage() {
                           ✏️ Edit
                         </Link>
                         <button
-                          onClick={() => deleteWebsite(website.id)}
+                          onClick={() => deleteWebsite(website.id, website.name)}
                           disabled={deleting === website.id}
                           className="bg-red-100 hover:bg-red-200 text-red-600 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                         >
