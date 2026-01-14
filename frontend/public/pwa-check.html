@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BinaApp Rider - PWA Diagnostic</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f3f4f6;
+    }
+    h1 {
+      color: #ea580c;
+      border-bottom: 3px solid #ea580c;
+      padding-bottom: 10px;
+    }
+    .check-item {
+      background: white;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .status {
+      font-weight: bold;
+      padding: 4px 12px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-left: 10px;
+    }
+    .success { background: #10b981; color: white; }
+    .error { background: #ef4444; color: white; }
+    .warning { background: #f59e0b; color: white; }
+    .info { background: #3b82f6; color: white; }
+    pre {
+      background: #1f2937;
+      color: #10b981;
+      padding: 15px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 12px;
+    }
+    button {
+      background: #ea580c;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      margin: 5px;
+    }
+    button:hover {
+      background: #c2410c;
+    }
+    .test-results {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🛵 BinaApp Rider - PWA Diagnostic Tool</h1>
+
+  <p>This page tests all PWA requirements for the Rider app.</p>
+
+  <div class="check-item">
+    <h3>🌐 Environment Check</h3>
+    <div id="env-check">Checking...</div>
+  </div>
+
+  <div class="check-item">
+    <h3>📱 PWA Support</h3>
+    <div id="pwa-support">Checking...</div>
+  </div>
+
+  <div class="check-item">
+    <h3>📄 Manifest Check</h3>
+    <div id="manifest-check">Checking...</div>
+  </div>
+
+  <div class="check-item">
+    <h3>⚙️ Service Worker Check</h3>
+    <div id="sw-check">Checking...</div>
+  </div>
+
+  <div class="check-item">
+    <h3>🖼️ Icons Check</h3>
+    <div id="icons-check">Checking...</div>
+  </div>
+
+  <div class="check-item">
+    <h3>💾 Install Prompt</h3>
+    <div id="install-check">Checking...</div>
+    <button id="trigger-install" style="display: none;">Trigger Install</button>
+  </div>
+
+  <div class="test-results">
+    <h3>📊 Test Results</h3>
+    <pre id="results"></pre>
+  </div>
+
+  <div style="margin-top: 20px; text-align: center;">
+    <button onclick="location.href='/rider'">← Back to Rider App</button>
+    <button onclick="location.reload()">🔄 Re-run Tests</button>
+  </div>
+
+  <script>
+    const results = [];
+    let deferredPrompt = null;
+
+    function log(message, type = 'info') {
+      results.push(`[${type.toUpperCase()}] ${message}`);
+      document.getElementById('results').textContent = results.join('\n');
+      console.log(`[PWA Check] ${message}`);
+    }
+
+    function updateStatus(elementId, html) {
+      document.getElementById(elementId).innerHTML = html;
+    }
+
+    // 1. Environment Check
+    function checkEnvironment() {
+      const protocol = window.location.protocol;
+      const isHTTPS = protocol === 'https:';
+      const isLocalhost = window.location.hostname === 'localhost' ||
+                          window.location.hostname === '127.0.0.1';
+
+      let status = '';
+      if (isHTTPS || isLocalhost) {
+        status = '<span class="status success">✓ OK</span>';
+        log(`Protocol: ${protocol} (Secure)`, 'success');
+      } else {
+        status = '<span class="status error">✗ FAIL</span>';
+        log(`Protocol: ${protocol} (Not secure - PWA requires HTTPS!)`, 'error');
+      }
+
+      updateStatus('env-check', `
+        Protocol: <strong>${protocol}</strong> ${status}<br>
+        Hostname: <strong>${window.location.hostname}</strong><br>
+        User Agent: <strong>${navigator.userAgent.includes('Mobile') ? 'Mobile' : 'Desktop'}</strong>
+      `);
+    }
+
+    // 2. PWA Support Check
+    function checkPWASupport() {
+      const hasServiceWorker = 'serviceWorker' in navigator;
+      const hasManifest = 'manifest' in document.createElement('link');
+      const hasBeforeInstall = 'BeforeInstallPromptEvent' in window ||
+                                window.hasOwnProperty('onbeforeinstallprompt');
+
+      let html = '';
+
+      if (hasServiceWorker) {
+        html += '<span class="status success">✓ Service Worker API</span><br>';
+        log('Service Worker API: Supported', 'success');
+      } else {
+        html += '<span class="status error">✗ Service Worker API</span><br>';
+        log('Service Worker API: Not supported', 'error');
+      }
+
+      if (hasManifest) {
+        html += '<span class="status success">✓ Manifest Support</span><br>';
+        log('Manifest: Supported', 'success');
+      } else {
+        html += '<span class="status warning">⚠ Manifest Support</span><br>';
+        log('Manifest: May not be supported', 'warning');
+      }
+
+      if (hasBeforeInstall) {
+        html += '<span class="status success">✓ Install Prompt API</span>';
+        log('Install Prompt API: Available', 'success');
+      } else {
+        html += '<span class="status warning">⚠ Install Prompt API (May be iOS)</span>';
+        log('Install Prompt API: Not available (normal for iOS)', 'warning');
+      }
+
+      updateStatus('pwa-support', html);
+    }
+
+    // 3. Manifest Check
+    async function checkManifest() {
+      try {
+        const response = await fetch('/rider-manifest.json');
+
+        if (!response.ok) {
+          updateStatus('manifest-check', '<span class="status error">✗ Manifest not found (404)</span>');
+          log('Manifest: Not found at /rider-manifest.json', 'error');
+          return;
+        }
+
+        const manifest = await response.json();
+
+        const checks = [];
+        checks.push(manifest.name ? '✓ Name' : '✗ Name');
+        checks.push(manifest.short_name ? '✓ Short Name' : '✗ Short Name');
+        checks.push(manifest.start_url ? '✓ Start URL' : '✗ Start URL');
+        checks.push(manifest.display ? '✓ Display' : '✗ Display');
+        checks.push(manifest.icons && manifest.icons.length > 0 ? '✓ Icons' : '✗ Icons');
+
+        updateStatus('manifest-check', `
+          <span class="status success">✓ Manifest Found</span><br>
+          <small>${checks.join(' | ')}</small><br>
+          <details>
+            <summary>View Manifest</summary>
+            <pre>${JSON.stringify(manifest, null, 2)}</pre>
+          </details>
+        `);
+
+        log(`Manifest: Found with ${manifest.icons?.length || 0} icons`, 'success');
+        log(`Start URL: ${manifest.start_url}`, 'info');
+        log(`Display: ${manifest.display}`, 'info');
+
+      } catch (error) {
+        updateStatus('manifest-check', `<span class="status error">✗ Error loading manifest</span>`);
+        log(`Manifest error: ${error.message}`, 'error');
+      }
+    }
+
+    // 4. Service Worker Check
+    async function checkServiceWorker() {
+      if (!('serviceWorker' in navigator)) {
+        updateStatus('sw-check', '<span class="status error">✗ Service Worker not supported</span>');
+        return;
+      }
+
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+
+        if (registrations.length === 0) {
+          updateStatus('sw-check', '<span class="status warning">⚠ No service worker registered yet</span>');
+          log('Service Worker: None registered (will register on /rider page)', 'warning');
+
+          // Try to register it now for testing
+          try {
+            const reg = await navigator.serviceWorker.register('/sw-rider.js');
+            updateStatus('sw-check', '<span class="status success">✓ Registered successfully!</span>');
+            log(`Service Worker: Registered at ${reg.scope}`, 'success');
+          } catch (err) {
+            updateStatus('sw-check', `<span class="status error">✗ Registration failed</span><br><small>${err.message}</small>`);
+            log(`Service Worker registration failed: ${err.message}`, 'error');
+          }
+        } else {
+          const states = registrations.map(r => r.active?.state || 'installing');
+          updateStatus('sw-check', `
+            <span class="status success">✓ ${registrations.length} service worker(s) active</span><br>
+            <small>States: ${states.join(', ')}</small>
+          `);
+          log(`Service Worker: ${registrations.length} registered`, 'success');
+          registrations.forEach((reg, i) => {
+            log(`  [${i}] Scope: ${reg.scope}`, 'info');
+          });
+        }
+      } catch (error) {
+        updateStatus('sw-check', `<span class="status error">✗ Error checking service worker</span>`);
+        log(`Service Worker error: ${error.message}`, 'error');
+      }
+    }
+
+    // 5. Icons Check
+    async function checkIcons() {
+      const icons = [
+        { path: '/rider-icon-192.png', size: '192x192' },
+        { path: '/rider-icon-512.png', size: '512x512' }
+      ];
+
+      let html = '';
+      let allFound = true;
+
+      for (const icon of icons) {
+        try {
+          const response = await fetch(icon.path, { method: 'HEAD' });
+          if (response.ok) {
+            html += `<span class="status success">✓ ${icon.size}</span> `;
+            log(`Icon ${icon.size}: Found at ${icon.path}`, 'success');
+          } else {
+            html += `<span class="status error">✗ ${icon.size}</span> `;
+            log(`Icon ${icon.size}: Not found (${response.status})`, 'error');
+            allFound = false;
+          }
+        } catch (error) {
+          html += `<span class="status error">✗ ${icon.size}</span> `;
+          log(`Icon ${icon.size}: Error - ${error.message}`, 'error');
+          allFound = false;
+        }
+      }
+
+      updateStatus('icons-check', html);
+    }
+
+    // 6. Install Prompt Check
+    function checkInstallPrompt() {
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+
+        updateStatus('install-check', '<span class="status success">✓ Install prompt available!</span>');
+        log('Install prompt: Captured successfully', 'success');
+
+        document.getElementById('trigger-install').style.display = 'inline-block';
+      });
+
+      document.getElementById('trigger-install').addEventListener('click', async () => {
+        if (!deferredPrompt) {
+          alert('Install prompt not available');
+          return;
+        }
+
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+
+        log(`Install prompt outcome: ${outcome}`, 'info');
+        alert(`Install ${outcome === 'accepted' ? 'accepted' : 'dismissed'}`);
+
+        deferredPrompt = null;
+        document.getElementById('trigger-install').style.display = 'none';
+      });
+
+      // Check if already installed
+      if (window.matchMedia('(display-mode: standalone)').matches) {
+        updateStatus('install-check', '<span class="status info">ℹ Already installed as PWA</span>');
+        log('App is already installed as PWA', 'info');
+      } else {
+        updateStatus('install-check', '<span class="status info">ℹ Waiting for install prompt...</span>');
+        log('Waiting for beforeinstallprompt event...', 'info');
+      }
+
+      // Timeout after 3 seconds
+      setTimeout(() => {
+        if (!deferredPrompt && !window.matchMedia('(display-mode: standalone)').matches) {
+          updateStatus('install-check', '<span class="status warning">⚠ Install prompt not triggered</span><br><small>This may be normal (iOS, already installed, or PWA criteria not met)</small>');
+          log('Install prompt: Not triggered after 3s (may be iOS or criteria not met)', 'warning');
+        }
+      }, 3000);
+    }
+
+    // Run all checks
+    async function runAllChecks() {
+      log('=== Starting PWA Diagnostic ===', 'info');
+      log(`URL: ${window.location.href}`, 'info');
+      log(`Time: ${new Date().toISOString()}`, 'info');
+      log('', 'info');
+
+      checkEnvironment();
+      checkPWASupport();
+      await checkManifest();
+      await checkServiceWorker();
+      await checkIcons();
+      checkInstallPrompt();
+
+      log('', 'info');
+      log('=== Diagnostic Complete ===', 'info');
+      log('Check the results above for any errors.', 'info');
+    }
+
+    // Run on load
+    runAllChecks();
+  </script>
+</body>
+</html>
