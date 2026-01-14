@@ -4,11 +4,6 @@ const path = require('path')
 const nextConfig = {
   reactStrictMode: true,
 
-  // Turbopack config (Next.js 16+)
-  turbopack: {
-    root: path.resolve(__dirname),
-  },
-
   webpack: (config) => {
     config.resolve.alias['@'] = path.resolve(__dirname, 'src')
     return config
