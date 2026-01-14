@@ -211,8 +211,8 @@ class SupabaseService:
             print(f"❌ Update website error: {str(e)}")
             return False
 
-    async def delete_website(self, website_id: str) -> bool:
-        """Delete a website record"""
+    async def delete_website(self, website_id: str) -> Dict[str, Any]:
+        """Delete a website record and return detailed result"""
         try:
             url = f"{self.url}/rest/v1/websites"
             params = {"id": f"eq.{website_id}"}
@@ -224,10 +224,20 @@ class SupabaseService:
                     params=params
                 )
 
-            return response.status_code in [200, 204]
+            if response.status_code in [200, 204]:
+                print(f"✅ Website deleted successfully: {website_id}")
+                return {"success": True, "message": "Website deleted successfully"}
+            else:
+                error_detail = response.text
+                print(f"❌ Delete failed with status {response.status_code}: {error_detail}")
+                return {
+                    "success": False,
+                    "message": f"Delete failed: {error_detail}",
+                    "status_code": response.status_code
+                }
         except Exception as e:
             print(f"❌ Delete website error: {str(e)}")
-            return False
+            return {"success": False, "message": f"Exception: {str(e)}"}
 
 
 # Create singleton instance
