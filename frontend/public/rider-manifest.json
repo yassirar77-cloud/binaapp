@@ -3,7 +3,7 @@
   "short_name": "BinaApp Rider",
   "description": "Aplikasi penghantaran real-time untuk rider BinaApp. Track pesanan, GPS auto-update, dan manage deliveries dengan mudah.",
   "start_url": "/rider",
-  "scope": "/",
+  "scope": "/rider",
   "display": "standalone",
   "background_color": "#ea580c",
   "theme_color": "#ea580c",

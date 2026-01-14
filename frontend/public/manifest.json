@@ -3,6 +3,7 @@
   "short_name": "BinaApp",
   "description": "Bina website perniagaan anda dengan AI dalam 60 saat",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#0ea5e9",
