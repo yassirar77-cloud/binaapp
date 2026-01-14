@@ -69,18 +69,62 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> Dict[str, Any]:
     """Get current authenticated user from token"""
-    token = credentials.credentials
-    payload = decode_access_token(token)
+    import httpx
 
-    user_id = payload.get("sub")
-    if user_id is None:
+    token = credentials.credentials
+
+    # Try to verify token using Supabase Auth API
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{settings.SUPABASE_URL}/auth/v1/user",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "apikey": settings.SUPABASE_ANON_KEY
+                }
+            )
+
+            if response.status_code == 200:
+                user_data = response.json()
+                # Return user data in expected format
+                return {
+                    "sub": user_data.get("id"),
+                    "email": user_data.get("email"),
+                    **user_data
+                }
+    except Exception as e:
+        pass
+
+    # Fallback: Try to decode token with Supabase JWT secret if available
+    if settings.SUPABASE_JWT_SECRET:
+        try:
+            payload = jwt.decode(
+                token,
+                settings.SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_aud": False}  # Supabase tokens don't have standard aud
+            )
+            return payload
+        except JWTError:
+            pass
+
+    # Last resort: Try custom JWT secret (for backwards compatibility)
+    try:
+        payload = decode_access_token(token)
+        user_id = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return payload
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
+            detail="Could not validate credentials - please login again",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    return payload
 
 
 def verify_api_key(api_key: str) -> bool:
