@@ -211,9 +211,177 @@ class SupabaseService:
             print(f"❌ Update website error: {str(e)}")
             return False
 
-    async def delete_website(self, website_id: str) -> Dict[str, Any]:
-        """Delete a website record and return detailed result"""
+    async def delete_from_table(self, table: str, column: str, value: str) -> Dict[str, Any]:
+        """Delete records from a table by column value"""
         try:
+            url = f"{self.url}/rest/v1/{table}"
+            params = {column: f"eq.{value}"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(
+                    url,
+                    headers=self.headers,
+                    params=params
+                )
+
+            if response.status_code in [200, 204]:
+                print(f"✅ Deleted from {table} where {column}={value}")
+                return {"success": True, "deleted": table}
+            else:
+                print(f"⚠️ Delete from {table} returned {response.status_code}: {response.text}")
+                # Don't fail - some tables may not have matching records
+                return {"success": True, "deleted": table, "note": "No matching records"}
+        except Exception as e:
+            print(f"❌ Delete from {table} error: {str(e)}")
+            return {"success": False, "table": table, "error": str(e)}
+
+    async def get_rider_ids_for_website(self, website_id: str) -> list:
+        """Get all rider IDs for a website"""
+        try:
+            url = f"{self.url}/rest/v1/riders"
+            params = {"website_id": f"eq.{website_id}", "select": "id"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.headers,
+                    params=params
+                )
+
+            if response.status_code == 200:
+                riders = response.json()
+                return [r['id'] for r in riders]
+            return []
+        except Exception as e:
+            print(f"❌ Get rider IDs error: {str(e)}")
+            return []
+
+    async def get_conversation_ids_for_website(self, website_id: str) -> list:
+        """Get all conversation IDs for a website"""
+        try:
+            url = f"{self.url}/rest/v1/chat_conversations"
+            params = {"website_id": f"eq.{website_id}", "select": "id"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.headers,
+                    params=params
+                )
+
+            if response.status_code == 200:
+                conversations = response.json()
+                return [c['id'] for c in conversations]
+            return []
+        except Exception as e:
+            print(f"❌ Get conversation IDs error: {str(e)}")
+            return []
+
+    async def delete_by_ids(self, table: str, column: str, ids: list) -> Dict[str, Any]:
+        """Delete records by a list of IDs"""
+        if not ids:
+            return {"success": True, "deleted": 0}
+
+        try:
+            url = f"{self.url}/rest/v1/{table}"
+            # Use the 'in' operator for multiple IDs
+            ids_str = ",".join([f'"{id}"' for id in ids])
+            params = {column: f"in.({ids_str})"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(
+                    url,
+                    headers=self.headers,
+                    params=params
+                )
+
+            if response.status_code in [200, 204]:
+                print(f"✅ Deleted {len(ids)} records from {table}")
+                return {"success": True, "deleted": len(ids)}
+            else:
+                print(f"⚠️ Delete by IDs from {table} returned {response.status_code}")
+                return {"success": True, "deleted": 0}
+        except Exception as e:
+            print(f"❌ Delete by IDs from {table} error: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    async def delete_website_cascade(self, website_id: str) -> Dict[str, Any]:
+        """
+        Delete a website and ALL related data in the correct order
+        IMPORTANT: Delete children before parent to avoid foreign key errors
+        """
+        try:
+            deleted_tables = []
+
+            print(f"[Delete Cascade] Starting deletion for website: {website_id}")
+
+            # STEP 1: Get IDs we need for nested deletions
+            rider_ids = await self.get_rider_ids_for_website(website_id)
+            conversation_ids = await self.get_conversation_ids_for_website(website_id)
+
+            print(f"[Delete Cascade] Found {len(rider_ids)} riders, {len(conversation_ids)} conversations")
+
+            # STEP 2: Delete chat messages (child of chat_conversations)
+            if conversation_ids:
+                result = await self.delete_by_ids("chat_messages", "conversation_id", conversation_ids)
+                deleted_tables.append(f"chat_messages ({result.get('deleted', 0)} records)")
+            print(f"[Delete Cascade] Deleted chat messages")
+
+            # STEP 3: Delete chat conversations
+            await self.delete_from_table("chat_conversations", "website_id", website_id)
+            deleted_tables.append("chat_conversations")
+            print(f"[Delete Cascade] Deleted chat conversations")
+
+            # STEP 4: Delete rider locations (child of riders)
+            if rider_ids:
+                result = await self.delete_by_ids("rider_locations", "rider_id", rider_ids)
+                deleted_tables.append(f"rider_locations ({result.get('deleted', 0)} records)")
+            print(f"[Delete Cascade] Deleted rider locations")
+
+            # STEP 5: Delete order items (child of delivery_orders)
+            # First get order IDs
+            order_ids = await self.get_order_ids_for_website(website_id)
+            if order_ids:
+                result = await self.delete_by_ids("order_items", "order_id", order_ids)
+                deleted_tables.append(f"order_items ({result.get('deleted', 0)} records)")
+            print(f"[Delete Cascade] Deleted order items")
+
+            # STEP 6: Delete delivery orders
+            await self.delete_from_table("delivery_orders", "website_id", website_id)
+            deleted_tables.append("delivery_orders")
+            print(f"[Delete Cascade] Deleted delivery orders")
+
+            # STEP 7: Delete menu items
+            await self.delete_from_table("menu_items", "website_id", website_id)
+            deleted_tables.append("menu_items")
+            print(f"[Delete Cascade] Deleted menu items")
+
+            # STEP 8: Delete menu categories
+            await self.delete_from_table("menu_categories", "website_id", website_id)
+            deleted_tables.append("menu_categories")
+            print(f"[Delete Cascade] Deleted menu categories")
+
+            # STEP 9: Delete delivery zones
+            await self.delete_from_table("delivery_zones", "website_id", website_id)
+            deleted_tables.append("delivery_zones")
+            print(f"[Delete Cascade] Deleted delivery zones")
+
+            # STEP 10: Delete delivery settings
+            await self.delete_from_table("delivery_settings", "website_id", website_id)
+            deleted_tables.append("delivery_settings")
+            print(f"[Delete Cascade] Deleted delivery settings")
+
+            # STEP 11: Delete riders
+            await self.delete_from_table("riders", "website_id", website_id)
+            deleted_tables.append("riders")
+            print(f"[Delete Cascade] Deleted riders")
+
+            # STEP 12: Delete generation jobs
+            await self.delete_from_table("generation_jobs", "website_id", website_id)
+            deleted_tables.append("generation_jobs")
+            print(f"[Delete Cascade] Deleted generation jobs")
+
+            # STEP 13: FINALLY delete the website itself
             url = f"{self.url}/rest/v1/websites"
             params = {"id": f"eq.{website_id}"}
 
@@ -225,19 +393,53 @@ class SupabaseService:
                 )
 
             if response.status_code in [200, 204]:
-                print(f"✅ Website deleted successfully: {website_id}")
-                return {"success": True, "message": "Website deleted successfully"}
+                print(f"✅ [Delete Cascade] Website deleted successfully: {website_id}")
+                return {
+                    "success": True,
+                    "message": "Website and all related data deleted successfully",
+                    "deleted_tables": deleted_tables
+                }
             else:
                 error_detail = response.text
-                print(f"❌ Delete failed with status {response.status_code}: {error_detail}")
+                print(f"❌ [Delete Cascade] Website delete failed: {response.status_code} - {error_detail}")
                 return {
                     "success": False,
-                    "message": f"Delete failed: {error_detail}",
-                    "status_code": response.status_code
+                    "message": f"Failed to delete website: {error_detail}",
+                    "status_code": response.status_code,
+                    "deleted_tables": deleted_tables
                 }
+
         except Exception as e:
-            print(f"❌ Delete website error: {str(e)}")
+            print(f"❌ [Delete Cascade] Exception: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return {"success": False, "message": f"Exception: {str(e)}"}
+
+    async def get_order_ids_for_website(self, website_id: str) -> list:
+        """Get all order IDs for a website"""
+        try:
+            url = f"{self.url}/rest/v1/delivery_orders"
+            params = {"website_id": f"eq.{website_id}", "select": "id"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.headers,
+                    params=params
+                )
+
+            if response.status_code == 200:
+                orders = response.json()
+                return [o['id'] for o in orders]
+            return []
+        except Exception as e:
+            print(f"❌ Get order IDs error: {str(e)}")
+            return []
+
+    async def delete_website(self, website_id: str) -> Dict[str, Any]:
+        """Delete a website record and all related data (CASCADE)"""
+        # Use the new cascade delete method
+        return await self.delete_website_cascade(website_id)
 
 
 # Create singleton instance
