@@ -621,11 +621,22 @@ export default function RiderApp() {
             </button>
           </form>
 
-          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-            <p className="text-xs text-blue-800 text-center">
-              <strong>Tip:</strong> Simpan app ke skrin utama untuk akses mudah!<br />
-              Tap menu <strong>⋮</strong> &gt; <strong>Add to Home Screen</strong>
-            </p>
+          <div className="mt-6 p-4 bg-gradient-to-r from-orange-50 to-orange-100 border-2 border-orange-200 rounded-xl">
+            <div className="flex items-start gap-3">
+              <div className="text-2xl">📲</div>
+              <div className="flex-1">
+                <p className="text-sm font-bold text-orange-900 mb-1">
+                  Install App untuk Pengalaman Terbaik!
+                </p>
+                <p className="text-xs text-orange-800 mb-2">
+                  Simpan BinaApp Rider ke skrin utama telefon anda:
+                </p>
+                <div className="text-xs text-orange-700 space-y-1">
+                  <p>📱 <strong>Android:</strong> Tap menu ⋮ → Add to Home Screen</p>
+                  <p>🍎 <strong>iPhone:</strong> Tap <span className="inline-flex items-center justify-center w-4 h-4 bg-orange-200 rounded">+</span> → Add to Home Screen</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -842,29 +853,48 @@ export default function RiderApp() {
         </div>
       )}
 
-      {/* PWA Install Banner */}
+      {/* PWA Install Banner - Enhanced Design */}
       {showInstallBanner && !isPWA && (
-        <div className="bg-blue-500 text-white px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <p className="font-medium">Pasang BinaApp Rider</p>
-              <p className="text-sm opacity-90">Untuk pengalaman terbaik</p>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowInstallBanner(false)}
-                className="px-3 py-1.5 text-sm opacity-80 hover:opacity-100"
-              >
-                Nanti
-              </button>
-              <button
-                onClick={handleInstallPWA}
-                className="px-4 py-1.5 bg-white text-blue-600 rounded-lg font-medium text-sm"
-              >
-                Pasang
-              </button>
+        <div className="fixed bottom-20 left-4 right-4 z-50 animate-slide-up">
+          <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-2xl shadow-2xl p-4 border-2 border-white/20">
+            <button
+              onClick={() => setShowInstallBanner(false)}
+              className="absolute -top-2 -right-2 w-8 h-8 bg-white text-orange-600 rounded-full shadow-lg font-bold hover:scale-110 transition-transform"
+            >
+              ×
+            </button>
+            <div className="flex items-start gap-3">
+              <div className="text-4xl">🛵</div>
+              <div className="flex-1">
+                <p className="font-bold text-lg mb-1">Install BinaApp Rider</p>
+                <p className="text-sm opacity-90 mb-3">
+                  Simpan ke skrin utama untuk akses mudah & cepat!
+                </p>
+                <ul className="text-xs space-y-1 mb-3 opacity-90">
+                  <li>✓ Buka terus dari home screen</li>
+                  <li>✓ Kerja tanpa browser</li>
+                  <li>✓ Akses lebih cepat</li>
+                </ul>
+                <button
+                  onClick={handleInstallPWA}
+                  className="w-full py-3 bg-white text-orange-600 rounded-xl font-bold text-base hover:bg-orange-50 transition-all shadow-lg"
+                >
+                  📲 Install Sekarang
+                </button>
+              </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* iOS Install Hint - For Safari users */}
+      {!isPWA && typeof window !== 'undefined' && /iPhone|iPad|iPod/.test(navigator.userAgent) && !/CriOS|FxiOS|EdgiOS/.test(navigator.userAgent) && (
+        <div className="bg-blue-500 text-white px-4 py-3 text-center text-sm">
+          💡 <strong>iPhone users:</strong> Tap <span className="inline-block mx-1">
+            <svg className="inline w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"/>
+            </svg>
+          </span> then "Add to Home Screen"
         </div>
       )}
 
