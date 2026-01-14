@@ -1,53 +1,24 @@
 import type { Metadata, Viewport } from 'next';
+import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
+import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 
 export const metadata: Metadata = {
-  title: 'BinaApp Rider - Sistem Penghantaran',
-  description: 'Aplikasi penghantaran real-time untuk rider BinaApp. Track pesanan, GPS auto-update, dan manage deliveries dengan mudah.',
-  manifest: '/rider-manifest.json',
+  title: 'BinaApp Rider',
+  description: 'Aplikasi penghantaran untuk rider',
+  manifest: '/rider/manifest.json',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
-    title: 'BinaApp Rider',
-    startupImage: [
-      {
-        url: '/rider-icon-512.png',
-        media: '(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)',
-      },
-      {
-        url: '/rider-icon-512.png',
-        media: '(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)',
-      },
-      {
-        url: '/rider-icon-512.png',
-        media: '(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3)',
-      },
-    ],
-  },
-  icons: {
-    icon: [
-      { url: '/rider-icon-192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/rider-icon-512.png', sizes: '512x512', type: 'image/png' },
-    ],
-    apple: [
-      { url: '/rider-icon-192.png', sizes: '192x192', type: 'image/png' },
-    ],
-  },
-  other: {
-    'mobile-web-app-capable': 'yes',
-    'apple-mobile-web-app-capable': 'yes',
-    'apple-touch-fullscreen': 'yes',
+    statusBarStyle: 'default',
+    title: 'Rider',
   },
 };
 
 export const viewport: Viewport = {
+  themeColor: '#ea580c',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#ea580c' },
-    { media: '(prefers-color-scheme: dark)', color: '#ea580c' },
-  ],
 };
 
 export default function RiderLayout({
@@ -56,8 +27,20 @@ export default function RiderLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-gray-100">
-      {children}
-    </div>
+    <>
+      <head>
+        <link rel="manifest" href="/rider/manifest.json" />
+        <link rel="apple-touch-icon" href="/icons/rider-192x192.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="Rider" />
+        <meta name="theme-color" content="#ea580c" />
+      </head>
+      <div className="min-h-screen bg-gray-100">
+        {children}
+      </div>
+      <ServiceWorkerRegister swPath="/rider/sw.js" scope="/rider" />
+      <PWAInstallPrompt appName="BinaApp Rider" themeColor="#ea580c" />
+    </>
   );
 }
