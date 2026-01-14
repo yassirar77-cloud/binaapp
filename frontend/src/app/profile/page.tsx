@@ -32,6 +32,7 @@ export default function ProfilePage() {
   const [chatLoading, setChatLoading] = useState(true)
   const [showAddRider, setShowAddRider] = useState(false)
   const [editingRider, setEditingRider] = useState<any>(null)
+  const [deletingWebsite, setDeletingWebsite] = useState<string | null>(null)
 
   // Load Eruda console for mobile debugging
   useEffect(() => {
@@ -231,6 +232,72 @@ export default function ProfilePage() {
     if (!supabase) return
     await supabase.auth.signOut()
     router.push('/')
+  }
+
+  async function handleDeleteWebsite(websiteId: string, websiteName: string) {
+    // First confirmation
+    const confirmed = window.confirm(
+      `AMARAN: Adakah anda pasti mahu memadam "${websiteName}"?\n\n` +
+      `Tindakan ini akan MEMADAM KEKAL:\n` +
+      `- Website dan semua kandungan\n` +
+      `- Semua menu items\n` +
+      `- Semua riders\n` +
+      `- Semua delivery zones & settings\n` +
+      `- Semua pesanan dan chat\n\n` +
+      `TINDAKAN INI TIDAK BOLEH DIBATALKAN!`
+    )
+
+    if (!confirmed) return
+
+    // Double confirmation - type DELETE
+    const confirmText = prompt(`Taip "DELETE" untuk mengesahkan pemadaman "${websiteName}":`)
+    if (confirmText !== 'DELETE') {
+      alert('Dibatalkan. Website tidak dipadam.')
+      return
+    }
+
+    try {
+      setDeletingWebsite(websiteId)
+
+      // Get session token
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session) {
+        alert('Sesi tamat. Sila log masuk semula.')
+        router.push('/login')
+        return
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/websites/${websiteId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      )
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.detail || 'Gagal memadam website')
+      }
+
+      const result = await response.json()
+
+      // Success!
+      alert(`Website "${websiteName}" berjaya dipadam!`)
+
+      // Reload websites list
+      setWebsites(websites.filter(w => w.id !== websiteId))
+
+    } catch (error: any) {
+      console.error('[Delete Website] Error:', error)
+      alert(`Ralat memadam website: ${error.message}\n\nSila cuba lagi atau hubungi sokongan.`)
+    } finally {
+      setDeletingWebsite(null)
+    }
   }
 
   async function loadOrders() {
@@ -879,6 +946,13 @@ export default function ProfilePage() {
                             <Link href={`/editor/${site.id}`} className="bg-blue-500 text-white px-4 py-2 min-h-[44px] rounded-lg hover:bg-blue-600 active:bg-blue-700 text-sm flex items-center justify-center">
                               ✏️ Edit
                             </Link>
+                            <button
+                              onClick={() => handleDeleteWebsite(site.id, site.name || site.business_name)}
+                              disabled={deletingWebsite === site.id}
+                              className="bg-red-500 text-white px-4 py-2 min-h-[44px] rounded-lg hover:bg-red-600 active:bg-red-700 text-sm flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {deletingWebsite === site.id ? '⏳ Memadam...' : '🗑️ Padam'}
+                            </button>
                           </div>
                         </div>
                       </div>
