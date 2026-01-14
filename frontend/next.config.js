@@ -2,7 +2,7 @@ const path = require('path')
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: false,
+  reactStrictMode: true,
 
   // Turbopack config (Next.js 16+)
   turbopack: {
@@ -35,25 +35,29 @@ const nextConfig = {
         source: '/manifest.json',
         headers: [
           { key: 'Content-Type', value: 'application/manifest+json' },
+          { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
         ],
       },
       {
-        source: '/rider-manifest.json',
+        source: '/rider/manifest.json',
         headers: [
           { key: 'Content-Type', value: 'application/manifest+json' },
+          { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate' },
         ],
       },
       {
         source: '/sw.js',
         headers: [
           { key: 'Content-Type', value: 'application/javascript' },
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
           { key: 'Service-Worker-Allowed', value: '/' },
         ],
       },
       {
-        source: '/sw-rider.js',
+        source: '/rider/sw.js',
         headers: [
           { key: 'Content-Type', value: 'application/javascript' },
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
           { key: 'Service-Worker-Allowed', value: '/rider' },
         ],
       },
