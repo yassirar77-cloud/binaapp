@@ -11,6 +11,12 @@ export const metadata: Metadata = {
     statusBarStyle: 'default',
     title: 'Rider',
   },
+  icons: {
+    apple: '/icons/rider-192x192.png',
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
+  },
 };
 
 export const viewport: Viewport = {
@@ -28,14 +34,6 @@ export default function RiderLayout({
 }) {
   return (
     <>
-      <head>
-        <link rel="manifest" href="/rider/manifest.json" />
-        <link rel="apple-touch-icon" href="/icons/rider-192x192.png" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="Rider" />
-        <meta name="theme-color" content="#ea580c" />
-      </head>
       <div className="min-h-screen bg-gray-100">
         {children}
       </div>
