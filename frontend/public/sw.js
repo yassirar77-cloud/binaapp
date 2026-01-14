@@ -1,13 +1,13 @@
-const CACHE_NAME = 'binaapp-v2';  // Updated for Phase 2
+const CACHE_NAME = 'binaapp-v3';  // Updated: separate from Rider PWA
 const urlsToCache = [
   '/',
   '/create',
   '/profile',
-  '/rider',  // Phase 2: Rider PWA
   '/manifest.json',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png'
 ];
+// Note: /rider is handled by sw-rider.js separately
 
 // Install event - cache files
 self.addEventListener('install', (event) => {
@@ -45,8 +45,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Skip API requests - always fetch from network (Phase 2: includes /v1/ endpoints)
+  // Skip API requests - always fetch from network
   if (event.request.url.includes('/api/') || event.request.url.includes('/v1/')) {
+    return;
+  }
+
+  // Skip /rider paths - handled by sw-rider.js
+  if (event.request.url.includes('/rider')) {
     return;
   }
 

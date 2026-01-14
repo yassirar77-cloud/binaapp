@@ -23,8 +23,13 @@ export default function InstallPrompt() {
   const [showPrompt, setShowPrompt] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
+  const [isRiderApp, setIsRiderApp] = useState(false);
 
   useEffect(() => {
+    // Check if on rider app
+    const isRider = window.location.pathname.startsWith('/rider');
+    setIsRiderApp(isRider);
+
     // Check if already installed as standalone
     const isStandaloneMode = window.matchMedia('(display-mode: standalone)').matches
       || (window.navigator as any).standalone === true;
@@ -34,8 +39,9 @@ export default function InstallPrompt() {
     const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
     setIsIOS(iOS);
 
-    // Check if prompt was dismissed recently
-    const dismissed = localStorage.getItem('pwaPromptDismissed');
+    // Check if prompt was dismissed recently (use different key for each app)
+    const storageKey = isRider ? 'riderPwaPromptDismissed' : 'pwaPromptDismissed';
+    const dismissed = localStorage.getItem(storageKey);
     if (dismissed) {
       const dismissedTime = parseInt(dismissed, 10);
       const daysSinceDismissed = (Date.now() - dismissedTime) / (1000 * 60 * 60 * 24);
@@ -63,7 +69,7 @@ export default function InstallPrompt() {
     const { outcome } = await deferredPrompt.userChoice;
 
     if (outcome === 'accepted') {
-      console.log('BinaApp installed!');
+      console.log(`${isRiderApp ? 'BinaApp Rider' : 'BinaApp'} installed!`);
     }
 
     setDeferredPrompt(null);
@@ -72,22 +78,32 @@ export default function InstallPrompt() {
 
   const handleDismiss = () => {
     setShowPrompt(false);
-    localStorage.setItem('pwaPromptDismissed', Date.now().toString());
+    const storageKey = isRiderApp ? 'riderPwaPromptDismissed' : 'pwaPromptDismissed';
+    localStorage.setItem(storageKey, Date.now().toString());
   };
 
   // Don't show if already installed
   if (isStandalone) return null;
+
+  // App-specific theming
+  const appName = isRiderApp ? 'BinaApp Rider' : 'BinaApp';
+  const gradientClass = isRiderApp
+    ? 'bg-gradient-to-br from-orange-500 to-orange-600'
+    : 'bg-gradient-to-br from-sky-500 to-blue-600';
+  const buttonGradient = isRiderApp
+    ? 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700'
+    : 'bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700';
 
   // Show iOS-specific instructions
   if (isIOS && showPrompt) {
     return (
       <div className="fixed bottom-4 left-4 right-4 bg-white rounded-2xl p-4 shadow-xl z-[9999] animate-slide-up border border-gray-100">
         <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-10 h-10 bg-gradient-to-br from-sky-500 to-blue-600 rounded-xl flex items-center justify-center">
+          <div className={`flex-shrink-0 w-10 h-10 ${gradientClass} rounded-xl flex items-center justify-center`}>
             <Smartphone className="w-5 h-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-gray-900">Install BinaApp</p>
+            <p className="font-semibold text-gray-900">Install {appName}</p>
             <p className="text-sm text-gray-500 mt-0.5">
               Tap <span className="inline-flex items-center px-1 py-0.5 bg-gray-100 rounded text-xs font-medium">
                 <svg className="w-3.5 h-3.5 mr-0.5" fill="currentColor" viewBox="0 0 20 20">
@@ -113,15 +129,17 @@ export default function InstallPrompt() {
   // Show standard install prompt
   if (!showPrompt) return null;
 
+  const description = isRiderApp ? 'Terima pesanan terus dari home screen' : 'Akses lebih cepat dari home screen';
+
   return (
     <div className="fixed bottom-4 left-4 right-4 bg-white rounded-2xl p-4 shadow-xl z-[9999] animate-slide-up border border-gray-100 md:left-auto md:right-4 md:max-w-sm">
       <div className="flex items-center gap-3">
-        <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-sky-500 to-blue-600 rounded-xl flex items-center justify-center">
+        <div className={`flex-shrink-0 w-12 h-12 ${gradientClass} rounded-xl flex items-center justify-center`}>
           <Download className="w-6 h-6 text-white" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-gray-900">Install BinaApp</p>
-          <p className="text-sm text-gray-500">Akses lebih cepat dari home screen</p>
+          <p className="font-semibold text-gray-900">Install {appName}</p>
+          <p className="text-sm text-gray-500">{description}</p>
         </div>
         <button
           onClick={handleDismiss}
@@ -140,7 +158,7 @@ export default function InstallPrompt() {
         </button>
         <button
           onClick={handleInstall}
-          className="flex-1 py-2.5 px-4 text-white bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
+          className={`flex-1 py-2.5 px-4 text-white ${buttonGradient} rounded-lg font-medium transition-colors flex items-center justify-center gap-2`}
         >
           <Download className="w-4 h-4" />
           Install
