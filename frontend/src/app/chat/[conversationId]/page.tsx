@@ -88,8 +88,8 @@ export default function CustomerChatPage() {
             <div className="max-w-4xl mx-auto h-[calc(100vh-72px)]">
                 <BinaChat
                     conversationId={conversationId}
-                    userRole="customer"
-                    userId={customerId}
+                    userType="customer"
+                    userId={customerId!}
                     userName={customerName}
                 />
             </div>
