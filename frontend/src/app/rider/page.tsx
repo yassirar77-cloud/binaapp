@@ -155,13 +155,23 @@ export default function RiderApp() {
 
   // PWA Install prompt
   useEffect(() => {
+    console.log('[Rider PWA] Setting up install prompt listener...');
+
     const handleBeforeInstallPrompt = (e: Event) => {
+      console.log('[Rider PWA] ✅ Install prompt event captured!');
       e.preventDefault();
       setInstallPrompt(e);
       setShowInstallBanner(true);
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    // Check if already installed
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      console.log('[Rider PWA] ℹ️ App is already installed');
+    } else {
+      console.log('[Rider PWA] ⏳ Waiting for install prompt...');
+    }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -171,9 +181,24 @@ export default function RiderApp() {
   // Register service worker for rider app
   useEffect(() => {
     if ('serviceWorker' in navigator && typeof window !== 'undefined') {
-      navigator.serviceWorker.register('/sw-rider.js').catch((err) => {
-        console.log('Service worker registration failed:', err);
-      });
+      console.log('[Rider PWA] Attempting to register service worker...');
+
+      navigator.serviceWorker.register('/sw-rider.js', { scope: '/' })
+        .then((registration) => {
+          console.log('[Rider PWA] ✅ Service Worker registered successfully');
+          console.log('[Rider PWA] Scope:', registration.scope);
+          console.log('[Rider PWA] State:', registration.active?.state || 'installing');
+
+          // Check for updates
+          registration.addEventListener('updatefound', () => {
+            console.log('[Rider PWA] Service Worker update found');
+          });
+        })
+        .catch((err) => {
+          console.error('[Rider PWA] ❌ Service worker registration failed:', err);
+        });
+    } else {
+      console.warn('[Rider PWA] Service Worker not supported in this browser');
     }
   }, []);
 
@@ -493,14 +518,27 @@ export default function RiderApp() {
 
   // Install PWA
   const handleInstallPWA = async () => {
-    if (!installPrompt) return;
+    console.log('[Rider PWA] Install button clicked');
 
+    if (!installPrompt) {
+      console.warn('[Rider PWA] No install prompt available');
+      alert('Install prompt tidak tersedia. Sila install manual:\n\nAndroid: Menu (⋮) → Add to Home Screen\niPhone: Share (⬆️) → Add to Home Screen');
+      return;
+    }
+
+    console.log('[Rider PWA] Showing install prompt...');
     installPrompt.prompt();
+
     const { outcome } = await installPrompt.userChoice;
+    console.log(`[Rider PWA] Install outcome: ${outcome}`);
 
     if (outcome === 'accepted') {
+      console.log('[Rider PWA] ✅ User accepted install');
       setShowInstallBanner(false);
+    } else {
+      console.log('[Rider PWA] ❌ User declined install');
     }
+
     setInstallPrompt(null);
   };
 
