@@ -1,11 +1,13 @@
-from fastapi import FastAPI, Request, BackgroundTasks
+from fastapi import FastAPI, Request, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List
 import httpx
 import os
 import logging
+from pathlib import Path
 import base64
 import re
 import cloudinary
@@ -19,6 +21,23 @@ from urllib.parse import urlparse
 import uuid
 import asyncio
 import json
+from app.data.malaysian_prompts import (
+    get_smart_stability_prompt,
+    get_hero_prompt,
+    get_fallback_image,
+    MALAYSIAN_FOOD_PROMPTS
+)
+from app.services.ai_service import AIService
+from app.models.schemas import WebsiteGenerationRequest, Language
+from app.api.upload import router as upload_router
+from app.api.v1.endpoints.menu_delivery import router as menu_delivery_router
+from app.api.v1.endpoints.health import router as health_router
+from app.api.v1.router import api_router as v1_router
+from app.api.chatbot import router as chatbot_router
+from app.services.templates import template_service
+
+# Initialize AI service
+ai_service = AIService()
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -85,6 +104,36 @@ supabase = init_supabase()
 # ============================================
 
 app = FastAPI(title="BinaApp Backend", version="4.0")
+
+# Include routers
+app.include_router(upload_router, prefix="/api", tags=["Upload"])
+app.include_router(menu_delivery_router, prefix="/api/v1", tags=["Menu & Delivery"])
+app.include_router(v1_router, prefix="/api/v1")  # New delivery system + all v1 endpoints
+app.include_router(health_router, tags=["Health"])  # Health check endpoints
+app.include_router(chatbot_router, tags=["Chatbot"])  # Customer support chatbot
+
+# Mount static files for widgets (chat, delivery, etc.)
+# Files are accessible at /static/widgets/chat-widget.js, etc.
+# Use pathlib for reliable path resolution
+static_dir = Path(__file__).parent.parent / "static"
+static_dir_str = str(static_dir.resolve())
+logger.info(f"📁 Static directory path: {static_dir_str}")
+if static_dir.exists():
+    app.mount("/static", StaticFiles(directory=static_dir_str), name="static")
+    # Verify widgets exist
+    widgets_dir = static_dir / "widgets"
+    if widgets_dir.exists():
+        widget_files = list(widgets_dir.glob("*.js"))
+        logger.info(f"✅ Static directory mounted at /static: {static_dir_str}")
+        logger.info(f"📦 Widget files found: {[f.name for f in widget_files]}")
+    else:
+        logger.warning(f"⚠️ Widgets directory not found at {widgets_dir}")
+else:
+    # Create the directory structure if it doesn't exist
+    widgets_dir = static_dir / "widgets"
+    widgets_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/static", StaticFiles(directory=static_dir_str), name="static")
+    logger.info(f"✅ Static directory created and mounted: {static_dir_str}")
 
 # CORS - CRITICAL: allow_credentials must be False when using wildcard origins
 app.add_middleware(
@@ -702,6 +751,69 @@ def get_stock_images(desc: str) -> dict:
     }
 
 
+def get_image_prompts_by_business_type(description: str) -> dict:
+    """Generate appropriate image prompts based on business type to avoid wrong images"""
+
+    desc_lower = description.lower()
+
+    # PHOTOGRAPHY / PHOTOGRAPHER
+    if any(word in desc_lower for word in ["photo", "photographer", "photography", "wedding photo", "gambar", "jurugambar"]):
+        return {
+            "hero": "Professional wedding photographer capturing couple moment, romantic sunset, DSLR camera, artistic photography",
+            "gallery": "Beautiful bride and groom wedding portrait, elegant dress, romantic lighting, professional photography"
+        }
+
+    # RESTAURANT / FOOD
+    elif any(word in desc_lower for word in ["restaurant", "food", "nasi", "makan", "cafe", "kedai makan", "makanan", "ayam", "ikan", "mee", "roti"]):
+        return {
+            "hero": "Malaysian restaurant interior, warm lighting, welcoming atmosphere, dining tables",
+            "gallery": "Malaysian food nasi kandar with curry, delicious food photography, authentic Malaysian cuisine"
+        }
+
+    # FASHION / CLOTHING
+    elif any(word in desc_lower for word in ["fashion", "clothing", "baju", "shirt", "boutique", "pakaian", "dress"]):
+        return {
+            "hero": "Modern fashion boutique interior, clothing displays, elegant design, shopping atmosphere",
+            "gallery": "Premium clothing on mannequin, professional fashion product photography, boutique display"
+        }
+
+    # SALON / BEAUTY
+    elif any(word in desc_lower for word in ["salon", "beauty", "spa", "hair", "kecantikan", "rambut", "haircut"]):
+        return {
+            "hero": "Modern beauty salon interior, styling chairs, mirrors, professional hair salon equipment",
+            "gallery": "Professional hairstylist cutting hair, salon service, beauty treatment"
+        }
+
+    # WATCH / JEWELRY
+    elif any(word in desc_lower for word in ["watch", "jam", "jewelry", "barang kemas", "timepiece"]):
+        return {
+            "hero": "Luxury watch store display, elegant showcase, premium timepieces, jewelry store interior",
+            "gallery": "Luxury silver wristwatch, professional product photography, elegant timepiece"
+        }
+
+    # GYM / FITNESS
+    elif any(word in desc_lower for word in ["gym", "fitness", "workout", "exercise", "gim", "senaman"]):
+        return {
+            "hero": "Modern gym interior, fitness equipment, workout space, professional training facility",
+            "gallery": "Person working out at gym, fitness training, exercise equipment, athletic photography"
+        }
+
+    # BAKERY / PASTRY
+    elif any(word in desc_lower for word in ["bakery", "cake", "pastry", "kek", "roti", "donut", "bread"]):
+        return {
+            "hero": "Artisan bakery interior, fresh bread display, warm lighting, cozy bakery atmosphere",
+            "gallery": "Fresh baked pastries and cakes, food photography, delicious bakery products"
+        }
+
+    # DEFAULT / GENERIC BUSINESS
+    else:
+        business_name = description.split(',')[0].strip()[:30]
+        return {
+            "hero": f"Professional business interior, modern office, welcoming atmosphere, commercial space",
+            "gallery": f"Professional service and products, quality business, commercial photography"
+        }
+
+
 def upload_to_cloudinary(image_bytes: bytes, folder: str = "binaapp") -> Optional[str]:
     """Upload image bytes to Cloudinary, return URL"""
     if not CLOUDINARY_CLOUD_NAME:
@@ -721,14 +833,27 @@ def upload_to_cloudinary(image_bytes: bytes, folder: str = "binaapp") -> Optiona
         return None
 
 
-async def generate_stability_image(prompt: str) -> Optional[str]:
-    """Generate image using Stability AI and upload to Cloudinary"""
+async def generate_stability_image(item_name: str, business_type: str = "") -> Optional[str]:
+    """
+    Generate image using Stability AI with smart Malaysian prompts.
+    Upload to Cloudinary and return URL.
+
+    Args:
+        item_name: Name of menu item, product, or service
+        business_type: Type of business (restaurant, salon, etc.)
+
+    Returns:
+        Cloudinary URL of generated image, or None if failed
+    """
     if not STABILITY_API_KEY:
         logger.info("🎨 STABILITY - No API key")
         return None
 
     try:
-        logger.info(f"🎨 STABILITY - Generating: {prompt[:50]}...")
+        # GET SMART PROMPT for Malaysian context
+        prompt = get_smart_stability_prompt(item_name, business_type)
+        logger.info(f"🎨 STABILITY - Item: {item_name}")
+        logger.info(f"🎨 STABILITY - Smart prompt: {prompt[:80]}...")
 
         async with httpx.AsyncClient(timeout=90.0) as client:
             response = await client.post(
@@ -739,8 +864,8 @@ async def generate_stability_image(prompt: str) -> Optional[str]:
                 },
                 files={"none": ''},
                 data={
-                    "prompt": f"{prompt}, professional photography, high quality, commercial",
-                    "negative_prompt": "blurry, low quality, cartoon, anime, sketch",
+                    "prompt": prompt,
+                    "negative_prompt": "blurry, low quality, cartoon, anime, sketch, drawing, illustration, 3d render",
                     "output_format": "png",
                     "aspect_ratio": "16:9"
                 }
@@ -749,70 +874,179 @@ async def generate_stability_image(prompt: str) -> Optional[str]:
             if response.status_code == 200:
                 image_bytes = response.content
 
-                # Try to upload to Cloudinary
-                cloudinary_url = upload_to_cloudinary(image_bytes)
+                # Upload to Cloudinary
+                cloudinary_url = upload_to_cloudinary(image_bytes, folder="binaapp")
 
                 if cloudinary_url:
-                    logger.info("🎨 STABILITY - ✅ Uploaded to Cloudinary")
+                    logger.info(f"🎨 STABILITY - ✅ Uploaded: {cloudinary_url[:60]}...")
                     return cloudinary_url
                 else:
-                    # Fallback to base64 (not recommended for production)
-                    logger.warning("🎨 STABILITY - ⚠️ Cloudinary failed, using base64")
-                    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
-                    return f"data:image/png;base64,{image_base64}"
+                    logger.warning("🎨 STABILITY - ⚠️ Cloudinary failed")
+                    # Return fallback stock image instead of base64
+                    return get_fallback_image(item_name)
             else:
                 logger.error(f"🎨 STABILITY - ❌ Failed: {response.status_code}")
-                return None
+                return get_fallback_image(item_name)
 
     except Exception as e:
         logger.error(f"🎨 STABILITY - ❌ Error: {e}")
-        return None
+        return get_fallback_image(item_name)
 
 
 async def generate_all_images(desc: str) -> Optional[dict]:
-    """Generate hero image and 4 different gallery images"""
+    """
+    Generate ONLY 2 images (hero + 1 gallery) to avoid timeout.
+    Uses business-type-specific prompts to avoid wrong images (e.g., food for photography).
+
+    REDUCED: 4 images → 2 images for speed
+    With 30-second timeout per image = max 60 seconds total
+
+    Args:
+        desc: Business description
+
+    Returns:
+        Dict with 'hero' and 'gallery' images (gallery will have duplicates of the 1 image)
+    """
     business_type = detect_business_type(desc)
+
+    logger.info("=" * 60)
+    logger.info("🎨 IMAGE GENERATION START")
+    logger.info(f"   Business: {desc[:50]}...")
+    logger.info(f"   Type: {business_type}")
+    logger.info("=" * 60)
 
     images = {
         'hero': None,
         'gallery': []
     }
 
-    # Generate Hero Image
-    hero_prompt = f"Modern {business_type.replace('_', ' ')} storefront exterior, professional photography, daytime, welcoming entrance, {desc}"
-    hero_image = await generate_stability_image(hero_prompt)
+    # 🎯 GET BUSINESS-SPECIFIC PROMPTS (prevents wrong images)
+    prompts = get_image_prompts_by_business_type(desc)
+    hero_prompt = prompts["hero"]
+    gallery_prompt = prompts["gallery"]
 
+    # 🚀 GENERATE ONLY 2 IMAGES IN PARALLEL with 30s timeout each
+    logger.info("🚀 Generating 2 images IN PARALLEL (hero + 1 gallery)...")
+    logger.info(f"   Hero prompt: {hero_prompt[:60]}...")
+    logger.info(f"   Gallery prompt: {gallery_prompt[:60]}...")
+
+    start_time = asyncio.get_event_loop().time()
+
+    try:
+        # Wrap each generation with timeout - using BUSINESS-SPECIFIC PROMPTS
+        hero_task = asyncio.wait_for(
+            generate_stability_image(hero_prompt, business_type),
+            timeout=30.0
+        )
+        gallery_task = asyncio.wait_for(
+            generate_stability_image(gallery_prompt, business_type),
+            timeout=30.0
+        )
+
+        results = await asyncio.gather(
+            hero_task,
+            gallery_task,
+            return_exceptions=True
+        )
+
+        elapsed = asyncio.get_event_loop().time() - start_time
+        logger.info(f"⏱️  Generation completed in {elapsed:.1f}s")
+
+        hero_image = results[0] if not isinstance(results[0], Exception) else None
+        gallery_image = results[1] if not isinstance(results[1], Exception) else None
+
+        # Log results
+        if isinstance(results[0], asyncio.TimeoutError):
+            logger.warning("⏱️  Hero image TIMEOUT (30s)")
+        elif isinstance(results[0], Exception):
+            logger.error(f"❌ Hero error: {results[0]}")
+
+        if isinstance(results[1], asyncio.TimeoutError):
+            logger.warning("⏱️  Gallery image TIMEOUT (30s)")
+        elif isinstance(results[1], Exception):
+            logger.error(f"❌ Gallery error: {results[1]}")
+
+    except Exception as e:
+        logger.error(f"🚀 Parallel generation failed: {e}")
+        hero_image = None
+        gallery_image = None
+
+    # Handle hero image
     if hero_image:
         images['hero'] = hero_image
-        logger.info("🎨 Hero image generated")
+        logger.info("✅ Hero image generated")
     else:
-        return None
+        # Use stock image as fallback
+        stock_images = get_stock_images(desc)
+        images['hero'] = stock_images['hero']
+        logger.warning("⚠️  Hero image - using stock fallback")
 
-    # Generate 4 Different Gallery Images with unique prompts
-    gallery_prompts = [
-        f"Interior view of {business_type.replace('_', ' ')}, modern design, customers browsing, warm lighting, {desc}",
-        f"Product display showcase at {business_type.replace('_', ' ')}, close-up, professional arrangement, {desc}",
-        f"Staff working at {business_type.replace('_', ' ')}, friendly service, professional environment, {desc}",
-        f"Cozy seating area in {business_type.replace('_', ' ')}, comfortable atmosphere, modern furniture, {desc}"
+    # Handle gallery image - use the 1 image for all 3 slots
+    if gallery_image:
+        images['gallery'] = [gallery_image, gallery_image, gallery_image]
+        logger.info("✅ Gallery image generated (reusing for 3 slots)")
+    else:
+        # Fallback: reuse hero for all gallery slots
+        images['gallery'] = [images['hero'], images['hero'], images['hero']]
+        logger.warning("⚠️  Gallery - using hero as fallback for all slots")
+
+    logger.info("=" * 60)
+    logger.info(f"🎨 IMAGE GENERATION COMPLETE")
+    logger.info(f"   Generated: 1 hero + 1 gallery (reused 3x)")
+    logger.info(f"   Total time: {asyncio.get_event_loop().time() - start_time:.1f}s")
+    logger.info("=" * 60)
+
+    return images
+
+
+async def generate_menu_images(menu_items: list, business_type: str = "restaurant") -> dict:
+    """
+    Generate unique images for each menu item IN PARALLEL with smart Malaysian prompts.
+    Returns dict mapping item name to image URL.
+
+    PARALLEL GENERATION = MUCH FASTER
+
+    Args:
+        menu_items: List of menu item names or dicts with 'name' key
+        business_type: Type of business (restaurant, salon, etc.)
+
+    Returns:
+        Dictionary mapping item names to image URLs
+    """
+    images = {}
+
+    # Extract all item names
+    item_names = [
+        item.get("name", "") if isinstance(item, dict) else str(item)
+        for item in menu_items
     ]
 
-    for i, prompt in enumerate(gallery_prompts):
-        logger.info(f"🎨 Generating gallery image {i+1}/4...")
-        gallery_image = await generate_stability_image(prompt)
+    logger.info(f"🚀 Generating {len(item_names)} menu images IN PARALLEL...")
 
-        if gallery_image:
-            images['gallery'].append(gallery_image)
-            logger.info(f"🎨 Gallery image {i+1} - ✅")
-        else:
-            # Fallback: reuse hero if generation fails
-            images['gallery'].append(images['hero'])
-            logger.warning(f"🎨 Gallery image {i+1} - ⚠️ Using hero as fallback")
+    # 🚀 GENERATE ALL MENU IMAGES IN PARALLEL
+    try:
+        results = await asyncio.gather(
+            *[generate_stability_image(name, business_type) for name in item_names],
+            return_exceptions=True
+        )
 
-    # Ensure we have 4 gallery images
-    while len(images['gallery']) < 4:
-        images['gallery'].append(images['hero'])
+        # Map results back to item names
+        for item_name, result in zip(item_names, results):
+            if result and not isinstance(result, Exception):
+                images[item_name] = result
+                logger.info(f"🎨 ✅ {item_name}")
+            else:
+                # Fallback to stock image
+                images[item_name] = get_fallback_image(item_name)
+                logger.warning(f"🎨 ⚠️ {item_name} → Using fallback")
 
-    logger.info(f"🎨 All images generated: 1 hero + {len(images['gallery'])} gallery")
+    except Exception as e:
+        logger.error(f"🚀 Parallel menu generation failed: {e}")
+        # Fallback: use stock images for all
+        for item_name in item_names:
+            images[item_name] = get_fallback_image(item_name)
+
+    logger.info(f"🚀 Menu images complete IN PARALLEL! Generated {len(images)} items")
     return images
 
 
@@ -891,6 +1125,44 @@ async def call_qwen(prompt: str) -> Optional[str]:
 
     except Exception as e:
         logger.error(f"🟡 QWEN - ❌ Error: {e}")
+        return None
+
+
+async def call_qwen_turbo(prompt: str) -> Optional[str]:
+    """Call Qwen-Turbo for fast responses (ideal for editor use)"""
+    if not QWEN_API_KEY:
+        return None
+
+    try:
+        logger.info("⚡ QWEN-TURBO - Calling API...")
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {QWEN_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "qwen-turbo",  # TURBO = fastest model!
+                    "messages": [
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": 0.3,  # Lower for more predictable edits
+                    "max_tokens": 8000
+                }
+            )
+
+            if response.status_code == 200:
+                content = response.json()["choices"][0]["message"]["content"]
+                logger.info(f"⚡ QWEN-TURBO - ✅ Success ({len(content)} chars)")
+                return content
+            else:
+                logger.error(f"⚡ QWEN-TURBO - ❌ Failed: {response.status_code}")
+                return None
+
+    except Exception as e:
+        logger.error(f"⚡ QWEN-TURBO - ❌ Error: {e}")
         return None
 
 
@@ -1309,7 +1581,21 @@ Output ONLY improved HTML."""
 
 # ==================== SIMPLE ASYNC GENERATION (NO BACKGROUND TASKS) ====================
 
-async def run_generation_task(job_id: str, description: str, user_email: str = "", user_id: str = "anonymous"):
+async def run_generation_task(
+    job_id: str,
+    description: str,
+    user_email: str = "",
+    user_id: str = "anonymous",
+    images: list = None,
+    features: Optional[dict] = None,
+    delivery: Optional[dict] = None,
+    address: Optional[str] = None,
+    social_media: Optional[dict] = None,
+    payment: Optional[dict] = None,
+    business_name: Optional[str] = None,
+    language: str = "ms",
+    image_choice: str = "none",
+):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
     logger.info(f"🚀 TASK START: {job_id}")
@@ -1323,54 +1609,280 @@ async def run_generation_task(job_id: str, description: str, user_email: str = "
                 "updated_at": datetime.now().isoformat()
             }).eq("job_id", job_id).execute()
 
-        # Step 2: Generate ONE website using DeepSeek
-        logger.info(f"🤖 Calling AI for: {description[:50]}...")
+        # Step 2: Generate website using ai_service (4-step flow: Stability AI + Cloudinary + DeepSeek + Qwen)
+        logger.info(f"🚀 Using ai_service 4-step generation for: {description[:50]}...")
 
-        prompt = f"""Create a complete HTML website for: {description}
+        # ==================== USER SELECTION ENFORCEMENT ====================
+        selected_features = features or {}
 
-Requirements:
-- Single HTML file with embedded CSS
-- Mobile responsive with Tailwind CSS CDN: <script src="https://cdn.tailwindcss.com"></script>
-- Modern professional design
-- Sections: header, hero, features/services, contact, footer
-- Malaysian business style (RM currency, Malaysian phone format)
-- WhatsApp contact button
-- Use placeholder images from picsum.photos
+        # WhatsApp: default to True only if caller didn't send feature flags
+        whatsapp_enabled = True
+        if isinstance(selected_features, dict) and "whatsapp" in selected_features:
+            whatsapp_enabled = bool(selected_features.get("whatsapp"))
 
-Return ONLY HTML code, no explanations."""
+        # Normalize image choice so "upload without uploads" becomes "none"
+        user_has_uploaded_images = bool(images and len(images) > 0)
+        normalized_image_choice = (image_choice or "none").lower().strip()
+        if normalized_image_choice not in ["none", "upload", "ai"]:
+            normalized_image_choice = "none"
+        if normalized_image_choice == "upload" and not user_has_uploaded_images:
+            logger.warning("⚠️ image_choice='upload' but no images provided -> forcing 'none'")
+            normalized_image_choice = "none"
+        elif user_has_uploaded_images:
+            # If user uploaded images, we ALWAYS use them (upload mode)
+            normalized_image_choice = "upload"
 
-        # Step 3: Call DeepSeek
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                "https://api.deepseek.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": "deepseek-chat",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 8000,
-                    "temperature": 0.7
-                }
-            )
+        # Build AI generation request
+        # Respect explicit language selection from the client (no auto-detection).
+        lang = (language or "ms").lower().strip()
+        if lang in ["bm", "my", "malay", "bahasa", "bahasa melayu", "bahasa malaysia"]:
+            lang = "ms"
+        if lang not in ["ms", "en"]:
+            lang = "ms"
 
-        logger.info(f"📡 AI Response status: {response.status_code}")
+        ai_request = WebsiteGenerationRequest(
+            description=description,
+            business_name=description.split()[0] if description else "Business",  # Simple extraction
+            business_type="business",  # Generic type
+            language=Language.MALAY if lang == "ms" else Language.ENGLISH,
+            subdomain="preview",
+            include_whatsapp=whatsapp_enabled,
+            whatsapp_number="+60123456789" if whatsapp_enabled else None,
+            include_maps=False,
+            location_address="",
+            include_ecommerce=False,
+            contact_email=None,
+            # If user chose "none", do not pass any uploaded images through.
+            uploaded_images=(images if (images and normalized_image_choice != "none") else [])
+        )
 
-        if response.status_code != 200:
-            raise Exception(f"AI API error: {response.status_code} - {response.text[:200]}")
+        # Call ai_service.generate_website() - This triggers the 4-step flow
+        logger.info("🎨 Starting 4-step generation (Stability AI + Cloudinary + DeepSeek + Qwen)...")
+        logger.info(f"   ✅ WhatsApp enabled: {whatsapp_enabled}")
+        logger.info(f"   🖼️ Image choice: {normalized_image_choice}")
+        ai_response = await ai_service.generate_website(ai_request, image_choice=normalized_image_choice)
+        html = ai_response.html_content
 
-        data = response.json()
-        html = data["choices"][0]["message"]["content"]
-
-        # Clean HTML
-        if "```html" in html:
-            html = html.split("```html")[1].split("```")[0]
-        elif "```" in html:
-            html = html.split("```")[1].split("```")[0]
-
-        html = html.strip()
         logger.info(f"✅ Got HTML: {len(html)} chars")
+
+        # ==================== SAFETY NET (ENFORCE USER CHOICES) ====================
+        # Remove unwanted images (even if AI ignores prompt)
+        try:
+            user_image_urls = []
+            for img in (images or []):
+                if isinstance(img, dict):
+                    url = img.get("url") or img.get("URL") or ""
+                    if url:
+                        user_image_urls.append(url)
+                else:
+                    s = str(img)
+                    if s:
+                        user_image_urls.append(s)
+
+            html = template_service.apply_image_safety_guard(
+                html=html,
+                image_choice=normalized_image_choice,
+                user_images=user_image_urls
+            )
+        except Exception as guard_err:
+            logger.warning(f"⚠️ Image safety guard failed (continuing): {guard_err}")
+
+        # Remove WhatsApp if disabled (AI might still output it)
+        if not whatsapp_enabled:
+            try:
+                html_before = len(html)
+                # Remove WhatsApp links/buttons
+                html = re.sub(r'<a[^>]*(?:wa\.me|whatsapp)[^>]*>.*?</a>', '', html, flags=re.IGNORECASE | re.DOTALL)
+                html = re.sub(r'href="https?://wa\.me[^"]*"', 'href="#"', html, flags=re.IGNORECASE)
+                html = re.sub(r'href="https?://(?:api\.)?whatsapp\.com[^"]*"', 'href="#"', html, flags=re.IGNORECASE)
+                # Remove common floating button wrappers
+                html = re.sub(r'<div[^>]*class="[^"]*(?:whatsapp|wa-float)[^"]*"[^>]*>.*?</div>', '', html, flags=re.IGNORECASE | re.DOTALL)
+                logger.info(f"🚫 WhatsApp disabled: removed {max(0, html_before - len(html))} bytes")
+            except Exception as wa_err:
+                logger.warning(f"⚠️ WhatsApp sanitization failed (continuing): {wa_err}")
+
+        # Step 3: Update progress to 60% after AI generation
+        if supabase:
+            supabase.table("generation_jobs").update({
+                "progress": 60,
+                "updated_at": datetime.now().isoformat()
+            }).eq("job_id", job_id).execute()
+
+        # OPTIONAL: Inject delivery/ordering system if user requested it via /api/generate/start payload.
+        try:
+            delivery_cfg = delivery or None
+
+            # Features list for TemplateService (expects "delivery_system" token)
+            features_list = []
+            if selected_features.get("deliverySystem"):
+                features_list.append("delivery_system")
+            if selected_features.get("googleMap"):
+                features_list.append("maps")
+            if selected_features.get("contactForm"):
+                features_list.append("contact")
+            if selected_features.get("socialMedia"):
+                features_list.append("social")
+            if whatsapp_enabled:
+                features_list.append("whatsapp")
+
+            # Build menu items from uploaded images (matches frontend format: [{url,name,price}, ...])
+            # CRITICAL FIX: ONLY use user's uploaded menu items - NEVER extract from AI-generated HTML!
+            # The AI was extracting random text like "Get In Touch", "WhatsApp" as menu items.
+            menu_items = []
+
+            # Detect business type from description for proper category assignment
+            from app.services.business_types import detect_business_type, detect_item_category
+            from app.api.simple.generate import is_valid_menu_item_name
+            business_type = detect_business_type(description)
+            logger.info(f"🏢 Detected business type: {business_type}")
+
+            # ⚠️ REMOVED: Do NOT extract menu items from AI-generated HTML!
+            # This was causing "Get In Touch", "OPEN SHOP", "WhatsApp" to appear as menu items.
+            # Only use user's uploaded items below.
+
+            # Build menu items ONLY from user-uploaded images
+            if images:
+                from app.services.business_types import get_business_config
+                biz_config = get_business_config(business_type)
+                default_desc = biz_config.get("item_description_default", "Produk pilihan kami")
+                default_prices = [15, 12, 18, 10, 20, 14, 16, 13]
+                logger.info(f"🍽️ Processing {len(images)} user-uploaded images for menu items...")
+
+                for idx, img in enumerate(images):
+                    if isinstance(img, dict):
+                        img_url = img.get("url", "")
+                        img_name = img.get("name", f"Item {idx+1}")
+                        # CRITICAL: Use user's price if provided
+                        user_price = img.get("price")
+                        if user_price:
+                            try:
+                                img_price = float(str(user_price).replace("RM", "").replace(",", "").strip())
+                            except (ValueError, TypeError):
+                                img_price = default_prices[idx % len(default_prices)]
+                        else:
+                            img_price = default_prices[idx % len(default_prices)]
+                    else:
+                        img_url = str(img)
+                        img_name = f"Item {idx+1}"
+                        img_price = default_prices[idx % len(default_prices)]
+
+                    # Skip empty names or hero images
+                    if not img_name or img_name == "Hero Image" or img_name.strip() == "":
+                        continue
+
+                    # CRITICAL: Validate menu item name to prevent hallucinated items
+                    if not is_valid_menu_item_name(img_name):
+                        logger.warning(f"   ⚠️ Skipping invalid menu item: '{img_name}'")
+                        continue
+
+                    # Auto-detect category based on item name and business type
+                    category = detect_item_category(img_name, business_type)
+                    menu_items.append({
+                        "id": f"menu-{idx}",
+                        "name": img_name,
+                        "description": default_desc,
+                        "price": img_price,
+                        "image_url": img_url,
+                        "category_id": category,
+                        "is_available": True
+                    })
+                    logger.info(f"   ✅ Added menu item: {img_name} - RM{img_price:.2f} [{category}]")
+
+                logger.info(f"🍽️ Created {len(menu_items)} valid menu items from user uploads")
+
+            # Default delivery zone for ordering UI
+            delivery_zones = []
+            if selected_features.get("deliverySystem") and delivery_cfg:
+                try:
+                    fee_val = delivery_cfg.get("fee", 5)
+                    if isinstance(fee_val, str):
+                        fee_val = float(fee_val.replace("RM", "").strip())
+                    minimum_val = delivery_cfg.get("minimum", 30)
+                    if isinstance(minimum_val, str):
+                        minimum_val = float(minimum_val.replace("RM", "").strip())
+                except Exception:
+                    fee_val = 5
+                    minimum_val = 30
+
+                # CRITICAL: Get zone name from multiple possible fields
+                zone_name = (
+                    delivery_cfg.get("area") or
+                    delivery_cfg.get("zone_name") or
+                    delivery_cfg.get("delivery_area") or
+                    "Kawasan Delivery"
+                )
+                # Ensure zone_name is not empty
+                if not zone_name or zone_name.strip() == "":
+                    zone_name = "Kawasan Delivery"
+
+                delivery_zones = [{
+                    "id": "default",
+                    "zone_name": zone_name,
+                    "delivery_fee": float(fee_val),
+                    "minimum_order": float(minimum_val),
+                    "estimated_time": delivery_cfg.get("hours", "30-45 min"),
+                    "estimated_time_min": 30,
+                    "estimated_time_max": 45,
+                    "is_active": True
+                }]
+                logger.info(f"📍 Created delivery zone: {zone_name} - RM{fee_val:.2f}")
+
+            # FIXED: Use provided business_name, or extract intelligently from description
+            # Don't just use first word - extract meaningful business name
+            if business_name:
+                actual_business_name = business_name
+            elif description:
+                # Try to extract meaningful name from description (first 3-4 words that look like a name)
+                words = description.split()
+                # Take first 3 words if they form a reasonable business name
+                if len(words) >= 3:
+                    actual_business_name = " ".join(words[:3])
+                elif len(words) >= 1:
+                    actual_business_name = words[0]
+                else:
+                    actual_business_name = "Business"
+            else:
+                actual_business_name = "Business"
+
+            # Get phone number from delivery config if available
+            phone_number = "+60123456789"
+            if delivery_cfg and delivery_cfg.get("phone"):
+                phone_number = delivery_cfg.get("phone")
+
+            # CRITICAL FIX: Generate website_id for delivery widget injection
+            # Without website_id, inject_ordering_system raises ValueError and skips delivery widget
+            import uuid
+            generated_website_id = str(uuid.uuid4())
+            logger.info(f"✅ Generated website_id for background job: {generated_website_id}")
+
+            user_data = {
+                "phone": phone_number,
+                "address": address or "",
+                "email": "contact@business.com",
+                "url": "https://preview.binaapp.my",
+                "whatsapp_message": "Hi, I'm interested",
+                "business_name": actual_business_name,
+                "business_type": business_type,  # For dynamic categories
+                "description": description,  # For business type detection
+                "menu_items": menu_items,
+                "delivery_zones": delivery_zones,
+                "website_id": generated_website_id  # CRITICAL: Required for delivery widget
+            }
+
+            # Add delivery config
+            if delivery_cfg:
+                user_data["delivery"] = delivery_cfg
+
+            # CRITICAL: Add payment data for QR payment support
+            if payment:
+                user_data["payment"] = payment
+                logger.info(f"💳 Payment config: COD={payment.get('cod')}, QR={payment.get('qr')}, QR Image={'Yes' if payment.get('qr_image') else 'No'}")
+
+            if "delivery_system" in features_list or delivery_cfg:
+                html = template_service.inject_integrations(html, features_list, user_data)
+                logger.info("✅ Injected delivery/ordering system into generated HTML")
+        except Exception as inject_err:
+            logger.warning(f"⚠️ Delivery injection skipped due to error: {inject_err}")
 
         # Step 4: Update progress to 80%
         if supabase:
@@ -1432,6 +1944,83 @@ async def start_generation(request: Request):
     description = body.get("description") or body.get("business_description") or ""
     user_id = body.get("user_id", "anonymous")
     user_email = body.get("email", "")
+    images = body.get("images", [])  # Extract uploaded images
+    features = body.get("features") or {}
+    image_choice = body.get("image_choice") or body.get("images_choice") or body.get("imageChoice") or "none"
+    delivery = body.get("delivery") or None
+    address = body.get("address") or None
+    social_media = body.get("social_media") or None
+    payment = body.get("payment") or None  # Payment methods (cod, qr, qr_image)
+    business_name = body.get("business_name") or body.get("businessName") or None  # Actual business name
+    language = body.get("language") or "ms"
+
+    # Get dish names from request
+    dish_names = body.get("dish_names", [])
+    uploaded_images = body.get("uploaded_images", {})
+
+    # Build image info for AI prompt
+    image_info = ""
+    if uploaded_images:
+        # Extract gallery URLs and names
+        gallery_urls = []
+        gallery_names = []
+        for i in range(4):
+            key = f"gallery{i+1}"
+            name = dish_names[i] if i < len(dish_names) else f"Menu Item {i+1}"
+            if uploaded_images.get(key):
+                gallery_urls.append(uploaded_images[key])
+                gallery_names.append(name)
+
+        # Build CRITICAL gallery instruction
+        image_info = "\n\n"
+
+        if uploaded_images.get("hero"):
+            image_info += f"HERO IMAGE: {uploaded_images['hero']}\n\n"
+
+        # Respect language selection for menu item descriptions
+        lang = str(language or "ms").lower().strip()
+        if lang in ["bm", "my", "malay", "bahasa", "bahasa melayu", "bahasa malaysia"]:
+            lang = "ms"
+        if lang not in ["ms", "en"]:
+            lang = "ms"
+
+        if len(gallery_urls) == 4:
+            image_info += f"""CRITICAL - GALLERY IMAGES:
+You MUST include EXACTLY 4 menu/gallery items using these images:
+1. Gallery 1: {gallery_urls[0]} - Name: {gallery_names[0]}
+2. Gallery 2: {gallery_urls[1]} - Name: {gallery_names[1]}
+3. Gallery 3: {gallery_urls[2]} - Name: {gallery_names[2]}
+4. Gallery 4: {gallery_urls[3]} - Name: {gallery_names[3]}
+
+DO NOT skip any image. DO NOT use Unsplash for ANY gallery image.
+All 4 images MUST be from the uploaded URLs above.
+Each gallery item MUST use the exact name and URL specified.
+
+MANDATORY REQUIREMENTS:
+1. Use the dish names provided above as menu item titles (EXACT names)
+2. Generate appropriate descriptions IN {"BAHASA MALAYSIA" if lang == "ms" else "ENGLISH"} for each dish
+3. Use the EXACT image URLs provided above (DO NOT modify or replace)
+4. DO NOT use Unsplash or any placeholder URLs
+5. Make sure ALL 4 gallery images are included (not 3, not 2, but ALL 4)
+6. Hero section: Use h-[60vh] (NOT h-[90vh])
+7. Gallery images: Use h-48 (NOT h-64)
+8. Each gallery item must be DIFFERENT - different image, different name, different description
+"""
+        else:
+            # Fallback for partial uploads
+            image_info += "USE THESE EXACT IMAGES AND NAMES:\n"
+            if uploaded_images.get("hero"):
+                image_info += f"- Hero Banner: {uploaded_images['hero']}\n"
+            for i in range(4):
+                key = f"gallery{i+1}"
+                name = dish_names[i] if i < len(dish_names) else f"Menu Item {i+1}"
+                if uploaded_images.get(key):
+                    image_info += f"- {name}: {uploaded_images[key]}\n"
+            image_info += "\nCRITICAL: Use EXACT URLs. DO NOT use Unsplash.\n"
+
+    # Append image info to description
+    if image_info:
+        description = description + image_info
 
     if not description:
         return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
@@ -1455,8 +2044,11 @@ async def start_generation(request: Request):
     logger.info(f"📝 Creating job: {job_id}")
     logger.info(f"   User: {user_email or user_id}")
     logger.info(f"   Description: {description[:60]}...")
+    logger.info(f"   Images: {len(images) if images else 0} uploaded")
+    logger.info(f"   Dish names: {dish_names if dish_names else 'None'}")
+    logger.info(f"   Uploaded images: {len(uploaded_images)} items" if uploaded_images else "   Uploaded images: None")
 
-    # Create job in Supabase
+    # Create job in Supabase (keep schema minimal to avoid column mismatch)
     if supabase:
         try:
             supabase.table("generation_jobs").insert({
@@ -1464,7 +2056,6 @@ async def start_generation(request: Request):
                 "status": "processing",
                 "progress": 0,
                 "description": description,
-                "email": user_email,
                 "user_id": user_id,
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat()
@@ -1478,7 +2069,21 @@ async def start_generation(request: Request):
             })
 
     # Run generation with asyncio (NOT BackgroundTasks!)
-    asyncio.create_task(run_generation_task(job_id, description, user_email, user_id))
+    asyncio.create_task(run_generation_task(
+        job_id,
+        description,
+        user_email,
+        user_id,
+        images,
+        features,
+        delivery,
+        address,
+        social_media,
+        payment,
+        business_name,
+        language,
+        image_choice=image_choice
+    ))
 
     logger.info(f"🚀 Job started: {job_id}")
 
@@ -1723,6 +2328,11 @@ async def publish_website(request: Request):
     html_content = body.get("html_content") or body.get("html_code") or body.get("html") or ""
     subdomain = (body.get("subdomain") or "").lower().strip()
     project_name = body.get("project_name") or body.get("name") or subdomain
+    website_id = body.get("website_id")  # Optional: caller can provide stable UUID
+    user_id = body.get("user_id") or "anonymous"
+    features = body.get("features") or {}
+    delivery = body.get("delivery") or None
+    menu_items_payload = body.get("menu_items") or []
 
     logger.info(f"📤 Subdomain: {subdomain}, Name: {project_name}")
     logger.info(f"📤 HTML length: {len(html_content)} chars")
@@ -1740,6 +2350,131 @@ async def publish_website(request: Request):
         return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain too short (min 2 chars)"})
 
     try:
+        # Ensure we have a stable website UUID for delivery widget + DB rows
+        if not website_id:
+            website_id = str(uuid.uuid4())
+
+        delivery_enabled = bool(features.get("deliverySystem")) or bool(delivery)
+
+        # If delivery enabled, inject widget and persist minimal menu/zones/settings (service role bypasses RLS).
+        if delivery_enabled and supabase:
+            try:
+                api_base = "https://binaapp-backend.onrender.com"
+                widget_src = f"{api_base}/widgets/delivery-widget.js"
+                widget_init = f"""
+<!-- BinaApp Delivery Widget -->
+<script
+  src="{widget_src}"
+  data-website-id="{website_id}"
+  data-api-url="{api_base}"
+  data-primary-color="#ea580c"
+  data-language="ms"
+></script>
+<div id="binaapp-widget"></div>
+"""
+                if "</body>" in html_content:
+                    html_content = html_content.replace("</body>", widget_init + "\n</body>")
+                else:
+                    html_content += widget_init
+
+                # Upsert website record so FK inserts work
+                published_url = f"https://{subdomain}.binaapp.my"
+                supabase.table("websites").upsert({
+                    "id": website_id,
+                    "user_id": user_id,
+                    "name": project_name,
+                    "subdomain": subdomain,
+                    "status": "published",
+                    "published_url": published_url,
+                    "html_content": html_content,
+                    "updated_at": datetime.now().isoformat()
+                }, on_conflict="id").execute()
+
+                # Create a default category if none exists
+                cat_resp = supabase.table("menu_categories").select("id").eq("website_id", website_id).limit(1).execute()
+                if cat_resp.data:
+                    category_id = cat_resp.data[0]["id"]
+                else:
+                    cat_insert = supabase.table("menu_categories").insert({
+                        "website_id": website_id,
+                        "name": "Menu",
+                        "name_en": "Menu",
+                        "icon": "🍽️",
+                        "sort_order": 0,
+                        "is_active": True
+                    }).execute()
+                    category_id = cat_insert.data[0]["id"] if cat_insert.data else None
+
+                # Insert menu items (best-effort)
+                if menu_items_payload and category_id:
+                    items_to_insert = []
+                    default_prices = [15, 12, 18, 10, 20, 14, 16, 13]
+                    for idx, it in enumerate(menu_items_payload):
+                        if not isinstance(it, dict):
+                            continue
+                        name = it.get("name") or f"Item {idx+1}"
+                        img = it.get("image_url") or it.get("url") or None
+                        price = it.get("price")
+                        if price is None:
+                            price = default_prices[idx % len(default_prices)]
+                        try:
+                            price = float(str(price).replace("RM", "").strip())
+                        except Exception:
+                            price = float(default_prices[idx % len(default_prices)])
+                        items_to_insert.append({
+                            "website_id": website_id,
+                            "category_id": category_id,
+                            "name": name,
+                            "description": it.get("description") or "Hidangan istimewa dari dapur kami",
+                            "price": price,
+                            "image_url": img,
+                            "is_available": True,
+                            "is_popular": False,
+                            "preparation_time": 15,
+                            "sort_order": idx
+                        })
+                    if items_to_insert:
+                        supabase.table("menu_items").insert(items_to_insert).execute()
+
+                # Insert a default delivery zone + settings
+                if delivery:
+                    try:
+                        fee_val = delivery.get("fee", 5)
+                        if isinstance(fee_val, str):
+                            fee_val = float(fee_val.replace("RM", "").strip())
+                        minimum_val = delivery.get("minimum", 30)
+                        if isinstance(minimum_val, str):
+                            minimum_val = float(minimum_val.replace("RM", "").strip())
+                    except Exception:
+                        fee_val = 5
+                        minimum_val = 30
+
+                    zones_existing = supabase.table("delivery_zones").select("id").eq("website_id", website_id).limit(1).execute()
+                    if not zones_existing.data:
+                        supabase.table("delivery_zones").insert({
+                            "website_id": website_id,
+                            "zone_name": delivery.get("area") or "Kawasan Delivery",
+                            "delivery_fee": float(fee_val),
+                            "minimum_order": float(minimum_val),
+                            "estimated_time_min": 30,
+                            "estimated_time_max": 45,
+                            "is_active": True,
+                            "sort_order": 0
+                        }).execute()
+
+                    # Ensure delivery settings exist
+                    supabase.table("delivery_settings").upsert({
+                        "website_id": website_id,
+                        "minimum_order": float(minimum_val),
+                        "whatsapp_number": None,
+                        "use_own_riders": True,
+                        "updated_at": datetime.now().isoformat()
+                    }, on_conflict="website_id").execute()
+
+                logger.info(f"✅ Delivery widget + data prepared for website {website_id}")
+            except Exception as delivery_err:
+                logger.warning(f"⚠️ Delivery publish enhancements failed (continuing publish): {delivery_err}")
+
         # Upload HTML to Supabase Storage
         storage_url = f"{SUPABASE_URL}/storage/v1/object/websites/{subdomain}/index.html"
         storage_headers = {
@@ -1762,6 +2497,7 @@ async def publish_website(request: Request):
                 logger.info(f"✅ Published successfully: {subdomain}.binaapp.my")
                 return {
                     "success": True,
+                    "website_id": website_id,
                     "subdomain": subdomain,
                     "url": f"https://{subdomain}.binaapp.my",
                     "message": "Website published successfully! Visit your site at the URL above.",
@@ -1857,6 +2593,7 @@ async def check_subdomain(subdomain: str):
         return {"available": False, "error": str(e)}
 
 
+<<<<<<< HEAD
 # ==================== DELIVERY ORDERS & CHAT ENDPOINTS ====================
 # These endpoints handle mobile delivery order submission for published websites
 
@@ -2458,6 +3195,110 @@ CREATE POLICY "Allow all chat_conversations" ON public.chat_conversations FOR AL
 CREATE POLICY "Allow all chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);
 """
     }
+
+
+# ==================== AI-POWERED HTML EDITOR ENDPOINT ====================
+
+@app.post("/api/edit-html")
+async def edit_html(request: Request):
+    """AI-powered HTML editing using DeepSeek"""
+    try:
+        body = await request.json()
+    except Exception as e:
+        logger.error(f"❌ Invalid JSON: {e}")
+        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
+
+    html = body.get("html", "")
+    instruction = body.get("instruction", "")
+
+    logger.info("=" * 50)
+    logger.info(f"🤖 AI EDIT REQUEST")
+    logger.info(f"   Instruction: {instruction}")
+    logger.info(f"   HTML length: {len(html)} chars")
+    logger.info("=" * 50)
+
+    if not html or not instruction:
+        return {"error": "Missing data", "success": False}
+
+    # Truncate HTML if too long
+    MAX_HTML = 10000
+    if len(html) > MAX_HTML:
+        logger.warning(f"🤖 Truncating HTML from {len(html)} to {MAX_HTML}")
+        html = html[:MAX_HTML]
+
+    prompt = f"""Edit this HTML based on the instruction. Output ONLY the modified HTML, nothing else.
+
+INSTRUCTION: {instruction}
+
+MALAY WORDS:
+- Tukar = Change
+- Tambah = Add
+- Buang/Padam = Remove/Delete
+- Warna = Color
+- Tajuk = Title
+- Harga = Price
+- Telefon = Phone
+- Alamat = Address
+- Gambar = Image
+
+HTML TO EDIT:
+{html}
+
+OUTPUT THE COMPLETE MODIFIED HTML:"""
+
+    # Use DeepSeek
+    try:
+        api_key = os.getenv("DEEPSEEK_API_KEY")
+
+        if not api_key:
+            logger.error("🔷 No DEEPSEEK_API_KEY!")
+            return {"error": "No API key", "success": False}
+
+        logger.info("🔷 Calling DeepSeek...")
+
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            response = await client.post(
+                "https://api.deepseek.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "deepseek-chat",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 8000,
+                    "temperature": 0.3
+                }
+            )
+
+            logger.info(f"🔷 Response status: {response.status_code}")
+
+            if response.status_code == 200:
+                data = response.json()
+                content = data["choices"][0]["message"]["content"]
+                logger.info(f"🔷 Got response: {len(content)} chars")
+
+                # Extract HTML from response
+                html_result = extract_html(content)
+
+                if html_result and len(html_result) > 100:
+                    logger.info("🔷 ✅ SUCCESS!")
+                    return {"html": html_result, "success": True}
+                else:
+                    logger.error("🔷 HTML extraction failed")
+                    logger.error(f"🔷 Raw content preview: {content[:300]}")
+                    return {"error": "Failed to extract HTML", "success": False}
+            else:
+                logger.error(f"🔷 API Error: {response.status_code}")
+                logger.error(f"🔷 Response: {response.text[:300]}")
+                return {"error": "API error", "success": False}
+
+    except httpx.TimeoutException:
+        logger.error("🔷 TIMEOUT!")
+        return {"error": "Timeout - cuba lagi", "success": False}
+    except Exception as e:
+        logger.error(f"🔷 Exception: {type(e).__name__}: {e}")
+        return {"error": "Gagal. Cuba lagi.", "success": False}
 
 
 if __name__ == "__main__":

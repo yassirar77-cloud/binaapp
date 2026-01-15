@@ -246,47 +246,76 @@ function extractHtml(text: string): string {
 }
 
 // ==================== MAIN GENERATION ====================
-async function generateWebsite(description: string): Promise<string | null> {
+async function generateWebsite(
+  description: string,
+  opts?: { image_choice?: string; features?: Record<string, any> }
+): Promise<string | null> {
   console.log('');
   console.log('🌐 WEBSITE GENERATION - TRIPLE AI MODE');
   console.log(`   Description: ${description.substring(0, 50)}...`);
 
-  // Step 1: Generate images
-  let imgs = FALLBACK_IMAGES.default;
-  if (description.toLowerCase().includes('teddy') || description.toLowerCase().includes('bear')) {
-    imgs = FALLBACK_IMAGES.teddy;
-  }
+  const imageChoice = (opts?.image_choice || 'ai').toLowerCase().trim();
+  const features = opts?.features || {};
+  const whatsappEnabled = typeof features.whatsapp === 'boolean' ? features.whatsapp : true;
 
-  if (STABILITY_API_KEY) {
-    console.log('🎨 Step 1: Generating custom images...');
-    const customImgs = await generateBusinessImages(description);
-    if (customImgs) {
-      imgs = customImgs;
-    } else {
-      console.log('🎨 Using fallback images');
+  // Step 1: Generate images (ONLY if user wants images)
+  let imgs: { hero: string; gallery: string[] } | null = null;
+  if (imageChoice !== 'none') {
+    imgs = FALLBACK_IMAGES.default;
+    if (description.toLowerCase().includes('teddy') || description.toLowerCase().includes('bear')) {
+      imgs = FALLBACK_IMAGES.teddy;
+    }
+
+    if (STABILITY_API_KEY && imageChoice === 'ai') {
+      console.log('🎨 Step 1: Generating custom images...');
+      const customImgs = await generateBusinessImages(description);
+      if (customImgs) {
+        imgs = customImgs;
+      } else {
+        console.log('🎨 Using fallback images');
+      }
     }
   }
 
   // Step 2: Generate HTML with DeepSeek
   console.log('🔷 Step 2: Generating HTML...');
 
+  const imageRequirements =
+    imageChoice === 'none'
+      ? `IMAGES:
+- DO NOT include ANY images.
+- Do NOT use <img> tags.
+- Do NOT use background-image CSS.
+- Do NOT use Unsplash/Pexels/placeholder images.
+`
+      : `USE THESE EXACT IMAGE URLs:
+- Hero: ${imgs?.hero}
+- Gallery 1: ${imgs?.gallery?.[0]}
+- Gallery 2: ${imgs?.gallery?.[1]}
+- Gallery 3: ${imgs?.gallery?.[2]}
+- Gallery 4: ${imgs?.gallery?.[3] || imgs?.gallery?.[2]}
+`;
+
+  const whatsappRequirements = whatsappEnabled
+    ? `- WhatsApp floating button (60123456789)\n`
+    : `- DO NOT include WhatsApp button or WhatsApp links\n`;
+
+  const sectionsRequirements =
+    imageChoice === 'none'
+      ? `4. Sections: Header, Hero (no image), About, Services (3 cards), Contact, Footer\n`
+      : `4. Sections: Header, Hero (full-width image), About, Services (3 cards), Gallery (4 images), Contact, Footer\n`;
+
   const htmlPrompt = `Create a complete HTML website for: ${description}
 
-USE THESE EXACT IMAGE URLs:
-- Hero: ${imgs.hero}
-- Gallery 1: ${imgs.gallery[0]}
-- Gallery 2: ${imgs.gallery[1]}
-- Gallery 3: ${imgs.gallery[2]}
-- Gallery 4: ${imgs.gallery[3] || imgs.gallery[2]}
+${imageRequirements}
 
 REQUIREMENTS:
 1. Single HTML file with <script src="https://cdn.tailwindcss.com"></script>
 2. Mobile responsive design
 3. Modern professional look with gradients
-4. Sections: Header, Hero (full-width image), About, Services (3 cards), Gallery (4 images), Contact, Footer
-5. WhatsApp floating button (60123456789)
-6. Use Bahasa Malaysia if description is in Malay
-7. Use the EXACT image URLs provided - do not change them
+${sectionsRequirements}${whatsappRequirements}6. Use Bahasa Malaysia if description is in Malay
+7. If image_choice is 'none', strictly follow the no-images rules above.
+8. If image_choice is not 'none', use the EXACT image URLs provided - do not change them
 
 Output ONLY the complete HTML code.`;
 
@@ -296,6 +325,19 @@ Output ONLY the complete HTML code.`;
 
   html = extractHtml(html);
   console.log('✅ Website generated!');
+
+  // Safety: enforce opts (remove WhatsApp/images if disabled)
+  if (!whatsappEnabled) {
+    html = html.replace(/<a[^>]*(wa\.me|whatsapp)[^>]*>[\s\S]*?<\/a>/gi, '');
+    html = html.replace(/href="https?:\/\/wa\.me[^"]*"/gi, 'href="#"');
+    html = html.replace(/href="https?:\/\/(?:api\.)?whatsapp\.com[^"]*"/gi, 'href="#"');
+  }
+  if (imageChoice === 'none') {
+    html = html.replace(/<img[^>]*>/gi, '');
+    html = html.replace(/background-image\s*:\s*url\([^)]*\)\s*;?/gi, '');
+    html = html.replace(/https?:\/\/(?:images\.)?unsplash\.com[^\s'"<>]*/gi, '');
+    html = html.replace(/https?:\/\/(?:www\.)?pexels\.com[^\s'"<>]*/gi, '');
+  }
 
   return html;
 }
@@ -315,6 +357,8 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const description = body.business_description || body.description || '';
+    const image_choice = body.image_choice || body.imageChoice || 'ai';
+    const features = body.features || {};
 
     if (!description) {
       return NextResponse.json({ error: 'Description required' }, { status: 400 });
@@ -324,7 +368,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No AI API keys' }, { status: 500 });
     }
 
-    const html = await generateWebsite(description);
+    const html = await generateWebsite(description, { image_choice, features });
 
     if (!html) {
       return NextResponse.json({ error: 'Generation failed' }, { status: 500 });

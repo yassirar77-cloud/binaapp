@@ -146,7 +146,18 @@ async def call_deepseek(prompt: str) -> Optional[str]:
             response = await client.post(
                 "https://api.deepseek.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}], "max_tokens": 8000, "temperature": 0.7}
+                json={
+                    "model": "deepseek-chat",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    "max_tokens": 8000,
+                    "temperature": 0.2,
+                },
             )
             if response.status_code == 200:
                 logger.info("🔷 ✅ DeepSeek success")
@@ -165,7 +176,18 @@ async def call_qwen(prompt: str) -> Optional[str]:
             response = await client.post(
                 "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions",
                 headers={"Authorization": f"Bearer {QWEN_API_KEY}", "Content-Type": "application/json"},
-                json={"model": "qwen-max", "messages": [{"role": "user", "content": prompt}], "max_tokens": 8000, "temperature": 0.8}
+                json={
+                    "model": "qwen-max",
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    "max_tokens": 8000,
+                    "temperature": 0.2,
+                },
             )
             if response.status_code == 200:
                 logger.info("🟡 ✅ Qwen success")
@@ -215,7 +237,8 @@ async def generate_simple(request: GenerateRequest):
 
         # Step 2: HTML
         logger.info("🔷 Step 2: Generating HTML...")
-        is_malay = any(w in desc.lower() for w in ['saya', 'kami', 'kedai', 'jual'])
+        # Respect explicit language selection from the client (do not auto-detect).
+        is_malay = (request.language or "ms") == "ms"
 
         prompt = f"""Create a complete HTML website for: {desc}
 
@@ -232,7 +255,7 @@ REQUIREMENTS:
 3. Modern design with gradients
 4. Sections: Header, Hero, About, Services (3 cards), Gallery (4 images), Contact, Footer
 5. WhatsApp floating button (60123456789)
-6. {'Bahasa Malaysia' if is_malay else 'English'} content
+6. {'Bahasa Malaysia' if is_malay else 'English'} content (MUST be consistent)
 7. Use EXACT image URLs above
 
 Output ONLY the HTML code."""
@@ -245,6 +268,32 @@ Output ONLY the HTML code."""
             return JSONResponse(status_code=500, content={"success": False, "error": "AI generation failed"})
 
         html = extract_html(html)
+
+        # Validate that the model actually used the required image URLs; retry once if not.
+        required_urls = [
+            images.get("hero"),
+            images.get("gallery", [None])[0],
+            images.get("gallery", [None, None])[1],
+            images.get("gallery", [None, None, None])[2],
+            (images.get("gallery", [None, None, None, None])[3] if len(images.get("gallery", [])) > 3 else None),
+        ]
+        missing = [u for u in required_urls if u and u not in html]
+        forbidden = any(x in html.lower() for x in ["via.placeholder.com", "placeholder.com", "example.com", "["])
+        if missing or forbidden:
+            issues = []
+            for u in missing[:10]:
+                issues.append(f"Missing required image URL: {u}")
+            if forbidden:
+                issues.append("Contains forbidden placeholder patterns (placeholder/example/brackets)")
+            retry_prompt = (
+                prompt
+                + "\n\n=== VALIDATION FAILURES (MUST FIX) ===\n"
+                + "\n".join(f"- {i}" for i in issues)
+                + "\nRegenerate the FULL HTML from scratch. Output ONLY HTML."
+            )
+            retry = await call_deepseek(retry_prompt) or await call_qwen(retry_prompt)
+            if retry:
+                html = extract_html(retry)
 
         logger.info("✅ WEBSITE GENERATED")
         logger.info(f"📄 HTML: {len(html)} chars")

@@ -7,10 +7,17 @@ import os
 import httpx
 import random
 import uuid
+import asyncio
+import time
+import json
+import re
 from loguru import logger
 from typing import Optional, List, Dict, Tuple
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
+from app.services.business_types import get_business_config, detect_business_type
 from difflib import SequenceMatcher
+import cloudinary
+import cloudinary.uploader
 
 # Import Stability AI service
 try:
@@ -167,7 +174,8 @@ class AIService:
 
         # ===== GENERAL BUSINESS CATEGORIES =====
         "bakery": "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=600&q=80",
-        "kedai roti": "https://images.unsplash.com/photo-1509440159596-0249440159596-0249088772ff?w=600&q=80",
+        # Fix malformed Unsplash URL (was breaking image loads)
+        "kedai roti": "https://images.unsplash.com/photo-1509440159596-0249088772ff?w=600&q=80",
         "cake": "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=600&q=80",
         "kek": "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=600&q=80",
 
@@ -191,7 +199,8 @@ class AIService:
         "coffee": "https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=600&q=80",
 
         "restaurant": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600&q=80",
-        "restoran": "https://images.unsplash.com/photo-517248135467-4c7edcad34c4?w=600&q=80",
+        # Fix malformed Unsplash URL (was breaking image loads)
+        "restoran": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600&q=80",
 
         # Generic fallback
         "business": "https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&q=80",
@@ -619,6 +628,163 @@ class AIService:
             logger.info(f"⚠️ No good match for '{text}' (best: {best_match} at {best_score:.2f})")
             return ("", best_score)
 
+    async def analyze_uploaded_image(self, image_url: str) -> Dict:
+        """
+        Analyze an uploaded image using AI Vision to detect its content.
+        
+        This helps:
+        1. Suggest names for images without user-provided names
+        2. Detect image content type (food, salon service, product, etc.)
+        3. Warn about mismatches between image content and business type
+        
+        Args:
+            image_url: URL of the uploaded image (Cloudinary or other CDN)
+            
+        Returns:
+            Dict with:
+            - suggested_name: Suggested item name
+            - category: Detected category (food, salon, clothing, etc.)
+            - description: Short description of the image
+            - confidence: Confidence level (high, medium, low)
+            - is_food: Boolean indicating if this appears to be food
+        """
+        logger.info(f"🔍 Analyzing uploaded image: {image_url[:60]}...")
+        
+        default_result = {
+            "suggested_name": None,
+            "category": "unknown",
+            "description": "Unable to analyze image",
+            "confidence": "low",
+            "is_food": False
+        }
+        
+        try:
+            # Use Qwen VL (Vision-Language) for image analysis
+            # Qwen-VL-Max supports image input via URL
+            if self.qwen_api_key:
+                logger.info("🟡 Using Qwen-VL for image analysis...")
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        f"{self.qwen_base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self.qwen_api_key}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": "qwen-vl-max",
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {"url": image_url}
+                                        },
+                                        {
+                                            "type": "text",
+                                            "text": """Analyze this image and respond in JSON format:
+{
+  "suggested_name": "Item name in Malay or English (e.g., 'Nasi Lemak Special', 'Haircut Men')",
+  "category": "food|salon|clothing|product|other",
+  "description": "Brief description of what you see",
+  "is_food": true/false,
+  "food_type": "malaysian|western|asian|dessert|beverage|none"
+}
+
+If it's Malaysian food, suggest authentic Malay names.
+If it's a service (haircut, treatment), describe the service.
+Respond ONLY with valid JSON, no other text."""
+                                        }
+                                    ]
+                                }
+                            ],
+                            "temperature": 0.3,
+                            "max_tokens": 200
+                        }
+                    )
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        content = result["choices"][0]["message"]["content"].strip()
+                        logger.info(f"🟡 Qwen-VL response: {content[:100]}...")
+                        
+                        # Parse JSON response
+                        import json as json_module
+                        try:
+                            # Clean up response - remove markdown code blocks if present
+                            if content.startswith("```"):
+                                content = content.split("```")[1]
+                                if content.startswith("json"):
+                                    content = content[4:]
+                            content = content.strip()
+                            
+                            analysis = json_module.loads(content)
+                            analysis["confidence"] = "high"
+                            logger.info(f"✅ Image analyzed: {analysis.get('suggested_name')} - {analysis.get('category')}")
+                            return analysis
+                        except json_module.JSONDecodeError:
+                            logger.warning(f"⚠️ Could not parse Qwen-VL response as JSON")
+                    else:
+                        logger.warning(f"⚠️ Qwen-VL failed: {response.status_code}")
+            
+            # Fallback to DeepSeek (if it supports vision)
+            if self.deepseek_api_key:
+                logger.info("🔷 Trying DeepSeek for image analysis...")
+                # Note: DeepSeek chat doesn't support vision, but we can try
+                # to describe based on URL patterns or use a different approach
+                
+            return default_result
+            
+        except Exception as e:
+            logger.error(f"❌ Error analyzing image: {e}")
+            return default_result
+
+    async def analyze_images_batch(self, images: List[Dict]) -> List[Dict]:
+        """
+        Analyze a batch of uploaded images.
+        
+        Args:
+            images: List of image dicts with 'url' and optional 'name'
+            
+        Returns:
+            List of analysis results with suggested names and categories
+        """
+        results = []
+        for img in images:
+            url = img.get('url', '') if isinstance(img, dict) else str(img)
+            existing_name = img.get('name', '') if isinstance(img, dict) else ''
+            
+            if not url:
+                continue
+                
+            # Skip if user already provided a valid name
+            if existing_name and existing_name.strip() and existing_name != 'Hero Image':
+                results.append({
+                    "url": url,
+                    "user_name": existing_name,
+                    "suggested_name": existing_name,
+                    "category": "user_provided",
+                    "analyzed": False
+                })
+                continue
+            
+            # Analyze the image
+            analysis = await self.analyze_uploaded_image(url)
+            results.append({
+                "url": url,
+                "user_name": existing_name,
+                "suggested_name": analysis.get("suggested_name"),
+                "category": analysis.get("category", "unknown"),
+                "description": analysis.get("description"),
+                "is_food": analysis.get("is_food", False),
+                "analyzed": True
+            })
+            
+            # Small delay between API calls
+            await asyncio.sleep(0.5)
+        
+        return results
+
     async def test_api_connectivity(self) -> Dict[str, any]:
         """Test connectivity to both AI APIs"""
         results = {
@@ -904,6 +1070,603 @@ class AIService:
         logger.info(f"🎨 ✅ Generated {len(gallery) + 1} images")
         return {"hero": hero, "gallery": gallery}
 
+    async def generate_food_image(self, food_name: str) -> Optional[str]:
+        """
+        Generate AI image for a food item using the full pipeline:
+        1. DeepSeek/Qwen generates detailed English description
+        2. Stability AI generates image from description
+        3. Image uploaded to Cloudinary
+
+        Args:
+            food_name: Name of the food item (e.g., "Nasi Kandar Special", "Ayam Goreng Berempah")
+
+        Returns:
+            Cloudinary URL of generated image, or None if generation fails
+        """
+        if not self.stability_api_key:
+            logger.warning("🎨 No Stability API key configured")
+            return None
+
+        try:
+            logger.info(f"🎨 Generating AI image for: {food_name}")
+
+            # Step 1: Check if it's a known Malaysian dish - prioritize Malaysian prompts
+            malaysian_prompt = self._get_malaysian_prompt(food_name)
+            if malaysian_prompt and "Malaysian" in malaysian_prompt:
+                # Known Malaysian dish - use predefined prompt for accuracy
+                detailed_description = malaysian_prompt
+                logger.info(f"🇲🇾 Using Malaysian-specific prompt: {detailed_description[:100]}...")
+            else:
+                # Unknown dish - generate description using AI
+                detailed_description = await self._generate_food_description(food_name)
+                if not detailed_description:
+                    logger.warning(f"⚠️ Failed to generate description, using generic fallback")
+                    detailed_description = malaysian_prompt or f"{food_name}, professional food photography, high quality, realistic"
+                else:
+                    logger.info(f"📝 AI Description: {detailed_description[:100]}...")
+
+            # Step 2: Generate image with Stability AI using the detailed description
+            image_url = await self._generate_stability_image(detailed_description)
+
+            if image_url:
+                logger.info(f"✅ Generated image: {image_url[:60]}...")
+            else:
+                logger.warning(f"⚠️ Failed to generate image for: {food_name}")
+
+            return image_url
+        except Exception as e:
+            logger.error(f"❌ Error generating food image: {e}")
+            return None
+
+    async def _generate_food_description(self, food_name: str) -> Optional[str]:
+        """
+        Use DeepSeek/Qwen to generate a detailed English description for Stability AI
+
+        Args:
+            food_name: Name of the food (e.g., "Nasi Kandar Special")
+
+        Returns:
+            Detailed English description for image generation, or None if failed
+        """
+        try:
+            # Prepare prompt for AI to generate image description
+            system_prompt = """You are an expert at creating detailed image prompts for AI image generation, specializing in Malaysian cuisine.
+
+CRITICAL: Pay attention to the food's origin and style:
+- Malaysian dishes (nasi kandar, ayam goreng, ikan bakar, etc.) should be described in authentic Malaysian/Mamak style
+- Avoid confusing Malaysian food with Chinese, Thai, or other Asian cuisines
+- Use specific Malaysian ingredients and presentation (banana leaf, curry gravy, sambal, etc.)
+
+Focus on:
+- Visual appearance (colors, textures, arrangement)
+- Authentic traditional presentation (mamak style for Malaysian food)
+- Serving method (banana leaf, plate, traditional serving)
+- Specific ingredients visible (curry, rice, sambal for Malaysian)
+- Photography style (food photography, professional lighting)
+
+Keep the description concise (under 100 words) but highly descriptive and culturally accurate."""
+
+            user_prompt = f"""Create a detailed image generation prompt for: "{food_name}"
+
+IMPORTANT:
+- If this contains "nasi", "ayam", "ikan", "mee" or other Malay words, it's MALAYSIAN food
+- Describe Malaysian dishes authentically with curry, rice, sambal, banana leaf
+- DO NOT describe Malaysian food as Chinese food
+- Use "Malaysian" explicitly in the description for Malaysian dishes
+
+Format: Just the image description, no explanations."""
+
+            # Try DeepSeek first (better for descriptions)
+            if self.deepseek_api_key:
+                logger.info(f"🔷 Using DeepSeek to generate description for: {food_name}")
+                try:
+                    async with httpx.AsyncClient(timeout=30) as client:
+                        response = await client.post(
+                            f"{self.deepseek_base_url}/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {self.deepseek_api_key}",
+                                "Content-Type": "application/json"
+                            },
+                            json={
+                                "model": "deepseek-chat",
+                                "messages": [
+                                    {"role": "system", "content": system_prompt},
+                                    {"role": "user", "content": user_prompt}
+                                ],
+                                "temperature": 0.7,
+                                "max_tokens": 200
+                            }
+                        )
+
+                        if response.status_code == 200:
+                            result = response.json()
+                            description = result["choices"][0]["message"]["content"].strip()
+                            logger.info(f"✅ DeepSeek generated description")
+                            return description
+                        else:
+                            logger.warning(f"DeepSeek failed: {response.status_code}")
+                except Exception as e:
+                    logger.warning(f"DeepSeek error: {e}")
+
+            # Fallback to Qwen
+            if self.qwen_api_key:
+                logger.info(f"🟡 Using Qwen to generate description for: {food_name}")
+                try:
+                    async with httpx.AsyncClient(timeout=30) as client:
+                        response = await client.post(
+                            f"{self.qwen_base_url}/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {self.qwen_api_key}",
+                                "Content-Type": "application/json"
+                            },
+                            json={
+                                "model": "qwen-max",
+                                "messages": [
+                                    {"role": "system", "content": system_prompt},
+                                    {"role": "user", "content": user_prompt}
+                                ],
+                                "temperature": 0.7,
+                                "max_tokens": 200
+                            }
+                        )
+
+                        if response.status_code == 200:
+                            result = response.json()
+                            description = result["choices"][0]["message"]["content"].strip()
+                            logger.info(f"✅ Qwen generated description")
+                            return description
+                        else:
+                            logger.warning(f"Qwen failed: {response.status_code}")
+                except Exception as e:
+                    logger.warning(f"Qwen error: {e}")
+
+            # No AI available
+            logger.warning("No AI service available for description generation")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error generating food description: {e}")
+            return None
+
+    async def _generate_stability_image(self, prompt: str) -> Optional[str]:
+        """Generate image with Stability AI and upload to Cloudinary"""
+        stability_key = os.getenv("STABILITY_API_KEY")
+        if not stability_key:
+            logger.warning("🎨 No STABILITY_API_KEY")
+            return None
+
+        try:
+            # Smart prompt for Malaysian context
+            smart_prompt = self._get_malaysian_prompt(prompt)
+            logger.info(f"🎨 Prompt: {smart_prompt[:80]}...")
+
+            async with httpx.AsyncClient(timeout=60) as client:
+                response = await client.post(
+                    "https://api.stability.ai/v2beta/stable-image/generate/core",
+                    headers={
+                        "Authorization": f"Bearer {stability_key}",
+                        "Accept": "image/*"
+                    },
+                    files={"none": ""},
+                    data={
+                        "prompt": smart_prompt,
+                        "output_format": "png",
+                        "aspect_ratio": "16:9"
+                    }
+                )
+
+                if response.status_code == 200:
+                    # Upload to Cloudinary
+                    result = cloudinary.uploader.upload(
+                        response.content,
+                        folder="binaapp"
+                    )
+                    url = result.get("secure_url")
+                    logger.info(f"☁️ Uploaded to Cloudinary: {url[:50]}...")
+                    return url
+                else:
+                    logger.error(f"🎨 Stability AI failed: {response.status_code} - {response.text[:200]}")
+                    return None
+        except Exception as e:
+            logger.error(f"🎨 Error generating image: {e}")
+            return None
+
+    def _get_malaysian_prompt(self, item: str) -> str:
+        """Convert Malaysian food names to detailed prompts"""
+        prompts = {
+            "nasi kandar": "Malaysian nasi kandar with rice, curry chicken, vegetables, banana leaf, food photography, high quality, realistic",
+            "nasi lemak": "Malaysian nasi lemak coconut rice, sambal, egg, anchovies, peanuts, banana leaf, food photography, high quality",
+            "nasi goreng": "Malaysian nasi goreng fried rice, egg, vegetables, sambal, food photography, high quality",
+            "nasi ayam": "Malaysian chicken rice hainanese nasi ayam, roasted chicken, rice, cucumber, food photography",
+            "nasi briyani": "Malaysian nasi briyani biryani rice, spiced rice, chicken, raita, food photography",
+            "nasi kerabu": "Malaysian nasi kerabu blue rice, herbs, vegetables, fish, food photography, traditional",
+
+            "mee goreng": "Malaysian mee goreng yellow noodles, egg, vegetables, spicy, food photography, high quality",
+            "char kway teow": "Malaysian char kway teow flat noodles, prawns, cockles, wok fried, food photography",
+            "laksa": "Malaysian laksa spicy noodle soup, coconut milk, shrimp, food photography, traditional",
+            "hokkien mee": "Malaysian hokkien mee dark noodles, prawns, pork, food photography, high quality",
+            "mee rebus": "Malaysian mee rebus noodles, thick gravy, egg, food photography",
+
+            "ayam goreng": "Malaysian fried chicken ayam goreng berempah, crispy, golden, turmeric, food photography, close up",
+            "ayam percik": "Malaysian ayam percik grilled chicken, coconut sauce, food photography, traditional",
+            "rendang": "Malaysian beef rendang curry, coconut milk, spicy, food photography, close up, high quality",
+
+            "ikan bakar": "Malaysian ikan bakar grilled fish, sambal, banana leaf, food photography, traditional",
+            "ikan": "Malaysian grilled fish, sambal sauce, food photography, high quality",
+
+            "roti canai": "Malaysian roti canai flatbread crispy, served with curry, food photography, close up",
+            "roti": "Malaysian roti flatbread, curry, food photography",
+            "murtabak": "Malaysian murtabak stuffed pancake, egg, meat, curry, food photography",
+
+            "satay": "Malaysian satay skewered meat, peanut sauce, cucumber, food photography, traditional, close up",
+
+            "teh tarik": "Malaysian teh tarik pulled milk tea, frothy, glass, food photography, traditional",
+            "kopi": "Malaysian kopi coffee traditional, glass cup, food photography",
+
+            "cendol": "Malaysian cendol dessert, shaved ice, coconut milk, gula melaka, green jelly, food photography",
+            "ais kacang": "Malaysian ais kacang shaved ice dessert, colorful toppings, food photography",
+
+            "pelbagai lauk": "Malaysian mixed side dishes, variety of curries and vegetables, food photography",
+            "lauk": "Malaysian side dishes curry vegetables, food photography",
+        }
+
+        item_lower = item.lower().strip()
+
+        # Direct exact match
+        if item_lower in prompts:
+            return prompts[item_lower]
+
+        # Fuzzy matching - check if item contains any key
+        for key, prompt in prompts.items():
+            if key in item_lower:
+                return prompt
+
+        # Generic food prompt
+        return f"Professional close-up photo of {item}, Malaysian style, food photography, high quality, realistic, appetizing"
+
+    def _extract_menu_items(self, description: str) -> list:
+        """Extract menu items from description"""
+        common_items = ["nasi kandar", "nasi lemak", "mee goreng", "ayam goreng",
+                        "roti canai", "teh tarik", "ikan bakar", "pelbagai lauk", "satay"]
+        found = []
+        desc_lower = description.lower()
+        for item in common_items:
+            if item in desc_lower:
+                found.append(item)
+        return found if found else ["hero image"]
+
+    def _detect_business_category(self, description: str) -> str:
+        """Detect if business is food/restaurant or clothing/fashion"""
+        desc_lower = description.lower()
+
+        # Clothing/Fashion keywords
+        clothing_keywords = [
+            "baju", "shirt", "t-shirt", "kemeja", "fashion", "boutique", "clothing",
+            "pakaian", "tudung", "hijab", "scarf", "shawl", "dress", "pants",
+            "seluar", "skirt", "jacket", "blazer", "apparel", "garment",
+            "butik", "koleksi", "collection", "wear", "attire"
+        ]
+
+        # Food/Restaurant keywords
+        food_keywords = [
+            "nasi", "mee", "ayam", "ikan", "restaurant", "restoran", "cafe",
+            "kafe", "kedai makan", "food", "makan", "masak", "cook", "menu",
+            "roti", "satay", "rendang", "curry", "mamak", "warung"
+        ]
+
+        # Count matches
+        clothing_score = sum(1 for keyword in clothing_keywords if keyword in desc_lower)
+        food_score = sum(1 for keyword in food_keywords if keyword in desc_lower)
+
+        if clothing_score > food_score:
+            return "clothing"
+        elif food_score > 0:
+            return "food"
+        else:
+            return "general"
+
+    def _extract_clothing_items(self, description: str) -> list:
+        """Extract clothing/fashion items from description"""
+        common_items = ["shirt", "baju", "t-shirt", "kemeja", "seluar", "pants",
+                        "dress", "tudung", "hijab", "koleksi", "collection"]
+        found = []
+        desc_lower = description.lower()
+        for item in common_items:
+            if item in desc_lower:
+                found.append(item)
+        # If nothing found, return generic clothing items
+        return found if found else ["shirt", "baju", "koleksi", "collection"]
+
+    def _get_clothing_prompt(self, item: str) -> str:
+        """Get appropriate Stability AI prompt for clothing items"""
+        item_lower = item.lower()
+
+        prompts = {
+            "shirt": "Premium men's dress shirt on mannequin, elegant fabric, professional product photography, boutique setting",
+            "baju": "Malaysian men's traditional and modern clothing, baju melayu and casual shirts, fashion photography",
+            "t-shirt": "Stylish men's t-shirt on display, modern casual wear, product photography",
+            "kemeja": "Elegant men's formal shirt, crisp fabric, professional fashion photography",
+            "seluar": "Men's premium pants on display, formal and casual wear, boutique photography",
+            "pants": "Men's premium pants on display, formal and casual wear, boutique photography",
+            "dress": "Elegant dress on mannequin, luxury boutique setting, fashion photography",
+            "tudung": "Elegant hijab tudung collection display, various styles, Malaysian fashion photography",
+            "hijab": "Elegant hijab collection display, various colors and styles, fashion photography",
+            "koleksi": "Stylish men's clothing collection display, premium shirts and apparel, boutique setting",
+            "collection": "Premium men's clothing collection, modern boutique display, fashion photography",
+        }
+
+        for key, prompt in prompts.items():
+            if key in item_lower:
+                return prompt
+
+        return f"Professional {item} display, Malaysian boutique, fashion photography"
+
+    # Malay to English translation for Stability AI
+    MALAY_TO_ENGLISH = {
+        "jam tangan": "wristwatch timepiece",
+        "jam": "watch clock",
+        "baju": "shirt clothing garment",
+        "kasut": "shoes footwear",
+        "tudung": "hijab headscarf",
+        "makanan": "food cuisine",
+        "restoran": "restaurant dining",
+        "kedai": "shop store",
+        "perkhidmatan": "services",
+        "kecantikan": "beauty cosmetics",
+        "salon": "hair salon beauty parlor",
+        "nasi": "rice dish",
+        "mee": "noodles",
+        "ayam": "chicken",
+        "ikan": "fish seafood",
+        "daging": "beef meat",
+        "sayur": "vegetables",
+        "kuih": "traditional cakes pastries",
+        "minuman": "beverages drinks",
+    }
+
+    def _translate_for_stability(self, text: str) -> str:
+        """Translate Malay keywords to English for Stability AI"""
+        text_lower = text.lower()
+        for malay, english in self.MALAY_TO_ENGLISH.items():
+            if malay in text_lower:
+                text_lower = text_lower.replace(malay, english)
+        return text_lower
+
+    def _get_product_prompts(self, description: str, business_category: str) -> list:
+        """Generate smart product image prompts based on business type"""
+        desc_lower = description.lower()
+
+        # Translate Malay to English for better detection
+        desc_english = self._translate_for_stability(description)
+
+        # WATCHES / JEWELRY
+        if any(word in desc_lower for word in ["watch", "jam tangan", "timepiece", "jam"]):
+            return [
+                "Luxury silver wristwatch on white background, product photography, elegant timepiece, professional lighting",
+                "Black sports watch with rubber strap, waterproof dive watch, product photography, studio lighting",
+                "Rose gold women's watch with diamond bezel, luxury feminine timepiece, product photography, elegant display",
+                "Chronograph watch with leather strap, men's luxury watch, detailed product photography, white background"
+            ]
+
+        # JEWELRY / ACCESSORIES
+        elif any(word in desc_lower for word in ["jewelry", "necklace", "bracelet", "ring", "earing", "perhiasan"]):
+            return [
+                "Gold necklace on display, luxury jewelry, product photography, elegant presentation",
+                "Silver bracelet on white background, premium jewelry, professional product photography",
+                "Diamond ring on velvet cushion, luxury engagement ring, professional jewelry photography",
+                "Pearl earrings on display, elegant jewelry, product photography, studio lighting"
+            ]
+
+        # CLOTHING / FASHION (already handled but adding here for completeness)
+        elif business_category == "clothing":
+            return [
+                "Premium men's dress shirt on mannequin, business formal, product photography",
+                "Casual men's polo shirt, modern style, product photography",
+                "Traditional baju melayu, elegant Malaysian menswear, product photography",
+                "Men's casual jacket, modern fashion, product photography"
+            ]
+
+        # FOOD / RESTAURANT (already handled but adding here for completeness)
+        elif business_category == "food":
+            return [
+                "Malaysian nasi kandar with curry, food photography, professional lighting",
+                "Crispy fried chicken ayam goreng, food photography, delicious presentation",
+                "Grilled fish ikan bakar on banana leaf, food photography, authentic Malaysian",
+                "Malaysian curry dishes assortment, food photography, colorful spread"
+            ]
+
+        # BEAUTY / SALON
+        elif any(word in desc_lower for word in ["beauty", "salon", "kecantikan", "spa", "facial", "makeup"]):
+            return [
+                "Professional hair styling service, modern salon interior, beauty photography",
+                "Facial treatment spa session, relaxing ambiance, professional beauty photography",
+                "Makeup application service, cosmetics display, professional beauty photography",
+                "Manicure pedicure service, nail salon, professional beauty photography"
+            ]
+
+        # GENERIC FALLBACK - use business type
+        else:
+            business_type = request.business_type if hasattr(self, 'request') else "product"
+            return [
+                f"Professional product photo, {business_type}, clean white background, studio lighting",
+                f"Premium {business_type} showcase, commercial photography, professional presentation",
+                f"Elegant {business_type} display, professional product photography, modern style",
+                f"High-end {business_type} product, studio photography, luxury presentation"
+            ]
+
+    async def generate_smart_image_prompts(self, description: str) -> dict:
+        """Use AI to generate appropriate image prompts for ANY business type"""
+
+        # Check if this is a Malaysian food business - use specific prompts
+        desc_lower = description.lower()
+        if any(word in desc_lower for word in ['nasi', 'mee', 'ayam', 'ikan', 'restoran', 'restaurant', 'kedai makan', 'warung', 'mamak', 'kandar', 'lemak', 'goreng']):
+            logger.info("🍽️ Detected Malaysian food business - using Malaysian food prompts")
+            return self._get_malaysian_food_prompts(description)
+
+        prompt = f"""You are an expert at creating image prompts for Stability AI.
+
+BUSINESS DESCRIPTION:
+{description}
+
+TASK:
+Analyze this business and generate 5 specific image prompts that match this EXACT business type.
+
+IMPORTANT FOR MALAYSIAN FOOD BUSINESSES:
+- If it's a Malaysian restaurant/food business, use specific Malaysian dish names
+- Examples: "nasi kandar", "nasi lemak", "mee goreng", "char kway teow", "roti canai"
+- Each prompt must describe the ACTUAL Malaysian dish, not generic food
+
+RULES:
+1. If it's a PHOTOGRAPHER business → generate prompts for cameras, wedding photos, portrait sessions
+2. If it's a RESTAURANT/FOOD → generate prompts for SPECIFIC dishes mentioned in description
+3. If it's a FASHION store → generate prompts for clothing items, boutique display
+4. If it's a SALON → generate prompts for hairstyling, beauty treatments
+5. If it's a WATCH/JEWELRY store → generate prompts for watches, jewelry products
+6. If it's an AUTOMOTIVE business → generate prompts for cars, workshop, mechanics
+7. NEVER generate food images for non-food businesses
+8. NEVER generate random/generic images - they must match the EXACT business
+9. All prompts must be in ENGLISH for Stability AI
+10. Each prompt should be detailed (20-50 words)
+11. Include "professional photography" or "food photography" in each prompt
+12. For food businesses: Describe the SPECIFIC dishes, not just "food" or "restaurant interior"
+
+OUTPUT FORMAT (JSON only, no explanation):
+{{
+    "hero": "detailed prompt for hero/banner image",
+    "image1": "detailed prompt for first product/service image",
+    "image2": "detailed prompt for second product/service image",
+    "image3": "detailed prompt for third product/service image",
+    "image4": "detailed prompt for fourth product/service image"
+}}
+
+Generate prompts now:"""
+
+        try:
+            # Use DeepSeek to analyze and generate prompts
+            api_key = os.getenv("DEEPSEEK_API_KEY")
+
+            if not api_key:
+                logger.warning("🧠 No DEEPSEEK_API_KEY, using fallback prompts")
+                return self._get_fallback_prompts(description)
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://api.deepseek.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "deepseek-chat",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 1000,
+                        "temperature": 0.3
+                    }
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    content = data["choices"][0]["message"]["content"]
+
+                    # Parse JSON from response - extract JSON from response
+                    json_match = re.search(r'\{[\s\S]*\}', content)
+                    if json_match:
+                        prompts = json.loads(json_match.group())
+                        logger.info(f"🧠 AI Generated prompts for: {description[:50]}")
+                        logger.info(f"🧠 Hero: {prompts.get('hero', '')[:50]}...")
+                        return prompts
+                else:
+                    logger.error(f"🧠 DeepSeek API failed: {response.status_code}")
+
+        except Exception as e:
+            logger.error(f"🧠 Smart prompt generation failed: {e}")
+
+        # Fallback - use specific prompts based on business type
+        return self._get_fallback_prompts(description)
+
+    def _get_malaysian_food_prompts(self, description: str) -> dict:
+        """Generate Malaysian food-specific prompts using MALAYSIAN_FOOD_PROMPTS database"""
+        desc_lower = description.lower()
+
+        # Find specific Malaysian dishes mentioned in description
+        dishes_found = []
+        for dish_name, prompt in self.MALAYSIAN_FOOD_PROMPTS.items():
+            if dish_name in desc_lower:
+                dishes_found.append((dish_name, prompt))
+
+        # If we found specific dishes, use them
+        if len(dishes_found) >= 4:
+            logger.info(f"🍽️ Found {len(dishes_found)} Malaysian dishes in description")
+            return {
+                "hero": f"Malaysian restaurant interior, traditional food stall, authentic atmosphere, food photography, welcoming ambiance",
+                "image1": dishes_found[0][1] + ", professional food photography, high quality, appetizing",
+                "image2": dishes_found[1][1] + ", professional food photography, high quality, delicious",
+                "image3": dishes_found[2][1] + ", professional food photography, high quality, authentic",
+                "image4": dishes_found[3][1] + ", professional food photography, high quality, traditional"
+            }
+
+        # Default Malaysian food prompts - common dishes
+        logger.info("🍽️ Using default Malaysian food prompts")
+        return {
+            "hero": "Malaysian restaurant interior, food stall with hanging menu, authentic atmosphere, people eating, warm lighting, food photography",
+            "image1": self.MALAYSIAN_FOOD_PROMPTS["nasi kandar"] + ", professional food photography, close-up, appetizing presentation",
+            "image2": self.MALAYSIAN_FOOD_PROMPTS["nasi lemak"] + ", professional food photography, banana leaf, traditional serving",
+            "image3": self.MALAYSIAN_FOOD_PROMPTS["mee goreng"] + ", professional food photography, wok-fried, steaming hot",
+            "image4": self.MALAYSIAN_FOOD_PROMPTS["roti canai"] + ", professional food photography, curry sauce, close-up"
+        }
+
+    def _get_fallback_prompts(self, description: str) -> dict:
+        """Generate fallback prompts when AI fails"""
+        desc_lower = description.lower()
+
+        # Check if it's a Malaysian food business
+        if any(word in desc_lower for word in ['nasi', 'mee', 'ayam', 'ikan', 'restoran', 'restaurant', 'kedai makan', 'warung', 'mamak']):
+            return self._get_malaysian_food_prompts(description)
+
+        # Check for other business types
+        if any(word in desc_lower for word in ['salon', 'rambut', 'hair', 'beauty', 'kecantikan']):
+            return {
+                "hero": "Modern hair salon interior, styling chairs, mirrors, professional lighting, commercial photography",
+                "image1": "Professional haircut service, stylist cutting hair, modern salon, beauty photography",
+                "image2": "Hair coloring treatment, professional hair color application, salon interior, beauty photography",
+                "image3": "Hair treatment service, professional hair spa, relaxing atmosphere, beauty photography",
+                "image4": "Hair styling service, blow dry, professional salon, beauty photography"
+            }
+
+        if any(word in desc_lower for word in ['baju', 'pakaian', 'fashion', 'clothing', 'boutique', 'tudung']):
+            return {
+                "hero": "Modern fashion boutique interior, clothing displays, elegant atmosphere, commercial photography",
+                "image1": "Traditional baju kurung display, elegant Malaysian clothing, product photography, boutique setting",
+                "image2": "Hijab and tudung collection, colorful scarves, product photography, elegant display",
+                "image3": "Fashion accessories display, jewelry and brooches, product photography, luxury presentation",
+                "image4": "Clothing boutique interior, modern retail space, professional photography"
+            }
+
+        # Generic business fallback
+        desc_short = description[:50]
+        return {
+            "hero": f"Professional business establishment for {desc_short}, modern interior, welcoming atmosphere, commercial photography",
+            "image1": f"Professional service showcase for {desc_short}, high quality, commercial photography",
+            "image2": f"Business products and services, {desc_short}, professional setting, product photography",
+            "image3": f"Customer experience at business, {desc_short}, professional photography",
+            "image4": f"Quality service delivery, {desc_short}, commercial photography"
+        }
+
+    async def _improve_with_qwen(self, html: str, description: str) -> str:
+        """Use Qwen to improve content"""
+        prompt = (
+            "Improve the copywriting in this HTML for a Malaysian business.\n"
+            "STRICT RULES:\n"
+            "- Do NOT add new facts (no invented addresses, phone numbers, awards, years, prices, or claims).\n"
+            "- Do NOT change any links (especially WhatsApp wa.me links).\n"
+            "- Keep all image URLs unchanged.\n"
+            "- Keep the language consistent with the existing page (if it's Bahasa Malaysia, keep it fully Bahasa Malaysia; do NOT introduce English headings).\n"
+            "- Only improve wording/clarity while preserving meaning.\n\n"
+            f"{html}"
+        )
+        improved = await self._call_qwen(prompt, temperature=0.7)
+        return improved if improved else html
+
     def get_fallback_images(self, description: str) -> Dict:
         """Get fallback stock images using comprehensive image matching"""
         d = description.lower()
@@ -1052,26 +1815,351 @@ class AIService:
             return "clothing"
         return "default"
 
-    def _build_strict_prompt(self, name: str, desc: str, style: str, user_images: list = None) -> str:
+    def _build_strict_prompt(
+        self,
+        name: str,
+        desc: str,
+        style: str,
+        user_images: list = None,
+        language: str = "ms",
+        whatsapp_number: Optional[str] = None,
+        location_address: Optional[str] = None,
+        image_choice: str = "upload",  # NEW: none, upload, or ai
+        include_ecommerce: bool = False,  # NEW: Enable delivery mode
+    ) -> str:
         """Build STRICT prompt that forbids placeholders"""
         biz_type = self._detect_type(desc)
         imgs = self.IMAGES.get(biz_type, self.IMAGES["default"])
 
-        # Use user images if provided, otherwise use curated Unsplash
-        hero = user_images[0] if user_images and len(user_images) > 0 else imgs["hero"]
-        g1 = user_images[1] if user_images and len(user_images) > 1 else imgs["gallery"][0]
-        g2 = user_images[2] if user_images and len(user_images) > 2 else imgs["gallery"][1]
-        g3 = user_images[3] if user_images and len(user_images) > 3 else imgs["gallery"][2]
-        g4 = user_images[4] if user_images and len(user_images) > 4 else imgs["gallery"][3]
+        # Get business type for colors - map old types to new system
+        business_type_map = {
+            "restaurant": "food",
+            "cafe": "food",
+            "food": "food",
+            "clothing": "clothing",
+            "salon": "salon",
+            "services": "services",
+            "bakery": "bakery",
+            "default": "general"
+        }
+        detected_biz_type = business_type_map.get(biz_type, "general")
 
-        return f"""Generate a COMPLETE production-ready HTML website.
+        # Use proper business type detection
+        try:
+            detected_biz_type = detect_business_type(desc)
+        except:
+            pass
 
-BUSINESS: {name}
-DESCRIPTION: {desc}
-STYLE: {style}
-TYPE: {biz_type}
+        business_config = get_business_config(detected_biz_type)
+        primary_color = business_config.get("primary_color", "#3b82f6")
 
-===== CRITICAL RULES - MUST FOLLOW =====
+        # Generate color scheme based on business type
+        color_map = {
+            "#ea580c": {  # food (orange)
+                "gradient": "from-orange-600 to-red-500",
+                "accent": "orange-600",
+                "hover": "orange-700",
+                "light": "orange-50",
+                "names": "orange, red, amber"
+            },
+            "#ec4899": {  # clothing (pink)
+                "gradient": "from-pink-600 to-purple-500",
+                "accent": "pink-600",
+                "hover": "pink-700",
+                "light": "pink-50",
+                "names": "pink, purple, rose"
+            },
+            "#8b5cf6": {  # salon (purple)
+                "gradient": "from-purple-600 to-indigo-500",
+                "accent": "purple-600",
+                "hover": "purple-700",
+                "light": "purple-50",
+                "names": "purple, indigo, violet"
+            },
+            "#3b82f6": {  # services (blue)
+                "gradient": "from-blue-600 to-cyan-500",
+                "accent": "blue-600",
+                "hover": "blue-700",
+                "light": "blue-50",
+                "names": "blue, cyan, sky"
+            },
+            "#f59e0b": {  # bakery (amber)
+                "gradient": "from-amber-600 to-orange-500",
+                "accent": "amber-600",
+                "hover": "amber-700",
+                "light": "amber-50",
+                "names": "amber, yellow, orange"
+            },
+            "#10b981": {  # general (green)
+                "gradient": "from-green-600 to-teal-500",
+                "accent": "green-600",
+                "hover": "green-700",
+                "light": "green-50",
+                "names": "green, teal, emerald"
+            }
+        }
+
+        colors = color_map.get(primary_color, color_map["#3b82f6"])
+        logger.info(f"🎨 Using color scheme for {detected_biz_type}: {primary_color} -> {colors['names']}")
+
+        # CRITICAL: Handle "no images" mode
+        if image_choice == "none":
+            # User explicitly wants NO images - set all image URLs to empty
+            logger.info("🚫 _build_strict_prompt: image_choice='none' - NO IMAGES MODE")
+            hero = ""
+            g1 = ""
+            g2 = ""
+            g3 = ""
+            g4 = ""
+        else:
+            # Use user images if provided, otherwise use curated Unsplash
+            # Helper to extract URL from image (can be string or dict)
+            def get_url(img):
+                if isinstance(img, dict):
+                    return img.get('url', img.get('URL', ''))
+                return str(img) if img else ''
+
+            def get_name(img):
+                if isinstance(img, dict):
+                    return img.get('name', '')
+                return ''
+
+            # IMPORTANT: Separate hero image from product/gallery images
+            # Hero image is ONLY used if explicitly named 'Hero Image'
+            # Product/gallery images should NOT appear as hero background
+            hero = imgs["hero"]  # Default to curated hero
+            gallery_start_index = 0  # Start index for gallery images
+
+            if user_images and len(user_images) > 0:
+                first_img_name = get_name(user_images[0])
+                # Only use first image as hero if it's explicitly a hero image
+                if first_img_name == 'Hero Image' or 'hero' in first_img_name.lower():
+                    hero = get_url(user_images[0])
+                    gallery_start_index = 1  # Gallery starts from index 1
+                # Otherwise, don't use any product image as hero - keep default
+                # Product images will be used in gallery section only
+
+            # Gallery images - use user's product images (starting after hero if present)
+            g1 = get_url(user_images[gallery_start_index]) if user_images and len(user_images) > gallery_start_index else imgs["gallery"][0]
+            g2 = get_url(user_images[gallery_start_index + 1]) if user_images and len(user_images) > gallery_start_index + 1 else imgs["gallery"][1]
+            g3 = get_url(user_images[gallery_start_index + 2]) if user_images and len(user_images) > gallery_start_index + 2 else imgs["gallery"][2]
+            g4 = get_url(user_images[gallery_start_index + 3]) if user_images and len(user_images) > gallery_start_index + 3 else imgs["gallery"][3]
+
+        # Determine language instruction based on explicit language parameter
+        if language == "ms":
+            language_instruction = """5. LANGUAGE - BAHASA MALAYSIA (WAJIB):
+   PENTING: Hasilkan SEMUA kandungan dalam BAHASA MELAYU sepenuhnya!
+   ✅ Semua teks MESTI dalam Bahasa Melayu
+   ✅ Gunakan: "Selamat Datang", "Tentang Kami", "Hubungi Kami", "Menu", "Perkhidmatan"
+   ✅ Navigasi: "Laman Utama", "Menu", "Tentang", "Hubungi"
+   ✅ Butang: "Pesan Sekarang", "Hubungi Kami", "Lihat Menu"
+   ❌ JANGAN gunakan Bahasa Inggeris untuk kandungan
+   ❌ JANGAN tulis tajuk/navigasi dalam English (contoh: Home, About Us, Contact, Services)
+   
+   CONTOH TEKS YANG BETUL:
+   - Hero: "Selamat Datang ke Nama Perniagaan" 
+   - About: "Kami menyediakan perkhidmatan terbaik..."
+   - Contact: "Hubungi kami untuk sebarang pertanyaan"
+   - Footer: "Hak Cipta © 2024. Semua Hak Terpelihara."""
+        else:
+            language_instruction = """5. LANGUAGE - ENGLISH:
+   Generate ALL content in English
+   ✅ Use: "Welcome", "About Us", "Contact Us", "Menu", "Services"
+   ✅ Navigation: "Home", "Menu", "About", "Contact"
+   ✅ Buttons: "Order Now", "Contact Us", "View Menu"
+   Keep all text consistent in English throughout."""
+
+        # WhatsApp number normalization for wa.me links (digits only)
+        wa_raw = whatsapp_number or "60123456789"
+        wa_digits = re.sub(r"\D", "", str(wa_raw))
+        if wa_digits.startswith("0"):
+            wa_digits = "6" + wa_digits
+        elif wa_digits.startswith("1"):
+            wa_digits = "60" + wa_digits
+        if not wa_digits:
+            wa_digits = "60123456789"
+
+        # Only mention an address if we actually have one (avoid AI inventing locations)
+        address_line = ""
+        if location_address and str(location_address).strip():
+            address_line = f"   ✅ Address (use EXACTLY, do not invent): {str(location_address).strip()}"
+
+        examples = ""
+        if language == "ms":
+            examples = """
+
+CONTOH HERO (tunjuk imej penuh):
+<section id="home" class="relative h-[400px] bg-gray-100">
+    <img src="HERO_URL" alt="Imej Hero" class="w-full h-full object-contain">
+    <div class="absolute inset-0 bg-black/30 flex items-center">
+        <!-- kandungan -->
+    </div>
+</section>
+
+ATAU gaya cover tetapi tunjuk bahagian atas:
+<section id="home" class="relative h-[50vh] md:h-[400px]">
+    <img src="HERO_URL" alt="Imej Hero" class="w-full h-full object-cover object-top">
+</section>
+
+CONTOH KAD GALERI:
+<div class="rounded-xl overflow-hidden shadow-lg">
+  <img src="..." class="w-full h-48 object-cover" alt="Gambar produk">
+  <div class="p-4">
+    <h3>Nama Produk</h3>
+    <p>Penerangan ringkas</p>
+  </div>
+</div>
+"""
+        else:
+            examples = """
+
+Example hero that shows FULL image:
+<section id="home" class="relative h-[400px] bg-gray-100">
+    <img src="HERO_URL" alt="Hero Image" class="w-full h-full object-contain">
+    <div class="absolute inset-0 bg-black/30 flex items-center">
+        <!-- content -->
+    </div>
+</section>
+
+OR if you want cover style but show top:
+<section id="home" class="relative h-[50vh] md:h-[400px]">
+    <img src="HERO_URL" alt="Hero Image" class="w-full h-full object-cover object-top">
+</section>
+
+Example gallery card:
+<div class="rounded-xl overflow-hidden shadow-lg">
+  <img src="..." class="w-full h-48 object-cover" alt="Product image">
+  <div class="p-4">
+    <h3>Product Name</h3>
+    <p>Short description</p>
+  </div>
+</div>
+"""
+
+        # Build style-specific instructions with business-aware colors
+        style_instructions = {
+            "modern": f"""
+STYLE DESIGN - MODERN (REQUIRED):
+- Use vibrant gradient backgrounds: {colors['gradient']} (matching business type)
+- Add glassmorphism effect: bg-white/20 backdrop-blur-lg
+- Rounded corners everywhere: rounded-xl, rounded-2xl, rounded-3xl
+- Soft shadows: shadow-xl, shadow-2xl
+- Smooth hover transitions: transition-all duration-300
+- Floating elements with hover:scale-105
+- Modern gradient buttons using business colors
+- Use accent colors: {colors['names']} (warm for food, cool for services, elegant for fashion)
+- Font: text-lg for body, headings with gradient text
+- Add subtle animations on scroll
+- Navigation: Solid white background with shadow-lg for readability
+- Hero: Use business-appropriate colors, NOT generic purple/blue""",
+            "minimal": """
+STYLE DESIGN - MINIMAL (REQUIRED):
+- Maximum white space, clean layout
+- Primary colors: black (#000) and white (#fff) only
+- Very thin borders: border border-gray-200
+- NO or minimal shadows: shadow-none or shadow-sm only
+- Sharp edges preferred: rounded-none or rounded-sm
+- Simple serif fonts for headings
+- Thin line dividers
+- Lots of padding and margin for breathing room
+- Muted hover effects: hover:bg-gray-50
+- Monochromatic color scheme
+- Focus on typography hierarchy
+- NO gradients, NO vibrant colors""",
+            "bold": """
+STYLE DESIGN - BOLD (REQUIRED):
+- Vibrant, saturated colors: orange-500, red-500, yellow-400
+- Large, bold typography: text-4xl font-black, text-5xl font-black
+- High contrast: dark backgrounds with light text
+- Thick borders: border-4 border-orange-500
+- Big, chunky buttons: px-8 py-4 text-xl font-bold
+- Strong shadows: shadow-2xl
+- Eye-catching gradients: from-orange-500 to-red-600
+- Asymmetric layouts allowed
+- Bold hover effects: hover:scale-110
+- Use accent colors: orange, red, yellow, pink
+- Make everything stand out and attention-grabbing"""
+        }
+
+        style_guide = style_instructions.get(style, style_instructions["modern"])
+
+        # Build image-specific instructions based on image_choice
+        if image_choice == "none":
+            # NO IMAGES MODE - Tell AI explicitly to NOT use any images
+            image_instructions = f"""
+===== CRITICAL: NO IMAGES MODE =====
+
+🚫 ABSOLUTELY NO IMAGES ALLOWED:
+   ❌ DO NOT include ANY <img> tags
+   ❌ DO NOT use background-image CSS
+   ❌ DO NOT use any image URLs (Unsplash, Cloudinary, Pexels, etc.)
+   ❌ DO NOT use placeholder images
+   ❌ DO NOT use stock photos
+
+✅ INSTEAD USE:
+   ✅ Business-appropriate gradient backgrounds (warm colors for food, elegant for fashion, cool for services)
+   ✅ Solid color backgrounds matching business type
+   ✅ Font Awesome icons: <i class="fas fa-icon-name"></i>
+   ✅ Emoji icons: 🍽️ 👕 🏠 ✨ etc.
+   ✅ Text-only design with good typography
+
+NAVIGATION BAR (MUST BE READABLE):
+<header class="fixed top-0 left-0 w-full z-50 bg-white shadow-lg">
+    <nav class="container mx-auto px-4 py-4 flex justify-between items-center">
+        <a href="#home" class="text-2xl font-bold text-{colors['accent']}">{name}</a>
+        <ul class="hidden md:flex space-x-6">
+            <li><a href="#home" class="text-gray-700 hover:text-{colors['accent']} font-medium">Home</a></li>
+            <li><a href="#menu" class="text-gray-700 hover:text-{colors['accent']} font-medium">Menu</a></li>
+            <li><a href="#about" class="text-gray-700 hover:text-{colors['accent']} font-medium">About</a></li>
+            <li><a href="#contact" class="text-gray-700 hover:text-{colors['accent']} font-medium">Contact</a></li>
+        </ul>
+        <a href="#delivery" class="bg-{colors['accent']} text-white px-6 py-2 rounded-full font-semibold hover:bg-{colors['hover']}">Order Now</a>
+    </nav>
+</header>
+
+HERO SECTION (NO IMAGES) - Use business-appropriate colors:
+<section id="home" class="relative h-[60vh] md:h-[500px] overflow-hidden">
+    <div class="absolute inset-0 bg-gradient-to-br {colors['gradient']}">
+        <div class="absolute inset-0 bg-black/20"></div>
+    </div>
+    <div class="relative container mx-auto px-4 h-full flex items-center justify-center">
+        <div class="max-w-3xl text-center text-white">
+            <h1 class="text-5xl md:text-7xl font-bold mb-6 drop-shadow-2xl">{name}</h1>
+            <p class="text-xl md:text-2xl mb-8 bg-white/20 backdrop-blur-sm p-6 rounded-3xl inline-block">Your compelling tagline here</p>
+            <a href="#menu" class="inline-block bg-white text-{colors['accent']} px-10 py-4 rounded-full font-bold text-lg shadow-2xl hover:shadow-3xl transition-all hover:scale-105">
+                View Menu <i class="fas fa-arrow-right ml-2"></i>
+            </a>
+        </div>
+    </div>
+</section>
+
+PRODUCT/SERVICE CARD (NO IMAGES) - Consistent design:
+<div class="bg-white rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl transition-all">
+    <!-- If no image, use colored placeholder -->
+    <div class="w-full h-48 bg-gradient-to-br {colors['gradient']} flex items-center justify-center">
+        <i class="fas fa-utensils text-6xl text-white opacity-40"></i>
+    </div>
+    <div class="p-6">
+        <h3 class="text-2xl font-bold text-gray-800 mb-2">Product/Service Name</h3>
+        <p class="text-gray-600 mb-4">Brief description of the item or service</p>
+        <div class="flex justify-between items-center">
+            <span class="text-{colors['accent']} font-bold text-xl">RM10.00</span>
+            <button class="bg-{colors['accent']} text-white px-6 py-2 rounded-full hover:bg-{colors['hover']} transition-all">Order</button>
+        </div>
+    </div>
+</div>
+
+IMPORTANT DESIGN RULES:
+- Navigation MUST have solid white background for readability
+- Hero section should use business-appropriate colors (warm for food, elegant for fashion)
+- All cards must be consistent in structure and styling
+- Use rounded-2xl for modern feel
+- Add hover effects for interactivity
+"""
+        else:
+            # WITH IMAGES MODE - Provide image URLs
+            image_instructions = f"""
+===== IMAGE INSTRUCTIONS =====
 
 1. USE THESE EXACT IMAGE URLS (copy-paste exactly as shown):
    - HERO IMAGE: {hero}
@@ -1080,7 +2168,75 @@ TYPE: {biz_type}
    - GALLERY IMAGE 3: {g3}
    - GALLERY IMAGE 4: {g4}
 
-2. ABSOLUTELY FORBIDDEN - DO NOT USE:
+2. IMAGE REQUIREMENTS:
+   - Use ONLY the exact URLs provided above
+   - Do NOT modify the URLs
+   - Do NOT use any other image sources
+   - Do NOT use Unsplash, Pexels, or stock photos
+
+3. IMAGE SIZE GUIDELINES:
+   - Gallery images: Use 'h-48' or 'h-52' (NOT h-64 - too big!)
+   - Gallery images: Use 'object-cover' for proper fill
+   - All gallery cards MUST be consistent in height and structure
+
+NAVIGATION BAR (MUST BE READABLE):
+<header class="fixed top-0 left-0 w-full z-50 bg-white shadow-lg">
+    <nav class="container mx-auto px-4 py-4 flex justify-between items-center">
+        <a href="#home" class="text-2xl font-bold text-{colors['accent']}">{name}</a>
+        <ul class="hidden md:flex space-x-6">
+            <li><a href="#menu" class="text-gray-700 hover:text-{colors['accent']} font-medium">Menu</a></li>
+            <li><a href="#about" class="text-gray-700 hover:text-{colors['accent']} font-medium">About</a></li>
+            <li><a href="#contact" class="text-gray-700 hover:text-{colors['accent']} font-medium">Contact</a></li>
+        </ul>
+        <a href="#delivery" class="bg-{colors['accent']} text-white px-6 py-2 rounded-full font-semibold hover:bg-{colors['hover']}">Order Now</a>
+    </nav>
+</header>
+
+HERO SECTION WITH IMAGE:
+- Use h-[60vh] or h-[500px] for good proportion
+- Use object-contain if image has logo/text
+- OR use object-cover with object-center for full coverage
+- Add dark overlay (bg-black/40) for text readability
+- Background color: bg-{colors['light']} or bg-gray-100
+
+GALLERY/MENU CARDS - MUST BE CONSISTENT:
+<div class="bg-white rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl transition-all">
+    <img src="..." class="w-full h-48 object-cover" alt="Item name">
+    <div class="p-6">
+        <h3 class="text-2xl font-bold text-gray-800 mb-2">Item Name</h3>
+        <p class="text-gray-600 mb-4">Description here</p>
+        <div class="flex justify-between items-center">
+            <span class="text-{colors['accent']} font-bold text-xl">RM10.00</span>
+            <button class="bg-{colors['accent']} text-white px-6 py-2 rounded-full hover:bg-{colors['hover']}">Order</button>
+        </div>
+    </div>
+</div>
+
+IMPORTANT DESIGN RULES:
+- Navigation MUST have solid white background for readability (NOT transparent!)
+- All menu/product cards MUST have identical structure and height
+- Use business-appropriate colors ({colors['names']}) throughout
+- Ensure visual hierarchy: larger headings, readable body text
+- Add proper whitespace and padding
+
+{examples}
+"""
+
+        return f"""Generate a COMPLETE production-ready HTML website.
+
+BUSINESS: {name}
+DESCRIPTION: {desc}
+STYLE: {style.upper()}
+TYPE: {biz_type}
+TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
+
+{style_guide}
+
+===== CRITICAL RULES - MUST FOLLOW =====
+
+{image_instructions}
+
+ABSOLUTELY FORBIDDEN - DO NOT USE:
    ❌ via.placeholder.com
    ❌ placeholder.com
    ❌ example.com
@@ -1090,35 +2246,37 @@ TYPE: {biz_type}
    ❌ [SERVICE_X_NAME]
    ❌ Any text with brackets
 
-3. MUST WRITE REAL CONTENT:
+MUST WRITE REAL CONTENT:
    ✅ Real business name: {name}
    ✅ Real catchy tagline based on the business description
-   ✅ Real about section (2-3 sentences about the business)
+   ✅ Real about section (2-3 sentences)
    ✅ Real service names and descriptions (3-4 services)
    ✅ Real contact message
-   ✅ WhatsApp button linking to: https://wa.me/60123456789
+   {"✅ WhatsApp contact button ONLY in footer/contact section: https://wa.me/" + wa_digits if include_ecommerce else "✅ WhatsApp button for orders: https://wa.me/" + wa_digits}
+{address_line}
+   🚫 DO NOT invent phone numbers, addresses, cities, awards, certifications
 
-4. TECHNICAL REQUIREMENTS:
+{"ORDERING SYSTEM - DELIVERY MODE:" if include_ecommerce else ""}
+{"   🛒 DO NOT add WhatsApp order buttons in menu/product cards" if include_ecommerce else ""}
+{"   🛒 DO NOT add 'Order via WhatsApp' buttons for products" if include_ecommerce else ""}
+{"   🛒 Menu items should show product name, description, and price ONLY" if include_ecommerce else ""}
+{"   🛒 A separate ordering system will be integrated later" if include_ecommerce else ""}
+{"   ✅ WhatsApp button is ONLY for contact/inquiries in footer section" if include_ecommerce else ""}
+
+TECHNICAL REQUIREMENTS:
    - Single complete HTML file
    - Tailwind CSS CDN: <script src="https://cdn.tailwindcss.com"></script>
+   - Font Awesome CDN (for icons): <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
    - Mobile responsive (critical!)
-   - Sections: Header with Navigation, Hero, About, Services/Gallery, Contact, Footer
+   - Sections: Header, Hero, About, Services/Gallery, Contact, Footer
    - Smooth animations and hover effects
    - Professional {style} design
 
-5. LANGUAGE:
-   - Use Bahasa Malaysia if description contains Malay words (saya, kami, untuk, etc.)
-   - Otherwise use English
-   - Keep consistent throughout
-
-6. IMAGE REQUIREMENTS:
-   - Use ONLY the exact URLs provided above
-   - Do NOT modify the URLs
-   - Do NOT use any other image sources
+{language_instruction}
 
 Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HTML."""
 
-    async def _call_deepseek(self, prompt: str) -> Optional[str]:
+    async def _call_deepseek(self, prompt: str, temperature: float = 0.2) -> Optional[str]:
         """Call DeepSeek API"""
         if not self.deepseek_api_key:
             logger.warning("❌ DEEPSEEK_API_KEY not configured")
@@ -1135,9 +2293,15 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     },
                     json={
                         "model": "deepseek-chat",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.7,
-                        "max_tokens": 8000
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML.",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": temperature,
+                        "max_tokens": 8000,
                     }
                 )
                 if r.status_code == 200:
@@ -1150,7 +2314,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"🔷 DeepSeek ❌ Exception: {e}")
         return None
 
-    async def _call_qwen(self, prompt: str) -> Optional[str]:
+    async def _call_qwen(self, prompt: str, temperature: float = 0.2) -> Optional[str]:
         """Call Qwen API"""
         if not self.qwen_api_key:
             logger.warning("❌ QWEN_API_KEY not configured")
@@ -1167,9 +2331,15 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     },
                     json={
                         "model": "qwen-max",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0.7,
-                        "max_tokens": 8000
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML.",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": temperature,
+                        "max_tokens": 8000,
                     }
                 )
                 if r.status_code == 200:
@@ -1183,16 +2353,96 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         return None
 
     def _extract_html(self, text: str) -> Optional[str]:
-        """Extract HTML from response"""
+        """Extract only HTML from AI response, remove explanations"""
+        import re
+
         if not text:
             return None
+
+        # Remove markdown code blocks
         if "```html" in text:
-            text = text.split("```html")[1].split("```")[0]
+            match = re.search(r'```html\s*(.*?)\s*```', text, re.DOTALL)
+            if match:
+                text = match.group(1)
         elif "```" in text:
-            parts = text.split("```")
-            if len(parts) >= 2:
-                text = parts[1]
+            match = re.search(r'```\s*(.*?)\s*```', text, re.DOTALL)
+            if match:
+                text = match.group(1)
+
+        # Remove any text before <!DOCTYPE or <html
+        if "<!DOCTYPE" in text:
+            text = text[text.find("<!DOCTYPE"):]
+        elif "<html" in text:
+            text = text[text.find("<html"):]
+
+        # Remove any text after </html>
+        if "</html>" in text:
+            text = text[:text.find("</html>") + 7]
+
+        # Remove common AI explanation patterns
+        patterns_to_remove = [
+            r"Here's an improved version.*?(?=<!DOCTYPE|<html)",
+            r"(?<=</html>).*?###.*",
+            r"(?<=</html>).*?Key Improvements:.*",
+            r"(?<=</html>).*?\*\*Engaging Descriptions\*\*.*",
+            r"^---\s*",  # Remove markdown separators at start
+            r"\s*---$",  # Remove markdown separators at end
+        ]
+
+        for pattern in patterns_to_remove:
+            text = re.sub(pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
+
         return text.strip()
+
+    def _validate_generated_html(
+        self,
+        html: str,
+        required_image_urls: List[str],
+        required_wa_digits: str,
+    ) -> List[str]:
+        """
+        Validate AI output and detect common hallucination/constraint violations.
+        Returns list of human-readable errors (empty list means OK).
+        """
+        errors: List[str] = []
+        if not html or not isinstance(html, str):
+            return ["Empty HTML output"]
+
+        lower = html.lower()
+
+        # Basic structure
+        if "<html" not in lower or "</html>" not in lower:
+            errors.append("Missing <html> wrapper")
+        if "cdn.tailwindcss.com" not in lower:
+            errors.append("Missing Tailwind CDN script (cdn.tailwindcss.com)")
+
+        # Forbidden placeholder patterns
+        forbidden_substrings = [
+            "via.placeholder.com",
+            "placeholder.com",
+            "example.com",
+            "[business_tagline]",
+            "[about_text]",
+            "[service_",
+        ]
+        for s in forbidden_substrings:
+            if s in lower:
+                errors.append(f"Contains forbidden placeholder/text: '{s}'")
+
+        if re.search(r"\[[^\]]+\]", html):
+            errors.append("Contains bracket placeholder text like [SOMETHING]")
+
+        # WhatsApp link correctness
+        wa_expected = f"wa.me/{required_wa_digits}"
+        if wa_expected.lower() not in lower:
+            errors.append(f"Missing or incorrect WhatsApp link (expected '{wa_expected}')")
+
+        # Required image URLs (when user supplied)
+        for url in required_image_urls:
+            if url and url not in html:
+                errors.append(f"Missing required image URL in HTML: {url}")
+
+        return errors
 
     def _fix_menu_item_images(self, html: str) -> str:
         """
@@ -1241,6 +2491,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     item_name = re.sub(r'<[^>]+>', '', item_name).strip()
 
                     if not item_name or not img_url:
+                        continue
+
+                    # Never "fix" user-provided/CDN images (Cloudinary, etc.).
+                    # Only dedupe/replace known stock/placeholder sources.
+                    img_url_lower = img_url.lower()
+                    if (
+                        "images.unsplash.com" not in img_url_lower
+                        and "via.placeholder.com" not in img_url_lower
+                        and "placeholder.com" not in img_url_lower
+                    ):
                         continue
 
                     # Track this image URL
@@ -1305,6 +2565,95 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         logger.info("✅ No duplicate product/service images found")
         return html
 
+    async def _generate_ai_food_images(self, html: str) -> str:
+        """
+        NEW METHOD: Replace Unsplash food images with AI-generated images
+
+        This is the CRITICAL FIX for Problem #2:
+        - Scans HTML for Malaysian food items
+        - Generates AI images using DeepSeek/Qwen → Stability AI → Cloudinary pipeline
+        - Replaces Unsplash URLs with Cloudinary URLs
+
+        Returns HTML with AI-generated images for food items
+        """
+        if not html or not self.stability_api_key:
+            logger.info("   ⚠️ Skipping AI image generation (no Stability API key)")
+            return html
+
+        import re
+
+        logger.info("🎨 GENERATING AI IMAGES FOR MALAYSIAN FOOD ITEMS...")
+
+        # Pattern to find images with food names
+        # Matches: <img src="URL"> near <h3>Food Name</h3>
+        patterns = [
+            r'(<img[^>]*src=")([^"]+unsplash[^"]+)("[^>]*>[\s\S]{0,200}?<h[2-4][^>]*>)(.*?)(</h[2-4]>)',
+            r'(<h[2-4][^>]*>)(.*?)(</h[2-4]>[\s\S]{0,200}?<img[^>]*src=")([^"]+unsplash[^"]+)("[^>]*>)',
+        ]
+
+        replacements = {}
+        food_items_found = []
+
+        for pattern in patterns:
+            matches = re.finditer(pattern, html, re.IGNORECASE)
+            for match in matches:
+                groups = match.groups()
+
+                # Extract item name and URL based on pattern
+                if 'src=' in groups[0]:  # Pattern 1
+                    img_url = groups[1]
+                    item_name = groups[3].strip()
+                else:  # Pattern 2
+                    item_name = groups[1].strip()
+                    img_url = groups[3]
+
+                # Clean item name
+                item_name = re.sub(r'<[^>]+>', '', item_name).strip()
+                item_name = re.sub(r'[🍛🍗🐟🥤]', '', item_name).strip()  # Remove emojis
+
+                # Check if it's Malaysian food
+                is_food = any(word in item_name.lower() for word in [
+                    'nasi', 'mee', 'ayam', 'ikan', 'roti', 'satay', 'rendang', 'laksa',
+                    'rice', 'noodle', 'chicken', 'fish', 'bread', 'curry', 'teh', 'kopi',
+                    'cendol', 'kuih', 'goreng', 'lemak', 'kandar', 'bakar'
+                ])
+
+                if is_food and 'unsplash' in img_url.lower():
+                    food_items_found.append((item_name, img_url))
+
+        if not food_items_found:
+            logger.info("   ℹ️ No Malaysian food items found that need AI generation")
+            return html
+
+        logger.info(f"   🍽️ Found {len(food_items_found)} food items to generate:")
+        for name, _ in food_items_found:
+            logger.info(f"      - {name}")
+
+        # Generate AI images for each food item
+        for item_name, old_url in food_items_found:
+            try:
+                logger.info(f"   🎨 Generating AI image for: {item_name}")
+                ai_url = await self.generate_food_image(item_name)
+
+                if ai_url and 'cloudinary' in ai_url.lower():
+                    replacements[old_url] = ai_url
+                    logger.info(f"   ✅ Generated: {ai_url[:60]}...")
+                else:
+                    logger.warning(f"   ⚠️ Failed to generate image for: {item_name}")
+            except Exception as e:
+                logger.error(f"   ❌ Error generating image for {item_name}: {e}")
+
+        # Apply replacements
+        if replacements:
+            logger.info(f"   🔄 Replacing {len(replacements)} Unsplash URLs with AI-generated images...")
+            for old_url, new_url in replacements.items():
+                html = html.replace(old_url, new_url)
+            logger.info("   ✅ AI image generation complete!")
+        else:
+            logger.warning("   ⚠️ No AI images were generated")
+
+        return html
+
     def _fix_placeholders(self, html: str, name: str, desc: str) -> str:
         """Fix any remaining placeholders as a safety net"""
         if not html:
@@ -1336,26 +2685,205 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
     async def generate_website(
         self,
         request: WebsiteGenerationRequest,
-        style: Optional[str] = None
+        style: Optional[str] = None,
+        image_choice: str = "upload"  # NEW: none, upload, or ai
     ) -> AIGenerationResponse:
-        """Generate website with strict anti-placeholder enforcement"""
+        """Generate website with Stability AI + Cloudinary + DeepSeek + Qwen"""
 
         logger.info("=" * 80)
-        logger.info("🌐 WEBSITE GENERATION - NO PLACEHOLDER MODE")
+        logger.info("🌐 WEBSITE GENERATION - FULL AI PIPELINE")
         logger.info(f"   Business: {request.business_name}")
         logger.info(f"   Style: {style or 'modern'}")
+        logger.info(f"   🖼️ Image Choice: {image_choice}")
         logger.info(f"   User Images: {len(request.uploaded_images) if request.uploaded_images else 0}")
         logger.info("=" * 80)
 
+        # Check image_choice - skip ALL image generation if "none"
+        image_urls = {}
+
+        if image_choice == "none":
+            logger.info("🚫 Image choice='none' - SKIPPING ALL image generation")
+            # Don't generate or use any images
+            pass
+        elif request.uploaded_images and len(request.uploaded_images) > 0:
+            # User uploaded images - use them directly, skip AI generation
+            logger.info(f"☁️ User uploaded {len(request.uploaded_images)} images - SKIPPING AI image generation")
+            logger.info("   Using user-uploaded Cloudinary URLs...")
+
+            # Helper function to extract URL from image (can be string or dict with 'url' key)
+            def get_image_url(img):
+                if isinstance(img, dict):
+                    return img.get('url', img.get('URL', ''))
+                return str(img)
+
+            # Helper function to extract name from image metadata
+            def get_image_name(img):
+                if isinstance(img, dict):
+                    return img.get('name', '')
+                return ''
+
+            # Map uploaded images to expected keys
+            # IMPORTANT: Only treat an uploaded image as HERO if explicitly named as hero.
+            gallery_start_index = 0
+            first_name = (get_image_name(request.uploaded_images[0]) or "").strip().lower()
+            if first_name == "hero image" or "hero" in first_name:
+                image_urls["hero"] = get_image_url(request.uploaded_images[0])
+                gallery_start_index = 1
+
+            # Gallery images start after hero (if present)
+            for i in range(1, 5):
+                idx = gallery_start_index + (i - 1)
+                if idx < len(request.uploaded_images):
+                    image_urls[f"gallery{i}"] = get_image_url(request.uploaded_images[idx])
+                    image_urls[f"gallery{i}_name"] = get_image_name(request.uploaded_images[idx])
+
+            logger.info(f"   ✅ Using {len(image_urls)} user-uploaded images with metadata")
+
+        else:
+            # No user images - generate with Stability AI
+            logger.info("🎨 No user images - generating with Stability AI...")
+
+            # STEP 0: Use AI to generate smart image prompts
+            logger.info("🧠 STEP 0: AI analyzing business type and generating smart prompts...")
+            smart_prompts = await self.generate_smart_image_prompts(request.description)
+
+            hero_prompt = smart_prompts.get("hero", "")
+            product_prompt_1 = smart_prompts.get("image1", "")
+            product_prompt_2 = smart_prompts.get("image2", "")
+            product_prompt_3 = smart_prompts.get("image3", "")
+            product_prompt_4 = smart_prompts.get("image4", "")
+
+            # STEP 1: Generate images with Stability AI
+            logger.info("🎨 STEP 1: Generating images with Stability AI using smart prompts...")
+            logger.info(f"   Hero prompt: {hero_prompt[:60]}...")
+            logger.info(f"   Product 1: {product_prompt_1[:60]}...")
+
+            # ===================================================================
+            # PARALLEL IMAGE GENERATION - Generate ALL images at the same time
+            # ===================================================================
+            logger.info(f"🎨 Generating ALL images in PARALLEL (hero + 4 products)...")
+
+            # Create tasks for parallel execution using AI-generated prompts
+            image_tasks = [
+                self._generate_stability_image(hero_prompt),  # Task 0: Hero
+                self._generate_stability_image(product_prompt_1),  # Task 1: Product 1
+                self._generate_stability_image(product_prompt_2),  # Task 2: Product 2
+                self._generate_stability_image(product_prompt_3),  # Task 3: Product 3
+                self._generate_stability_image(product_prompt_4),  # Task 4: Product 4
+            ]
+
+            # Run ALL tasks in parallel (much faster than sequential)
+            start_time = time.time()
+            results = await asyncio.gather(*image_tasks, return_exceptions=True)
+            elapsed = time.time() - start_time
+
+            # Extract results with error handling
+            hero_image = results[0] if results[0] and not isinstance(results[0], Exception) else None
+            product1_image = results[1] if results[1] and not isinstance(results[1], Exception) else None
+            product2_image = results[2] if results[2] and not isinstance(results[2], Exception) else None
+            product3_image = results[3] if results[3] and not isinstance(results[3], Exception) else None
+            product4_image = results[4] if results[4] and not isinstance(results[4], Exception) else None
+
+            # Build image_urls dict
+            if hero_image:
+                image_urls["hero"] = hero_image
+            if product1_image:
+                image_urls["gallery1"] = product1_image
+            if product2_image:
+                image_urls["gallery2"] = product2_image
+            if product3_image:
+                image_urls["gallery3"] = product3_image
+            if product4_image:
+                image_urls["gallery4"] = product4_image
+
+            # Log results
+            successful = sum(1 for r in results if r and not isinstance(r, Exception))
+            failed = len(results) - successful
+            logger.info(f"☁️ Parallel generation complete in {elapsed:.1f}s")
+            logger.info(f"   ✅ Successful: {successful}/5 images")
+            if failed > 0:
+                logger.warning(f"   ⚠️ Failed: {failed}/5 images")
+            logger.info(f"   Total URLs: {len(image_urls)} images ready for HTML generation")
+
+        # Build prompt WITH image URLs (or NO images if image_choice='none')
+        logger.info("🔷 STEP 2: DeepSeek generating HTML...")
+        # Get language from request (default to "ms" for Bahasa Malaysia)
+        language = request.language.value if hasattr(request, 'language') and request.language else "ms"
+        logger.info(f"   Language: {language}")
         prompt = self._build_strict_prompt(
             request.business_name,
             request.description,
             style or "modern",
-            request.uploaded_images
+            request.uploaded_images,
+            language,
+            whatsapp_number=request.whatsapp_number,
+            location_address=request.location_address,
+            image_choice=image_choice,  # CRITICAL: Pass image_choice to prompt builder
+            include_ecommerce=request.include_ecommerce,  # CRITICAL: Pass delivery mode flag
         )
 
-        # Try DeepSeek first (better at code)
+        # Add image URLs to prompt with STRONG emphasis
+        if image_urls:
+            # Build gallery section with dish names
+            gallery_items = []
+            dish_names_list = []
+            menu_items_structured = []
+
+            for i in range(1, 5):
+                key = f'gallery{i}'
+                name_key = f'gallery{i}_name'
+                if key in image_urls:
+                    dish_name = image_urls.get(name_key, '')
+                    if dish_name:
+                        gallery_items.append(f"- Product/Gallery image {i}: {image_urls[key]} (Dish: {dish_name})")
+                        dish_names_list.append(dish_name)
+                        menu_items_structured.append(f"""ITEM {i}:
+- Image URL: {image_urls[key]}
+- Title: "{dish_name}" (COPY EXACTLY - DO NOT MODIFY)
+- Generate description in Malay based on the title""")
+                    else:
+                        gallery_items.append(f"- Product/Gallery image {i}: {image_urls[key]}")
+
+            # Build structured menu items section
+            menu_items_section = ""
+            if menu_items_structured:
+                menu_items_section = f"""
+
+MENU ITEMS - USE EXACTLY AS SPECIFIED:
+
+{chr(10).join(menu_items_structured)}
+
+CRITICAL RULES:
+1. The HTML <h3> for each menu card MUST contain the EXACT title text specified above
+2. DO NOT modify, translate, or change the title in any way
+3. DO NOT add prefixes like "Nasi Kandar" if not in the original title
+4. ONLY generate the description in Malay - the title stays EXACTLY as written
+5. Copy-paste the title EXACTLY into your HTML <h3> tags
+
+EXAMPLES:
+❌ WRONG: Title is "Ayam Penyet" → AI writes <h3>Nasi Kandar Ayam Goreng</h3>
+✅ CORRECT: Title is "Ayam Penyet" → AI writes <h3>Ayam Penyet</h3>
+
+❌ WRONG: Title is "Mee Goreng Mamak" → AI writes <h3>Nasi Kandar Ikan Bakar</h3>
+✅ CORRECT: Title is "Mee Goreng Mamak" → AI writes <h3>Mee Goreng Mamak</h3>
+"""
+
+            image_instructions = f"""
+USE THESE EXACT IMAGE URLS IN THE HTML:
+- Hero/Banner image: {image_urls.get('hero', 'generate appropriate image')}
+{menu_items_section}
+
+IMPORTANT INSTRUCTIONS:
+1. Use these EXACT URLs in the img src attributes. Do NOT use placeholder or Unsplash URLs.
+2. Use the EXACT menu item titles shown above - DO NOT modify them.
+3. Write compelling descriptions in Malay for each dish, but keep the dish NAME/TITLE exactly as provided.
+4. Make sure ALL menu items with images are displayed in the menu/gallery section.
+"""
+
+            prompt += image_instructions
+
         html = await self._call_deepseek(prompt)
+
         if not html:
             logger.warning("⚠️ DeepSeek failed, trying Qwen...")
             html = await self._call_qwen(prompt)
@@ -1364,13 +2892,88 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error("❌ Both AIs failed to generate")
             raise Exception("Failed to generate website")
 
-        # Extract and fix
+        # Extract HTML
         html = self._extract_html(html)
+
+        # Validate and retry once if the model ignored hard constraints
+        if html:
+            required_urls: List[str] = []
+            if request.uploaded_images and len(request.uploaded_images) > 0:
+                def _url(img):
+                    if isinstance(img, dict):
+                        return img.get("url", img.get("URL", ""))
+                    return str(img) if img else ""
+
+                def _name(img):
+                    if isinstance(img, dict):
+                        return img.get("name", "")
+                    return ""
+
+                gallery_start_index = 0
+                first_name = (_name(request.uploaded_images[0]) or "").strip().lower()
+                if first_name == "hero image" or "hero" in first_name:
+                    required_urls.append(_url(request.uploaded_images[0]))
+                    gallery_start_index = 1
+                for i in range(4):
+                    idx = gallery_start_index + i
+                    if idx < len(request.uploaded_images):
+                        required_urls.append(_url(request.uploaded_images[idx]))
+
+            wa_raw = request.whatsapp_number or "60123456789"
+            wa_digits = re.sub(r"\D", "", str(wa_raw))
+            if wa_digits.startswith("0"):
+                wa_digits = "6" + wa_digits
+            elif wa_digits.startswith("1"):
+                wa_digits = "60" + wa_digits
+            if not wa_digits:
+                wa_digits = "60123456789"
+
+            errors = self._validate_generated_html(
+                html,
+                required_image_urls=[u for u in required_urls if u],
+                required_wa_digits=wa_digits,
+            )
+            if errors:
+                logger.warning("⚠️ HTML validation failed; retrying once with stricter constraints")
+                retry_prompt = (
+                    prompt
+                    + "\n\n=== VALIDATION FAILURES (MUST FIX) ===\n"
+                    + "\n".join(f"- {e}" for e in errors)
+                    + "\nRegenerate the FULL HTML from scratch. Output ONLY HTML."
+                )
+                retry = await self._call_deepseek(retry_prompt, temperature=0.1)
+                if not retry:
+                    retry = await self._call_qwen(retry_prompt, temperature=0.1)
+                retry_html = self._extract_html(retry) if retry else None
+                if retry_html:
+                    html = retry_html
+
+        # STEP 3: Improve content with Qwen
+        if html:
+            logger.info("🟡 STEP 3: Qwen improving content...")
+            html = await self._improve_with_qwen(html, request.description)
+            # Extract HTML again to remove Qwen's explanation text
+            if html:
+                html = self._extract_html(html)
+
+        # Fix any remaining issues
         html = self._fix_placeholders(html, request.business_name, request.description)
         html = self._fix_menu_item_images(html)
 
-        logger.info("✅ Website generated successfully!")
+        # CRITICAL FIX: Generate AI images for Malaysian food items
+        # This replaces Unsplash URLs with Cloudinary URLs from Stability AI.
+        # Never override user-provided images.
+        if not (request.uploaded_images and len(request.uploaded_images) > 0):
+            html = await self._generate_ai_food_images(html)
+
+        logger.info("✅ ALL STEPS COMPLETE")
         logger.info(f"   Final size: {len(html)} characters")
+
+        # Determine integrations based on mode
+        if request.include_ecommerce:
+            integrations = ["Delivery System (to be injected)", "WhatsApp Contact", "Mobile Responsive", "Cloudinary Images"]
+        else:
+            integrations = ["WhatsApp", "Contact Form", "Mobile Responsive", "Cloudinary Images"]
 
         return AIGenerationResponse(
             html_content=html,
@@ -1379,7 +2982,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             meta_title=request.business_name,
             meta_description=f"{request.business_name} - {request.description[:150]}",
             sections=["Header", "Hero", "About", "Services", "Gallery", "Contact", "Footer"],
-            integrations_included=["WhatsApp", "Contact Form", "Mobile Responsive"]
+            integrations_included=integrations
         )
 
     async def generate_multi_style(
@@ -1396,12 +2999,18 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         for style, ai_pref in [("modern", "deepseek"), ("minimal", "qwen"), ("bold", "deepseek")]:
             logger.info(f"\n--- Generating {style.upper()} style ---")
+            
+            # Get language from request
+            language = request.language.value if hasattr(request, 'language') and request.language else "ms"
 
             prompt = self._build_strict_prompt(
                 request.business_name,
                 request.description,
                 style,
-                request.uploaded_images
+                request.uploaded_images,
+                language,
+                whatsapp_number=request.whatsapp_number,
+                location_address=request.location_address,
             )
 
             # Try preferred AI first
@@ -1416,8 +3025,67 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
             if html:
                 html = self._extract_html(html)
+
+                # Validate and retry once if constraints were ignored
+                if html:
+                    required_urls: List[str] = []
+                    if request.uploaded_images and len(request.uploaded_images) > 0:
+                        def _url(img):
+                            if isinstance(img, dict):
+                                return img.get("url", img.get("URL", ""))
+                            return str(img) if img else ""
+
+                        def _name(img):
+                            if isinstance(img, dict):
+                                return img.get("name", "")
+                            return ""
+
+                        gallery_start_index = 0
+                        first_name = (_name(request.uploaded_images[0]) or "").strip().lower()
+                        if first_name == "hero image" or "hero" in first_name:
+                            required_urls.append(_url(request.uploaded_images[0]))
+                            gallery_start_index = 1
+                        for i in range(4):
+                            idx = gallery_start_index + i
+                            if idx < len(request.uploaded_images):
+                                required_urls.append(_url(request.uploaded_images[idx]))
+
+                    wa_raw = request.whatsapp_number or "60123456789"
+                    wa_digits = re.sub(r"\D", "", str(wa_raw))
+                    if wa_digits.startswith("0"):
+                        wa_digits = "6" + wa_digits
+                    elif wa_digits.startswith("1"):
+                        wa_digits = "60" + wa_digits
+                    if not wa_digits:
+                        wa_digits = "60123456789"
+
+                    errors = self._validate_generated_html(
+                        html,
+                        required_image_urls=[u for u in required_urls if u],
+                        required_wa_digits=wa_digits,
+                    )
+                    if errors:
+                        logger.warning(f"⚠️ {style} HTML validation failed; retrying once")
+                        retry_prompt = (
+                            prompt
+                            + "\n\n=== VALIDATION FAILURES (MUST FIX) ===\n"
+                            + "\n".join(f"- {e}" for e in errors)
+                            + "\nRegenerate the FULL HTML from scratch. Output ONLY HTML."
+                        )
+                        retry = await self._call_deepseek(retry_prompt, temperature=0.1)
+                        if not retry:
+                            retry = await self._call_qwen(retry_prompt, temperature=0.1)
+                        retry_html = self._extract_html(retry) if retry else None
+                        if retry_html:
+                            html = retry_html
+
                 html = self._fix_placeholders(html, request.business_name, request.description)
                 html = self._fix_menu_item_images(html)
+
+                # CRITICAL FIX: Generate AI images for Malaysian food items
+                # This replaces Unsplash URLs with Cloudinary URLs from Stability AI
+                if not (request.uploaded_images and len(request.uploaded_images) > 0):
+                    html = await self._generate_ai_food_images(html)
 
                 results[style] = AIGenerationResponse(
                     html_content=html,

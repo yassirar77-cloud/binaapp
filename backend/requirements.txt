@@ -11,10 +11,12 @@ email-validator
 # Database & Storage
 supabase>=2.0.0
 httpx
+requests
 
 # Authentication & Security
 python-jose[cryptography]
 passlib[bcrypt]
+bcrypt==4.1.2
 python-dotenv
 
 # AI Integration
@@ -41,3 +43,7 @@ typing-extensions
 
 # Analytics
 user-agents==2.2.0
+
+# Testing (CI only)
+pytest
+pytest-cov

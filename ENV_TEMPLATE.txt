@@ -1,0 +1,351 @@
+# ==========================================================================
+# BINAAPP ENVIRONMENT VARIABLES - COMPLETE TEMPLATE
+# ==========================================================================
+# This file contains ALL environment variables needed for BinaApp
+# Copy this to .env and fill in your actual values
+# ==========================================================================
+
+# ==========================================================================
+# FRONTEND ENVIRONMENT VARIABLES (.env.local in /frontend)
+# ==========================================================================
+
+# ------------------------------
+# Supabase Configuration
+# ------------------------------
+# Get these from: https://app.supabase.com → Your Project → Settings → API
+NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+# ------------------------------
+# API Configuration
+# ------------------------------
+# Production backend URL
+NEXT_PUBLIC_API_URL=https://binaapp-backend.onrender.com
+# For local development, use:
+# NEXT_PUBLIC_API_URL=http://localhost:8000
+
+# ------------------------------
+# Stripe Configuration (Frontend)
+# ------------------------------
+# Get from: https://dashboard.stripe.com → Developers → API Keys
+NEXT_PUBLIC_STRIPE_KEY=pk_live_xxxxxxxxxxxxx
+# For testing, use:
+# NEXT_PUBLIC_STRIPE_KEY=pk_test_xxxxxxxxxxxxx
+
+# ------------------------------
+# Optional: Analytics
+# ------------------------------
+NEXT_PUBLIC_GA_ID=G-XXXXXXXXXX  # Google Analytics 4
+
+# ==========================================================================
+# BACKEND ENVIRONMENT VARIABLES (.env in /backend)
+# ==========================================================================
+
+# ------------------------------
+# Application Settings
+# ------------------------------
+APP_NAME=BinaApp
+APP_ENV=production  # or: development, staging
+APP_DEBUG=false  # Set to true for development
+API_VERSION=v1
+
+# ------------------------------
+# URLs
+# ------------------------------
+BASE_URL=https://www.binaapp.my
+API_URL=https://binaapp-backend.onrender.com
+FRONTEND_URL=https://www.binaapp.my
+BACKEND_URL=https://binaapp-backend.onrender.com
+
+# ------------------------------
+# Supabase Configuration (Backend)
+# ------------------------------
+# Get these from: https://app.supabase.com → Your Project → Settings → API
+SUPABASE_URL=https://xxxxx.supabase.co
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+# ⚠️ CRITICAL: Never expose SERVICE_ROLE_KEY on frontend!
+
+# Optional: Direct database connection
+DATABASE_URL=postgresql://postgres:[PASSWORD]@db.xxxxx.supabase.co:5432/postgres
+
+# ------------------------------
+# AI APIs
+# ------------------------------
+
+# DeepSeek V3 (Primary AI Model)
+# Get from: https://platform.deepseek.com → API Keys
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+DEEPSEEK_API_URL=https://api.deepseek.com  # Do not add /v1
+DEEPSEEK_MODEL=deepseek-chat  # or: deepseek-coder
+
+# Qwen AI (Fallback Model - Optional)
+# Get from: https://dashscope.console.aliyun.com
+QWEN_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+QWEN_API_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+QWEN_MODEL=qwen-max  # or: qwen-plus (faster/cheaper)
+
+# Stability AI (Food Image Generation)
+# Get from: https://platform.stability.ai → API Keys
+STABILITY_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# ------------------------------
+# Cloudinary (Image Storage)
+# ------------------------------
+# Get from: https://console.cloudinary.com → Dashboard
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=123456789012345
+CLOUDINARY_API_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
+# Or use single URL:
+CLOUDINARY_URL=cloudinary://api_key:api_secret@cloud_name
+
+# ------------------------------
+# Stripe (Payment Processing)
+# ------------------------------
+# Get from: https://dashboard.stripe.com → Developers → API Keys
+STRIPE_PUBLIC_KEY=pk_live_xxxxxxxxxxxxx
+STRIPE_SECRET_KEY=sk_live_xxxxxxxxxxxxx
+STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxx
+
+# For testing:
+# STRIPE_PUBLIC_KEY=pk_test_xxxxxxxxxxxxx
+# STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxxx
+# STRIPE_WEBHOOK_SECRET=whsec_test_xxxxxxxxxxxxx
+
+# ------------------------------
+# Domain Configuration
+# ------------------------------
+MAIN_DOMAIN=binaapp.my
+SUBDOMAIN_SUFFIX=.binaapp.my
+
+# ------------------------------
+# Storage Configuration
+# ------------------------------
+STORAGE_BUCKET_NAME=websites
+# Supabase Storage bucket for HTML files
+
+# ------------------------------
+# Security
+# ------------------------------
+# Generate random key: openssl rand -hex 32
+JWT_SECRET_KEY=your-super-secret-key-change-in-production
+JWT_ALGORITHM=HS256
+JWT_EXPIRATION_HOURS=24
+
+# ------------------------------
+# Redis (Optional - for caching)
+# ------------------------------
+# For local: redis://localhost:6379
+# For production: Use Upstash or Redis Cloud
+REDIS_URL=redis://localhost:6379
+# Or for production:
+# REDIS_URL=rediss://:password@redis-xxxxx.upstash.io:6379
+
+# ------------------------------
+# Email (Optional - SMTP)
+# ------------------------------
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+# For Gmail: Use App Password (not regular password)
+# https://myaccount.google.com/apppasswords
+
+# ------------------------------
+# WhatsApp Business (Optional)
+# ------------------------------
+WHATSAPP_BUSINESS_PHONE=60123456789
+# Format: Country code + number (no + sign)
+
+# ------------------------------
+# Google Services (Optional)
+# ------------------------------
+# Get from: https://console.cloud.google.com → APIs & Services → Credentials
+GOOGLE_MAPS_API_KEY=AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Google OAuth (if implementing Google Sign-In)
+GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxxx
+
+# ------------------------------
+# Rate Limiting
+# ------------------------------
+RATE_LIMIT_PER_MINUTE=60
+# Requests per minute per user
+
+# ------------------------------
+# Feature Flags
+# ------------------------------
+ENABLE_PAYMENTS=true
+ENABLE_CUSTOM_DOMAINS=false  # Future feature
+ENABLE_ANALYTICS=true
+ENABLE_CHAT=true
+
+# ------------------------------
+# CORS Origins
+# ------------------------------
+CORS_ORIGINS=http://localhost:3000,https://www.binaapp.my,https://binaapp.my
+# Comma-separated list
+
+# ==========================================================================
+# DATABASE MIGRATION ENVIRONMENT (Optional)
+# ==========================================================================
+
+# Supabase Migration
+SUPABASE_PROJECT_REF=xxxxx  # From Supabase project URL
+SUPABASE_DB_PASSWORD=your-database-password
+
+# ==========================================================================
+# DEPLOYMENT-SPECIFIC VARIABLES
+# ==========================================================================
+
+# ------------------------------
+# Vercel (Frontend)
+# ------------------------------
+# Set in Vercel Dashboard → Project → Settings → Environment Variables
+# All NEXT_PUBLIC_* variables from above
+
+# ------------------------------
+# Render (Backend)
+# ------------------------------
+# Set in Render Dashboard → Web Service → Environment
+# All backend variables from above
+
+# Also set:
+PORT=8000  # Render uses this
+PYTHON_VERSION=3.11.0
+
+# ------------------------------
+# GitHub Actions (CI/CD)
+# ------------------------------
+# Set in GitHub Repository → Settings → Secrets
+# Add these as Repository Secrets:
+# - SUPABASE_SERVICE_ROLE_KEY
+# - DEEPSEEK_API_KEY
+# - STRIPE_SECRET_KEY
+# - CLOUDINARY_URL
+
+# ==========================================================================
+# ADMIN/FOUNDER EMAILS (for unlimited access)
+# ==========================================================================
+# Hardcoded in backend/app/services/ai_service.py
+FOUNDER_EMAILS=yassirarafat33@yahoo.com
+# Users with these emails bypass rate limits
+
+# ==========================================================================
+# DEVELOPMENT-ONLY VARIABLES
+# ==========================================================================
+
+# Local development
+NODE_ENV=development
+NEXT_TELEMETRY_DISABLED=1  # Disable Next.js telemetry
+
+# Python virtual environment
+VIRTUAL_ENV=/path/to/venv
+
+# ==========================================================================
+# IMPORTANT NOTES
+# ==========================================================================
+
+# 1. NEVER commit .env files to git!
+#    Add to .gitignore:
+#    .env
+#    .env.local
+#    .env*.local
+
+# 2. Use different keys for development and production
+
+# 3. Rotate keys regularly (every 3-6 months)
+
+# 4. For team collaboration, use a secure secret manager:
+#    - Vercel: Built-in environment variables
+#    - Render: Environment variables in dashboard
+#    - 1Password Secrets Automation
+#    - AWS Secrets Manager
+#    - HashiCorp Vault
+
+# 5. Verify environment variables are loaded:
+#    Backend: Check /api/keys endpoint
+#    Frontend: console.log(process.env.NEXT_PUBLIC_*)
+
+# 6. Mobile authentication requires:
+#    - NEXT_PUBLIC_SUPABASE_URL
+#    - NEXT_PUBLIC_SUPABASE_ANON_KEY
+#    - NEXT_PUBLIC_API_URL (must be accessible from mobile)
+
+# 7. Subdomain serving requires:
+#    - MAIN_DOMAIN
+#    - STORAGE_BUCKET_NAME
+#    - Proper CORS configuration
+
+# 8. Order system requires:
+#    - All Supabase vars
+#    - Chat tables migrated (004_chat_system.sql)
+
+# 9. Payment processing requires:
+#    - STRIPE_SECRET_KEY
+#    - STRIPE_WEBHOOK_SECRET
+#    - Webhook endpoint: https://your-backend.com/v1/payments/webhook
+
+# 10. AI website generation requires:
+#     - DEEPSEEK_API_KEY (primary)
+#     - QWEN_API_KEY (fallback, optional)
+#     - CLOUDINARY_URL (for images)
+
+# ==========================================================================
+# QUICK START CHECKLIST
+# ==========================================================================
+
+# ✅ 1. Create Supabase project
+# ✅ 2. Get Supabase URL and keys
+# ✅ 3. Run database migrations
+# ✅ 4. Create storage bucket "websites" (public)
+# ✅ 5. Get DeepSeek API key
+# ✅ 6. Get Cloudinary account + API key
+# ✅ 7. Get Stripe account + API keys
+# ✅ 8. Set up webhook endpoint in Stripe
+# ✅ 9. Configure environment variables in deployment platforms
+# ✅ 10. Test all features before going live
+
+# ==========================================================================
+# ESTIMATED MONTHLY COSTS (as of 2026)
+# ==========================================================================
+
+# Supabase (Free tier):
+# - Database: Free for up to 500MB
+# - Auth: Unlimited users
+# - Storage: 1GB free
+# - Realtime: Included
+# Upgrade: $25/month for Pro (8GB database, 100GB storage)
+
+# DeepSeek V3:
+# - $0.27 per 1M input tokens
+# - $1.10 per 1M output tokens
+# - Average website: ~$0.05-0.10 per generation
+# Estimate: $50-200/month depending on usage
+
+# Cloudinary (Free tier):
+# - 25GB storage
+# - 25GB bandwidth
+# Upgrade: $99/month for Plus
+
+# Stripe:
+# - No monthly fee
+# - 2.9% + $0.30 per transaction (Malaysia: 3.4% + RM1.50)
+
+# Vercel (Hobby - Free):
+# - Unlimited websites
+# - 100GB bandwidth
+# Upgrade: $20/month for Pro
+
+# Render (Free tier):
+# - 750 hours/month free
+# - Sleeps after 15min inactivity
+# Upgrade: $7/month for always-on
+
+# Total minimal cost: ~$0-25/month (using free tiers)
+# Total production cost: ~$150-300/month (with upgrades)
+
+# ==========================================================================
+# END OF ENVIRONMENT VARIABLES TEMPLATE
+# ==========================================================================

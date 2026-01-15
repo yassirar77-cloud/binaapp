@@ -1,0 +1,39 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0ea5e9"/>
+      <stop offset="100%" style="stop-color:#2563eb"/>
+    </linearGradient>
+    <linearGradient id="sparkle-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff"/>
+      <stop offset="100%" style="stop-color:#e0f2fe"/>
+    </linearGradient>
+  </defs>
+  <!-- Background with safe area for maskable icons (~10% padding) -->
+  <rect width="512" height="512" rx="102" fill="url(#bg-gradient)"/>
+
+  <!-- Main Sparkle Star -->
+  <path d="M256 80 L276 200 L396 220 L276 240 L256 360 L236 240 L116 220 L236 200 Z"
+        fill="url(#sparkle-gradient)"
+        opacity="0.95"/>
+
+  <!-- Small sparkles around -->
+  <circle cx="380" cy="120" r="16" fill="white" opacity="0.8"/>
+  <circle cx="132" cy="380" r="12" fill="white" opacity="0.6"/>
+  <circle cx="400" cy="340" r="10" fill="white" opacity="0.5"/>
+  <circle cx="112" cy="140" r="8" fill="white" opacity="0.4"/>
+
+  <!-- Highlight glow on main sparkle -->
+  <ellipse cx="256" cy="220" rx="60" ry="20" fill="white" opacity="0.3"/>
+
+  <!-- BinaApp "B" letter subtle watermark -->
+  <text x="256" y="440"
+        font-family="Arial, sans-serif"
+        font-size="48"
+        font-weight="bold"
+        fill="white"
+        opacity="0.9"
+        text-anchor="middle">
+    BinaApp
+  </text>
+</svg>

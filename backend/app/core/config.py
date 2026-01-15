@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = Field(default="dev-secret-key-change-in-production", env="JWT_SECRET_KEY")
     JWT_ALGORITHM: str = Field(default="HS256", env="JWT_ALGORITHM")
     JWT_EXPIRATION_HOURS: int = Field(default=24, env="JWT_EXPIRATION_HOURS")
+
+    # Supabase JWT Secret (for verifying Supabase-signed tokens)
+    SUPABASE_JWT_SECRET: Optional[str] = Field(None, env="SUPABASE_JWT_SECRET")
     
     # Redis
     REDIS_URL: str = Field(default="redis://localhost:6379", env="REDIS_URL")

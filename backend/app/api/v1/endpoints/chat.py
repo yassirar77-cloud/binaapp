@@ -1,0 +1,772 @@
+"""
+BinaApp Chat System - Real-time messaging for delivery orders
+Supports WebSocket for instant messaging between customers, owners, and riders
+"""
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form
+from typing import Dict, List, Optional
+from pydantic import BaseModel
+from datetime import datetime
+import json
+import uuid
+import os
+import logging
+import cloudinary
+import cloudinary.uploader
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# Configure Cloudinary
+CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME", "")
+CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY", "")
+CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET", "")
+
+if CLOUDINARY_CLOUD_NAME and CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET:
+    cloudinary.config(
+        cloud_name=CLOUDINARY_CLOUD_NAME,
+        api_key=CLOUDINARY_API_KEY,
+        api_secret=CLOUDINARY_API_SECRET
+    )
+
+
+# =====================================================
+# CONNECTION MANAGER FOR WEBSOCKETS
+# =====================================================
+
+class ConnectionManager:
+    """Manages WebSocket connections for real-time chat"""
+
+    def __init__(self):
+        # {conversation_id: {user_key: WebSocket}}
+        self.active_connections: Dict[str, Dict[str, WebSocket]] = {}
+
+    async def connect(self, websocket: WebSocket, conversation_id: str, user_key: str):
+        """Accept WebSocket connection and add to active connections"""
+        await websocket.accept()
+        if conversation_id not in self.active_connections:
+            self.active_connections[conversation_id] = {}
+        self.active_connections[conversation_id][user_key] = websocket
+        logger.info(f"[Chat] {user_key} connected to conversation {conversation_id}")
+
+    def disconnect(self, conversation_id: str, user_key: str):
+        """Remove WebSocket connection"""
+        if conversation_id in self.active_connections:
+            self.active_connections[conversation_id].pop(user_key, None)
+            if not self.active_connections[conversation_id]:
+                del self.active_connections[conversation_id]
+        logger.info(f"[Chat] {user_key} disconnected from conversation {conversation_id}")
+
+    async def send_to_conversation(self, conversation_id: str, message: dict, exclude_user: str = None):
+        """Broadcast message to all users in a conversation"""
+        if conversation_id in self.active_connections:
+            disconnected = []
+            for user_key, websocket in self.active_connections[conversation_id].items():
+                if user_key != exclude_user:
+                    try:
+                        await websocket.send_json(message)
+                    except Exception as e:
+                        logger.warning(f"[Chat] Failed to send to {user_key}: {e}")
+                        disconnected.append(user_key)
+
+            # Clean up disconnected users
+            for user_key in disconnected:
+                self.active_connections[conversation_id].pop(user_key, None)
+
+    async def send_to_user(self, conversation_id: str, user_key: str, message: dict):
+        """Send message to a specific user in a conversation"""
+        if conversation_id in self.active_connections:
+            websocket = self.active_connections[conversation_id].get(user_key)
+            if websocket:
+                try:
+                    await websocket.send_json(message)
+                except Exception as e:
+                    logger.warning(f"[Chat] Failed to send to {user_key}: {e}")
+
+    def get_online_users(self, conversation_id: str) -> List[str]:
+        """Get list of online users in a conversation"""
+        if conversation_id in self.active_connections:
+            return list(self.active_connections[conversation_id].keys())
+        return []
+
+
+# Global connection manager instance
+manager = ConnectionManager()
+
+
+# =====================================================
+# PYDANTIC MODELS
+# =====================================================
+
+class CreateConversationRequest(BaseModel):
+    order_id: Optional[str] = None
+    website_id: str
+    customer_name: str
+    customer_phone: str
+    customer_id: Optional[str] = None  # Auto-generated if not provided
+
+
+class SendMessageRequest(BaseModel):
+    conversation_id: str
+    sender_type: str  # customer, owner, rider, system
+    sender_id: str
+    sender_name: str
+    message_type: str = "text"  # text, image, location, payment, status, voice
+    content: str
+    media_url: Optional[str] = None
+    metadata: Optional[dict] = None
+
+
+class MarkReadRequest(BaseModel):
+    conversation_id: str
+    user_type: str  # customer, owner, rider
+
+
+class UpdateLocationRequest(BaseModel):
+    rider_id: str
+    order_id: str
+    latitude: float
+    longitude: float
+    accuracy: Optional[float] = None
+    heading: Optional[float] = None
+    speed: Optional[float] = None
+
+
+# =====================================================
+# HELPER FUNCTIONS
+# =====================================================
+
+def get_supabase():
+    """Get Supabase client"""
+    from supabase import create_client, Client
+
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+    SUPABASE_KEY = (
+        os.getenv("SUPABASE_SERVICE_KEY") or
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or
+        os.getenv("SUPABASE_KEY") or
+        os.getenv("SUPABASE_ANON_KEY") or
+        ""
+    )
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+# =====================================================
+# REST API ENDPOINTS
+# =====================================================
+
+@router.get("/conversations")
+async def list_conversations():
+    """Get all conversations (returns empty array if none exist)"""
+    try:
+        supabase = get_supabase()
+
+        result = supabase.table("chat_conversations").select("*").order("updated_at", desc=True).execute()
+
+        return result.data or []
+
+    except Exception as e:
+        logger.error(f"[Chat] Failed to list conversations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/conversations/create")
+async def create_conversation(request: CreateConversationRequest):
+    """Create a new chat conversation for an order"""
+    try:
+        supabase = get_supabase()
+
+        conversation_id = str(uuid.uuid4())
+        customer_id = request.customer_id or f"customer_{request.customer_phone}"
+
+        # Create conversation
+        conv_data = {
+            "id": conversation_id,
+            "order_id": request.order_id,
+            "website_id": request.website_id,
+            "customer_id": customer_id,
+            "customer_name": request.customer_name,
+            "customer_phone": request.customer_phone,
+            "status": "active"
+        }
+
+        result = supabase.table("chat_conversations").insert(conv_data).execute()
+
+        # Add customer as participant
+        supabase.table("chat_participants").insert({
+            "conversation_id": conversation_id,
+            "user_type": "customer",
+            "user_id": customer_id,
+            "user_name": request.customer_name
+        }).execute()
+
+        # Add owner as participant
+        supabase.table("chat_participants").insert({
+            "conversation_id": conversation_id,
+            "user_type": "owner",
+            "user_id": request.website_id,
+            "user_name": "Pemilik Kedai"
+        }).execute()
+
+        # Add system welcome message
+        supabase.table("chat_messages").insert({
+            "conversation_id": conversation_id,
+            "sender_type": "system",
+            "message_type": "status",
+            "content": "Perbualan dimulakan. Pemilik kedai akan membalas sebentar lagi."
+        }).execute()
+
+        logger.info(f"[Chat] Created conversation {conversation_id} for website {request.website_id}")
+
+        return {
+            "conversation_id": conversation_id,
+            "customer_id": customer_id,
+            "status": "created"
+        }
+
+    except Exception as e:
+        logger.error(f"[Chat] Failed to create conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/conversations/{conversation_id}")
+async def get_conversation(conversation_id: str):
+    """Get conversation details and messages"""
+    try:
+        supabase = get_supabase()
+
+        # Get conversation
+        conv = supabase.table("chat_conversations").select("*").eq("id", conversation_id).single().execute()
+
+        if not conv.data:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        # Get messages
+        messages = supabase.table("chat_messages").select("*").eq(
+            "conversation_id", conversation_id
+        ).order("created_at").execute()
+
+        # Get participants
+        participants = supabase.table("chat_participants").select("*").eq(
+            "conversation_id", conversation_id
+        ).execute()
+
+        return {
+            "conversation": conv.data,
+            "messages": messages.data or [],
+            "participants": participants.data or []
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Chat] Failed to get conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/conversations/website/{website_id}")
+async def get_website_conversations(website_id: str, status: str = None):
+    """Get all conversations for a website (owner dashboard)"""
+    try:
+        supabase = get_supabase()
+
+        # Get conversations without nested query to avoid JOIN issues
+        query = supabase.table("chat_conversations").select("*").eq("website_id", website_id)
+
+        if status:
+            query = query.eq("status", status)
+
+        result = query.order("updated_at", desc=True).execute()
+        conversations = result.data or []
+
+        # Fetch last message for each conversation separately
+        for conv in conversations:
+            try:
+                messages = supabase.table("chat_messages").select(
+                    "id, content, sender_type, created_at"
+                ).eq("conversation_id", conv["id"]).order(
+                    "created_at", desc=True
+                ).limit(10).execute()
+
+                # Reverse to get chronological order
+                conv["chat_messages"] = list(reversed(messages.data or []))
+            except Exception as msg_err:
+                logger.warning(f"[Chat] Failed to fetch messages for conversation {conv['id']}: {msg_err}")
+                conv["chat_messages"] = []
+
+        logger.info(f"[Chat] Retrieved {len(conversations)} conversations for website {website_id}")
+        return {"conversations": conversations}
+
+    except Exception as e:
+        logger.error(f"[Chat] Failed to get website conversations: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to load conversations: {str(e)}")
+
+
+@router.get("/conversations/order/{order_id}")
+async def get_conversation_by_order(order_id: str):
+    """Get or create conversation for an order"""
+    try:
+        supabase = get_supabase()
+
+        # Check if conversation exists
+        result = supabase.table("chat_conversations").select("*").eq("order_id", order_id).execute()
+
+        if result.data:
+            return {"conversation": result.data[0], "exists": True}
+
+        return {"conversation": None, "exists": False}
+
+    except Exception as e:
+        logger.error(f"[Chat] Failed to get conversation by order: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/messages/send")
+async def send_message(request: SendMessageRequest):
+    """Send a message via REST API"""
+    try:
+        supabase = get_supabase()
+
+        message_id = str(uuid.uuid4())
+
+        # Save message to database
+        message_data = {
+            "id": message_id,
+            "conversation_id": request.conversation_id,
+            "sender_type": request.sender_type,
+            "sender_id": request.sender_id,
+            "sender_name": request.sender_name,
+            "message_type": request.message_type,
+            "content": request.content,
+            "media_url": request.media_url,
+            "metadata": request.metadata,
+            "is_read": False
+        }
+
+        supabase.table("chat_messages").insert(message_data).execute()
+
+        # Get created timestamp
+        msg_result = supabase.table("chat_messages").select("created_at").eq("id", message_id).single().execute()
+        if msg_result.data:
+            message_data["created_at"] = msg_result.data["created_at"]
+
+        # Broadcast to WebSocket clients
+        await manager.send_to_conversation(
+            request.conversation_id,
+            {
+                "type": "new_message",
+                "message": message_data
+            }
+        )
+
+        logger.info(f"[Chat] Message sent in conversation {request.conversation_id} by {request.sender_type}")
+
+        return {"message_id": message_id, "status": "sent"}
+
+    except Exception as e:
+        logger.error(f"[Chat] Failed to send message: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/messages/upload-image")
+async def upload_chat_image(
+    conversation_id: str = Form(...),
+    sender_type: str = Form(...),
+    sender_id: str = Form(...),
+    sender_name: str = Form(...),
+    file: UploadFile = File(...)
+):
+    """Upload image and send as message"""
+    try:
+        if not CLOUDINARY_CLOUD_NAME:
+            raise HTTPException(status_code=500, detail="Cloudinary not configured")
+
+        # Upload to Cloudinary
+        contents = await file.read()
+        result = cloudinary.uploader.upload(
+            contents,
+            folder="binaapp/chat",
+            resource_type="auto"
+        )
+
+        image_url = result.get("secure_url")
+
+        # Send as message
+        message_request = SendMessageRequest(
+            conversation_id=conversation_id,
+            sender_type=sender_type,
+            sender_id=sender_id,
+            sender_name=sender_name,
+            message_type="image",
+            content="Gambar",
+            media_url=image_url
+        )
+
+        return await send_message(message_request)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Chat] Failed to upload image: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/messages/upload-payment")
+async def upload_payment_proof(
+    conversation_id: str = Form(...),
+    sender_id: str = Form(...),
+    sender_name: str = Form(...),
+    order_id: str = Form(...),
+    amount: float = Form(0),
+    file: UploadFile = File(...)
+):
+    """Upload payment proof"""
+    try:
+        if not CLOUDINARY_CLOUD_NAME:
+            raise HTTPException(status_code=500, detail="Cloudinary not configured")
+
+        # Upload to Cloudinary
+        contents = await file.read()
+        result = cloudinary.uploader.upload(
+            contents,
+            folder="binaapp/payments",
+            resource_type="auto"
+        )
+
+        image_url = result.get("secure_url")
+
+        # Send as payment message
+        message_request = SendMessageRequest(
+            conversation_id=conversation_id,
+            sender_type="customer",
+            sender_id=sender_id,
+            sender_name=sender_name,
+            message_type="payment",
+            content="Bukti Pembayaran",
+            media_url=image_url,
+            metadata={
+                "order_id": order_id,
+                "amount": amount,
+                "status": "pending_verification"
+            }
+        )
+
+        return await send_message(message_request)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Chat] Failed to upload payment proof: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/messages/mark-read")
+async def mark_messages_read(request: MarkReadRequest):
+    """Mark all messages in conversation as read for a user type"""
+    try:
+        supabase = get_supabase()
+
+        # Update messages not sent by this user type
+        supabase.table("chat_messages").update({
+            "is_read": True,
+            "read_at": datetime.utcnow().isoformat()
+        }).eq("conversation_id", request.conversation_id).neq(
+            "sender_type", request.user_type
+        ).execute()
+
+        # Reset unread count for this user type
+        update_data = {}
+        if request.user_type == "customer":
+            update_data["unread_customer"] = 0
+        elif request.user_type == "owner":
+            update_data["unread_owner"] = 0
+        elif request.user_type == "rider":
+            update_data["unread_rider"] = 0
+
+        if update_data:
+            supabase.table("chat_conversations").update(update_data).eq(
+                "id", request.conversation_id
+            ).execute()
+
+        # Notify other users
+        await manager.send_to_conversation(
+            request.conversation_id,
+            {
+                "type": "messages_read",
+                "user_type": request.user_type
+            }
+        )
+
+        return {"status": "marked_read"}
+
+    except Exception as e:
+        logger.error(f"[Chat] Failed to mark messages read: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/rider/update-location")
+async def update_rider_location(request: UpdateLocationRequest):
+    """Update rider's live location"""
+    try:
+        supabase = get_supabase()
+
+        # Save to rider_locations table
+        supabase.table("rider_locations").insert({
+            "rider_id": request.rider_id,
+            "order_id": request.order_id,
+            "latitude": request.latitude,
+            "longitude": request.longitude
+        }).execute()
+
+        # Also update rider's current location
+        supabase.table("riders").update({
+            "current_latitude": request.latitude,
+            "current_longitude": request.longitude,
+            "last_location_update": datetime.utcnow().isoformat()
+        }).eq("id", request.rider_id).execute()
+
+        # Find conversation for this order and broadcast location
+        conv = supabase.table("chat_conversations").select("id").eq("order_id", request.order_id).execute()
+
+        if conv.data:
+            for c in conv.data:
+                await manager.send_to_conversation(
+                    c["id"],
+                    {
+                        "type": "rider_location",
+                        "data": {
+                            "rider_id": request.rider_id,
+                            "latitude": request.latitude,
+                            "longitude": request.longitude,
+                            "heading": request.heading,
+                            "speed": request.speed,
+                            "timestamp": datetime.utcnow().isoformat()
+                        }
+                    }
+                )
+
+        return {"status": "updated"}
+
+    except Exception as e:
+        logger.error(f"[Chat] Failed to update rider location: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/rider/location/{order_id}")
+async def get_rider_location(order_id: str):
+    """Get latest rider location for an order"""
+    try:
+        supabase = get_supabase()
+
+        result = supabase.table("rider_locations").select("*").eq(
+            "order_id", order_id
+        ).order("recorded_at", desc=True).limit(1).execute()
+
+        if result.data:
+            return {"location": result.data[0]}
+        return {"location": None}
+
+    except Exception as e:
+        logger.error(f"[Chat] Failed to get rider location: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/conversations/{conversation_id}/close")
+async def close_conversation(conversation_id: str):
+    """Close a conversation"""
+    try:
+        supabase = get_supabase()
+
+        supabase.table("chat_conversations").update({
+            "status": "closed"
+        }).eq("id", conversation_id).execute()
+
+        # Send system message
+        supabase.table("chat_messages").insert({
+            "conversation_id": conversation_id,
+            "sender_type": "system",
+            "message_type": "status",
+            "content": "Perbualan telah ditutup."
+        }).execute()
+
+        # Notify via WebSocket
+        await manager.send_to_conversation(
+            conversation_id,
+            {
+                "type": "conversation_closed",
+                "conversation_id": conversation_id
+            }
+        )
+
+        return {"status": "closed"}
+
+    except Exception as e:
+        logger.error(f"[Chat] Failed to close conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/conversations/{conversation_id}/add-rider")
+async def add_rider_to_conversation(conversation_id: str, rider_id: str, rider_name: str):
+    """Add rider to conversation when assigned to order"""
+    try:
+        supabase = get_supabase()
+
+        # Add rider as participant
+        supabase.table("chat_participants").upsert({
+            "conversation_id": conversation_id,
+            "user_type": "rider",
+            "user_id": rider_id,
+            "user_name": rider_name
+        }).execute()
+
+        # Send system message
+        supabase.table("chat_messages").insert({
+            "conversation_id": conversation_id,
+            "sender_type": "system",
+            "message_type": "status",
+            "content": f"Rider {rider_name} telah ditugaskan untuk penghantaran ini."
+        }).execute()
+
+        # Notify via WebSocket
+        await manager.send_to_conversation(
+            conversation_id,
+            {
+                "type": "rider_assigned",
+                "rider_id": rider_id,
+                "rider_name": rider_name
+            }
+        )
+
+        return {"status": "rider_added"}
+
+    except Exception as e:
+        logger.error(f"[Chat] Failed to add rider: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =====================================================
+# WEBSOCKET ENDPOINT
+# =====================================================
+
+@router.websocket("/ws/{conversation_id}/{user_type}/{user_id}")
+async def websocket_endpoint(
+    websocket: WebSocket,
+    conversation_id: str,
+    user_type: str,
+    user_id: str
+):
+    """WebSocket connection for real-time chat"""
+    user_key = f"{user_type}_{user_id}"
+    await manager.connect(websocket, conversation_id, user_key)
+
+    # Update participant online status
+    try:
+        supabase = get_supabase()
+        supabase.table("chat_participants").update({
+            "is_online": True,
+            "last_seen": datetime.utcnow().isoformat()
+        }).eq("conversation_id", conversation_id).eq("user_type", user_type).eq("user_id", user_id).execute()
+    except Exception as e:
+        logger.warning(f"[Chat] Failed to update online status: {e}")
+
+    # Notify others that user joined
+    await manager.send_to_conversation(
+        conversation_id,
+        {
+            "type": "user_joined",
+            "user_type": user_type,
+            "user_id": user_id,
+            "online_users": manager.get_online_users(conversation_id)
+        },
+        exclude_user=user_key
+    )
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+
+            # Handle different message types
+            if data.get("type") == "message":
+                # Send message via REST handler
+                await send_message(SendMessageRequest(
+                    conversation_id=conversation_id,
+                    sender_type=user_type,
+                    sender_id=user_id,
+                    sender_name=data.get("sender_name", ""),
+                    message_type=data.get("message_type", "text"),
+                    content=data.get("content", ""),
+                    media_url=data.get("media_url"),
+                    metadata=data.get("metadata")
+                ))
+
+            elif data.get("type") == "typing":
+                # Broadcast typing indicator
+                await manager.send_to_conversation(
+                    conversation_id,
+                    {
+                        "type": "typing",
+                        "user_type": user_type,
+                        "user_id": user_id,
+                        "is_typing": data.get("is_typing", False)
+                    },
+                    exclude_user=user_key
+                )
+
+            elif data.get("type") == "read":
+                # Mark messages as read
+                await mark_messages_read(MarkReadRequest(
+                    conversation_id=conversation_id,
+                    user_type=user_type
+                ))
+
+            elif data.get("type") == "location":
+                # Rider sharing location
+                if user_type == "rider":
+                    location_data = data.get("location", {})
+                    await manager.send_to_conversation(
+                        conversation_id,
+                        {
+                            "type": "rider_location",
+                            "data": {
+                                "rider_id": user_id,
+                                **location_data,
+                                "timestamp": datetime.utcnow().isoformat()
+                            }
+                        }
+                    )
+
+            elif data.get("type") == "ping":
+                # Respond to ping (keep-alive)
+                await websocket.send_json({"type": "pong"})
+
+    except WebSocketDisconnect:
+        manager.disconnect(conversation_id, user_key)
+
+        # Update participant offline status
+        try:
+            supabase = get_supabase()
+            supabase.table("chat_participants").update({
+                "is_online": False,
+                "last_seen": datetime.utcnow().isoformat()
+            }).eq("conversation_id", conversation_id).eq("user_type", user_type).eq("user_id", user_id).execute()
+        except Exception as e:
+            logger.warning(f"[Chat] Failed to update offline status: {e}")
+
+        # Notify others that user left
+        await manager.send_to_conversation(
+            conversation_id,
+            {
+                "type": "user_left",
+                "user_type": user_type,
+                "user_id": user_id,
+                "online_users": manager.get_online_users(conversation_id)
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"[Chat] WebSocket error: {e}")
+        manager.disconnect(conversation_id, user_key)
