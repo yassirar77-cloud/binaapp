@@ -1849,6 +1849,12 @@ async def run_generation_task(
             if delivery_cfg and delivery_cfg.get("phone"):
                 phone_number = delivery_cfg.get("phone")
 
+            # CRITICAL FIX: Generate website_id for delivery widget injection
+            # Without website_id, inject_ordering_system raises ValueError and skips delivery widget
+            import uuid
+            generated_website_id = str(uuid.uuid4())
+            logger.info(f"✅ Generated website_id for background job: {generated_website_id}")
+
             user_data = {
                 "phone": phone_number,
                 "address": address or "",
@@ -1859,7 +1865,8 @@ async def run_generation_task(
                 "business_type": business_type,  # For dynamic categories
                 "description": description,  # For business type detection
                 "menu_items": menu_items,
-                "delivery_zones": delivery_zones
+                "delivery_zones": delivery_zones,
+                "website_id": generated_website_id  # CRITICAL: Required for delivery widget
             }
 
             # Add delivery config
