@@ -57,6 +57,11 @@ class TemplateService:
         "contact": [
             "contact", "hubungi", "email", "form", "borang", "inquiry",
             "pertanyaan", "message", "mesej", "feedback", "maklumbalas"
+        ],
+        "delivery": [
+            "delivery", "penghantaran", "pesan", "order", "hantar", "deliver",
+            "food", "makanan", "restaurant", "restoran", "cafe", "kedai makan",
+            "nasi", "mee", "ayam", "lauk", "catering"
         ]
     }
 
@@ -439,6 +444,331 @@ function handleContactSubmit(e) {{
 
         return html
 
+    def inject_delivery_widget(
+        self,
+        html: str,
+        website_id: str = "",
+        whatsapp_number: str = "",
+        delivery_areas: list = None
+    ) -> str:
+        """
+        Inject delivery order widget into HTML for mobile-friendly ordering
+
+        This widget:
+        - Properly handles null/undefined values (mobile browser fix)
+        - Auto-generates customer_id if not available
+        - Shows delivery form with area selection
+        - Submits to /api/delivery/orders endpoint
+        - Falls back to WhatsApp if API fails
+        """
+        if delivery_areas is None:
+            delivery_areas = ["Bandar Sunway", "Petaling Jaya", "Subang Jaya", "Shah Alam"]
+
+        # Clean phone number for WhatsApp fallback
+        phone_clean = re.sub(r'[^\d+]', '', whatsapp_number) if whatsapp_number else ""
+        if phone_clean and not phone_clean.startswith('+'):
+            if phone_clean.startswith('60'):
+                phone_clean = '+' + phone_clean
+            elif phone_clean.startswith('0'):
+                phone_clean = '+6' + phone_clean
+            else:
+                phone_clean = '+60' + phone_clean
+
+        areas_options = "\n".join([f'<option value="{area}">{area}</option>' for area in delivery_areas])
+
+        delivery_widget_html = f"""
+<!-- Delivery Order Widget - Mobile Optimized -->
+<div id="delivery-widget-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+     background:rgba(0,0,0,0.5);z-index:9998;" onclick="closeDeliveryWidget()"></div>
+
+<div id="delivery-widget" style="display:none;position:fixed;bottom:0;left:0;right:0;
+     background:white;border-radius:20px 20px 0 0;z-index:9999;max-height:90vh;overflow-y:auto;
+     box-shadow:0 -4px 20px rgba(0,0,0,0.15);padding:20px;">
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+    <h3 style="margin:0;font-size:1.4rem;color:#1f2937;">🛵 Pesan Delivery</h3>
+    <button onclick="closeDeliveryWidget()" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#6b7280;">✕</button>
+  </div>
+
+  <form id="delivery-form" onsubmit="return submitDeliveryOrder(event)">
+    <div style="margin-bottom:15px;">
+      <label style="display:block;margin-bottom:5px;font-weight:600;color:#374151;font-size:0.9rem;">Nama *</label>
+      <input type="text" id="delivery-name" name="customer_name" required
+             style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:10px;font-size:1rem;box-sizing:border-box;"
+             placeholder="Nama anda">
+    </div>
+
+    <div style="margin-bottom:15px;">
+      <label style="display:block;margin-bottom:5px;font-weight:600;color:#374151;font-size:0.9rem;">No. Telefon *</label>
+      <input type="tel" id="delivery-phone" name="customer_phone" required
+             style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:10px;font-size:1rem;box-sizing:border-box;"
+             placeholder="012-3456789">
+    </div>
+
+    <div style="margin-bottom:15px;">
+      <label style="display:block;margin-bottom:5px;font-weight:600;color:#374151;font-size:0.9rem;">Kawasan Delivery *</label>
+      <select id="delivery-area" name="delivery_area" required
+              style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:10px;font-size:1rem;box-sizing:border-box;background:white;">
+        <option value="">Pilih kawasan...</option>
+        {areas_options}
+        <option value="other">Lain-lain</option>
+      </select>
+    </div>
+
+    <div style="margin-bottom:15px;">
+      <label style="display:block;margin-bottom:5px;font-weight:600;color:#374151;font-size:0.9rem;">Alamat Penuh *</label>
+      <textarea id="delivery-address" name="delivery_address" required rows="3"
+                style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:10px;font-size:1rem;box-sizing:border-box;resize:none;"
+                placeholder="No. rumah, jalan, taman, poskod"></textarea>
+    </div>
+
+    <div style="margin-bottom:15px;">
+      <label style="display:block;margin-bottom:5px;font-weight:600;color:#374151;font-size:0.9rem;">Nota Tambahan</label>
+      <textarea id="delivery-notes" name="notes" rows="2"
+                style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:10px;font-size:1rem;box-sizing:border-box;resize:none;"
+                placeholder="Arahan khas, landmark, dll."></textarea>
+    </div>
+
+    <div id="delivery-summary" style="background:#f9fafb;padding:15px;border-radius:10px;margin-bottom:15px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+        <span style="color:#6b7280;">Jumlah Item:</span>
+        <span id="delivery-item-count" style="font-weight:600;">0 item</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+        <span style="color:#6b7280;">Subtotal:</span>
+        <span id="delivery-subtotal" style="font-weight:600;">RM 0.00</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+        <span style="color:#6b7280;">Delivery Fee:</span>
+        <span id="delivery-fee-display" style="font-weight:600;">RM 0.00</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid #e5e7eb;">
+        <span style="font-weight:700;font-size:1.1rem;">Jumlah:</span>
+        <span id="delivery-total" style="font-weight:700;font-size:1.1rem;color:#059669;">RM 0.00</span>
+      </div>
+    </div>
+
+    <div id="delivery-error" style="display:none;background:#fef2f2;color:#dc2626;padding:12px;border-radius:10px;margin-bottom:15px;font-size:0.9rem;"></div>
+
+    <button type="submit" id="delivery-submit-btn"
+            style="width:100%;padding:15px;background:linear-gradient(135deg,#059669,#10b981);color:white;
+            border:none;border-radius:10px;font-size:1.1rem;font-weight:bold;cursor:pointer;
+            display:flex;align-items:center;justify-content:center;gap:8px;">
+      <span>🛵</span>
+      <span>Hantar Pesanan</span>
+    </button>
+  </form>
+</div>
+
+<!-- Delivery Button (Floating) -->
+<button id="delivery-btn" onclick="openDeliveryWidget()"
+        style="position:fixed;bottom:90px;right:20px;background:linear-gradient(135deg,#059669,#10b981);
+        color:white;padding:12px 20px;border-radius:30px;border:none;font-size:1rem;font-weight:600;
+        cursor:pointer;z-index:1000;box-shadow:0 4px 15px rgba(5,150,105,0.4);
+        display:flex;align-items:center;gap:8px;">
+  <span>🛵</span>
+  <span>Pesan Delivery</span>
+</button>
+
+<script>
+// Delivery Widget JavaScript - Mobile Optimized
+const DELIVERY_API_URL = 'https://binaapp-backend.onrender.com/api/delivery/orders';
+const WEBSITE_ID = '{website_id}';
+const WHATSAPP_NUMBER = '{phone_clean}';
+const DELIVERY_FEES = {{
+  'Bandar Sunway': 5,
+  'Petaling Jaya': 7,
+  'Subang Jaya': 6,
+  'Shah Alam': 8,
+  'other': 10
+}};
+
+// Safe string conversion - prevents "undefined" strings
+function safeString(value) {{
+  if (value === null || value === undefined || value === 'null' || value === 'undefined') {{
+    return '';
+  }}
+  return String(value).trim();
+}}
+
+function openDeliveryWidget() {{
+  document.getElementById('delivery-widget').style.display = 'block';
+  document.getElementById('delivery-widget-overlay').style.display = 'block';
+  document.body.style.overflow = 'hidden';
+  updateDeliverySummary();
+}}
+
+function closeDeliveryWidget() {{
+  document.getElementById('delivery-widget').style.display = 'none';
+  document.getElementById('delivery-widget-overlay').style.display = 'none';
+  document.body.style.overflow = '';
+}}
+
+function getCartItems() {{
+  try {{
+    const cart = JSON.parse(localStorage.getItem('cart')) || [];
+    return cart;
+  }} catch (e) {{
+    return [];
+  }}
+}}
+
+function updateDeliverySummary() {{
+  const cart = getCartItems();
+  const subtotal = cart.reduce((sum, item) => sum + (item.price || 0), 0);
+  const area = document.getElementById('delivery-area').value;
+  const deliveryFee = DELIVERY_FEES[area] || 0;
+  const total = subtotal + deliveryFee;
+
+  document.getElementById('delivery-item-count').textContent = cart.length + ' item';
+  document.getElementById('delivery-subtotal').textContent = 'RM ' + subtotal.toFixed(2);
+  document.getElementById('delivery-fee-display').textContent = 'RM ' + deliveryFee.toFixed(2);
+  document.getElementById('delivery-total').textContent = 'RM ' + total.toFixed(2);
+}}
+
+// Update delivery fee when area changes
+document.getElementById('delivery-area').addEventListener('change', updateDeliverySummary);
+
+async function submitDeliveryOrder(event) {{
+  event.preventDefault();
+
+  const errorDiv = document.getElementById('delivery-error');
+  const submitBtn = document.getElementById('delivery-submit-btn');
+
+  // Disable button and show loading
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<span>⏳</span><span>Menghantar...</span>';
+  errorDiv.style.display = 'none';
+
+  try {{
+    // Get form values with safe conversion
+    const customerName = safeString(document.getElementById('delivery-name').value);
+    const customerPhone = safeString(document.getElementById('delivery-phone').value);
+    const deliveryArea = safeString(document.getElementById('delivery-area').value);
+    const deliveryAddress = safeString(document.getElementById('delivery-address').value);
+    const notes = safeString(document.getElementById('delivery-notes').value);
+
+    // Validate required fields
+    if (!customerName || !customerPhone || !deliveryArea || !deliveryAddress) {{
+      throw new Error('Sila isi semua ruangan yang diperlukan');
+    }}
+
+    // Get cart and calculate totals
+    const cart = getCartItems();
+    const subtotal = cart.reduce((sum, item) => sum + (item.price || 0), 0);
+    const deliveryFee = DELIVERY_FEES[deliveryArea] || 0;
+    const totalAmount = subtotal + deliveryFee;
+
+    // Build order payload - all values are guaranteed strings/numbers
+    const orderPayload = {{
+      website_id: safeString(WEBSITE_ID),
+      customer_name: customerName,
+      customer_phone: customerPhone,
+      customer_id: '', // Will be auto-generated by backend
+      delivery_address: deliveryAddress,
+      delivery_area: deliveryArea,
+      items: JSON.stringify(cart.map(item => ({{
+        name: safeString(item.name),
+        price: Number(item.price) || 0,
+        quantity: Number(item.quantity) || 1
+      }}))),
+      notes: notes,
+      subtotal: Number(subtotal),
+      delivery_fee: Number(deliveryFee),
+      total_amount: Number(totalAmount),
+      payment_method: 'cash'
+    }};
+
+    console.log('📦 Submitting order:', orderPayload);
+
+    // Try API submission first
+    const response = await fetch(DELIVERY_API_URL, {{
+      method: 'POST',
+      headers: {{
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }},
+      body: JSON.stringify(orderPayload)
+    }});
+
+    const result = await response.json();
+
+    if (result.success) {{
+      // Success! Show confirmation
+      alert('✅ Pesanan berjaya dihantar!\\n\\nNo. Pesanan: ' + result.order_number + '\\n\\nKami akan hubungi anda untuk pengesahan.');
+
+      // Clear cart
+      localStorage.removeItem('cart');
+      if (typeof updateCartUI === 'function') updateCartUI();
+
+      // Close widget
+      closeDeliveryWidget();
+
+      // Reset form
+      document.getElementById('delivery-form').reset();
+    }} else {{
+      // API returned error
+      throw new Error(result.error_ms || result.error || 'Gagal menghantar pesanan');
+    }}
+
+  }} catch (error) {{
+    console.error('❌ Order submission failed:', error);
+
+    // Show error message
+    errorDiv.textContent = error.message || 'Gagal menghantar pesanan. Sila cuba lagi.';
+    errorDiv.style.display = 'block';
+
+    // Offer WhatsApp fallback
+    if (WHATSAPP_NUMBER && confirm('Pesanan gagal dihantar. Hantar melalui WhatsApp?')) {{
+      sendViaWhatsApp();
+    }}
+  }} finally {{
+    // Re-enable button
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<span>🛵</span><span>Hantar Pesanan</span>';
+  }}
+
+  return false;
+}}
+
+function sendViaWhatsApp() {{
+  const customerName = safeString(document.getElementById('delivery-name').value);
+  const customerPhone = safeString(document.getElementById('delivery-phone').value);
+  const deliveryArea = safeString(document.getElementById('delivery-area').value);
+  const deliveryAddress = safeString(document.getElementById('delivery-address').value);
+  const notes = safeString(document.getElementById('delivery-notes').value);
+
+  const cart = getCartItems();
+  const subtotal = cart.reduce((sum, item) => sum + (item.price || 0), 0);
+  const deliveryFee = DELIVERY_FEES[deliveryArea] || 0;
+  const total = subtotal + deliveryFee;
+
+  const itemsList = cart.map(item => '• ' + item.name + ' - RM ' + (item.price || 0).toFixed(2)).join('%0A');
+
+  const message = `🛵 *PESANAN DELIVERY*%0A%0A` +
+    `*Nama:* ${{customerName}}%0A` +
+    `*Telefon:* ${{customerPhone}}%0A` +
+    `*Kawasan:* ${{deliveryArea}}%0A` +
+    `*Alamat:* ${{deliveryAddress}}%0A` +
+    (notes ? `*Nota:* ${{notes}}%0A` : '') +
+    `%0A*PESANAN:*%0A${{itemsList}}%0A%0A` +
+    `Subtotal: RM ${{subtotal.toFixed(2)}}%0A` +
+    `Delivery: RM ${{deliveryFee.toFixed(2)}}%0A` +
+    `*JUMLAH: RM ${{total.toFixed(2)}}*`;
+
+  window.open('https://wa.me/' + WHATSAPP_NUMBER + '?text=' + message, '_blank');
+}}
+</script>
+"""
+
+        # Inject before closing body tag
+        if "</body>" in html:
+            html = html.replace("</body>", delivery_widget_html + "\n</body>")
+        else:
+            html += delivery_widget_html
+
+        return html
+
     def inject_integrations(
         self,
         html: str,
@@ -465,6 +795,15 @@ function handleContactSubmit(e) {{
         # Shopping Cart
         if "cart" in features:
             html = self.inject_shopping_cart(html)
+
+        # Delivery Widget (for restaurants/food businesses)
+        if "delivery" in features:
+            html = self.inject_delivery_widget(
+                html,
+                website_id=user_data.get("website_id", ""),
+                whatsapp_number=user_data.get("phone", ""),
+                delivery_areas=user_data.get("delivery_areas")
+            )
 
         # Contact Form
         if "contact" in features:

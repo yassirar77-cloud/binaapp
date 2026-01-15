@@ -1857,6 +1857,609 @@ async def check_subdomain(subdomain: str):
         return {"available": False, "error": str(e)}
 
 
+# ==================== DELIVERY ORDERS & CHAT ENDPOINTS ====================
+# These endpoints handle mobile delivery order submission for published websites
+
+class DeliveryOrderRequest(BaseModel):
+    """Request model for delivery order - handles mobile browser quirks"""
+    website_id: Optional[str] = None
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    customer_id: Optional[str] = None
+    delivery_address: Optional[str] = None
+    delivery_area: Optional[str] = None
+    items: Optional[str] = None  # Can be JSON string or actual list
+    notes: Optional[str] = None
+    subtotal: Optional[float] = 0
+    delivery_fee: Optional[float] = 0
+    total_amount: Optional[float] = 0
+    payment_method: Optional[str] = "cash"
+    delivery_zone_id: Optional[str] = None
+
+
+class ChatConversationRequest(BaseModel):
+    """Request model for chat conversation - handles null values gracefully"""
+    website_id: Optional[str] = None
+    order_id: Optional[str] = None
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    customer_id: Optional[str] = None
+    initial_message: Optional[str] = None
+
+
+def generate_customer_id(phone: str) -> str:
+    """Generate a customer_id from phone number hash"""
+    if not phone:
+        return f"cust_{uuid.uuid4().hex[:12]}"
+    # Clean phone number and hash it
+    phone_clean = re.sub(r'[^\d]', '', str(phone))
+    phone_hash = hashlib.md5(phone_clean.encode()).hexdigest()[:12]
+    return f"cust_{phone_hash}"
+
+
+def safe_string(value, default: str = "") -> str:
+    """Convert value to string safely, handling None and empty values"""
+    if value is None:
+        return default
+    return str(value).strip()
+
+
+def safe_float(value, default: float = 0.0) -> float:
+    """Convert value to float safely"""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+@app.post("/api/delivery/orders")
+@app.post("/api/orders")
+async def create_delivery_order(request: Request):
+    """
+    Create a new delivery order - handles mobile browser data format differences
+
+    This endpoint is called by the delivery widget on published websites.
+    Mobile browsers may send data differently than desktop, so we handle:
+    - null/undefined values converted to empty strings
+    - items as JSON string or array
+    - numeric values as strings
+    """
+    logger.info("📦 [Delivery] Creating new order...")
+
+    if not supabase:
+        logger.error("❌ [Delivery] Supabase not connected")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": "Database not connected",
+                "error_ms": "Pangkalan data tidak tersambung"
+            }
+        )
+
+    try:
+        # Parse request body
+        try:
+            body = await request.json()
+            logger.info(f"📦 [Delivery] Request body: {list(body.keys())}")
+        except Exception as json_error:
+            logger.error(f"❌ [Delivery] Invalid JSON: {json_error}")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "Invalid request format",
+                    "error_ms": "Format permintaan tidak sah"
+                }
+            )
+
+        # Extract and validate required fields with safe conversion
+        customer_name = safe_string(body.get("customer_name"))
+        customer_phone = safe_string(body.get("customer_phone"))
+        delivery_address = safe_string(body.get("delivery_address"))
+
+        # Validate required fields
+        missing_fields = []
+        if not customer_name:
+            missing_fields.append("customer_name (nama)")
+        if not customer_phone:
+            missing_fields.append("customer_phone (telefon)")
+        if not delivery_address:
+            missing_fields.append("delivery_address (alamat)")
+
+        if missing_fields:
+            logger.warning(f"⚠️ [Delivery] Missing fields: {missing_fields}")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": f"Missing required fields: {', '.join(missing_fields)}",
+                    "error_ms": f"Ruangan yang diperlukan tidak diisi: {', '.join(missing_fields)}",
+                    "missing_fields": missing_fields
+                }
+            )
+
+        # Process items - handle both JSON string and array
+        items_raw = body.get("items", [])
+        if isinstance(items_raw, str):
+            try:
+                items = json.loads(items_raw) if items_raw else []
+            except json.JSONDecodeError:
+                items = []
+        else:
+            items = items_raw if items_raw else []
+
+        # Generate order number
+        order_number = f"ORD-{uuid.uuid4().hex[:8].upper()}"
+
+        # Generate customer_id if not provided
+        customer_id = safe_string(body.get("customer_id"))
+        if not customer_id:
+            customer_id = generate_customer_id(customer_phone)
+
+        # Build order data
+        order_data = {
+            "order_number": order_number,
+            "website_id": safe_string(body.get("website_id")),
+            "customer_name": customer_name,
+            "customer_phone": customer_phone,
+            "customer_id": customer_id,
+            "delivery_address": delivery_address,
+            "delivery_area": safe_string(body.get("delivery_area")),
+            "items": json.dumps(items) if isinstance(items, list) else items,
+            "notes": safe_string(body.get("notes")),
+            "subtotal": safe_float(body.get("subtotal")),
+            "delivery_fee": safe_float(body.get("delivery_fee")),
+            "total_amount": safe_float(body.get("total_amount")),
+            "payment_method": safe_string(body.get("payment_method"), "cash"),
+            "delivery_zone_id": safe_string(body.get("delivery_zone_id")),
+            "status": "pending",
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }
+
+        logger.info(f"📦 [Delivery] Creating order: {order_number}")
+
+        # Insert into database
+        result = supabase.table("delivery_orders").insert(order_data).execute()
+
+        if result.data:
+            logger.info(f"✅ [Delivery] Order created: {order_number}")
+
+            # Optionally create a chat conversation for this order
+            try:
+                chat_data = {
+                    "website_id": order_data["website_id"],
+                    "order_id": order_number,
+                    "customer_name": customer_name,
+                    "customer_phone": customer_phone,
+                    "customer_id": customer_id,
+                    "status": "active",
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat()
+                }
+                supabase.table("chat_conversations").insert(chat_data).execute()
+                logger.info(f"✅ [Delivery] Chat conversation created for order: {order_number}")
+            except Exception as chat_error:
+                # Chat creation is optional, don't fail the order
+                logger.warning(f"⚠️ [Delivery] Chat creation failed (non-critical): {chat_error}")
+
+            return {
+                "success": True,
+                "order_number": order_number,
+                "order_id": result.data[0].get("id") if result.data else None,
+                "message": "Order created successfully",
+                "message_ms": "Pesanan berjaya dibuat"
+            }
+        else:
+            logger.error("❌ [Delivery] No data returned from insert")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "error": "Failed to create order",
+                    "error_ms": "Gagal membuat pesanan"
+                }
+            )
+
+    except Exception as e:
+        logger.error(f"❌ [Delivery] Error creating order: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Server error: {str(e)}",
+                "error_ms": f"Ralat pelayan: {str(e)}"
+            }
+        )
+
+
+@app.get("/api/orders/{order_number}")
+async def get_order(order_number: str):
+    """Get order details by order number"""
+    if not supabase:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": "Database not connected"}
+        )
+
+    try:
+        result = supabase.table("delivery_orders").select("*").eq("order_number", order_number).execute()
+
+        if result.data:
+            return {"success": True, "order": result.data[0]}
+        else:
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "success": False,
+                    "error": "Order not found",
+                    "error_ms": "Pesanan tidak dijumpai"
+                }
+            )
+    except Exception as e:
+        logger.error(f"❌ [Delivery] Error getting order: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.put("/api/orders/{order_number}/status")
+async def update_order_status(order_number: str, request: Request):
+    """Update order status"""
+    if not supabase:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": "Database not connected"}
+        )
+
+    try:
+        body = await request.json()
+        new_status = safe_string(body.get("status"))
+
+        valid_statuses = ["pending", "confirmed", "preparing", "ready", "delivering", "delivered", "cancelled"]
+        if new_status not in valid_statuses:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": f"Invalid status. Valid values: {', '.join(valid_statuses)}"
+                }
+            )
+
+        result = supabase.table("delivery_orders").update({
+            "status": new_status,
+            "updated_at": datetime.now().isoformat()
+        }).eq("order_number", order_number).execute()
+
+        if result.data:
+            return {"success": True, "order": result.data[0]}
+        else:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "Order not found"}
+            )
+    except Exception as e:
+        logger.error(f"❌ [Delivery] Error updating order status: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.post("/api/chat/conversations")
+async def create_chat_conversation(request: Request):
+    """
+    Create a new chat conversation - handles mobile browser data format differences
+
+    This endpoint auto-generates customer_id from phone if not provided,
+    preventing the "customer_id column not found" error.
+    """
+    logger.info("💬 [Chat] Creating new conversation...")
+
+    if not supabase:
+        logger.error("❌ [Chat] Supabase not connected")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": "Database not connected",
+                "error_ms": "Pangkalan data tidak tersambung"
+            }
+        )
+
+    try:
+        # Parse request body
+        try:
+            body = await request.json()
+            logger.info(f"💬 [Chat] Request body keys: {list(body.keys())}")
+        except Exception as json_error:
+            logger.error(f"❌ [Chat] Invalid JSON: {json_error}")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "Invalid request format",
+                    "error_ms": "Format permintaan tidak sah"
+                }
+            )
+
+        # Extract fields with safe conversion
+        customer_name = safe_string(body.get("customer_name"))
+        customer_phone = safe_string(body.get("customer_phone"))
+
+        # Validate required fields
+        if not customer_name:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "Customer name is required",
+                    "error_ms": "Nama pelanggan diperlukan"
+                }
+            )
+
+        if not customer_phone:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "success": False,
+                    "error": "Customer phone is required",
+                    "error_ms": "Nombor telefon pelanggan diperlukan"
+                }
+            )
+
+        # Generate customer_id if not provided (THIS IS THE FIX)
+        customer_id = safe_string(body.get("customer_id"))
+        if not customer_id:
+            customer_id = generate_customer_id(customer_phone)
+            logger.info(f"💬 [Chat] Generated customer_id: {customer_id}")
+
+        # Build conversation data
+        conversation_data = {
+            "website_id": safe_string(body.get("website_id")),
+            "order_id": safe_string(body.get("order_id")),
+            "customer_name": customer_name,
+            "customer_phone": customer_phone,
+            "customer_id": customer_id,
+            "status": "active",
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }
+
+        # Insert conversation
+        result = supabase.table("chat_conversations").insert(conversation_data).execute()
+
+        if result.data:
+            conversation_id = result.data[0].get("id")
+            logger.info(f"✅ [Chat] Conversation created: {conversation_id}")
+
+            # If there's an initial message, add it
+            initial_message = safe_string(body.get("initial_message"))
+            if initial_message:
+                message_data = {
+                    "conversation_id": conversation_id,
+                    "sender_type": "customer",
+                    "sender_id": customer_id,
+                    "message": initial_message,
+                    "created_at": datetime.now().isoformat()
+                }
+                supabase.table("chat_messages").insert(message_data).execute()
+                logger.info(f"✅ [Chat] Initial message added")
+
+            return {
+                "success": True,
+                "conversation_id": conversation_id,
+                "customer_id": customer_id,
+                "message": "Conversation created successfully",
+                "message_ms": "Perbualan berjaya dibuat"
+            }
+        else:
+            logger.error("❌ [Chat] No data returned from insert")
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "error": "Failed to create conversation",
+                    "error_ms": "Gagal membuat perbualan"
+                }
+            )
+
+    except Exception as e:
+        logger.error(f"❌ [Chat] Failed to create conversation: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": f"Server error: {str(e)}",
+                "error_ms": f"Ralat pelayan: {str(e)}"
+            }
+        )
+
+
+@app.get("/api/chat/conversations/{conversation_id}")
+async def get_conversation(conversation_id: str):
+    """Get conversation with messages"""
+    if not supabase:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": "Database not connected"}
+        )
+
+    try:
+        # Get conversation
+        conv_result = supabase.table("chat_conversations").select("*").eq("id", conversation_id).execute()
+
+        if not conv_result.data:
+            return JSONResponse(
+                status_code=404,
+                content={"success": False, "error": "Conversation not found"}
+            )
+
+        # Get messages
+        msg_result = supabase.table("chat_messages").select("*").eq("conversation_id", conversation_id).order("created_at").execute()
+
+        return {
+            "success": True,
+            "conversation": conv_result.data[0],
+            "messages": msg_result.data or []
+        }
+    except Exception as e:
+        logger.error(f"❌ [Chat] Error getting conversation: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.post("/api/chat/conversations/{conversation_id}/messages")
+async def send_message(conversation_id: str, request: Request):
+    """Send a message in a conversation"""
+    if not supabase:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": "Database not connected"}
+        )
+
+    try:
+        body = await request.json()
+        message = safe_string(body.get("message"))
+        sender_type = safe_string(body.get("sender_type"), "customer")
+        sender_id = safe_string(body.get("sender_id"))
+
+        if not message:
+            return JSONResponse(
+                status_code=400,
+                content={"success": False, "error": "Message is required"}
+            )
+
+        message_data = {
+            "conversation_id": conversation_id,
+            "sender_type": sender_type,
+            "sender_id": sender_id,
+            "message": message,
+            "created_at": datetime.now().isoformat()
+        }
+
+        result = supabase.table("chat_messages").insert(message_data).execute()
+
+        # Update conversation timestamp
+        supabase.table("chat_conversations").update({
+            "updated_at": datetime.now().isoformat()
+        }).eq("id", conversation_id).execute()
+
+        if result.data:
+            return {"success": True, "message": result.data[0]}
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": "Failed to send message"}
+            )
+    except Exception as e:
+        logger.error(f"❌ [Chat] Error sending message: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+@app.get("/api/chat/website/{website_id}/conversations")
+async def list_website_conversations(website_id: str):
+    """List all conversations for a website"""
+    if not supabase:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": "Database not connected"}
+        )
+
+    try:
+        result = supabase.table("chat_conversations").select("*").eq("website_id", website_id).order("updated_at", desc=True).execute()
+
+        return {
+            "success": True,
+            "conversations": result.data or []
+        }
+    except Exception as e:
+        logger.error(f"❌ [Chat] Error listing conversations: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
+
+# ==================== ADMIN/DEBUG ENDPOINT ====================
+
+@app.get("/api/admin/migration-sql")
+async def get_migration_sql():
+    """Return SQL to create required tables (for manual execution in Supabase)"""
+    return {
+        "info": "Run this SQL in your Supabase SQL Editor to create the required tables",
+        "note": "After running, go to Settings -> API -> Reload Schema",
+        "sql": """
+-- Create delivery_orders table
+CREATE TABLE IF NOT EXISTS public.delivery_orders (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_number TEXT UNIQUE NOT NULL,
+    website_id TEXT,
+    customer_name TEXT NOT NULL,
+    customer_phone TEXT NOT NULL,
+    customer_id TEXT,
+    delivery_address TEXT NOT NULL,
+    delivery_area TEXT,
+    items JSONB NOT NULL DEFAULT '[]'::jsonb,
+    notes TEXT,
+    subtotal DECIMAL(10, 2) DEFAULT 0,
+    delivery_fee DECIMAL(10, 2) DEFAULT 0,
+    total_amount DECIMAL(10, 2) DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    payment_method TEXT DEFAULT 'cash',
+    delivery_zone_id TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create chat_conversations table
+CREATE TABLE IF NOT EXISTS public.chat_conversations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    website_id TEXT,
+    order_id TEXT,
+    customer_name TEXT NOT NULL,
+    customer_phone TEXT NOT NULL,
+    customer_id TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Create chat_messages table
+CREATE TABLE IF NOT EXISTS public.chat_messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    conversation_id UUID REFERENCES public.chat_conversations(id) ON DELETE CASCADE,
+    sender_type TEXT NOT NULL,
+    sender_id TEXT,
+    message TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Enable RLS with permissive policies
+ALTER TABLE public.delivery_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow all delivery_orders" ON public.delivery_orders FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all chat_conversations" ON public.chat_conversations FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all chat_messages" ON public.chat_messages FOR ALL USING (true) WITH CHECK (true);
+"""
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=10000)
