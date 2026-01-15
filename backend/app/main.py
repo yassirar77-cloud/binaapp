@@ -2593,7 +2593,6 @@ async def check_subdomain(subdomain: str):
         return {"available": False, "error": str(e)}
 
 
-<<<<<<< HEAD
 # ==================== DELIVERY ORDERS & CHAT ENDPOINTS ====================
 # These endpoints handle mobile delivery order submission for published websites
 
