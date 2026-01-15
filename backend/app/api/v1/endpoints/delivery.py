@@ -176,18 +176,15 @@ async def create_order_conversation(supabase: Client, order_id: str, order_numbe
     try:
         import uuid
 
-        # Get website owner
-        website = supabase.table("websites").select("user_id").eq("id", website_id).single().execute()
-        owner_id = website.data["user_id"] if website.data else None
-
+        # Build conversation data - only include columns that exist in chat_conversations table
+        # Schema: id, order_id, website_id, customer_id (TEXT NOT NULL), customer_name, customer_phone, status
         conversation_data = {
             "id": str(uuid.uuid4()),
             "order_id": order_id,
             "website_id": website_id,
-            "customer_id": customer_id,
-            "customer_name": customer_name,
-            "customer_phone": customer_phone,
-            "owner_id": owner_id,
+            "customer_id": customer_id or f"customer_{customer_phone}",  # Ensure not null
+            "customer_name": customer_name or "Customer",
+            "customer_phone": customer_phone or "",
             "status": "active"
         }
 

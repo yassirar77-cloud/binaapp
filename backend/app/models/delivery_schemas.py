@@ -224,10 +224,10 @@ class OrderCreate(BaseModel):
     items: List[OrderItemCreate] = Field(min_length=1)
     payment_method: PaymentMethod = PaymentMethod.COD
 
-    @field_validator('customer_email', 'delivery_notes', mode='before')
+    @field_validator('customer_name', 'customer_phone', 'customer_email', 'delivery_address', 'delivery_notes', mode='before')
     @classmethod
     def convert_none_to_empty(cls, v):
-        """Convert None to empty string for optional string fields"""
+        """Convert None to empty string for string fields - prevents 'Input should be a valid string' error"""
         return "" if v is None else str(v)
 
     @field_validator('delivery_zone_id', mode='before')
