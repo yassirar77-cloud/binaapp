@@ -68,6 +68,12 @@
       outline: none;
     }
 
+    /* Hide chat button when delivery modal is active to prevent blocking form inputs */
+    body:has(#binaapp-modal.active) #binaapp-chat-btn,
+    body:has(#binaapp-modal.active) #binaapp-chat-window {
+      display: none !important;
+    }
+
     #binaapp-chat-btn:hover {
       transform: scale(1.1);
       box-shadow: 0 6px 20px rgba(234, 88, 12, 0.5);
@@ -714,11 +720,46 @@
     console.log('[BinaApp Chat] Widget initialized for website:', websiteId);
   }
 
+  // Watch for delivery modal opening/closing to hide chat button (prevents form blocking)
+  function setupDeliveryModalObserver() {
+    const observer = new MutationObserver(function(mutations) {
+      mutations.forEach(function(mutation) {
+        const modal = document.getElementById('binaapp-modal');
+        if (modal) {
+          const chatBtn = document.getElementById('binaapp-chat-btn');
+          const chatWindow = document.getElementById('binaapp-chat-window');
+
+          if (modal.classList.contains('active')) {
+            // Delivery modal is open, hide chat widgets to prevent blocking form
+            if (chatBtn) chatBtn.style.display = 'none';
+            if (chatWindow) chatWindow.style.display = 'none';
+          } else {
+            // Delivery modal is closed, show chat widgets
+            if (chatBtn) chatBtn.style.display = 'flex';
+            // Chat window visibility is controlled by isOpen state
+          }
+        }
+      });
+    });
+
+    // Observe the entire document for changes
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class']
+    });
+  }
+
   // Wait for DOM ready
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', function() {
+      init();
+      setupDeliveryModalObserver();
+    });
   } else {
     init();
+    setupDeliveryModalObserver();
   }
 
 })();
