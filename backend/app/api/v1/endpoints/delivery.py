@@ -176,13 +176,14 @@ async def create_order_conversation(supabase: Client, order_id: str, order_numbe
     try:
         import uuid
 
-        # Build conversation data - only include columns that exist in chat_conversations table
-        # Schema: id, order_id, website_id, customer_id (TEXT NOT NULL), customer_name, customer_phone, status
+        # Build conversation data - ONLY use columns that exist in chat_conversations table
+        # Actual schema: id, order_id, website_id, customer_name, customer_phone, status,
+        #               unread_owner, unread_customer, unread_rider, created_at, updated_at
+        # NOTE: customer_id column was REMOVED from the database
         conversation_data = {
             "id": str(uuid.uuid4()),
             "order_id": order_id,
             "website_id": website_id,
-            "customer_id": customer_id or f"customer_{customer_phone}",  # Ensure not null
             "customer_name": customer_name or "Customer",
             "customer_phone": customer_phone or "",
             "status": "active"
@@ -575,11 +576,11 @@ async def create_order(
             )
             conversation_id = conversation["id"] if conversation else None
 
-            # Update order with customer_id and conversation_id
-            supabase.table("delivery_orders").update({
-                "customer_id": customer_id,
-                "conversation_id": conversation_id
-            }).eq("id", order_id).execute()
+            # Note: delivery_orders table does NOT have customer_id or conversation_id columns
+            # These relationships are maintained through:
+            # - website_customers table (customer by phone)
+            # - chat_conversations table (conversation by order_id)
+            # Skipping update as columns don't exist
 
             # Send system message to conversation
             await send_system_message(
@@ -1792,9 +1793,10 @@ async def assign_rider_to_order_public(
         except Exception as history_err:
             logger.warning(f"⚠️ Could not insert order_status_history: {history_err}")
 
-        # Get conversation_id and update chat
-        order_with_conv = supabase.table("delivery_orders").select("conversation_id").eq("id", order_id).single().execute()
-        conversation_id = order_with_conv.data.get("conversation_id") if order_with_conv.data else None
+        # Get conversation_id by looking up chat_conversations via order_id
+        # Note: delivery_orders does NOT have conversation_id column
+        conv_lookup = supabase.table("chat_conversations").select("id").eq("order_id", order_id).execute()
+        conversation_id = conv_lookup.data[0]["id"] if conv_lookup.data else None
 
         if conversation_id and rider_id:
             # Add rider to conversation
@@ -1894,7 +1896,9 @@ async def update_order_status_public(
         supabase.table("order_status_history").insert(history_data).execute()
 
         # Send status update to chat
-        conversation_id = current_order.get("conversation_id")
+        # Note: delivery_orders does NOT have conversation_id column, look up via order_id
+        conv_result = supabase.table("chat_conversations").select("id").eq("order_id", order_id).execute()
+        conversation_id = conv_result.data[0]["id"] if conv_result.data else None
         if conversation_id:
             status_messages = {
                 "confirmed": "Pesanan disahkan! Sedang menyediakan pesanan anda.",

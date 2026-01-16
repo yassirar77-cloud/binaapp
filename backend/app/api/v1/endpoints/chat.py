@@ -194,20 +194,21 @@ async def create_conversation(request: CreateConversationRequest):
 
         result = supabase.table("chat_conversations").insert(conv_data).execute()
 
-        # Add customer as participant
+        # Add customer as participant - use ONLY existing columns
+        # Schema: id, conversation_id, participant_type, participant_name, participant_phone, joined_at, created_at
         supabase.table("chat_participants").insert({
             "conversation_id": conversation_id,
-            "user_type": "customer",
-            "user_id": customer_user_id,
-            "user_name": request.customer_name
+            "participant_type": "customer",
+            "participant_name": request.customer_name,
+            "participant_phone": request.customer_phone
         }).execute()
 
-        # Add owner as participant
+        # Add owner as participant - use ONLY existing columns
         supabase.table("chat_participants").insert({
             "conversation_id": conversation_id,
-            "user_type": "owner",
-            "user_id": request.website_id,
-            "user_name": "Pemilik Kedai"
+            "participant_type": "owner",
+            "participant_name": "Pemilik Kedai",
+            "participant_phone": None
         }).execute()
 
         # Add system welcome message
@@ -613,12 +614,14 @@ async def add_rider_to_conversation(conversation_id: str, rider_id: str, rider_n
     try:
         supabase = get_supabase()
 
-        # Add rider as participant
-        supabase.table("chat_participants").upsert({
+        # Add rider as participant - use ONLY existing columns
+        # Schema: id, conversation_id, participant_type, participant_name, participant_phone, joined_at, created_at
+        # Note: Using insert instead of upsert since we don't have unique constraint on (conversation_id, participant_type)
+        supabase.table("chat_participants").insert({
             "conversation_id": conversation_id,
-            "user_type": "rider",
-            "user_id": rider_id,
-            "user_name": rider_name
+            "participant_type": "rider",
+            "participant_name": rider_name,
+            "participant_phone": None  # Rider phone could be added later if needed
         }).execute()
 
         # Send system message
@@ -661,15 +664,10 @@ async def websocket_endpoint(
     user_key = f"{user_type}_{user_id}"
     await manager.connect(websocket, conversation_id, user_key)
 
-    # Update participant online status
-    try:
-        supabase = get_supabase()
-        supabase.table("chat_participants").update({
-            "is_online": True,
-            "last_seen": datetime.utcnow().isoformat()
-        }).eq("conversation_id", conversation_id).eq("user_type", user_type).eq("user_id", user_id).execute()
-    except Exception as e:
-        logger.warning(f"[Chat] Failed to update online status: {e}")
+    # Note: chat_participants table only has: id, conversation_id, participant_type,
+    # participant_name, participant_phone, joined_at, created_at
+    # is_online and last_seen columns don't exist, so we skip updating them
+    logger.info(f"[Chat] User {user_type}:{user_id} connected to conversation {conversation_id}")
 
     # Notify others that user joined
     await manager.send_to_conversation(
@@ -744,15 +742,9 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         manager.disconnect(conversation_id, user_key)
 
-        # Update participant offline status
-        try:
-            supabase = get_supabase()
-            supabase.table("chat_participants").update({
-                "is_online": False,
-                "last_seen": datetime.utcnow().isoformat()
-            }).eq("conversation_id", conversation_id).eq("user_type", user_type).eq("user_id", user_id).execute()
-        except Exception as e:
-            logger.warning(f"[Chat] Failed to update offline status: {e}")
+        # Note: chat_participants table doesn't have is_online/last_seen columns
+        # Skipping database update for offline status
+        logger.info(f"[Chat] User {user_type}:{user_id} disconnected from conversation {conversation_id}")
 
         # Notify others that user left
         await manager.send_to_conversation(
