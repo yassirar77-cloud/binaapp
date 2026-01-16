@@ -21,14 +21,15 @@ interface Conversation {
     updated_at: string;
     chat_messages?: Array<{
         id: string;
-        content: string;
+        message: string; // Database column is "message" not "content"
         sender_type: string;
         created_at: string;
     }>;
 }
 
 interface ChatListProps {
-    websiteId: string;
+    websiteId?: string; // Single website ID (deprecated - use websiteIds instead)
+    websiteIds?: string[]; // Multiple website IDs for filtering
     onSelectConversation: (conversationId: string, orderId?: string) => void;
     selectedConversationId?: string;
     className?: string;
@@ -40,6 +41,7 @@ interface ChatListProps {
 
 export default function ChatList({
     websiteId,
+    websiteIds,
     onSelectConversation,
     selectedConversationId,
     className = ''
@@ -58,8 +60,23 @@ export default function ChatList({
     const loadConversations = useCallback(async () => {
         try {
             setIsLoading(true);
-            // FIX: Use /api/v1 prefix to match backend route mounting
-            const res = await fetch(`${API_URL}/api/v1/chat/conversations/website/${websiteId}`);
+
+            // Determine which website IDs to filter by
+            let idsToFilter: string[] = [];
+            if (websiteIds && websiteIds.length > 0) {
+                idsToFilter = websiteIds;
+            } else if (websiteId) {
+                idsToFilter = [websiteId];
+            }
+
+            // Build URL with website_ids parameter (comma-separated)
+            const url = idsToFilter.length > 0
+                ? `${API_URL}/api/v1/chat/conversations?website_ids=${idsToFilter.join(',')}`
+                : `${API_URL}/api/v1/chat/conversations`;
+
+            console.log('[ChatList] Loading conversations for website IDs:', idsToFilter);
+
+            const res = await fetch(url);
             if (!res.ok) throw new Error('Failed to load conversations');
 
             const data = await res.json();
@@ -71,7 +88,7 @@ export default function ChatList({
         } finally {
             setIsLoading(false);
         }
-    }, [API_URL, websiteId]);
+    }, [API_URL, websiteId, websiteIds]);
 
     useEffect(() => {
         loadConversations();
@@ -158,7 +175,7 @@ export default function ChatList({
                                         {lastMessage.sender_type === 'owner' && (
                                             <span className="text-gray-400">Anda: </span>
                                         )}
-                                        {lastMessage.content}
+                                        {lastMessage.message}
                                     </>
                                 ) : (
                                     'Tiada mesej'
