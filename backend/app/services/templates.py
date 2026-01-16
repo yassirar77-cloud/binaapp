@@ -1863,7 +1863,15 @@ function handleContactSubmit(e) {{
                 let errorMessage = 'Gagal membuat pesanan';
                 try {{
                     const errorJson = JSON.parse(errorText);
-                    if (errorJson.detail) {{
+                    // Handle different error response formats:
+                    // 1. error_ms (from /api/delivery/orders)
+                    // 2. error (from /api/delivery/orders)
+                    // 3. detail (from /api/v1 Pydantic validation)
+                    if (errorJson.error_ms) {{
+                        errorMessage = errorJson.error_ms;
+                    }} else if (errorJson.error) {{
+                        errorMessage = errorJson.error;
+                    }} else if (errorJson.detail) {{
                         // Handle array of error objects (validation errors)
                         if (Array.isArray(errorJson.detail)) {{
                             errorMessage = errorJson.detail.map(err => {{
@@ -1878,7 +1886,6 @@ function handleContactSubmit(e) {{
                         }} else if (typeof errorJson.detail === 'string') {{
                             errorMessage = errorJson.detail;
                         }} else {{
-                            // For other object types, stringify them
                             errorMessage = JSON.stringify(errorJson.detail);
                         }}
                     }}

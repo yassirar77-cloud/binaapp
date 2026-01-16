@@ -2744,7 +2744,7 @@ async def create_delivery_order(request: Request):
             "customer_id": customer_id,
             "delivery_address": delivery_address,
             "delivery_area": safe_string(body.get("delivery_area")),
-            "items": json.dumps(items) if isinstance(items, list) else items,
+            "items": items if isinstance(items, list) else [],  # JSONB column - pass list directly, not json.dumps
             "notes": safe_string(body.get("notes")),
             "subtotal": safe_float(body.get("subtotal")),
             "delivery_fee": safe_float(body.get("delivery_fee")),
