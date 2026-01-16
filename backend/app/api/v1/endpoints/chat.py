@@ -103,7 +103,6 @@ class CreateConversationRequest(BaseModel):
     website_id: str
     customer_name: str
     customer_phone: str
-    customer_id: Optional[str] = None  # Auto-generated if not provided
 
 
 class SendMessageRequest(BaseModel):
@@ -181,14 +180,13 @@ async def create_conversation(request: CreateConversationRequest):
         supabase = get_supabase()
 
         conversation_id = str(uuid.uuid4())
-        customer_id = request.customer_id or f"customer_{request.customer_phone}"
+        customer_user_id = f"customer_{request.customer_phone}"
 
         # Create conversation
         conv_data = {
             "id": conversation_id,
             "order_id": request.order_id,
             "website_id": request.website_id,
-            "customer_id": customer_id,
             "customer_name": request.customer_name,
             "customer_phone": request.customer_phone,
             "status": "active"
@@ -200,7 +198,7 @@ async def create_conversation(request: CreateConversationRequest):
         supabase.table("chat_participants").insert({
             "conversation_id": conversation_id,
             "user_type": "customer",
-            "user_id": customer_id,
+            "user_id": customer_user_id,
             "user_name": request.customer_name
         }).execute()
 
@@ -224,7 +222,7 @@ async def create_conversation(request: CreateConversationRequest):
 
         return {
             "conversation_id": conversation_id,
-            "customer_id": customer_id,
+            "customer_id": customer_user_id,
             "status": "created"
         }
 
