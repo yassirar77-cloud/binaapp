@@ -1781,19 +1781,20 @@ function handleContactSubmit(e) {{
             const total = subtotal + deliveryFeeAmount;
 
             // Build order payload for backend API
+            // IMPORTANT: All string fields must be strings (not null) to pass Pydantic validation
             const orderPayload = {{
                 website_id: WEBSITE_ID,
                 customer_name: customerName,
                 customer_phone: customerPhone,
-                customer_email: null,
+                customer_email: "",
                 delivery_address: customerAddress,
-                delivery_notes: customerNotes || null,
-                delivery_zone_id: deliverySelectedZone ? deliverySelectedZone.id : null,
+                delivery_notes: customerNotes || "",
+                delivery_zone_id: deliverySelectedZone ? String(deliverySelectedZone.id) : null,
                 items: deliveryCart.map(item => ({{
-                    menu_item_id: item.id,
+                    menu_item_id: String(item.id),
                     quantity: item.qty,
                     options: {{}},
-                    notes: null
+                    notes: ""
                 }})),
                 payment_method: selectedPaymentMethod === 'qr' ? 'online' : 'cod'
             }};
