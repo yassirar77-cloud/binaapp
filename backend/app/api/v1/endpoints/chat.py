@@ -211,12 +211,13 @@ async def create_conversation(request: CreateConversationRequest):
             "participant_phone": None
         }).execute()
 
-        # Add system welcome message
+        # Add system welcome message - ONLY use columns that exist in database
+        # Schema: id, conversation_id, sender_type, message, is_read, created_at
         supabase.table("chat_messages").insert({
             "conversation_id": conversation_id,
             "sender_type": "system",
-            "message_type": "status",
-            "content": "Perbualan dimulakan. Pemilik kedai akan membalas sebentar lagi."
+            "message": "Perbualan dimulakan. Pemilik kedai akan membalas sebentar lagi.",
+            "is_read": False
         }).execute()
 
         logger.info(f"[Chat] Created conversation {conversation_id} for website {request.website_id}")
@@ -285,8 +286,9 @@ async def get_website_conversations(website_id: str, status: str = None):
         # Fetch last message for each conversation separately
         for conv in conversations:
             try:
+                # Database column is "message" not "content"
                 messages = supabase.table("chat_messages").select(
-                    "id, content, sender_type, created_at"
+                    "id, message, sender_type, created_at"
                 ).eq("conversation_id", conv["id"]).order(
                     "created_at", desc=True
                 ).limit(10).execute()
@@ -332,17 +334,16 @@ async def send_message(request: SendMessageRequest):
 
         message_id = str(uuid.uuid4())
 
-        # Save message to database
+        # Database schema: id, conversation_id, sender_type, message, is_read, created_at
+        # Map request.content to message field
+        message_text = request.content or ""
+
+        # Save message to database - ONLY use columns that exist
         message_data = {
             "id": message_id,
             "conversation_id": request.conversation_id,
             "sender_type": request.sender_type,
-            "sender_id": request.sender_id,
-            "sender_name": request.sender_name,
-            "message_type": request.message_type,
-            "content": request.content,
-            "media_url": request.media_url,
-            "metadata": request.metadata,
+            "message": message_text,
             "is_read": False
         }
 
@@ -352,6 +353,14 @@ async def send_message(request: SendMessageRequest):
         msg_result = supabase.table("chat_messages").select("created_at").eq("id", message_id).single().execute()
         if msg_result.data:
             message_data["created_at"] = msg_result.data["created_at"]
+
+        # Add extra fields for WebSocket broadcast (not in DB, just for UI)
+        message_data["sender_id"] = request.sender_id
+        message_data["sender_name"] = request.sender_name
+        message_data["message_type"] = request.message_type
+        message_data["content"] = message_text  # Duplicate for backwards compatibility
+        message_data["media_url"] = request.media_url
+        message_data["metadata"] = request.metadata
 
         # Broadcast to WebSocket clients
         await manager.send_to_conversation(
@@ -584,12 +593,13 @@ async def close_conversation(conversation_id: str):
             "status": "closed"
         }).eq("id", conversation_id).execute()
 
-        # Send system message
+        # Send system message - ONLY use columns that exist in database
+        # Schema: id, conversation_id, sender_type, message, is_read, created_at
         supabase.table("chat_messages").insert({
             "conversation_id": conversation_id,
             "sender_type": "system",
-            "message_type": "status",
-            "content": "Perbualan telah ditutup."
+            "message": "Perbualan telah ditutup.",
+            "is_read": False
         }).execute()
 
         # Notify via WebSocket
@@ -624,12 +634,13 @@ async def add_rider_to_conversation(conversation_id: str, rider_id: str, rider_n
             "participant_phone": None  # Rider phone could be added later if needed
         }).execute()
 
-        # Send system message
+        # Send system message - ONLY use columns that exist in database
+        # Schema: id, conversation_id, sender_type, message, is_read, created_at
         supabase.table("chat_messages").insert({
             "conversation_id": conversation_id,
             "sender_type": "system",
-            "message_type": "status",
-            "content": f"Rider {rider_name} telah ditugaskan untuk penghantaran ini."
+            "message": f"Rider {rider_name} telah ditugaskan untuk penghantaran ini.",
+            "is_read": False
         }).execute()
 
         # Notify via WebSocket

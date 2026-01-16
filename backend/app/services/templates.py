@@ -2621,16 +2621,16 @@ function handleContactSubmit(e) {{
             else:
                 whatsapp_clean = '+60' + whatsapp_clean
 
-        # Simple delivery button link (replaces complex widget)
+        # Inject actual widget script with data-website-id attribute
+        # The widget will auto-initialize from these data attributes
         delivery_button = f'''
-<!-- BinaApp Standalone Delivery Page Link -->
-<a href="https://binaapp.my/delivery/{website_id}"
-   target="_blank"
-   style="position:fixed;bottom:24px;left:24px;background:linear-gradient(135deg,#f97316,#ea580c);color:white;padding:16px 24px;border-radius:50px;font-weight:600;z-index:9999;display:flex;align-items:center;gap:8px;text-decoration:none;font-family:sans-serif;box-shadow:0 4px 20px rgba(234,88,12,0.4);transition:transform 0.2s,box-shadow 0.2s;"
-   onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 25px rgba(234,88,12,0.5)';"
-   onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 20px rgba(234,88,12,0.4)';">
-    {button_label}
-</a>'''
+<!-- BinaApp Delivery Widget Script -->
+<script src="https://binaapp-backend.onrender.com/static/widgets/delivery-widget.js"
+        data-website-id="{website_id}"
+        data-api-url="https://binaapp-backend.onrender.com/api/v1"
+        data-primary-color="{primary_color}"
+        data-business-type="{business_type or 'food'}"
+        data-language="{language}"></script>'''
 
         # Inject before </body>
         if "</body>" in html:
