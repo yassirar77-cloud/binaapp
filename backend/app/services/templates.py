@@ -1780,29 +1780,33 @@ function handleContactSubmit(e) {{
             const subtotal = deliveryCart.reduce((sum, item) => sum + (item.price * item.qty), 0);
             const total = subtotal + deliveryFeeAmount;
 
-            // Build order payload for backend API
-            // IMPORTANT: All string fields must be strings (not null) to pass Pydantic validation
+            // Build order payload for simplified /api/delivery/orders endpoint
+            // This endpoint stores items as JSON directly without menu_item_id UUID lookups
             const orderPayload = {{
                 website_id: WEBSITE_ID,
                 customer_name: customerName,
                 customer_phone: customerPhone,
-                customer_email: "",
                 delivery_address: customerAddress,
-                delivery_notes: customerNotes || "",
-                delivery_zone_id: deliverySelectedZone ? String(deliverySelectedZone.id) : null,
+                delivery_area: deliverySelectedZone ? deliverySelectedZone.name : "",
+                notes: customerNotes || "",
+                delivery_zone_id: deliverySelectedZone ? String(deliverySelectedZone.id) : "",
                 items: deliveryCart.map(item => ({{
-                    menu_item_id: String(item.id),
-                    quantity: item.qty,
-                    options: {{}},
-                    notes: ""
+                    name: item.name,
+                    price: item.price,
+                    quantity: item.qty
                 }})),
+                subtotal: subtotal,
+                delivery_fee: deliveryFeeAmount,
+                total_amount: total,
                 payment_method: selectedPaymentMethod === 'qr' ? 'online' : 'cod'
             }};
 
             console.log('[BinaApp] Creating order via backend API...', orderPayload);
 
-            // Create order in backend
-            const response = await fetch(API_URL + '/delivery/orders', {{
+            // Create order in backend - use simplified endpoint that doesn't require UUID lookups
+            // /api/delivery/orders (not /api/v1/delivery/orders) stores items as JSON directly
+            const simpleApiUrl = API_URL.replace('/api/v1', '/api');
+            const response = await fetch(simpleApiUrl + '/delivery/orders', {{
                 method: 'POST',
                 headers: {{ 'Content-Type': 'application/json' }},
                 body: JSON.stringify(orderPayload)
