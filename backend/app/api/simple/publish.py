@@ -311,6 +311,10 @@ async def publish_website(request: PublishRequest):
         project_id = str(uuid.uuid4())
         logger.info(f"✓ Generated project ID: {project_id}")
 
+        # CRITICAL FIX: Replace any wrong website_id in HTML with the correct project_id
+        # This fixes the bug where generate.py creates a random UUID that doesn't match database
+        html_content = fix_website_id_in_html(html_content, project_id)
+
         # CRITICAL FIX: Inject delivery widget with dynamic label based on business type
         html_content = inject_delivery_widget_if_needed(
             html_content,
@@ -402,14 +406,44 @@ async def publish_website(request: PublishRequest):
         )
 
 
+def fix_website_id_in_html(html: str, correct_website_id: str) -> str:
+    """
+    CRITICAL FIX: Replace any incorrect website_id in HTML with the correct one.
+
+    This ensures the data-website-id attribute matches the actual database website ID.
+    The delivery widget reads from data-website-id, so it must be correct.
+    """
+    # Pattern to match data-website-id="..." with any UUID or value
+    # This catches: data-website-id="99ff9cae-418d-4f29-a2ec-e5a36f2209a8"
+    pattern = r'data-website-id="[^"]*"'
+    replacement = f'data-website-id="{correct_website_id}"'
+
+    # Replace all occurrences
+    fixed_html = re.sub(pattern, replacement, html)
+
+    # Also fix any BinaAppDelivery.init({ websiteId: '...' }) calls
+    init_pattern = r"websiteId:\s*['\"]([^'\"]*)['\"]"
+    init_replacement = f"websiteId: '{correct_website_id}'"
+    fixed_html = re.sub(init_pattern, init_replacement, fixed_html)
+
+    # Also fix delivery button URLs: /delivery/OLD_ID -> /delivery/CORRECT_ID
+    # Pattern: binaapp.my/delivery/UUID
+    delivery_url_pattern = r'binaapp\.my/delivery/[a-f0-9-]+'
+    delivery_url_replacement = f'binaapp.my/delivery/{correct_website_id}'
+    fixed_html = re.sub(delivery_url_pattern, delivery_url_replacement, fixed_html)
+
+    logger.info(f"✅ Fixed all website_id references to: {correct_website_id}")
+    return fixed_html
+
+
 def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: str, description: str = "", language: str = "ms") -> str:
     """ALWAYS inject delivery button - uses dynamic label based on business type"""
     from app.services.business_types import detect_business_type, get_delivery_button_label
-    
+
     # Detect business type from description or business name
     business_type = detect_business_type(description or business_name)
     button_label = get_delivery_button_label(business_type, language)
-    
+
     delivery_button = f'''
 <!-- BinaApp Delivery Button -->
 <a href="https://binaapp.my/delivery/{website_id}"
