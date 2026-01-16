@@ -2344,7 +2344,7 @@
                             ? (this.state.selectedZone ? String(this.state.selectedZone.id) : null)
                             : null,
                         items: this.state.cart.map(item => ({
-                            menu_item_id: item.id,
+                            menu_item_id: String(item.id),
                             quantity: item.quantity,
                             options: {
                                 size: (item.size || '').toString(),
