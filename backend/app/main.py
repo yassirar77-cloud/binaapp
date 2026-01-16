@@ -2735,13 +2735,13 @@ async def create_delivery_order(request: Request):
         if not customer_id:
             customer_id = generate_customer_id(customer_phone)
 
-        # Build order data
+        # Build order data - only include columns that exist in schema
+        # Note: customer_id removed due to PGRST204 schema cache issue
         order_data = {
             "order_number": order_number,
             "website_id": safe_string(body.get("website_id")),
             "customer_name": customer_name,
             "customer_phone": customer_phone,
-            "customer_id": customer_id,
             "delivery_address": delivery_address,
             "delivery_area": safe_string(body.get("delivery_area")),
             "items": items if isinstance(items, list) else [],  # JSONB column - pass list directly, not json.dumps
@@ -2750,10 +2750,7 @@ async def create_delivery_order(request: Request):
             "delivery_fee": safe_float(body.get("delivery_fee")),
             "total_amount": safe_float(body.get("total_amount")),
             "payment_method": safe_string(body.get("payment_method"), "cash"),
-            "delivery_zone_id": safe_string(body.get("delivery_zone_id")),
-            "status": "pending",
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
+            "status": "pending"
         }
 
         logger.info(f"📦 [Delivery] Creating order: {order_number}")
@@ -2765,22 +2762,19 @@ async def create_delivery_order(request: Request):
             logger.info(f"✅ [Delivery] Order created: {order_number}")
 
             # Optionally create a chat conversation for this order
-            try:
-                chat_data = {
-                    "website_id": order_data["website_id"],
-                    "order_id": order_number,
-                    "customer_name": customer_name,
-                    "customer_phone": customer_phone,
-                    "customer_id": customer_id,
-                    "status": "active",
-                    "created_at": datetime.now().isoformat(),
-                    "updated_at": datetime.now().isoformat()
-                }
-                supabase.table("chat_conversations").insert(chat_data).execute()
-                logger.info(f"✅ [Delivery] Chat conversation created for order: {order_number}")
-            except Exception as chat_error:
-                # Chat creation is optional, don't fail the order
-                logger.warning(f"⚠️ [Delivery] Chat creation failed (non-critical): {chat_error}")
+            # Skip chat creation to avoid schema cache issues - can be added later
+            # try:
+            #     chat_data = {
+            #         "website_id": order_data["website_id"],
+            #         "order_id": order_number,
+            #         "customer_name": customer_name,
+            #         "customer_phone": customer_phone,
+            #         "status": "active"
+            #     }
+            #     supabase.table("chat_conversations").insert(chat_data).execute()
+            #     logger.info(f"✅ [Delivery] Chat conversation created for order: {order_number}")
+            # except Exception as chat_error:
+            #     logger.warning(f"⚠️ [Delivery] Chat creation failed (non-critical): {chat_error}")
 
             return {
                 "success": True,
