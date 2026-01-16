@@ -268,9 +268,55 @@ async def get_conversation(conversation_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/conversations")
+async def get_conversations(website_ids: str = None, status: str = None):
+    """Get conversations filtered by website_ids (comma-separated) or all if none provided"""
+    try:
+        supabase = get_supabase()
+
+        # Get conversations without nested query to avoid JOIN issues
+        query = supabase.table("chat_conversations").select("*")
+
+        # Filter by multiple website_ids if provided
+        if website_ids:
+            ids_list = [id.strip() for id in website_ids.split(',') if id.strip()]
+            if ids_list:
+                query = query.in_("website_id", ids_list)
+                logger.info(f"[Chat] Filtering conversations by website_ids: {ids_list}")
+
+        if status:
+            query = query.eq("status", status)
+
+        result = query.order("updated_at", desc=True).execute()
+        conversations = result.data or []
+
+        # Fetch last message for each conversation separately
+        for conv in conversations:
+            try:
+                # Database column is "message" not "content"
+                messages = supabase.table("chat_messages").select(
+                    "id, message, sender_type, created_at"
+                ).eq("conversation_id", conv["id"]).order(
+                    "created_at", desc=True
+                ).limit(10).execute()
+
+                # Reverse to get chronological order
+                conv["chat_messages"] = list(reversed(messages.data or []))
+            except Exception as msg_err:
+                logger.warning(f"[Chat] Failed to fetch messages for conversation {conv['id']}: {msg_err}")
+                conv["chat_messages"] = []
+
+        logger.info(f"[Chat] Retrieved {len(conversations)} conversations")
+        return {"conversations": conversations}
+
+    except Exception as e:
+        logger.error(f"[Chat] Failed to get conversations: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to load conversations: {str(e)}")
+
+
 @router.get("/conversations/website/{website_id}")
 async def get_website_conversations(website_id: str, status: str = None):
-    """Get all conversations for a website (owner dashboard)"""
+    """Get all conversations for a single website (owner dashboard) - DEPRECATED: Use /conversations?website_ids=ID instead"""
     try:
         supabase = get_supabase()
 
@@ -335,8 +381,12 @@ async def send_message(request: SendMessageRequest):
         message_id = str(uuid.uuid4())
 
         # Database schema: id, conversation_id, sender_type, message, is_read, created_at
-        # Map request.content to message field
-        message_text = request.content or ""
+        # Map request.content to message field with proper validation
+        message_text = (request.content or "").strip()
+
+        # Validate message is not empty (database has NOT NULL constraint)
+        if not message_text:
+            message_text = "Mesej kosong"  # Fallback to prevent NULL constraint violation
 
         # Save message to database - ONLY use columns that exist
         message_data = {

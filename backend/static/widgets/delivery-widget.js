@@ -2752,10 +2752,23 @@
     };
     // Auto-initialize from data attributes if present
     (function autoInit() {
+        // PRIORITY ORDER for website_id:
+        // 1. window.BINAAPP_WEBSITE_ID (set by server)
+        // 2. data-website-id attribute on script tag
+        // 3. data-website-id on #binaapp-widget-container div
+        // 4. Fetch from backend by domain (fallback)
+
+        let websiteId = window.BINAAPP_WEBSITE_ID
+            || document.getElementById('binaapp-widget-container')?.dataset?.websiteId
+            || null;
+
         const currentScript = document.currentScript || document.querySelector('script[data-website-id]');
 
+        if (!websiteId && currentScript) {
+            websiteId = currentScript.getAttribute('data-website-id');
+        }
+
         if (currentScript) {
-            const websiteId = currentScript.getAttribute('data-website-id');
             const apiUrl = currentScript.getAttribute('data-api-url');
             const primaryColor = currentScript.getAttribute('data-primary-color');
             const language = currentScript.getAttribute('data-language');

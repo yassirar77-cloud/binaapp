@@ -7,8 +7,10 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse
 import httpx
 from loguru import logger
+import re
 
 from app.core.config import settings
+from app.core.database import get_supabase
 
 
 async def get_subdomain(request: Request) -> str | None:
@@ -50,33 +52,84 @@ async def subdomain_middleware(request: Request, call_next):
         logger.info(f"Subdomain request detected: {subdomain}")
 
         try:
-            # Try to fetch HTML from Supabase storage
+            # STEP 1: Get correct website_id from database
+            supabase = get_supabase()
+            website_result = supabase.table("websites").select("id, business_type, language").eq("subdomain", subdomain).single().execute()
+
+            if not website_result.data:
+                logger.warning(f"Website not found in database for subdomain: {subdomain}")
+                # Continue to storage check below
+                website_id = None
+            else:
+                website_id = str(website_result.data["id"])
+                business_type = website_result.data.get("business_type", "food")
+                language = website_result.data.get("language", "ms")
+                logger.info(f"Found website_id {website_id} for subdomain {subdomain}")
+
+            # STEP 2: Try to fetch HTML from Supabase storage
             # First try: subdomain/index.html (new structure)
             storage_url = f"{settings.SUPABASE_URL}/storage/v1/object/public/{settings.STORAGE_BUCKET_NAME}/{subdomain}/index.html"
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(storage_url, timeout=10.0)
+                html_content = None
 
                 if response.status_code == 200:
-                    logger.info(f"Serving website for subdomain: {subdomain}")
+                    html_content = response.text
+                    logger.info(f"Fetched HTML from storage for subdomain: {subdomain}")
+                else:
+                    # Second try: search in user folders (legacy structure)
+                    legacy_url = f"{settings.SUPABASE_URL}/storage/v1/object/public/{settings.STORAGE_BUCKET_NAME}/demo-user/{subdomain}/index.html"
+                    response = await client.get(legacy_url, timeout=10.0)
+
+                    if response.status_code == 200:
+                        html_content = response.text
+                        logger.info(f"Fetched HTML from legacy storage for subdomain: {subdomain}")
+
+                # STEP 3: If we have HTML and website_id, inject correct widget scripts
+                if html_content and website_id:
+                    # Remove any existing widget scripts (they might have wrong website_id)
+                    html_content = re.sub(r'<script[^>]*delivery-widget\.js[^>]*>.*?</script>', '', html_content, flags=re.DOTALL)
+                    html_content = re.sub(r'<script[^>]*chat-widget\.js[^>]*>.*?</script>', '', html_content, flags=re.DOTALL)
+                    html_content = re.sub(r'<div[^>]*binaapp-widget-container[^>]*>.*?</div>', '', html_content, flags=re.DOTALL)
+                    html_content = re.sub(r'<script>window\.BINAAPP_WEBSITE_ID\s*=\s*["\'][^"\']*["\'];?</script>', '', html_content, flags=re.DOTALL)
+
+                    # Inject correct widget scripts with proper website_id
+                    widget_injection = f'''
+<!-- BinaApp Widgets - Auto-injected with correct website_id -->
+<div id="binaapp-widget-container" data-website-id="{website_id}"></div>
+<script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>
+<script src="https://binaapp-backend.onrender.com/static/widgets/delivery-widget.js"
+        data-website-id="{website_id}"
+        data-api-url="https://binaapp-backend.onrender.com/api/v1"
+        data-primary-color="#ea580c"
+        data-business-type="{business_type if website_id else 'food'}"
+        data-language="{language if website_id else 'ms'}"></script>
+<script src="https://binaapp-backend.onrender.com/static/widgets/chat-widget.js"
+        data-website-id="{website_id}"
+        data-api-url="https://binaapp-backend.onrender.com/api/v1"></script>
+'''
+
+                    # Inject before </body> or at end
+                    if "</body>" in html_content:
+                        html_content = html_content.replace("</body>", widget_injection + "\n</body>")
+                    else:
+                        html_content += widget_injection
+
+                    logger.info(f"✅ Injected widgets with website_id {website_id} for subdomain {subdomain}")
+
                     return HTMLResponse(
-                        content=response.text,
+                        content=html_content,
                         status_code=200,
                         headers={
                             "Content-Type": "text/html; charset=utf-8",
-                            "Cache-Control": "public, max-age=3600"
+                            "Cache-Control": "public, max-age=300"  # 5 min cache
                         }
                     )
-
-                # Second try: search in user folders (legacy structure)
-                # This searches for demo-user/{subdomain}/index.html pattern
-                legacy_url = f"{settings.SUPABASE_URL}/storage/v1/object/public/{settings.STORAGE_BUCKET_NAME}/demo-user/{subdomain}/index.html"
-                response = await client.get(legacy_url, timeout=10.0)
-
-                if response.status_code == 200:
-                    logger.info(f"Serving legacy website for subdomain: {subdomain}")
+                elif html_content:
+                    # Have HTML but no website_id - serve as-is
                     return HTMLResponse(
-                        content=response.text,
+                        content=html_content,
                         status_code=200,
                         headers={
                             "Content-Type": "text/html; charset=utf-8",

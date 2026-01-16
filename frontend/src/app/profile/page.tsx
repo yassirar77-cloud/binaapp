@@ -1488,7 +1488,7 @@ export default function ProfilePage() {
                     <div className={`${showChatList ? 'flex' : 'hidden'} md:flex w-full md:w-80 border-r bg-gray-50 flex-shrink-0`}>
                       {websites.length > 0 && (
                         <ChatList
-                          websiteId={websites[0].id}
+                          websiteIds={websites.map(w => w.id)}
                           onSelectConversation={(conversationId: string, orderId?: string) => {
                             setSelectedConversationId(conversationId)
                             setSelectedOrderId(orderId)

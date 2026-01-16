@@ -14,14 +14,24 @@
   // CONFIGURATION
   // =====================================================
 
-  const websiteId = document.currentScript.getAttribute('data-website-id');
-  const API_URL = document.currentScript.getAttribute('data-api-url') || 'https://binaapp-backend.onrender.com';
+  // PRIORITY ORDER for website_id:
+  // 1. window.BINAAPP_WEBSITE_ID (set by server)
+  // 2. data-website-id attribute on script tag
+  // 3. data-website-id on #binaapp-widget-container div
+  const websiteId = window.BINAAPP_WEBSITE_ID
+      || document.currentScript?.getAttribute('data-website-id')
+      || document.getElementById('binaapp-widget-container')?.dataset?.websiteId
+      || null;
+
+  const API_URL = document.currentScript?.getAttribute('data-api-url') || 'https://binaapp-backend.onrender.com';
   const WIDGET_ID = 'binaapp-chat-widget';
 
   if (!websiteId) {
-    console.error('[BinaApp Chat] Missing data-website-id attribute');
+    console.error('[BinaApp Chat] Missing website_id - checked window.BINAAPP_WEBSITE_ID, data-website-id, and container');
     return;
   }
+
+  console.log('[BinaApp Chat] Initialized with website_id:', websiteId);
 
   // Storage keys
   const STORAGE_CONV_KEY = 'binaapp_conv_' + websiteId;
@@ -50,10 +60,10 @@
 
     #binaapp-chat-btn {
       position: fixed;
-      bottom: 20px;
+      bottom: 90px;
       left: 20px;
-      width: 60px;
-      height: 60px;
+      width: 50px;
+      height: 50px;
       background: linear-gradient(135deg, #ea580c, #f97316);
       border-radius: 50%;
       display: flex;
@@ -61,8 +71,8 @@
       justify-content: center;
       cursor: pointer;
       box-shadow: 0 4px 12px rgba(234, 88, 12, 0.4);
-      z-index: 9999;
-      font-size: 28px;
+      z-index: 9998;
+      font-size: 24px;
       transition: transform 0.3s ease, box-shadow 0.3s ease;
       border: none;
       outline: none;
@@ -99,12 +109,12 @@
     #binaapp-chat-window {
       display: none;
       position: fixed;
-      bottom: 90px;
+      bottom: 150px;
       left: 20px;
       width: 350px;
       max-width: calc(100vw - 40px);
-      height: 500px;
-      max-height: calc(100vh - 120px);
+      height: 450px;
+      max-height: calc(100vh - 180px);
       background: white;
       border-radius: 16px;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
@@ -340,7 +350,17 @@
       }
 
       #binaapp-chat-btn {
-        bottom: 16px;
+        bottom: 90px;
+        left: 16px;
+        width: 48px;
+        height: 48px;
+        font-size: 22px;
+      }
+
+      #binaapp-chat-window {
+        width: calc(100vw - 32px);
+        height: 400px;
+        bottom: 150px;
         left: 16px;
       }
     }
@@ -651,7 +671,14 @@
     const msgInput = document.getElementById('binaapp-msg-input');
     const message = msgInput ? msgInput.value.trim() : '';
 
-    if (!message || isLoading) return;
+    // Validate message is not empty
+    if (!message) {
+      alert('Sila taip mesej');
+      if (msgInput) msgInput.focus();
+      return;
+    }
+
+    if (isLoading) return;
 
     setLoading(true);
     msgInput.value = '';
