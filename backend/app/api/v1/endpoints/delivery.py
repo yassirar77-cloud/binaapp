@@ -205,12 +205,13 @@ async def send_system_message(supabase: Client, conversation_id: str, content: s
     """Send a system message to a conversation"""
     try:
         import uuid
+        # Database schema: id, conversation_id, sender_type, message, is_read, created_at
         supabase.table("chat_messages").insert({
             "id": str(uuid.uuid4()),
             "conversation_id": conversation_id,
             "sender_type": "system",
-            "message_type": "status",
-            "content": content
+            "message": content,  # Column is "message" not "content"
+            "is_read": False
         }).execute()
     except Exception as e:
         logger.error(f"[Chat] Error sending system message: {e}")

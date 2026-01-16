@@ -437,23 +437,26 @@ def fix_website_id_in_html(html: str, correct_website_id: str) -> str:
 
 
 def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: str, description: str = "", language: str = "ms") -> str:
-    """ALWAYS inject delivery button - uses dynamic label based on business type"""
-    from app.services.business_types import detect_business_type, get_delivery_button_label
+    """ALWAYS inject delivery widget script - auto-initializes with data attributes"""
+    from app.services.business_types import detect_business_type
 
     # Detect business type from description or business name
     business_type = detect_business_type(description or business_name)
-    button_label = get_delivery_button_label(business_type, language)
 
-    delivery_button = f'''
-<!-- BinaApp Delivery Button -->
-<a href="https://binaapp.my/delivery/{website_id}"
-   target="_blank"
-   style="position:fixed;bottom:24px;left:24px;background:linear-gradient(135deg,#f97316,#ea580c);color:white;padding:16px 24px;border-radius:50px;font-weight:600;z-index:9999;text-decoration:none;box-shadow:0 4px 20px rgba(234,88,12,0.4);">
-    {button_label}
-</a>'''
+    # Inject the actual widget script tag with data attributes
+    # The widget JavaScript will auto-initialize from these attributes
+    delivery_widget = f'''
+<!-- BinaApp Delivery Widget Script -->
+<script src="https://binaapp-backend.onrender.com/static/widgets/delivery-widget.js"
+        data-website-id="{website_id}"
+        data-api-url="https://binaapp-backend.onrender.com/api/v1"
+        data-primary-color="#ea580c"
+        data-business-type="{business_type}"
+        data-language="{language}"></script>'''
+
     if "</body>" in html:
-        return html.replace("</body>", delivery_button + "\n</body>")
-    return html + delivery_button
+        return html.replace("</body>", delivery_widget + "\n</body>")
+    return html + delivery_widget
 
 
 def validate_subdomain(subdomain: str) -> bool:
