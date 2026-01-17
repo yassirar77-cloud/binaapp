@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, BackgroundTasks, UploadFile, File
+from fastapi import FastAPI, Request, BackgroundTasks, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -35,6 +35,7 @@ from app.api.v1.endpoints.health import router as health_router
 from app.api.v1.router import api_router as v1_router
 from app.api.chatbot import router as chatbot_router
 from app.services.templates import template_service
+from app.core.security import get_current_user
 
 # Initialize AI service
 ai_service = AIService()
@@ -2286,8 +2287,58 @@ async def get_realtime_analytics(project_id: str):
 
 # ==================== SUBDOMAIN PUBLISHING ENDPOINTS ====================
 
+def fix_website_id_in_html(html: str, correct_website_id: str) -> str:
+    """
+    Ensure all website_id references in HTML use the database record ID.
+    """
+    if not html:
+        return html
+
+    # data-website-id attribute (supports single or double quotes)
+    html = re.sub(
+        r'data-website-id=(["\'])([^"\']*)(["\'])',
+        f'data-website-id="{correct_website_id}"',
+        html
+    )
+
+    # JS initializer: websiteId: '...'
+    html = re.sub(
+        r"websiteId:\s*['\"]([^'\"]*)['\"]",
+        f"websiteId: '{correct_website_id}'",
+        html
+    )
+
+    # Delivery URL: binaapp.my/delivery/{id}
+    html = re.sub(
+        r'binaapp\.my/delivery/[a-f0-9-]+',
+        f'binaapp.my/delivery/{correct_website_id}',
+        html
+    )
+
+    # Inline ordering system constant
+    html = re.sub(
+        r"const WEBSITE_ID = ['\"]([^'\"]*)['\"]",
+        f"const WEBSITE_ID = '{correct_website_id}'",
+        html
+    )
+
+    # Optional global injection if present
+    html = re.sub(
+        r'window\.BINAAPP_WEBSITE_ID\s*=\s*["\'][^"\']*["\']',
+        f'window.BINAAPP_WEBSITE_ID = "{correct_website_id}"',
+        html
+    )
+
+    # Placeholder replacement if any
+    html = html.replace("{{WEBSITE_ID}}", correct_website_id)
+
+    return html
+
 @app.post("/api/publish")
-async def publish_website(request: Request):
+async def publish_website(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
     """
     Publish website to subdomain - STORAGE ONLY (NO DATABASE)
 
@@ -2329,13 +2380,16 @@ async def publish_website(request: Request):
     subdomain = (body.get("subdomain") or "").lower().strip()
     project_name = body.get("project_name") or body.get("name") or subdomain
     website_id = body.get("website_id")  # Optional: caller can provide stable UUID
-    user_id = body.get("user_id") or "anonymous"
+    user_id = current_user.get("sub") or current_user.get("id")
     features = body.get("features") or {}
     delivery = body.get("delivery") or None
     menu_items_payload = body.get("menu_items") or []
 
     logger.info(f"📤 Subdomain: {subdomain}, Name: {project_name}")
     logger.info(f"📤 HTML length: {len(html_content)} chars")
+
+    if not user_id:
+        return JSONResponse(status_code=401, content={"success": False, "error": "Unauthorized"})
 
     # Validate inputs
     if not html_content:
@@ -2353,6 +2407,20 @@ async def publish_website(request: Request):
         # Ensure we have a stable website UUID for delivery widget + DB rows
         if not website_id:
             website_id = str(uuid.uuid4())
+
+        # Prevent ID collisions across users
+        if supabase:
+            existing = supabase.table("websites").select("id, user_id").eq("id", website_id).limit(1).execute()
+            if existing.data:
+                existing_owner = existing.data[0].get("user_id")
+                if existing_owner and existing_owner != user_id:
+                    return JSONResponse(
+                        status_code=403,
+                        content={"success": False, "error": "Website ID belongs to another user"}
+                    )
+
+        # Ensure HTML uses the database record website_id
+        html_content = fix_website_id_in_html(html_content, website_id)
 
         delivery_enabled = bool(features.get("deliverySystem")) or bool(delivery)
 

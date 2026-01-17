@@ -486,8 +486,26 @@ export default function CreatePage() {
       return
     }
 
-    setPublishing(true)
     setError('')
+
+    if (!user) {
+      setError('Sila log masuk untuk menerbitkan website')
+      return
+    }
+
+    if (!supabase) {
+      setError('Supabase tidak tersedia. Sila cuba lagi.')
+      return
+    }
+
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError || !session?.access_token) {
+      setError('Sila log masuk semula untuk menerbitkan website')
+      return
+    }
+
+    const accessToken = session.access_token
+    setPublishing(true)
 
     try {
       // Provide backend with stable website id + delivery/menu context (for widget + DB rows)
@@ -508,6 +526,7 @@ export default function CreatePage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           html_content: generatedHtml,
