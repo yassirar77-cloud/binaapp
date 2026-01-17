@@ -3,7 +3,7 @@ BinaApp Chat System - Real-time messaging for delivery orders
 Supports WebSocket for instant messaging between customers, owners, and riders
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File, Form, Depends
 from typing import Dict, List, Optional
 from pydantic import BaseModel
 from datetime import datetime
@@ -13,6 +13,8 @@ import os
 import logging
 import cloudinary
 import cloudinary.uploader
+
+from app.core.security import get_current_user
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -159,15 +161,30 @@ def get_supabase():
 # =====================================================
 
 @router.get("/conversations")
-async def list_conversations():
-    """Get all conversations (returns empty array if none exist)"""
+async def list_conversations(current_user: dict = Depends(get_current_user)):
+    """Get all conversations for the authenticated user's websites"""
     try:
         supabase = get_supabase()
 
-        result = supabase.table("chat_conversations").select("*").order("updated_at", desc=True).execute()
+        # SECURITY: Extract user_id from authenticated token
+        user_id = current_user.get("sub") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found in token")
+
+        # SECURITY: Get only websites owned by this user
+        websites = supabase.table("websites").select("id").eq("user_id", user_id).execute()
+        if not websites.data:
+            return []
+
+        website_ids = [str(w["id"]) for w in websites.data]
+
+        # SECURITY: Filter conversations to only those for user's websites
+        result = supabase.table("chat_conversations").select("*").in_("website_id", website_ids).order("updated_at", desc=True).execute()
 
         return result.data or []
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[Chat] Failed to list conversations: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -324,20 +341,45 @@ async def get_conversation(conversation_id: str):
 
 
 @router.get("/conversations")
-async def get_conversations(website_ids: str = None, status: str = None):
+async def get_conversations(
+    website_ids: str = None,
+    status: str = None,
+    current_user: dict = Depends(get_current_user)
+):
     """Get conversations filtered by website_ids (comma-separated) or all if none provided"""
     try:
         supabase = get_supabase()
 
+        # SECURITY: Extract user_id from authenticated token
+        user_id = current_user.get("sub") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found in token")
+
+        # SECURITY: Get only websites owned by this user
+        user_websites = supabase.table("websites").select("id").eq("user_id", user_id).execute()
+        if not user_websites.data:
+            return {"conversations": []}
+
+        owned_website_ids = [str(w["id"]) for w in user_websites.data]
+
         # Get conversations without nested query to avoid JOIN issues
         query = supabase.table("chat_conversations").select("*")
 
-        # Filter by multiple website_ids if provided
+        # Filter by multiple website_ids if provided, but ONLY if user owns them
         if website_ids:
             ids_list = [id.strip() for id in website_ids.split(',') if id.strip()]
-            if ids_list:
-                query = query.in_("website_id", ids_list)
-                logger.info(f"[Chat] Filtering conversations by website_ids: {ids_list}")
+            # SECURITY: Filter to only websites owned by user
+            allowed_ids = [wid for wid in ids_list if wid in owned_website_ids]
+            if allowed_ids:
+                query = query.in_("website_id", allowed_ids)
+                logger.info(f"[Chat] Filtering conversations by website_ids: {allowed_ids}")
+            else:
+                # User tried to access websites they don't own
+                logger.warning(f"[Chat] User {user_id} attempted to access unauthorized websites: {ids_list}")
+                return {"conversations": []}
+        else:
+            # SECURITY: If no filter specified, only show user's websites
+            query = query.in_("website_id", owned_website_ids)
 
         if status:
             query = query.eq("status", status)
@@ -370,10 +412,28 @@ async def get_conversations(website_ids: str = None, status: str = None):
 
 
 @router.get("/conversations/website/{website_id}")
-async def get_website_conversations(website_id: str, status: str = None):
+async def get_website_conversations(
+    website_id: str,
+    status: str = None,
+    current_user: dict = Depends(get_current_user)
+):
     """Get all conversations for a single website (owner dashboard) - DEPRECATED: Use /conversations?website_ids=ID instead"""
     try:
         supabase = get_supabase()
+
+        # SECURITY: Extract user_id from authenticated token
+        user_id = current_user.get("sub") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found in token")
+
+        # SECURITY: Verify user owns this website
+        website_check = supabase.table("websites").select("id").eq("id", website_id).eq("user_id", user_id).execute()
+        if not website_check.data:
+            logger.warning(f"[Chat] User {user_id} attempted to access unauthorized website: {website_id}")
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: You don't own this website"
+            )
 
         # Get conversations without nested query to avoid JOIN issues
         query = supabase.table("chat_conversations").select("*").eq("website_id", website_id)

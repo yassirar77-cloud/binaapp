@@ -18,10 +18,10 @@ from app.models.schemas import (
     WebsiteStatus
 )
 from app.services.supabase_client import supabase_service
+from app.core.security import get_current_user
 from app.services.ai_service import ai_service
 from app.services.storage_service import storage_service
 from app.services.templates import TemplateService
-from app.core.security import get_current_user
 from app.core.config import settings
 
 router = APIRouter()
@@ -333,7 +333,10 @@ async def publish_website(
 
 
 @router.post("/{website_id}/fix-widget")
-async def fix_website_widget(website_id: str):
+async def fix_website_widget(
+    website_id: str,
+    current_user: dict = Depends(get_current_user)
+):
     """
     Fix existing website HTML to add data-website-id to delivery widget script tag
     This is a maintenance endpoint to update websites created before the fix
@@ -341,7 +344,12 @@ async def fix_website_widget(website_id: str):
     try:
         import re
 
-        logger.info(f"Fixing widget for website: {website_id}")
+        # SECURITY: Extract user_id from authenticated token
+        user_id = current_user.get("sub") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found in token")
+
+        logger.info(f"User {user_id} fixing widget for website: {website_id}")
 
         # Get website
         website = await supabase_service.get_website(website_id)
@@ -350,6 +358,14 @@ async def fix_website_widget(website_id: str):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Website not found"
+            )
+
+        # SECURITY: Verify user owns this website
+        if website.get('user_id') != user_id:
+            logger.warning(f"User {user_id} attempted to modify unauthorized website: {website_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You don't own this website"
             )
 
         html_content = website.get('html_content', '')
