@@ -7,9 +7,8 @@ import { supabase } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import dynamic from 'next/dynamic'
 
-// Dynamically import chat components to avoid SSR issues
-const ChatList = dynamic(() => import('@/components/ChatList'), { ssr: false })
-const BinaChat = dynamic(() => import('@/components/BinaChat'), { ssr: false })
+// Dynamically import chat dashboard to avoid SSR issues
+const OwnerChatDashboard = dynamic(() => import('@/components/OwnerChatDashboard'), { ssr: false })
 
 export default function ProfilePage() {
   const router = useRouter()
@@ -24,10 +23,7 @@ export default function ProfilePage() {
   const [riders, setRiders] = useState<any[]>([])
   const [activeTab, setActiveTab] = useState<'websites' | 'orders' | 'riders' | 'chat'>('websites')
   const [loadingOrders, setLoadingOrders] = useState(false)
-  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
-  const [selectedOrderId, setSelectedOrderId] = useState<string | undefined>(undefined)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [showChatList, setShowChatList] = useState(true)
   const [chatEnabled, setChatEnabled] = useState(true) // Default to true - API is working
   const [chatLoading, setChatLoading] = useState(true)
   const [showAddRider, setShowAddRider] = useState(false)
@@ -97,11 +93,17 @@ export default function ProfilePage() {
     try {
       setChatLoading(true)
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
-      const response = await fetch(`${apiUrl}/api/v1/chat/conversations`, {
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      })
+      const session = supabase ? await supabase.auth.getSession() : null
+      const accessToken = session?.data.session?.access_token
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+      }
+      if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`
+      }
+
+      const response = await fetch(`${apiUrl}/api/v1/chat/conversations`, { headers })
 
       if (response.ok) {
         setChatEnabled(true) // API works = chat enabled
@@ -1458,77 +1460,12 @@ export default function ProfilePage() {
                       ✨ Bina Website Sekarang
                     </Link>
                   </div>
-                ) : (
-                  <div className="flex flex-col md:flex-row h-[calc(100vh-300px)] md:h-[600px] max-h-[800px] border rounded-lg overflow-hidden bg-white">
-                    {/* Mobile: Toggle Chat List Button */}
-                    <div className="md:hidden bg-gray-100 p-2 border-b">
-                      <button
-                        onClick={() => setShowChatList(!showChatList)}
-                        className="w-full py-2 px-4 bg-orange-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 min-h-[44px]"
-                      >
-                        {showChatList ? (
-                          <>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                            </svg>
-                            Senarai Perbualan
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                            </svg>
-                            Kembali ke Senarai
-                          </>
-                        )}
-                      </button>
-                    </div>
-
-                    {/* Chat List - Left Panel */}
-                    <div className={`${showChatList ? 'flex' : 'hidden'} md:flex w-full md:w-80 border-r bg-gray-50 flex-shrink-0`}>
-                      {websites.length > 0 && (
-                        <ChatList
-                          websiteIds={websites.map(w => w.id)}
-                          onSelectConversation={(conversationId: string, orderId?: string) => {
-                            setSelectedConversationId(conversationId)
-                            setSelectedOrderId(orderId)
-                            // On mobile, hide chat list when conversation is selected
-                            if (window.innerWidth < 768) {
-                              setShowChatList(false)
-                            }
-                          }}
-                          selectedConversationId={selectedConversationId || undefined}
-                          className="h-full w-full"
-                        />
-                      )}
-                    </div>
-
-                    {/* Chat Area - Right Panel */}
-                    <div className={`${!showChatList ? 'flex' : 'hidden'} md:flex flex-1 bg-white`}>
-                      {selectedConversationId && websites.length > 0 ? (
-                        <BinaChat
-                          conversationId={selectedConversationId}
-                          userType="owner"
-                          userId={websites[0].id}
-                          userName={profile.business_name || profile.full_name || 'Pemilik Kedai'}
-                          orderId={selectedOrderId}
-                          showMap={true}
-                          className="h-full w-full"
-                        />
-                      ) : (
-                        <div className="h-full flex items-center justify-center text-gray-500 w-full">
-                          <div className="text-center p-4 max-w-md">
-                            <div className="text-4xl md:text-6xl mb-4">💬</div>
-                            <p className="text-sm md:text-lg font-medium mb-2">Pilih perbualan untuk mula chat</p>
-                            <p className="text-xs md:text-sm text-gray-400">
-                              Pelanggan boleh bertanya soalan melalui butang chat di website anda sebelum membuat pesanan
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
+                ) : chatEnabled ? (
+                  <OwnerChatDashboard
+                    websites={websites}
+                    ownerName={profile.business_name || profile.full_name || 'Pemilik Kedai'}
+                  />
+                ) : null}
               </div>
             )}
           </div>

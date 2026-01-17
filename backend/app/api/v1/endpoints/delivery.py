@@ -196,6 +196,15 @@ async def create_order_conversation(supabase: Client, order_id: str, order_numbe
         logger.info(f"[Chat] SERVER-SIDE UUID generated for conversation: {new_conversation_id}")
         logger.info(f"[Chat] Conversation bound to website_id: {website_id}, order: {order_number}")
 
+        # Fetch website name for display in owner dashboard (optional)
+        website_name = ""
+        try:
+            website_result = supabase.table("websites").select("business_name, name").eq("id", website_id).single().execute()
+            if website_result.data:
+                website_name = website_result.data.get("business_name") or website_result.data.get("name") or ""
+        except Exception as website_error:
+            logger.warning(f"[Chat] Could not load website name for {website_id}: {website_error}")
+
         # Build conversation data - ONLY use columns that exist in chat_conversations table
         # Actual schema: id, order_id, website_id, customer_name, customer_phone, status,
         #               unread_owner, unread_customer, unread_rider, created_at, updated_at
@@ -204,6 +213,7 @@ async def create_order_conversation(supabase: Client, order_id: str, order_numbe
             "id": new_conversation_id,
             "order_id": order_id,
             "website_id": website_id,
+            "website_name": website_name,
             "customer_name": customer_name or "Customer",
             "customer_phone": customer_phone or "",
             "status": "active"
