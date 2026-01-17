@@ -90,6 +90,27 @@ def get_supabase_rls_client(
     return client
 
 
+def get_rider_admin_client(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> Client:
+    """
+    Prefer service-role client for rider admin endpoints.
+    Fallback to RLS client when service role is unavailable.
+    """
+    service_key = (
+        os.getenv("SUPABASE_SERVICE_KEY")
+        or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        or ""
+    )
+
+    if service_key:
+        logger.info("[Rider Admin] Using service role client for rider admin endpoints")
+        return get_supabase_client()
+
+    logger.warning("[Rider Admin] Service role key missing; falling back to RLS client")
+    return get_supabase_rls_client(credentials)
+
+
 # =====================================================
 # UTILITY FUNCTIONS
 # =====================================================
@@ -1183,17 +1204,29 @@ async def assign_rider_to_order(
 @router.get("/admin/websites/{website_id}/riders", response_model=List[RiderResponse])
 async def list_riders(
     website_id: str,
-    supabase: Client = Depends(get_supabase_client),
+    current_user: dict = Depends(get_current_user),
+    supabase: Client = Depends(get_rider_admin_client),
 ):
     """
-    List riders for a website (Admin endpoint - uses service role to bypass RLS).
+    List riders for a website (Admin endpoint).
 
-    CRITICAL FIX: Changed from get_supabase_rls_client to get_supabase_client
-    to ensure riders are always visible after creation. The RLS client was
-    causing riders to disappear because auth.uid() wasn't properly set in
-    the Postgres context, causing the RLS SELECT policy to fail.
+    Uses service role when available and falls back to RLS with user JWT.
+    This keeps riders visible even when the service role key is missing.
     """
     try:
+        user_id = current_user.get("sub") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User ID not found in token")
+
+        website_check = supabase.table("websites").select("id").eq("id", website_id).eq("user_id", user_id).execute()
+        if not website_check.data:
+            logger.warning(f"[Rider LIST] User {user_id} attempted to access riders for unauthorized website: {website_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You don't own this website"
+            )
+
+        logger.info(f"[Rider LIST] user_id={user_id} website_id={website_id}")
         logger.info(f"[Rider LIST] Querying riders for website_id: {website_id}")
 
         resp = supabase.table("riders").select("*").eq("website_id", website_id).order("created_at", desc=True).execute()
@@ -1216,25 +1249,39 @@ async def list_riders(
 async def create_rider(
     website_id: str,
     rider: RiderCreateBusiness,
-    supabase: Client = Depends(get_supabase_client),
+    current_user: dict = Depends(get_current_user),
+    supabase: Client = Depends(get_rider_admin_client),
 ):
     """
-    Create a rider for a website (Admin endpoint - uses service role to bypass RLS).
+    Create a rider for a website (Admin endpoint).
 
-    CRITICAL FIX: Changed from get_supabase_rls_client to get_supabase_client
-    to ensure riders are properly created and immediately visible. This matches
-    the list_riders endpoint which also uses the admin client.
+    Uses service role when available and falls back to RLS with user JWT.
+    This keeps rider creation working even when the service role key is missing.
     """
     try:
+        user_id = current_user.get("sub") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User ID not found in token")
+
+        website_check = supabase.table("websites").select("id").eq("id", website_id).eq("user_id", user_id).execute()
+        if not website_check.data:
+            logger.warning(f"[Rider CREATE] User {user_id} attempted to create rider for unauthorized website: {website_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You don't own this website"
+            )
+
         logger.info(f"[Rider CREATE] Creating rider for website_id: {website_id}")
+        logger.info(f"[Rider CREATE] user_id={user_id} website_id={website_id}")
         logger.info(f"[Rider CREATE] Rider data: {rider.dict(exclude={'password'})}")
 
         data = rider.dict()
         data["website_id"] = website_id
 
         # Hash password before storing (SECURITY FIX)
-        if "password" in data and data["password"]:
-            data["password"] = hash_password(data["password"])
+        password = data.pop("password", None)
+        if password:
+            data["password_hash"] = hash_password(password)
             logger.info(f"[Rider CREATE] Creating rider with hashed password")
 
         resp = supabase.table("riders").insert(data).execute()
@@ -1292,8 +1339,9 @@ async def update_rider(
             )
 
         # Hash password if provided
-        if "password" in data and data["password"]:
-            data["password"] = hash_password(data["password"])
+        password = data.pop("password", None)
+        if password:
+            data["password_hash"] = hash_password(password)
             logger.info(f"Updating rider {rider_id} with new hashed password")
 
         resp = supabase.table("riders").update(data).eq("id", rider_id).execute()
@@ -1340,7 +1388,6 @@ async def update_rider_status(
 
         # Update rider status
         resp = supabase.table("riders").update({
-            "status": new_status,
             "is_active": new_status == "active"
         }).eq("id", rider_id).execute()
 
@@ -1906,8 +1953,9 @@ async def create_website_rider(
         data["website_id"] = website_id
 
         # Hash password before storing (SECURITY FIX)
-        if "password" in data and data["password"]:
-            data["password"] = hash_password(data["password"])
+        password = data.pop("password", None)
+        if password:
+            data["password_hash"] = hash_password(password)
             logger.info(f"Creating rider with hashed password")
 
         resp = supabase.table("riders").insert(data).execute()
@@ -2735,7 +2783,7 @@ async def rider_login(
 
         # Find rider by phone number
         rider_response = supabase.table("riders").select(
-            "id, name, phone, password, website_id, vehicle_type, vehicle_plate, status"
+            "id, name, phone, password_hash, website_id, vehicle_type, vehicle_plate, is_active"
         ).eq("phone", phone).execute()
 
         if not rider_response.data or len(rider_response.data) == 0:
@@ -2747,14 +2795,14 @@ async def rider_login(
         rider = rider_response.data[0]
 
         # Check if rider is active
-        if rider.get("status") != "active":
+        if rider.get("is_active") is False:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Akaun rider tidak aktif. Sila hubungi pentadbir."
             )
 
         # Verify password using bcrypt (SECURITY FIX)
-        stored_password = rider.get("password", "")
+        stored_password = rider.get("password_hash", "")
         if not verify_password(credentials.password, stored_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -2762,7 +2810,7 @@ async def rider_login(
             )
 
         # Remove password from response
-        rider.pop("password", None)
+        rider.pop("password_hash", None)
 
         logger.info(f"✅ Rider {rider['name']} ({phone}) logged in successfully")
 
