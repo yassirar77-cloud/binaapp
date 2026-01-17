@@ -325,9 +325,10 @@ async def get_conversation(conversation_id: str):
 
         messages_data = messages.data or []
         # Backwards compatibility for clients expecting "content"
+        # Note: Database has content column that may return null, so check for falsy value
         for msg in messages_data:
-            if "content" not in msg:
-                msg["content"] = msg.get("message", "")
+            if not msg.get("content"):
+                msg["content"] = msg.get("message") or msg.get("message_text") or ""
 
         # Get participants
         participants = supabase.table("chat_participants").select("*").eq(
@@ -929,17 +930,22 @@ async def send_chat_message(message: MessageCreate):
         if not result.data:
             raise HTTPException(status_code=500, detail="Failed to send message")
 
+        # Prepare response with content field for BinaChat compatibility
+        response_data = result.data[0]
+        if not response_data.get('content'):
+            response_data['content'] = response_data.get('message') or response_data.get('message_text') or ''
+
         # Broadcast to WebSocket clients if they're connected
         await manager.send_to_conversation(
             message.conversation_id,
             {
                 "type": "new_message",
-                "message": result.data[0]
+                "message": response_data
             }
         )
 
         logger.info(f"[Chat] Message sent in conversation {message.conversation_id}")
-        return result.data[0]
+        return response_data
 
     except HTTPException:
         raise
@@ -964,10 +970,15 @@ async def get_chat_messages(conversation_id: str):
 
         messages = result.data or []
 
-        # Ensure message_text is populated for compatibility
+        # Ensure message_text and content are populated for compatibility
+        # BinaChat uses "content", phone-based chat uses "message_text"
         for msg in messages:
-            if 'message_text' not in msg or not msg['message_text']:
-                msg['message_text'] = msg.get('message', msg.get('content', ''))
+            # Populate message_text for phone-based chat
+            if not msg.get('message_text'):
+                msg['message_text'] = msg.get('message') or msg.get('content') or ''
+            # Populate content for BinaChat component
+            if not msg.get('content'):
+                msg['content'] = msg.get('message') or msg.get('message_text') or ''
 
         logger.info(f"[Chat] Retrieved {len(messages)} messages for conversation {conversation_id}")
         return messages
