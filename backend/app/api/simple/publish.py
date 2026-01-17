@@ -432,6 +432,18 @@ def fix_website_id_in_html(html: str, correct_website_id: str) -> str:
     delivery_url_replacement = f'binaapp.my/delivery/{correct_website_id}'
     fixed_html = re.sub(delivery_url_pattern, delivery_url_replacement, fixed_html)
 
+    # CRITICAL FIX: Replace const WEBSITE_ID = '...' in JavaScript
+    # This pattern is injected by templates.py line 1404 during integration injection
+    const_pattern = r"const WEBSITE_ID = ['\"]([^'\"]*)['\"]"
+    const_replacement = f"const WEBSITE_ID = '{correct_website_id}'"
+    fixed_html = re.sub(const_pattern, const_replacement, fixed_html)
+
+    # Also fix localStorage keys that use the old website_id
+    # Pattern: binaapp_customer_id_{OLD_UUID} or similar
+    # This ensures customer data persists with the correct website_id
+    localstorage_pattern = r"binaapp_customer_(?:id|name|phone)_['\"]?\s*\+\s*WEBSITE_ID"
+    # This pattern doesn't need replacement as it uses the WEBSITE_ID variable
+
     logger.info(f"✅ Fixed all website_id references to: {correct_website_id}")
     return fixed_html
 
