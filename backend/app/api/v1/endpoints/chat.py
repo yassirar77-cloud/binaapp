@@ -135,6 +135,23 @@ class UpdateLocationRequest(BaseModel):
 
 
 # =====================================================
+# PHONE-BASED CHAT MODELS (Simplified)
+# =====================================================
+
+class ConversationCreate(BaseModel):
+    website_id: str
+    customer_name: str
+    customer_phone: str
+
+
+class MessageCreate(BaseModel):
+    conversation_id: str
+    sender_type: str  # 'customer' or 'restaurant'
+    sender_name: str
+    message_text: str
+
+
+# =====================================================
 # HELPER FUNCTIONS
 # =====================================================
 
@@ -816,6 +833,147 @@ async def add_rider_to_conversation(conversation_id: str, rider_id: str, rider_n
 
     except Exception as e:
         logger.error(f"[Chat] Failed to add rider: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =====================================================
+# SIMPLIFIED PHONE-BASED CHAT ENDPOINTS
+# =====================================================
+
+@router.post("/chat/conversations")
+async def create_or_get_phone_conversation(data: ConversationCreate):
+    """
+    Create or get existing conversation for phone number
+    Simple phone-based chat system - no user accounts needed
+    """
+    try:
+        supabase = get_supabase()
+
+        # Validate inputs
+        if not data.website_id or not data.customer_phone:
+            raise HTTPException(
+                status_code=400,
+                detail="website_id and customer_phone are required"
+            )
+
+        # Check if conversation exists for this phone + website
+        existing = supabase.table('chat_conversations')\
+            .select('*')\
+            .eq('website_id', data.website_id)\
+            .eq('customer_phone', data.customer_phone)\
+            .eq('status', 'active')\
+            .execute()
+
+        if existing.data and len(existing.data) > 0:
+            logger.info(f"[Chat] Found existing conversation for phone {data.customer_phone}")
+            return existing.data[0]
+
+        # Create new conversation
+        conversation_id = str(uuid.uuid4())
+        customer_id = f"customer_{data.customer_phone}"
+
+        conv_data = {
+            'id': conversation_id,
+            'website_id': data.website_id,
+            'customer_name': data.customer_name,
+            'customer_phone': data.customer_phone,
+            'customer_id': customer_id,
+            'status': 'active',
+            'created_at': datetime.utcnow().isoformat()
+        }
+
+        result = supabase.table('chat_conversations').insert(conv_data).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Failed to create conversation")
+
+        logger.info(f"[Chat] Created new conversation {conversation_id} for phone {data.customer_phone}")
+        return result.data[0]
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Chat] Error creating/getting conversation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/chat/messages")
+async def send_chat_message(message: MessageCreate):
+    """
+    Send chat message in phone-based conversation
+    """
+    try:
+        supabase = get_supabase()
+
+        # Validate message text
+        text = message.message_text.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="message_text cannot be empty")
+
+        message_id = str(uuid.uuid4())
+
+        # Prepare message data - use both message_text and message for compatibility
+        message_data = {
+            'id': message_id,
+            'conversation_id': message.conversation_id,
+            'sender_type': message.sender_type,
+            'sender_name': message.sender_name,
+            'message_text': text,
+            'message': text,  # Keep for backward compatibility
+            'is_read': False,
+            'created_at': datetime.utcnow().isoformat()
+        }
+
+        result = supabase.table('chat_messages').insert(message_data).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Failed to send message")
+
+        # Broadcast to WebSocket clients if they're connected
+        await manager.send_to_conversation(
+            message.conversation_id,
+            {
+                "type": "new_message",
+                "message": result.data[0]
+            }
+        )
+
+        logger.info(f"[Chat] Message sent in conversation {message.conversation_id}")
+        return result.data[0]
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Chat] Error sending message: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/chat/conversations/{conversation_id}/messages")
+async def get_chat_messages(conversation_id: str):
+    """
+    Get all messages for a conversation
+    """
+    try:
+        supabase = get_supabase()
+
+        result = supabase.table('chat_messages')\
+            .select('*')\
+            .eq('conversation_id', conversation_id)\
+            .order('created_at', desc=False)\
+            .execute()
+
+        messages = result.data or []
+
+        # Ensure message_text is populated for compatibility
+        for msg in messages:
+            if 'message_text' not in msg or not msg['message_text']:
+                msg['message_text'] = msg.get('message', msg.get('content', ''))
+
+        logger.info(f"[Chat] Retrieved {len(messages)} messages for conversation {conversation_id}")
+        return messages
+
+    except Exception as e:
+        logger.error(f"[Chat] Error getting messages: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

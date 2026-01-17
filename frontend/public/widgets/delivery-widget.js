@@ -363,6 +363,9 @@
             currentView: 'menu', // menu | cart | checkout | tracking
             orderNumber: null,
             trackingLoading: false,
+            // Chat state
+            currentConversation: null,
+            chatMessages: [],
             trackingError: null,
             trackingData: null,
             // New payment & fulfillment selections
@@ -2653,11 +2656,9 @@
                     // Clean the number
                     whatsappNumber = whatsappNumber.replace(/[^0-9]/g, '');
                     
-                    // Open WhatsApp (merchant notification)
+                    // Auto-open disabled: keep user on tracking page.
                     const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(msg)}`;
-                    window.open(whatsappUrl, '_blank');
-                    
-                    console.log('[BinaApp] ✅ WhatsApp notification sent to merchant');
+                    console.log('[BinaApp] ✅ WhatsApp notification prepared:', whatsappUrl);
                 } else {
                     // No WhatsApp number configured - just log it
                     console.log('[BinaApp] ℹ️ No WhatsApp number configured, skipping notification');
@@ -2698,6 +2699,279 @@
             window.open(chatUrl, '_blank');
 
             console.log('[BinaApp] Opening chat:', this.state.conversationId);
+        },
+
+        // ============================================
+        // CHAT FUNCTIONALITY (PHONE-BASED)
+        // ============================================
+
+        // Open chat widget
+        openChat: function() {
+            // Check if customer info exists in localStorage
+            const customerInfo = JSON.parse(localStorage.getItem('binaapp_customer') || '{}');
+
+            if (!customerInfo.name || !customerInfo.phone) {
+                this.showCustomerInfoForm();
+                return;
+            }
+
+            // Get or create conversation
+            this.startConversation(customerInfo);
+        },
+
+        // Show customer info form
+        showCustomerInfoForm: function() {
+            const customerInfo = JSON.parse(localStorage.getItem('binaapp_customer') || '{}');
+
+            const html = `
+                <div style="max-width:500px;margin:0 auto;padding:20px;">
+                    <h2 style="margin:0 0 10px;font-size:24px;font-weight:600;color:#1f2937;">
+                        💬 ${this.config.language === 'ms' ? 'Chat dengan Kami' : 'Chat with Us'}
+                    </h2>
+                    <p style="color:#6b7280;margin:0 0 20px;">
+                        ${this.config.language === 'ms' ? 'Masukkan maklumat anda:' : 'Enter your information:'}
+                    </p>
+
+                    <div style="margin-bottom:15px;">
+                        <input
+                            type="text"
+                            id="binaapp-customer-name"
+                            placeholder="${this.config.language === 'ms' ? 'Nama anda' : 'Your name'}"
+                            value="${customerInfo.name || ''}"
+                            style="width:100%;padding:12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;"
+                        />
+                    </div>
+
+                    <div style="margin-bottom:20px;">
+                        <input
+                            type="tel"
+                            id="binaapp-customer-phone"
+                            placeholder="${this.config.language === 'ms' ? 'No. telefon (cth: 0123456789)' : 'Phone number (e.g. 0123456789)'}"
+                            value="${customerInfo.phone || ''}"
+                            style="width:100%;padding:12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;"
+                        />
+                    </div>
+
+                    <button
+                        onclick="BinaAppDelivery.saveCustomerInfo()"
+                        class="binaapp-checkout-btn"
+                        style="background:linear-gradient(to right, #3b82f6, #2563eb);">
+                        ${this.config.language === 'ms' ? 'Mula Chat' : 'Start Chat'}
+                    </button>
+                </div>
+            `;
+
+            this.showModal(html);
+        },
+
+        // Save customer info to localStorage
+        saveCustomerInfo: function() {
+            const name = document.getElementById('binaapp-customer-name')?.value.trim();
+            const phone = document.getElementById('binaapp-customer-phone')?.value.trim();
+
+            if (!name || !phone) {
+                alert(this.config.language === 'ms' ? 'Sila isi nama dan nombor telefon' : 'Please fill in name and phone number');
+                return;
+            }
+
+            // Save to localStorage
+            const customerInfo = { name, phone };
+            localStorage.setItem('binaapp_customer', JSON.stringify(customerInfo));
+
+            // Start conversation
+            this.startConversation(customerInfo);
+        },
+
+        // Start or resume conversation
+        startConversation: async function(customerInfo) {
+            try {
+                const response = await fetch(`${this.config.apiUrl}/chat/conversations`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        website_id: this.config.websiteId,
+                        customer_name: customerInfo.name,
+                        customer_phone: customerInfo.phone
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to create conversation');
+                }
+
+                const conversation = await response.json();
+                this.state.currentConversation = conversation;
+
+                // Load messages and show chat window
+                await this.loadChatMessages(conversation.id);
+                this.showChatWindow(customerInfo);
+
+            } catch (error) {
+                console.error('[BinaApp Chat] Error:', error);
+                alert(this.config.language === 'ms' ? 'Gagal membuka chat. Sila cuba lagi.' : 'Failed to open chat. Please try again.');
+            }
+        },
+
+        // Load chat messages
+        loadChatMessages: async function(conversationId) {
+            try {
+                const response = await fetch(`${this.config.apiUrl}/chat/conversations/${conversationId}/messages`);
+
+                if (!response.ok) {
+                    throw new Error('Failed to load messages');
+                }
+
+                const messages = await response.json();
+                this.state.chatMessages = messages || [];
+
+            } catch (error) {
+                console.error('[BinaApp Chat] Error loading messages:', error);
+                this.state.chatMessages = [];
+            }
+        },
+
+        // Show chat window
+        showChatWindow: function(customerInfo) {
+            const html = `
+                <div style="display:flex;flex-direction:column;height:600px;max-height:80vh;">
+                    <!-- Chat Header -->
+                    <div style="background:linear-gradient(to right, #3b82f6, #2563eb);color:white;padding:15px;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;">
+                        <h3 style="margin:0;font-size:18px;font-weight:600;">
+                            💬 ${this.config.language === 'ms' ? 'Chat dengan Kami' : 'Chat with Us'}
+                        </h3>
+                        <button
+                            onclick="BinaAppDelivery.closeModal()"
+                            style="background:rgba(255,255,255,0.2);border:none;color:white;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:18px;">
+                            ✕
+                        </button>
+                    </div>
+
+                    <!-- Chat Messages -->
+                    <div id="binaapp-chat-messages" style="flex:1;overflow-y:auto;padding:15px;background:#f9fafb;">
+                        ${this.renderChatMessages()}
+                    </div>
+
+                    <!-- Chat Input -->
+                    <div style="padding:15px;background:white;border-radius:0 0 12px 12px;border-top:1px solid #e5e7eb;">
+                        <div style="display:flex;gap:10px;">
+                            <input
+                                type="text"
+                                id="binaapp-chat-input"
+                                placeholder="${this.config.language === 'ms' ? 'Taip mesej...' : 'Type message...'}"
+                                style="flex:1;padding:12px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;"
+                                onkeypress="if(event.key === 'Enter') BinaAppDelivery.sendChatMessage()"
+                            />
+                            <button
+                                onclick="BinaAppDelivery.sendChatMessage()"
+                                class="binaapp-checkout-btn"
+                                style="background:linear-gradient(to right, #3b82f6, #2563eb);padding:12px 24px;">
+                                ${this.config.language === 'ms' ? 'Hantar' : 'Send'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            this.showModal(html);
+
+            // Scroll to bottom
+            setTimeout(() => {
+                const container = document.getElementById('binaapp-chat-messages');
+                if (container) {
+                    container.scrollTop = container.scrollHeight;
+                }
+            }, 100);
+        },
+
+        // Render chat messages
+        renderChatMessages: function() {
+            if (!this.state.chatMessages || this.state.chatMessages.length === 0) {
+                return `
+                    <div style="text-align:center;color:#9ca3af;padding:40px 20px;">
+                        ${this.config.language === 'ms' ? 'Tiada mesej lagi. Mula chat sekarang!' : 'No messages yet. Start chatting now!'}
+                    </div>
+                `;
+            }
+
+            return this.state.chatMessages.map(msg => {
+                const isCustomer = msg.sender_type === 'customer';
+                const isSystem = msg.sender_type === 'system';
+
+                if (isSystem) {
+                    return `
+                        <div style="text-align:center;margin:10px 0;">
+                            <span style="background:#e5e7eb;color:#6b7280;padding:6px 12px;border-radius:12px;font-size:12px;">
+                                ${msg.message_text || msg.message || msg.content || ''}
+                            </span>
+                        </div>
+                    `;
+                }
+
+                return `
+                    <div style="display:flex;justify-content:${isCustomer ? 'flex-end' : 'flex-start'};margin:10px 0;">
+                        <div style="max-width:70%;">
+                            <div style="background:${isCustomer ? '#3b82f6' : 'white'};color:${isCustomer ? 'white' : '#1f2937'};padding:10px 15px;border-radius:12px;${!isCustomer ? 'border:1px solid #e5e7eb;' : ''}">
+                                <div style="font-weight:600;font-size:12px;margin-bottom:4px;opacity:0.8;">
+                                    ${msg.sender_name || (isCustomer ? 'Anda' : 'Penjual')}
+                                </div>
+                                <div style="font-size:14px;">
+                                    ${msg.message_text || msg.message || msg.content || ''}
+                                </div>
+                                <div style="font-size:11px;opacity:0.7;margin-top:4px;">
+                                    ${this.formatTime(msg.created_at)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        },
+
+        // Send chat message
+        sendChatMessage: async function() {
+            const input = document.getElementById('binaapp-chat-input');
+            const text = input?.value.trim();
+
+            if (!text || !this.state.currentConversation) return;
+
+            const customerInfo = JSON.parse(localStorage.getItem('binaapp_customer') || '{}');
+
+            try {
+                const response = await fetch(`${this.config.apiUrl}/chat/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        conversation_id: this.state.currentConversation.id,
+                        sender_type: 'customer',
+                        sender_name: customerInfo.name,
+                        message_text: text
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to send message');
+                }
+
+                const message = await response.json();
+
+                // Add message to state
+                this.state.chatMessages = this.state.chatMessages || [];
+                this.state.chatMessages.push(message);
+
+                // Re-render messages
+                const messagesContainer = document.getElementById('binaapp-chat-messages');
+                if (messagesContainer) {
+                    messagesContainer.innerHTML = this.renderChatMessages();
+                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                }
+
+                // Clear input
+                input.value = '';
+
+            } catch (error) {
+                console.error('[BinaApp Chat] Error sending message:', error);
+                alert(this.config.language === 'ms' ? 'Gagal menghantar mesej' : 'Failed to send message');
+            }
         },
 
         // Show notification
