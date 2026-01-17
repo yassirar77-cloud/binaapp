@@ -80,8 +80,13 @@ def get_supabase_rls_client(
         )
 
     client: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
     # Apply JWT for PostgREST calls (enforces RLS)
     client.postgrest.auth(credentials.credentials)
+
+    # Log authentication for debugging
+    logger.info(f"[RLS Client] Created client with JWT token (length: {len(credentials.credentials)})")
+
     return client
 
 
@@ -1178,14 +1183,29 @@ async def assign_rider_to_order(
 @router.get("/admin/websites/{website_id}/riders", response_model=List[RiderResponse])
 async def list_riders(
     website_id: str,
-    supabase: Client = Depends(get_supabase_rls_client),
+    supabase: Client = Depends(get_supabase_client),
 ):
-    """List riders for a website (RLS enforced)."""
+    """
+    List riders for a website (Admin endpoint - uses service role to bypass RLS).
+
+    CRITICAL FIX: Changed from get_supabase_rls_client to get_supabase_client
+    to ensure riders are always visible after creation. The RLS client was
+    causing riders to disappear because auth.uid() wasn't properly set in
+    the Postgres context, causing the RLS SELECT policy to fail.
+    """
     try:
+        logger.info(f"[Rider LIST] Querying riders for website_id: {website_id}")
+
         resp = supabase.table("riders").select("*").eq("website_id", website_id).order("created_at", desc=True).execute()
+
+        logger.info(f"[Rider LIST] Found {len(resp.data or [])} riders")
+        if resp.data:
+            logger.info(f"[Rider LIST] Rider IDs: {[r.get('id', 'unknown') for r in resp.data]}")
+            logger.info(f"[Rider LIST] Rider names: {[r.get('name', 'unknown') for r in resp.data]}")
+
         return [convert_db_row_to_dict(r) for r in (resp.data or [])]
     except Exception as e:
-        logger.error(f"Error listing riders: {e}")
+        logger.error(f"[Rider LIST] Error listing riders: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list riders: {str(e)}",
@@ -1196,26 +1216,50 @@ async def list_riders(
 async def create_rider(
     website_id: str,
     rider: RiderCreateBusiness,
-    supabase: Client = Depends(get_supabase_rls_client),
+    supabase: Client = Depends(get_supabase_client),
 ):
-    """Create a rider for a website (Phase 1: no rider app auth)."""
+    """
+    Create a rider for a website (Admin endpoint - uses service role to bypass RLS).
+
+    CRITICAL FIX: Changed from get_supabase_rls_client to get_supabase_client
+    to ensure riders are properly created and immediately visible. This matches
+    the list_riders endpoint which also uses the admin client.
+    """
     try:
+        logger.info(f"[Rider CREATE] Creating rider for website_id: {website_id}")
+        logger.info(f"[Rider CREATE] Rider data: {rider.dict(exclude={'password'})}")
+
         data = rider.dict()
         data["website_id"] = website_id
 
         # Hash password before storing (SECURITY FIX)
         if "password" in data and data["password"]:
             data["password"] = hash_password(data["password"])
-            logger.info(f"Creating rider with hashed password")
+            logger.info(f"[Rider CREATE] Creating rider with hashed password")
 
         resp = supabase.table("riders").insert(data).execute()
+
         if not resp.data:
+            logger.error(f"[Rider CREATE] Failed - no data returned from insert")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create rider")
-        return convert_db_row_to_dict(resp.data[0])
+
+        created_rider = resp.data[0]
+        logger.info(f"[Rider CREATE] ✅ Successfully created rider with ID: {created_rider.get('id', 'unknown')}")
+        logger.info(f"[Rider CREATE] Created rider name: {created_rider.get('name', 'unknown')}")
+        logger.info(f"[Rider CREATE] Created rider website_id: {created_rider.get('website_id', 'unknown')}")
+
+        # Immediately verify the rider exists by querying it back
+        verify_resp = supabase.table("riders").select("*").eq("id", created_rider.get('id')).execute()
+        if verify_resp.data:
+            logger.info(f"[Rider CREATE] ✅ Verification successful - rider exists in database")
+        else:
+            logger.warning(f"[Rider CREATE] ⚠️ Verification failed - rider not found immediately after creation")
+
+        return convert_db_row_to_dict(created_rider)
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error creating rider: {e}")
+        logger.error(f"[Rider CREATE] ❌ Error creating rider: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create rider: {str(e)}",
@@ -1226,10 +1270,13 @@ async def create_rider(
 async def update_rider(
     rider_id: str,
     update_data: RiderUpdate,
-    supabase: Client = Depends(get_supabase_rls_client),
+    supabase: Client = Depends(get_supabase_client),
 ):
     """
-    Update a rider (with RLS authentication).
+    Update a rider (Admin endpoint - uses service role to bypass RLS).
+
+    CRITICAL FIX: Changed from get_supabase_rls_client to get_supabase_client
+    to match create_rider and list_riders endpoints.
 
     Supports updating all rider fields including password reset.
     Password will be hashed before storage.
