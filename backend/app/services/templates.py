@@ -1923,7 +1923,9 @@ function handleContactSubmit(e) {{
         msg += '📱 *Urus pesanan di Dashboard BinaApp*';
 
         if (DELIVERY_WHATSAPP) {{
-            window.open('https://wa.me/' + DELIVERY_WHATSAPP + '?text=' + encodeURIComponent(msg), '_blank');
+            const whatsappUrl = 'https://wa.me/' + DELIVERY_WHATSAPP + '?text=' + encodeURIComponent(msg);
+            // Auto-open disabled: keep user on tracking page.
+            console.log('[BinaApp] WhatsApp notification prepared:', whatsappUrl);
         }}
     }}
 
