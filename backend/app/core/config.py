@@ -27,14 +27,21 @@ class Settings(BaseSettings):
     )
     
     # CORS
+    # SECURITY: Removed "*" and "null" which allow requests from ANY origin
+    # In production, set CORS_ORIGINS environment variable with actual domains
+    # Example: CORS_ORIGINS="https://binaapp.my,https://www.binaapp.my,https://dashboard.binaapp.my"
     CORS_ORIGINS: List[str] = [
         "http://localhost",
         "http://localhost:3000",
         "http://localhost:8000",
         "http://127.0.0.1",
         "http://127.0.0.1:8000",
-        "null",
-        "*"
+        "http://127.0.0.1:3000",
+        # Production domains - override via environment variable
+        "https://binaapp.my",
+        "https://www.binaapp.my",
+        "https://dashboard.binaapp.my",
+        "https://binaapp-backend.onrender.com"
     ]
     
     @validator("CORS_ORIGINS", pre=True)
