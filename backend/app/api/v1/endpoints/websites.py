@@ -114,14 +114,32 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
     """
     Background task to generate website content using AI
     """
+    import asyncio
+
     try:
-        # Generate HTML using AI
-        ai_response = await ai_service.generate_website(request)
+        logger.info(f"🚀 Starting website generation for {website_id}")
+        logger.info(f"   Business: {request.business_name}")
+        logger.info(f"   Language: {request.language}")
+        logger.info(f"   Include E-commerce: {request.include_ecommerce}")
+
+        # Step 1: Generate HTML using AI with timeout (3 minutes max)
+        logger.info(f"⏱️  Step 1/4: Calling AI generation service (max 180s timeout)...")
+        try:
+            ai_response = await asyncio.wait_for(
+                ai_service.generate_website(request),
+                timeout=180.0  # 3 minutes timeout for entire AI generation
+            )
+            logger.info(f"✅ Step 1/4: AI generation completed - {len(ai_response.html_content)} chars generated")
+        except asyncio.TimeoutError:
+            error_msg = "AI generation timed out after 180 seconds. Please try again with a shorter description or fewer features."
+            logger.error(f"❌ {error_msg}")
+            raise Exception(error_msg)
 
         html_content = ai_response.html_content
         integrations = ai_response.integrations_included
 
-        # CRITICAL: Inject delivery widget if ecommerce/delivery is enabled
+        # Step 2: Inject delivery widget if needed
+        logger.info(f"⏱️  Step 2/4: Processing delivery widget...")
         if request.include_ecommerce:
             logger.info(f"🛒 Delivery mode enabled - injecting delivery widget for website {website_id}")
 
@@ -141,19 +159,22 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
 
             # Update integrations list to include delivery
             integrations = ["BinaApp Delivery", "WhatsApp Contact", "Mobile Responsive", "Cloudinary Images"]
-            logger.info(f"✅ Delivery widget injected successfully for website {website_id}")
+            logger.info(f"✅ Step 2/4: Delivery widget injected successfully")
+        else:
+            logger.info(f"⏭️  Step 2/4: Delivery widget skipped (not enabled)")
 
-        # ALWAYS inject chat widget for customer-owner communication
-        # This allows customers to ask questions before ordering
+        # Step 3: Inject chat widget
+        logger.info(f"⏱️  Step 3/4: Injecting chat widget...")
         template_service = TemplateService()
         html_content = template_service.inject_chat_widget(
             html=html_content,
             website_id=website_id,
             api_url="https://binaapp-backend.onrender.com"
         )
-        logger.info(f"✅ Chat widget injected for website {website_id}")
+        logger.info(f"✅ Step 3/4: Chat widget injected successfully")
 
-        # Update website with generated content
+        # Step 4: Update database
+        logger.info(f"⏱️  Step 4/4: Updating database...")
         update_data = {
             "html_content": html_content,
             "status": WebsiteStatus.DRAFT,
@@ -166,10 +187,22 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
 
         await supabase_service.update_website(website_id, update_data)
 
-        logger.info(f"Website content generated successfully: {website_id}")
+        logger.info(f"✅ Step 4/4: Database updated successfully")
+        logger.info(f"🎉 Website generation completed successfully: {website_id}")
+
+    except asyncio.TimeoutError:
+        error_msg = "Generation timed out - please try again"
+        logger.error(f"❌ Timeout error for website {website_id}: {error_msg}")
+
+        # Mark website as failed
+        await supabase_service.update_website(website_id, {
+            "status": WebsiteStatus.FAILED,
+            "error_message": error_msg,
+            "updated_at": datetime.utcnow().isoformat()
+        })
 
     except Exception as e:
-        logger.error(f"Error in background generation: {e}")
+        logger.error(f"❌ Error in background generation for {website_id}: {str(e)}", exc_info=True)
 
         # Mark website as failed
         await supabase_service.update_website(website_id, {

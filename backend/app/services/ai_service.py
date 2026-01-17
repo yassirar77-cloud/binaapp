@@ -2310,6 +2310,10 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     return content
                 else:
                     logger.error(f"🔷 DeepSeek ❌ Status {r.status_code}")
+        except httpx.TimeoutException as e:
+            logger.error(f"🔷 DeepSeek ❌ Timeout after 120s: {e}")
+        except httpx.ConnectError as e:
+            logger.error(f"🔷 DeepSeek ❌ Connection error: {e}")
         except Exception as e:
             logger.error(f"🔷 DeepSeek ❌ Exception: {e}")
         return None
@@ -2348,6 +2352,10 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     return content
                 else:
                     logger.error(f"🟡 Qwen ❌ Status {r.status_code}")
+        except httpx.TimeoutException as e:
+            logger.error(f"🟡 Qwen ❌ Timeout after 120s: {e}")
+        except httpx.ConnectError as e:
+            logger.error(f"🟡 Qwen ❌ Connection error: {e}")
         except Exception as e:
             logger.error(f"🟡 Qwen ❌ Exception: {e}")
         return None
@@ -2690,12 +2698,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
     ) -> AIGenerationResponse:
         """Generate website with Stability AI + Cloudinary + DeepSeek + Qwen"""
 
+        import time
+        start_time = time.time()
+
         logger.info("=" * 80)
         logger.info("🌐 WEBSITE GENERATION - FULL AI PIPELINE")
         logger.info(f"   Business: {request.business_name}")
         logger.info(f"   Style: {style or 'modern'}")
         logger.info(f"   🖼️ Image Choice: {image_choice}")
         logger.info(f"   User Images: {len(request.uploaded_images) if request.uploaded_images else 0}")
+        logger.info(f"   ⏰ Start Time: {time.strftime('%H:%M:%S')}")
         logger.info("=" * 80)
 
         # Check image_choice - skip ALL image generation if "none"
@@ -2744,7 +2756,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.info("🎨 No user images - generating with Stability AI...")
 
             # STEP 0: Use AI to generate smart image prompts
-            logger.info("🧠 STEP 0: AI analyzing business type and generating smart prompts...")
+            logger.info(f"🧠 STEP 0: AI analyzing business type and generating smart prompts... [{time.time() - start_time:.1f}s elapsed]")
             smart_prompts = await self.generate_smart_image_prompts(request.description)
 
             hero_prompt = smart_prompts.get("hero", "")
@@ -2754,7 +2766,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             product_prompt_4 = smart_prompts.get("image4", "")
 
             # STEP 1: Generate images with Stability AI
-            logger.info("🎨 STEP 1: Generating images with Stability AI using smart prompts...")
+            logger.info(f"🎨 STEP 1: Generating images with Stability AI using smart prompts... [{time.time() - start_time:.1f}s elapsed]")
             logger.info(f"   Hero prompt: {hero_prompt[:60]}...")
             logger.info(f"   Product 1: {product_prompt_1[:60]}...")
 
@@ -2806,7 +2818,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.info(f"   Total URLs: {len(image_urls)} images ready for HTML generation")
 
         # Build prompt WITH image URLs (or NO images if image_choice='none')
-        logger.info("🔷 STEP 2: DeepSeek generating HTML...")
+        logger.info(f"🔷 STEP 2: DeepSeek generating HTML... [{time.time() - start_time:.1f}s elapsed]")
         # Get language from request (default to "ms" for Bahasa Malaysia)
         language = request.language.value if hasattr(request, 'language') and request.language else "ms"
         logger.info(f"   Language: {language}")
@@ -2950,7 +2962,7 @@ IMPORTANT INSTRUCTIONS:
 
         # STEP 3: Improve content with Qwen
         if html:
-            logger.info("🟡 STEP 3: Qwen improving content...")
+            logger.info(f"🟡 STEP 3: Qwen improving content... [{time.time() - start_time:.1f}s elapsed]")
             html = await self._improve_with_qwen(html, request.description)
             # Extract HTML again to remove Qwen's explanation text
             if html:
@@ -2966,8 +2978,10 @@ IMPORTANT INSTRUCTIONS:
         if not (request.uploaded_images and len(request.uploaded_images) > 0):
             html = await self._generate_ai_food_images(html)
 
+        total_time = time.time() - start_time
         logger.info("✅ ALL STEPS COMPLETE")
         logger.info(f"   Final size: {len(html)} characters")
+        logger.info(f"   ⏱️  Total generation time: {total_time:.1f}s")
 
         # Determine integrations based on mode
         if request.include_ecommerce:
