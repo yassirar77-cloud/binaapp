@@ -931,6 +931,7 @@
 
             document.body.appendChild(widgetContainer);
             document.body.appendChild(modal);
+            console.log('[BinaApp] ✅ Widget created with chat button');
         },
 
         // Event listeners
@@ -939,6 +940,7 @@
 
             if (typeof window.openChatWidget !== 'function') {
                 window.openChatWidget = function() {
+                    console.log('[BinaApp] openChatWidget called');
                     if (window.BinaAppDelivery && typeof window.BinaAppDelivery.openChat === 'function') {
                         window.BinaAppDelivery.openChat();
                         return;
@@ -955,8 +957,12 @@
             const chatButton = document.getElementById('binaapp-delivery-chat-btn');
             if (chatButton) {
                 chatButton.addEventListener('click', function() {
+                    console.log('[BinaApp] Chat button clicked');
                     window.openChatWidget();
                 });
+                console.log('[BinaApp] ✅ Chat button event listener attached');
+            } else {
+                console.warn('[BinaApp] ⚠️ Chat button not found in DOM');
             }
 
             // Close modal
@@ -2762,27 +2768,13 @@
             }
         },
 
-        // Open chat with seller
-        openChat: function() {
-            if (!this.state.conversationId || !this.state.customerId) {
-                this.showNotification('Chat tidak tersedia');
-                return;
-            }
-
-            const chatUrl = `${window.location.origin}/chat/${this.state.conversationId}?customer=${this.state.customerId}&name=${encodeURIComponent(localStorage.getItem('binaapp_customer_name') || 'Pelanggan')}`;
-
-            // For now, open in a new tab - later can be a modal
-            window.open(chatUrl, '_blank');
-
-            console.log('[BinaApp] Opening chat:', this.state.conversationId);
-        },
-
         // ============================================
         // CHAT FUNCTIONALITY (PHONE-BASED)
         // ============================================
 
-        // Open chat widget
+        // Open chat widget - allows customers to chat with seller
         openChat: function() {
+            console.log('[BinaApp Chat] Opening chat...');
             // Check if customer info exists in localStorage
             const customerInfo = JSON.parse(localStorage.getItem('binaapp_customer') || '{}');
 
@@ -2797,6 +2789,7 @@
 
         // Show customer info form
         showCustomerInfoForm: function() {
+            console.log('[BinaApp Chat] Showing customer info form...');
             const customerInfo = JSON.parse(localStorage.getItem('binaapp_customer') || '{}');
 
             const html = `
@@ -2860,6 +2853,13 @@
 
         // Start or resume conversation
         startConversation: async function(customerInfo) {
+            console.log('[BinaApp Chat] Starting conversation...', {
+                websiteId: this.config.websiteId,
+                apiUrl: this.config.apiUrl,
+                customerName: customerInfo.name,
+                customerPhone: customerInfo.phone
+            });
+
             try {
                 const response = await fetch(`${this.config.apiUrl}/chat/conversations`, {
                     method: 'POST',
@@ -2872,11 +2872,14 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Failed to create conversation');
+                    const errorText = await response.text();
+                    console.error('[BinaApp Chat] API Error:', response.status, errorText);
+                    throw new Error(`Failed to create conversation: ${response.status}`);
                 }
 
                 const conversation = await response.json();
                 this.state.currentConversation = conversation;
+                console.log('[BinaApp Chat] ✅ Conversation created/resumed:', conversation.id);
 
                 // Load messages and show chat window
                 await this.loadChatMessages(conversation.id);
