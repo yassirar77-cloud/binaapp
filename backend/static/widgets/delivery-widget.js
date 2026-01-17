@@ -504,6 +504,11 @@
                     right: 20px;
                     z-index: 99999;
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    flex-wrap: wrap;
+                    justify-content: flex-end;
                 }
 
                 #binaapp-order-btn {
@@ -523,6 +528,27 @@
                 }
 
                 #binaapp-order-btn:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 24px rgba(0,0,0,0.3);
+                }
+
+                #binaapp-delivery-chat-btn {
+                    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+                    color: white;
+                    border: none;
+                    border-radius: 50px;
+                    padding: 16px 24px;
+                    font-size: 16px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    transition: transform 0.2s;
+                }
+
+                #binaapp-delivery-chat-btn:hover {
                     transform: translateY(-2px);
                     box-shadow: 0 6px 24px rgba(0,0,0,0.3);
                 }
@@ -874,10 +900,14 @@
             const widgetContainer = document.createElement('div');
             widgetContainer.id = 'binaapp-widget';
             widgetContainer.innerHTML = `
-                <button id="binaapp-order-btn">
+                <button id="binaapp-order-btn" type="button">
                     <span>${config.icon}</span>
                     <span>${lang === 'en' ? config.buttonLabelEn : config.buttonLabel}</span>
                     <span class="binaapp-cart-badge" id="binaapp-cart-count" style="display:none;">0</span>
+                </button>
+                <button id="binaapp-delivery-chat-btn" type="button" aria-label="${this.t('chatWithUs')}">
+                    <span>💬</span>
+                    <span>${this.t('chatWithUs')}</span>
                 </button>
             `;
 
@@ -907,10 +937,27 @@
         initEventListeners: function() {
             const self = this;
 
+            if (typeof window.openChatWidget !== 'function') {
+                window.openChatWidget = function() {
+                    if (window.BinaAppDelivery && typeof window.BinaAppDelivery.openChat === 'function') {
+                        window.BinaAppDelivery.openChat();
+                        return;
+                    }
+                    console.warn('[BinaApp] Chat widget is not ready yet.');
+                };
+            }
+
             // Open modal
             document.getElementById('binaapp-order-btn').addEventListener('click', function() {
                 self.openModal();
             });
+
+            const chatButton = document.getElementById('binaapp-delivery-chat-btn');
+            if (chatButton) {
+                chatButton.addEventListener('click', function() {
+                    window.openChatWidget();
+                });
+            }
 
             // Close modal
             document.getElementById('binaapp-modal-close').addEventListener('click', function() {
@@ -1011,6 +1058,10 @@
 
         // Open modal
         openModal: function() {
+            const header = document.querySelector('.binaapp-modal-header');
+            if (header) {
+                header.style.display = '';
+            }
             document.getElementById('binaapp-modal').classList.add('active');
             this.showView('menu');
         },
@@ -1020,6 +1071,31 @@
             document.getElementById('binaapp-modal').classList.remove('active');
             // Stop tracking polling when modal is closed (Phase 2)
             this.stopTrackingPolling();
+        },
+
+        // Show custom modal content (used for chat)
+        showModal: function(html, options = {}) {
+            const modal = document.getElementById('binaapp-modal');
+            const body = document.getElementById('binaapp-modal-body');
+            const header = document.querySelector('.binaapp-modal-header');
+            const title = document.getElementById('binaapp-modal-title');
+            const hideHeader = options.hideHeader === true;
+
+            if (body) {
+                body.innerHTML = html;
+            }
+
+            if (title && typeof options.title === 'string') {
+                title.textContent = options.title;
+            }
+
+            if (header) {
+                header.style.display = hideHeader ? 'none' : '';
+            }
+
+            if (modal) {
+                modal.classList.add('active');
+            }
         },
 
         // Show different views
@@ -3077,6 +3153,7 @@
                     orderCreationFailed: 'Gagal membuat pesanan',
                     orderCreatedSuccess: 'Pesanan berjaya dibuat!',
                     // Chat
+                    chatWithUs: 'Chat dengan Kami',
                     chatWithSeller: 'Chat dengan Penjual'
                 },
                 en: {
@@ -3157,6 +3234,7 @@
                     orderCreationFailed: 'Failed to create order',
                     orderCreatedSuccess: 'Order created successfully!',
                     // Chat
+                    chatWithUs: 'Chat with Us',
                     chatWithSeller: 'Chat with Seller'
                 }
             };
