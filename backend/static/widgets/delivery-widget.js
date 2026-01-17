@@ -2653,11 +2653,9 @@
                     // Clean the number
                     whatsappNumber = whatsappNumber.replace(/[^0-9]/g, '');
                     
-                    // Open WhatsApp (merchant notification)
+                    // Auto-open disabled: keep user on tracking page.
                     const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(msg)}`;
-                    window.open(whatsappUrl, '_blank');
-                    
-                    console.log('[BinaApp] ✅ WhatsApp notification sent to merchant');
+                    console.log('[BinaApp] ✅ WhatsApp notification prepared:', whatsappUrl);
                 } else {
                     // No WhatsApp number configured - just log it
                     console.log('[BinaApp] ℹ️ No WhatsApp number configured, skipping notification');
