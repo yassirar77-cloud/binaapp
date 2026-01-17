@@ -176,17 +176,72 @@ async def list_conversations():
 @router.post("/conversations/create")
 async def create_conversation(request: CreateConversationRequest):
     """Create a new chat conversation for an order"""
+    import re
+
     try:
         supabase = get_supabase()
 
+        # =====================================================
+        # CRITICAL: VALIDATE WEBSITE ID (Single Source of Truth)
+        # =====================================================
+        # GUARD 1: Reject null/empty website IDs
+        if not request.website_id or not request.website_id.strip():
+            logger.warning(f"[Chat] REJECTED: Conversation creation with empty website_id")
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "MISSING_WEBSITE_ID",
+                    "message": "Website ID is required for conversation creation"
+                }
+            )
+
+        # GUARD 2: Validate UUID format (fail fast on malformed IDs)
+        uuid_pattern = re.compile(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+            re.IGNORECASE
+        )
+        if not uuid_pattern.match(request.website_id.strip()):
+            logger.warning(f"[Chat] REJECTED: Invalid UUID format for website_id: {request.website_id[:50]}")
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "INVALID_UUID_FORMAT",
+                    "message": "Website ID must be a valid UUID"
+                }
+            )
+
+        # GUARD 3: Verify website exists in database (AUTHORITATIVE CHECK)
+        website_check = supabase.table("websites").select("id, business_name").eq(
+            "id", request.website_id.strip()
+        ).execute()
+
+        if not website_check.data:
+            logger.warning(f"[Chat] REJECTED: Website not found in database: {request.website_id}")
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "WEBSITE_NOT_FOUND",
+                    "message": "No website found with this ID. Cannot create conversation for non-existent website."
+                }
+            )
+
+        # Use the CANONICAL ID from database (not user-provided)
+        canonical_website_id = website_check.data[0]["id"]
+        logger.info(f"[Chat] Website validated: {canonical_website_id}")
+
+        # =====================================================
+        # GENERATE CONVERSATION ID (Server-side only, never client)
+        # =====================================================
         conversation_id = str(uuid.uuid4())
+        logger.info(f"[Chat] Generated server-side conversation_id: {conversation_id}")
+
         customer_user_id = f"customer_{request.customer_phone}"
 
-        # Create conversation
+        # Create conversation with VALIDATED website_id
         conv_data = {
             "id": conversation_id,
             "order_id": request.order_id,
-            "website_id": request.website_id,
+            "website_id": canonical_website_id,  # Use canonical DB ID
             "customer_name": request.customer_name,
             "customer_phone": request.customer_phone,
             "status": "active"

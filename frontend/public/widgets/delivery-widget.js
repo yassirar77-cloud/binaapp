@@ -225,6 +225,9 @@
         }
     };
 
+    // UUID validation regex - reject malformed IDs early
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
     // Widget namespace
     window.BinaAppDelivery = {
         config: {
@@ -235,6 +238,14 @@
             language: 'ms',
             whatsappNumber: null,
             businessName: 'Kedai'
+        },
+
+        // Validation state - tracks whether widget ID has been validated
+        validationState: {
+            validated: false,
+            validationFailed: false,
+            pendingWebsiteId: null,
+            canonicalWebsiteId: null
         },
 
         businessConfig: null,
@@ -253,6 +264,87 @@
             deliveryArea: '',
             pickup: false,
             pickupAddress: ''
+        },
+
+        /**
+         * CRITICAL: Validate website ID against server database
+         * This is the ONLY authoritative source for widget ID binding.
+         * Rejects any ID that doesn't exist in the database.
+         *
+         * @param {string} candidateId - The website ID to validate
+         * @returns {Promise<{valid: boolean, websiteId: string|null, error: string|null}>}
+         */
+        validateWebsiteId: async function(candidateId) {
+            // GUARD 1: Reject null/empty IDs
+            if (!candidateId || candidateId.trim() === '') {
+                console.error('[BinaApp] VALIDATION FAILED: No website ID provided');
+                return { valid: false, websiteId: null, error: 'MISSING_WEBSITE_ID' };
+            }
+
+            // GUARD 2: Reject malformed UUIDs (fail fast)
+            if (!UUID_REGEX.test(candidateId.trim())) {
+                console.error('[BinaApp] VALIDATION FAILED: Invalid UUID format:', candidateId);
+                return { valid: false, websiteId: null, error: 'INVALID_UUID_FORMAT' };
+            }
+
+            const apiBaseUrl = this.config.apiUrl.replace('/api/v1', '');
+
+            try {
+                // GUARD 3: Validate against server database (AUTHORITATIVE)
+                const response = await fetch(apiBaseUrl + '/api/v1/delivery/validate-widget/' + encodeURIComponent(candidateId.trim()));
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'UNKNOWN_ERROR' }));
+                    console.error('[BinaApp] VALIDATION FAILED: Server rejected ID:', candidateId, errorData);
+
+                    // Clear any cached data for this invalid ID to prevent drift
+                    this.clearInvalidCache(candidateId);
+
+                    return {
+                        valid: false,
+                        websiteId: null,
+                        error: errorData.detail?.error || errorData.error || 'SERVER_REJECTED'
+                    };
+                }
+
+                const data = await response.json();
+
+                // SUCCESS: Server returned canonical ID from database
+                if (data.valid && data.website_id) {
+                    console.log('[BinaApp] VALIDATION SUCCESS: Canonical ID:', data.website_id);
+
+                    // CRITICAL: Use the CANONICAL ID from database, not the candidate
+                    // This prevents any client-side ID drift
+                    return {
+                        valid: true,
+                        websiteId: data.website_id,  // ALWAYS use database value
+                        businessName: data.business_name,
+                        error: null
+                    };
+                }
+
+                return { valid: false, websiteId: null, error: 'VALIDATION_FAILED' };
+
+            } catch (err) {
+                console.error('[BinaApp] VALIDATION ERROR: Network failure:', err);
+                // On network error, we CANNOT validate - fail safe by rejecting
+                return { valid: false, websiteId: null, error: 'NETWORK_ERROR' };
+            }
+        },
+
+        /**
+         * Clear cached data for an invalid website ID
+         * Prevents stale/invalid data from persisting
+         */
+        clearInvalidCache: function(invalidId) {
+            try {
+                localStorage.removeItem('binaapp_conv_' + invalidId);
+                localStorage.removeItem('binaapp_customer_id_' + invalidId);
+                localStorage.removeItem('binaapp_customer_id');
+                console.log('[BinaApp] Cleared cache for invalid ID:', invalidId);
+            } catch (e) {
+                // localStorage might not be available
+            }
         },
 
         state: {
@@ -276,22 +368,72 @@
             // New payment & fulfillment selections
             selectedFulfillment: null, // 'delivery' | 'pickup'
             selectedPayment: null, // 'cod' | 'qr'
-            // Leaflet Map (FREE - No API key needed!)
-            map: null,
+            // Leaflet Map (FREE - No API key needed!) - Phase 3
+            riderMap: null,
             riderMarker: null,
             customerMarker: null,
             routeLine: null,
-            mapsLoaded: false,
+            mapDistance: null,
+            mapETA: null,
             trackingInterval: null,
-            deliveryAddress: ''
+            deliveryAddress: '',
+            conversationId: null
         },
 
-        // Initialize widget
-        init: function(options) {
+        // Initialize widget - validates ID first, then proceeds
+        init: async function(options) {
             this.config = { ...this.config, ...options };
 
+            // GUARD 1: Reject if no websiteId provided
             if (!this.config.websiteId) {
-                console.error('[BinaApp] websiteId is required');
+                console.error('[BinaApp] BOOTSTRAP ABORTED: websiteId is required');
+                return;
+            }
+
+            // Store pending ID for validation
+            this.validationState.pendingWebsiteId = this.config.websiteId;
+
+            console.log('[BinaApp] Starting validation for website ID:', this.config.websiteId);
+
+            // CRITICAL: Validate website ID against server database BEFORE initializing
+            const validationResult = await this.validateWebsiteId(this.config.websiteId);
+
+            if (!validationResult.valid) {
+                this.validationState.validationFailed = true;
+                console.error('[BinaApp] WIDGET BOOTSTRAP ABORTED: Invalid website ID');
+                console.error('[BinaApp] Error:', validationResult.error);
+                console.error('[BinaApp] The widget will NOT initialize.');
+
+                // Do NOT initialize the widget - fail safe
+                return;
+            }
+
+            // SUCCESS: Use the CANONICAL ID from database (not user-provided)
+            this.validationState.validated = true;
+            this.validationState.canonicalWebsiteId = validationResult.websiteId;
+
+            // CRITICAL: Replace config websiteId with canonical database value
+            this.config.websiteId = validationResult.websiteId;
+
+            // Use business name from validation if available and not already set
+            if (validationResult.businessName && !options.businessName) {
+                this.config.businessName = validationResult.businessName;
+            }
+
+            console.log('[BinaApp] VALIDATION SUCCESS: Using canonical ID:', this.config.websiteId);
+
+            // Now proceed with initialization using validated ID
+            this._initializeWidget(options);
+        },
+
+        /**
+         * Internal initialization - called ONLY after validation succeeds
+         * NEVER call this directly - use init() which validates first
+         */
+        _initializeWidget: function(options) {
+            // ASSERTION: Validation must be complete before calling this
+            if (!this.validationState.validated) {
+                console.error('[BinaApp] ASSERTION FAILED: _initializeWidget called without validation');
                 return;
             }
 
@@ -337,7 +479,8 @@
             this.loadData();
             this.initEventListeners();
 
-            console.log('[BinaApp] Universal order widget initialized for:', this.config.businessType);
+            console.log('[BinaApp] Universal order widget initialized with VALIDATED ID for:', this.config.businessType);
+            console.log('[BinaApp] Canonical Website ID:', this.config.websiteId);
             console.log('[BinaApp] Payment config:', this.paymentConfig);
             console.log('[BinaApp] Fulfillment config:', this.fulfillmentConfig);
         },
@@ -1014,7 +1157,7 @@
             });
         },
 
-        // Initialize Map with Leaflet + OpenStreetMap (FREE!)
+        // Initialize Map with Leaflet + OpenStreetMap (FREE!) - Updated for Phase 3
         initializeMap: async function() {
             try {
                 if (!this.state.trackingData) return;
@@ -1028,111 +1171,30 @@
                     return;
                 }
 
-                // Load Leaflet if not already loaded (FREE!)
-                if (!this.state.mapsLoaded) {
-                    await this.loadLeaflet();
-                }
-
-                // Wait for map container to be in DOM
-                await new Promise(resolve => setTimeout(resolve, 100));
-
-                const mapContainer = document.getElementById('binaapp-rider-map');
-                if (!mapContainer) {
-                    console.error('[BinaApp] Map container not found');
-                    return;
-                }
-
                 // Get rider and customer coordinates
                 const riderLat = parseFloat(rider.current_latitude);
                 const riderLng = parseFloat(rider.current_longitude);
-                const customerLat = order.delivery_latitude ? parseFloat(order.delivery_latitude) : null;
-                const customerLng = order.delivery_longitude ? parseFloat(order.delivery_longitude) : null;
 
-                // Calculate center point
-                let centerLat = riderLat;
-                let centerLng = riderLng;
-                let zoom = 15;
+                // Use customer delivery coordinates if available, otherwise default to KL
+                const customerLat = order.delivery_latitude ? parseFloat(order.delivery_latitude) : 3.1390;
+                const customerLng = order.delivery_longitude ? parseFloat(order.delivery_longitude) : 101.6869;
 
-                if (customerLat && customerLng) {
-                    // Center between rider and customer
-                    centerLat = (riderLat + customerLat) / 2;
-                    centerLng = (riderLng + customerLng) / 2;
-                    // Adjust zoom based on distance
-                    const distance = this.calculateDistance(riderLat, riderLng, customerLat, customerLng);
-                    if (distance > 10) zoom = 12;
-                    else if (distance > 5) zoom = 13;
-                    else if (distance > 2) zoom = 14;
-                }
+                // Call the new Leaflet.js initialization function
+                await this.initRiderTrackingMap(
+                    riderLat,
+                    riderLng,
+                    customerLat,
+                    customerLng,
+                    rider.name || 'Rider'
+                );
 
-                // Destroy existing map if any
-                if (this.state.map) {
-                    this.state.map.remove();
-                }
-
-                // Initialize Leaflet map (FREE!)
-                this.state.map = L.map(mapContainer, {
-                    zoomControl: true,
-                    attributionControl: true
-                }).setView([centerLat, centerLng], zoom);
-
-                // Add OpenStreetMap tiles (FREE - No API key needed!)
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-                    maxZoom: 19
-                }).addTo(this.state.map);
-
-                // Create rider icon
-                const riderIcon = L.divIcon({
-                    html: '<div style="background:#10b981;width:36px;height:36px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:18px;">🛵</div>',
-                    iconSize: [36, 36],
-                    iconAnchor: [18, 18],
-                    className: 'binaapp-rider-marker'
-                });
-
-                // Add rider marker
-                this.state.riderMarker = L.marker([riderLat, riderLng], { icon: riderIcon })
-                    .addTo(this.state.map)
-                    .bindPopup(`<b>${rider.name || 'Rider'}</b><br>🛵 Sedang menghantar`);
-
-                // Add customer marker if coordinates available
-                if (customerLat && customerLng) {
-                    const customerIcon = L.divIcon({
-                        html: '<div style="background:#ef4444;width:32px;height:32px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;font-size:16px;">📍</div>',
-                        iconSize: [32, 32],
-                        iconAnchor: [16, 16],
-                        className: 'binaapp-customer-marker'
-                    });
-
-                    this.state.customerMarker = L.marker([customerLat, customerLng], { icon: customerIcon })
-                        .addTo(this.state.map)
-                        .bindPopup('<b>Lokasi Penghantaran</b><br>📍 Alamat anda');
-
-                    // Draw route line
-                    this.state.routeLine = L.polyline([
-                        [riderLat, riderLng],
-                        [customerLat, customerLng]
-                    ], {
-                        color: '#3b82f6',
-                        weight: 4,
-                        opacity: 0.7,
-                        dashArray: '10, 10'
-                    }).addTo(this.state.map);
-
-                    // Fit bounds to show both markers
-                    const bounds = L.latLngBounds([
-                        [riderLat, riderLng],
-                        [customerLat, customerLng]
-                    ]);
-                    this.state.map.fitBounds(bounds, { padding: [50, 50] });
-                }
-
-                console.log('[BinaApp] Map initialized successfully with Leaflet + OpenStreetMap (FREE!)');
+                console.log('[BinaApp] Map initialized successfully via initRiderTrackingMap');
             } catch (error) {
                 console.error('[BinaApp] Map initialization error:', error);
             }
         },
 
-        // Update rider marker position (Leaflet)
+        // Update rider marker position (Leaflet) - Updated for Phase 3
         updateRiderMarker: function() {
             if (!this.state.trackingData || !this.state.riderMarker) return;
 
@@ -1142,21 +1204,12 @@
             const newLat = parseFloat(rider.current_latitude);
             const newLng = parseFloat(rider.current_longitude);
 
-            // Update marker position
-            this.state.riderMarker.setLatLng([newLat, newLng]);
+            // Call our new updateRiderPosition function
+            this.updateRiderPosition(newLat, newLng);
 
-            // Update route line if customer marker exists
-            if (this.state.customerMarker && this.state.routeLine) {
-                const customerLatLng = this.state.customerMarker.getLatLng();
-                this.state.routeLine.setLatLngs([
-                    [newLat, newLng],
-                    [customerLatLng.lat, customerLatLng.lng]
-                ]);
-            }
-
-            // Pan map to keep rider visible
-            if (this.state.map) {
-                this.state.map.panTo([newLat, newLng]);
+            // Pan map to keep rider visible (use correct state variable)
+            if (this.state.riderMap) {
+                this.state.riderMap.panTo([newLat, newLng]);
             }
         },
 
@@ -1907,11 +1960,14 @@
                                     ${rider.rating ? `<div style="color:#fbbf24;font-size:14px;margin-top:2px;">⭐ ${rider.rating}</div>` : ''}
                                     ${rider.current_latitude && rider.current_longitude ? `
                                         <div style="color:#10b981;font-size:12px;margin-top:4px;">
-                                            📍 ${this.t('liveTracking')}
+                                            📍 ${this.t('liveTracking')} - ${this.t('updatesEvery15Seconds')}
                                         </div>
                                     ` : `
-                                        <div style="color:#9ca3af;font-size:12px;margin-top:4px;">
-                                            📍 ${this.t('gpsNotAvailable')}
+                                        <div style="color:#f59e0b;font-size:12px;margin-top:4px;">
+                                            ⏳ ${this.t('gpsNotAvailable')}
+                                        </div>
+                                        <div style="color:#9ca3af;font-size:11px;margin-top:2px;">
+                                            ${this.t('updatesEvery15Seconds')}
                                         </div>
                                     `}
                                 </div>
@@ -2055,6 +2111,220 @@
             } catch (e) {
                 return '';
             }
+        },
+
+        // ============================================
+        // PHASE 3: LEAFLET.JS GPS TRACKING FUNCTIONS
+        // ============================================
+
+        // Load Leaflet CSS
+        loadLeafletCSS: function() {
+            if (document.getElementById('binaapp-leaflet-css')) return;
+
+            const link = document.createElement('link');
+            link.id = 'binaapp-leaflet-css';
+            link.rel = 'stylesheet';
+            link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+            link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+            link.crossOrigin = '';
+            document.head.appendChild(link);
+            console.log('[BinaApp] Leaflet CSS loaded');
+        },
+
+        // Load Leaflet JavaScript
+        loadLeafletJS: function() {
+            return new Promise((resolve, reject) => {
+                if (window.L) {
+                    resolve(window.L);
+                    return;
+                }
+
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+                script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+                script.crossOrigin = '';
+                script.onload = () => {
+                    console.log('[BinaApp] Leaflet JS loaded');
+                    resolve(window.L);
+                };
+                script.onerror = reject;
+                document.body.appendChild(script);
+            });
+        },
+
+        // Initialize rider tracking map
+        initRiderTrackingMap: async function(riderLat, riderLng, customerLat, customerLng, riderName) {
+            try {
+                this.loadLeafletCSS();
+                const L = await this.loadLeafletJS();
+
+                // Wait for container to be in DOM
+                await new Promise(resolve => setTimeout(resolve, 100));
+
+                const container = document.getElementById('binaapp-rider-map');
+                if (!container) {
+                    console.error('[BinaApp Map] Container not found');
+                    return;
+                }
+
+                // Clear existing map
+                if (this.state.riderMap) {
+                    this.state.riderMap.remove();
+                    this.state.riderMap = null;
+                }
+
+                // Create map centered on rider
+                this.state.riderMap = L.map('binaapp-rider-map', {
+                    zoomControl: true,
+                    attributionControl: true
+                }).setView([riderLat, riderLng], 14);
+
+                // Add OpenStreetMap tiles (FREE!)
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+                    maxZoom: 19,
+                    minZoom: 10
+                }).addTo(this.state.riderMap);
+
+                // Custom rider icon (motorcycle)
+                const riderIcon = L.divIcon({
+                    html: `
+                        <div style="
+                            width: 50px;
+                            height: 50px;
+                            background: linear-gradient(135deg, #ea580c 0%, #fb923c 100%);
+                            border-radius: 50%;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.5);
+                            border: 4px solid white;
+                            font-size: 26px;
+                        ">
+                            🛵
+                        </div>
+                    `,
+                    className: '',
+                    iconSize: [50, 50],
+                    iconAnchor: [25, 25],
+                    popupAnchor: [0, -25]
+                });
+
+                // Custom customer icon (location pin)
+                const customerIcon = L.divIcon({
+                    html: `
+                        <div style="
+                            width: 40px;
+                            height: 40px;
+                            background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+                            border-radius: 50% 50% 50% 0;
+                            transform: rotate(-45deg);
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.5);
+                            border: 3px solid white;
+                        ">
+                            <span style="transform: rotate(45deg); font-size: 20px;">📍</span>
+                        </div>
+                    `,
+                    className: '',
+                    iconSize: [40, 40],
+                    iconAnchor: [20, 40],
+                    popupAnchor: [0, -40]
+                });
+
+                // Add rider marker
+                this.state.riderMarker = L.marker([riderLat, riderLng], { icon: riderIcon })
+                    .addTo(this.state.riderMap)
+                    .bindPopup(`
+                        <div style="text-align: center; font-family: system-ui; padding: 8px;">
+                            <strong style="font-size: 16px; display: block; margin-bottom: 4px;">
+                                🛵 ${riderName}
+                            </strong>
+                            <span style="font-size: 13px; color: #666;">
+                                ${this.t('riderOnTheWay')}
+                            </span>
+                        </div>
+                    `);
+
+                // Add customer marker
+                this.state.customerMarker = L.marker([customerLat, customerLng], { icon: customerIcon })
+                    .addTo(this.state.riderMap)
+                    .bindPopup(`
+                        <div style="text-align: center; font-family: system-ui; padding: 8px;">
+                            <strong style="font-size: 16px; display: block; margin-bottom: 4px;">
+                                📍 ${this.t('yourDestination')}
+                            </strong>
+                            <span style="font-size: 13px; color: #666;">
+                                ${this.t('deliveryLocation')}
+                            </span>
+                        </div>
+                    `);
+
+                // Draw route line
+                this.state.routeLine = L.polyline(
+                    [[riderLat, riderLng], [customerLat, customerLng]],
+                    {
+                        color: '#ea580c',
+                        weight: 4,
+                        opacity: 0.7,
+                        dashArray: '10, 10',
+                        lineCap: 'round'
+                    }
+                ).addTo(this.state.riderMap);
+
+                // Calculate distance (Haversine formula)
+                const R = 6371; // Earth's radius in km
+                const dLat = (customerLat - riderLat) * Math.PI / 180;
+                const dLng = (customerLng - riderLng) * Math.PI / 180;
+                const a =
+                    Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(riderLat * Math.PI / 180) * Math.cos(customerLat * Math.PI / 180) *
+                    Math.sin(dLng/2) * Math.sin(dLng/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                const distance = R * c;
+
+                // Estimate ETA (30 km/h average city speed)
+                const etaMinutes = Math.ceil((distance / 30) * 60);
+
+                // Fit map to show both markers
+                const bounds = L.latLngBounds([
+                    [riderLat, riderLng],
+                    [customerLat, customerLng]
+                ]);
+                this.state.riderMap.fitBounds(bounds, { padding: [80, 80] });
+
+                // Store distance and ETA in state
+                this.state.mapDistance = distance;
+                this.state.mapETA = etaMinutes;
+
+                console.log('[BinaApp Map] Initialized successfully - Distance:', distance.toFixed(1), 'km, ETA:', etaMinutes, 'min');
+
+            } catch (error) {
+                console.error('[BinaApp Map] Failed to initialize:', error);
+            }
+        },
+
+        // Update rider position on map
+        updateRiderPosition: function(newLat, newLng) {
+            if (!this.state.riderMarker || !this.state.riderMap) {
+                console.warn('[BinaApp Map] Map not initialized, cannot update position');
+                return;
+            }
+
+            const newLatLng = [newLat, newLng];
+
+            // Smooth animation
+            this.state.riderMarker.setLatLng(newLatLng);
+
+            // Update route line
+            if (this.state.routeLine && this.state.customerMarker) {
+                const customerLatLng = this.state.customerMarker.getLatLng();
+                this.state.routeLine.setLatLngs([newLatLng, [customerLatLng.lat, customerLatLng.lng]]);
+            }
+
+            console.log('[BinaApp Map] Rider position updated:', newLat.toFixed(6), newLng.toFixed(6));
         },
 
         // Attach event listeners for views
@@ -2255,32 +2525,20 @@
                                 // Handle array of error objects (validation errors)
                                 if (Array.isArray(errorJson.detail)) {
                                     errorMessage = errorJson.detail.map(err => {
-                                        if (typeof err === 'string') {
+                                        if (typeof err === 'object' && err.msg) {
+                                            return err.msg;
+                                        } else if (typeof err === 'string') {
                                             return err;
-                                        } else if (typeof err === 'object' && err !== null) {
-                                            // Check for common error message properties
-                                            const msg = err.msg || err.message || err.error || err.description;
-                                            if (msg) return msg;
-                                            // If error has a loc property (field location), format it nicely
-                                            if (err.loc && Array.isArray(err.loc)) {
-                                                const field = err.loc[err.loc.length - 1];
-                                                return `${field}: ${err.msg || 'Invalid value'}`;
-                                            }
-                                            // Last resort: try to extract meaningful info
-                                            return Object.values(err).filter(v => typeof v === 'string').join(' ') || 'Validation error';
+                                        } else {
+                                            return JSON.stringify(err);
                                         }
-                                        return String(err);
                                     }).join(', ');
                                 } else if (typeof errorJson.detail === 'string') {
                                     errorMessage = errorJson.detail;
-                                } else if (typeof errorJson.detail === 'object' && errorJson.detail !== null) {
-                                    // Single error object
-                                    errorMessage = errorJson.detail.message || errorJson.detail.msg || errorJson.detail.error || JSON.stringify(errorJson.detail);
+                                } else {
+                                    // For other object types, stringify them
+                                    errorMessage = JSON.stringify(errorJson.detail);
                                 }
-                            } else if (errorJson.message) {
-                                errorMessage = errorJson.message;
-                            } else if (errorJson.error) {
-                                errorMessage = errorJson.error;
                             }
                         } catch (e) {
                             errorMessage = errorText || errorMessage;
@@ -2506,8 +2764,11 @@
                     riderWillBeAssigned: 'Rider akan ditetapkan sebentar lagi',
                     noGpsPhase1: 'Lokasi GPS rider akan dipaparkan dalam versi akan datang',
                     liveTracking: 'Pengesanan Langsung',
+                    riderOnTheWay: 'Rider sedang dalam perjalanan',
+                    yourDestination: 'Destinasi Anda',
+                    deliveryLocation: 'Lokasi penghantaran',
                     liveTrackingActive: 'Pengesanan GPS Aktif',
-                    gpsNotAvailable: 'GPS tidak tersedia lagi',
+                    gpsNotAvailable: 'Menunggu GPS rider aktif',
                     updatesEvery15Seconds: 'Dikemas kini setiap 15 saat',
                     zoneAffectsFees: 'Caj dan minimum order ikut kawasan yang dipilih.',
                     selectZoneError: 'Sila pilih kawasan penghantaran terlebih dahulu.',
@@ -2583,8 +2844,11 @@
                     riderWillBeAssigned: 'Rider will be assigned shortly',
                     noGpsPhase1: 'Rider GPS location will be available in future updates',
                     liveTracking: 'Live Tracking',
+                    riderOnTheWay: 'Rider is on the way',
+                    yourDestination: 'Your Destination',
+                    deliveryLocation: 'Delivery location',
                     liveTrackingActive: 'GPS Tracking Active',
-                    gpsNotAvailable: 'GPS not available yet',
+                    gpsNotAvailable: 'Waiting for rider GPS',
                     updatesEvery15Seconds: 'Updates every 15 seconds',
                     zoneAffectsFees: 'Fees and minimum order depend on selected zone.',
                     selectZoneError: 'Please select a delivery zone first.',
@@ -2627,4 +2891,90 @@
             return translations[lang]?.[key] || translations.en[key] || key;
         }
     };
+    // Auto-initialize from data attributes if present
+    (function autoInit() {
+        // PRIORITY ORDER for website_id (will be VALIDATED against server):
+        // 1. window.BINAAPP_WEBSITE_ID (set by server - most trusted)
+        // 2. data-website-id attribute on script tag
+        // 3. data-website-id on #binaapp-widget-container div
+        // 4. Fetch from backend by domain (fallback, then validated)
+
+        let pendingWebsiteId = window.BINAAPP_WEBSITE_ID
+            || document.getElementById('binaapp-widget-container')?.dataset?.websiteId
+            || null;
+
+        const currentScript = document.currentScript || document.querySelector('script[data-website-id]');
+
+        if (!pendingWebsiteId && currentScript) {
+            pendingWebsiteId = currentScript.getAttribute('data-website-id');
+        }
+
+        if (currentScript) {
+            const apiUrl = currentScript.getAttribute('data-api-url');
+            const primaryColor = currentScript.getAttribute('data-primary-color');
+            const language = currentScript.getAttribute('data-language');
+            const businessType = currentScript.getAttribute('data-business-type');
+
+            if (pendingWebsiteId) {
+                console.log('[BinaApp] Auto-initializing from data attributes');
+                console.log('[BinaApp] Pending website ID (will be validated):', pendingWebsiteId);
+
+                // Auto-initialize widget - init() will VALIDATE the ID before proceeding
+                const config = {
+                    websiteId: pendingWebsiteId
+                };
+
+                if (apiUrl) config.apiUrl = apiUrl;
+                if (primaryColor) config.primaryColor = primaryColor;
+                if (language) config.language = language;
+                if (businessType) config.businessType = businessType;
+
+                // Initialize with a small delay to ensure DOM is ready
+                // The init() function will validate the ID against the server
+                setTimeout(() => {
+                    window.BinaAppDelivery.init(config);
+                }, 100);
+            } else {
+                console.warn('[BinaApp] No website ID found in script tag data attributes');
+                console.log('[BinaApp] Will try to fetch by domain (then validate) or wait for manual init()');
+
+                // Try to fetch website_id from backend using current domain as fallback
+                // This ID will ALSO be validated by init()
+                const hostname = window.location.hostname;
+                if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+                    console.log('[BinaApp] Attempting to fetch website_id for domain:', hostname);
+
+                    const apiBaseUrl = apiUrl || 'https://binaapp-backend.onrender.com';
+                    fetch(`${apiBaseUrl}/api/v1/websites/by-domain/${hostname}`)
+                        .then(response => {
+                            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                            return response.json();
+                        })
+                        .then(website => {
+                            console.log('[BinaApp] ✅ Found website by domain:', website.id);
+                            console.log('[BinaApp] This ID will be validated by init()');
+
+                            const config = {
+                                websiteId: website.id,
+                                apiUrl: apiBaseUrl
+                            };
+
+                            if (primaryColor) config.primaryColor = primaryColor;
+                            if (language) config.language = language;
+                            if (businessType) config.businessType = businessType;
+
+                            // init() will validate this ID before proceeding
+                            setTimeout(() => {
+                                window.BinaAppDelivery.init(config);
+                            }, 100);
+                        })
+                        .catch(error => {
+                            console.error('[BinaApp] ❌ Failed to fetch website by domain:', error);
+                            console.log('[BinaApp] Widget initialization deferred - call BinaAppDelivery.init() manually');
+                        });
+                }
+            }
+        }
+    })();
+
 })();
