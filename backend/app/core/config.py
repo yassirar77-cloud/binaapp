@@ -99,6 +99,15 @@ class Settings(BaseSettings):
 
     # Supabase JWT Secret (for verifying Supabase-signed tokens)
     SUPABASE_JWT_SECRET: Optional[str] = Field(None, env="SUPABASE_JWT_SECRET")
+
+    # Supabase JWT Audience (for enhanced JWT verification)
+    # Set to "authenticated" to enable audience verification
+    # Increases security by preventing token reuse across services
+    SUPABASE_JWT_AUDIENCE: Optional[str] = Field(None, env="SUPABASE_JWT_AUDIENCE")
+
+    # API Keys for external integrations (comma-separated)
+    # Example: BINAAPP_API_KEYS="bina_abc123...,bina_xyz789..."
+    BINAAPP_API_KEYS: Optional[str] = Field(None, env="BINAAPP_API_KEYS")
     
     # Redis
     REDIS_URL: str = Field(default="redis://localhost:6379", env="REDIS_URL")

@@ -8,24 +8,57 @@ from app.core.config import settings
 
 class SupabaseService:
     """Supabase service using REST API (no SDK conflicts)"""
-    
+
     def __init__(self):
         self.url = settings.SUPABASE_URL
         self.anon_key = settings.SUPABASE_ANON_KEY
         self.service_key = settings.SUPABASE_SERVICE_ROLE_KEY
-        self.headers = {
+
+        # SECURITY: Use service role key for admin operations (bypasses RLS)
+        # This should ONLY be used for:
+        # - Customer-facing operations (widgets, order creation)
+        # - Admin operations
+        # - Migrations
+        self.service_headers = {
             "apikey": self.service_key,
             "Authorization": f"Bearer {self.service_key}",
             "Content-Type": "application/json"
         }
+
+        # For backwards compatibility, default headers use service key
+        # TODO: Gradually migrate to use get_user_headers() for business operations
+        self.headers = self.service_headers
+
+    def get_user_headers(self, user_token: str) -> Dict[str, str]:
+        """
+        Get headers for authenticated user operations (respects RLS).
+
+        Use this for business owner operations where RLS should be enforced.
+
+        Args:
+            user_token: JWT token from authenticated user
+
+        Returns:
+            Headers with anon key and user's JWT token
+        """
+        return {
+            "apikey": self.anon_key,  # Use anon key, not service key
+            "Authorization": f"Bearer {user_token}",  # User's JWT
+            "Content-Type": "application/json"
+        }
     
     async def upload_file(self, bucket: str, path: str, file_data: bytes, content_type: str = "application/octet-stream") -> Optional[str]:
-        """Upload file to Supabase Storage with proper Content-Type for HTML rendering"""
+        """
+        Upload file to Supabase Storage with proper Content-Type for HTML rendering.
+
+        SECURITY NOTE: Uses service role key because storage operations need admin access.
+        """
         try:
             url = f"{self.url}/storage/v1/object/{bucket}/{path}"
 
             # Critical headers for Supabase Storage to serve HTML correctly
             # Content-Type MUST be set to text/html for browsers to render (not download)
+            # SECURITY: Explicitly use service_key for storage operations
             upload_headers = {
                 "apikey": self.service_key,
                 "Authorization": f"Bearer {self.service_key}",
