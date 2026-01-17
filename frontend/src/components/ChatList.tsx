@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
 
 // =====================================================
 // TYPES
@@ -76,11 +77,24 @@ export default function ChatList({
 
             console.log('[ChatList] Loading conversations for website IDs:', idsToFilter);
 
-            const res = await fetch(url);
+            const session = supabase ? await supabase.auth.getSession() : null;
+            const accessToken = session?.data.session?.access_token;
+
+            const headers: Record<string, string> = {
+                'Content-Type': 'application/json'
+            };
+            if (accessToken) {
+                headers.Authorization = `Bearer ${accessToken}`;
+            }
+
+            const res = await fetch(url, { headers });
             if (!res.ok) throw new Error('Failed to load conversations');
 
             const data = await res.json();
-            setConversations(data.conversations || []);
+            const conversationsData = Array.isArray(data)
+                ? data
+                : data.conversations || [];
+            setConversations(conversationsData);
             setError(null);
         } catch (err) {
             console.error('[ChatList] Failed to load:', err);

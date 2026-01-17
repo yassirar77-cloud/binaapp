@@ -221,10 +221,19 @@ async def create_order_conversation(supabase: Client, order_id: str, order_numbe
 
         result = supabase.table("chat_conversations").insert(conversation_data).execute()
 
+        # If insert failed due to missing column (e.g. website_name), retry without it
+        if not result.data and getattr(result, "error", None):
+            logger.warning(f"[Chat] Conversation insert failed: {result.error}")
+            conversation_data.pop("website_name", None)
+            result = supabase.table("chat_conversations").insert(conversation_data).execute()
+
         if result.data:
             conversation = result.data[0]
             logger.info(f"[Chat] Created conversation {conversation['id']} for order {order_number} (website: {website_id})")
             return conversation
+
+        if getattr(result, "error", None):
+            logger.error(f"[Chat] Conversation insert error: {result.error}")
         return conversation_data
     except Exception as e:
         logger.error(f"[Chat] Error creating conversation: {e}")

@@ -51,8 +51,14 @@ export default function CustomerChatButton({
             const checkData = await checkRes.json();
 
             if (checkData.exists && checkData.conversation) {
-                setConversationId(checkData.conversation.id);
-                setCustomerId(checkData.conversation.customer_id);
+                const existingConversation = checkData.conversation;
+                const derivedCustomerId =
+                    existingConversation.customer_id ||
+                    (existingConversation.customer_phone
+                        ? `customer_${existingConversation.customer_phone}`
+                        : `customer_${customerPhone}`);
+                setConversationId(existingConversation.id);
+                setCustomerId(derivedCustomerId);
                 setIsOpen(true);
                 return;
             }
@@ -73,7 +79,7 @@ export default function CustomerChatButton({
 
             const createData = await createRes.json();
             setConversationId(createData.conversation_id);
-            setCustomerId(createData.customer_id);
+            setCustomerId(createData.customer_id || `customer_${customerPhone}`);
             setIsOpen(true);
 
         } catch (err) {

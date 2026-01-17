@@ -136,7 +136,10 @@ export default function OwnerChatDashboard({
       }
 
       const data = await res.json()
-      setConversations(data.conversations || [])
+      const conversationsData = Array.isArray(data)
+        ? data
+        : data.conversations || []
+      setConversations(conversationsData)
     } catch (err) {
       console.error('[OwnerChatDashboard] Failed to load conversations:', err)
       setError('Gagal memuatkan perbualan. Sila cuba lagi.')

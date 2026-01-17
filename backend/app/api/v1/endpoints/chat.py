@@ -113,7 +113,7 @@ class SendMessageRequest(BaseModel):
     sender_id: str
     sender_name: str
     message_type: str = "text"  # text, image, location, payment, status, voice
-    content: str
+    content: Optional[str] = None
     message: Optional[str] = None
     media_url: Optional[str] = None
     metadata: Optional[dict] = None
@@ -160,36 +160,6 @@ def get_supabase():
 # =====================================================
 # REST API ENDPOINTS
 # =====================================================
-
-@router.get("/conversations")
-async def list_conversations(current_user: dict = Depends(get_current_user)):
-    """Get all conversations for the authenticated user's websites"""
-    try:
-        supabase = get_supabase()
-
-        # SECURITY: Extract user_id from authenticated token
-        user_id = current_user.get("sub") or current_user.get("id")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="User ID not found in token")
-
-        # SECURITY: Get only websites owned by this user
-        websites = supabase.table("websites").select("id").eq("user_id", user_id).execute()
-        if not websites.data:
-            return []
-
-        website_ids = [str(w["id"]) for w in websites.data]
-
-        # SECURITY: Filter conversations to only those for user's websites
-        result = supabase.table("chat_conversations").select("*").in_("website_id", website_ids).order("updated_at", desc=True).execute()
-
-        return result.data or []
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[Chat] Failed to list conversations: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.post("/conversations/create")
 async def create_conversation(request: CreateConversationRequest):
@@ -269,6 +239,16 @@ async def create_conversation(request: CreateConversationRequest):
         }
 
         result = supabase.table("chat_conversations").insert(conv_data).execute()
+
+        # If insert failed due to missing column (e.g. website_name), retry without it
+        if not result.data and getattr(result, "error", None):
+            logger.warning(f"[Chat] Conversation insert failed: {result.error}")
+            conv_data.pop("website_name", None)
+            result = supabase.table("chat_conversations").insert(conv_data).execute()
+
+        if not result.data and getattr(result, "error", None):
+            logger.error(f"[Chat] Conversation insert error: {result.error}")
+            raise HTTPException(status_code=500, detail="Failed to create conversation")
 
         # Add customer as participant - use ONLY existing columns
         # Schema: id, conversation_id, participant_type, participant_name, participant_phone, joined_at, created_at
@@ -488,7 +468,11 @@ async def get_conversation_by_order(order_id: str):
         result = supabase.table("chat_conversations").select("*").eq("order_id", order_id).execute()
 
         if result.data:
-            return {"conversation": result.data[0], "exists": True}
+            conversation = result.data[0]
+            # Backfill customer_id for legacy rows (customer_id not stored in DB)
+            if not conversation.get("customer_id") and conversation.get("customer_phone"):
+                conversation["customer_id"] = f"customer_{conversation['customer_phone']}"
+            return {"conversation": conversation, "exists": True}
 
         return {"conversation": None, "exists": False}
 
