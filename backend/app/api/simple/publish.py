@@ -324,6 +324,13 @@ async def publish_website(request: PublishRequest):
             language=request.language or "ms"
         )
 
+        # Ensure customer chat widget is available on published websites
+        html_content = inject_chat_widget_if_needed(
+            html_content,
+            project_id,
+            api_url="https://binaapp-backend.onrender.com"
+        )
+
         # Upload to Supabase Storage with retry logic
         logger.info(f"📤 Uploading to Supabase Storage: {request.user_id}/{request.subdomain}/index.html")
 
@@ -469,6 +476,22 @@ def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: 
     if "</body>" in html:
         return html.replace("</body>", delivery_widget + "\n</body>")
     return html + delivery_widget
+
+
+def inject_chat_widget_if_needed(html: str, website_id: str, api_url: str = "https://binaapp-backend.onrender.com") -> str:
+    """Inject chat widget script if missing to enable customer chat."""
+    if "chat-widget.js" in html or "binaapp-chat-widget" in html:
+        return html
+
+    chat_widget = f'''
+<!-- BinaApp Chat Widget - Customer to Owner Chat -->
+<script src="{api_url}/static/widgets/chat-widget.js"
+        data-website-id="{website_id}"
+        data-api-url="{api_url}"></script>'''
+
+    if "</body>" in html:
+        return html.replace("</body>", chat_widget + "\n</body>")
+    return html + chat_widget
 
 
 def validate_subdomain(subdomain: str) -> bool:
