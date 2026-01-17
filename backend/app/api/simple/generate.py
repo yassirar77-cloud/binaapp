@@ -849,6 +849,13 @@ async def generate_website(request: SimpleGenerateRequest):
         if request.delivery:
             user_data["delivery"] = request.delivery
 
+        # CRITICAL FIX: Generate website_id ONCE for ALL generation modes
+        # This temporary ID will be replaced by the real database ID during publish
+        import uuid
+        generated_website_id = str(uuid.uuid4())
+        user_data["website_id"] = generated_website_id
+        logger.info(f"✅ Generated single website_id for all generation modes: {generated_website_id}")
+
         # Dual AI generation mode - return both designs
         if request.mode == "dual":
             logger.info("=" * 80)
@@ -1115,12 +1122,8 @@ async def generate_website(request: SimpleGenerateRequest):
             else:
                 logger.info("⚠️ No user-uploaded menu items found")
 
-            # CRITICAL FIX: ALWAYS generate website_id for ALL websites
-            # The delivery widget must be present on every website for ordering capability
-            import uuid
-            generated_website_id = str(uuid.uuid4())
-            user_data["website_id"] = generated_website_id
-            logger.info(f"✅ Generated website_id for website: {generated_website_id}")
+            # Use the shared website_id (already in user_data)
+            # website_id was generated once at the top for all generation modes
 
             # Inject additional integrations (now has website_id for backend order creation)
             html_content = template_service.inject_integrations(
@@ -1533,6 +1536,13 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
             "description": request.description,  # CRITICAL: Pass for business type detection
         }
 
+        # CRITICAL FIX: Generate website_id ONCE for ALL variants
+        # This temporary ID will be replaced by the real database ID during publish
+        import uuid
+        generated_website_id = str(uuid.uuid4())
+        user_data["website_id"] = generated_website_id
+        logger.info(f"Job {job_id}: ✅ Generated single website_id for all variants: {generated_website_id}")
+
         # Add social media to user_data if provided
         if request.social_media:
             user_data["social_media"] = request.social_media
@@ -1599,10 +1609,8 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
 
                 html_content = ai_response.html_content
 
-                # CRITICAL FIX: ALWAYS generate website_id and inject delivery widget
-                import uuid
-                generated_website_id = str(uuid.uuid4())
-                user_data["website_id"] = generated_website_id
+                # Use the shared website_id (already in user_data)
+                # All variants share the same website_id for consistency
 
                 # Inject integrations
                 html_content = template_service.inject_integrations(
@@ -1944,6 +1952,13 @@ async def generate_stream(request: SimpleGenerateRequest):
                 "description": request.description,
             }
 
+            # CRITICAL FIX: Generate website_id ONCE for ALL variants (SSE mode)
+            # This temporary ID will be replaced by the real database ID during publish
+            import uuid
+            generated_website_id = str(uuid.uuid4())
+            user_data["website_id"] = generated_website_id
+            logger.info(f"✅ Generated single website_id for SSE generation: {generated_website_id}")
+
             # Get menu items using menu service (for SSE mode)
             form_data_for_menu = {
                 'images': request.images if request.images else [],
@@ -1984,10 +1999,8 @@ async def generate_stream(request: SimpleGenerateRequest):
 
                     html_content = ai_response.html_content
 
-                    # CRITICAL FIX: ALWAYS generate website_id and inject delivery widget
-                    import uuid
-                    generated_website_id = str(uuid.uuid4())
-                    user_data["website_id"] = generated_website_id
+                    # Use the shared website_id (already in user_data)
+                    # All variants share the same website_id for consistency
 
                     # Inject integrations
                     html_content = template_service.inject_integrations(
@@ -2053,10 +2066,8 @@ async def generate_stream(request: SimpleGenerateRequest):
                 ai_response = await ai_service.generate_website(ai_request, image_choice=image_choice)
                 html_content = ai_response.html_content
 
-                # CRITICAL FIX: ALWAYS generate website_id and inject delivery widget
-                import uuid
-                generated_website_id = str(uuid.uuid4())
-                user_data["website_id"] = generated_website_id
+                # Use the shared website_id (already in user_data)
+                # website_id was generated earlier for consistency
 
                 # Inject integrations
                 html_content = template_service.inject_integrations(
@@ -2252,15 +2263,17 @@ async def generate_website_simple(request: SimpleGenerateRequest):
             "business_name": business_name
         }
 
+        # CRITICAL FIX: Generate website_id ONCE for this generation
+        # This temporary ID will be replaced by the real database ID during publish
+        import uuid
+        generated_website_id = str(uuid.uuid4())
+        user_data["website_id"] = generated_website_id
+        logger.info(f"✅ Generated single website_id for simple JSON generation: {generated_website_id}")
+
         # Generate website
         logger.info("🔷 Generating HTML with AI...")
         ai_response = await ai_service.generate_website(ai_request, image_choice=image_choice)
         html_content = ai_response.html_content
-
-        # CRITICAL FIX: ALWAYS generate website_id and inject delivery widget
-        import uuid
-        generated_website_id = str(uuid.uuid4())
-        user_data["website_id"] = generated_website_id
 
         # Inject integrations
         html_content = template_service.inject_integrations(
