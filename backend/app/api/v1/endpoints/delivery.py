@@ -16,6 +16,7 @@ from supabase import create_client
 import bcrypt
 
 from app.core.supabase import get_supabase_client
+from app.core.security import get_current_user
 from app.models.delivery_schemas import (
     # Zones
     DeliveryZoneResponse,
@@ -109,7 +110,12 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password against hash or plain text (legacy support)"""
+    """
+    Verify password against bcrypt hash.
+
+    SECURITY: Plain text password support has been REMOVED.
+    All passwords must be properly hashed with bcrypt.
+    """
     try:
         # Check if stored password is a bcrypt hash (starts with $2a$, $2b$, or $2y$)
         if hashed_password and hashed_password.startswith(('$2a$', '$2b$', '$2y$')):
@@ -119,10 +125,15 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
                 hashed_password.encode('utf-8')
             )
         else:
-            # Legacy plain text password - compare directly
-            # This supports riders created before hashing was implemented
-            logger.warning("Legacy plain text password detected - should migrate to hashed")
-            return plain_password == hashed_password
+            # SECURITY FIX: Plain text passwords are NO LONGER SUPPORTED
+            # If you see this error, the rider password needs to be rehashed
+            logger.critical(
+                f"SECURITY: Plain text password detected in database! "
+                f"This rider account is BLOCKED until password is rehashed. "
+                f"Run: UPDATE riders SET password_hash = bcrypt_hash(password_hash) WHERE ..."
+            )
+            # Return False - do not allow login with plain text passwords
+            return False
     except Exception as e:
         logger.error(f"Password verification error: {e}")
         return False
@@ -1721,15 +1732,29 @@ async def get_website_orders(
     website_id: str,
     status_filter: Optional[str] = None,
     limit: int = 50,
+    current_user: dict = Depends(get_current_user),
     supabase: Client = Depends(get_supabase_client),
 ):
     """
-    Get all orders for a website (public endpoint for simple dashboards).
+    Get all orders for a website (requires authentication and ownership).
 
-    **Note:** This is a public endpoint to enable simple business dashboards.
-    For production, consider adding an API key or basic auth.
+    SECURITY: Only website owners can access their orders.
     """
     try:
+        # SECURITY: Extract user_id from authenticated token
+        user_id = current_user.get("sub") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found in token")
+
+        # SECURITY: Verify user owns this website
+        website_check = supabase.table("websites").select("id").eq("id", website_id).eq("user_id", user_id).execute()
+        if not website_check.data:
+            logger.warning(f"User {user_id} attempted to access orders for unauthorized website: {website_id}")
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: You don't own this website"
+            )
+
         query = supabase.table("delivery_orders").select("*").eq(
             "website_id", website_id
         ).order("created_at", desc=True).limit(limit)
@@ -1751,14 +1776,30 @@ async def get_website_orders(
 async def get_website_riders(
     website_id: str,
     online_only: bool = False,
+    current_user: dict = Depends(get_current_user),
     supabase: Client = Depends(get_supabase_client),
 ):
     """
-    Get all riders for a website (public endpoint for business dashboards).
+    Get all riders for a website (requires authentication and ownership).
 
+    SECURITY: Only website owners can access their riders.
     Phase 1: Returns basic rider info (no GPS).
     """
     try:
+        # SECURITY: Extract user_id from authenticated token
+        user_id = current_user.get("sub") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found in token")
+
+        # SECURITY: Verify user owns this website
+        website_check = supabase.table("websites").select("id").eq("id", website_id).eq("user_id", user_id).execute()
+        if not website_check.data:
+            logger.warning(f"User {user_id} attempted to access riders for unauthorized website: {website_id}")
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied: You don't own this website"
+            )
+
         query = supabase.table("riders").select("*").eq(
             "website_id", website_id
         ).eq("is_active", True).order("name")

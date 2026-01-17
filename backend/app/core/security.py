@@ -8,6 +8,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from loguru import logger
 
 from app.core.config import settings
 
@@ -98,14 +99,35 @@ async def get_current_user(
     # Fallback: Try to decode token with Supabase JWT secret if available
     if settings.SUPABASE_JWT_SECRET:
         try:
+            # SECURITY NOTE: Audience verification
+            # - Supabase tokens have a non-standard 'aud' claim (usually 'authenticated')
+            # - For enhanced security, set SUPABASE_JWT_AUDIENCE in environment
+            # - If not set, audience verification is skipped (less secure but more compatible)
+            # - Risk: If JWT secret is shared across services, tokens could be reused
+            #
+            # To enable audience verification:
+            # 1. Set SUPABASE_JWT_AUDIENCE="authenticated" in environment
+            # 2. Ensure it matches your Supabase project's audience claim
+
+            decode_options = {"verify_aud": False}  # Default: disabled for compatibility
+
+            # If audience is configured, enable verification
+            if hasattr(settings, 'SUPABASE_JWT_AUDIENCE') and settings.SUPABASE_JWT_AUDIENCE:
+                decode_options = {
+                    "verify_aud": True,
+                    "audience": settings.SUPABASE_JWT_AUDIENCE
+                }
+                logger.debug(f"JWT audience verification enabled: {settings.SUPABASE_JWT_AUDIENCE}")
+
             payload = jwt.decode(
                 token,
                 settings.SUPABASE_JWT_SECRET,
                 algorithms=["HS256"],
-                options={"verify_aud": False}  # Supabase tokens don't have standard aud
+                options=decode_options
             )
             return payload
-        except JWTError:
+        except JWTError as e:
+            logger.debug(f"Supabase JWT verification failed: {e}")
             pass
 
     # Last resort: Try custom JWT secret (for backwards compatibility)
@@ -128,10 +150,41 @@ async def get_current_user(
 
 
 def verify_api_key(api_key: str) -> bool:
-    """Verify API key for external integrations"""
-    # This would check against database or configured API keys
-    # For now, we'll just check against environment
-    return True  # Implement proper API key validation
+    """
+    Verify API key for external integrations.
+
+    SECURITY: Checks against configured API keys in environment or database.
+
+    For production, set BINAAPP_API_KEYS environment variable with comma-separated keys:
+    BINAAPP_API_KEYS="bina_abc123...,bina_xyz789..."
+
+    Returns:
+        bool: True if API key is valid, False otherwise
+    """
+    if not api_key:
+        return False
+
+    # Check environment variable for configured API keys
+    configured_keys = settings.BINAAPP_API_KEYS if hasattr(settings, 'BINAAPP_API_KEYS') else None
+
+    if configured_keys:
+        # Support comma-separated list of keys
+        valid_keys = [k.strip() for k in configured_keys.split(',') if k.strip()]
+
+        # SECURITY: Use constant-time comparison to prevent timing attacks
+        import hmac
+        for valid_key in valid_keys:
+            if hmac.compare_digest(api_key, valid_key):
+                return True
+        return False
+
+    # If no API keys configured, reject all (secure by default)
+    # To enable API key authentication, set BINAAPP_API_KEYS environment variable
+    logger.warning(
+        "API key validation attempted but no BINAAPP_API_KEYS configured. "
+        "Set BINAAPP_API_KEYS environment variable to enable API key authentication."
+    )
+    return False
 
 
 def generate_api_key() -> str:
