@@ -225,6 +225,9 @@
         }
     };
 
+    // UUID validation regex - reject malformed IDs early
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
     // Widget namespace
     window.BinaAppDelivery = {
         config: {
@@ -235,6 +238,14 @@
             language: 'ms',
             whatsappNumber: null,
             businessName: 'Kedai'
+        },
+
+        // Validation state - tracks whether widget ID has been validated
+        validationState: {
+            validated: false,
+            validationFailed: false,
+            pendingWebsiteId: null,
+            canonicalWebsiteId: null
         },
 
         businessConfig: null,
@@ -253,6 +264,87 @@
             deliveryArea: '',
             pickup: false,
             pickupAddress: ''
+        },
+
+        /**
+         * CRITICAL: Validate website ID against server database
+         * This is the ONLY authoritative source for widget ID binding.
+         * Rejects any ID that doesn't exist in the database.
+         *
+         * @param {string} candidateId - The website ID to validate
+         * @returns {Promise<{valid: boolean, websiteId: string|null, error: string|null}>}
+         */
+        validateWebsiteId: async function(candidateId) {
+            // GUARD 1: Reject null/empty IDs
+            if (!candidateId || candidateId.trim() === '') {
+                console.error('[BinaApp] VALIDATION FAILED: No website ID provided');
+                return { valid: false, websiteId: null, error: 'MISSING_WEBSITE_ID' };
+            }
+
+            // GUARD 2: Reject malformed UUIDs (fail fast)
+            if (!UUID_REGEX.test(candidateId.trim())) {
+                console.error('[BinaApp] VALIDATION FAILED: Invalid UUID format:', candidateId);
+                return { valid: false, websiteId: null, error: 'INVALID_UUID_FORMAT' };
+            }
+
+            const apiBaseUrl = this.config.apiUrl.replace('/api/v1', '');
+
+            try {
+                // GUARD 3: Validate against server database (AUTHORITATIVE)
+                const response = await fetch(apiBaseUrl + '/api/v1/delivery/validate-widget/' + encodeURIComponent(candidateId.trim()));
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'UNKNOWN_ERROR' }));
+                    console.error('[BinaApp] VALIDATION FAILED: Server rejected ID:', candidateId, errorData);
+
+                    // Clear any cached data for this invalid ID to prevent drift
+                    this.clearInvalidCache(candidateId);
+
+                    return {
+                        valid: false,
+                        websiteId: null,
+                        error: errorData.detail?.error || errorData.error || 'SERVER_REJECTED'
+                    };
+                }
+
+                const data = await response.json();
+
+                // SUCCESS: Server returned canonical ID from database
+                if (data.valid && data.website_id) {
+                    console.log('[BinaApp] VALIDATION SUCCESS: Canonical ID:', data.website_id);
+
+                    // CRITICAL: Use the CANONICAL ID from database, not the candidate
+                    // This prevents any client-side ID drift
+                    return {
+                        valid: true,
+                        websiteId: data.website_id,  // ALWAYS use database value
+                        businessName: data.business_name,
+                        error: null
+                    };
+                }
+
+                return { valid: false, websiteId: null, error: 'VALIDATION_FAILED' };
+
+            } catch (err) {
+                console.error('[BinaApp] VALIDATION ERROR: Network failure:', err);
+                // On network error, we CANNOT validate - fail safe by rejecting
+                return { valid: false, websiteId: null, error: 'NETWORK_ERROR' };
+            }
+        },
+
+        /**
+         * Clear cached data for an invalid website ID
+         * Prevents stale/invalid data from persisting
+         */
+        clearInvalidCache: function(invalidId) {
+            try {
+                localStorage.removeItem('binaapp_conv_' + invalidId);
+                localStorage.removeItem('binaapp_customer_id_' + invalidId);
+                localStorage.removeItem('binaapp_customer_id');
+                console.log('[BinaApp] Cleared cache for invalid ID:', invalidId);
+            } catch (e) {
+                // localStorage might not be available
+            }
         },
 
         state: {
@@ -288,12 +380,60 @@
             conversationId: null
         },
 
-        // Initialize widget
-        init: function(options) {
+        // Initialize widget - validates ID first, then proceeds
+        init: async function(options) {
             this.config = { ...this.config, ...options };
 
+            // GUARD 1: Reject if no websiteId provided
             if (!this.config.websiteId) {
-                console.error('[BinaApp] websiteId is required');
+                console.error('[BinaApp] BOOTSTRAP ABORTED: websiteId is required');
+                return;
+            }
+
+            // Store pending ID for validation
+            this.validationState.pendingWebsiteId = this.config.websiteId;
+
+            console.log('[BinaApp] Starting validation for website ID:', this.config.websiteId);
+
+            // CRITICAL: Validate website ID against server database BEFORE initializing
+            const validationResult = await this.validateWebsiteId(this.config.websiteId);
+
+            if (!validationResult.valid) {
+                this.validationState.validationFailed = true;
+                console.error('[BinaApp] WIDGET BOOTSTRAP ABORTED: Invalid website ID');
+                console.error('[BinaApp] Error:', validationResult.error);
+                console.error('[BinaApp] The widget will NOT initialize.');
+
+                // Do NOT initialize the widget - fail safe
+                return;
+            }
+
+            // SUCCESS: Use the CANONICAL ID from database (not user-provided)
+            this.validationState.validated = true;
+            this.validationState.canonicalWebsiteId = validationResult.websiteId;
+
+            // CRITICAL: Replace config websiteId with canonical database value
+            this.config.websiteId = validationResult.websiteId;
+
+            // Use business name from validation if available and not already set
+            if (validationResult.businessName && !options.businessName) {
+                this.config.businessName = validationResult.businessName;
+            }
+
+            console.log('[BinaApp] VALIDATION SUCCESS: Using canonical ID:', this.config.websiteId);
+
+            // Now proceed with initialization using validated ID
+            this._initializeWidget(options);
+        },
+
+        /**
+         * Internal initialization - called ONLY after validation succeeds
+         * NEVER call this directly - use init() which validates first
+         */
+        _initializeWidget: function(options) {
+            // ASSERTION: Validation must be complete before calling this
+            if (!this.validationState.validated) {
+                console.error('[BinaApp] ASSERTION FAILED: _initializeWidget called without validation');
                 return;
             }
 
@@ -339,7 +479,8 @@
             this.loadData();
             this.initEventListeners();
 
-            console.log('[BinaApp] Universal order widget initialized for:', this.config.businessType);
+            console.log('[BinaApp] Universal order widget initialized with VALIDATED ID for:', this.config.businessType);
+            console.log('[BinaApp] Canonical Website ID:', this.config.websiteId);
             console.log('[BinaApp] Payment config:', this.paymentConfig);
             console.log('[BinaApp] Fulfillment config:', this.fulfillmentConfig);
         },
@@ -2752,20 +2893,20 @@
     };
     // Auto-initialize from data attributes if present
     (function autoInit() {
-        // PRIORITY ORDER for website_id:
-        // 1. window.BINAAPP_WEBSITE_ID (set by server)
+        // PRIORITY ORDER for website_id (will be VALIDATED against server):
+        // 1. window.BINAAPP_WEBSITE_ID (set by server - most trusted)
         // 2. data-website-id attribute on script tag
         // 3. data-website-id on #binaapp-widget-container div
-        // 4. Fetch from backend by domain (fallback)
+        // 4. Fetch from backend by domain (fallback, then validated)
 
-        let websiteId = window.BINAAPP_WEBSITE_ID
+        let pendingWebsiteId = window.BINAAPP_WEBSITE_ID
             || document.getElementById('binaapp-widget-container')?.dataset?.websiteId
             || null;
 
         const currentScript = document.currentScript || document.querySelector('script[data-website-id]');
 
-        if (!websiteId && currentScript) {
-            websiteId = currentScript.getAttribute('data-website-id');
+        if (!pendingWebsiteId && currentScript) {
+            pendingWebsiteId = currentScript.getAttribute('data-website-id');
         }
 
         if (currentScript) {
@@ -2774,13 +2915,13 @@
             const language = currentScript.getAttribute('data-language');
             const businessType = currentScript.getAttribute('data-business-type');
 
-            if (websiteId) {
+            if (pendingWebsiteId) {
                 console.log('[BinaApp] Auto-initializing from data attributes');
-                console.log('[BinaApp] Website ID:', websiteId);
+                console.log('[BinaApp] Pending website ID (will be validated):', pendingWebsiteId);
 
-                // Auto-initialize widget
+                // Auto-initialize widget - init() will VALIDATE the ID before proceeding
                 const config = {
-                    websiteId: websiteId
+                    websiteId: pendingWebsiteId
                 };
 
                 if (apiUrl) config.apiUrl = apiUrl;
@@ -2789,14 +2930,16 @@
                 if (businessType) config.businessType = businessType;
 
                 // Initialize with a small delay to ensure DOM is ready
+                // The init() function will validate the ID against the server
                 setTimeout(() => {
                     window.BinaAppDelivery.init(config);
                 }, 100);
             } else {
                 console.warn('[BinaApp] No website ID found in script tag data attributes');
-                console.log('[BinaApp] Will try to fetch by domain or wait for manual init()');
+                console.log('[BinaApp] Will try to fetch by domain (then validate) or wait for manual init()');
 
                 // Try to fetch website_id from backend using current domain as fallback
+                // This ID will ALSO be validated by init()
                 const hostname = window.location.hostname;
                 if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
                     console.log('[BinaApp] Attempting to fetch website_id for domain:', hostname);
@@ -2809,6 +2952,7 @@
                         })
                         .then(website => {
                             console.log('[BinaApp] ✅ Found website by domain:', website.id);
+                            console.log('[BinaApp] This ID will be validated by init()');
 
                             const config = {
                                 websiteId: website.id,
@@ -2819,6 +2963,7 @@
                             if (language) config.language = language;
                             if (businessType) config.businessType = businessType;
 
+                            // init() will validate this ID before proceeding
                             setTimeout(() => {
                                 window.BinaAppDelivery.init(config);
                             }, 100);

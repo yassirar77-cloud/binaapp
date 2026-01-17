@@ -14,39 +14,151 @@
   // CONFIGURATION
   // =====================================================
 
-  // PRIORITY ORDER for website_id:
-  // 1. window.BINAAPP_WEBSITE_ID (set by server)
+  const API_URL = document.currentScript?.getAttribute('data-api-url') || 'https://binaapp-backend.onrender.com';
+  const WIDGET_ID = 'binaapp-chat-widget';
+
+  // PRIORITY ORDER for website_id (will be VALIDATED against server):
+  // 1. window.BINAAPP_WEBSITE_ID (set by server - most trusted)
   // 2. data-website-id attribute on script tag
   // 3. data-website-id on #binaapp-widget-container div
-  const websiteId = window.BINAAPP_WEBSITE_ID
+  let pendingWebsiteId = window.BINAAPP_WEBSITE_ID
       || document.currentScript?.getAttribute('data-website-id')
       || document.getElementById('binaapp-widget-container')?.dataset?.websiteId
       || null;
 
-  const API_URL = document.currentScript?.getAttribute('data-api-url') || 'https://binaapp-backend.onrender.com';
-  const WIDGET_ID = 'binaapp-chat-widget';
+  // CRITICAL: This will hold the VALIDATED, CANONICAL website ID from database
+  // It is NOT set until server validation succeeds
+  let websiteId = null;
+  let validationComplete = false;
+  let validationFailed = false;
 
-  if (!websiteId) {
-    console.error('[BinaApp Chat] Missing website_id - checked window.BINAAPP_WEBSITE_ID, data-website-id, and container');
+  // UUID validation regex - reject malformed IDs early
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  // =====================================================
+  // WIDGET ID VALIDATION (CRITICAL - Single Source of Truth)
+  // =====================================================
+
+  /**
+   * CRITICAL: Validate website ID against server database
+   * This is the ONLY authoritative source for widget ID binding.
+   * Rejects any ID that doesn't exist in the database.
+   *
+   * @param {string} candidateId - The website ID to validate
+   * @returns {Promise<{valid: boolean, websiteId: string|null, error: string|null}>}
+   */
+  async function validateWebsiteId(candidateId) {
+    // GUARD 1: Reject null/empty IDs
+    if (!candidateId || candidateId.trim() === '') {
+      console.error('[BinaApp Chat] VALIDATION FAILED: No website ID provided');
+      return { valid: false, websiteId: null, error: 'MISSING_WEBSITE_ID' };
+    }
+
+    // GUARD 2: Reject malformed UUIDs (fail fast)
+    if (!UUID_REGEX.test(candidateId.trim())) {
+      console.error('[BinaApp Chat] VALIDATION FAILED: Invalid UUID format:', candidateId);
+      return { valid: false, websiteId: null, error: 'INVALID_UUID_FORMAT' };
+    }
+
+    try {
+      // GUARD 3: Validate against server database (AUTHORITATIVE)
+      const response = await fetch(API_URL + '/api/v1/delivery/validate-widget/' + encodeURIComponent(candidateId.trim()));
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'UNKNOWN_ERROR' }));
+        console.error('[BinaApp Chat] VALIDATION FAILED: Server rejected ID:', candidateId, errorData);
+
+        // Clear any cached data for this invalid ID to prevent drift
+        clearInvalidCache(candidateId);
+
+        return {
+          valid: false,
+          websiteId: null,
+          error: errorData.detail?.error || errorData.error || 'SERVER_REJECTED'
+        };
+      }
+
+      const data = await response.json();
+
+      // SUCCESS: Server returned canonical ID from database
+      if (data.valid && data.website_id) {
+        console.log('[BinaApp Chat] VALIDATION SUCCESS: Canonical ID:', data.website_id);
+
+        // CRITICAL: Use the CANONICAL ID from database, not the candidate
+        // This prevents any client-side ID drift
+        return {
+          valid: true,
+          websiteId: data.website_id,  // ALWAYS use database value
+          businessName: data.business_name,
+          error: null
+        };
+      }
+
+      return { valid: false, websiteId: null, error: 'VALIDATION_FAILED' };
+
+    } catch (err) {
+      console.error('[BinaApp Chat] VALIDATION ERROR: Network failure:', err);
+      // On network error, we CANNOT validate - fail safe by rejecting
+      return { valid: false, websiteId: null, error: 'NETWORK_ERROR' };
+    }
+  }
+
+  /**
+   * Clear cached data for an invalid website ID
+   * Prevents stale/invalid data from persisting
+   */
+  function clearInvalidCache(invalidId) {
+    try {
+      localStorage.removeItem('binaapp_conv_' + invalidId);
+      localStorage.removeItem('binaapp_customer_id_' + invalidId);
+      console.log('[BinaApp Chat] Cleared cache for invalid ID:', invalidId);
+    } catch (e) {
+      // localStorage might not be available
+    }
+  }
+
+  // GUARD: Reject early if no candidate ID at all
+  if (!pendingWebsiteId) {
+    console.error('[BinaApp Chat] BOOTSTRAP ABORTED: No website_id found in any source');
+    console.error('[BinaApp Chat] Checked: window.BINAAPP_WEBSITE_ID, data-website-id attribute, container data attribute');
     return;
   }
 
-  console.log('[BinaApp Chat] Initialized with website_id:', websiteId);
+  console.log('[BinaApp Chat] Pending validation for website_id:', pendingWebsiteId);
 
-  // Storage keys
-  const STORAGE_CONV_KEY = 'binaapp_conv_' + websiteId;
+  // Storage keys - will be initialized AFTER validation with canonical ID
+  let STORAGE_CONV_KEY = null;
   const STORAGE_NAME_KEY = 'binaapp_customer_name';
   const STORAGE_PHONE_KEY = 'binaapp_customer_phone';
-  const STORAGE_CUSTOMER_ID_KEY = 'binaapp_customer_id_' + websiteId;
+  let STORAGE_CUSTOMER_ID_KEY = null;
 
-  // State
-  let conversationId = localStorage.getItem(STORAGE_CONV_KEY);
+  // State - will be loaded AFTER validation succeeds
+  let conversationId = null;
   let customerName = localStorage.getItem(STORAGE_NAME_KEY) || '';
   let customerPhone = localStorage.getItem(STORAGE_PHONE_KEY) || '';
-  let customerId = localStorage.getItem(STORAGE_CUSTOMER_ID_KEY) || '';
+  let customerId = '';
   let isOpen = false;
   let isLoading = false;
   let refreshInterval = null;
+
+  /**
+   * Initialize storage keys with VALIDATED website ID
+   * MUST be called only after validation succeeds
+   */
+  function initStorageKeys(validatedId) {
+    STORAGE_CONV_KEY = 'binaapp_conv_' + validatedId;
+    STORAGE_CUSTOMER_ID_KEY = 'binaapp_customer_id_' + validatedId;
+
+    // Now load cached values with validated keys
+    try {
+      conversationId = localStorage.getItem(STORAGE_CONV_KEY);
+      customerId = localStorage.getItem(STORAGE_CUSTOMER_ID_KEY) || '';
+    } catch (e) {
+      // localStorage might not be available
+      conversationId = null;
+      customerId = '';
+    }
+  }
 
   // =====================================================
   // STYLES
@@ -701,7 +813,17 @@
   // INITIALIZE
   // =====================================================
 
-  function init() {
+  /**
+   * CRITICAL: Initialize widget ONLY after server validation succeeds
+   * This function should NOT be called directly - use initWithValidation()
+   */
+  function initWidget() {
+    // ASSERTION: websiteId MUST be set (validated) before calling this
+    if (!websiteId || !validationComplete) {
+      console.error('[BinaApp Chat] ASSERTION FAILED: initWidget called without valid websiteId');
+      return;
+    }
+
     injectStyles();
     createWidget();
 
@@ -744,7 +866,43 @@
       showNameForm();
     }
 
-    console.log('[BinaApp Chat] Widget initialized for website:', websiteId);
+    console.log('[BinaApp Chat] Widget initialized with VALIDATED website_id:', websiteId);
+  }
+
+  /**
+   * MAIN ENTRY POINT: Validate website ID and then initialize widget
+   * This ensures the widget ONLY runs with a valid, database-confirmed ID
+   */
+  async function initWithValidation() {
+    console.log('[BinaApp Chat] Starting validation for:', pendingWebsiteId);
+
+    // CRITICAL: Validate the website ID against server database
+    const result = await validateWebsiteId(pendingWebsiteId);
+
+    if (!result.valid) {
+      validationFailed = true;
+      console.error('[BinaApp Chat] WIDGET BOOTSTRAP ABORTED: Invalid website ID');
+      console.error('[BinaApp Chat] Error:', result.error);
+      console.error('[BinaApp Chat] The widget will NOT initialize.');
+
+      // Do NOT initialize the widget - fail safe
+      return;
+    }
+
+    // SUCCESS: Set the CANONICAL validated ID
+    websiteId = result.websiteId;
+    validationComplete = true;
+
+    // Initialize storage keys with validated ID
+    initStorageKeys(websiteId);
+
+    // Now initialize the widget
+    initWidget();
+  }
+
+  // Legacy alias for backwards compatibility
+  function init() {
+    initWithValidation();
   }
 
   // Watch for delivery modal opening/closing to hide chat button (prevents form blocking)

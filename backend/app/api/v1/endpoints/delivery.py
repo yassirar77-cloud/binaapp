@@ -151,10 +151,14 @@ async def get_or_create_customer(supabase: Client, website_id: str, phone: str, 
             logger.info(f"[Customer] Found existing customer: {customer['id']}")
             return customer
         else:
-            # Create new customer
+            # Create new customer - UUID MUST be generated server-side only
             import uuid
+            new_customer_id = str(uuid.uuid4())
+            logger.info(f"[Customer] SERVER-SIDE UUID generated for new customer: {new_customer_id}")
+            logger.info(f"[Customer] Bound to website_id: {website_id}")
+
             customer_data = {
-                "id": str(uuid.uuid4()),
+                "id": new_customer_id,
                 "website_id": website_id,
                 "phone": phone,
                 "name": name,
@@ -162,7 +166,7 @@ async def get_or_create_customer(supabase: Client, website_id: str, phone: str, 
             }
             insert_result = supabase.table("website_customers").insert(customer_data).execute()
             if insert_result.data:
-                logger.info(f"[Customer] Created new customer: {customer_data['id']}")
+                logger.info(f"[Customer] Created new customer: {customer_data['id']} for website {website_id}")
                 return insert_result.data[0]
             return customer_data
     except Exception as e:
@@ -176,12 +180,17 @@ async def create_order_conversation(supabase: Client, order_id: str, order_numbe
     try:
         import uuid
 
+        # CRITICAL: Generate conversation UUID server-side only
+        new_conversation_id = str(uuid.uuid4())
+        logger.info(f"[Chat] SERVER-SIDE UUID generated for conversation: {new_conversation_id}")
+        logger.info(f"[Chat] Conversation bound to website_id: {website_id}, order: {order_number}")
+
         # Build conversation data - ONLY use columns that exist in chat_conversations table
         # Actual schema: id, order_id, website_id, customer_name, customer_phone, status,
         #               unread_owner, unread_customer, unread_rider, created_at, updated_at
         # NOTE: customer_id column was REMOVED from the database
         conversation_data = {
-            "id": str(uuid.uuid4()),
+            "id": new_conversation_id,
             "order_id": order_id,
             "website_id": website_id,
             "customer_name": customer_name or "Customer",
@@ -193,7 +202,7 @@ async def create_order_conversation(supabase: Client, order_id: str, order_numbe
 
         if result.data:
             conversation = result.data[0]
-            logger.info(f"[Chat] Created conversation {conversation['id']} for order {order_number}")
+            logger.info(f"[Chat] Created conversation {conversation['id']} for order {order_number} (website: {website_id})")
             return conversation
         return conversation_data
     except Exception as e:
@@ -427,7 +436,62 @@ async def create_order(
 
     **Public endpoint** - Customers can place orders without authentication
     """
+    import re
+
     try:
+        # =====================================================
+        # CRITICAL: VALIDATE WEBSITE ID (Single Source of Truth)
+        # =====================================================
+        # GUARD 1: Reject null/empty website IDs
+        if not order.website_id or not order.website_id.strip():
+            logger.warning(f"[Order] REJECTED: Order creation with empty website_id")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "MISSING_WEBSITE_ID",
+                    "message": "Website ID is required for order creation"
+                }
+            )
+
+        # GUARD 2: Validate UUID format (fail fast on malformed IDs)
+        uuid_pattern = re.compile(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+            re.IGNORECASE
+        )
+        if not uuid_pattern.match(order.website_id.strip()):
+            logger.warning(f"[Order] REJECTED: Invalid UUID format for website_id: {order.website_id[:50]}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "INVALID_UUID_FORMAT",
+                    "message": "Website ID must be a valid UUID"
+                }
+            )
+
+        # GUARD 3: Verify website exists in database (AUTHORITATIVE CHECK)
+        website_check = supabase.table("websites").select("id, business_name, user_id").eq(
+            "id", order.website_id.strip()
+        ).execute()
+
+        if not website_check.data:
+            logger.warning(f"[Order] REJECTED: Website not found in database: {order.website_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": "WEBSITE_NOT_FOUND",
+                    "message": "No website found with this ID. Cannot create order for non-existent website."
+                }
+            )
+
+        # Use the CANONICAL ID from database (not user-provided)
+        canonical_website_id = website_check.data[0]["id"]
+        website_owner_id = website_check.data[0].get("user_id")
+        logger.info(f"[Order] Website validated: {canonical_website_id}")
+
+        # Replace order website_id with canonical value
+        # This ensures referential integrity even if client sent slightly different ID
+        order.website_id = canonical_website_id
+
         # 1. Fetch menu items to calculate prices
         menu_item_ids = [item.menu_item_id for item in order.items]
         items_response = supabase.table("menu_items").select("*").in_(
@@ -1322,6 +1386,185 @@ async def update_delivery_settings_admin(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update delivery settings: {str(e)}",
+        )
+
+
+# =====================================================
+# WIDGET ID VALIDATION ENDPOINT
+# =====================================================
+
+@router.get("/validate-widget/{website_id}")
+async def validate_widget_id(
+    website_id: str,
+    supabase: Client = Depends(get_supabase_client)
+):
+    """
+    Validate website ID for widget initialization.
+
+    This endpoint is the SINGLE SOURCE OF TRUTH for widget ID binding.
+    It verifies that the provided website_id exists in the database
+    and returns the canonical ID with validation status.
+
+    **CRITICAL**: Widgets MUST call this endpoint before initializing
+    to prevent client-side UUID drift and ensure referential integrity.
+
+    Returns:
+    - valid: boolean - whether the website_id exists in database
+    - website_id: string - the canonical database website.id (NOT user-provided)
+    - business_name: string - the website's business name
+    - status: string - website publication status
+    - error: string (only if invalid) - reason for rejection
+
+    **Public endpoint** - Used by widget bootstrap
+    """
+    import re
+
+    # GUARD 1: Reject null/empty IDs immediately
+    if not website_id or website_id.strip() == '':
+        logger.warning(f"[Widget Validation] REJECTED: Empty website_id provided")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "valid": False,
+                "error": "MISSING_WEBSITE_ID",
+                "message": "Website ID is required for widget initialization"
+            }
+        )
+
+    # GUARD 2: Validate UUID format (prevents SQL injection and malformed IDs)
+    uuid_pattern = re.compile(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        re.IGNORECASE
+    )
+    if not uuid_pattern.match(website_id.strip()):
+        logger.warning(f"[Widget Validation] REJECTED: Invalid UUID format: {website_id[:50]}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "valid": False,
+                "error": "INVALID_UUID_FORMAT",
+                "message": "Website ID must be a valid UUID"
+            }
+        )
+
+    try:
+        # GUARD 3: Verify existence in database - this is the AUTHORITATIVE check
+        website_response = supabase.table("websites").select(
+            "id, business_name, name, status, subdomain"
+        ).eq("id", website_id.strip()).execute()
+
+        if not website_response.data:
+            logger.warning(f"[Widget Validation] REJECTED: Website not found in database: {website_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "valid": False,
+                    "error": "WEBSITE_NOT_FOUND",
+                    "message": "No website found with this ID in database",
+                    "website_id": website_id
+                }
+            )
+
+        website = website_response.data[0]
+
+        # SUCCESS: Return the CANONICAL database ID (not the user-provided one)
+        # This ensures the widget always uses the database's source of truth
+        canonical_id = website["id"]
+
+        logger.info(f"[Widget Validation] APPROVED: {canonical_id} ({website.get('subdomain', 'unknown')})")
+
+        return {
+            "valid": True,
+            "website_id": canonical_id,  # ALWAYS return canonical DB value
+            "business_name": website.get("business_name") or website.get("name") or "Kedai",
+            "subdomain": website.get("subdomain"),
+            "status": website.get("status", "unknown"),
+            "message": "Widget ID validated successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Widget Validation] Database error validating {website_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "valid": False,
+                "error": "DATABASE_ERROR",
+                "message": "Failed to validate website ID"
+            }
+        )
+
+
+@router.post("/purge-widget-cache/{website_id}")
+async def purge_widget_cache(
+    website_id: str,
+    supabase: Client = Depends(get_supabase_client)
+):
+    """
+    Purge cached widget configuration for a website.
+
+    This endpoint should be called when:
+    - Website is regenerated/republished
+    - Website settings are changed
+    - Widget ID drift is detected
+
+    Returns instructions for client-side cache purging.
+
+    **Public endpoint** - Can be called by admin dashboard
+    """
+    import re
+
+    # Validate UUID format
+    uuid_pattern = re.compile(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+        re.IGNORECASE
+    )
+    if not uuid_pattern.match(website_id.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid website ID format"
+        )
+
+    try:
+        # Verify website exists
+        website_response = supabase.table("websites").select("id, subdomain").eq(
+            "id", website_id
+        ).execute()
+
+        if not website_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Website not found"
+            )
+
+        website = website_response.data[0]
+
+        logger.info(f"[Widget Cache] Purge requested for {website_id} ({website.get('subdomain')})")
+
+        # Return cache purge instructions
+        # Client-side caches that need clearing:
+        return {
+            "success": True,
+            "website_id": website["id"],
+            "subdomain": website.get("subdomain"),
+            "cache_keys_to_clear": [
+                f"binaapp_conv_{website_id}",
+                f"binaapp_customer_id_{website_id}",
+                "binaapp_customer_name",
+                "binaapp_customer_phone",
+                "binaapp_customer_id"
+            ],
+            "message": "Widget cache purge initiated. Clear localStorage keys on client."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Widget Cache] Error purging cache for {website_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to purge cache: {str(e)}"
         )
 
 
