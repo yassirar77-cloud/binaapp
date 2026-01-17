@@ -114,6 +114,7 @@ class SendMessageRequest(BaseModel):
     sender_name: str
     message_type: str = "text"  # text, image, location, payment, status, voice
     content: str
+    message: Optional[str] = None
     media_url: Optional[str] = None
     metadata: Optional[dict] = None
 
@@ -228,7 +229,7 @@ async def create_conversation(request: CreateConversationRequest):
             )
 
         # GUARD 3: Verify website exists in database (AUTHORITATIVE CHECK)
-        website_check = supabase.table("websites").select("id, business_name").eq(
+        website_check = supabase.table("websites").select("id, business_name, name").eq(
             "id", request.website_id.strip()
         ).execute()
 
@@ -243,7 +244,9 @@ async def create_conversation(request: CreateConversationRequest):
             )
 
         # Use the CANONICAL ID from database (not user-provided)
-        canonical_website_id = website_check.data[0]["id"]
+        website_row = website_check.data[0]
+        canonical_website_id = website_row["id"]
+        website_name = website_row.get("business_name") or website_row.get("name") or ""
         logger.info(f"[Chat] Website validated: {canonical_website_id}")
 
         # =====================================================
@@ -259,6 +262,7 @@ async def create_conversation(request: CreateConversationRequest):
             "id": conversation_id,
             "order_id": request.order_id,
             "website_id": canonical_website_id,  # Use canonical DB ID
+            "website_name": website_name,
             "customer_name": request.customer_name,
             "customer_phone": request.customer_phone,
             "status": "active"
@@ -322,6 +326,12 @@ async def get_conversation(conversation_id: str):
             "conversation_id", conversation_id
         ).order("created_at").execute()
 
+        messages_data = messages.data or []
+        # Backwards compatibility for clients expecting "content"
+        for msg in messages_data:
+            if "content" not in msg:
+                msg["content"] = msg.get("message", "")
+
         # Get participants
         participants = supabase.table("chat_participants").select("*").eq(
             "conversation_id", conversation_id
@@ -329,7 +339,7 @@ async def get_conversation(conversation_id: str):
 
         return {
             "conversation": conv.data,
-            "messages": messages.data or [],
+            "messages": messages_data,
             "participants": participants.data or []
         }
 
@@ -496,8 +506,8 @@ async def send_message(request: SendMessageRequest):
         message_id = str(uuid.uuid4())
 
         # Database schema: id, conversation_id, sender_type, message, is_read, created_at
-        # Map request.content to message field with proper validation
-        message_text = (request.content or "").strip()
+        # Map request.message/content to message field with proper validation
+        message_text = (request.message or request.content or "").strip()
 
         # Validate message is not empty (database has NOT NULL constraint)
         if not message_text:
@@ -870,7 +880,7 @@ async def websocket_endpoint(
                     sender_id=user_id,
                     sender_name=data.get("sender_name", ""),
                     message_type=data.get("message_type", "text"),
-                    content=data.get("content", ""),
+                    content=data.get("content") or data.get("message", ""),
                     media_url=data.get("media_url"),
                     metadata=data.get("metadata")
                 ))
