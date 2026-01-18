@@ -316,21 +316,16 @@ async def create_conversation(request: CreateConversationRequest):
         try:
             supabase.table("chat_participants").insert({
                 "conversation_id": conversation_id,
-                # Support both schema styles: participant_type vs user_type
-                "participant_type": "customer",
                 "user_type": "customer",
-                "participant_name": request.customer_name,
-                "user_name": request.customer_name,
-                "participant_phone": request.customer_phone
+                "user_id": customer_user_id,
+                "user_name": request.customer_name
             }).execute()
 
             supabase.table("chat_participants").insert({
                 "conversation_id": conversation_id,
-                "participant_type": "owner",
                 "user_type": "owner",
-                "participant_name": "Pemilik Kedai",
-                "user_name": "Pemilik Kedai",
-                "participant_phone": None
+                "user_id": None,
+                "user_name": "Pemilik Kedai"
             }).execute()
         except Exception as part_err:
             logger.warning(f"[Chat] chat_participants insert skipped/failed: {part_err}")
@@ -898,14 +893,13 @@ async def add_rider_to_conversation(conversation_id: str, rider_id: str, rider_n
     try:
         supabase = get_supabase()
 
-        # Add rider as participant - use ONLY existing columns
-        # Schema: id, conversation_id, participant_type, participant_name, participant_phone, joined_at, created_at
-        # Note: Using insert instead of upsert since we don't have unique constraint on (conversation_id, participant_type)
+        # Add rider as participant
+        # Schema: id, conversation_id, user_type, user_id, user_name, is_online, last_seen, created_at
         supabase.table("chat_participants").insert({
             "conversation_id": conversation_id,
-            "participant_type": "rider",
-            "participant_name": rider_name,
-            "participant_phone": None  # Rider phone could be added later if needed
+            "user_type": "rider",
+            "user_id": rider_id,
+            "user_name": rider_name
         }).execute()
 
         # Send system message
@@ -1091,9 +1085,8 @@ async def websocket_endpoint(
     user_key = f"{user_type}_{user_id}"
     await manager.connect(websocket, conversation_id, user_key)
 
-    # Note: chat_participants table only has: id, conversation_id, participant_type,
-    # participant_name, participant_phone, joined_at, created_at
-    # is_online and last_seen columns don't exist, so we skip updating them
+    # Note: chat_participants table has: id, conversation_id, user_type, user_id,
+    # user_name, is_online, last_seen, created_at
     logger.info(f"[Chat] User {user_type}:{user_id} connected to conversation {conversation_id}")
 
     # Notify others that user joined
@@ -1168,9 +1161,6 @@ async def websocket_endpoint(
 
     except WebSocketDisconnect:
         manager.disconnect(conversation_id, user_key)
-
-        # Note: chat_participants table doesn't have is_online/last_seen columns
-        # Skipping database update for offline status
         logger.info(f"[Chat] User {user_type}:{user_id} disconnected from conversation {conversation_id}")
 
         # Notify others that user left
