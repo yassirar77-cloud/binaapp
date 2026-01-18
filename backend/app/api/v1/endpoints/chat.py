@@ -174,6 +174,63 @@ def get_supabase():
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
+def _extract_missing_column(err: object) -> Optional[str]:
+    """
+    Best-effort parsing for PostgREST missing-column errors.
+    Handles dict-like errors and stringified errors.
+    """
+    try:
+        if isinstance(err, dict):
+            msg = str(err.get("message") or err.get("details") or err)
+        else:
+            msg = str(err)
+    except Exception:
+        return None
+
+    # Typical: column "is_read" of relation "chat_messages" does not exist
+    needle = 'column "'
+    if needle in msg and '" of relation' in msg and "does not exist" in msg:
+        try:
+            return msg.split(needle, 1)[1].split('"', 1)[0]
+        except Exception:
+            return None
+    return None
+
+
+def _insert_with_column_fallback(supabase, table: str, row: dict, max_retries: int = 6):
+    """
+    Insert with automatic removal of unknown columns.
+    This makes chat endpoints compatible with multiple schema versions in the wild.
+    """
+    data = dict(row)
+    for _ in range(max_retries):
+        result = supabase.table(table).insert(data).execute()
+        err = getattr(result, "error", None)
+        if result.data:
+            return result
+        if not err:
+            return result
+
+        missing = _extract_missing_column(err)
+        if missing and missing in data:
+            logger.warning(f"[Chat] {table} insert: missing column '{missing}', retrying without it")
+            data.pop(missing, None)
+            continue
+
+        # Some schemas use `content` instead of `message` (or vice versa)
+        err_str = str(err)
+        if 'column "message"' in err_str and "does not exist" in err_str and "message" in data:
+            data.pop("message", None)
+            continue
+        if 'column "content"' in err_str and "does not exist" in err_str and "content" in data:
+            data.pop("content", None)
+            continue
+
+        return result
+
+    return supabase.table(table).insert(data).execute()
+
+
 # =====================================================
 # REST API ENDPOINTS
 # =====================================================
@@ -250,48 +307,60 @@ async def create_conversation(request: CreateConversationRequest):
             "order_id": request.order_id,
             "website_id": canonical_website_id,  # Use canonical DB ID
             "website_name": website_name,
+            # Some schema versions require customer_id NOT NULL
+            "customer_id": customer_user_id,
             "customer_name": request.customer_name,
             "customer_phone": request.customer_phone,
-            "status": "active"
+            "status": "active",
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat()
         }
 
-        result = supabase.table("chat_conversations").insert(conv_data).execute()
-
-        # If insert failed due to missing column (e.g. website_name), retry without it
-        if not result.data and getattr(result, "error", None):
-            logger.warning(f"[Chat] Conversation insert failed: {result.error}")
-            conv_data.pop("website_name", None)
-            result = supabase.table("chat_conversations").insert(conv_data).execute()
+        result = _insert_with_column_fallback(supabase, "chat_conversations", conv_data)
 
         if not result.data and getattr(result, "error", None):
             logger.error(f"[Chat] Conversation insert error: {result.error}")
             raise HTTPException(status_code=500, detail="Failed to create conversation")
 
-        # Add customer as participant - use ONLY existing columns
-        # Schema: id, conversation_id, participant_type, participant_name, participant_phone, joined_at, created_at
-        supabase.table("chat_participants").insert({
-            "conversation_id": conversation_id,
-            "participant_type": "customer",
-            "participant_name": request.customer_name,
-            "participant_phone": request.customer_phone
-        }).execute()
+        # Optional: chat_participants may not exist in older deployments
+        try:
+            supabase.table("chat_participants").insert({
+                "conversation_id": conversation_id,
+                # Support both schema styles: participant_type vs user_type
+                "participant_type": "customer",
+                "user_type": "customer",
+                "participant_name": request.customer_name,
+                "user_name": request.customer_name,
+                "participant_phone": request.customer_phone
+            }).execute()
 
-        # Add owner as participant - use ONLY existing columns
-        supabase.table("chat_participants").insert({
-            "conversation_id": conversation_id,
-            "participant_type": "owner",
-            "participant_name": "Pemilik Kedai",
-            "participant_phone": None
-        }).execute()
+            supabase.table("chat_participants").insert({
+                "conversation_id": conversation_id,
+                "participant_type": "owner",
+                "user_type": "owner",
+                "participant_name": "Pemilik Kedai",
+                "user_name": "Pemilik Kedai",
+                "participant_phone": None
+            }).execute()
+        except Exception as part_err:
+            logger.warning(f"[Chat] chat_participants insert skipped/failed: {part_err}")
 
-        # Add system welcome message - ONLY use columns that exist in database
-        # Schema: id, conversation_id, sender_type, message, is_read, created_at
-        supabase.table("chat_messages").insert({
-            "conversation_id": conversation_id,
-            "sender_type": "system",
-            "message": "Perbualan dimulakan. Pemilik kedai akan membalas sebentar lagi.",
-            "is_read": False
-        }).execute()
+        # Add system welcome message (schema-compatible)
+        welcome_text = "Perbualan dimulakan. Pemilik kedai akan membalas sebentar lagi."
+        _insert_with_column_fallback(
+            supabase,
+            "chat_messages",
+            {
+                "id": str(uuid.uuid4()),
+                "conversation_id": conversation_id,
+                "sender_type": "system",
+                "message": welcome_text,
+                "content": welcome_text,
+                "message_text": welcome_text,
+                "is_read": False,
+                "created_at": datetime.utcnow().isoformat()
+            }
+        )
 
         logger.info(f"[Chat] Created conversation {conversation_id} for website {request.website_id}")
 
@@ -331,14 +400,20 @@ async def get_conversation(conversation_id: str):
                 msg["content"] = msg.get("message") or msg.get("message_text") or ""
 
         # Get participants
-        participants = supabase.table("chat_participants").select("*").eq(
-            "conversation_id", conversation_id
-        ).execute()
+        participants_data = []
+        try:
+            participants = supabase.table("chat_participants").select("*").eq(
+                "conversation_id", conversation_id
+            ).execute()
+            participants_data = participants.data or []
+        except Exception as part_err:
+            # Older deployments may not have chat_participants table
+            logger.warning(f"[Chat] Participants unavailable (table missing?): {part_err}")
 
         return {
             "conversation": conv.data,
             "messages": messages_data,
-            "participants": participants.data or []
+            "participants": participants_data
         }
 
     except HTTPException:
@@ -507,37 +582,57 @@ async def send_message(request: SendMessageRequest):
 
         message_id = str(uuid.uuid4())
 
-        # Database schema: id, conversation_id, sender_type, message, is_read, created_at
         # Map request.message/content to message field with proper validation
         message_text = (request.message or request.content or "").strip()
 
-        # Validate message is not empty (database has NOT NULL constraint)
+        # Validate message is not empty
         if not message_text:
             message_text = "Mesej kosong"  # Fallback to prevent NULL constraint violation
 
-        # Save message to database - ONLY use columns that exist
+        # Save message with schema compatibility (older deployments may not have is_read/content/etc)
+        insert_row = {
+            "id": message_id,
+            "conversation_id": request.conversation_id,
+            "sender_type": request.sender_type,
+            "sender_id": request.sender_id,
+            "sender_name": request.sender_name,
+            "message_type": request.message_type,
+            "message": message_text,
+            "content": message_text,
+            "message_text": message_text,
+            "media_url": request.media_url,
+            "metadata": request.metadata,
+            "is_read": False,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        insert_result = _insert_with_column_fallback(supabase, "chat_messages", insert_row)
+        if not insert_result.data and getattr(insert_result, "error", None):
+            logger.error(f"[Chat] Message insert error: {insert_result.error}")
+            raise HTTPException(status_code=500, detail="Failed to send message")
+
+        # Best-effort: bump conversation updated_at (some schemas have trigger; some don't)
+        try:
+            supabase.table("chat_conversations").update({
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq("id", request.conversation_id).execute()
+        except Exception:
+            pass
+
+        # WebSocket broadcast payload (UI-compatible; does not depend on DB schema)
         message_data = {
             "id": message_id,
             "conversation_id": request.conversation_id,
             "sender_type": request.sender_type,
+            "sender_id": request.sender_id,
+            "sender_name": request.sender_name,
+            "message_type": request.message_type,
             "message": message_text,
-            "is_read": False
+            "content": message_text,
+            "media_url": request.media_url,
+            "metadata": request.metadata,
+            "is_read": False,
+            "created_at": datetime.utcnow().isoformat()
         }
-
-        supabase.table("chat_messages").insert(message_data).execute()
-
-        # Get created timestamp
-        msg_result = supabase.table("chat_messages").select("created_at").eq("id", message_id).single().execute()
-        if msg_result.data:
-            message_data["created_at"] = msg_result.data["created_at"]
-
-        # Add extra fields for WebSocket broadcast (not in DB, just for UI)
-        message_data["sender_id"] = request.sender_id
-        message_data["sender_name"] = request.sender_name
-        message_data["message_type"] = request.message_type
-        message_data["content"] = message_text  # Duplicate for backwards compatibility
-        message_data["media_url"] = request.media_url
-        message_data["metadata"] = request.metadata
 
         # Broadcast to WebSocket clients
         await manager.send_to_conversation(
@@ -655,13 +750,20 @@ async def mark_messages_read(request: MarkReadRequest):
     try:
         supabase = get_supabase()
 
-        # Update messages not sent by this user type
-        supabase.table("chat_messages").update({
-            "is_read": True,
-            "read_at": datetime.utcnow().isoformat()
-        }).eq("conversation_id", request.conversation_id).neq(
-            "sender_type", request.user_type
-        ).execute()
+        # Update messages not sent by this user type (schema-compatible: is_read/read_at may not exist)
+        try:
+            update_result = supabase.table("chat_messages").update({
+                "is_read": True,
+                "read_at": datetime.utcnow().isoformat()
+            }).eq("conversation_id", request.conversation_id).neq(
+                "sender_type", request.user_type
+            ).execute()
+            if getattr(update_result, "error", None):
+                missing = _extract_missing_column(update_result.error)
+                if missing in {"is_read", "read_at"}:
+                    logger.warning(f"[Chat] mark-read skipped: {update_result.error}")
+        except Exception as upd_err:
+            logger.warning(f"[Chat] mark-read skipped/failed: {upd_err}")
 
         # Reset unread count for this user type
         update_data = {}
@@ -673,9 +775,17 @@ async def mark_messages_read(request: MarkReadRequest):
             update_data["unread_rider"] = 0
 
         if update_data:
-            supabase.table("chat_conversations").update(update_data).eq(
-                "id", request.conversation_id
-            ).execute()
+            # Columns may not exist in older schema; ignore if so
+            try:
+                result = supabase.table("chat_conversations").update(update_data).eq(
+                    "id", request.conversation_id
+                ).execute()
+                if getattr(result, "error", None):
+                    missing = _extract_missing_column(result.error)
+                    if missing and missing in update_data:
+                        logger.warning(f"[Chat] unread reset skipped: {result.error}")
+            except Exception as conv_upd_err:
+                logger.warning(f"[Chat] unread reset skipped/failed: {conv_upd_err}")
 
         # Notify other users
         await manager.send_to_conversation(

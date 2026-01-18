@@ -9,6 +9,7 @@ from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from loguru import logger
+import os
 
 from app.core.config import settings
 
@@ -74,6 +75,17 @@ async def get_current_user(
 
     token = credentials.credentials
 
+    # Supabase Auth API requires an API key header. Prefer anon, fallback to service role.
+    # Some deployments only set SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_KEY / SUPABASE_KEY).
+    supabase_api_key = (
+        settings.SUPABASE_ANON_KEY
+        or settings.SUPABASE_SERVICE_ROLE_KEY
+        or os.getenv("SUPABASE_SERVICE_KEY", "")
+        or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+        or os.getenv("SUPABASE_KEY", "")
+        or os.getenv("SUPABASE_ANON_KEY", "")
+    )
+
     # Try to verify token using Supabase Auth API
     try:
         async with httpx.AsyncClient() as client:
@@ -81,7 +93,7 @@ async def get_current_user(
                 f"{settings.SUPABASE_URL}/auth/v1/user",
                 headers={
                     "Authorization": f"Bearer {token}",
-                    "apikey": settings.SUPABASE_ANON_KEY
+                    "apikey": supabase_api_key
                 }
             )
 
@@ -93,8 +105,12 @@ async def get_current_user(
                     "email": user_data.get("email"),
                     **user_data
                 }
+            # Log non-200 for easier diagnosis of owner dashboard auth issues
+            logger.debug(
+                f"Supabase auth verification failed: status={response.status_code}, body={response.text[:200]}"
+            )
     except Exception as e:
-        pass
+        logger.debug(f"Supabase auth verification exception: {e}")
 
     # Fallback: Try to decode token with Supabase JWT secret if available
     if settings.SUPABASE_JWT_SECRET:
