@@ -1315,6 +1315,7 @@ function handleContactSubmit(e) {{
                         <h4 style="font-weight:600;margin:0;display:flex;align-items:center;gap:8px;">
                             💬 Chat dengan Pemikedai
                             <span id="chat-status" style="width:8px;height:8px;background:#22c55e;border-radius:50%;margin-left:auto;"></span>
+                            <button onclick="closeChatModal()" style="background:rgba(255,255,255,0.2);border:none;color:white;width:28px;height:28px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;padding:0;margin-left:8px;">✕</button>
                         </h4>
                     </div>
 
@@ -1383,6 +1384,15 @@ function handleContactSubmit(e) {{
         # Always inject the button before </body> if not already present
         if "binaapp-delivery-btn" not in html and "</body>" in html:
             html = html.replace("</body>", delivery_button_inline + "\n</body>")
+
+        # STEP 3.5: Add floating chat button - always visible
+        chat_button_inline = '''
+<!-- Always-visible Chat Button - BinaApp -->
+<button id="binaapp-chat-btn" onclick="openGeneralChat()" style="position:fixed;bottom:100px;right:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 16px rgba(59,130,246,0.4);z-index:9998;display:flex;align-items:center;justify-content:center;font-family:sans-serif;">💬</button>'''
+
+        # Inject chat button if not already present
+        if "binaapp-chat-btn" not in html and "</body>" in html:
+            html = html.replace("</body>", chat_button_inline + "\n</body>")
 
         # Convert Python booleans to JavaScript string for injection
         payment_qr_enabled_js = "true" if payment_qr_enabled else "false"
@@ -1458,6 +1468,113 @@ function handleContactSubmit(e) {{
         customerName = null;
         customerPhone = null;
         console.log('[BinaChat] Customer identity cleared');
+    }};
+
+    // =====================================================
+    // GENERAL CHAT - Open chat without placing an order
+    // =====================================================
+
+    // Open general chat from floating button
+    window.openGeneralChat = async function() {{
+        console.log('[BinaChat] 🎯 Opening general chat...');
+
+        // If no customer identity, ask for it
+        if (!customerName || !customerPhone) {{
+            const name = prompt('Nama anda:');
+            if (!name) return;
+            const phone = prompt('No telefon:');
+            if (!phone) return;
+
+            // Generate a temporary customer ID
+            const tempId = 'temp_' + Date.now();
+            saveCustomerIdentity(tempId, name, phone);
+        }}
+
+        // Create conversation if not exists
+        if (!currentConversationId) {{
+            await createChatConversation();
+        }} else {{
+            showChatModal();
+        }}
+    }};
+
+    // Create chat conversation via API
+    async function createChatConversation() {{
+        try {{
+            console.log('[BinaChat] 📝 Creating conversation...', {{ customerName, customerPhone, WEBSITE_ID }});
+
+            const response = await fetch(API_URL + '/chat/conversations', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{
+                    website_id: WEBSITE_ID,
+                    customer_name: customerName,
+                    customer_phone: customerPhone
+                }})
+            }});
+
+            const data = await response.json();
+            console.log('[BinaChat] API Response:', data);
+
+            if (data.success || data.conversation_id) {{
+                currentConversationId = data.conversation_id;
+
+                // Update customer ID if provided by backend
+                if (data.customer_id && customerId && customerId.startsWith('temp_')) {{
+                    saveCustomerIdentity(data.customer_id, customerName, customerPhone);
+                }}
+
+                console.log('[BinaChat] ✅ Conversation created:', currentConversationId);
+                showChatModal();
+                initializeChat();
+            }} else {{
+                throw new Error(data.message || 'Failed to create conversation');
+            }}
+        }} catch (error) {{
+            console.error('[BinaChat] ❌ Create conversation failed:', error);
+            alert('Gagal membuka chat. Sila cuba lagi.');
+        }}
+    }}
+
+    // Show chat as a modal popup
+    function showChatModal() {{
+        const chatSection = document.getElementById('chat-section');
+        if (chatSection) {{
+            chatSection.style.display = 'block';
+            chatSection.style.position = 'fixed';
+            chatSection.style.bottom = '20px';
+            chatSection.style.right = '20px';
+            chatSection.style.width = '350px';
+            chatSection.style.maxWidth = '90vw';
+            chatSection.style.maxHeight = '500px';
+            chatSection.style.zIndex = '9999';
+            chatSection.style.borderRadius = '16px';
+            chatSection.style.boxShadow = '0 8px 32px rgba(0,0,0,0.2)';
+            chatSection.style.background = 'white';
+            chatSection.style.overflow = 'hidden';
+
+            console.log('[BinaChat] ✅ Chat modal displayed');
+        }}
+    }}
+
+    // Close chat modal
+    window.closeChatModal = function() {{
+        const chatSection = document.getElementById('chat-section');
+        if (chatSection) {{
+            chatSection.style.display = 'none';
+            // Remove modal-specific styles to avoid conflicts with tracking view
+            chatSection.style.position = '';
+            chatSection.style.bottom = '';
+            chatSection.style.right = '';
+            chatSection.style.width = '';
+            chatSection.style.maxWidth = '';
+            chatSection.style.maxHeight = '';
+            chatSection.style.zIndex = '';
+            chatSection.style.borderRadius = '';
+            chatSection.style.boxShadow = '';
+
+            console.log('[BinaChat] ✅ Chat modal closed');
+        }}
     }};
 
     // Page switching
