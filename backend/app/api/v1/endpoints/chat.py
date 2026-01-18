@@ -111,7 +111,7 @@ class SendMessageRequest(BaseModel):
     conversation_id: str
     sender_type: str  # customer, owner, rider, system
     sender_id: str
-    sender_name: str
+    sender_name: Optional[str] = None  # Optional - not stored in DB
     message_type: str = "text"  # text, image, location, payment, status, voice
     message_text: Optional[str] = None
     media_url: Optional[str] = None
@@ -146,7 +146,7 @@ class ConversationCreate(BaseModel):
 class MessageCreate(BaseModel):
     conversation_id: str
     sender_type: str  # 'customer' or 'restaurant'
-    sender_name: str
+    sender_name: Optional[str] = None  # Optional - not stored in DB
     message_text: str
 
 
@@ -372,7 +372,7 @@ async def get_conversation(conversation_id: str):
 
         # Get messages
         messages = supabase.table("chat_messages").select(
-            "id, conversation_id, message_text, sender_type, sender_name, message_type, media_url, metadata, is_read, created_at"
+            "id, conversation_id, message_text, sender_type, message_type, media_url, metadata, is_read, created_at"
         ).eq(
             "conversation_id", conversation_id
         ).order("created_at").execute()
@@ -455,7 +455,7 @@ async def get_conversations(
             try:
                 # Use canonical message_text for previews
                 messages = supabase.table("chat_messages").select(
-                    "id, message_text, sender_type, sender_name, message_type, media_url, is_read, created_at"
+                    "id, message_text, sender_type, message_type, media_url, is_read, created_at"
                 ).eq("conversation_id", conv["id"]).order(
                     "created_at", desc=True
                 ).limit(10).execute()
@@ -512,7 +512,7 @@ async def get_website_conversations(
             try:
                 # Use canonical message_text for previews
                 messages = supabase.table("chat_messages").select(
-                    "id, message_text, sender_type, sender_name, message_type, media_url, is_read, created_at"
+                    "id, message_text, sender_type, message_type, media_url, is_read, created_at"
                 ).eq("conversation_id", conv["id"]).order(
                     "created_at", desc=True
                 ).limit(10).execute()
@@ -575,7 +575,7 @@ async def send_message(request: SendMessageRequest):
             "conversation_id": request.conversation_id,
             "sender_type": request.sender_type,
             "sender_id": request.sender_id,
-            "sender_name": request.sender_name,
+            # sender_name removed - not in DB schema
             "message_type": request.message_type,
             "message_text": message_text,
             "media_url": request.media_url,
@@ -1014,7 +1014,7 @@ async def send_chat_message(message: MessageCreate):
             'id': message_id,
             'conversation_id': message.conversation_id,
             'sender_type': message.sender_type,
-            'sender_name': message.sender_name,
+            # sender_name removed - not in DB schema
             'message_text': text,
             'is_read': False,
             'created_at': datetime.utcnow().isoformat()
@@ -1055,7 +1055,7 @@ async def get_chat_messages(conversation_id: str):
         supabase = get_supabase()
 
         result = supabase.table('chat_messages')\
-            .select('id, conversation_id, message_text, sender_type, sender_name, message_type, media_url, metadata, is_read, created_at')\
+            .select('id, conversation_id, message_text, sender_type, message_type, media_url, metadata, is_read, created_at')\
             .eq('conversation_id', conversation_id)\
             .order('created_at', desc=False)\
             .execute()
