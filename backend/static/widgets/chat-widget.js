@@ -571,7 +571,7 @@
         sender_id: customerId,
         sender_name: customerName,
         message_type: 'text',
-        content: text
+        message_text: text
       })
     });
 
@@ -674,6 +674,7 @@
       const senderClass = msg.sender_type === 'customer' ? 'customer'
         : msg.sender_type === 'system' ? 'system'
         : 'owner';
+      const messageText = msg.message_text || msg.message || msg.content || '';
 
       const time = new Date(msg.created_at).toLocaleTimeString('ms-MY', {
         hour: '2-digit',
@@ -683,7 +684,7 @@
       return `
         <div class="binaapp-message ${senderClass}">
           <div class="binaapp-message-bubble">
-            <div class="binaapp-message-text">${escapeHtml(msg.content)}</div>
+            <div class="binaapp-message-text">${escapeHtml(messageText)}</div>
             <div class="binaapp-message-time">${time}</div>
           </div>
         </div>
