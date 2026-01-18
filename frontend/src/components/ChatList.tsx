@@ -22,7 +22,9 @@ interface Conversation {
     updated_at: string;
     chat_messages?: Array<{
         id: string;
-        message: string; // Database column is "message" not "content"
+        message?: string;
+        content?: string;
+        message_text?: string;
         sender_type: string;
         created_at: string;
     }>;
@@ -152,6 +154,8 @@ export default function ChatList({
         const isSelected = conv.id === selectedConversationId;
         const lastMessage = conv.chat_messages?.[conv.chat_messages.length - 1];
         const hasUnread = conv.unread_owner > 0;
+        const lastMessageText =
+            lastMessage?.message_text || lastMessage?.content || lastMessage?.message || 'Tiada mesej';
 
         return (
             <div
@@ -189,7 +193,7 @@ export default function ChatList({
                                         {lastMessage.sender_type === 'owner' && (
                                             <span className="text-gray-400">Anda: </span>
                                         )}
-                                        {lastMessage.message}
+                                        {lastMessageText}
                                     </>
                                 ) : (
                                     'Tiada mesej'

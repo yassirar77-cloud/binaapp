@@ -15,6 +15,7 @@ interface ChatMessage {
   id: string
   message?: string
   content?: string
+  message_text?: string
   sender_type?: string
   created_at?: string
 }
@@ -164,7 +165,8 @@ export default function OwnerChatDashboard({
   const renderConversationItem = (conv: Conversation) => {
     const isSelected = conv.id === selectedConversationId
     const lastMessage = conv.chat_messages?.[conv.chat_messages.length - 1]
-    const lastMessageText = lastMessage?.message || lastMessage?.content || 'Tiada mesej'
+    const lastMessageText =
+      lastMessage?.message_text || lastMessage?.content || lastMessage?.message || 'Tiada mesej'
     const unreadCount = conv.unread_owner || 0
     const hasUnread = unreadCount > 0
     const websiteLabel =

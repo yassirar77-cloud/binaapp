@@ -3044,7 +3044,8 @@ async def create_chat_conversation(request: Request):
                     "conversation_id": conversation_id,
                     "sender_type": "customer",
                     "sender_id": customer_id,
-                    "message": initial_message,
+                    "message_text": initial_message,
+                    "content": initial_message,
                     "created_at": datetime.now().isoformat()
                 }
                 supabase.table("chat_messages").insert(message_data).execute()
@@ -3102,12 +3103,21 @@ async def get_conversation(conversation_id: str):
             )
 
         # Get messages
-        msg_result = supabase.table("chat_messages").select("*").eq("conversation_id", conversation_id).order("created_at").execute()
+        msg_result = supabase.table("chat_messages").select(
+            "id, conversation_id, message_text, sender_type, sender_name, message_type, media_url, metadata, is_read, created_at"
+        ).eq("conversation_id", conversation_id).order("created_at").execute()
+
+        messages = msg_result.data or []
+        for msg in messages:
+            if not msg.get("message_text"):
+                msg["message_text"] = msg.get("message") or msg.get("content") or ""
+            if not msg.get("content"):
+                msg["content"] = msg.get("message_text") or msg.get("message") or ""
 
         return {
             "success": True,
             "conversation": conv_result.data[0],
-            "messages": msg_result.data or []
+            "messages": messages
         }
     except Exception as e:
         logger.error(f"❌ [Chat] Error getting conversation: {e}")
@@ -3128,11 +3138,11 @@ async def send_message(conversation_id: str, request: Request):
 
     try:
         body = await request.json()
-        message = safe_string(body.get("message"))
+        message_text = safe_string(body.get("message_text") or body.get("message") or body.get("content"))
         sender_type = safe_string(body.get("sender_type"), "customer")
         sender_id = safe_string(body.get("sender_id"))
 
-        if not message:
+        if not message_text:
             return JSONResponse(
                 status_code=400,
                 content={"success": False, "error": "Message is required"}
@@ -3142,7 +3152,8 @@ async def send_message(conversation_id: str, request: Request):
             "conversation_id": conversation_id,
             "sender_type": sender_type,
             "sender_id": sender_id,
-            "message": message,
+            "message_text": message_text,
+            "content": message_text,
             "created_at": datetime.now().isoformat()
         }
 
@@ -3242,7 +3253,14 @@ CREATE TABLE IF NOT EXISTS public.chat_messages (
     conversation_id UUID REFERENCES public.chat_conversations(id) ON DELETE CASCADE,
     sender_type TEXT NOT NULL,
     sender_id TEXT,
-    message TEXT NOT NULL,
+    sender_name TEXT,
+    message_type TEXT DEFAULT 'text',
+    content TEXT,
+    message_text TEXT NOT NULL DEFAULT '',
+    media_url TEXT,
+    metadata JSONB,
+    is_read BOOLEAN DEFAULT FALSE,
+    read_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

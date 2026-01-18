@@ -113,6 +113,7 @@ class SendMessageRequest(BaseModel):
     sender_id: str
     sender_name: str
     message_type: str = "text"  # text, image, location, payment, status, voice
+    message_text: Optional[str] = None
     content: Optional[str] = None
     message: Optional[str] = None
     media_url: Optional[str] = None
@@ -388,16 +389,19 @@ async def get_conversation(conversation_id: str):
             raise HTTPException(status_code=404, detail="Conversation not found")
 
         # Get messages
-        messages = supabase.table("chat_messages").select("*").eq(
+        messages = supabase.table("chat_messages").select(
+            "id, conversation_id, message_text, sender_type, sender_name, message_type, media_url, metadata, is_read, created_at"
+        ).eq(
             "conversation_id", conversation_id
         ).order("created_at").execute()
 
         messages_data = messages.data or []
         # Backwards compatibility for clients expecting "content"
-        # Note: Database has content column that may return null, so check for falsy value
         for msg in messages_data:
+            if not msg.get("message_text"):
+                msg["message_text"] = msg.get("message") or msg.get("content") or ""
             if not msg.get("content"):
-                msg["content"] = msg.get("message") or msg.get("message_text") or ""
+                msg["content"] = msg.get("message_text") or msg.get("message") or ""
 
         # Get participants
         participants_data = []
@@ -473,9 +477,9 @@ async def get_conversations(
         # Fetch last message for each conversation separately
         for conv in conversations:
             try:
-                # Database column is "message" not "content"
+                # Use canonical message_text for previews
                 messages = supabase.table("chat_messages").select(
-                    "id, message, sender_type, created_at"
+                    "id, message_text, sender_type, sender_name, message_type, media_url, is_read, created_at"
                 ).eq("conversation_id", conv["id"]).order(
                     "created_at", desc=True
                 ).limit(10).execute()
@@ -530,9 +534,9 @@ async def get_website_conversations(
         # Fetch last message for each conversation separately
         for conv in conversations:
             try:
-                # Database column is "message" not "content"
+                # Use canonical message_text for previews
                 messages = supabase.table("chat_messages").select(
-                    "id, message, sender_type, created_at"
+                    "id, message_text, sender_type, sender_name, message_type, media_url, is_read, created_at"
                 ).eq("conversation_id", conv["id"]).order(
                     "created_at", desc=True
                 ).limit(10).execute()
@@ -582,8 +586,8 @@ async def send_message(request: SendMessageRequest):
 
         message_id = str(uuid.uuid4())
 
-        # Map request.message/content to message field with proper validation
-        message_text = (request.message or request.content or "").strip()
+        # Map request.message_text/message/content to canonical message_text
+        message_text = (request.message_text or request.message or request.content or "").strip()
 
         # Validate message is not empty
         if not message_text:
@@ -597,9 +601,9 @@ async def send_message(request: SendMessageRequest):
             "sender_id": request.sender_id,
             "sender_name": request.sender_name,
             "message_type": request.message_type,
-            "message": message_text,
-            "content": message_text,
             "message_text": message_text,
+            "content": message_text,
+            "message": message_text,
             "media_url": request.media_url,
             "metadata": request.metadata,
             "is_read": False,
@@ -626,8 +630,9 @@ async def send_message(request: SendMessageRequest):
             "sender_id": request.sender_id,
             "sender_name": request.sender_name,
             "message_type": request.message_type,
-            "message": message_text,
+            "message_text": message_text,
             "content": message_text,
+            "message": message_text,
             "media_url": request.media_url,
             "metadata": request.metadata,
             "is_read": False,
@@ -880,14 +885,21 @@ async def close_conversation(conversation_id: str):
             "status": "closed"
         }).eq("id", conversation_id).execute()
 
-        # Send system message - ONLY use columns that exist in database
-        # Schema: id, conversation_id, sender_type, message, is_read, created_at
-        supabase.table("chat_messages").insert({
-            "conversation_id": conversation_id,
-            "sender_type": "system",
-            "message": "Perbualan telah ditutup.",
-            "is_read": False
-        }).execute()
+        # Send system message
+        system_text = "Perbualan telah ditutup."
+        _insert_with_column_fallback(
+            supabase,
+            "chat_messages",
+            {
+                "conversation_id": conversation_id,
+                "sender_type": "system",
+                "message_text": system_text,
+                "content": system_text,
+                "message": system_text,
+                "is_read": False,
+                "created_at": datetime.utcnow().isoformat()
+            }
+        )
 
         # Notify via WebSocket
         await manager.send_to_conversation(
@@ -921,14 +933,21 @@ async def add_rider_to_conversation(conversation_id: str, rider_id: str, rider_n
             "participant_phone": None  # Rider phone could be added later if needed
         }).execute()
 
-        # Send system message - ONLY use columns that exist in database
-        # Schema: id, conversation_id, sender_type, message, is_read, created_at
-        supabase.table("chat_messages").insert({
-            "conversation_id": conversation_id,
-            "sender_type": "system",
-            "message": f"Rider {rider_name} telah ditugaskan untuk penghantaran ini.",
-            "is_read": False
-        }).execute()
+        # Send system message
+        system_text = f"Rider {rider_name} telah ditugaskan untuk penghantaran ini."
+        _insert_with_column_fallback(
+            supabase,
+            "chat_messages",
+            {
+                "conversation_id": conversation_id,
+                "sender_type": "system",
+                "message_text": system_text,
+                "content": system_text,
+                "message": system_text,
+                "is_read": False,
+                "created_at": datetime.utcnow().isoformat()
+            }
+        )
 
         # Notify via WebSocket
         await manager.send_to_conversation(
@@ -1023,19 +1042,20 @@ async def send_chat_message(message: MessageCreate):
 
         message_id = str(uuid.uuid4())
 
-        # Prepare message data - use both message_text and message for compatibility
+        # Prepare message data - use message_text and content for compatibility
         message_data = {
             'id': message_id,
             'conversation_id': message.conversation_id,
             'sender_type': message.sender_type,
             'sender_name': message.sender_name,
             'message_text': text,
-            'message': text,  # Keep for backward compatibility
+            'content': text,
+            'message': text,
             'is_read': False,
             'created_at': datetime.utcnow().isoformat()
         }
 
-        result = supabase.table('chat_messages').insert(message_data).execute()
+        result = _insert_with_column_fallback(supabase, 'chat_messages', message_data)
 
         if not result.data:
             raise HTTPException(status_code=500, detail="Failed to send message")
@@ -1073,7 +1093,7 @@ async def get_chat_messages(conversation_id: str):
         supabase = get_supabase()
 
         result = supabase.table('chat_messages')\
-            .select('*')\
+            .select('id, conversation_id, message_text, sender_type, sender_name, message_type, media_url, metadata, is_read, created_at')\
             .eq('conversation_id', conversation_id)\
             .order('created_at', desc=False)\
             .execute()
@@ -1081,14 +1101,11 @@ async def get_chat_messages(conversation_id: str):
         messages = result.data or []
 
         # Ensure message_text and content are populated for compatibility
-        # BinaChat uses "content", phone-based chat uses "message_text"
         for msg in messages:
-            # Populate message_text for phone-based chat
             if not msg.get('message_text'):
                 msg['message_text'] = msg.get('message') or msg.get('content') or ''
-            # Populate content for BinaChat component
             if not msg.get('content'):
-                msg['content'] = msg.get('message') or msg.get('message_text') or ''
+                msg['content'] = msg.get('message_text') or msg.get('message') or ''
 
         logger.info(f"[Chat] Retrieved {len(messages)} messages for conversation {conversation_id}")
         return messages
@@ -1143,7 +1160,7 @@ async def websocket_endpoint(
                     sender_id=user_id,
                     sender_name=data.get("sender_name", ""),
                     message_type=data.get("message_type", "text"),
-                    content=data.get("content") or data.get("message", ""),
+                    message_text=data.get("message_text") or data.get("content") or data.get("message", ""),
                     media_url=data.get("media_url"),
                     metadata=data.get("metadata")
                 ))

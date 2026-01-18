@@ -20,7 +20,9 @@ interface Message {
     sender_id?: string;
     sender_name?: string;
     message_type: 'text' | 'image' | 'location' | 'payment' | 'status' | 'voice';
-    content: string;
+    message?: string;
+    message_text?: string;
+    content?: string;
     media_url?: string;
     metadata?: Record<string, any>;
     created_at: string;
@@ -70,6 +72,18 @@ interface BinaChatProps {
     onClose?: () => void;
     className?: string;
 }
+
+const getMessageText = (msg: Message): string =>
+    msg.message_text || msg.content || msg.message || '';
+
+const normalizeMessage = (msg: Message): Message => {
+    const messageText = getMessageText(msg);
+    return {
+        ...msg,
+        message_text: msg.message_text || messageText,
+        content: msg.content || messageText
+    };
+};
 
 // =====================================================
 // COMPONENT
@@ -123,7 +137,8 @@ export default function BinaChat({
             if (!res.ok) throw new Error('Failed to load messages');
 
             const data = await res.json();
-            setMessages(data.messages || []);
+            const normalizedMessages = (data.messages || []).map(normalizeMessage);
+            setMessages(normalizedMessages);
             setParticipants(data.participants || []);
             setError(null);
         } catch (err) {
@@ -155,7 +170,7 @@ export default function BinaChat({
 
                 switch (data.type) {
                     case 'new_message':
-                        setMessages(prev => [...prev, data.message]);
+                        setMessages(prev => [...prev, normalizeMessage(data.message)]);
                         // Mark as read if we're receiving
                         if (data.message.sender_type !== userType) {
                             ws.send(JSON.stringify({ type: 'read' }));
@@ -369,6 +384,7 @@ export default function BinaChat({
             type: 'message',
             sender_name: userName,
             message_type: type,
+            message_text: content,
             content: content,
             media_url: mediaUrl,
             metadata: metadata
@@ -459,10 +475,11 @@ export default function BinaChat({
         const isSystem = msg.sender_type === 'system';
 
         if (isSystem) {
+            const messageText = getMessageText(msg);
             return (
                 <div key={msg.id} className="text-center my-3">
                     <span className="bg-gray-200 text-gray-600 text-xs px-4 py-1.5 rounded-full inline-block">
-                        {msg.content}
+                        {messageText}
                     </span>
                 </div>
             );
@@ -470,6 +487,7 @@ export default function BinaChat({
 
         const senderIcon = msg.sender_type === 'rider' ? '&#128757;' : msg.sender_type === 'owner' ? '&#127978;' : '&#128100;';
 
+        const messageText = getMessageText(msg);
         return (
             <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-3`}>
                 <div className={`max-w-[80%] ${isOwn ? 'order-2' : ''}`}>
@@ -542,8 +560,8 @@ export default function BinaChat({
                         )}
 
                         {/* Text content */}
-                        {msg.content && msg.message_type !== 'payment' && (
-                            <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+                        {messageText && msg.message_type !== 'payment' && (
+                            <div className="text-sm whitespace-pre-wrap">{messageText}</div>
                         )}
                     </div>
 
