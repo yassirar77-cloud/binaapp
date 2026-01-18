@@ -3104,7 +3104,7 @@ async def get_conversation(conversation_id: str):
 
         # Get messages
         msg_result = supabase.table("chat_messages").select(
-            "id, conversation_id, message_text, sender_type, sender_name, message_type, media_url, metadata, is_read, created_at"
+            "id, conversation_id, message_text, sender_type, message_type, media_url, metadata, is_read, created_at"
         ).eq("conversation_id", conversation_id).order("created_at").execute()
 
         messages = msg_result.data or []
