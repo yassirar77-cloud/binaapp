@@ -1485,9 +1485,9 @@ function handleContactSubmit(e) {{
             const phone = prompt('No telefon:');
             if (!phone) return;
 
-            // Generate a temporary customer ID
-            const tempId = 'temp_' + Date.now();
-            saveCustomerIdentity(tempId, name, phone);
+            // Store temporarily (don't save yet - wait for backend to provide UUID)
+            customerName = name;
+            customerPhone = phone;
         }}
 
         // Create conversation if not exists
@@ -1519,9 +1519,10 @@ function handleContactSubmit(e) {{
             if (data.success || data.conversation_id) {{
                 currentConversationId = data.conversation_id;
 
-                // Update customer ID if provided by backend
-                if (data.customer_id && customerId && customerId.startsWith('temp_')) {{
+                // Save customer identity with real UUID from backend
+                if (data.customer_id) {{
                     saveCustomerIdentity(data.customer_id, customerName, customerPhone);
+                    console.log('[BinaChat] ✅ Customer identity saved with UUID:', data.customer_id);
                 }}
 
                 console.log('[BinaChat] ✅ Conversation created:', currentConversationId);
