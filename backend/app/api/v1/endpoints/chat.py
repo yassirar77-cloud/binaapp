@@ -114,8 +114,6 @@ class SendMessageRequest(BaseModel):
     sender_name: str
     message_type: str = "text"  # text, image, location, payment, status, voice
     message_text: Optional[str] = None
-    content: Optional[str] = None
-    message: Optional[str] = None
     media_url: Optional[str] = None
     metadata: Optional[dict] = None
 
@@ -201,7 +199,7 @@ def _extract_missing_column(err: object) -> Optional[str]:
 def _insert_with_column_fallback(supabase, table: str, row: dict, max_retries: int = 6):
     """
     Insert with automatic removal of unknown columns.
-    This makes chat endpoints compatible with multiple schema versions in the wild.
+    This makes chat endpoints compatible with multiple schema versions.
     """
     data = dict(row)
     for _ in range(max_retries):
@@ -216,15 +214,6 @@ def _insert_with_column_fallback(supabase, table: str, row: dict, max_retries: i
         if missing and missing in data:
             logger.warning(f"[Chat] {table} insert: missing column '{missing}', retrying without it")
             data.pop(missing, None)
-            continue
-
-        # Some schemas use `content` instead of `message` (or vice versa)
-        err_str = str(err)
-        if 'column "message"' in err_str and "does not exist" in err_str and "message" in data:
-            data.pop("message", None)
-            continue
-        if 'column "content"' in err_str and "does not exist" in err_str and "content" in data:
-            data.pop("content", None)
             continue
 
         return result
@@ -355,8 +344,6 @@ async def create_conversation(request: CreateConversationRequest):
                 "id": str(uuid.uuid4()),
                 "conversation_id": conversation_id,
                 "sender_type": "system",
-                "message": welcome_text,
-                "content": welcome_text,
                 "message_text": welcome_text,
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat()
@@ -396,12 +383,6 @@ async def get_conversation(conversation_id: str):
         ).order("created_at").execute()
 
         messages_data = messages.data or []
-        # Backwards compatibility for clients expecting "content"
-        for msg in messages_data:
-            if not msg.get("message_text"):
-                msg["message_text"] = msg.get("message") or msg.get("content") or ""
-            if not msg.get("content"):
-                msg["content"] = msg.get("message_text") or msg.get("message") or ""
 
         # Get participants
         participants_data = []
@@ -586,14 +567,14 @@ async def send_message(request: SendMessageRequest):
 
         message_id = str(uuid.uuid4())
 
-        # Map request.message_text/message/content to canonical message_text
-        message_text = (request.message_text or request.message or request.content or "").strip()
+        # Get message text
+        message_text = (request.message_text or "").strip()
 
         # Validate message is not empty
         if not message_text:
             message_text = "Mesej kosong"  # Fallback to prevent NULL constraint violation
 
-        # Save message with schema compatibility (older deployments may not have is_read/content/etc)
+        # Save message with schema compatibility
         insert_row = {
             "id": message_id,
             "conversation_id": request.conversation_id,
@@ -602,8 +583,6 @@ async def send_message(request: SendMessageRequest):
             "sender_name": request.sender_name,
             "message_type": request.message_type,
             "message_text": message_text,
-            "content": message_text,
-            "message": message_text,
             "media_url": request.media_url,
             "metadata": request.metadata,
             "is_read": False,
@@ -622,7 +601,7 @@ async def send_message(request: SendMessageRequest):
         except Exception:
             pass
 
-        # WebSocket broadcast payload (UI-compatible; does not depend on DB schema)
+        # WebSocket broadcast payload (UI-compatible)
         message_data = {
             "id": message_id,
             "conversation_id": request.conversation_id,
@@ -631,8 +610,6 @@ async def send_message(request: SendMessageRequest):
             "sender_name": request.sender_name,
             "message_type": request.message_type,
             "message_text": message_text,
-            "content": message_text,
-            "message": message_text,
             "media_url": request.media_url,
             "metadata": request.metadata,
             "is_read": False,
@@ -687,7 +664,7 @@ async def upload_chat_image(
             sender_id=sender_id,
             sender_name=sender_name,
             message_type="image",
-            content="Gambar",
+            message_text="Gambar",
             media_url=image_url
         )
 
@@ -731,7 +708,7 @@ async def upload_payment_proof(
             sender_id=sender_id,
             sender_name=sender_name,
             message_type="payment",
-            content="Bukti Pembayaran",
+            message_text="Bukti Pembayaran",
             media_url=image_url,
             metadata={
                 "order_id": order_id,
@@ -894,8 +871,6 @@ async def close_conversation(conversation_id: str):
                 "conversation_id": conversation_id,
                 "sender_type": "system",
                 "message_text": system_text,
-                "content": system_text,
-                "message": system_text,
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat()
             }
@@ -942,8 +917,6 @@ async def add_rider_to_conversation(conversation_id: str, rider_id: str, rider_n
                 "conversation_id": conversation_id,
                 "sender_type": "system",
                 "message_text": system_text,
-                "content": system_text,
-                "message": system_text,
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat()
             }
@@ -1042,15 +1015,13 @@ async def send_chat_message(message: MessageCreate):
 
         message_id = str(uuid.uuid4())
 
-        # Prepare message data - use message_text and content for compatibility
+        # Prepare message data
         message_data = {
             'id': message_id,
             'conversation_id': message.conversation_id,
             'sender_type': message.sender_type,
             'sender_name': message.sender_name,
             'message_text': text,
-            'content': text,
-            'message': text,
             'is_read': False,
             'created_at': datetime.utcnow().isoformat()
         }
@@ -1060,10 +1031,7 @@ async def send_chat_message(message: MessageCreate):
         if not result.data:
             raise HTTPException(status_code=500, detail="Failed to send message")
 
-        # Prepare response with content field for BinaChat compatibility
         response_data = result.data[0]
-        if not response_data.get('content'):
-            response_data['content'] = response_data.get('message') or response_data.get('message_text') or ''
 
         # Broadcast to WebSocket clients if they're connected
         await manager.send_to_conversation(
@@ -1099,13 +1067,6 @@ async def get_chat_messages(conversation_id: str):
             .execute()
 
         messages = result.data or []
-
-        # Ensure message_text and content are populated for compatibility
-        for msg in messages:
-            if not msg.get('message_text'):
-                msg['message_text'] = msg.get('message') or msg.get('content') or ''
-            if not msg.get('content'):
-                msg['content'] = msg.get('message_text') or msg.get('message') or ''
 
         logger.info(f"[Chat] Retrieved {len(messages)} messages for conversation {conversation_id}")
         return messages
@@ -1160,7 +1121,7 @@ async def websocket_endpoint(
                     sender_id=user_id,
                     sender_name=data.get("sender_name", ""),
                     message_type=data.get("message_type", "text"),
-                    message_text=data.get("message_text") or data.get("content") or data.get("message", ""),
+                    message_text=data.get("message_text", ""),
                     media_url=data.get("media_url"),
                     metadata=data.get("metadata")
                 ))
