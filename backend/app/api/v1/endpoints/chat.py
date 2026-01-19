@@ -187,12 +187,22 @@ def _extract_missing_column(err: object) -> Optional[str]:
         return None
 
     # Typical: column "is_read" of relation "chat_messages" does not exist
-    needle = 'column "'
-    if needle in msg and '" of relation' in msg and "does not exist" in msg:
+    # Also seen: column chat_messages.message_type does not exist
+    if "column " in msg and "does not exist" in msg:
         try:
-            return msg.split(needle, 1)[1].split('"', 1)[0]
+            fragment = msg.split("column ", 1)[1].split("does not exist", 1)[0].strip()
         except Exception:
             return None
+
+        if " of relation" in fragment:
+            fragment = fragment.split(" of relation", 1)[0].strip()
+
+        fragment = fragment.strip('"')
+        if "." in fragment:
+            fragment = fragment.split(".")[-1]
+
+        return fragment or None
+
     return None
 
 
@@ -220,6 +230,90 @@ def _insert_with_column_fallback(supabase, table: str, row: dict, max_retries: i
 
     return supabase.table(table).insert(data).execute()
 
+
+CHAT_MESSAGE_COLUMNS = [
+    "id",
+    "conversation_id",
+    "message_text",
+    "content",
+    "message",
+    "sender_type",
+    "message_type",
+    "media_url",
+    "metadata",
+    "is_read",
+    "created_at",
+]
+
+CHAT_MESSAGE_MISSING_COLUMNS = set()
+
+
+def _normalize_message_row(row: dict) -> dict:
+    message_text = row.get("message_text") or row.get("content") or row.get("message") or ""
+    row["message_text"] = message_text
+
+    if not row.get("message_type"):
+        row["message_type"] = "text"
+
+    if "media_url" not in row:
+        row["media_url"] = None
+
+    if "metadata" not in row:
+        row["metadata"] = None
+
+    if "is_read" not in row:
+        row["is_read"] = False
+
+    return row
+
+
+def _fetch_chat_messages(
+    supabase,
+    conversation_id: str,
+    order_desc: bool = False,
+    limit: Optional[int] = None
+) -> List[dict]:
+    """
+    Fetch chat messages with schema-aware column fallback.
+    """
+    columns = [col for col in CHAT_MESSAGE_COLUMNS if col not in CHAT_MESSAGE_MISSING_COLUMNS]
+    if not columns:
+        return []
+
+    max_retries = max(1, len(columns))
+    for _ in range(max_retries):
+        select_cols = ", ".join(columns)
+        query = supabase.table("chat_messages").select(select_cols).eq(
+            "conversation_id", conversation_id
+        ).order("created_at", desc=order_desc)
+        if limit is not None:
+            query = query.limit(limit)
+
+        try:
+            result = query.execute()
+        except Exception as err:
+            missing = _extract_missing_column(err)
+            if missing and missing in columns:
+                CHAT_MESSAGE_MISSING_COLUMNS.add(missing)
+                columns = [col for col in columns if col != missing]
+                logger.warning(f"[Chat] chat_messages select: missing column '{missing}', retrying without it")
+                continue
+            raise
+
+        err = getattr(result, "error", None)
+        if err:
+            missing = _extract_missing_column(err)
+            if missing and missing in columns:
+                CHAT_MESSAGE_MISSING_COLUMNS.add(missing)
+                columns = [col for col in columns if col != missing]
+                logger.warning(f"[Chat] chat_messages select: missing column '{missing}', retrying without it")
+                continue
+            raise HTTPException(status_code=500, detail=str(err))
+
+        messages = result.data or []
+        return [_normalize_message_row(dict(msg)) for msg in messages]
+
+    return []
 
 # =====================================================
 # REST API ENDPOINTS
@@ -340,6 +434,8 @@ async def create_conversation(request: CreateConversationRequest):
                 "conversation_id": conversation_id,
                 "sender_type": "system",
                 "message_text": welcome_text,
+                "content": welcome_text,
+                "message": welcome_text,
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat()
             }
@@ -370,14 +466,7 @@ async def get_conversation(conversation_id: str):
         if not conv.data:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
-        # Get messages
-        messages = supabase.table("chat_messages").select(
-            "id, conversation_id, message_text, sender_type, message_type, media_url, metadata, is_read, created_at"
-        ).eq(
-            "conversation_id", conversation_id
-        ).order("created_at").execute()
-
-        messages_data = messages.data or []
+        messages_data = _fetch_chat_messages(supabase, conversation_id, order_desc=False)
 
         # Get participants
         participants_data = []
@@ -454,14 +543,15 @@ async def get_conversations(
         for conv in conversations:
             try:
                 # Use canonical message_text for previews
-                messages = supabase.table("chat_messages").select(
-                    "id, message_text, sender_type, message_type, media_url, is_read, created_at"
-                ).eq("conversation_id", conv["id"]).order(
-                    "created_at", desc=True
-                ).limit(10).execute()
+                messages = _fetch_chat_messages(
+                    supabase,
+                    conv["id"],
+                    order_desc=True,
+                    limit=10
+                )
 
                 # Reverse to get chronological order
-                conv["chat_messages"] = list(reversed(messages.data or []))
+                conv["chat_messages"] = list(reversed(messages))
             except Exception as msg_err:
                 logger.warning(f"[Chat] Failed to fetch messages for conversation {conv['id']}: {msg_err}")
                 conv["chat_messages"] = []
@@ -511,14 +601,15 @@ async def get_website_conversations(
         for conv in conversations:
             try:
                 # Use canonical message_text for previews
-                messages = supabase.table("chat_messages").select(
-                    "id, message_text, sender_type, message_type, media_url, is_read, created_at"
-                ).eq("conversation_id", conv["id"]).order(
-                    "created_at", desc=True
-                ).limit(10).execute()
+                messages = _fetch_chat_messages(
+                    supabase,
+                    conv["id"],
+                    order_desc=True,
+                    limit=10
+                )
 
                 # Reverse to get chronological order
-                conv["chat_messages"] = list(reversed(messages.data or []))
+                conv["chat_messages"] = list(reversed(messages))
             except Exception as msg_err:
                 logger.warning(f"[Chat] Failed to fetch messages for conversation {conv['id']}: {msg_err}")
                 conv["chat_messages"] = []
@@ -578,6 +669,8 @@ async def send_message(request: SendMessageRequest):
             # sender_name removed - not in DB schema
             "message_type": request.message_type,
             "message_text": message_text,
+            "content": message_text,
+            "message": message_text,
             "media_url": request.media_url,
             "metadata": request.metadata,
             "is_read": False,
@@ -866,6 +959,8 @@ async def close_conversation(conversation_id: str):
                 "conversation_id": conversation_id,
                 "sender_type": "system",
                 "message_text": system_text,
+                "content": system_text,
+                "message": system_text,
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat()
             }
@@ -911,6 +1006,8 @@ async def add_rider_to_conversation(conversation_id: str, rider_id: str, rider_n
                 "conversation_id": conversation_id,
                 "sender_type": "system",
                 "message_text": system_text,
+                "content": system_text,
+                "message": system_text,
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat()
             }
@@ -1016,6 +1113,8 @@ async def send_chat_message(message: MessageCreate):
             'sender_type': message.sender_type,
             # sender_name removed - not in DB schema
             'message_text': text,
+            'content': text,
+            'message': text,
             'is_read': False,
             'created_at': datetime.utcnow().isoformat()
         }
@@ -1054,13 +1153,7 @@ async def get_chat_messages(conversation_id: str):
     try:
         supabase = get_supabase()
 
-        result = supabase.table('chat_messages')\
-            .select('id, conversation_id, message_text, sender_type, message_type, media_url, metadata, is_read, created_at')\
-            .eq('conversation_id', conversation_id)\
-            .order('created_at', desc=False)\
-            .execute()
-
-        messages = result.data or []
+        messages = _fetch_chat_messages(supabase, conversation_id, order_desc=False)
 
         logger.info(f"[Chat] Retrieved {len(messages)} messages for conversation {conversation_id}")
         return messages
