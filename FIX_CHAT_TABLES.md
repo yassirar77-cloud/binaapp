@@ -4,6 +4,9 @@
 **Error**: "Could not find the table 'public.chat_conversations' in the schema cache"
 **Solution**: Run the chat migration in Supabase
 
+**Additional Issue**: `column chat_messages.message_type does not exist`
+**Fix**: Run `backend/migrations/012_fix_chat_message_type.sql` in Supabase SQL Editor
+
 ---
 
 ## ✅ Step-by-Step Fix
