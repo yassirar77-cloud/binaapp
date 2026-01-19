@@ -210,25 +210,50 @@ def _insert_with_column_fallback(supabase, table: str, row: dict, max_retries: i
     """
     Insert with automatic removal of unknown columns.
     This makes chat endpoints compatible with multiple schema versions.
+    Handles both old-style error attributes and new-style exceptions.
     """
     data = dict(row)
+    last_error = None
+
     for _ in range(max_retries):
-        result = supabase.table(table).insert(data).execute()
-        err = getattr(result, "error", None)
-        if result.data:
+        try:
+            result = supabase.table(table).insert(data).execute()
+            # Old-style: check for error attribute
+            err = getattr(result, "error", None)
+            if result.data:
+                return result
+            if not err:
+                return result
+
+            missing = _extract_missing_column(err)
+            if missing and missing in data:
+                logger.warning(f"[Chat] {table} insert: missing column '{missing}', retrying without it")
+                data.pop(missing, None)
+                continue
+
             return result
-        if not err:
-            return result
 
-        missing = _extract_missing_column(err)
-        if missing and missing in data:
-            logger.warning(f"[Chat] {table} insert: missing column '{missing}', retrying without it")
-            data.pop(missing, None)
-            continue
+        except Exception as e:
+            # New-style: Supabase client raises exceptions
+            last_error = e
+            error_msg = str(e)
+            logger.warning(f"[Chat] {table} insert exception: {error_msg}")
 
-        return result
+            missing = _extract_missing_column(error_msg)
+            if missing and missing in data:
+                logger.warning(f"[Chat] {table} insert: missing column '{missing}', retrying without it")
+                data.pop(missing, None)
+                continue
 
-    return supabase.table(table).insert(data).execute()
+            # Not a missing column error, re-raise
+            raise
+
+    # Final attempt after all retries
+    try:
+        return supabase.table(table).insert(data).execute()
+    except Exception as e:
+        logger.error(f"[Chat] {table} insert failed after retries: {e}")
+        raise
 
 
 CHAT_MESSAGE_COLUMNS = [
