@@ -1034,7 +1034,7 @@ async def add_rider_to_conversation(conversation_id: str, rider_id: str, rider_n
 # SIMPLIFIED PHONE-BASED CHAT ENDPOINTS
 # =====================================================
 
-@router.post("/chat/conversations")
+@router.post("/conversations")
 async def create_or_get_phone_conversation(data: ConversationCreate):
     """
     Create or get existing conversation for phone number
@@ -1091,7 +1091,7 @@ async def create_or_get_phone_conversation(data: ConversationCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/chat/messages")
+@router.post("/messages")
 async def send_chat_message(message: MessageCreate):
     """
     Send chat message in phone-based conversation
@@ -1145,7 +1145,7 @@ async def send_chat_message(message: MessageCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/chat/conversations/{conversation_id}/messages")
+@router.get("/conversations/{conversation_id}/messages")
 async def get_chat_messages(conversation_id: str):
     """
     Get all messages for a conversation
