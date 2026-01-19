@@ -203,17 +203,51 @@ def _extract_missing_column(err: object) -> Optional[str]:
 
         return fragment or None
 
+    # PostgREST schema cache error:
+    # Could not find the 'conversation_id' column of 'chat_messages' in the schema cache
+    if "Could not find the '" in msg and "' column" in msg:
+        try:
+            return msg.split("Could not find the '", 1)[1].split("' column", 1)[0].strip()
+        except Exception:
+            return None
+
     return None
 
 
-def _insert_with_column_fallback(supabase, table: str, row: dict, max_retries: int = 6):
+def _insert_with_column_fallback(
+    supabase,
+    table: str,
+    row: dict,
+    max_retries: int = 6,
+    required_columns: Optional[set] = None
+):
     """
     Insert with automatic removal of unknown columns.
     This makes chat endpoints compatible with multiple schema versions.
     """
     data = dict(row)
+    required = set(required_columns or [])
+    if not required and table == "chat_messages":
+        required = {"conversation_id", "sender_type"}
+
     for _ in range(max_retries):
-        result = supabase.table(table).insert(data).execute()
+        try:
+            result = supabase.table(table).insert(data).execute()
+        except Exception as err:
+            missing = _extract_missing_column(err)
+            if missing and missing in data and missing not in required:
+                logger.warning(f"[Chat] {table} insert: missing column '{missing}', retrying without it")
+                data.pop(missing, None)
+                continue
+            if missing:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        f"Chat schema missing required column '{missing}' in '{table}'. "
+                        "Run the latest Supabase migrations and reload the schema cache."
+                    )
+                )
+            raise
         err = getattr(result, "error", None)
         if result.data:
             return result
@@ -221,10 +255,18 @@ def _insert_with_column_fallback(supabase, table: str, row: dict, max_retries: i
             return result
 
         missing = _extract_missing_column(err)
-        if missing and missing in data:
+        if missing and missing in data and missing not in required:
             logger.warning(f"[Chat] {table} insert: missing column '{missing}', retrying without it")
             data.pop(missing, None)
             continue
+        if missing:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Chat schema missing required column '{missing}' in '{table}'. "
+                    "Run the latest Supabase migrations and reload the schema cache."
+                )
+            )
 
         return result
 
@@ -293,6 +335,12 @@ def _fetch_chat_messages(
             result = query.execute()
         except Exception as err:
             missing = _extract_missing_column(err)
+            if missing == "conversation_id":
+                logger.warning(
+                    "[Chat] chat_messages select skipped: conversation_id column missing. "
+                    "Run migrations and reload Supabase schema cache."
+                )
+                return []
             if missing and missing in columns:
                 CHAT_MESSAGE_MISSING_COLUMNS.add(missing)
                 columns = [col for col in columns if col != missing]
@@ -303,6 +351,12 @@ def _fetch_chat_messages(
         err = getattr(result, "error", None)
         if err:
             missing = _extract_missing_column(err)
+            if missing == "conversation_id":
+                logger.warning(
+                    "[Chat] chat_messages select skipped: conversation_id column missing. "
+                    "Run migrations and reload Supabase schema cache."
+                )
+                return []
             if missing and missing in columns:
                 CHAT_MESSAGE_MISSING_COLUMNS.add(missing)
                 columns = [col for col in columns if col != missing]
@@ -314,6 +368,17 @@ def _fetch_chat_messages(
         return [_normalize_message_row(dict(msg)) for msg in messages]
 
     return []
+
+
+def _safe_insert_chat_message(supabase, row: dict, context: str):
+    try:
+        result = _insert_with_column_fallback(supabase, "chat_messages", row)
+        if getattr(result, "error", None):
+            logger.warning(f"[Chat] {context} insert skipped: {result.error}")
+        return result
+    except Exception as err:
+        logger.warning(f"[Chat] {context} insert skipped/failed: {err}")
+        return None
 
 # =====================================================
 # REST API ENDPOINTS
@@ -426,9 +491,8 @@ async def create_conversation(request: CreateConversationRequest):
 
         # Add system welcome message (schema-compatible)
         welcome_text = "Perbualan dimulakan. Pemilik kedai akan membalas sebentar lagi."
-        _insert_with_column_fallback(
+        _safe_insert_chat_message(
             supabase,
-            "chat_messages",
             {
                 "id": str(uuid.uuid4()),
                 "conversation_id": conversation_id,
@@ -438,7 +502,8 @@ async def create_conversation(request: CreateConversationRequest):
                 "message": welcome_text,
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat()
-            }
+            },
+            "welcome message"
         )
 
         logger.info(f"[Chat] Created conversation {conversation_id} for website {request.website_id}")
@@ -449,6 +514,8 @@ async def create_conversation(request: CreateConversationRequest):
             "status": "created"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[Chat] Failed to create conversation: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -717,6 +784,8 @@ async def send_message(request: SendMessageRequest):
 
         return {"message_id": message_id, "status": "sent"}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[Chat] Failed to send message: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -952,9 +1021,8 @@ async def close_conversation(conversation_id: str):
 
         # Send system message
         system_text = "Perbualan telah ditutup."
-        _insert_with_column_fallback(
+        _safe_insert_chat_message(
             supabase,
-            "chat_messages",
             {
                 "conversation_id": conversation_id,
                 "sender_type": "system",
@@ -963,7 +1031,8 @@ async def close_conversation(conversation_id: str):
                 "message": system_text,
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat()
-            }
+            },
+            "conversation closed"
         )
 
         # Notify via WebSocket
@@ -999,9 +1068,8 @@ async def add_rider_to_conversation(conversation_id: str, rider_id: str, rider_n
 
         # Send system message
         system_text = f"Rider {rider_name} telah ditugaskan untuk penghantaran ini."
-        _insert_with_column_fallback(
+        _safe_insert_chat_message(
             supabase,
-            "chat_messages",
             {
                 "conversation_id": conversation_id,
                 "sender_type": "system",
@@ -1010,7 +1078,8 @@ async def add_rider_to_conversation(conversation_id: str, rider_id: str, rider_n
                 "message": system_text,
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat()
-            }
+            },
+            "rider assigned"
         )
 
         # Notify via WebSocket

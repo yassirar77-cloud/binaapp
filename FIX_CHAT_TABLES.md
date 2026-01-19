@@ -7,6 +7,9 @@
 **Additional Issue**: `column chat_messages.message_type does not exist`
 **Fix**: Run `backend/migrations/012_fix_chat_message_type.sql` in Supabase SQL Editor
 
+**Additional Issue**: `Could not find the 'conversation_id' column of 'chat_messages' in the schema cache`
+**Fix**: Run `backend/migrations/013_fix_chat_messages_conversation_id.sql` and then **Settings → API → Reload Schema**
+
 ---
 
 ## ✅ Step-by-Step Fix
