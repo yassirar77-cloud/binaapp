@@ -431,40 +431,47 @@ async def create_conversation(request: CreateConversationRequest):
             logger.error(f"[Chat] Conversation insert error: {result.error}")
             raise HTTPException(status_code=500, detail="Failed to create conversation")
 
-        # Optional: chat_participants may not exist in older deployments
+        # Add participants with correct column names
         try:
             supabase.table("chat_participants").insert({
                 "conversation_id": conversation_id,
                 "user_type": "customer",
                 "user_id": customer_user_id,
-                "user_name": request.customer_name
+                "user_name": request.customer_name,
+                "is_online": True,
+                "created_at": datetime.utcnow().isoformat()
             }).execute()
+            logger.info(f"[Chat] Added customer participant")
+        except Exception as part_err:
+            logger.warning(f"[Chat] Customer participant insert failed (non-critical): {part_err}")
 
+        try:
             supabase.table("chat_participants").insert({
                 "conversation_id": conversation_id,
                 "user_type": "owner",
                 "user_id": None,
-                "user_name": "Pemilik Kedai"
+                "user_name": "Pemilik Kedai",
+                "is_online": False,
+                "created_at": datetime.utcnow().isoformat()
             }).execute()
+            logger.info(f"[Chat] Added owner participant")
         except Exception as part_err:
-            logger.warning(f"[Chat] chat_participants insert skipped/failed: {part_err}")
+            logger.warning(f"[Chat] Owner participant insert failed (non-critical): {part_err}")
 
-        # Add system welcome message (schema-compatible)
+        # Add system welcome message
         welcome_text = "Perbualan dimulakan. Pemilik kedai akan membalas sebentar lagi."
-        _insert_with_column_fallback(
-            supabase,
-            "chat_messages",
-            {
+        try:
+            supabase.table("chat_messages").insert({
                 "id": str(uuid.uuid4()),
                 "conversation_id": conversation_id,
                 "sender_type": "system",
                 "message_text": welcome_text,
-                "content": welcome_text,
-                "message": welcome_text,
+                "message_type": "text",
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat()
-            }
-        )
+            }).execute()
+        except Exception as msg_err:
+            logger.warning(f"[Chat] Welcome message insert failed (non-critical): {msg_err}")
 
         logger.info(f"[Chat] Created conversation {conversation_id} for website {request.website_id}")
 
@@ -685,23 +692,25 @@ async def send_message(request: SendMessageRequest):
         if not message_text:
             message_text = "Mesej kosong"  # Fallback to prevent NULL constraint violation
 
-        # Save message with schema compatibility
+        # Save message with correct column names
         insert_row = {
             "id": message_id,
             "conversation_id": request.conversation_id,
             "sender_type": request.sender_type,
             "sender_id": request.sender_id,
-            # sender_name removed - not in DB schema
             "message_type": request.message_type,
-            "message_text": message_text,
-            "content": message_text,
-            "message": message_text,
-            "media_url": request.media_url,
-            "metadata": request.metadata,
+            "message_text": message_text,  # Correct column name
             "is_read": False,
             "created_at": datetime.utcnow().isoformat()
         }
-        insert_result = _insert_with_column_fallback(supabase, "chat_messages", insert_row)
+
+        # Add optional fields only if they have values
+        if request.media_url:
+            insert_row["media_url"] = request.media_url
+        if request.metadata:
+            insert_row["metadata"] = json.dumps(request.metadata) if isinstance(request.metadata, dict) else request.metadata
+
+        insert_result = supabase.table("chat_messages").insert(insert_row).execute()
         if not insert_result.data and getattr(insert_result, "error", None):
             logger.error(f"[Chat] Message insert error: {insert_result.error}")
             raise HTTPException(status_code=500, detail="Failed to send message")
@@ -977,19 +986,18 @@ async def close_conversation(conversation_id: str):
 
         # Send system message
         system_text = "Perbualan telah ditutup."
-        _insert_with_column_fallback(
-            supabase,
-            "chat_messages",
-            {
+        try:
+            supabase.table("chat_messages").insert({
+                "id": str(uuid.uuid4()),
                 "conversation_id": conversation_id,
                 "sender_type": "system",
                 "message_text": system_text,
-                "content": system_text,
-                "message": system_text,
+                "message_type": "text",
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat()
-            }
-        )
+            }).execute()
+        except Exception as msg_err:
+            logger.warning(f"[Chat] Close message insert failed: {msg_err}")
 
         # Notify via WebSocket
         await manager.send_to_conversation(
@@ -1013,30 +1021,30 @@ async def add_rider_to_conversation(conversation_id: str, rider_id: str, rider_n
     try:
         supabase = get_supabase()
 
-        # Add rider as participant
-        # Schema: id, conversation_id, user_type, user_id, user_name, is_online, last_seen, created_at
+        # Add rider as participant with correct column names
         supabase.table("chat_participants").insert({
             "conversation_id": conversation_id,
             "user_type": "rider",
             "user_id": rider_id,
-            "user_name": rider_name
+            "user_name": rider_name,
+            "is_online": True,
+            "created_at": datetime.utcnow().isoformat()
         }).execute()
 
         # Send system message
         system_text = f"Rider {rider_name} telah ditugaskan untuk penghantaran ini."
-        _insert_with_column_fallback(
-            supabase,
-            "chat_messages",
-            {
+        try:
+            supabase.table("chat_messages").insert({
+                "id": str(uuid.uuid4()),
                 "conversation_id": conversation_id,
                 "sender_type": "system",
                 "message_text": system_text,
-                "content": system_text,
-                "message": system_text,
+                "message_type": "text",
                 "is_read": False,
                 "created_at": datetime.utcnow().isoformat()
-            }
-        )
+            }).execute()
+        except Exception as msg_err:
+            logger.warning(f"[Chat] Rider message insert failed: {msg_err}")
 
         # Notify via WebSocket
         await manager.send_to_conversation(
@@ -1131,20 +1139,18 @@ async def send_chat_message(message: MessageCreate):
 
         message_id = str(uuid.uuid4())
 
-        # Prepare message data
+        # Prepare message data with correct column names
         message_data = {
             'id': message_id,
             'conversation_id': message.conversation_id,
             'sender_type': message.sender_type,
-            # sender_name removed - not in DB schema
-            'message_text': text,
-            'content': text,
-            'message': text,
+            'message_text': text,  # Correct column name
+            'message_type': 'text',
             'is_read': False,
             'created_at': datetime.utcnow().isoformat()
         }
 
-        result = _insert_with_column_fallback(supabase, 'chat_messages', message_data)
+        result = supabase.table('chat_messages').insert(message_data).execute()
 
         if not result.data:
             raise HTTPException(status_code=500, detail="Failed to send message")
