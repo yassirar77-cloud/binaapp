@@ -81,6 +81,16 @@ export default function RiderApp() {
   const [pullDistance, setPullDistance] = useState(0);
   const touchStartY = useRef(0);
 
+  // Leaflet map reference for rider location
+  const riderMapRef = useRef<any>(null);
+  const riderMarkerRef = useRef<any>(null);
+
+  // Leaflet map reference for order detail route
+  const routeMapRef = useRef<any>(null);
+  const routeRiderMarkerRef = useRef<any>(null);
+  const routeCustomerMarkerRef = useRef<any>(null);
+  const routeLineRef = useRef<any>(null);
+
   // Check if running as PWA
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -201,6 +211,222 @@ export default function RiderApp() {
       console.warn('[Rider PWA] Service Worker not supported in this browser');
     }
   }, []);
+
+  // Initialize and update rider location map
+  useEffect(() => {
+    if (!currentLocation || typeof window === 'undefined') return;
+
+    const loadLeaflet = async () => {
+      // Dynamically import Leaflet only on client side
+      const L = (await import('leaflet')).default;
+      await import('leaflet/dist/leaflet.css');
+
+      // Fix Leaflet default marker icon
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+      });
+
+      const mapElement = document.getElementById('rider-location-map');
+      if (!mapElement) return;
+
+      // Initialize map once
+      if (!riderMapRef.current) {
+        const map = L.map('rider-location-map').setView([currentLocation.lat, currentLocation.lng], 15);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap',
+          maxZoom: 19,
+        }).addTo(map);
+
+        // Custom rider icon
+        const riderIcon = L.divIcon({
+          html: `
+            <div style="
+              width: 50px;
+              height: 50px;
+              background: linear-gradient(135deg, #ea580c 0%, #fb923c 100%);
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              box-shadow: 0 4px 12px rgba(234, 88, 12, 0.4);
+              border: 4px solid white;
+              font-size: 24px;
+            ">
+              🛵
+            </div>
+          `,
+          className: 'rider-marker',
+          iconSize: [50, 50],
+          iconAnchor: [25, 25],
+        });
+
+        const marker = L.marker([currentLocation.lat, currentLocation.lng], { icon: riderIcon })
+          .addTo(map)
+          .bindPopup(`
+            <div style="text-align: center; font-family: system-ui;">
+              <strong style="font-size: 16px;">🛵 ${rider?.name || 'You'}</strong><br>
+              <span style="font-size: 12px; color: #666;">
+                Lokasi semasa anda
+              </span>
+            </div>
+          `);
+
+        riderMapRef.current = map;
+        riderMarkerRef.current = marker;
+      } else {
+        // Update existing marker position
+        riderMarkerRef.current.setLatLng([currentLocation.lat, currentLocation.lng]);
+        riderMapRef.current.setView([currentLocation.lat, currentLocation.lng], 15);
+      }
+    };
+
+    loadLeaflet().catch(console.error);
+
+    return () => {
+      if (riderMapRef.current) {
+        riderMapRef.current.remove();
+        riderMapRef.current = null;
+        riderMarkerRef.current = null;
+      }
+    };
+  }, [currentLocation, rider]);
+
+  // Initialize and update route map for order detail
+  useEffect(() => {
+    if (!selectedOrder || !currentLocation || typeof window === 'undefined') return;
+    if (!selectedOrder.delivery_latitude || !selectedOrder.delivery_longitude) return;
+
+    const loadLeaflet = async () => {
+      const L = (await import('leaflet')).default;
+      await import('leaflet/dist/leaflet.css');
+
+      // Fix Leaflet default marker icon
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+      });
+
+      const mapElement = document.getElementById('delivery-route-map');
+      if (!mapElement) return;
+
+      // Clean up existing map
+      if (routeMapRef.current) {
+        routeMapRef.current.remove();
+        routeMapRef.current = null;
+      }
+
+      // Initialize new map
+      const map = L.map('delivery-route-map').setView([currentLocation.lat, currentLocation.lng], 13);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+        maxZoom: 19,
+      }).addTo(map);
+
+      // Rider icon
+      const riderIcon = L.divIcon({
+        html: `
+          <div style="
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #ea580c 0%, #fb923c 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.4);
+            border: 4px solid white;
+            font-size: 24px;
+          ">
+            🛵
+          </div>
+        `,
+        className: 'rider-marker',
+        iconSize: [50, 50],
+        iconAnchor: [25, 25],
+      });
+
+      // Customer icon
+      const customerIcon = L.divIcon({
+        html: `
+          <div style="
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+            border: 3px solid white;
+          ">
+            <span style="transform: rotate(45deg); font-size: 18px;">📍</span>
+          </div>
+        `,
+        className: 'customer-marker',
+        iconSize: [40, 40],
+        iconAnchor: [20, 40],
+      });
+
+      // Add markers
+      const riderMarker = L.marker([currentLocation.lat, currentLocation.lng], { icon: riderIcon })
+        .addTo(map)
+        .bindPopup(`<strong>🛵 You are here</strong>`);
+
+      const customerMarker = L.marker(
+        [selectedOrder.delivery_latitude, selectedOrder.delivery_longitude],
+        { icon: customerIcon }
+      )
+        .addTo(map)
+        .bindPopup(`<strong>📍 Customer Location</strong><br>${selectedOrder.customer_name}`);
+
+      // Draw route line
+      const routeLine = L.polyline(
+        [
+          [currentLocation.lat, currentLocation.lng],
+          [selectedOrder.delivery_latitude, selectedOrder.delivery_longitude]
+        ],
+        {
+          color: '#ea580c',
+          weight: 4,
+          opacity: 0.7,
+          dashArray: '10, 10',
+          lineCap: 'round'
+        }
+      ).addTo(map);
+
+      // Auto-zoom to fit both markers
+      const bounds = L.latLngBounds([
+        [currentLocation.lat, currentLocation.lng],
+        [selectedOrder.delivery_latitude, selectedOrder.delivery_longitude]
+      ]);
+      map.fitBounds(bounds, { padding: [50, 50] });
+
+      routeMapRef.current = map;
+      routeRiderMarkerRef.current = riderMarker;
+      routeCustomerMarkerRef.current = customerMarker;
+      routeLineRef.current = routeLine;
+    };
+
+    loadLeaflet().catch(console.error);
+
+    return () => {
+      if (routeMapRef.current) {
+        routeMapRef.current.remove();
+        routeMapRef.current = null;
+        routeRiderMarkerRef.current = null;
+        routeCustomerMarkerRef.current = null;
+        routeLineRef.current = null;
+      }
+    };
+  }, [selectedOrder, currentLocation, rider]);
 
   // API fetch helper (without Supabase auth for rider)
   const riderApiFetch = async (path: string, options?: RequestInit) => {
@@ -729,12 +955,27 @@ export default function RiderApp() {
             </div>
           </div>
 
-          {/* Delivery Address */}
+          {/* Delivery Address with Route Map */}
           <div className="bg-white rounded-2xl shadow-lg p-4">
             <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
               <span className="text-xl">📍</span> Alamat Penghantaran
             </h3>
-            <p className="text-gray-700">{selectedOrder.delivery_address}</p>
+            <p className="text-gray-700 mb-3">{selectedOrder.delivery_address}</p>
+
+            {/* Route Map */}
+            {selectedOrder.delivery_latitude && selectedOrder.delivery_longitude && currentLocation && (
+              <div
+                id="delivery-route-map"
+                style={{
+                  width: '100%',
+                  height: '300px',
+                  borderRadius: '12px',
+                  overflow: 'hidden',
+                  background: '#f3f4f6',
+                  marginTop: '12px'
+                }}
+              ></div>
+            )}
           </div>
 
           {/* Order Items */}
@@ -961,10 +1202,10 @@ export default function RiderApp() {
           </div>
         </div>
 
-        {/* GPS Info Card */}
+        {/* GPS Info Card with Map */}
         {currentLocation && (
           <div className="bg-white rounded-xl shadow p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between mb-3">
               <div>
                 <h3 className="font-bold text-gray-800 flex items-center gap-2">
                   <span className={`w-3 h-3 rounded-full ${gpsInfo.color} ${gpsInfo.pulse ? 'animate-pulse' : ''}`}></span>
@@ -978,9 +1219,20 @@ export default function RiderApp() {
                 onClick={() => window.open(`https://www.google.com/maps?q=${currentLocation.lat},${currentLocation.lng}`, '_blank')}
                 className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition-colors"
               >
-                Lihat Peta
+                Buka Peta
               </button>
             </div>
+            {/* Inline Map */}
+            <div
+              id="rider-location-map"
+              style={{
+                width: '100%',
+                height: '200px',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                background: '#f3f4f6'
+              }}
+            ></div>
           </div>
         )}
 
