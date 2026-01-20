@@ -1232,12 +1232,18 @@ async def list_riders(
 
         # Include both website-specific riders AND shared riders (website_id IS NULL)
         # This fixes the issue where riders become orphaned when website is deleted
-        resp = supabase.table("riders").select("*").or_(f"website_id.eq.{website_id},website_id.is.null").order("created_at", desc=True).execute()
+        query_filter = f"website_id.eq.{website_id},website_id.is.null"
+        logger.info(f"[Rider LIST] Query filter: {query_filter}")
+
+        resp = supabase.table("riders").select("*").or_(query_filter).order("created_at", desc=True).execute()
 
         logger.info(f"[Rider LIST] Found {len(resp.data or [])} riders")
         if resp.data:
             logger.info(f"[Rider LIST] Rider IDs: {[r.get('id', 'unknown') for r in resp.data]}")
             logger.info(f"[Rider LIST] Rider names: {[r.get('name', 'unknown') for r in resp.data]}")
+            logger.info(f"[Rider LIST] Rider website_ids: {[r.get('website_id', 'NULL') for r in resp.data]}")
+        else:
+            logger.warning(f"[Rider LIST] No riders found for website_id={website_id}")
 
         return [convert_db_row_to_dict(r) for r in (resp.data or [])]
     except Exception as e:
