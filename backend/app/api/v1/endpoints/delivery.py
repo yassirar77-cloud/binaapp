@@ -1230,7 +1230,9 @@ async def list_riders(
         logger.info(f"[Rider LIST] user_id={user_id} website_id={website_id}")
         logger.info(f"[Rider LIST] Querying riders for website_id: {website_id}")
 
-        resp = supabase.table("riders").select("*").eq("website_id", website_id).order("created_at", desc=True).execute()
+        # Include both website-specific riders AND shared riders (website_id IS NULL)
+        # This fixes the issue where riders become orphaned when website is deleted
+        resp = supabase.table("riders").select("*").or_(f"website_id.eq.{website_id},website_id.is.null").order("created_at", desc=True).execute()
 
         logger.info(f"[Rider LIST] Found {len(resp.data or [])} riders")
         if resp.data:
