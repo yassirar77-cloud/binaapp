@@ -2087,6 +2087,21 @@ function handleContactSubmit(e) {{
             if (orderData.rider.photo_url) {{
                 document.getElementById('rider-avatar').innerHTML = '<img src="' + orderData.rider.photo_url + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">';
             }}
+
+            // Initialize/update map with rider's GPS location if available
+            if (orderData.rider.current_latitude && orderData.rider.current_longitude) {{
+                const locationData = {{
+                    latitude: parseFloat(orderData.rider.current_latitude),
+                    longitude: parseFloat(orderData.rider.current_longitude),
+                    timestamp: orderData.rider.last_location_update || new Date().toISOString(),
+                    speed: null,
+                    heading: null
+                }};
+                setTimeout(() => {{
+                    updateRiderLocation(locationData);
+                    console.log('[BinaApp] 🗺️ Map initialized with rider GPS:', locationData);
+                }}, 500);
+            }}
         }} else {{
             document.getElementById('rider-info-section').style.display = 'none';
         }}
@@ -2145,6 +2160,19 @@ function handleContactSubmit(e) {{
             document.getElementById('rider-whatsapp-btn').href = 'https://wa.me/' + (data.rider.phone || '').replace(/[^0-9]/g, '');
             if (data.rider.photo_url) {{
                 document.getElementById('rider-avatar').innerHTML = '<img src="' + data.rider.photo_url + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">';
+            }}
+
+            // Initialize/update map with rider's GPS location if available
+            if (data.rider.current_latitude && data.rider.current_longitude) {{
+                const locationData = {{
+                    latitude: parseFloat(data.rider.current_latitude),
+                    longitude: parseFloat(data.rider.current_longitude),
+                    timestamp: data.rider.last_location_update || new Date().toISOString(),
+                    speed: null,
+                    heading: null
+                }};
+                updateRiderLocation(locationData);
+                console.log('[BinaApp] 🗺️ Map initialized with rider GPS from API:', locationData);
             }}
         }} else {{
             document.getElementById('rider-info-section').style.display = 'none';
