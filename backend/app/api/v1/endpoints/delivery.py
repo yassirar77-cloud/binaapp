@@ -1219,8 +1219,18 @@ async def list_riders(
         if not user_id:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User ID not found in token")
 
-        website_check = supabase.table("websites").select("id").eq("id", website_id).eq("user_id", user_id).execute()
+        logger.info(f"[Rider LIST] Checking ownership - user_id={user_id}, website_id={website_id}")
+        website_check = supabase.table("websites").select("id, user_id").eq("id", website_id).eq("user_id", user_id).execute()
+        logger.info(f"[Rider LIST] Website ownership check result: {website_check.data}")
+
         if not website_check.data:
+            # Check if website exists at all
+            website_exists = supabase.table("websites").select("id, user_id").eq("id", website_id).execute()
+            if website_exists.data:
+                logger.warning(f"[Rider LIST] Website {website_id} exists but belongs to user {website_exists.data[0].get('user_id')} (not {user_id})")
+            else:
+                logger.warning(f"[Rider LIST] Website {website_id} does not exist in database")
+
             logger.warning(f"[Rider LIST] User {user_id} attempted to access riders for unauthorized website: {website_id}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -1232,12 +1242,18 @@ async def list_riders(
 
         # Include both website-specific riders AND shared riders (website_id IS NULL)
         # This fixes the issue where riders become orphaned when website is deleted
-        resp = supabase.table("riders").select("*").or_(f"website_id.eq.{website_id},website_id.is.null").order("created_at", desc=True).execute()
+        query_filter = f"website_id.eq.{website_id},website_id.is.null"
+        logger.info(f"[Rider LIST] Query filter: {query_filter}")
+
+        resp = supabase.table("riders").select("*").or_(query_filter).order("created_at", desc=True).execute()
 
         logger.info(f"[Rider LIST] Found {len(resp.data or [])} riders")
         if resp.data:
             logger.info(f"[Rider LIST] Rider IDs: {[r.get('id', 'unknown') for r in resp.data]}")
             logger.info(f"[Rider LIST] Rider names: {[r.get('name', 'unknown') for r in resp.data]}")
+            logger.info(f"[Rider LIST] Rider website_ids: {[r.get('website_id', 'NULL') for r in resp.data]}")
+        else:
+            logger.warning(f"[Rider LIST] No riders found for website_id={website_id}")
 
         return [convert_db_row_to_dict(r) for r in (resp.data or [])]
     except Exception as e:

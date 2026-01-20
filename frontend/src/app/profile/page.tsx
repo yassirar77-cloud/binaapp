@@ -194,11 +194,19 @@ export default function ProfilePage() {
       }
 
       // Load websites
+      console.log('[DEBUG] Current user ID:', currentUser.id)
       const { data: websitesData } = await supabase
         .from('websites')
         .select('*')
         .eq('user_id', currentUser.id)
         .order('created_at', { ascending: false })
+
+      console.log('[DEBUG] Loaded websites:', websitesData?.map(w => ({
+        id: w.id,
+        name: w.name || w.business_name,
+        subdomain: w.subdomain,
+        user_id: w.user_id
+      })))
 
       setWebsites(websitesData || [])
     } catch (error) {
@@ -345,9 +353,14 @@ export default function ProfilePage() {
   }
 
   async function loadRiders() {
-    if (!supabase || websites.length === 0) return
+    if (!supabase || websites.length === 0) {
+      console.log('[DEBUG] loadRiders SKIPPED - supabase:', !!supabase, 'websites.length:', websites.length)
+      return
+    }
 
     try {
+      console.log('=== LOADING RIDERS DEBUG START ===')
+
       // DEBUG: Log all websites
       console.log('[DEBUG] All websites:', websites.map(w => ({
         id: w.id,
@@ -363,15 +376,20 @@ export default function ProfilePage() {
         return
       }
 
+      console.log('[DEBUG] Session user:', session.user?.email)
+
       // FIX: Load riders for ALL websites, not just the first one
       // This fixes the bug where riders weren't showing if the user had multiple websites
       const allRiders: any[] = []
 
       for (const website of websites) {
-        console.log(`[DEBUG] Fetching riders for website_id: ${website.id} (${website.name || website.business_name})`)
+        const apiUrl = `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/admin/websites/${website.id}/riders`
+        console.log(`[DEBUG] Fetching riders for website_id: ${website.id}`)
+        console.log(`[DEBUG] Website name: ${website.name || website.business_name}`)
+        console.log(`[DEBUG] API URL: ${apiUrl}`)
 
         const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/admin/websites/${website.id}/riders`,
+          apiUrl,
           {
             headers: {
               'Authorization': `Bearer ${session.access_token}`,
@@ -380,32 +398,50 @@ export default function ProfilePage() {
           }
         )
 
+        console.log(`[DEBUG] Response status for website ${website.id}:`, response.status)
+
         if (response.ok) {
           const data = await response.json()
+          console.log(`[DEBUG] Response data for website ${website.id}:`, data)
           console.log(`✅ Loaded ${data?.length || 0} riders for website ${website.name || website.business_name}`)
+
           if (data && data.length > 0) {
+            console.log(`[DEBUG] Riders from website ${website.id}:`, data.map((r: any) => ({
+              id: r.id,
+              name: r.name,
+              website_id: r.website_id
+            })))
+
             // Add riders to the list, avoiding duplicates
             for (const rider of data) {
               if (!allRiders.find(r => r.id === rider.id)) {
                 allRiders.push(rider)
+                console.log(`[DEBUG] Added rider: ${rider.name} (ID: ${rider.id})`)
+              } else {
+                console.log(`[DEBUG] Skipped duplicate rider: ${rider.name}`)
               }
             }
+          } else {
+            console.log(`[DEBUG] No riders found for website ${website.id}`)
           }
         } else {
           const errorText = await response.text()
-          console.error(`Error loading riders for website ${website.id}:`, response.status, errorText)
+          console.error(`❌ Error loading riders for website ${website.id}:`, response.status, errorText)
         }
       }
 
+      console.log(`[DEBUG] Setting riders state with ${allRiders.length} riders`)
       setRiders(allRiders)
       console.log(`✅ Total riders loaded: ${allRiders.length}`)
-      console.log('[DEBUG] Rider details:', allRiders.map(r => ({
+      console.log('[DEBUG] Final rider details:', allRiders.map(r => ({
         id: r.id,
         name: r.name,
         website_id: r.website_id
       })))
+      console.log('=== LOADING RIDERS DEBUG END ===')
     } catch (error) {
-      console.error('Error loading riders:', error)
+      console.error('❌ Error loading riders:', error)
+      console.error('[DEBUG] Error stack:', error instanceof Error ? error.stack : 'No stack trace')
     }
   }
 
