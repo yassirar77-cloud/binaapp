@@ -348,7 +348,12 @@ export default function ProfilePage() {
     if (!supabase || websites.length === 0) return
 
     try {
-      const websiteId = websites[0].id
+      // DEBUG: Log all websites
+      console.log('[DEBUG] All websites:', websites.map(w => ({
+        id: w.id,
+        name: w.name || w.business_name,
+        subdomain: w.subdomain
+      })))
 
       // Get the session token for authentication
       const { data: { session } } = await supabase.auth.getSession()
@@ -358,24 +363,47 @@ export default function ProfilePage() {
         return
       }
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/admin/websites/${websiteId}/riders`,
-        {
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      )
+      // FIX: Load riders for ALL websites, not just the first one
+      // This fixes the bug where riders weren't showing if the user had multiple websites
+      const allRiders: any[] = []
 
-      if (response.ok) {
-        const data = await response.json()
-        setRiders(data || [])
-        console.log(`✅ Loaded ${data?.length || 0} riders`)
-      } else {
-        const errorText = await response.text()
-        console.error('Error loading riders:', response.status, errorText)
+      for (const website of websites) {
+        console.log(`[DEBUG] Fetching riders for website_id: ${website.id} (${website.name || website.business_name})`)
+
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/admin/websites/${website.id}/riders`,
+          {
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        )
+
+        if (response.ok) {
+          const data = await response.json()
+          console.log(`✅ Loaded ${data?.length || 0} riders for website ${website.name || website.business_name}`)
+          if (data && data.length > 0) {
+            // Add riders to the list, avoiding duplicates
+            for (const rider of data) {
+              if (!allRiders.find(r => r.id === rider.id)) {
+                allRiders.push(rider)
+              }
+            }
+          }
+        } else {
+          const errorText = await response.text()
+          console.error(`Error loading riders for website ${website.id}:`, response.status, errorText)
+        }
       }
+
+      setRiders(allRiders)
+      console.log(`✅ Total riders loaded: ${allRiders.length}`)
+      console.log('[DEBUG] Rider details:', allRiders.map(r => ({
+        id: r.id,
+        name: r.name,
+        website_id: r.website_id
+      })))
     } catch (error) {
       console.error('Error loading riders:', error)
     }
@@ -992,6 +1020,7 @@ export default function ProfilePage() {
                   <div className="space-y-4">
                     {orders.map((order) => {
                       const riderInfo = riders.find(r => r.id === order.rider_id)
+                      const orderWebsite = websites.find(w => w.id === order.website_id)
                       return (
                         <div key={order.id} className="border rounded-lg p-4 md:p-6 bg-white shadow-sm">
                           {/* Order Header */}
@@ -1098,7 +1127,7 @@ export default function ProfilePage() {
                             {/* WhatsApp Quick Actions */}
                             {order.customer_phone && (
                               <a
-                                href={`https://wa.me/${order.customer_phone.replace(/^0/, '60')}?text=Hi%20${encodeURIComponent(order.customer_name)},%20ini%20dari%20${encodeURIComponent(websites[0]?.name || 'kedai')}%20mengenai%20pesanan%20${order.order_number}`}
+                                href={`https://wa.me/${order.customer_phone.replace(/^0/, '60')}?text=Hi%20${encodeURIComponent(order.customer_name)},%20ini%20dari%20${encodeURIComponent(orderWebsite?.name || websites[0]?.name || 'kedai')}%20mengenai%20pesanan%20${order.order_number}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="flex-1 bg-green-600 text-white px-4 py-3 min-h-[44px] rounded-lg hover:bg-green-700 active:bg-green-800 font-medium text-sm md:text-base text-center flex items-center justify-center gap-2"
