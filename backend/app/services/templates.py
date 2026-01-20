@@ -1297,18 +1297,18 @@ function handleContactSubmit(e) {{
                 </div>
             </div>
 
-            <!-- BinaApp Chat & Map Section -->
-            <div id="chat-section" style="display:none;margin-bottom:16px;">
-                <!-- Rider Location Map -->
-                <div id="rider-map-container" style="display:none;background:#f9fafb;padding:16px;border-radius:12px;margin-bottom:16px;border:2px solid #e0e7ff;">
-                    <h4 style="font-weight:600;margin:0 0 12px 0;display:flex;align-items:center;gap:8px;justify-content:space-between;">
-                        <span>🗺️ Lokasi Rider</span>
-                        <button onclick="toggleMapSize()" style="background:#3b82f6;color:white;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;">Expand</button>
-                    </h4>
-                    <div id="rider-map" style="width:100%;height:250px;border-radius:12px;"></div>
-                    <p style="font-size:12px;color:#6b7280;margin:8px 0 0 0;text-align:center;" id="map-last-update">Menunggu lokasi rider...</p>
-                </div>
+            <!-- Rider Location Map (Independent from Chat) -->
+            <div id="rider-map-container" style="display:none;background:#f9fafb;padding:16px;border-radius:12px;margin-bottom:16px;border:2px solid #e0e7ff;">
+                <h4 style="font-weight:600;margin:0 0 12px 0;display:flex;align-items:center;gap:8px;justify-content:space-between;">
+                    <span>🗺️ Lokasi Rider</span>
+                    <button onclick="toggleMapSize()" style="background:#3b82f6;color:white;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;">Expand</button>
+                </h4>
+                <div id="rider-map" style="width:100%;height:250px;border-radius:12px;"></div>
+                <p style="font-size:12px;color:#6b7280;margin:8px 0 0 0;text-align:center;" id="map-last-update">Menunggu lokasi rider...</p>
+            </div>
 
+            <!-- BinaApp Chat Section -->
+            <div id="chat-section" style="display:none;margin-bottom:16px;">
                 <!-- Chat Interface -->
                 <div style="background:#f9fafb;border-radius:12px;border:2px solid #dbeafe;overflow:hidden;margin-bottom:16px;">
                     <div style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;padding:12px 16px;">
