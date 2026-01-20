@@ -504,11 +504,6 @@
                     right: 20px;
                     z-index: 99999;
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    flex-wrap: wrap;
-                    justify-content: flex-end;
                 }
 
                 #binaapp-order-btn {
@@ -528,27 +523,6 @@
                 }
 
                 #binaapp-order-btn:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 6px 24px rgba(0,0,0,0.3);
-                }
-
-                #binaapp-delivery-chat-btn {
-                    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-                    color: white;
-                    border: none;
-                    border-radius: 50px;
-                    padding: 16px 24px;
-                    font-size: 16px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-                    display: flex;
-                    align-items: center;
-                    gap: 10px;
-                    transition: transform 0.2s;
-                }
-
-                #binaapp-delivery-chat-btn:hover {
                     transform: translateY(-2px);
                     box-shadow: 0 6px 24px rgba(0,0,0,0.3);
                 }
@@ -900,14 +874,10 @@
             const widgetContainer = document.createElement('div');
             widgetContainer.id = 'binaapp-widget';
             widgetContainer.innerHTML = `
-                <button id="binaapp-order-btn" type="button">
+                <button id="binaapp-order-btn">
                     <span>${config.icon}</span>
                     <span>${lang === 'en' ? config.buttonLabelEn : config.buttonLabel}</span>
                     <span class="binaapp-cart-badge" id="binaapp-cart-count" style="display:none;">0</span>
-                </button>
-                <button id="binaapp-delivery-chat-btn" type="button" aria-label="${this.t('chatWithUs')}">
-                    <span>💬</span>
-                    <span>${this.t('chatWithUs')}</span>
                 </button>
             `;
 
@@ -931,39 +901,16 @@
 
             document.body.appendChild(widgetContainer);
             document.body.appendChild(modal);
-            console.log('[BinaApp] ✅ Widget created with chat button');
         },
 
         // Event listeners
         initEventListeners: function() {
             const self = this;
 
-            if (typeof window.openChatWidget !== 'function') {
-                window.openChatWidget = function() {
-                    console.log('[BinaApp] openChatWidget called');
-                    if (window.BinaAppDelivery && typeof window.BinaAppDelivery.openChat === 'function') {
-                        window.BinaAppDelivery.openChat();
-                        return;
-                    }
-                    console.warn('[BinaApp] Chat widget is not ready yet.');
-                };
-            }
-
             // Open modal
             document.getElementById('binaapp-order-btn').addEventListener('click', function() {
                 self.openModal();
             });
-
-            const chatButton = document.getElementById('binaapp-delivery-chat-btn');
-            if (chatButton) {
-                chatButton.addEventListener('click', function() {
-                    console.log('[BinaApp] Chat button clicked');
-                    window.openChatWidget();
-                });
-                console.log('[BinaApp] ✅ Chat button event listener attached');
-            } else {
-                console.warn('[BinaApp] ⚠️ Chat button not found in DOM');
-            }
 
             // Close modal
             document.getElementById('binaapp-modal-close').addEventListener('click', function() {
@@ -1064,10 +1011,6 @@
 
         // Open modal
         openModal: function() {
-            const header = document.querySelector('.binaapp-modal-header');
-            if (header) {
-                header.style.display = '';
-            }
             document.getElementById('binaapp-modal').classList.add('active');
             this.showView('menu');
         },
@@ -1077,31 +1020,6 @@
             document.getElementById('binaapp-modal').classList.remove('active');
             // Stop tracking polling when modal is closed (Phase 2)
             this.stopTrackingPolling();
-        },
-
-        // Show custom modal content (used for chat)
-        showModal: function(html, options = {}) {
-            const modal = document.getElementById('binaapp-modal');
-            const body = document.getElementById('binaapp-modal-body');
-            const header = document.querySelector('.binaapp-modal-header');
-            const title = document.getElementById('binaapp-modal-title');
-            const hideHeader = options.hideHeader === true;
-
-            if (body) {
-                body.innerHTML = html;
-            }
-
-            if (title && typeof options.title === 'string') {
-                title.textContent = options.title;
-            }
-
-            if (header) {
-                header.style.display = hideHeader ? 'none' : '';
-            }
-
-            if (modal) {
-                modal.classList.add('active');
-            }
         },
 
         // Show different views
@@ -1243,6 +1161,7 @@
         },
 
         // Initialize Map with Leaflet + OpenStreetMap (FREE!) - Updated for Phase 3
+        // Now shows map even when rider GPS is not yet available
         initializeMap: async function() {
             try {
                 if (!this.state.trackingData) return;
@@ -1250,21 +1169,22 @@
                 const rider = this.state.trackingData.rider;
                 const order = this.state.trackingData.order;
 
-                // Check if rider has GPS coordinates
-                if (!rider || !rider.current_latitude || !rider.current_longitude) {
-                    console.log('[BinaApp] Rider GPS not available yet');
+                // Need at least a rider assigned to show the map
+                if (!rider) {
+                    console.log('[BinaApp] No rider assigned yet');
                     return;
                 }
 
-                // Get rider and customer coordinates
-                const riderLat = parseFloat(rider.current_latitude);
-                const riderLng = parseFloat(rider.current_longitude);
+                // Get rider GPS if available (may be null)
+                const hasRiderGPS = rider.current_latitude && rider.current_longitude;
+                const riderLat = hasRiderGPS ? parseFloat(rider.current_latitude) : null;
+                const riderLng = hasRiderGPS ? parseFloat(rider.current_longitude) : null;
 
                 // Use customer delivery coordinates if available, otherwise default to KL
                 const customerLat = order.delivery_latitude ? parseFloat(order.delivery_latitude) : 3.1390;
                 const customerLng = order.delivery_longitude ? parseFloat(order.delivery_longitude) : 101.6869;
 
-                // Call the new Leaflet.js initialization function
+                // Call the Leaflet.js initialization function (now handles null rider coords)
                 await this.initRiderTrackingMap(
                     riderLat,
                     riderLng,
@@ -1273,15 +1193,16 @@
                     rider.name || 'Rider'
                 );
 
-                console.log('[BinaApp] Map initialized successfully via initRiderTrackingMap');
+                console.log('[BinaApp] Map initialized successfully via initRiderTrackingMap, hasRiderGPS:', hasRiderGPS);
             } catch (error) {
                 console.error('[BinaApp] Map initialization error:', error);
             }
         },
 
         // Update rider marker position (Leaflet) - Updated for Phase 3
+        // Now handles the case where GPS becomes available after initial map load
         updateRiderMarker: function() {
-            if (!this.state.trackingData || !this.state.riderMarker) return;
+            if (!this.state.trackingData || !this.state.riderMap) return;
 
             const rider = this.state.trackingData.rider;
             if (!rider || !rider.current_latitude || !rider.current_longitude) return;
@@ -1289,10 +1210,84 @@
             const newLat = parseFloat(rider.current_latitude);
             const newLng = parseFloat(rider.current_longitude);
 
-            // Call our new updateRiderPosition function
+            // If rider marker doesn't exist yet (GPS just became available), create it
+            if (!this.state.riderMarker) {
+                console.log('[BinaApp Map] GPS just became available, creating rider marker');
+
+                // Remove the waiting overlay if it exists
+                if (this.state.gpsWaitingOverlay) {
+                    this.state.riderMap.removeControl(this.state.gpsWaitingOverlay);
+                    this.state.gpsWaitingOverlay = null;
+                }
+
+                // Create rider icon
+                const L = window.L;
+                const riderIcon = L.divIcon({
+                    html: `
+                        <div style="
+                            width: 50px;
+                            height: 50px;
+                            background: linear-gradient(135deg, #ea580c 0%, #fb923c 100%);
+                            border-radius: 50%;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.5);
+                            border: 4px solid white;
+                            font-size: 26px;
+                        ">
+                            🛵
+                        </div>
+                    `,
+                    className: '',
+                    iconSize: [50, 50],
+                    iconAnchor: [25, 25],
+                    popupAnchor: [0, -25]
+                });
+
+                // Create rider marker
+                this.state.riderMarker = L.marker([newLat, newLng], { icon: riderIcon })
+                    .addTo(this.state.riderMap)
+                    .bindPopup(`
+                        <div style="text-align: center; font-family: system-ui; padding: 8px;">
+                            <strong style="font-size: 16px; display: block; margin-bottom: 4px;">
+                                🛵 ${rider.name || 'Rider'}
+                            </strong>
+                            <span style="font-size: 13px; color: #666;">
+                                ${this.t('riderOnTheWay')}
+                            </span>
+                        </div>
+                    `);
+
+                // Create route line to customer
+                if (this.state.customerMarker) {
+                    const customerLatLng = this.state.customerMarker.getLatLng();
+                    this.state.routeLine = L.polyline(
+                        [[newLat, newLng], [customerLatLng.lat, customerLatLng.lng]],
+                        {
+                            color: '#ea580c',
+                            weight: 4,
+                            opacity: 0.7,
+                            dashArray: '10, 10',
+                            lineCap: 'round'
+                        }
+                    ).addTo(this.state.riderMap);
+
+                    // Fit map to show both markers
+                    const bounds = L.latLngBounds([
+                        [newLat, newLng],
+                        [customerLatLng.lat, customerLatLng.lng]
+                    ]);
+                    this.state.riderMap.fitBounds(bounds, { padding: [80, 80] });
+                }
+
+                return;
+            }
+
+            // Call our updateRiderPosition function for existing marker
             this.updateRiderPosition(newLat, newLng);
 
-            // Pan map to keep rider visible (use correct state variable)
+            // Pan map to keep rider visible
             if (this.state.riderMap) {
                 this.state.riderMap.panTo([newLat, newLng]);
             }
@@ -2021,15 +2016,13 @@
                             ${rider ? `<span style="background:#10b981;color:white;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;">${this.t('assigned')}</span>` : ''}
                         </div>
                         ${rider ? `
-                            <!-- Google Map (Phase 2) -->
-                            ${rider.current_latitude && rider.current_longitude ? `
-                                <div id="binaapp-rider-map" style="width:100%;height:250px;border-radius:12px;margin-bottom:12px;background:#f3f4f6;position:relative;overflow:hidden;">
-                                    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;">
-                                        <div class="binaapp-spinner" style="margin:0 auto 8px;"></div>
-                                        <div style="color:#6b7280;font-size:12px;">Loading map...</div>
-                                    </div>
+                            <!-- GPS Tracking Map - Always show when rider assigned -->
+                            <div id="binaapp-rider-map" style="width:100%;height:250px;border-radius:12px;margin-bottom:12px;background:#f3f4f6;position:relative;overflow:hidden;">
+                                <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;">
+                                    <div class="binaapp-spinner" style="margin:0 auto 8px;"></div>
+                                    <div style="color:#6b7280;font-size:12px;">${rider.current_latitude && rider.current_longitude ? 'Loading map...' : this.t('loadingMap')}</div>
                                 </div>
-                            ` : ''}
+                            </div>
 
                             <div style="display:flex;align-items:center;gap:12px;">
                                 <div style="width:56px;height:56px;background:#f3f4f6;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:28px;">
@@ -2237,7 +2230,7 @@
             });
         },
 
-        // Initialize rider tracking map
+        // Initialize rider tracking map - now handles cases where rider GPS is not yet available
         initRiderTrackingMap: async function(riderLat, riderLng, customerLat, customerLng, riderName) {
             try {
                 this.loadLeafletCSS();
@@ -2256,13 +2249,23 @@
                 if (this.state.riderMap) {
                     this.state.riderMap.remove();
                     this.state.riderMap = null;
+                    this.state.riderMarker = null;
+                    this.state.customerMarker = null;
+                    this.state.routeLine = null;
                 }
 
-                // Create map centered on rider
+                // Check if rider GPS is available
+                const hasRiderGPS = riderLat !== null && riderLng !== null;
+
+                // Center map on rider if GPS available, otherwise on customer location
+                const centerLat = hasRiderGPS ? riderLat : customerLat;
+                const centerLng = hasRiderGPS ? riderLng : customerLng;
+
+                // Create map
                 this.state.riderMap = L.map('binaapp-rider-map', {
                     zoomControl: true,
                     attributionControl: true
-                }).setView([riderLat, riderLng], 14);
+                }).setView([centerLat, centerLng], 14);
 
                 // Add OpenStreetMap tiles (FREE!)
                 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -2319,21 +2322,23 @@
                     popupAnchor: [0, -40]
                 });
 
-                // Add rider marker
-                this.state.riderMarker = L.marker([riderLat, riderLng], { icon: riderIcon })
-                    .addTo(this.state.riderMap)
-                    .bindPopup(`
-                        <div style="text-align: center; font-family: system-ui; padding: 8px;">
-                            <strong style="font-size: 16px; display: block; margin-bottom: 4px;">
-                                🛵 ${riderName}
-                            </strong>
-                            <span style="font-size: 13px; color: #666;">
-                                ${this.t('riderOnTheWay')}
-                            </span>
-                        </div>
-                    `);
+                // Add rider marker only if GPS is available
+                if (hasRiderGPS) {
+                    this.state.riderMarker = L.marker([riderLat, riderLng], { icon: riderIcon })
+                        .addTo(this.state.riderMap)
+                        .bindPopup(`
+                            <div style="text-align: center; font-family: system-ui; padding: 8px;">
+                                <strong style="font-size: 16px; display: block; margin-bottom: 4px;">
+                                    🛵 ${riderName}
+                                </strong>
+                                <span style="font-size: 13px; color: #666;">
+                                    ${this.t('riderOnTheWay')}
+                                </span>
+                            </div>
+                        `);
+                }
 
-                // Add customer marker
+                // Always add customer marker
                 this.state.customerMarker = L.marker([customerLat, customerLng], { icon: customerIcon })
                     .addTo(this.state.riderMap)
                     .bindPopup(`
@@ -2347,44 +2352,94 @@
                         </div>
                     `);
 
-                // Draw route line
-                this.state.routeLine = L.polyline(
-                    [[riderLat, riderLng], [customerLat, customerLng]],
-                    {
-                        color: '#ea580c',
-                        weight: 4,
-                        opacity: 0.7,
-                        dashArray: '10, 10',
-                        lineCap: 'round'
-                    }
-                ).addTo(this.state.riderMap);
+                // Draw route line only if rider GPS is available
+                if (hasRiderGPS) {
+                    this.state.routeLine = L.polyline(
+                        [[riderLat, riderLng], [customerLat, customerLng]],
+                        {
+                            color: '#ea580c',
+                            weight: 4,
+                            opacity: 0.7,
+                            dashArray: '10, 10',
+                            lineCap: 'round'
+                        }
+                    ).addTo(this.state.riderMap);
 
-                // Calculate distance (Haversine formula)
-                const R = 6371; // Earth's radius in km
-                const dLat = (customerLat - riderLat) * Math.PI / 180;
-                const dLng = (customerLng - riderLng) * Math.PI / 180;
-                const a =
-                    Math.sin(dLat/2) * Math.sin(dLat/2) +
-                    Math.cos(riderLat * Math.PI / 180) * Math.cos(customerLat * Math.PI / 180) *
-                    Math.sin(dLng/2) * Math.sin(dLng/2);
-                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-                const distance = R * c;
+                    // Calculate distance (Haversine formula)
+                    const R = 6371; // Earth's radius in km
+                    const dLat = (customerLat - riderLat) * Math.PI / 180;
+                    const dLng = (customerLng - riderLng) * Math.PI / 180;
+                    const a =
+                        Math.sin(dLat/2) * Math.sin(dLat/2) +
+                        Math.cos(riderLat * Math.PI / 180) * Math.cos(customerLat * Math.PI / 180) *
+                        Math.sin(dLng/2) * Math.sin(dLng/2);
+                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                    const distance = R * c;
 
-                // Estimate ETA (30 km/h average city speed)
-                const etaMinutes = Math.ceil((distance / 30) * 60);
+                    // Estimate ETA (30 km/h average city speed)
+                    const etaMinutes = Math.ceil((distance / 30) * 60);
 
-                // Fit map to show both markers
-                const bounds = L.latLngBounds([
-                    [riderLat, riderLng],
-                    [customerLat, customerLng]
-                ]);
-                this.state.riderMap.fitBounds(bounds, { padding: [80, 80] });
+                    // Store distance and ETA in state
+                    this.state.mapDistance = distance;
+                    this.state.mapETA = etaMinutes;
 
-                // Store distance and ETA in state
-                this.state.mapDistance = distance;
-                this.state.mapETA = etaMinutes;
+                    // Fit map to show both markers
+                    const bounds = L.latLngBounds([
+                        [riderLat, riderLng],
+                        [customerLat, customerLng]
+                    ]);
+                    this.state.riderMap.fitBounds(bounds, { padding: [80, 80] });
+                } else {
+                    // No rider GPS - just show customer location with waiting overlay
+                    this.state.mapDistance = null;
+                    this.state.mapETA = null;
+                    // Zoom to show customer area
+                    this.state.riderMap.setZoom(15);
 
-                console.log('[BinaApp Map] Initialized successfully - Distance:', distance.toFixed(1), 'km, ETA:', etaMinutes, 'min');
+                    // Add waiting for GPS overlay
+                    const waitingOverlay = L.control({ position: 'topright' });
+                    waitingOverlay.onAdd = () => {
+                        const div = L.DomUtil.create('div', 'leaflet-gps-waiting-overlay');
+                        div.innerHTML = `
+                            <div style="
+                                background: white;
+                                border-radius: 12px;
+                                padding: 12px 16px;
+                                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                                font-family: system-ui, -apple-system, sans-serif;
+                                max-width: 200px;
+                            ">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                    <div style="
+                                        width: 12px;
+                                        height: 12px;
+                                        background: #f59e0b;
+                                        border-radius: 50%;
+                                        animation: pulse 1.5s infinite;
+                                    "></div>
+                                    <span style="font-weight: 600; font-size: 13px; color: #374151;">
+                                        ${this.t('gpsNotAvailable')}
+                                    </span>
+                                </div>
+                                <div style="font-size: 11px; color: #6b7280;">
+                                    📍 ${this.t('deliveryLocation')}
+                                </div>
+                                <style>
+                                    @keyframes pulse {
+                                        0%, 100% { opacity: 1; transform: scale(1); }
+                                        50% { opacity: 0.5; transform: scale(1.2); }
+                                    }
+                                </style>
+                            </div>
+                        `;
+                        return div;
+                    };
+                    waitingOverlay.addTo(this.state.riderMap);
+                    this.state.gpsWaitingOverlay = waitingOverlay;
+                }
+
+                console.log('[BinaApp Map] Initialized successfully - hasRiderGPS:', hasRiderGPS,
+                    hasRiderGPS ? `Distance: ${this.state.mapDistance?.toFixed(1)} km, ETA: ${this.state.mapETA} min` : 'Waiting for rider GPS');
 
             } catch (error) {
                 console.error('[BinaApp Map] Failed to initialize:', error);
@@ -2768,13 +2823,27 @@
             }
         },
 
+        // Open chat with seller
+        openChat: function() {
+            if (!this.state.conversationId || !this.state.customerId) {
+                this.showNotification('Chat tidak tersedia');
+                return;
+            }
+
+            const chatUrl = `${window.location.origin}/chat/${this.state.conversationId}?customer=${this.state.customerId}&name=${encodeURIComponent(localStorage.getItem('binaapp_customer_name') || 'Pelanggan')}`;
+
+            // For now, open in a new tab - later can be a modal
+            window.open(chatUrl, '_blank');
+
+            console.log('[BinaApp] Opening chat:', this.state.conversationId);
+        },
+
         // ============================================
         // CHAT FUNCTIONALITY (PHONE-BASED)
         // ============================================
 
-        // Open chat widget - allows customers to chat with seller
+        // Open chat widget
         openChat: function() {
-            console.log('[BinaApp Chat] Opening chat...');
             // Check if customer info exists in localStorage
             const customerInfo = JSON.parse(localStorage.getItem('binaapp_customer') || '{}');
 
@@ -2789,7 +2858,6 @@
 
         // Show customer info form
         showCustomerInfoForm: function() {
-            console.log('[BinaApp Chat] Showing customer info form...');
             const customerInfo = JSON.parse(localStorage.getItem('binaapp_customer') || '{}');
 
             const html = `
@@ -2853,13 +2921,6 @@
 
         // Start or resume conversation
         startConversation: async function(customerInfo) {
-            console.log('[BinaApp Chat] Starting conversation...', {
-                websiteId: this.config.websiteId,
-                apiUrl: this.config.apiUrl,
-                customerName: customerInfo.name,
-                customerPhone: customerInfo.phone
-            });
-
             try {
                 const response = await fetch(`${this.config.apiUrl}/chat/conversations`, {
                     method: 'POST',
@@ -2872,14 +2933,11 @@
                 });
 
                 if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('[BinaApp Chat] API Error:', response.status, errorText);
-                    throw new Error(`Failed to create conversation: ${response.status}`);
+                    throw new Error('Failed to create conversation');
                 }
 
                 const conversation = await response.json();
                 this.state.currentConversation = conversation;
-                console.log('[BinaApp Chat] ✅ Conversation created/resumed:', conversation.id);
 
                 // Load messages and show chat window
                 await this.loadChatMessages(conversation.id);
@@ -3122,6 +3180,7 @@
                     deliveryLocation: 'Lokasi penghantaran',
                     liveTrackingActive: 'Pengesanan GPS Aktif',
                     gpsNotAvailable: 'Menunggu GPS rider aktif',
+                    loadingMap: 'Memuatkan peta...',
                     updatesEvery15Seconds: 'Dikemas kini setiap 15 saat',
                     zoneAffectsFees: 'Caj dan minimum order ikut kawasan yang dipilih.',
                     selectZoneError: 'Sila pilih kawasan penghantaran terlebih dahulu.',
@@ -3156,7 +3215,6 @@
                     orderCreationFailed: 'Gagal membuat pesanan',
                     orderCreatedSuccess: 'Pesanan berjaya dibuat!',
                     // Chat
-                    chatWithUs: 'Chat dengan Kami',
                     chatWithSeller: 'Chat dengan Penjual'
                 },
                 en: {
@@ -3203,6 +3261,7 @@
                     deliveryLocation: 'Delivery location',
                     liveTrackingActive: 'GPS Tracking Active',
                     gpsNotAvailable: 'Waiting for rider GPS',
+                    loadingMap: 'Loading map...',
                     updatesEvery15Seconds: 'Updates every 15 seconds',
                     zoneAffectsFees: 'Fees and minimum order depend on selected zone.',
                     selectZoneError: 'Please select a delivery zone first.',
@@ -3237,7 +3296,6 @@
                     orderCreationFailed: 'Failed to create order',
                     orderCreatedSuccess: 'Order created successfully!',
                     // Chat
-                    chatWithUs: 'Chat with Us',
                     chatWithSeller: 'Chat with Seller'
                 }
             };
