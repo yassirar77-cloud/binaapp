@@ -799,6 +799,66 @@ async def upload_chat_image(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/chat/messages/upload-image")
+async def upload_chat_image_supabase(
+    file: UploadFile = File(...)
+):
+    """Upload image for chat message to Supabase storage"""
+    try:
+        print(f"[Chat] Uploading image: {file.filename}")
+
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith('image/'):
+            raise HTTPException(
+                status_code=400,
+                detail="Only image files allowed"
+            )
+
+        # Read and validate size (max 5MB)
+        content = await file.read()
+        if len(content) > 5 * 1024 * 1024:
+            raise HTTPException(
+                status_code=400,
+                detail="File too large. Max 5MB"
+            )
+
+        # Generate unique filename
+        file_ext = file.filename.split('.')[-1] if '.' in file.filename else 'jpg'
+        unique_filename = f"chat_{uuid.uuid4()}.{file_ext}"
+
+        # Get Supabase client
+        supabase = get_supabase()
+
+        # Upload to Supabase Storage
+        supabase.storage.from_('chat-images').upload(
+            path=unique_filename,
+            file=content,
+            file_options={
+                'content-type': file.content_type,
+                'cache-control': '3600'
+            }
+        )
+
+        # Get public URL
+        public_url = supabase.storage.from_('chat-images').get_public_url(unique_filename)
+
+        print(f"[Chat] Image uploaded: {public_url}")
+
+        return {
+            "success": True,
+            "url": public_url,
+            "filename": unique_filename
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Chat] Upload error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/messages/upload-payment")
 async def upload_payment_proof(
     conversation_id: str = Form(...),
