@@ -1388,7 +1388,26 @@ function handleContactSubmit(e) {{
         # STEP 3.5: Add floating chat button - always visible
         chat_button_inline = '''
 <!-- Always-visible Chat Button - BinaApp -->
-<button id="binaapp-chat-btn" onclick="openGeneralChat()" style="position:fixed;bottom:100px;right:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 16px rgba(59,130,246,0.4);z-index:9998;display:flex;align-items:center;justify-content:center;font-family:sans-serif;">💬</button>'''
+<button id="binaapp-chat-btn" onclick="openGeneralChat()" style="position:fixed;bottom:100px;right:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 16px rgba(59,130,246,0.4);z-index:9998;display:flex;align-items:center;justify-content:center;font-family:sans-serif;">💬</button>
+
+<!-- Customer Info Form Modal for Chat -->
+<div id="binaapp-customer-info-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10001;align-items:center;justify-content:center;">
+    <div style="background:white;border-radius:16px;padding:24px;max-width:400px;width:90%;margin:20px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h3 style="margin:0;font-size:20px;font-weight:600;color:#1f2937;">💬 Chat dengan Kami</h3>
+            <button onclick="closeCustomerInfoModal()" style="background:#f3f4f6;border:none;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:18px;color:#6b7280;">✕</button>
+        </div>
+        <p style="color:#6b7280;margin:0 0 20px;font-size:14px;">Masukkan maklumat anda untuk memulakan chat:</p>
+        <div style="margin-bottom:16px;">
+            <input type="text" id="binaapp-chat-name" placeholder="Nama anda *" style="width:100%;padding:14px;border:2px solid #e5e7eb;border-radius:10px;font-size:15px;box-sizing:border-box;transition:border-color 0.2s;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#e5e7eb'" />
+        </div>
+        <div style="margin-bottom:24px;">
+            <input type="tel" id="binaapp-chat-phone" placeholder="No. telefon (cth: 0123456789)" style="width:100%;padding:14px;border:2px solid #e5e7eb;border-radius:10px;font-size:15px;box-sizing:border-box;transition:border-color 0.2s;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#e5e7eb'" />
+        </div>
+        <button onclick="submitCustomerInfoChat()" style="width:100%;background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;border:none;padding:16px;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(59,130,246,0.3);transition:transform 0.1s,box-shadow 0.1s;" onmousedown="this.style.transform='scale(0.98)'" onmouseup="this.style.transform='scale(1)'">Mula Chat</button>
+        <p id="binaapp-chat-error" style="display:none;color:#ef4444;font-size:13px;margin:12px 0 0;text-align:center;"></p>
+    </div>
+</div>'''
 
         # Inject chat button if not already present
         if "binaapp-chat-btn" not in html and "</body>" in html:
@@ -1474,20 +1493,67 @@ function handleContactSubmit(e) {{
     // GENERAL CHAT - Open chat without placing an order
     // =====================================================
 
+    // Show customer info form modal
+    function showCustomerInfoModal() {{
+        const modal = document.getElementById('binaapp-customer-info-modal');
+        if (modal) {{
+            modal.style.display = 'flex';
+            // Pre-fill if we have stored values
+            const nameInput = document.getElementById('binaapp-chat-name');
+            const phoneInput = document.getElementById('binaapp-chat-phone');
+            if (nameInput && customerName) nameInput.value = customerName;
+            if (phoneInput && customerPhone) phoneInput.value = customerPhone;
+            // Focus on name input
+            setTimeout(() => nameInput && nameInput.focus(), 100);
+        }}
+    }}
+
+    // Close customer info modal
+    window.closeCustomerInfoModal = function() {{
+        const modal = document.getElementById('binaapp-customer-info-modal');
+        if (modal) modal.style.display = 'none';
+        // Clear error message
+        const errorEl = document.getElementById('binaapp-chat-error');
+        if (errorEl) errorEl.style.display = 'none';
+    }};
+
+    // Submit customer info and start chat
+    window.submitCustomerInfoChat = async function() {{
+        const nameInput = document.getElementById('binaapp-chat-name');
+        const phoneInput = document.getElementById('binaapp-chat-phone');
+        const errorEl = document.getElementById('binaapp-chat-error');
+
+        const name = nameInput ? nameInput.value.trim() : '';
+        const phone = phoneInput ? phoneInput.value.trim() : '';
+
+        // Validate
+        if (!name) {{
+            if (errorEl) {{
+                errorEl.textContent = 'Sila masukkan nama anda';
+                errorEl.style.display = 'block';
+            }}
+            nameInput && nameInput.focus();
+            return;
+        }}
+
+        // Hide error and store info
+        if (errorEl) errorEl.style.display = 'none';
+        customerName = name;
+        customerPhone = phone;
+
+        // Close modal and create conversation
+        closeCustomerInfoModal();
+        await createChatConversation();
+    }};
+
     // Open general chat from floating button
     window.openGeneralChat = async function() {{
         console.log('[BinaChat] 🎯 Opening general chat...');
 
-        // If no customer identity, ask for it
+        // If no customer identity, show form modal
         if (!customerName || !customerPhone) {{
-            const name = prompt('Nama anda:');
-            if (!name) return;
-            const phone = prompt('No telefon:');
-            if (!phone) return;
-
-            // Store temporarily (don't save yet - wait for backend to provide UUID)
-            customerName = name;
-            customerPhone = phone;
+            showCustomerInfoModal();
+            return;
         }}
 
         // Create conversation if not exists
@@ -1533,7 +1599,13 @@ function handleContactSubmit(e) {{
             }}
         }} catch (error) {{
             console.error('[BinaChat] ❌ Create conversation failed:', error);
-            alert('Gagal membuka chat. Sila cuba lagi.');
+            // Show error in the customer info modal instead of browser alert
+            showCustomerInfoModal();
+            const errorEl = document.getElementById('binaapp-chat-error');
+            if (errorEl) {{
+                errorEl.textContent = 'Gagal membuka chat. Sila cuba lagi.';
+                errorEl.style.display = 'block';
+            }}
         }}
     }}
 
