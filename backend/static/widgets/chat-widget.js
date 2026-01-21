@@ -529,6 +529,7 @@
         <div id="binaapp-name-form" class="binaapp-name-form">
           <input type="text" id="binaapp-name" class="binaapp-form-input" placeholder="Nama anda *" maxlength="100">
           <input type="tel" id="binaapp-phone" class="binaapp-form-input" placeholder="No. telefon (contoh: 0123456789)" maxlength="15">
+          <div id="binaapp-form-error" style="display:none;color:#ef4444;font-size:12px;padding:4px 8px;margin-bottom:8px;background:#fef2f2;border-radius:6px;text-align:center;"></div>
           <button id="binaapp-start-btn" class="binaapp-start-btn">Mula Chat</button>
         </div>
       </div>
@@ -727,6 +728,40 @@
     }
   }
 
+  // Show inline error message in form
+  function showFormError(message) {
+    const errorEl = document.getElementById('binaapp-form-error');
+    if (errorEl) {
+      errorEl.textContent = message;
+      errorEl.style.display = 'block';
+      // Auto-hide after 5 seconds
+      setTimeout(() => {
+        errorEl.style.display = 'none';
+      }, 5000);
+    }
+  }
+
+  // Hide form error
+  function hideFormError() {
+    const errorEl = document.getElementById('binaapp-form-error');
+    if (errorEl) {
+      errorEl.style.display = 'none';
+    }
+  }
+
+  // Show notification toast for messages area
+  function showNotification(message) {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#ef4444;color:white;padding:10px 20px;border-radius:8px;font-size:13px;z-index:10001;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    // Remove after 3 seconds
+    setTimeout(() => {
+      notification.remove();
+    }, 3000);
+  }
+
   // =====================================================
   // EVENT HANDLERS
   // =====================================================
@@ -739,10 +774,11 @@
     const phone = phoneInput ? phoneInput.value.trim() : '';
 
     if (!name) {
-      alert('Sila masukkan nama anda');
+      showFormError('Sila masukkan nama anda');
       nameInput && nameInput.focus();
       return;
     }
+    hideFormError();
 
     setLoading(true);
 
@@ -774,7 +810,7 @@
 
     } catch (err) {
       console.error('[BinaApp Chat] Failed to start chat:', err);
-      alert('Gagal memulakan chat. Sila cuba lagi.');
+      showFormError('Gagal memulakan chat. Sila cuba lagi.');
     } finally {
       setLoading(false);
     }
@@ -786,7 +822,7 @@
 
     // Validate message is not empty
     if (!message) {
-      alert('Sila taip mesej');
+      showNotification('Sila taip mesej');
       if (msgInput) msgInput.focus();
       return;
     }
@@ -803,7 +839,7 @@
       console.error('[BinaApp Chat] Failed to send message:', err);
       // Restore message in input
       if (msgInput) msgInput.value = message;
-      alert('Gagal menghantar mesej. Sila cuba lagi.');
+      showNotification('Gagal menghantar mesej. Sila cuba lagi.');
     } finally {
       setLoading(false);
       if (msgInput) msgInput.focus();

@@ -2907,7 +2907,7 @@
             const phone = document.getElementById('binaapp-customer-phone')?.value.trim();
 
             if (!name || !phone) {
-                alert(this.config.language === 'ms' ? 'Sila isi nama dan nombor telefon' : 'Please fill in name and phone number');
+                this.showNotification(this.config.language === 'ms' ? 'Sila isi nama dan nombor telefon' : 'Please fill in name and phone number');
                 return;
             }
 
@@ -2945,7 +2945,7 @@
 
             } catch (error) {
                 console.error('[BinaApp Chat] Error:', error);
-                alert(this.config.language === 'ms' ? 'Gagal membuka chat. Sila cuba lagi.' : 'Failed to open chat. Please try again.');
+                this.showNotification(this.config.language === 'ms' ? 'Gagal membuka chat. Sila cuba lagi.' : 'Failed to open chat. Please try again.');
             }
         },
 
