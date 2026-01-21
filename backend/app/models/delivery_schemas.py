@@ -16,6 +16,7 @@ from decimal import Decimal
 class OrderStatus(str, Enum):
     PENDING = "pending"
     CONFIRMED = "confirmed"
+    ASSIGNED = "assigned"
     PREPARING = "preparing"
     READY = "ready"
     PICKED_UP = "picked_up"
