@@ -6,13 +6,15 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { signIn } from '@/lib/supabase'
 import toast from 'react-hot-toast'
 import { Sparkles } from 'lucide-react'
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectUrl = searchParams.get('redirect')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -24,7 +26,12 @@ export default function LoginPage() {
     try {
       await signIn(email, password)
       toast.success('Berjaya log masuk!')
-      router.push('/my-projects')
+      // Redirect to the original page if redirect param exists, otherwise to my-projects
+      if (redirectUrl) {
+        router.push(redirectUrl)
+      } else {
+        router.push('/my-projects')
+      }
     } catch (error: any) {
       toast.error(error.message || 'Gagal log masuk')
     } finally {

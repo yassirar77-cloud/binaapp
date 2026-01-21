@@ -6,13 +6,15 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { signUp } from '@/lib/supabase'
 import toast from 'react-hot-toast'
 import { Sparkles } from 'lucide-react'
 
 export default function RegisterPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectUrl = searchParams.get('redirect')
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -49,8 +51,13 @@ export default function RegisterPage() {
         formData.password,
         formData.fullName
       )
-      toast.success('Akaun berjaya didaftar! Sila lengkapkan profil anda.')
-      router.push('/profile?welcome=true')
+      toast.success('Akaun berjaya didaftar!')
+      // Redirect to the original page if redirect param exists, otherwise to profile
+      if (redirectUrl) {
+        router.push(redirectUrl)
+      } else {
+        router.push('/profile?welcome=true')
+      }
     } catch (error: any) {
       toast.error(error.message || 'Gagal mendaftar akaun')
     } finally {
