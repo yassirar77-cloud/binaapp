@@ -18,54 +18,56 @@ class PaymentService:
         stripe.api_key = settings.STRIPE_SECRET_KEY
         logger.info("Stripe payment service initialized")
 
-    # Subscription Plans Configuration
+    # Subscription Plans Configuration (BinaApp pricing)
     PLANS = {
-        SubscriptionTier.FREE: {
-            "name": "Free",
-            "price_monthly": 0,
-            "price_yearly": 0,
+        SubscriptionTier.STARTER: {
+            "name": "Starter",
+            "price_monthly": 5.00,
+            "price_yearly": 50.00,  # 2 months free
             "features": [
                 "1 website",
-                "Basic templates",
-                "AI generation",
+                "20 menu items",
+                "1 AI hero generation (lifetime)",
+                "5 AI menu images (lifetime)",
+                "1 delivery zone",
                 "Subdomain hosting",
-                "WhatsApp integration",
-                "Contact forms"
+                "WhatsApp integration"
             ],
             "max_websites": 1,
-            "stripe_price_id_monthly": None,
+            "stripe_price_id_monthly": None,  # Using ToyyibPay instead
             "stripe_price_id_yearly": None
         },
         SubscriptionTier.BASIC: {
             "name": "Basic",
             "price_monthly": 29.00,
-            "price_yearly": 290.00,
+            "price_yearly": 290.00,  # 2 months free
             "features": [
                 "5 websites",
-                "All templates",
-                "Priority AI generation",
-                "Custom subdomain",
-                "All integrations",
-                "Email support",
+                "Unlimited menu items",
+                "10 AI hero generations/month",
+                "30 AI menu images/month",
+                "5 delivery zones",
+                "Priority support",
                 "Analytics"
             ],
             "max_websites": 5,
-            "stripe_price_id_monthly": "price_basic_monthly",  # Replace with actual Stripe price ID
+            "stripe_price_id_monthly": "price_basic_monthly",
             "stripe_price_id_yearly": "price_basic_yearly"
         },
         SubscriptionTier.PRO: {
             "name": "Pro",
-            "price_monthly": 79.00,
-            "price_yearly": 790.00,
+            "price_monthly": 49.00,
+            "price_yearly": 490.00,  # 2 months free
             "features": [
                 "Unlimited websites",
-                "Premium templates",
-                "Advanced AI features",
-                "Custom domain support",
+                "Unlimited menu items",
+                "Unlimited AI hero generations",
+                "Unlimited AI menu images",
+                "Unlimited delivery zones",
+                "10 riders",
                 "Priority support",
                 "Advanced analytics",
-                "White-label option",
-                "API access"
+                "Custom domain support"
             ],
             "max_websites": -1,  # Unlimited
             "stripe_price_id_monthly": "price_pro_monthly",
@@ -84,8 +86,8 @@ class PaymentService:
         Create Stripe checkout session for subscription
         """
         try:
-            if tier == SubscriptionTier.FREE:
-                raise ValueError("Cannot create checkout session for free tier")
+            if tier == SubscriptionTier.STARTER:
+                raise ValueError("Cannot create checkout session for starter tier")
 
             plan = self.PLANS[tier]
 
@@ -218,8 +220,8 @@ class PaymentService:
         Verify if user has active subscription for given tier
         """
         # This would check database and Stripe
-        # For now, return True for free tier
-        if tier == SubscriptionTier.FREE:
+        # For now, return True for starter tier
+        if tier == SubscriptionTier.STARTER:
             return True
 
         # Check with Supabase

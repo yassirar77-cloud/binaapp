@@ -47,9 +47,9 @@ async def register(user_data: UserCreate):
             }
         )
 
-        # Initialize free subscription
+        # Initialize starter subscription
         await supabase_service.update_subscription(user.id, {
-            'tier': SubscriptionTier.FREE,
+            'tier': SubscriptionTier.STARTER,
             'status': 'active'
         })
 
@@ -149,7 +149,7 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
             "id": user_id,
             "email": user.email,
             "full_name": user.user_metadata.get("full_name"),
-            "subscription_tier": subscription.get("tier") if subscription else "free",
+            "subscription_tier": subscription.get("tier") if subscription else "starter",
             "websites_count": len(websites)
         }
 

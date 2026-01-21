@@ -137,13 +137,13 @@ async def get_subscription(current_user: dict = Depends(get_current_user)):
 
         if not subscription:
             return {
-                "tier": SubscriptionTier.FREE,
+                "tier": SubscriptionTier.STARTER,
                 "status": "active",
                 "max_websites": 1,
-                "features": payment_service.PLANS[SubscriptionTier.FREE]["features"]
+                "features": payment_service.PLANS[SubscriptionTier.STARTER]["features"]
             }
 
-        tier = subscription.get("tier", SubscriptionTier.FREE)
+        tier = subscription.get("tier", SubscriptionTier.STARTER)
         plan = payment_service.PLANS.get(tier)
 
         return {
@@ -173,7 +173,7 @@ async def cancel_subscription(current_user: dict = Depends(get_current_user)):
 
         subscription = await supabase_service.get_user_subscription(user_id)
 
-        if not subscription or subscription.get("tier") == SubscriptionTier.FREE:
+        if not subscription or subscription.get("tier") == SubscriptionTier.STARTER:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No active subscription to cancel"
@@ -198,7 +198,7 @@ async def cancel_subscription(current_user: dict = Depends(get_current_user)):
         # Update database
         await supabase_service.update_subscription(user_id, {
             "status": "cancelled",
-            "tier": SubscriptionTier.FREE
+            "tier": SubscriptionTier.STARTER
         })
 
         logger.info(f"Subscription cancelled for user: {user_id}")

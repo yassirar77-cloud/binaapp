@@ -6,7 +6,7 @@ export interface User {
   id: string
   email: string
   full_name?: string
-  subscription_tier: 'free' | 'basic' | 'pro'
+  subscription_tier: 'starter' | 'basic' | 'pro'
   websites_count: number
 }
 
@@ -34,7 +34,7 @@ export interface Template {
 }
 
 export interface SubscriptionPlan {
-  tier: 'free' | 'basic' | 'pro'
+  tier: 'starter' | 'basic' | 'pro'
   name: string
   price_monthly: number
   price_yearly: number

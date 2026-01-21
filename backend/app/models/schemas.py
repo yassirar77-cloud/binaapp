@@ -17,10 +17,9 @@ class WebsiteStatus(str, Enum):
 
 
 class SubscriptionTier(str, Enum):
-    FREE = "free"
-    BASIC = "basic"
-    PRO = "pro"
-    ENTERPRISE = "enterprise"
+    STARTER = "starter"  # RM5/month
+    BASIC = "basic"      # RM29/month
+    PRO = "pro"          # RM49/month
 
 
 class Language(str, Enum):
