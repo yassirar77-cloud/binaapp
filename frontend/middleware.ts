@@ -26,15 +26,21 @@ export async function middleware(req: NextRequest) {
 
   // Redirect to login if accessing protected route without session
   if (isProtectedPath && !session) {
-    console.log('[Middleware] No session, redirecting to login')
+    console.log('[Middleware] No session, redirecting to login/daftar')
     const redirectUrl = req.nextUrl.clone()
-    redirectUrl.pathname = '/login'
+    // Redirect /create to /daftar (register) page for better UX
+    if (req.nextUrl.pathname.startsWith('/create')) {
+      redirectUrl.pathname = '/daftar'
+    } else {
+      redirectUrl.pathname = '/login'
+    }
     redirectUrl.searchParams.set('redirect', req.nextUrl.pathname)
     return NextResponse.redirect(redirectUrl)
   }
 
-  // Redirect to dashboard if accessing login/register with active session
-  if ((req.nextUrl.pathname === '/login' || req.nextUrl.pathname === '/register') && session) {
+  // Redirect to dashboard if accessing login/register/daftar with active session
+  const authPaths = ['/login', '/register', '/daftar']
+  if (authPaths.includes(req.nextUrl.pathname) && session) {
     console.log('[Middleware] Already logged in, redirecting to my-projects')
     const redirectUrl = req.nextUrl.clone()
     redirectUrl.pathname = '/my-projects'
@@ -50,6 +56,7 @@ export const config = {
     '/my-projects/:path*',
     '/create/:path*',
     '/login',
-    '/register'
+    '/register',
+    '/daftar'
   ]
 }

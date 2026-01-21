@@ -20,6 +20,11 @@ const nextConfig = {
         source: '/backend/:path*',
         destination: 'https://binaapp-backend.onrender.com/:path*',
       },
+      // Malay language route alias
+      {
+        source: '/daftar',
+        destination: '/register',
+      },
     ];
   },
 
