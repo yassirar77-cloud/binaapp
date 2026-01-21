@@ -1976,6 +1976,7 @@
             const statusColors = {
                 pending: '#fbbf24',
                 confirmed: '#3b82f6',
+                assigned: '#a855f7',
                 preparing: '#f97316',
                 ready: '#10b981',
                 picked_up: '#8b5cf6',
@@ -2123,6 +2124,7 @@
             const emojis = {
                 pending: '⏳',
                 confirmed: '✅',
+                assigned: '🛵',
                 preparing: '👨‍🍳',
                 ready: '📦',
                 picked_up: '🛵',
@@ -2142,6 +2144,7 @@
                 ms: {
                     pending: 'Menunggu Pengesahan',
                     confirmed: 'Disahkan',
+                    assigned: 'Rider Ditetapkan',
                     preparing: 'Sedang Disediakan',
                     ready: 'Siap untuk Diambil',
                     picked_up: 'Rider Sudah Ambil',
@@ -2154,6 +2157,7 @@
                 en: {
                     pending: 'Pending Confirmation',
                     confirmed: 'Confirmed',
+                    assigned: 'Rider Assigned',
                     preparing: 'Being Prepared',
                     ready: 'Ready for Pickup',
                     picked_up: 'Picked Up by Rider',

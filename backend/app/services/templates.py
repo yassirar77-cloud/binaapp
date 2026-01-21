@@ -2127,6 +2127,7 @@ function handleContactSubmit(e) {{
     const statusMap = {{
         'pending': {{ text: 'Menunggu Pengesahan', emoji: '⏳', color: '#fef3c7' }},
         'confirmed': {{ text: 'Pesanan Disahkan', emoji: '✅', color: '#dcfce7' }},
+        'assigned': {{ text: 'Rider Ditetapkan', emoji: '🛵', color: '#e9d5ff' }},
         'preparing': {{ text: 'Sedang Disediakan', emoji: '👨‍🍳', color: '#dbeafe' }},
         'ready': {{ text: 'Sedia Untuk Diambil', emoji: '📦', color: '#e0e7ff' }},
         'picked_up': {{ text: 'Rider Sedang Mengambil', emoji: '🛵', color: '#fae8ff' }},

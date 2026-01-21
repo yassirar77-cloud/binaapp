@@ -681,6 +681,7 @@ export default function RiderApp() {
     const labels: Record<string, string> = {
       'pending': 'Menunggu',
       'confirmed': 'Disahkan',
+      'assigned': 'Ditetapkan',
       'preparing': 'Sedang Disediakan',
       'ready': 'Siap Diambil',
       'picked_up': 'Diambil',
@@ -696,6 +697,7 @@ export default function RiderApp() {
     const colors: Record<string, string> = {
       'pending': 'bg-gray-100 text-gray-800',
       'confirmed': 'bg-yellow-100 text-yellow-800',
+      'assigned': 'bg-purple-100 text-purple-800',
       'preparing': 'bg-blue-100 text-blue-800',
       'ready': 'bg-green-100 text-green-800',
       'picked_up': 'bg-purple-100 text-purple-800',
