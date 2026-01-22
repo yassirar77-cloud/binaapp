@@ -61,7 +61,7 @@ export function UpgradeModal({ show, currentTier, targetTier, onClose }: Upgrade
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          user_id: userId ? parseInt(userId) : null
+          user_id: userId || ''
         })
       });
 
