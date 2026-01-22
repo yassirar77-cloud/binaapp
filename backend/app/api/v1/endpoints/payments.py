@@ -5,7 +5,17 @@ Handles Stripe payments and subscriptions
 
 from fastapi import APIRouter, HTTPException, status, Depends, Request, Header
 from typing import Optional
+from pydantic import BaseModel
 from loguru import logger
+
+# Request models for payment endpoints
+class SubscriptionRequest(BaseModel):
+    user_id: int
+
+class AddonPurchaseRequest(BaseModel):
+    user_id: int
+    addon_type: str
+    quantity: int = 1
 
 from app.models.schemas import (
     CheckoutSessionRequest,
@@ -372,8 +382,7 @@ ADDON_PRICES = {
 @router.post("/subscribe/{tier}")
 async def create_subscription_payment(
     tier: str,
-    request: Request,
-    current_user: dict = Depends(get_current_user)
+    request: SubscriptionRequest
 ):
     """
     Create a ToyyibPay bill for subscription upgrade
@@ -385,9 +394,12 @@ async def create_subscription_payment(
                 detail=f"Invalid tier: {tier}. Valid tiers: {list(TIER_PRICES.keys())}"
             )
 
-        user_id = current_user.get("sub")
-        email = current_user.get("email")
+        user_id = request.user_id
         price = TIER_PRICES[tier]
+
+        # Get user email from database
+        user_data = await supabase_service.get_user_by_id(user_id)
+        email = user_data.get("email", f"user{user_id}@binaapp.com") if user_data else f"user{user_id}@binaapp.com"
 
         # Create ToyyibPay bill
         result = toyyibpay_service.create_bill(
@@ -397,13 +409,13 @@ async def create_subscription_payment(
             bill_email=email,
             bill_phone="",
             bill_name_customer=email,
-            bill_external_reference_no=f"SUB_{tier}_{user_id[:8]}"
+            bill_external_reference_no=f"SUB_{tier}_{user_id}"
         )
 
         if result.get("success"):
             # Store payment record in database
             payment_record = await supabase_service.insert_record("payments", {
-                "user_id": user_id,
+                "user_id": str(user_id),
                 "bill_code": result.get("bill_code"),
                 "amount": price,
                 "type": "subscription",
@@ -441,16 +453,15 @@ async def create_subscription_payment(
 
 @router.post("/addon/purchase")
 async def purchase_addon(
-    request: Request,
-    current_user: dict = Depends(get_current_user)
+    request: AddonPurchaseRequest
 ):
     """
     Create a ToyyibPay bill for addon purchase
     """
     try:
-        body = await request.json()
-        addon_type = body.get("addon_type")
-        quantity = body.get("quantity", 1)
+        user_id = request.user_id
+        addon_type = request.addon_type
+        quantity = request.quantity
 
         if addon_type not in ADDON_PRICES:
             raise HTTPException(
@@ -458,8 +469,10 @@ async def purchase_addon(
                 detail=f"Invalid addon type: {addon_type}"
             )
 
-        user_id = current_user.get("sub")
-        email = current_user.get("email")
+        # Get user email from database
+        user_data = await supabase_service.get_user_by_id(user_id)
+        email = user_data.get("email", f"user{user_id}@binaapp.com") if user_data else f"user{user_id}@binaapp.com"
+
         unit_price = ADDON_PRICES[addon_type]
         total_price = unit_price * quantity
 
@@ -471,13 +484,13 @@ async def purchase_addon(
             bill_email=email,
             bill_phone="",
             bill_name_customer=email,
-            bill_external_reference_no=f"ADDON_{addon_type}_{user_id[:8]}"
+            bill_external_reference_no=f"ADDON_{addon_type}_{user_id}"
         )
 
         if result.get("success"):
             # Store addon purchase record
             addon_record = await supabase_service.insert_record("addon_purchases", {
-                "user_id": user_id,
+                "user_id": str(user_id),
                 "bill_code": result.get("bill_code"),
                 "addon_type": addon_type,
                 "quantity": quantity,
