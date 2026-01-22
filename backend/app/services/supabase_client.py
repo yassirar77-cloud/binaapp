@@ -548,6 +548,27 @@ class SupabaseService:
             print(f"❌ Update payment status error: {str(e)}")
             return False
 
+    async def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Get user by ID from users table"""
+        try:
+            url = f"{self.url}/rest/v1/users"
+            params = {"id": f"eq.{user_id}", "select": "*"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.headers,
+                    params=params
+                )
+
+            if response.status_code == 200:
+                records = response.json()
+                return records[0] if records else None
+            return None
+        except Exception as e:
+            print(f"❌ Get user by ID error: {str(e)}")
+            return None
+
 
 # Create singleton instance
 supabase_service = SupabaseService()
