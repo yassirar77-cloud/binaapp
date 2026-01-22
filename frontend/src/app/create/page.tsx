@@ -10,6 +10,8 @@ import VisualImageUpload from './components/VisualImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
 import CodeAnimation from '@/components/CodeAnimation'
+import { UpgradeModal } from '@/components/UpgradeModal'
+import { AddonPurchaseModal } from '@/components/AddonPurchaseModal'
 import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
 import { supabase, signOut } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
@@ -133,6 +135,19 @@ export default function CreatePage() {
   const [previewMode, setPreviewMode] = useState<'single' | 'multi'>('single')
   const [progress, setProgress] = useState(0)
 
+  // Upgrade/Addon modal states
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  const [showAddonModal, setShowAddonModal] = useState(false)
+  const [selectedAddon, setSelectedAddon] = useState<{
+    type: string;
+    label: string;
+    price: number;
+    quantity?: number;
+    is_recurring?: boolean;
+  } | null>(null)
+  const [targetTier, setTargetTier] = useState<string>('basic')
+  const [currentTier, setCurrentTier] = useState<string>('free')
+
   // Feature selector states
   const [selectedFeatures, setSelectedFeatures] = useState({
     whatsapp: true,          // WhatsApp button
@@ -227,6 +242,32 @@ export default function CreatePage() {
     } catch (error) {
       console.error('Error logging out:', error)
     }
+  }
+
+  // Handle when a limit is reached - show upgrade or addon modal
+  const handleLimitReached = (limitData: {
+    addon_option?: { type: string; label: string; price: number; is_recurring?: boolean };
+    upgrade_options?: { tier: string; price: number }[];
+  }) => {
+    if (limitData.addon_option) {
+      setSelectedAddon(limitData.addon_option)
+      setShowAddonModal(true)
+    } else if (limitData.upgrade_options && limitData.upgrade_options.length > 0) {
+      setTargetTier(limitData.upgrade_options[0].tier)
+      setShowUpgradeModal(true)
+    }
+  }
+
+  // Show upgrade modal directly
+  const showUpgrade = (tier: string = 'basic') => {
+    setTargetTier(tier)
+    setShowUpgradeModal(true)
+  }
+
+  // Show addon purchase modal
+  const showAddonPurchase = (addon: { type: string; label: string; price: number; is_recurring?: boolean }) => {
+    setSelectedAddon(addon)
+    setShowAddonModal(true)
   }
 
   const handleGenerate = async () => {
@@ -1679,6 +1720,21 @@ export default function CreatePage() {
           </div>
         </div>
       )}
+
+      {/* Upgrade Modal */}
+      <UpgradeModal
+        show={showUpgradeModal}
+        currentTier={currentTier}
+        targetTier={targetTier}
+        onClose={() => setShowUpgradeModal(false)}
+      />
+
+      {/* Addon Purchase Modal */}
+      <AddonPurchaseModal
+        show={showAddonModal}
+        addon={selectedAddon}
+        onClose={() => setShowAddonModal(false)}
+      />
     </div>
   )
 }

@@ -346,3 +346,263 @@ async def verify_toyyibpay_payment(bill_code: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to verify payment"
         )
+
+
+# ============================================
+# Subscription & Addon Purchase Endpoints
+# ============================================
+
+# Subscription tier pricing (RM)
+TIER_PRICES = {
+    "starter": 5,
+    "basic": 29,
+    "pro": 49
+}
+
+# Addon pricing (RM)
+ADDON_PRICES = {
+    "ai_image": 0.50,
+    "ai_hero": 2.00,
+    "extra_website": 5.00,
+    "extra_rider": 3.00,
+    "extra_zone": 2.00
+}
+
+
+@router.post("/subscribe/{tier}")
+async def create_subscription_payment(
+    tier: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create a ToyyibPay bill for subscription upgrade
+    """
+    try:
+        if tier not in TIER_PRICES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid tier: {tier}. Valid tiers: {list(TIER_PRICES.keys())}"
+            )
+
+        user_id = current_user.get("sub")
+        email = current_user.get("email")
+        price = TIER_PRICES[tier]
+
+        # Create ToyyibPay bill
+        result = toyyibpay_service.create_bill(
+            bill_name=f"BinaApp {tier.upper()} Subscription",
+            bill_description=f"Monthly subscription to BinaApp {tier.upper()} plan",
+            bill_amount=price,
+            bill_email=email,
+            bill_phone="",
+            bill_name_customer=email,
+            bill_external_reference_no=f"SUB_{tier}_{user_id[:8]}"
+        )
+
+        if result.get("success"):
+            # Store payment record in database
+            payment_record = await supabase_service.insert_record("payments", {
+                "user_id": user_id,
+                "bill_code": result.get("bill_code"),
+                "amount": price,
+                "type": "subscription",
+                "tier": tier,
+                "status": "pending"
+            })
+
+            payment_id = payment_record[0]["id"] if payment_record else result.get("bill_code")
+
+            logger.info(f"Subscription payment created for user {user_id}: {tier} - {result.get('bill_code')}")
+
+            return {
+                "success": True,
+                "payment_id": payment_id,
+                "bill_code": result.get("bill_code"),
+                "payment_url": result.get("payment_url"),
+                "tier": tier,
+                "amount": price
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Failed to create payment")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating subscription payment: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create subscription payment"
+        )
+
+
+@router.post("/addon/purchase")
+async def purchase_addon(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create a ToyyibPay bill for addon purchase
+    """
+    try:
+        body = await request.json()
+        addon_type = body.get("addon_type")
+        quantity = body.get("quantity", 1)
+
+        if addon_type not in ADDON_PRICES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid addon type: {addon_type}"
+            )
+
+        user_id = current_user.get("sub")
+        email = current_user.get("email")
+        unit_price = ADDON_PRICES[addon_type]
+        total_price = unit_price * quantity
+
+        # Create ToyyibPay bill
+        result = toyyibpay_service.create_bill(
+            bill_name=f"BinaApp Addon - {addon_type}",
+            bill_description=f"Purchase of {quantity}x {addon_type} addon",
+            bill_amount=total_price,
+            bill_email=email,
+            bill_phone="",
+            bill_name_customer=email,
+            bill_external_reference_no=f"ADDON_{addon_type}_{user_id[:8]}"
+        )
+
+        if result.get("success"):
+            # Store addon purchase record
+            addon_record = await supabase_service.insert_record("addon_purchases", {
+                "user_id": user_id,
+                "bill_code": result.get("bill_code"),
+                "addon_type": addon_type,
+                "quantity": quantity,
+                "amount": total_price,
+                "status": "pending"
+            })
+
+            addon_id = addon_record[0]["id"] if addon_record else result.get("bill_code")
+
+            logger.info(f"Addon purchase created for user {user_id}: {addon_type} x{quantity}")
+
+            return {
+                "success": True,
+                "addon_id": addon_id,
+                "payment_id": result.get("bill_code"),
+                "bill_code": result.get("bill_code"),
+                "payment_url": result.get("payment_url"),
+                "addon_type": addon_type,
+                "quantity": quantity,
+                "amount": total_price
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Failed to create payment")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating addon purchase: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create addon purchase"
+        )
+
+
+@router.post("/subscriptions/upgrade/{tier}")
+async def upgrade_subscription(
+    tier: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Upgrade user subscription after successful payment
+    """
+    try:
+        body = await request.json()
+        payment_id = body.get("payment_id")
+
+        if tier not in TIER_PRICES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid tier: {tier}"
+            )
+
+        user_id = current_user.get("sub")
+
+        # Update user's subscription tier
+        # First, try to update existing subscription
+        update_result = await supabase_service.update_user_subscription(user_id, {
+            "tier": tier,
+            "status": "active",
+            "price": TIER_PRICES[tier]
+        })
+
+        # Update payment status if payment_id provided
+        if payment_id:
+            await supabase_service.update_payment_status(payment_id, "successful")
+
+        logger.info(f"Subscription upgraded for user {user_id} to {tier}")
+
+        return {
+            "success": True,
+            "subscription": {
+                "tier": tier,
+                "status": "active",
+                "price": TIER_PRICES[tier]
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error upgrading subscription: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upgrade subscription"
+        )
+
+
+@router.get("/subscriptions/current")
+async def get_current_subscription(current_user: dict = Depends(get_current_user)):
+    """
+    Get user's current subscription details
+    """
+    try:
+        user_id = current_user.get("sub")
+
+        subscription = await supabase_service.get_user_subscription(user_id)
+
+        if not subscription:
+            return {
+                "tier": "free",
+                "price": 0,
+                "status": "active",
+                "limits": {
+                    "websites": "1",
+                    "menu_items": "20",
+                    "ai_hero": "1",
+                    "ai_images": "5",
+                    "delivery_zones": "1"
+                }
+            }
+
+        return {
+            "tier": subscription.get("tier", "free"),
+            "price": subscription.get("price", 0),
+            "status": subscription.get("status", "active"),
+            "valid_until": subscription.get("current_period_end")
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting subscription: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get subscription"
+        )
