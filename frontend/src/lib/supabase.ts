@@ -41,21 +41,29 @@ export function getStoredToken(): string | null {
 }
 
 /**
- * Store auth token in localStorage
+ * Store auth token in localStorage AND as a cookie (for middleware)
  */
 function storeAuthData(token: string, user: any) {
   if (typeof window === 'undefined') return
   localStorage.setItem(TOKEN_KEY, token)
   localStorage.setItem(USER_KEY, JSON.stringify(user))
+
+  // Also set as cookie so middleware can check auth status
+  // Cookie expires in 7 days, matches typical JWT expiration
+  const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toUTCString()
+  document.cookie = `${TOKEN_KEY}=${token}; path=/; expires=${expires}; SameSite=Lax`
 }
 
 /**
- * Clear stored auth data
+ * Clear stored auth data (localStorage and cookie)
  */
 function clearAuthData() {
   if (typeof window === 'undefined') return
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_KEY)
+
+  // Also clear the cookie
+  document.cookie = `${TOKEN_KEY}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`
 }
 
 /**
