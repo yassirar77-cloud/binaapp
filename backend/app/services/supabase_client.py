@@ -107,21 +107,36 @@ class SupabaseService:
             print(f"❌ Delete error: {str(e)}")
             return False
     
-    async def create_user(self, email: str, password: str) -> Optional[Dict[str, Any]]:
+    async def create_user(self, email: str, password: str, full_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Create a new user"""
         try:
             url = f"{self.url}/auth/v1/signup"
-            
+
+            payload = {
+                "email": email,
+                "password": password
+            }
+
+            # Add user metadata if full_name is provided
+            if full_name:
+                payload["data"] = {"full_name": full_name}
+
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     url,
                     headers=self.headers,
-                    json={"email": email, "password": password}
+                    json=payload
                 )
-            
+
             if response.status_code == 200:
-                return response.json()
-            return None
+                data = response.json()
+                # Wrap response to provide consistent interface
+                # Supabase returns user data directly, wrap it in a user object
+                return {"user": data, "raw": data}
+            else:
+                error_text = response.text
+                print(f"❌ Create user failed: {response.status_code} - {error_text}")
+                return None
         except Exception as e:
             print(f"❌ Create user error: {str(e)}")
             return None
@@ -130,17 +145,23 @@ class SupabaseService:
         """Sign in a user"""
         try:
             url = f"{self.url}/auth/v1/token?grant_type=password"
-            
+
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     url,
                     headers=self.headers,
                     json={"email": email, "password": password}
                 )
-            
+
             if response.status_code == 200:
-                return response.json()
-            return None
+                data = response.json()
+                # Supabase returns: { user: {...}, access_token: ..., ... }
+                # Wrap to provide consistent interface
+                return {"user": data.get("user"), "session": data, "raw": data}
+            else:
+                error_text = response.text
+                print(f"❌ Sign in failed: {response.status_code} - {error_text}")
+                return None
         except Exception as e:
             print(f"❌ Sign in error: {str(e)}")
             return None
@@ -547,6 +568,31 @@ class SupabaseService:
         except Exception as e:
             print(f"❌ Update payment status error: {str(e)}")
             return False
+
+    async def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get user from Supabase Auth by ID"""
+        try:
+            url = f"{self.url}/auth/v1/admin/users/{user_id}"
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.headers
+                )
+
+            if response.status_code == 200:
+                data = response.json()
+                # Return as a simple object-like dict with common accessors
+                return type('User', (), {
+                    'id': data.get('id'),
+                    'email': data.get('email'),
+                    'user_metadata': data.get('user_metadata', {}),
+                    'raw': data
+                })()
+            return None
+        except Exception as e:
+            print(f"❌ Get user error: {str(e)}")
+            return None
 
     async def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Get user by ID (UUID string) from users table"""
