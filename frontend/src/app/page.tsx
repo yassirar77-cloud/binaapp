@@ -4,21 +4,38 @@
 
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Sparkles, Zap, Globe, Smartphone } from 'lucide-react'
 import { supabase, signOut } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
+import { UpgradeModal } from '@/components/UpgradeModal'
 
-export default function LandingPage() {
+function LandingPageContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  const [targetTier, setTargetTier] = useState<'starter' | 'basic' | 'pro'>('basic')
 
   useEffect(() => {
     checkUser()
   }, [])
+
+  // Handle tier parameter from redirect after login
+  useEffect(() => {
+    if (!loading && user) {
+      const tier = searchParams.get('tier') as 'starter' | 'basic' | 'pro' | null
+      if (tier && ['starter', 'basic', 'pro'].includes(tier)) {
+        // Clear the URL parameter
+        router.replace('/', { scroll: false })
+        // Open the upgrade modal or redirect
+        handleSelectPlan(tier)
+      }
+    }
+  }, [loading, user, searchParams])
 
   async function checkUser() {
     if (!supabase) {
@@ -43,6 +60,24 @@ export default function LandingPage() {
       router.refresh()
     } catch (error) {
       console.error('Error logging out:', error)
+    }
+  }
+
+  function handleSelectPlan(tier: 'starter' | 'basic' | 'pro') {
+    if (!user) {
+      // Not logged in - redirect to login with return URL
+      router.push(`/login?redirect=/?tier=${tier}`)
+      return
+    }
+
+    // User is logged in
+    if (tier === 'starter') {
+      // If selecting Starter, just redirect to create website
+      router.push('/create')
+    } else {
+      // Show upgrade modal for Basic or Pro
+      setTargetTier(tier)
+      setShowUpgradeModal(true)
     }
   }
 
@@ -100,7 +135,7 @@ export default function LandingPage() {
           </p>
           <div className="flex gap-4 justify-center animate-slide-up">
             <Link href="/create" className="btn btn-primary text-lg px-8 py-3">
-              Mula Sekarang - Percuma
+              Mula Sekarang
             </Link>
             <Link href="/dashboard" className="btn btn-outline text-lg px-8 py-3">
               Lihat Projects
@@ -192,9 +227,10 @@ export default function LandingPage() {
           </h2>
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
             <PricingCard
-              name="Percuma"
-              price="RM 0"
+              name="Starter"
+              price="RM 5"
               period="/bulan"
+              tier="starter"
               features={[
                 '1 website',
                 'Subdomain percuma',
@@ -203,12 +239,13 @@ export default function LandingPage() {
                 'Support email'
               ]}
               cta="Mula Sekarang"
-              ctaLink="/register"
+              onSelect={() => handleSelectPlan('starter')}
             />
             <PricingCard
               name="Basic"
               price="RM 29"
               period="/bulan"
+              tier="basic"
               features={[
                 '5 websites',
                 'Custom subdomain',
@@ -217,13 +254,14 @@ export default function LandingPage() {
                 'Priority support'
               ]}
               cta="Pilih Basic"
-              ctaLink="/register"
+              onSelect={() => handleSelectPlan('basic')}
               highlighted
             />
             <PricingCard
               name="Pro"
-              price="RM 79"
+              price="RM 49"
               period="/bulan"
+              tier="pro"
               features={[
                 'Unlimited websites',
                 'Custom domain',
@@ -232,7 +270,7 @@ export default function LandingPage() {
                 'API access'
               ]}
               cta="Pilih Pro"
-              ctaLink="/register"
+              onSelect={() => handleSelectPlan('pro')}
             />
           </div>
         </div>
@@ -245,10 +283,10 @@ export default function LandingPage() {
             Sedia Untuk Mulakan?
           </h2>
           <p className="text-xl mb-8 text-primary-100">
-            Cipta website pertama anda sekarang. Percuma, tanpa kad kredit.
+            Cipta website pertama anda sekarang. Bermula dari RM5/bulan sahaja.
           </p>
           <Link href="/register" className="btn bg-white text-primary-600 hover:bg-gray-100 text-lg px-8 py-3">
-            Daftar Percuma Sekarang
+            Daftar Sekarang
           </Link>
         </div>
       </section>
@@ -264,6 +302,16 @@ export default function LandingPage() {
           <p className="text-sm">&copy; 2024 BinaApp. Semua hak cipta terpelihara.</p>
         </div>
       </footer>
+
+      {/* Upgrade Modal */}
+      {user && (
+        <UpgradeModal
+          show={showUpgradeModal}
+          onClose={() => setShowUpgradeModal(false)}
+          currentTier="starter"
+          targetTier={targetTier}
+        />
+      )}
     </div>
   )
 }
@@ -292,17 +340,19 @@ function PricingCard({
   name,
   price,
   period,
+  tier,
   features,
   cta,
-  ctaLink,
+  onSelect,
   highlighted
 }: {
   name: string
   price: string
   period: string
+  tier: 'starter' | 'basic' | 'pro'
   features: string[]
   cta: string
-  ctaLink: string
+  onSelect: () => void
   highlighted?: boolean
 }) {
   return (
@@ -323,9 +373,17 @@ function PricingCard({
           </li>
         ))}
       </ul>
-      <Link href={ctaLink} className={`btn w-full ${highlighted ? 'btn-primary' : 'btn-outline'}`}>
+      <button onClick={onSelect} className={`btn w-full ${highlighted ? 'btn-primary' : 'btn-outline'}`}>
         {cta}
-      </Link>
+      </button>
     </div>
+  )
+}
+
+export default function LandingPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+      <LandingPageContent />
+    </Suspense>
   )
 }
