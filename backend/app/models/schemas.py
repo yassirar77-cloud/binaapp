@@ -123,8 +123,8 @@ class WebsiteResponse(BaseModel):
 class WebsiteListResponse(BaseModel):
     id: str
     business_name: str
-    subdomain: str
-    full_url: str
+    subdomain: Optional[str] = None
+    full_url: Optional[str] = None
     status: WebsiteStatus
     created_at: datetime
     published_at: Optional[datetime] = None
