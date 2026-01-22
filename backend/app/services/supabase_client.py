@@ -154,26 +154,38 @@ class SupabaseService:
 
     async def create_user_profile(self, user_id: str, email: str, full_name: Optional[str] = None, role: str = "customer") -> Optional[Dict[str, Any]]:
         """
-        Create a user profile in the public.users table.
+        Create a user profile in the public.profiles table.
 
         This is called after creating the auth user to ensure the profile exists.
-        Uses service headers to bypass RLS.
+        Uses SERVICE ROLE headers to bypass RLS.
+
+        NOTE: The table is 'profiles' not 'users' per DATABASE_SCHEMA.sql
         """
         try:
+            url = f"{self.url}/rest/v1/profiles"
+
+            # Profile data matching the 'profiles' table schema
+            # Columns: id, full_name, business_name, avatar_url, phone, created_at, updated_at
             profile_data = {
                 "id": user_id,
-                "email": email,
-                "full_name": full_name,
-                "role": role
+                "full_name": full_name
             }
 
-            result = await self.insert_record("users", profile_data)
+            # MUST use service_headers to bypass RLS
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    headers={**self.service_headers, "Prefer": "return=representation"},
+                    json=profile_data
+                )
 
-            if result:
+            if response.status_code in [200, 201]:
+                result = response.json()
                 print(f"✅ Created user profile: {user_id}")
-                return result
+                return result[0] if isinstance(result, list) else result
             else:
-                print(f"❌ Failed to create user profile: {user_id}")
+                error_text = response.text
+                print(f"❌ Failed to create user profile: {response.status_code} - {error_text}")
                 return None
         except Exception as e:
             print(f"❌ Create user profile error: {str(e)}")
@@ -580,30 +592,47 @@ class SupabaseService:
             return None
 
     async def update_user_subscription(self, user_id: str, data: Dict[str, Any]) -> bool:
-        """Update user's subscription"""
+        """Update user's subscription. Uses service_headers to bypass RLS."""
         try:
             # First check if subscription exists
             existing = await self.get_user_subscription(user_id)
 
+            url = f"{self.url}/rest/v1/subscriptions"
+
             if existing:
                 # Update existing subscription
-                url = f"{self.url}/rest/v1/subscriptions"
                 params = {"user_id": f"eq.{user_id}"}
 
                 async with httpx.AsyncClient() as client:
                     response = await client.patch(
                         url,
-                        headers={**self.headers, "Prefer": "return=minimal"},
+                        headers={**self.service_headers, "Prefer": "return=minimal"},
                         params=params,
                         json=data
                     )
 
-                return response.status_code in [200, 204]
+                success = response.status_code in [200, 204]
+                if success:
+                    print(f"✅ Updated subscription for user: {user_id}")
+                else:
+                    print(f"❌ Failed to update subscription: {response.status_code} - {response.text}")
+                return success
             else:
-                # Create new subscription
+                # Create new subscription using service_headers to bypass RLS
                 data["user_id"] = user_id
-                result = await self.insert_record("subscriptions", data)
-                return result is not None
+                async with httpx.AsyncClient() as client:
+                    response = await client.post(
+                        url,
+                        headers={**self.service_headers, "Prefer": "return=representation"},
+                        json=data
+                    )
+
+                success = response.status_code in [200, 201]
+                if success:
+                    print(f"✅ Created subscription for user: {user_id}")
+                else:
+                    print(f"❌ Failed to create subscription: {response.status_code} - {response.text}")
+                return success
 
         except Exception as e:
             print(f"❌ Update subscription error: {str(e)}")
