@@ -221,18 +221,32 @@ async def list_websites(current_user: dict = Depends(get_current_user)):
         user_id = current_user.get("sub")
         websites = await supabase_service.get_user_websites(user_id)
 
-        return [
-            WebsiteListResponse(
-                id=w["id"],
-                business_name=w["business_name"],
-                subdomain=w.get("subdomain"),
-                full_url=f"https://{w['subdomain']}{settings.SUBDOMAIN_SUFFIX}" if w.get("subdomain") else None,
-                status=w["status"],
-                created_at=datetime.fromisoformat(w["created_at"]),
-                published_at=datetime.fromisoformat(w["published_at"]) if w.get("published_at") else None
-            )
-            for w in websites
-        ]
+        if not websites:
+            return []
+
+        result = []
+        for w in websites:
+            try:
+                # Handle potential null/missing values
+                website_status = w.get("status", "draft")
+                # Ensure status is valid enum value
+                if website_status not in ["draft", "generating", "published", "failed"]:
+                    website_status = "draft"
+
+                result.append(WebsiteListResponse(
+                    id=w["id"],
+                    business_name=w.get("business_name") or "Untitled",
+                    subdomain=w.get("subdomain"),
+                    full_url=f"https://{w['subdomain']}{settings.SUBDOMAIN_SUFFIX}" if w.get("subdomain") else None,
+                    status=website_status,
+                    created_at=datetime.fromisoformat(w["created_at"]) if w.get("created_at") else datetime.utcnow(),
+                    published_at=datetime.fromisoformat(w["published_at"]) if w.get("published_at") else None
+                ))
+            except Exception as item_error:
+                logger.warning(f"Skipping website {w.get('id')}: {item_error}")
+                continue
+
+        return result
 
     except Exception as e:
         logger.error(f"Error listing websites: {e}")
