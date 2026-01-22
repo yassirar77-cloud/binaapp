@@ -3,19 +3,25 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
-import { User } from '@supabase/supabase-js'
+import { getCurrentUser, getStoredToken, signOut } from '@/lib/supabase'
+
+// Backend API URL
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
 
 interface Website {
   id: string
-  name: string
+  business_name: string
   subdomain: string | null
-  description: string | null
-  template: string | null
+  full_url: string | null
   status: string
-  published_url: string | null
   created_at: string
-  updated_at: string
+  published_at: string | null
+}
+
+interface User {
+  id: string
+  email: string
+  full_name?: string
 }
 
 export default function MyProjectsPage() {
@@ -27,40 +33,48 @@ export default function MyProjectsPage() {
   const [deleting, setDeleting] = useState<string | null>(null)
 
   useEffect(() => {
-    getWebsites()
+    checkAuthAndGetWebsites()
   }, [])
 
-  async function getWebsites() {
-    if (!supabase) {
-      setLoading(false)
-      return
-    }
-
+  async function checkAuthAndGetWebsites() {
     try {
       setLoading(true)
 
-      const { data: { user } } = await supabase.auth.getUser()
+      // Check for custom BinaApp auth token
+      const token = getStoredToken()
+      const currentUser = await getCurrentUser()
 
-      if (!user) {
+      if (!token || !currentUser) {
         router.push('/login')
         return
       }
 
-      setUser(user)
+      setUser(currentUser as User)
 
-      const { data, error } = await supabase
-        .from('websites')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
+      // Fetch websites from backend API
+      const response = await fetch(`${API_BASE}/api/v1/websites/`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
 
-      if (error) {
-        console.error('Error fetching websites:', error)
-      } else {
+      if (response.status === 401) {
+        // Token expired or invalid
+        router.push('/login')
+        return
+      }
+
+      if (response.ok) {
+        const data = await response.json()
         setWebsites(data || [])
+      } else {
+        console.error('Error fetching websites:', response.status)
+        setWebsites([])
       }
     } catch (error) {
       console.error('Error:', error)
+      setWebsites([])
     } finally {
       setLoading(false)
     }
@@ -79,25 +93,23 @@ export default function MyProjectsPage() {
     )
 
     if (!confirmed) return
-    if (!supabase) return
 
     try {
       setDeleting(id)
 
       // Get auth token
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
+      const token = getStoredToken()
+      if (!token) {
         alert('Sila log masuk semula')
         router.push('/login')
         return
       }
 
-      // Call backend API endpoint instead of direct Supabase delete
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
-      const response = await fetch(`${API_URL}/api/v1/websites/${id}`, {
+      // Call backend API endpoint
+      const response = await fetch(`${API_BASE}/api/v1/websites/${id}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${session.access_token}`,
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       })
@@ -126,8 +138,7 @@ export default function MyProjectsPage() {
   }
 
   async function handleLogout() {
-    if (!supabase) return
-    await supabase.auth.signOut()
+    await signOut()
     router.push('/')
   }
 
@@ -242,22 +253,17 @@ export default function MyProjectsPage() {
                   {/* Website Info */}
                   <div className="p-5">
                     <h3 className="font-semibold text-gray-800 text-lg mb-1 truncate">
-                      {website.name}
+                      {website.business_name}
                     </h3>
                     {website.subdomain && (
                       <a
-                        href={`https://${website.subdomain}.binaapp.my`}
+                        href={website.full_url || `https://${website.subdomain}.binaapp.my`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-500 text-sm mb-3 block hover:underline"
                       >
                         {website.subdomain}.binaapp.my ↗
                       </a>
-                    )}
-                    {website.description && (
-                      <p className="text-gray-500 text-sm mb-3 line-clamp-2">
-                        {website.description}
-                      </p>
                     )}
                     <p className="text-gray-400 text-xs mb-4">
                       Dibuat: {new Date(website.created_at).toLocaleDateString('ms-MY', {
@@ -270,9 +276,9 @@ export default function MyProjectsPage() {
                     {/* Actions */}
                     <div className="flex flex-col gap-2">
                       <div className="flex gap-2">
-                        {website.published_url && (
+                        {(website.full_url || website.status === 'published') && (
                           <a
-                            href={website.published_url}
+                            href={website.full_url || `https://${website.subdomain}.binaapp.my`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2 rounded-lg text-sm font-medium transition-colors"
@@ -287,7 +293,7 @@ export default function MyProjectsPage() {
                           ✏️ Edit
                         </Link>
                         <button
-                          onClick={() => deleteWebsite(website.id, website.name)}
+                          onClick={() => deleteWebsite(website.id, website.business_name)}
                           disabled={deleting === website.id}
                           className="bg-red-100 hover:bg-red-200 text-red-600 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                         >
