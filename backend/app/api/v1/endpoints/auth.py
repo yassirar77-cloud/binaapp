@@ -21,10 +21,18 @@ router = APIRouter()
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserCreate):
     """
-    Register a new user
+    Register a new user.
+
+    Flow:
+    1. Create auth user via Supabase Admin API (bypasses RLS)
+    2. Create user profile in public.users table
+    3. Initialize free subscription
+    4. Return JWT token
+
+    If step 2 fails, the auth user is rolled back (deleted).
     """
     try:
-        # Create user in Supabase Auth
+        # STEP 1: Create user in Supabase Auth using Admin API
         response = await supabase_service.create_user(
             email=user_data.email,
             password=user_data.password,
@@ -47,7 +55,24 @@ async def register(user_data: UserCreate):
                 detail="Failed to create user - no user ID returned"
             )
 
-        # Create JWT token
+        # STEP 2: Create user profile in public.users table
+        profile_result = await supabase_service.create_user_profile(
+            user_id=user_id,
+            email=user_email,
+            full_name=user_data.full_name,
+            role="customer"
+        )
+
+        if not profile_result:
+            # ROLLBACK: Delete the auth user if profile creation fails
+            logger.error(f"Profile creation failed for {user_email}, rolling back auth user")
+            await supabase_service.delete_auth_user(user_id)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user profile"
+            )
+
+        # STEP 3: Create JWT token
         access_token = create_access_token(
             data={
                 "sub": user_id,
@@ -55,13 +80,13 @@ async def register(user_data: UserCreate):
             }
         )
 
-        # Initialize free subscription
+        # STEP 4: Initialize free subscription
         await supabase_service.update_subscription(user_id, {
             'tier': SubscriptionTier.FREE,
             'status': 'active'
         })
 
-        logger.info(f"User registered: {user_email}")
+        logger.info(f"✅ User registered successfully: {user_email}")
 
         return {
             "message": "User registered successfully",
@@ -77,7 +102,7 @@ async def register(user_data: UserCreate):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Registration error: {e}")
+        logger.error(f"❌ Registration error: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)

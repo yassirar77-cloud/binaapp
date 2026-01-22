@@ -108,30 +108,41 @@ class SupabaseService:
             return False
     
     async def create_user(self, email: str, password: str, full_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Create a new user"""
+        """
+        Create a new user using Supabase Admin API.
+
+        CRITICAL: Uses /auth/v1/admin/users endpoint with SERVICE_ROLE_KEY
+        This bypasses RLS and is required for user creation.
+        """
         try:
-            url = f"{self.url}/auth/v1/signup"
+            # CRITICAL: Use admin endpoint, NOT /auth/v1/signup
+            # /auth/v1/signup fails with "Database error saving new user" due to RLS
+            url = f"{self.url}/auth/v1/admin/users"
 
             payload = {
                 "email": email,
-                "password": password
+                "password": password,
+                "email_confirm": True,  # Auto-confirm email for now
+                "user_metadata": {}
             }
 
             # Add user metadata if full_name is provided
             if full_name:
-                payload["data"] = {"full_name": full_name}
+                payload["user_metadata"]["full_name"] = full_name
 
+            # MUST use service_headers with SERVICE_ROLE_KEY for admin operations
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     url,
-                    headers=self.headers,
+                    headers=self.service_headers,
                     json=payload
                 )
 
-            if response.status_code == 200:
+            if response.status_code in [200, 201]:
                 data = response.json()
+                user_id = data.get("id")
+                print(f"✅ Created auth user: {user_id}")
                 # Wrap response to provide consistent interface
-                # Supabase returns user data directly, wrap it in a user object
                 return {"user": data, "raw": data}
             else:
                 error_text = response.text
@@ -140,6 +151,58 @@ class SupabaseService:
         except Exception as e:
             print(f"❌ Create user error: {str(e)}")
             return None
+
+    async def create_user_profile(self, user_id: str, email: str, full_name: Optional[str] = None, role: str = "customer") -> Optional[Dict[str, Any]]:
+        """
+        Create a user profile in the public.users table.
+
+        This is called after creating the auth user to ensure the profile exists.
+        Uses service headers to bypass RLS.
+        """
+        try:
+            profile_data = {
+                "id": user_id,
+                "email": email,
+                "full_name": full_name,
+                "role": role
+            }
+
+            result = await self.insert_record("users", profile_data)
+
+            if result:
+                print(f"✅ Created user profile: {user_id}")
+                return result
+            else:
+                print(f"❌ Failed to create user profile: {user_id}")
+                return None
+        except Exception as e:
+            print(f"❌ Create user profile error: {str(e)}")
+            return None
+
+    async def delete_auth_user(self, user_id: str) -> bool:
+        """
+        Delete a user from Supabase Auth (rollback operation).
+
+        Used when profile creation fails after auth user was created.
+        """
+        try:
+            url = f"{self.url}/auth/v1/admin/users/{user_id}"
+
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(
+                    url,
+                    headers=self.service_headers
+                )
+
+            if response.status_code in [200, 204]:
+                print(f"✅ Deleted auth user (rollback): {user_id}")
+                return True
+            else:
+                print(f"❌ Failed to delete auth user: {response.status_code} - {response.text}")
+                return False
+        except Exception as e:
+            print(f"❌ Delete auth user error: {str(e)}")
+            return False
     
     async def sign_in(self, email: str, password: str) -> Optional[Dict[str, Any]]:
         """Sign in a user"""
