@@ -225,8 +225,8 @@ async def list_websites(current_user: dict = Depends(get_current_user)):
             WebsiteListResponse(
                 id=w["id"],
                 business_name=w["business_name"],
-                subdomain=w["subdomain"],
-                full_url=f"https://{w['subdomain']}{settings.SUBDOMAIN_SUFFIX}",
+                subdomain=w.get("subdomain"),
+                full_url=f"https://{w['subdomain']}{settings.SUBDOMAIN_SUFFIX}" if w.get("subdomain") else None,
                 status=w["status"],
                 created_at=datetime.fromisoformat(w["created_at"]),
                 published_at=datetime.fromisoformat(w["published_at"]) if w.get("published_at") else None
