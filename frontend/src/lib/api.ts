@@ -1,15 +1,26 @@
-import { supabase } from './supabase'
+import { supabase, getStoredToken } from './supabase'
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
   'https://binaapp-backend.onrender.com'
 
 /**
- * Get current auth token from Supabase session
+ * Get current auth token
  * CRITICAL: Mobile browsers block cross-domain cookies, so we MUST
  * send JWT token in Authorization header for all API requests
+ *
+ * Priority:
+ * 1. Backend token stored in localStorage (from our /api/v1/login or /api/v1/register)
+ * 2. Supabase session token (fallback for OAuth or email confirmation flows)
  */
 async function getAuthToken(): Promise<string | null> {
+  // First, check for our backend token
+  const backendToken = getStoredToken()
+  if (backendToken) {
+    return backendToken
+  }
+
+  // Fallback to Supabase session
   if (!supabase) return null
 
   try {

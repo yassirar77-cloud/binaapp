@@ -88,6 +88,7 @@ function RegisterPageContent() {
               placeholder="Nama Penuh"
               className="input"
               onChange={handleChange}
+              autoComplete="name"
               required
             />
             <input
@@ -96,6 +97,7 @@ function RegisterPageContent() {
               placeholder="Email"
               className="input"
               onChange={handleChange}
+              autoComplete="email"
               required
             />
             <input
@@ -104,6 +106,7 @@ function RegisterPageContent() {
               placeholder="Kata Laluan"
               className="input"
               onChange={handleChange}
+              autoComplete="new-password"
               required
             />
             <input
@@ -112,6 +115,7 @@ function RegisterPageContent() {
               placeholder="Sahkan Kata Laluan"
               className="input"
               onChange={handleChange}
+              autoComplete="new-password"
               required
             />
 
