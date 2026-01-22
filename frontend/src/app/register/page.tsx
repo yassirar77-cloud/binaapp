@@ -52,11 +52,11 @@ function RegisterPageContent() {
         formData.fullName
       )
       toast.success('Akaun berjaya didaftar!')
-      // Redirect to the original page if redirect param exists, otherwise to profile
+      // Redirect to my-projects (which uses custom auth) instead of profile (which uses Supabase auth)
       if (redirectUrl) {
         router.push(redirectUrl)
       } else {
-        router.push('/profile?welcome=true')
+        router.push('/my-projects')
       }
     } catch (error: any) {
       toast.error(error.message || 'Gagal mendaftar akaun')
