@@ -10,10 +10,10 @@ from loguru import logger
 
 # Request models for payment endpoints
 class SubscriptionRequest(BaseModel):
-    user_id: int
+    user_id: str  # UUID string from Supabase
 
 class AddonPurchaseRequest(BaseModel):
-    user_id: int
+    user_id: str  # UUID string from Supabase
     addon_type: str
     quantity: int = 1
 

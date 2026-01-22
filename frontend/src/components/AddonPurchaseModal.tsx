@@ -37,7 +37,7 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          user_id: userId ? parseInt(userId) : null,
+          user_id: userId || '',
           addon_type: addon.type,
           quantity: quantity
         })

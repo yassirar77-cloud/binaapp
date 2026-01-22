@@ -548,8 +548,8 @@ class SupabaseService:
             print(f"❌ Update payment status error: {str(e)}")
             return False
 
-    async def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
-        """Get user by ID from users table"""
+    async def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get user by ID (UUID string) from users table"""
         try:
             url = f"{self.url}/rest/v1/users"
             params = {"id": f"eq.{user_id}", "select": "*"}
