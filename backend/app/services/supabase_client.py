@@ -474,6 +474,80 @@ class SupabaseService:
         # Use the new cascade delete method
         return await self.delete_website_cascade(website_id)
 
+    async def get_user_subscription(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get user's subscription details"""
+        try:
+            url = f"{self.url}/rest/v1/subscriptions"
+            params = {"user_id": f"eq.{user_id}"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.headers,
+                    params=params
+                )
+
+            if response.status_code == 200:
+                records = response.json()
+                return records[0] if records else None
+            return None
+        except Exception as e:
+            print(f"❌ Get subscription error: {str(e)}")
+            return None
+
+    async def update_user_subscription(self, user_id: str, data: Dict[str, Any]) -> bool:
+        """Update user's subscription"""
+        try:
+            # First check if subscription exists
+            existing = await self.get_user_subscription(user_id)
+
+            if existing:
+                # Update existing subscription
+                url = f"{self.url}/rest/v1/subscriptions"
+                params = {"user_id": f"eq.{user_id}"}
+
+                async with httpx.AsyncClient() as client:
+                    response = await client.patch(
+                        url,
+                        headers={**self.headers, "Prefer": "return=minimal"},
+                        params=params,
+                        json=data
+                    )
+
+                return response.status_code in [200, 204]
+            else:
+                # Create new subscription
+                data["user_id"] = user_id
+                result = await self.insert_record("subscriptions", data)
+                return result is not None
+
+        except Exception as e:
+            print(f"❌ Update subscription error: {str(e)}")
+            return False
+
+    async def update_subscription(self, user_id: str, data: Dict[str, Any]) -> bool:
+        """Alias for update_user_subscription"""
+        return await self.update_user_subscription(user_id, data)
+
+    async def update_payment_status(self, payment_id: str, status: str) -> bool:
+        """Update payment status"""
+        try:
+            url = f"{self.url}/rest/v1/payments"
+            params = {"id": f"eq.{payment_id}"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.patch(
+                    url,
+                    headers={**self.headers, "Prefer": "return=minimal"},
+                    params=params,
+                    json={"status": status}
+                )
+
+            return response.status_code in [200, 204]
+        except Exception as e:
+            print(f"❌ Update payment status error: {str(e)}")
+            return False
+
 
 # Create singleton instance
 supabase_service = SupabaseService()
