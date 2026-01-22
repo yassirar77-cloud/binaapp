@@ -3,12 +3,15 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
+import { supabase, getCurrentUser, getStoredToken, signOut as customSignOut } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import dynamic from 'next/dynamic'
 
 // Dynamically import chat dashboard to avoid SSR issues
 const OwnerChatDashboard = dynamic(() => import('@/components/OwnerChatDashboard'), { ssr: false })
+
+// Backend API URL
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
 
 export default function ProfilePage() {
   const router = useRouter()
@@ -30,6 +33,56 @@ export default function ProfilePage() {
   const [editingRider, setEditingRider] = useState<any>(null)
   const [deletingWebsite, setDeletingWebsite] = useState<string | null>(null)
 
+  // Helper function to load data using custom BinaApp token
+  async function loadDataWithCustomToken(token: string, userId: string) {
+    try {
+      // Load websites from backend API
+      const websitesResponse = await fetch(`${API_BASE}/api/v1/websites/`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (websitesResponse.ok) {
+        const websitesData = await websitesResponse.json()
+        // Map API response to expected format
+        const mappedWebsites = websitesData.map((w: any) => ({
+          ...w,
+          name: w.business_name // Map business_name to name for compatibility
+        }))
+        setWebsites(mappedWebsites || [])
+        console.log('[Profile] ✅ Loaded websites via API:', mappedWebsites?.length)
+      } else {
+        console.error('[Profile] Failed to load websites:', websitesResponse.status)
+        setWebsites([])
+      }
+
+      // Try to load profile from Supabase if available (for profile form)
+      if (supabase) {
+        try {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .maybeSingle()
+
+          if (profileData) {
+            setProfile({
+              full_name: profileData.full_name || '',
+              business_name: profileData.business_name || '',
+              phone: profileData.phone || ''
+            })
+          }
+        } catch (e) {
+          console.log('[Profile] Could not load profile from Supabase:', e)
+        }
+      }
+    } catch (error) {
+      console.error('[Profile] Error loading data with custom token:', error)
+    }
+  }
+
   // Load Eruda console for mobile debugging
   useEffect(() => {
     if (typeof window !== 'undefined' && /mobile/i.test(navigator.userAgent)) {
@@ -48,6 +101,8 @@ export default function ProfilePage() {
   }, [])
 
   // Set up auth state listener for mobile browsers
+  // NOTE: Only listen for Supabase events, don't auto-redirect on SIGNED_OUT
+  // because we use custom BinaApp token which Supabase doesn't know about
   useEffect(() => {
     if (!supabase) return
 
@@ -55,10 +110,16 @@ export default function ProfilePage() {
       async (event, session) => {
         console.log('[Profile] Auth event:', event, 'Has session:', !!session)
 
+        // Don't redirect on SIGNED_OUT - check custom token first
         if (event === 'SIGNED_OUT') {
-          setAuthChecking(false)
-          setUser(null)
-          router.push('/login')
+          // Check if we have a custom BinaApp token
+          const customToken = getStoredToken()
+          if (!customToken) {
+            setAuthChecking(false)
+            setUser(null)
+            router.push('/login')
+          }
+          // If we have custom token, don't redirect
         } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           if (session?.user) {
             setUser(session.user)
@@ -121,26 +182,54 @@ export default function ProfilePage() {
   }
 
   async function loadUserData() {
-    if (!supabase) {
-      setLoading(false)
-      setAuthChecking(false)
-      return
-    }
-
     try {
       setLoading(true)
       setAuthChecking(true)
 
-      // SIMPLIFIED: Middleware now handles auth, so we just load the session
-      // No need for aggressive redirects or mobile-specific retry logic
-      console.log('[Profile] Loading user session...')
+      console.log('[Profile] Loading user data...')
+
+      // First check for custom BinaApp token
+      const customToken = getStoredToken()
+      const customUser = await getCurrentUser()
+
+      console.log('[Profile] Custom auth check:', {
+        hasToken: !!customToken,
+        hasUser: !!customUser
+      })
+
+      // If we have custom token + user, use that
+      if (customToken && customUser) {
+        console.log('[Profile] ✅ Using custom BinaApp auth')
+        // Create a mock user object compatible with Supabase User type
+        const mockUser = {
+          id: customUser.id,
+          email: customUser.email,
+          user_metadata: { full_name: customUser.full_name }
+        } as User
+        setUser(mockUser)
+        setAuthChecking(false)
+
+        // Load profile and websites using custom token via backend API
+        await loadDataWithCustomToken(customToken, customUser.id)
+        setLoading(false)
+        return
+      }
+
+      // Fallback to Supabase session
+      if (!supabase) {
+        console.log('[Profile] No Supabase client and no custom token')
+        setAuthChecking(false)
+        setLoading(false)
+        router.push('/login')
+        return
+      }
 
       // Small delay to ensure session is hydrated (especially on mobile)
       await new Promise(resolve => setTimeout(resolve, 300))
 
       const { data: { session }, error: sessionError } = await supabase.auth.getSession()
 
-      console.log('[Profile] Session check:', {
+      console.log('[Profile] Supabase session check:', {
         hasSession: !!session,
         email: session?.user?.email,
         error: sessionError?.message
@@ -148,30 +237,28 @@ export default function ProfilePage() {
 
       if (sessionError) {
         console.error('[Profile] Session error:', sessionError)
-        // Middleware will redirect, just set states
         setAuthChecking(false)
         setLoading(false)
+        router.push('/login')
         return
       }
 
       if (!session?.user) {
-        console.log('[Profile] No session found - middleware should redirect')
-        // Don't redirect here - middleware handles it
-        // Just set the states and let middleware do its job
+        console.log('[Profile] No session found, redirecting to login')
         setAuthChecking(false)
         setLoading(false)
+        router.push('/login')
         return
       }
 
-      // SUCCESS: We have a valid session
-      console.log('[Profile] ✅ Session valid:', session.user.email)
+      // SUCCESS: We have a valid Supabase session
+      console.log('[Profile] ✅ Supabase session valid:', session.user.email)
       setUser(session.user)
       setAuthChecking(false)
 
       const currentUser = session?.user
       if (!currentUser) {
         console.log('[Profile] ERROR: currentUser is null after session check!')
-        console.log('[Profile] Session state:', session)
         setLoading(false)
         return
       }
@@ -239,8 +326,12 @@ export default function ProfilePage() {
   }
 
   async function handleLogout() {
-    if (!supabase) return
-    await supabase.auth.signOut()
+    // Clear custom BinaApp token
+    await customSignOut()
+    // Also clear Supabase session if available
+    if (supabase) {
+      await supabase.auth.signOut()
+    }
     router.push('/')
   }
 
