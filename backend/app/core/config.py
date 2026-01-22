@@ -87,6 +87,13 @@ class Settings(BaseSettings):
     STRIPE_PUBLIC_KEY: str = Field(default="", env="STRIPE_PUBLIC_KEY")
     STRIPE_SECRET_KEY: str = Field(default="", env="STRIPE_SECRET_KEY")
     STRIPE_WEBHOOK_SECRET: str = Field(default="", env="STRIPE_WEBHOOK_SECRET")
+
+    # ToyyibPay
+    TOYYIBPAY_SECRET_KEY: str = Field(default="", env="TOYYIBPAY_SECRET_KEY")
+    TOYYIBPAY_CATEGORY_CODE: str = Field(default="", env="TOYYIBPAY_CATEGORY_CODE")
+    TOYYIBPAY_SANDBOX: bool = Field(default=False, env="TOYYIBPAY_SANDBOX")
+    TOYYIBPAY_CALLBACK_URL: str = Field(default="", env="TOYYIBPAY_CALLBACK_URL")
+    TOYYIBPAY_RETURN_URL: str = Field(default="", env="TOYYIBPAY_RETURN_URL")
     
     # Domain Configuration
     MAIN_DOMAIN: str = Field(default="binaapp.my", env="MAIN_DOMAIN")

@@ -15,7 +15,9 @@ from app.models.schemas import (
 )
 from app.services.payment_service import payment_service
 from app.services.supabase_client import supabase_service
+from app.services.toyyibpay_service import toyyibpay_service
 from app.core.security import get_current_user
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -214,4 +216,133 @@ async def cancel_subscription(current_user: dict = Depends(get_current_user)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to cancel subscription"
+        )
+
+
+# ============================================
+# ToyyibPay Endpoints
+# ============================================
+
+@router.get("/test")
+async def test_toyyibpay():
+    """
+    Test ToyyibPay integration
+    Creates a test bill to verify API connection
+    """
+    try:
+        result = toyyibpay_service.test_connection()
+
+        return {
+            "success": True,
+            "sandbox": settings.TOYYIBPAY_SANDBOX,
+            "base_url": toyyibpay_service.base_url,
+            "result": result
+        }
+
+    except Exception as e:
+        logger.error(f"ToyyibPay test failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"ToyyibPay test failed: {str(e)}"
+        )
+
+
+@router.post("/toyyibpay/create-bill")
+async def create_toyyibpay_bill(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create a ToyyibPay bill for subscription payment
+    """
+    try:
+        body = await request.json()
+
+        user_id = current_user.get("sub")
+        email = current_user.get("email")
+
+        bill_name = body.get("bill_name", "BinaApp Subscription")
+        bill_description = body.get("bill_description", "BinaApp subscription payment")
+        bill_amount = float(body.get("amount", 29.00))
+        bill_phone = body.get("phone", "")
+        customer_name = body.get("customer_name", email)
+
+        result = toyyibpay_service.create_bill(
+            bill_name=bill_name,
+            bill_description=bill_description,
+            bill_amount=bill_amount,
+            bill_email=email,
+            bill_phone=bill_phone,
+            bill_name_customer=customer_name,
+            bill_external_reference_no=f"BINA_{user_id[:8]}"
+        )
+
+        if result.get("success"):
+            logger.info(f"ToyyibPay bill created for user {user_id}: {result.get('bill_code')}")
+            return {
+                "success": True,
+                "bill_code": result.get("bill_code"),
+                "payment_url": result.get("payment_url")
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Failed to create bill")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating ToyyibPay bill: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create payment bill"
+        )
+
+
+@router.post("/toyyibpay/callback")
+async def toyyibpay_callback(request: Request):
+    """
+    Handle ToyyibPay payment callback
+    This is called by ToyyibPay after payment is processed
+    """
+    try:
+        # Get form data from callback
+        form_data = await request.form()
+        data = dict(form_data)
+
+        logger.info(f"ToyyibPay callback received: {data}")
+
+        result = toyyibpay_service.verify_callback(data)
+
+        if result.get("success") and result.get("status") == "paid":
+            # Payment successful - update user subscription
+            bill_code = result.get("bill_code")
+            logger.info(f"Payment successful for bill: {bill_code}")
+
+            # TODO: Extract user_id from bill_external_reference_no and update subscription
+            # For now, just log the success
+
+        return {"status": "OK"}
+
+    except Exception as e:
+        logger.error(f"ToyyibPay callback error: {e}")
+        return {"status": "ERROR", "message": str(e)}
+
+
+@router.get("/toyyibpay/verify/{bill_code}")
+async def verify_toyyibpay_payment(bill_code: str):
+    """
+    Verify payment status for a ToyyibPay bill
+    """
+    try:
+        result = toyyibpay_service.get_bill_transactions(bill_code)
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error verifying ToyyibPay payment: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to verify payment"
         )
