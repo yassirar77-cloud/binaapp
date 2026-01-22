@@ -54,7 +54,7 @@ export function UpgradeModal({ show, currentTier, targetTier, onClose }: Upgrade
       const userId = localStorage.getItem('user_id');
       const token = localStorage.getItem('token');
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/payments/subscribe/${targetTier}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/v1/payments/subscribe/${targetTier}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

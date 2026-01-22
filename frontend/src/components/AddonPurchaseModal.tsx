@@ -30,7 +30,7 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
       const userId = localStorage.getItem('user_id');
       const token = localStorage.getItem('token');
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/payments/addon/purchase`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/v1/payments/addon/purchase`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
