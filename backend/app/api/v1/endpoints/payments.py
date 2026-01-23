@@ -243,7 +243,7 @@ async def test_toyyibpay():
         result = toyyibpay_service.test_connection()
 
         return {
-            "success": True,
+            "success": result.get("success", False),
             "sandbox": settings.TOYYIBPAY_SANDBOX,
             "base_url": toyyibpay_service.base_url,
             "result": result
@@ -255,6 +255,38 @@ async def test_toyyibpay():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"ToyyibPay test failed: {str(e)}"
         )
+
+
+@router.get("/test-credentials")
+async def test_toyyibpay_credentials():
+    """
+    Test ToyyibPay credentials and configuration
+    Returns detailed configuration info and attempts to create a test bill
+    """
+    try:
+        logger.info("🔍 Testing ToyyibPay credentials...")
+
+        result = toyyibpay_service.test_connection()
+
+        return {
+            "success": result.get("success", False),
+            "sandbox": settings.TOYYIBPAY_SANDBOX,
+            "base_url": toyyibpay_service.base_url,
+            "config": result.get("config", {}),
+            "bill_code": result.get("bill_code"),
+            "payment_url": result.get("payment_url"),
+            "error": result.get("error"),
+            "details": result.get("details")
+        }
+
+    except Exception as e:
+        logger.error(f"ToyyibPay credentials test failed: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e),
+            "sandbox": settings.TOYYIBPAY_SANDBOX,
+            "base_url": toyyibpay_service.base_url
+        }
 
 
 @router.post("/toyyibpay/create-bill")
@@ -434,16 +466,34 @@ async def create_subscription_payment(
         # Truncate external reference to avoid ToyyibPay limits (max 50 chars)
         external_ref = f"SUB_{tier}_{user_id[:20]}"
 
-        logger.info(f"Creating ToyyibPay bill: email={email}, ref={external_ref}")
+        # Get user phone from database or use default
+        user_phone = '0123456789'  # Default Malaysian phone format
+        customer_name = email.split('@')[0] if email else 'Customer'
+
+        if user_data:
+            if user_data.get('phone'):
+                user_phone = user_data.get('phone')
+            if user_data.get('name'):
+                customer_name = user_data.get('name')
+            elif user_data.get('full_name'):
+                customer_name = user_data.get('full_name')
+
+        logger.info(f"📝 Creating subscription payment:")
+        logger.info(f"   Tier: {tier}")
+        logger.info(f"   Price: RM{price}")
+        logger.info(f"   Email: {email}")
+        logger.info(f"   Phone: {user_phone}")
+        logger.info(f"   Name: {customer_name}")
+        logger.info(f"   Ref: {external_ref}")
 
         # Create ToyyibPay bill
         result = toyyibpay_service.create_bill(
-            bill_name=f"BinaApp {tier.upper()} Subscription",
-            bill_description=f"Monthly subscription to BinaApp {tier.upper()} plan",
+            bill_name=f"BinaApp {tier.upper()} Plan",
+            bill_description=f"Langganan bulanan BinaApp {tier.upper()}",
             bill_amount=price,
             bill_email=email,
-            bill_phone="",
-            bill_name_customer=email,
+            bill_phone=user_phone,
+            bill_name_customer=customer_name,
             bill_external_reference_no=external_ref
         )
 
@@ -552,14 +602,32 @@ async def purchase_addon(
         # Truncate external reference
         external_ref = f"ADDON_{addon_type}_{user_id[:16]}"
 
+        # Get user phone from database or use default
+        user_phone = '0123456789'  # Default Malaysian phone format
+        customer_name = email.split('@')[0] if email else 'Customer'
+
+        if user_data:
+            if user_data.get('phone'):
+                user_phone = user_data.get('phone')
+            if user_data.get('name'):
+                customer_name = user_data.get('name')
+            elif user_data.get('full_name'):
+                customer_name = user_data.get('full_name')
+
+        logger.info(f"📝 Creating addon purchase:")
+        logger.info(f"   Addon: {addon_type} x{quantity}")
+        logger.info(f"   Price: RM{total_price}")
+        logger.info(f"   Email: {email}")
+        logger.info(f"   Phone: {user_phone}")
+
         # Create ToyyibPay bill
         result = toyyibpay_service.create_bill(
-            bill_name=f"BinaApp Addon - {addon_type}",
-            bill_description=f"Purchase of {quantity}x {addon_type} addon",
+            bill_name=f"BinaApp Addon {addon_type}",
+            bill_description=f"Pembelian {quantity}x {addon_type}",
             bill_amount=total_price,
             bill_email=email,
-            bill_phone="",
-            bill_name_customer=email,
+            bill_phone=user_phone,
+            bill_name_customer=customer_name,
             bill_external_reference_no=external_ref
         )
 
