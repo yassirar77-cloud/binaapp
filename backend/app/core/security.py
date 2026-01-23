@@ -70,99 +70,51 @@ def decode_access_token(token: str) -> Dict[str, Any]:
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> Dict[str, Any]:
-    """Get current authenticated user from token"""
-    import httpx
+    """
+    Get current authenticated user from token.
 
+    Verifies JWT tokens LOCALLY without network calls for speed.
+
+    Order of verification:
+    1. Custom JWT_SECRET_KEY (tokens created by our backend)
+    2. SUPABASE_JWT_SECRET (tokens created by Supabase)
+    """
     token = credentials.credentials
 
-    # Supabase Auth API requires an API key header. Prefer anon, fallback to service role.
-    # Some deployments only set SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_KEY / SUPABASE_KEY).
-    supabase_api_key = (
-        settings.SUPABASE_ANON_KEY
-        or settings.SUPABASE_SERVICE_ROLE_KEY
-        or os.getenv("SUPABASE_SERVICE_KEY", "")
-        or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
-        or os.getenv("SUPABASE_KEY", "")
-        or os.getenv("SUPABASE_ANON_KEY", "")
-    )
-
-    # Try to verify token using Supabase Auth API
+    # FIRST: Try to decode with our custom JWT secret (tokens we create)
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{settings.SUPABASE_URL}/auth/v1/user",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "apikey": supabase_api_key
-                }
-            )
-
-            if response.status_code == 200:
-                user_data = response.json()
-                # Return user data in expected format
-                return {
-                    "sub": user_data.get("id"),
-                    "email": user_data.get("email"),
-                    **user_data
-                }
-            # Log non-200 for easier diagnosis of owner dashboard auth issues
-            logger.debug(
-                f"Supabase auth verification failed: status={response.status_code}, body={response.text[:200]}"
-            )
+        payload = decode_access_token(token)
+        user_id = payload.get("sub")
+        if user_id:
+            logger.debug(f"Token verified with custom JWT secret for user: {user_id}")
+            return payload
     except Exception as e:
-        logger.debug(f"Supabase auth verification exception: {e}")
+        logger.debug(f"Custom JWT verification failed: {e}")
 
-    # Fallback: Try to decode token with Supabase JWT secret if available
+    # SECOND: Try SUPABASE_JWT_SECRET (for Supabase-signed tokens)
     if settings.SUPABASE_JWT_SECRET:
         try:
-            # SECURITY NOTE: Audience verification
-            # - Supabase tokens have a non-standard 'aud' claim (usually 'authenticated')
-            # - For enhanced security, set SUPABASE_JWT_AUDIENCE in environment
-            # - If not set, audience verification is skipped (less secure but more compatible)
-            # - Risk: If JWT secret is shared across services, tokens could be reused
-            #
-            # To enable audience verification:
-            # 1. Set SUPABASE_JWT_AUDIENCE="authenticated" in environment
-            # 2. Ensure it matches your Supabase project's audience claim
-
-            decode_options = {"verify_aud": False}  # Default: disabled for compatibility
-
-            # If audience is configured, enable verification
-            if hasattr(settings, 'SUPABASE_JWT_AUDIENCE') and settings.SUPABASE_JWT_AUDIENCE:
-                decode_options = {
-                    "verify_aud": True,
-                    "audience": settings.SUPABASE_JWT_AUDIENCE
-                }
-                logger.debug(f"JWT audience verification enabled: {settings.SUPABASE_JWT_AUDIENCE}")
-
+            # Supabase tokens use HS256 algorithm
+            # Disable audience verification for compatibility
             payload = jwt.decode(
                 token,
                 settings.SUPABASE_JWT_SECRET,
                 algorithms=["HS256"],
-                options=decode_options
+                options={"verify_aud": False}
             )
-            return payload
+            user_id = payload.get("sub")
+            if user_id:
+                logger.debug(f"Token verified with Supabase JWT secret for user: {user_id}")
+                return payload
         except JWTError as e:
             logger.debug(f"Supabase JWT verification failed: {e}")
-            pass
 
-    # Last resort: Try custom JWT secret (for backwards compatibility)
-    try:
-        payload = decode_access_token(token)
-        user_id = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        return payload
-    except Exception:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials - please login again",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # If all local verification fails, reject the token
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials - please login again",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def verify_api_key(api_key: str) -> bool:
