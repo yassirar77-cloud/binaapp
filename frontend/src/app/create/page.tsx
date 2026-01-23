@@ -13,7 +13,7 @@ import CodeAnimation from '@/components/CodeAnimation'
 import { UpgradeModal } from '@/components/UpgradeModal'
 import { AddonPurchaseModal } from '@/components/AddonPurchaseModal'
 import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
-import { supabase, signOut } from '@/lib/supabase'
+import { supabase, signOut as customSignOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 
@@ -219,12 +219,30 @@ export default function CreatePage() {
   }, [])
 
   async function checkUser() {
-    if (!supabase) {
-      setAuthLoading(false)
-      return
-    }
-
     try {
+      // First check for custom BinaApp token
+      const customToken = getStoredToken()
+      const customUser = await getCurrentUser()
+
+      if (customToken && customUser) {
+        console.log('[Create] ✅ Using custom BinaApp auth')
+        // Create a mock user object compatible with Supabase User type
+        const mockUser = {
+          id: customUser.id,
+          email: customUser.email,
+          user_metadata: { full_name: customUser.full_name }
+        } as User
+        setUser(mockUser)
+        setAuthLoading(false)
+        return
+      }
+
+      // Fallback to Supabase session
+      if (!supabase) {
+        setAuthLoading(false)
+        return
+      }
+
       const { data: { user } } = await supabase.auth.getUser()
       setUser(user)
     } catch (error) {
@@ -236,7 +254,12 @@ export default function CreatePage() {
 
   async function handleLogout() {
     try {
-      await signOut()
+      // Clear custom BinaApp token
+      await customSignOut()
+      // Also clear Supabase session if available
+      if (supabase) {
+        await supabase.auth.signOut()
+      }
       setUser(null)
       router.push('/')
     } catch (error) {
@@ -534,18 +557,21 @@ export default function CreatePage() {
       return
     }
 
-    if (!supabase) {
-      setError('Supabase tidak tersedia. Sila cuba lagi.')
-      return
+    // First try to get custom BinaApp token
+    let accessToken = getStoredToken()
+
+    // Fallback to Supabase session if no custom token
+    if (!accessToken && supabase) {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      if (!sessionError && session?.access_token) {
+        accessToken = session.access_token
+      }
     }
 
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-    if (sessionError || !session?.access_token) {
+    if (!accessToken) {
       setError('Sila log masuk semula untuk menerbitkan website')
       return
     }
-
-    const accessToken = session.access_token
     setPublishing(true)
 
     try {
