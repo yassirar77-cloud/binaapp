@@ -87,3 +87,91 @@ CREATE TRIGGER update_addon_purchases_updated_at
 -- Comments
 COMMENT ON TABLE public.payments IS 'Tracks subscription payment transactions via ToyyibPay';
 COMMENT ON TABLE public.addon_purchases IS 'Tracks addon purchase transactions';
+
+-- =============================================
+-- Add ToyyibPay columns to subscriptions table
+-- =============================================
+
+-- Add ToyyibPay-specific columns to subscriptions (if not exist)
+DO $$
+BEGIN
+    -- Add price column
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'subscriptions' AND column_name = 'price') THEN
+        ALTER TABLE public.subscriptions ADD COLUMN price DECIMAL(10, 2);
+    END IF;
+
+    -- Add toyyibpay_bill_code column
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'subscriptions' AND column_name = 'toyyibpay_bill_code') THEN
+        ALTER TABLE public.subscriptions ADD COLUMN toyyibpay_bill_code VARCHAR(100);
+    END IF;
+
+    -- Add toyyibpay_subscription_id column
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name = 'subscriptions' AND column_name = 'toyyibpay_subscription_id') THEN
+        ALTER TABLE public.subscriptions ADD COLUMN toyyibpay_subscription_id VARCHAR(100);
+    END IF;
+END $$;
+
+-- Create index for ToyyibPay bill code lookup
+CREATE INDEX IF NOT EXISTS idx_subscriptions_toyyibpay_bill_code
+    ON public.subscriptions(toyyibpay_bill_code);
+
+-- Add policy to allow service role to insert/update subscriptions
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE tablename = 'subscriptions'
+        AND policyname = 'Service role can manage all subscriptions'
+    ) THEN
+        CREATE POLICY "Service role can manage all subscriptions"
+            ON public.subscriptions FOR ALL
+            USING (true);
+    END IF;
+END $$;
+
+-- =============================================
+-- Create usage_limits table for tracking limits
+-- =============================================
+CREATE TABLE IF NOT EXISTS public.usage_limits (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE UNIQUE,
+    websites_limit INTEGER DEFAULT 1,
+    menu_items_limit INTEGER DEFAULT 20,
+    ai_hero_limit INTEGER DEFAULT 1,
+    ai_menu_limit INTEGER DEFAULT 5,
+    delivery_zones_limit INTEGER DEFAULT 1,
+    riders_limit INTEGER DEFAULT 0,
+    ai_hero_generations INTEGER DEFAULT 0,
+    ai_menu_images INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Enable RLS on usage_limits
+ALTER TABLE public.usage_limits ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for usage_limits
+DROP POLICY IF EXISTS "Users can view their own usage limits" ON public.usage_limits;
+CREATE POLICY "Users can view their own usage limits"
+    ON public.usage_limits FOR SELECT
+    USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Service role can manage all usage limits" ON public.usage_limits;
+CREATE POLICY "Service role can manage all usage limits"
+    ON public.usage_limits FOR ALL
+    USING (true);
+
+-- Create index for user_id lookup
+CREATE INDEX IF NOT EXISTS idx_usage_limits_user_id ON public.usage_limits(user_id);
+
+-- Add updated_at trigger for usage_limits
+DROP TRIGGER IF EXISTS update_usage_limits_updated_at ON public.usage_limits;
+CREATE TRIGGER update_usage_limits_updated_at
+    BEFORE UPDATE ON public.usage_limits
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+COMMENT ON TABLE public.usage_limits IS 'Tracks usage limits and current usage for each user';

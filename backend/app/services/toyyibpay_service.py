@@ -17,14 +17,24 @@ class ToyyibPayService:
         self.secret_key = settings.TOYYIBPAY_SECRET_KEY
         self.category_code = settings.TOYYIBPAY_CATEGORY_CODE
         self.sandbox = settings.TOYYIBPAY_SANDBOX
-        self.callback_url = settings.TOYYIBPAY_CALLBACK_URL
-        self.return_url = settings.TOYYIBPAY_RETURN_URL
 
         # Set base URL based on sandbox mode
         if self.sandbox:
             self.base_url = "https://dev.toyyibpay.com"
         else:
             self.base_url = "https://toyyibpay.com"
+
+        # Set callback and return URLs with proper defaults
+        # These MUST be set for payment flow to work correctly
+        base_frontend_url = settings.FRONTEND_URL or "https://binaapp.my"
+        base_api_url = settings.API_URL or "https://binaapp-backend.onrender.com"
+
+        self.callback_url = settings.TOYYIBPAY_CALLBACK_URL or f"{base_api_url}/api/v1/payments/toyyibpay/callback"
+        self.return_url = settings.TOYYIBPAY_RETURN_URL or f"{base_frontend_url}/payment/success"
+
+        logger.info(f"ToyyibPay URLs configured:")
+        logger.info(f"  - Callback URL: {self.callback_url}")
+        logger.info(f"  - Return URL: {self.return_url}")
 
         # Warn if configuration is missing
         if not self.secret_key:
