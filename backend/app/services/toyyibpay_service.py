@@ -26,7 +26,13 @@ class ToyyibPayService:
         else:
             self.base_url = "https://toyyibpay.com"
 
-        logger.info(f"ToyyibPay service initialized (sandbox: {self.sandbox})")
+        # Warn if configuration is missing
+        if not self.secret_key:
+            logger.warning("TOYYIBPAY_SECRET_KEY is not set! Payment features will not work.")
+        if not self.category_code:
+            logger.warning("TOYYIBPAY_CATEGORY_CODE is not set! Payment features will not work.")
+
+        logger.info(f"ToyyibPay service initialized (sandbox: {self.sandbox}, configured: {bool(self.secret_key and self.category_code)})")
 
     def create_bill(
         self,
@@ -54,6 +60,20 @@ class ToyyibPayService:
             Dict with bill_code and payment_url on success
         """
         try:
+            # Validate required configuration
+            if not self.secret_key:
+                logger.error("ToyyibPay secret key is not configured. Set TOYYIBPAY_SECRET_KEY environment variable.")
+                return {
+                    'success': False,
+                    'error': 'Payment gateway not configured. Please contact support.'
+                }
+
+            if not self.category_code:
+                logger.error("ToyyibPay category code is not configured. Set TOYYIBPAY_CATEGORY_CODE environment variable.")
+                return {
+                    'success': False,
+                    'error': 'Payment gateway not configured. Please contact support.'
+                }
             # Convert amount to cents (ToyyibPay expects amount in cents)
             amount_in_cents = int(bill_amount * 100)
 
@@ -218,6 +238,14 @@ class ToyyibPayService:
             Dict with test result
         """
         try:
+            # Check configuration first
+            if not self.secret_key or not self.category_code:
+                return {
+                    'success': False,
+                    'error': 'ToyyibPay not configured. Missing TOYYIBPAY_SECRET_KEY or TOYYIBPAY_CATEGORY_CODE environment variables.',
+                    'configured': False
+                }
+
             # Create a test bill with minimal amount
             result = self.create_bill(
                 bill_name="BinaApp Test Bill",
