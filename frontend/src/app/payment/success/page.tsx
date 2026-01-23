@@ -17,36 +17,77 @@ function PaymentSuccessContent() {
   const verifyPayment = async () => {
     const statusId = searchParams.get('status_id');
     const billcode = searchParams.get('billcode');
+    const orderNo = searchParams.get('order_id');
+    const transactionId = searchParams.get('transaction_id');
 
-    // Check payment status
+    console.log('Payment callback params:', { statusId, billcode, orderNo, transactionId });
+
+    // Get stored payment info
+    const tier = localStorage.getItem('pending_tier');
+    const paymentId = localStorage.getItem('pending_payment_id');
+    const pendingBillCode = localStorage.getItem('pending_bill_code');
+    const userId = localStorage.getItem('user_id');
+    const token = localStorage.getItem('token');
+
+    // Use billcode from URL or localStorage
+    const effectiveBillCode = billcode || pendingBillCode;
+
+    // If status_id is missing but we have billcode, verify via API
+    if (!statusId && effectiveBillCode) {
+      console.log('Status ID missing, verifying via API...');
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
+        const verifyResponse = await fetch(`${apiUrl}/api/v1/payments/toyyibpay/verify/${effectiveBillCode}`);
+        const verifyData = await verifyResponse.json();
+
+        console.log('API verification result:', verifyData);
+
+        if (verifyData.success && verifyData.status === 'paid') {
+          setStatus('success');
+          setMessage('Pembayaran Berjaya!');
+
+          // Clear pending data
+          localStorage.removeItem('pending_tier');
+          localStorage.removeItem('pending_payment_id');
+          localStorage.removeItem('pending_bill_code');
+
+          // Redirect after 3 seconds
+          setTimeout(() => {
+            router.push('/dashboard');
+          }, 3000);
+          return;
+        }
+      } catch (error) {
+        console.error('API verification error:', error);
+      }
+    }
+
+    // Check payment status from URL parameter
     if (statusId === '1') {
       // Payment successful
       setStatus('success');
       setMessage('Pembayaran Berjaya!');
 
       // Update subscription if it was a subscription payment
-      const tier = localStorage.getItem('pending_tier');
-      const paymentId = localStorage.getItem('pending_payment_id');
-      const userId = localStorage.getItem('user_id');
-      const token = localStorage.getItem('token');
-
       if (tier && paymentId) {
         try {
-          await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/subscriptions/upgrade/${tier}`, {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
+          await fetch(`${apiUrl}/api/v1/payments/subscriptions/upgrade/${tier}`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify({
-              user_id: userId ? parseInt(userId) : null,
-              payment_id: parseInt(paymentId)
+              user_id: userId,
+              payment_id: paymentId
             })
           });
 
           // Clear pending data
           localStorage.removeItem('pending_tier');
           localStorage.removeItem('pending_payment_id');
+          localStorage.removeItem('pending_bill_code');
 
         } catch (error) {
           console.error('Upgrade error:', error);
@@ -63,10 +104,40 @@ function PaymentSuccessContent() {
       setStatus('failed');
       setMessage('Pembayaran Gagal');
 
-    } else {
-      // Pending or unknown
+    } else if (statusId === '2') {
+      // Pending
       setStatus('pending');
       setMessage('Pembayaran dalam proses...');
+
+    } else {
+      // Unknown status - try to verify via API if we have billcode
+      if (effectiveBillCode) {
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
+          const verifyResponse = await fetch(`${apiUrl}/api/v1/payments/toyyibpay/verify/${effectiveBillCode}`);
+          const verifyData = await verifyResponse.json();
+
+          if (verifyData.success && verifyData.status === 'paid') {
+            setStatus('success');
+            setMessage('Pembayaran Berjaya!');
+            localStorage.removeItem('pending_tier');
+            localStorage.removeItem('pending_payment_id');
+            localStorage.removeItem('pending_bill_code');
+            setTimeout(() => router.push('/dashboard'), 3000);
+            return;
+          } else if (verifyData.status === 'pending') {
+            setStatus('pending');
+            setMessage('Pembayaran dalam proses...');
+            return;
+          }
+        } catch (error) {
+          console.error('API verification error:', error);
+        }
+      }
+
+      // Default to pending if we can't determine status
+      setStatus('pending');
+      setMessage('Sila tunggu pengesahan pembayaran...');
     }
   };
 

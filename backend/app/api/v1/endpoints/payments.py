@@ -353,37 +353,240 @@ async def toyyibpay_callback(request: Request):
         form_data = await request.form()
         data = dict(form_data)
 
-        logger.info(f"ToyyibPay callback received: {data}")
+        logger.info(f"📥 ToyyibPay callback received: {data}")
 
         result = toyyibpay_service.verify_callback(data)
 
         if result.get("success") and result.get("status") == "paid":
             # Payment successful - update user subscription
             bill_code = result.get("bill_code")
-            logger.info(f"Payment successful for bill: {bill_code}")
+            transaction_id = result.get("transaction_id")
+            reference = result.get("reference")
+            amount = result.get("amount")
 
-            # TODO: Extract user_id from bill_external_reference_no and update subscription
-            # For now, just log the success
+            logger.info(f"✅ Payment successful for bill: {bill_code}")
+            logger.info(f"   Transaction ID: {transaction_id}")
+            logger.info(f"   Reference: {reference}")
+            logger.info(f"   Amount: {amount}")
+
+            # Find the payment record by bill_code and get user_id
+            try:
+                # Query payments table by bill_code
+                payment_records = await supabase_service.select_records("payments", {"bill_code": bill_code})
+
+                if payment_records and len(payment_records) > 0:
+                    payment = payment_records[0]
+                    user_id = payment.get("user_id")
+                    tier = payment.get("tier")
+
+                    logger.info(f"📝 Found payment record: user_id={user_id}, tier={tier}")
+
+                    if user_id and tier:
+                        # Update the payment record status
+                        await supabase_service.update_payment_status(payment.get("id"), "successful")
+
+                        # Upgrade user's subscription
+                        tier_price = TIER_PRICES.get(tier, 0)
+                        upgrade_success = await supabase_service.update_user_subscription(user_id, {
+                            "tier": tier,
+                            "status": "active",
+                            "price": tier_price,
+                            "toyyibpay_bill_code": bill_code
+                        })
+
+                        if upgrade_success:
+                            logger.info(f"✅ Subscription upgraded for user {user_id} to {tier}")
+                        else:
+                            logger.error(f"❌ Failed to upgrade subscription for user {user_id}")
+
+                        # Update usage limits based on tier
+                        await _update_usage_limits(user_id, tier)
+
+                else:
+                    logger.warning(f"⚠️ No payment record found for bill_code: {bill_code}")
+                    # Try to extract user info from external reference
+                    external_ref = data.get("billExternalReferenceNo", "")
+                    logger.info(f"External reference: {external_ref}")
+
+            except Exception as db_error:
+                logger.error(f"❌ Database error processing payment callback: {db_error}")
+
+        elif result.get("status") == "pending":
+            logger.info(f"⏳ Payment pending for bill: {result.get('bill_code')}")
+
+        else:
+            logger.warning(f"❌ Payment failed or unknown status: {result}")
 
         return {"status": "OK"}
 
     except Exception as e:
-        logger.error(f"ToyyibPay callback error: {e}")
+        logger.error(f"ToyyibPay callback error: {e}", exc_info=True)
         return {"status": "ERROR", "message": str(e)}
+
+
+async def _update_usage_limits(user_id: str, tier: str):
+    """Update user's usage limits based on their subscription tier"""
+    try:
+        # Define limits for each tier
+        tier_limits = {
+            "starter": {
+                "websites_limit": 1,
+                "menu_items_limit": 20,
+                "ai_hero_limit": 1,
+                "ai_menu_limit": 5,
+                "delivery_zones_limit": 1,
+                "riders_limit": 0
+            },
+            "basic": {
+                "websites_limit": 5,
+                "menu_items_limit": None,  # Unlimited
+                "ai_hero_limit": 10,
+                "ai_menu_limit": 30,
+                "delivery_zones_limit": 5,
+                "riders_limit": 0
+            },
+            "pro": {
+                "websites_limit": None,  # Unlimited
+                "menu_items_limit": None,
+                "ai_hero_limit": None,
+                "ai_menu_limit": None,
+                "delivery_zones_limit": None,
+                "riders_limit": 10
+            }
+        }
+
+        limits = tier_limits.get(tier, tier_limits["starter"])
+
+        # Try to update usage_limits table
+        try:
+            # First check if record exists
+            existing = await supabase_service.select_records("usage_limits", {"user_id": user_id})
+
+            if existing and len(existing) > 0:
+                # Update existing record
+                url = f"{supabase_service.url}/rest/v1/usage_limits"
+                params = {"user_id": f"eq.{user_id}"}
+
+                import httpx
+                async with httpx.AsyncClient() as client:
+                    response = await client.patch(
+                        url,
+                        headers={**supabase_service.service_headers, "Prefer": "return=minimal"},
+                        params=params,
+                        json=limits
+                    )
+
+                if response.status_code in [200, 204]:
+                    logger.info(f"✅ Updated usage limits for user {user_id}")
+                else:
+                    logger.warning(f"⚠️ Failed to update usage limits: {response.status_code}")
+            else:
+                # Create new record
+                limits["user_id"] = user_id
+                await supabase_service.insert_record("usage_limits", limits)
+                logger.info(f"✅ Created usage limits for user {user_id}")
+
+        except Exception as limits_error:
+            logger.warning(f"⚠️ Could not update usage_limits table: {limits_error}")
+
+    except Exception as e:
+        logger.error(f"❌ Error updating usage limits: {e}")
 
 
 @router.get("/toyyibpay/verify/{bill_code}")
 async def verify_toyyibpay_payment(bill_code: str):
     """
     Verify payment status for a ToyyibPay bill
+    Also processes the payment if successful but not yet processed
     """
     try:
+        logger.info(f"🔍 Verifying payment for bill_code: {bill_code}")
+
+        # Get transactions from ToyyibPay
         result = toyyibpay_service.get_bill_transactions(bill_code)
 
-        return result
+        if not result.get("success"):
+            return result
+
+        transactions = result.get("transactions", [])
+
+        # Check if any transaction is successful (status == "1")
+        payment_successful = False
+        transaction_details = None
+
+        for txn in transactions:
+            if txn.get("billpaymentStatus") == "1":
+                payment_successful = True
+                transaction_details = txn
+                break
+
+        if payment_successful:
+            logger.info(f"✅ Payment verified as successful for bill: {bill_code}")
+
+            # Try to process the payment if not already done
+            try:
+                payment_records = await supabase_service.select_records("payments", {"bill_code": bill_code})
+
+                if payment_records and len(payment_records) > 0:
+                    payment = payment_records[0]
+
+                    # If payment is still pending, process it now
+                    if payment.get("status") == "pending":
+                        user_id = payment.get("user_id")
+                        tier = payment.get("tier")
+
+                        logger.info(f"📝 Processing pending payment: user_id={user_id}, tier={tier}")
+
+                        if user_id and tier:
+                            # Update payment status
+                            await supabase_service.update_payment_status(payment.get("id"), "successful")
+
+                            # Upgrade subscription
+                            tier_price = TIER_PRICES.get(tier, 0)
+                            await supabase_service.update_user_subscription(user_id, {
+                                "tier": tier,
+                                "status": "active",
+                                "price": tier_price,
+                                "toyyibpay_bill_code": bill_code
+                            })
+
+                            # Update usage limits
+                            await _update_usage_limits(user_id, tier)
+
+                            logger.info(f"✅ Late payment processing completed for user {user_id}")
+
+                    return {
+                        "success": True,
+                        "status": "paid",
+                        "bill_code": bill_code,
+                        "tier": payment.get("tier"),
+                        "amount": float(payment.get("amount", 0)),
+                        "transaction": transaction_details
+                    }
+
+            except Exception as db_error:
+                logger.warning(f"⚠️ Could not check/update payment record: {db_error}")
+
+            return {
+                "success": True,
+                "status": "paid",
+                "bill_code": bill_code,
+                "transaction": transaction_details
+            }
+
+        else:
+            # Check for pending transactions
+            has_pending = any(txn.get("billpaymentStatus") == "2" for txn in transactions)
+
+            return {
+                "success": True,
+                "status": "pending" if has_pending else "unpaid",
+                "bill_code": bill_code,
+                "transactions": transactions
+            }
 
     except Exception as e:
-        logger.error(f"Error verifying ToyyibPay payment: {e}")
+        logger.error(f"Error verifying ToyyibPay payment: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to verify payment"
