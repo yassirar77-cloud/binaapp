@@ -1,0 +1,680 @@
+"""
+Subscription Management Endpoints
+Handles subscription status, usage tracking, limits, transactions, and addons
+"""
+
+from fastapi import APIRouter, HTTPException, status, Depends, Request
+from typing import Optional, List
+from pydantic import BaseModel
+from datetime import datetime
+from loguru import logger
+
+from app.services.subscription_service import subscription_service
+from app.services.supabase_client import supabase_service
+from app.services.toyyibpay_service import toyyibpay_service
+from app.core.security import get_current_user
+from app.core.config import settings
+
+router = APIRouter()
+
+
+# =============================================================================
+# Pydantic Models
+# =============================================================================
+
+class CheckLimitRequest(BaseModel):
+    action: str  # 'create_website', 'add_menu_item', 'generate_ai_hero', etc.
+
+
+class UpgradeRequest(BaseModel):
+    new_plan: str  # 'basic' or 'pro'
+    prorate: bool = False
+
+
+class AddonPurchaseRequest(BaseModel):
+    addon_type: str  # 'ai_image', 'ai_hero', 'website', 'rider', 'zone'
+    quantity: int = 1
+
+
+class UseAddonRequest(BaseModel):
+    addon_type: str
+    quantity: int = 1
+
+
+# =============================================================================
+# Subscription Status Endpoints
+# =============================================================================
+
+@router.get("/status")
+async def get_subscription_status(current_user: dict = Depends(get_current_user)):
+    """
+    Get current subscription status
+    Returns plan name, status, dates, and days remaining
+    """
+    try:
+        user_id = current_user.get("sub")
+        status_data = await subscription_service.get_subscription_status(user_id)
+        return status_data
+    except Exception as e:
+        logger.error(f"Error getting subscription status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal mendapatkan status langganan"
+        )
+
+
+@router.get("/usage")
+async def get_usage_with_limits(current_user: dict = Depends(get_current_user)):
+    """
+    Get current usage vs limits
+    Returns usage data for all tracked resources with percentages
+    """
+    try:
+        user_id = current_user.get("sub")
+        usage_data = await subscription_service.get_usage_with_limits(user_id)
+        return usage_data
+    except Exception as e:
+        logger.error(f"Error getting usage with limits: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal mendapatkan data penggunaan"
+        )
+
+
+@router.post("/check-limit")
+async def check_limit(
+    request: CheckLimitRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Check if user can perform a specific action
+    Returns whether action is allowed and relevant limit info
+    """
+    try:
+        user_id = current_user.get("sub")
+        result = await subscription_service.check_limit(user_id, request.action)
+        return result
+    except Exception as e:
+        logger.error(f"Error checking limit: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal menyemak had"
+        )
+
+
+# =============================================================================
+# Subscription Plans Endpoints
+# =============================================================================
+
+@router.get("/plans")
+async def get_subscription_plans():
+    """
+    Get all available subscription plans with pricing and features
+    """
+    try:
+        plans = await subscription_service.get_subscription_plans()
+
+        # Add feature descriptions
+        feature_descriptions = {
+            "starter": [
+                "1 laman web",
+                "20 item menu",
+                "1 penjanaan AI hero",
+                "5 imej AI",
+                "1 zon penghantaran",
+                "Subdomain",
+                "Semua integrasi",
+                "Sokongan e-mel"
+            ],
+            "basic": [
+                "5 laman web",
+                "Item menu tanpa had",
+                "10 penjanaan AI hero/bulan",
+                "30 imej AI/bulan",
+                "5 zon penghantaran",
+                "Subdomain tersuai",
+                "AI keutamaan",
+                "Analitik",
+                "Pembayaran QR",
+                "Borang hubungi",
+                "Sokongan keutamaan"
+            ],
+            "pro": [
+                "Laman web tanpa had",
+                "Item menu tanpa had",
+                "Penjanaan AI tanpa had",
+                "Imej AI tanpa had",
+                "Zon penghantaran tanpa had",
+                "10 rider (GPS tracking)",
+                "Domain tersuai",
+                "AI lanjutan",
+                "White-label",
+                "Akses API"
+            ]
+        }
+
+        # Enhance plans with features
+        enhanced_plans = []
+        for plan in plans:
+            plan_name = plan.get("plan_name", "starter")
+            enhanced_plans.append({
+                **plan,
+                "feature_list": feature_descriptions.get(plan_name, [])
+            })
+
+        return {"plans": enhanced_plans}
+    except Exception as e:
+        logger.error(f"Error getting plans: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal mendapatkan pelan langganan"
+        )
+
+
+@router.post("/upgrade")
+async def upgrade_subscription(
+    request: UpgradeRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Create payment for subscription upgrade
+    Returns ToyyibPay payment URL
+    """
+    try:
+        user_id = current_user.get("sub")
+        email = current_user.get("email")
+        new_plan = request.new_plan.lower()
+
+        # Validate plan
+        valid_plans = ["starter", "basic", "pro"]
+        if new_plan not in valid_plans:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Pelan tidak sah: {new_plan}"
+            )
+
+        # Get current subscription
+        current_sub = await subscription_service.get_subscription_status(user_id)
+        current_plan = current_sub.get("plan_name", "starter")
+
+        # Check if upgrade is valid
+        plan_order = {"starter": 1, "basic": 2, "pro": 3}
+        if plan_order.get(new_plan, 0) <= plan_order.get(current_plan, 0):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Anda hanya boleh naik taraf ke pelan yang lebih tinggi"
+            )
+
+        price = subscription_service.TIER_PRICES.get(new_plan, 29.00)
+
+        # Get user details
+        user_data = await supabase_service.get_user_by_id(user_id)
+        user_phone = user_data.get("phone", "0123456789") if user_data else "0123456789"
+        customer_name = user_data.get("full_name", email.split("@")[0]) if user_data else "Customer"
+
+        # Create ToyyibPay bill
+        external_ref = f"UPGRADE_{new_plan}_{user_id[:16]}"
+
+        result = toyyibpay_service.create_bill(
+            bill_name=f"BinaApp {new_plan.upper()} Plan Upgrade",
+            bill_description=f"Naik taraf ke pelan {new_plan.upper()}",
+            bill_amount=price,
+            bill_email=email,
+            bill_phone=user_phone,
+            bill_name_customer=customer_name,
+            bill_external_reference_no=external_ref
+        )
+
+        if result.get("success"):
+            bill_code = result.get("bill_code")
+
+            # Store transaction record
+            try:
+                await supabase_service.insert_record("transactions", {
+                    "user_id": user_id,
+                    "transaction_type": "subscription",
+                    "item_description": f"Upgrade to {new_plan.upper()} Plan",
+                    "amount": price,
+                    "toyyibpay_bill_code": bill_code,
+                    "payment_status": "pending",
+                    "metadata": {"plan": new_plan, "previous_plan": current_plan}
+                })
+            except Exception as db_error:
+                logger.warning(f"Could not store transaction: {db_error}")
+
+            return {
+                "success": True,
+                "payment_url": result.get("payment_url"),
+                "bill_code": bill_code,
+                "new_plan": new_plan,
+                "amount": price
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Gagal mencipta pembayaran")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error upgrading subscription: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal memproses naik taraf"
+        )
+
+
+@router.post("/renew")
+async def renew_subscription(current_user: dict = Depends(get_current_user)):
+    """
+    Create payment for subscription renewal
+    Returns ToyyibPay payment URL
+    """
+    try:
+        user_id = current_user.get("sub")
+        email = current_user.get("email")
+
+        # Get current subscription
+        sub_status = await subscription_service.get_subscription_status(user_id)
+        plan_name = sub_status.get("plan_name", "starter")
+        price = subscription_service.TIER_PRICES.get(plan_name, 5.00)
+
+        # Get user details
+        user_data = await supabase_service.get_user_by_id(user_id)
+        user_phone = user_data.get("phone", "0123456789") if user_data else "0123456789"
+        customer_name = user_data.get("full_name", email.split("@")[0]) if user_data else "Customer"
+
+        # Create ToyyibPay bill
+        external_ref = f"RENEW_{plan_name}_{user_id[:16]}"
+
+        result = toyyibpay_service.create_bill(
+            bill_name=f"BinaApp {plan_name.upper()} Plan Renewal",
+            bill_description=f"Perbaharui langganan {plan_name.upper()}",
+            bill_amount=price,
+            bill_email=email,
+            bill_phone=user_phone,
+            bill_name_customer=customer_name,
+            bill_external_reference_no=external_ref
+        )
+
+        if result.get("success"):
+            bill_code = result.get("bill_code")
+
+            # Store transaction record
+            try:
+                await supabase_service.insert_record("transactions", {
+                    "user_id": user_id,
+                    "transaction_type": "renewal",
+                    "item_description": f"{plan_name.upper()} Plan Renewal",
+                    "amount": price,
+                    "toyyibpay_bill_code": bill_code,
+                    "payment_status": "pending",
+                    "metadata": {"plan": plan_name}
+                })
+            except Exception as db_error:
+                logger.warning(f"Could not store transaction: {db_error}")
+
+            return {
+                "success": True,
+                "payment_url": result.get("payment_url"),
+                "bill_code": bill_code,
+                "amount": price,
+                "plan": plan_name
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Gagal mencipta pembayaran")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error renewing subscription: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal memproses pembaharuan"
+        )
+
+
+# =============================================================================
+# Addon Endpoints
+# =============================================================================
+
+@router.get("/addons/available")
+async def get_available_addons():
+    """
+    Get available addons with pricing
+    """
+    try:
+        addons = [
+            {
+                "type": "ai_image",
+                "name": "Imej AI",
+                "description": "Jana 1 imej AI untuk menu",
+                "price": 0.50
+            },
+            {
+                "type": "ai_hero",
+                "name": "Penjanaan AI Hero",
+                "description": "Jana 1 bahagian hero AI",
+                "price": 2.00
+            },
+            {
+                "type": "website",
+                "name": "Laman Web Tambahan",
+                "description": "Tambah 1 slot laman web",
+                "price": 5.00
+            },
+            {
+                "type": "rider",
+                "name": "Rider Tambahan",
+                "description": "Tambah 1 slot rider",
+                "price": 3.00
+            },
+            {
+                "type": "zone",
+                "name": "Zon Penghantaran Tambahan",
+                "description": "Tambah 1 zon penghantaran",
+                "price": 2.00
+            }
+        ]
+
+        return {"addons": addons}
+    except Exception as e:
+        logger.error(f"Error getting addons: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal mendapatkan senarai addon"
+        )
+
+
+@router.get("/addons/credits")
+async def get_addon_credits(current_user: dict = Depends(get_current_user)):
+    """
+    Get user's available addon credits
+    """
+    try:
+        user_id = current_user.get("sub")
+        credits = await subscription_service.get_available_addon_credits(user_id)
+        return {"credits": credits}
+    except Exception as e:
+        logger.error(f"Error getting addon credits: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal mendapatkan kredit addon"
+        )
+
+
+@router.post("/addons/purchase")
+async def purchase_addon(
+    request: AddonPurchaseRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Purchase addon credits
+    Returns ToyyibPay payment URL
+    """
+    try:
+        user_id = current_user.get("sub")
+        email = current_user.get("email")
+        addon_type = request.addon_type
+        quantity = max(1, request.quantity)
+
+        # Validate addon type
+        if addon_type not in subscription_service.ADDON_PRICES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Jenis addon tidak sah: {addon_type}"
+            )
+
+        unit_price = subscription_service.ADDON_PRICES[addon_type]
+        total_price = unit_price * quantity
+
+        # Get user details
+        user_data = await supabase_service.get_user_by_id(user_id)
+        user_phone = user_data.get("phone", "0123456789") if user_data else "0123456789"
+        customer_name = user_data.get("full_name", email.split("@")[0]) if user_data else "Customer"
+
+        # Addon names in Malay
+        addon_names = {
+            "ai_image": "Imej AI",
+            "ai_hero": "Penjanaan AI Hero",
+            "website": "Laman Web Tambahan",
+            "rider": "Rider Tambahan",
+            "zone": "Zon Penghantaran"
+        }
+
+        addon_name = addon_names.get(addon_type, addon_type)
+
+        # Create ToyyibPay bill
+        external_ref = f"ADDON_{addon_type}_{user_id[:12]}"
+
+        result = toyyibpay_service.create_bill(
+            bill_name=f"BinaApp {addon_name} x{quantity}",
+            bill_description=f"Pembelian {quantity}x {addon_name}",
+            bill_amount=total_price,
+            bill_email=email,
+            bill_phone=user_phone,
+            bill_name_customer=customer_name,
+            bill_external_reference_no=external_ref
+        )
+
+        if result.get("success"):
+            bill_code = result.get("bill_code")
+
+            # Store transaction record
+            try:
+                transaction_records = await supabase_service.insert_record("transactions", {
+                    "user_id": user_id,
+                    "transaction_type": "addon",
+                    "item_description": f"{addon_name} x{quantity}",
+                    "amount": total_price,
+                    "toyyibpay_bill_code": bill_code,
+                    "payment_status": "pending",
+                    "metadata": {
+                        "addon_type": addon_type,
+                        "quantity": quantity,
+                        "unit_price": unit_price
+                    }
+                })
+
+                transaction_id = transaction_records[0].get("transaction_id") if transaction_records else None
+            except Exception as db_error:
+                logger.warning(f"Could not store transaction: {db_error}")
+                transaction_id = None
+
+            return {
+                "success": True,
+                "payment_url": result.get("payment_url"),
+                "bill_code": bill_code,
+                "transaction_id": transaction_id,
+                "addon_type": addon_type,
+                "quantity": quantity,
+                "total_amount": total_price
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Gagal mencipta pembayaran")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error purchasing addon: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal memproses pembelian addon"
+        )
+
+
+@router.post("/addons/use")
+async def use_addon(
+    request: UseAddonRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Use addon credits
+    Called when user performs an action that exceeds their plan limit
+    """
+    try:
+        user_id = current_user.get("sub")
+        addon_type = request.addon_type
+        quantity = max(1, request.quantity)
+
+        # Check available credits
+        credits = await subscription_service.get_available_addon_credits(user_id, addon_type)
+        available = credits.get(addon_type, 0)
+
+        if available < quantity:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Kredit tidak mencukupi. Baki: {available}"
+            )
+
+        # Use credits
+        success_count = 0
+        for _ in range(quantity):
+            if await subscription_service.use_addon_credit(user_id, addon_type):
+                success_count += 1
+
+        if success_count == quantity:
+            return {
+                "success": True,
+                "used": success_count,
+                "remaining": available - success_count
+            }
+        else:
+            return {
+                "success": False,
+                "used": success_count,
+                "remaining": available - success_count,
+                "message": f"Hanya {success_count} daripada {quantity} kredit berjaya digunakan"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error using addon: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal menggunakan kredit addon"
+        )
+
+
+# =============================================================================
+# Transaction History Endpoints
+# =============================================================================
+
+@router.get("/transactions")
+async def get_transactions(
+    current_user: dict = Depends(get_current_user),
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    transaction_type: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    """
+    Get user's transaction history
+    """
+    try:
+        user_id = current_user.get("sub")
+
+        url = f"{settings.SUPABASE_URL}/rest/v1/transactions"
+        params = {
+            "user_id": f"eq.{user_id}",
+            "order": "created_at.desc",
+            "limit": str(limit),
+            "offset": str(offset)
+        }
+
+        if from_date:
+            params["created_at"] = f"gte.{from_date}"
+        if to_date:
+            params["created_at"] = f"lte.{to_date}"
+        if transaction_type and transaction_type != "all":
+            params["transaction_type"] = f"eq.{transaction_type}"
+
+        headers = {
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, params=params)
+
+        if response.status_code == 200:
+            transactions = response.json()
+
+            # Calculate total spent
+            total_spent = sum(
+                t.get("amount", 0) for t in transactions
+                if t.get("payment_status") == "success"
+            )
+
+            return {
+                "transactions": transactions,
+                "total_spent": total_spent,
+                "count": len(transactions)
+            }
+
+        return {"transactions": [], "total_spent": 0, "count": 0}
+
+    except Exception as e:
+        logger.error(f"Error getting transactions: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal mendapatkan sejarah transaksi"
+        )
+
+
+@router.get("/transactions/{transaction_id}")
+async def get_transaction_detail(
+    transaction_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Get transaction detail
+    """
+    try:
+        user_id = current_user.get("sub")
+
+        url = f"{settings.SUPABASE_URL}/rest/v1/transactions"
+        params = {
+            "transaction_id": f"eq.{transaction_id}",
+            "user_id": f"eq.{user_id}"
+        }
+
+        headers = {
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, params=params)
+
+        if response.status_code == 200:
+            records = response.json()
+            if records:
+                return records[0]
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaksi tidak dijumpai"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting transaction detail: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal mendapatkan butiran transaksi"
+        )
