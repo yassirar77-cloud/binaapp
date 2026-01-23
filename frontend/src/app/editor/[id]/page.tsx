@@ -2,8 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { supabase, getCurrentUser, getStoredToken } from '@/lib/supabase';
 import AIEditor from './AIEditor';
+
+// Backend API URL
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
 
 interface Website {
   id: string;
@@ -29,23 +32,54 @@ export default function EditorPage() {
   }, [id]);
 
   async function loadWebsite() {
-    if (!supabase) {
-      setError('Supabase tidak tersedia');
-      setLoading(false);
-      return;
-    }
-
     try {
       setLoading(true);
 
-      // Check if user is authenticated
+      // First check for custom BinaApp token
+      const customToken = getStoredToken();
+      const customUser = await getCurrentUser();
+
+      if (customToken && customUser) {
+        console.log('[Editor] ✅ Using custom BinaApp auth');
+
+        // Fetch website using backend API
+        const response = await fetch(`${API_BASE}/api/v1/websites/${id}`, {
+          headers: {
+            'Authorization': `Bearer ${customToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (response.status === 401) {
+          router.push('/login');
+          return;
+        }
+
+        if (response.ok) {
+          const data = await response.json();
+          setWebsite(data);
+          setHtml(data.html_content || '');
+        } else {
+          setError('Website tidak dijumpai');
+          setTimeout(() => router.push('/my-projects'), 2000);
+        }
+        return;
+      }
+
+      // Fallback to Supabase session
+      if (!supabase) {
+        setError('Sila log masuk');
+        router.push('/login');
+        return;
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         router.push('/login');
         return;
       }
 
-      // Fetch website data
+      // Fetch website data using Supabase
       const { data, error } = await supabase
         .from('websites')
         .select('*')
