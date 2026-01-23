@@ -1,0 +1,365 @@
+.usage-widget {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e5e7eb;
+}
+
+.usage-widget.compact {
+  padding: 16px;
+}
+
+.usage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.usage-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0;
+}
+
+.plan-badge {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.plan-badge-starter {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+.plan-badge-basic {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.plan-badge-pro {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+  color: white;
+}
+
+.expired-alert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  color: #dc2626;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.alert-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #dc2626;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.usage-items {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.usage-bar-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.usage-bar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.usage-label {
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+}
+
+.usage-value {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.usage-bar-track {
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.usage-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.subscription-info {
+  padding-top: 12px;
+  border-top: 1px solid #e5e7eb;
+  margin-bottom: 16px;
+}
+
+.expiry-date {
+  font-size: 13px;
+  color: #6b7280;
+  margin: 0 0 4px 0;
+}
+
+.expiry-date strong {
+  color: #374151;
+}
+
+.days-warning {
+  font-size: 13px;
+  color: #f59e0b;
+  font-weight: 500;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.days-warning::before {
+  content: '';
+}
+
+.action-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.btn-upgrade,
+.btn-renew,
+.btn-renew-secondary {
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-upgrade {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+}
+
+.btn-upgrade:hover {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  transform: translateY(-1px);
+}
+
+.btn-renew {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+}
+
+.btn-renew:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  transform: translateY(-1px);
+}
+
+.btn-renew-secondary {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.btn-renew-secondary:hover {
+  background: #e5e7eb;
+}
+
+/* Loading state */
+.usage-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  gap: 12px;
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.usage-loading span {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+/* Error state */
+.usage-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 30px 20px;
+  gap: 12px;
+  text-align: center;
+}
+
+.usage-error p {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0;
+}
+
+.usage-error button {
+  padding: 8px 16px;
+  background: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.usage-error button:hover {
+  background: #2563eb;
+}
+
+/* Compact mode adjustments */
+.usage-widget.compact .usage-header h3 {
+  font-size: 14px;
+}
+
+.usage-widget.compact .usage-items {
+  gap: 8px;
+}
+
+.usage-widget.compact .usage-label {
+  font-size: 12px;
+}
+
+.usage-widget.compact .usage-value {
+  font-size: 11px;
+}
+
+.usage-widget.compact .usage-bar-track {
+  height: 4px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .usage-widget {
+    background: #1f2937;
+    border-color: #374151;
+  }
+
+  .usage-header h3 {
+    color: #f9fafb;
+  }
+
+  .usage-label {
+    color: #d1d5db;
+  }
+
+  .usage-value {
+    color: #9ca3af;
+  }
+
+  .usage-bar-track {
+    background: #374151;
+  }
+
+  .subscription-info {
+    border-top-color: #374151;
+  }
+
+  .expiry-date {
+    color: #9ca3af;
+  }
+
+  .expiry-date strong {
+    color: #d1d5db;
+  }
+
+  .btn-renew-secondary {
+    background: #374151;
+    color: #d1d5db;
+    border-color: #4b5563;
+  }
+
+  .btn-renew-secondary:hover {
+    background: #4b5563;
+  }
+
+  .plan-badge-starter {
+    background: #374151;
+    color: #9ca3af;
+  }
+}
+
+/* Mobile responsiveness */
+@media (max-width: 480px) {
+  .usage-widget {
+    padding: 16px;
+    border-radius: 10px;
+  }
+
+  .usage-header h3 {
+    font-size: 15px;
+  }
+
+  .plan-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+  }
+
+  .usage-items {
+    gap: 10px;
+  }
+
+  .action-buttons {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .action-buttons button {
+    flex: 1;
+    min-width: 120px;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+}
