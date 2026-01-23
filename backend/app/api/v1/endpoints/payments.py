@@ -388,6 +388,7 @@ async def create_subscription_payment(
     Create a ToyyibPay bill for subscription upgrade
     """
     try:
+        # Validate tier
         if tier not in TIER_PRICES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -395,11 +396,45 @@ async def create_subscription_payment(
             )
 
         user_id = request.user_id
+
+        # Validate user_id is not empty
+        if not user_id or not user_id.strip():
+            logger.error("Subscription payment failed: user_id is empty")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User ID is required. Please log in again."
+            )
+
+        user_id = user_id.strip()
         price = TIER_PRICES[tier]
 
-        # Get user email from database
+        logger.info(f"Creating subscription payment: tier={tier}, user_id={user_id[:8]}...")
+
+        # Get user email from database (try multiple sources)
+        email = None
+
+        # Try to get from users table
         user_data = await supabase_service.get_user_by_id(user_id)
-        email = user_data.get("email", f"user{user_id}@binaapp.com") if user_data else f"user{user_id}@binaapp.com"
+        if user_data and user_data.get("email"):
+            email = user_data.get("email")
+            logger.info(f"Found email from users table: {email}")
+
+        # Fallback: try to get from auth system
+        if not email:
+            auth_user = await supabase_service.get_user(user_id)
+            if auth_user and hasattr(auth_user, 'email'):
+                email = auth_user.email
+                logger.info(f"Found email from auth: {email}")
+
+        # Final fallback: generate email
+        if not email:
+            email = f"user{user_id[:8]}@binaapp.my"
+            logger.warning(f"Using generated email for user {user_id[:8]}: {email}")
+
+        # Truncate external reference to avoid ToyyibPay limits (max 50 chars)
+        external_ref = f"SUB_{tier}_{user_id[:20]}"
+
+        logger.info(f"Creating ToyyibPay bill: email={email}, ref={external_ref}")
 
         # Create ToyyibPay bill
         result = toyyibpay_service.create_bill(
@@ -409,45 +444,59 @@ async def create_subscription_payment(
             bill_email=email,
             bill_phone="",
             bill_name_customer=email,
-            bill_external_reference_no=f"SUB_{tier}_{user_id}"
+            bill_external_reference_no=external_ref
         )
 
         if result.get("success"):
-            # Store payment record in database
-            payment_record = await supabase_service.insert_record("payments", {
-                "user_id": str(user_id),
-                "bill_code": result.get("bill_code"),
-                "amount": price,
-                "type": "subscription",
-                "tier": tier,
-                "status": "pending"
-            })
+            bill_code = result.get("bill_code")
+            logger.info(f"ToyyibPay bill created: {bill_code}")
 
-            payment_id = payment_record[0]["id"] if payment_record else result.get("bill_code")
+            # Try to store payment record in database (optional - don't fail if table doesn't exist)
+            payment_id = bill_code
+            try:
+                payment_record = await supabase_service.insert_record("payments", {
+                    "user_id": str(user_id),
+                    "bill_code": bill_code,
+                    "amount": price,
+                    "type": "subscription",
+                    "tier": tier,
+                    "status": "pending"
+                })
+                if payment_record and len(payment_record) > 0:
+                    payment_id = payment_record[0].get("id", bill_code)
+                    logger.info(f"Payment record stored: {payment_id}")
+                else:
+                    logger.warning("Payment record not stored (payments table may not exist)")
+            except Exception as db_error:
+                logger.warning(f"Could not store payment record: {db_error}")
+                # Continue anyway - payment can still proceed
 
-            logger.info(f"Subscription payment created for user {user_id}: {tier} - {result.get('bill_code')}")
+            logger.info(f"Subscription payment created for user {user_id[:8]}: {tier} - {bill_code}")
 
             return {
                 "success": True,
                 "payment_id": payment_id,
-                "bill_code": result.get("bill_code"),
+                "bill_code": bill_code,
                 "payment_url": result.get("payment_url"),
                 "tier": tier,
                 "amount": price
             }
         else:
+            error_msg = result.get("error", "Failed to create payment")
+            error_details = result.get("details", "")
+            logger.error(f"ToyyibPay bill creation failed: {error_msg} | Details: {error_details}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to create payment")
+                detail=f"{error_msg}"
             )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error creating subscription payment: {e}")
+        logger.error(f"Error creating subscription payment: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create subscription payment"
+            detail=f"Failed to create subscription payment: {str(e)}"
         )
 
 
@@ -463,18 +512,45 @@ async def purchase_addon(
         addon_type = request.addon_type
         quantity = request.quantity
 
+        # Validate user_id
+        if not user_id or not user_id.strip():
+            logger.error("Addon purchase failed: user_id is empty")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User ID is required. Please log in again."
+            )
+
+        user_id = user_id.strip()
+
         if addon_type not in ADDON_PRICES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid addon type: {addon_type}"
             )
 
-        # Get user email from database
+        logger.info(f"Creating addon purchase: type={addon_type}, qty={quantity}, user={user_id[:8]}...")
+
+        # Get user email from database (try multiple sources)
+        email = None
+
         user_data = await supabase_service.get_user_by_id(user_id)
-        email = user_data.get("email", f"user{user_id}@binaapp.com") if user_data else f"user{user_id}@binaapp.com"
+        if user_data and user_data.get("email"):
+            email = user_data.get("email")
+
+        if not email:
+            auth_user = await supabase_service.get_user(user_id)
+            if auth_user and hasattr(auth_user, 'email'):
+                email = auth_user.email
+
+        if not email:
+            email = f"user{user_id[:8]}@binaapp.my"
+            logger.warning(f"Using generated email for addon purchase: {email}")
 
         unit_price = ADDON_PRICES[addon_type]
         total_price = unit_price * quantity
+
+        # Truncate external reference
+        external_ref = f"ADDON_{addon_type}_{user_id[:16]}"
 
         # Create ToyyibPay bill
         result = toyyibpay_service.create_bill(
@@ -484,47 +560,57 @@ async def purchase_addon(
             bill_email=email,
             bill_phone="",
             bill_name_customer=email,
-            bill_external_reference_no=f"ADDON_{addon_type}_{user_id}"
+            bill_external_reference_no=external_ref
         )
 
         if result.get("success"):
-            # Store addon purchase record
-            addon_record = await supabase_service.insert_record("addon_purchases", {
-                "user_id": str(user_id),
-                "bill_code": result.get("bill_code"),
-                "addon_type": addon_type,
-                "quantity": quantity,
-                "amount": total_price,
-                "status": "pending"
-            })
+            bill_code = result.get("bill_code")
+            logger.info(f"ToyyibPay addon bill created: {bill_code}")
 
-            addon_id = addon_record[0]["id"] if addon_record else result.get("bill_code")
+            # Try to store addon purchase record (optional)
+            addon_id = bill_code
+            try:
+                addon_record = await supabase_service.insert_record("addon_purchases", {
+                    "user_id": str(user_id),
+                    "bill_code": bill_code,
+                    "addon_type": addon_type,
+                    "quantity": quantity,
+                    "amount": total_price,
+                    "status": "pending"
+                })
+                if addon_record and len(addon_record) > 0:
+                    addon_id = addon_record[0].get("id", bill_code)
+            except Exception as db_error:
+                logger.warning(f"Could not store addon purchase record: {db_error}")
 
-            logger.info(f"Addon purchase created for user {user_id}: {addon_type} x{quantity}")
+            logger.info(f"Addon purchase created for user {user_id[:8]}: {addon_type} x{quantity}")
 
             return {
                 "success": True,
                 "addon_id": addon_id,
-                "payment_id": result.get("bill_code"),
-                "bill_code": result.get("bill_code"),
+                "payment_id": bill_code,
+                "bill_code": bill_code,
                 "payment_url": result.get("payment_url"),
                 "addon_type": addon_type,
                 "quantity": quantity,
                 "amount": total_price
             }
         else:
+            error_msg = result.get("error", "Failed to create payment")
+            error_details = result.get("details", "")
+            logger.error(f"ToyyibPay addon bill creation failed: {error_msg} | Details: {error_details}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to create payment")
+                detail=f"{error_msg}"
             )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error creating addon purchase: {e}")
+        logger.error(f"Error creating addon purchase: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create addon purchase"
+            detail=f"Failed to create addon purchase: {str(e)}"
         )
 
 
