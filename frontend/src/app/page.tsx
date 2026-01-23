@@ -8,14 +8,13 @@ import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Sparkles, Zap, Globe, Smartphone } from 'lucide-react'
-import { supabase, signOut } from '@/lib/supabase'
-import { User } from '@supabase/supabase-js'
+import { signOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
 import { UpgradeModal } from '@/components/UpgradeModal'
 
 function LandingPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [targetTier, setTargetTier] = useState<'starter' | 'basic' | 'pro'>('basic')
@@ -38,16 +37,18 @@ function LandingPageContent() {
   }, [loading, user, searchParams])
 
   async function checkUser() {
-    if (!supabase) {
-      setLoading(false)
-      return
-    }
-
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      setUser(user)
+      // Check for stored auth token first (custom backend auth)
+      const token = getStoredToken()
+      if (token) {
+        const currentUser = await getCurrentUser()
+        setUser(currentUser)
+      } else {
+        setUser(null)
+      }
     } catch (error) {
       console.error('Error checking user:', error)
+      setUser(null)
     } finally {
       setLoading(false)
     }
