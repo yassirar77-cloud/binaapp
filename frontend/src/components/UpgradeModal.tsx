@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { getCurrentUser, getStoredToken } from '@/lib/supabase';
 import './UpgradeModal.css';
 
 interface UpgradeModalProps {
@@ -51,8 +52,21 @@ export function UpgradeModal({ show, currentTier, targetTier, onClose }: Upgrade
     setLoading(true);
 
     try {
-      const userId = localStorage.getItem('user_id');
-      const token = localStorage.getItem('token');
+      // Get user and token from BinaApp auth system
+      const user = await getCurrentUser();
+      const token = getStoredToken();
+
+      if (!user?.id) {
+        alert('Sila log masuk semula untuk meneruskan pembayaran.');
+        setLoading(false);
+        return;
+      }
+
+      if (!token) {
+        alert('Sesi anda telah tamat. Sila log masuk semula.');
+        setLoading(false);
+        return;
+      }
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/v1/payments/subscribe/${targetTier}`, {
         method: 'POST',
@@ -61,7 +75,7 @@ export function UpgradeModal({ show, currentTier, targetTier, onClose }: Upgrade
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          user_id: userId || ''
+          user_id: user.id
         })
       });
 

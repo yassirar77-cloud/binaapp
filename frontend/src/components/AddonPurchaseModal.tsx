@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { getCurrentUser, getStoredToken } from '@/lib/supabase';
 import './AddonPurchaseModal.css';
 
 interface Addon {
@@ -27,8 +28,21 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
     setLoading(true);
 
     try {
-      const userId = localStorage.getItem('user_id');
-      const token = localStorage.getItem('token');
+      // Get user and token from BinaApp auth system
+      const user = await getCurrentUser();
+      const token = getStoredToken();
+
+      if (!user?.id) {
+        alert('Sila log masuk semula untuk meneruskan pembayaran.');
+        setLoading(false);
+        return;
+      }
+
+      if (!token) {
+        alert('Sesi anda telah tamat. Sila log masuk semula.');
+        setLoading(false);
+        return;
+      }
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/v1/payments/addon/purchase`, {
         method: 'POST',
@@ -37,7 +51,7 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          user_id: userId || '',
+          user_id: user.id,
           addon_type: addon.type,
           quantity: quantity
         })
