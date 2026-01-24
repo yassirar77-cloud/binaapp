@@ -49,6 +49,7 @@ from app.utils.whatsapp import (
     notify_rider_assigned,
     notify_customer_status_update,
 )
+from app.middleware.subscription_guard import SubscriptionGuard
 
 router = APIRouter(prefix="/delivery", tags=["Delivery System"])
 bearer_scheme = HTTPBearer()
@@ -1270,9 +1271,15 @@ async def create_rider(
     rider: RiderCreateBusiness,
     current_user: dict = Depends(get_current_user),
     supabase: Client = Depends(get_rider_admin_client),
+    _limit_check: dict = Depends(SubscriptionGuard.check_limit("add_rider")),
 ):
     """
     Create a rider for a website (Admin endpoint).
+
+    Subscription limits enforced:
+    - Starter: 0 riders (not allowed)
+    - Basic: 0 riders (not allowed)
+    - Pro: 10 riders
 
     Uses service role when available and falls back to RLS with user JWT.
     This keeps rider creation working even when the service role key is missing.
@@ -1320,6 +1327,18 @@ async def create_rider(
             logger.info(f"[Rider CREATE] ✅ Verification successful - rider exists in database")
         else:
             logger.warning(f"[Rider CREATE] ⚠️ Verification failed - rider not found immediately after creation")
+
+        # Increment usage counter for rider creation
+        try:
+            from app.services.subscription_service import subscription_service
+            if _limit_check.get("using_addon"):
+                await subscription_service.use_addon_credit(user_id, "rider")
+                logger.info(f"[Rider CREATE] Used addon credit for rider: {user_id}")
+            else:
+                await subscription_service.increment_usage(user_id, "add_rider")
+                logger.info(f"[Rider CREATE] Incremented rider usage counter for user: {user_id}")
+        except Exception as usage_error:
+            logger.warning(f"[Rider CREATE] Failed to increment rider usage counter: {usage_error}")
 
         return convert_db_row_to_dict(created_rider)
     except HTTPException:
@@ -1961,13 +1980,20 @@ async def create_website_rider(
     website_id: str,
     rider: RiderCreateBusiness,
     supabase: Client = Depends(get_supabase_client),
+    current_user: dict = Depends(get_current_user),
+    _limit_check: dict = Depends(SubscriptionGuard.check_limit("add_rider")),
 ):
     """
-    Create a rider for a website (public endpoint for simple integration).
+    Create a rider for a website.
 
-    Phase 1: No rider app auth required.
+    Subscription limits enforced:
+    - Starter: 0 riders (not allowed)
+    - Basic: 0 riders (not allowed)
+    - Pro: 10 riders
     """
     try:
+        user_id = current_user.get("sub") or current_user.get("id")
+
         data = rider.dict()
         data["website_id"] = website_id
 
@@ -1983,6 +2009,17 @@ async def create_website_rider(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to create rider"
             )
+
+        # Increment usage counter for rider creation
+        try:
+            from app.services.subscription_service import subscription_service
+            if _limit_check.get("using_addon"):
+                await subscription_service.use_addon_credit(user_id, "rider")
+            else:
+                await subscription_service.increment_usage(user_id, "add_rider")
+        except Exception as usage_error:
+            logger.warning(f"Failed to increment rider usage counter: {usage_error}")
+
         return convert_db_row_to_dict(resp.data[0])
     except HTTPException:
         raise

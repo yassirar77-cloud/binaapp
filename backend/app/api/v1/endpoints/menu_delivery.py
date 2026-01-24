@@ -16,6 +16,7 @@ from app.models.schemas import (
 from app.core.supabase import get_supabase_client
 from app.core.security import get_current_user
 from app.services.ai_service import ai_service
+from app.middleware.subscription_guard import SubscriptionGuard
 
 router = APIRouter()
 
@@ -39,18 +40,25 @@ class GenerateFoodImageResponse(BaseModel):
 @router.post("/generate-food-image", response_model=GenerateFoodImageResponse)
 async def generate_food_image(
     request: GenerateFoodImageRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    _limit_check: dict = Depends(SubscriptionGuard.check_limit("generate_ai_image"))
 ):
     """
     Generate AI image for a food item using Stability AI.
     The image is uploaded to Cloudinary and the URL is returned.
+
+    Subscription limits enforced:
+    - Starter: 5 images/month
+    - Basic: 30 images/month
+    - Pro: Unlimited
 
     Example:
     - Input: "Nasi Kandar Special" → Generates realistic nasi kandar image
     - Input: "Ayam Goreng Berempah" → Generates Malaysian fried chicken image
     """
     try:
-        logger.info(f"🎨 User {current_user['email']} requesting image for: {request.food_name}")
+        user_id = current_user.get("sub") or current_user.get("id")
+        logger.info(f"🎨 User {current_user.get('email', user_id)} requesting image for: {request.food_name}")
 
         # Generate AI image
         image_url = await ai_service.generate_food_image(request.food_name)
@@ -60,6 +68,18 @@ async def generate_food_image(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to generate image. Please try again or contact support."
             )
+
+        # Increment usage counter for AI image generation
+        try:
+            from app.services.subscription_service import subscription_service
+            if _limit_check.get("using_addon"):
+                await subscription_service.use_addon_credit(user_id, "ai_image")
+                logger.info(f"Used addon credit for AI image: {user_id}")
+            else:
+                await subscription_service.increment_usage(user_id, "generate_ai_image")
+                logger.info(f"Incremented AI image usage counter for user: {user_id}")
+        except Exception as usage_error:
+            logger.warning(f"Failed to increment usage counter: {usage_error}")
 
         return GenerateFoodImageResponse(
             image_url=image_url,
@@ -206,18 +226,26 @@ async def create_menu_item(
     item: MenuItemCreate,
     auto_generate_image: bool = True,
     current_user: dict = Depends(get_current_user),
-    supabase: Client = Depends(get_supabase_client)
+    supabase: Client = Depends(get_supabase_client),
+    _limit_check: dict = Depends(SubscriptionGuard.check_limit("add_menu_item"))
 ):
     """
     Create a new menu item
+
+    Subscription limits enforced:
+    - Starter: 20 menu items
+    - Basic: Unlimited
+    - Pro: Unlimited
 
     If auto_generate_image=True (default) and no image_url is provided,
     the system will automatically generate an AI image using Stability AI.
     """
     try:
+        user_id = current_user.get("sub") or current_user.get("id")
+
         # Verify ownership
         website_check = supabase.table("websites").select("user_id").eq("id", website_id).execute()
-        if not website_check.data or website_check.data[0]["user_id"] != current_user["id"]:
+        if not website_check.data or website_check.data[0]["user_id"] != user_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
         # Auto-generate image if not provided
@@ -239,6 +267,14 @@ async def create_menu_item(
 
         if not result.data:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create item")
+
+        # Increment usage counter for menu item creation
+        try:
+            from app.services.subscription_service import subscription_service
+            await subscription_service.increment_usage(user_id, "add_menu_item")
+            logger.info(f"Incremented menu item usage counter for user: {user_id}")
+        except Exception as usage_error:
+            logger.warning(f"Failed to increment menu item usage counter: {usage_error}")
 
         return result.data[0]
     except HTTPException:
@@ -383,13 +419,23 @@ async def create_delivery_zone(
     website_id: str,
     zone: DeliveryZoneCreate,
     current_user: dict = Depends(get_current_user),
-    supabase: Client = Depends(get_supabase_client)
+    supabase: Client = Depends(get_supabase_client),
+    _limit_check: dict = Depends(SubscriptionGuard.check_limit("add_zone"))
 ):
-    """Create a new delivery zone"""
+    """
+    Create a new delivery zone
+
+    Subscription limits enforced:
+    - Starter: 1 zone
+    - Basic: 5 zones
+    - Pro: Unlimited
+    """
     try:
+        user_id = current_user.get("sub") or current_user.get("id")
+
         # Verify ownership
         website_check = supabase.table("websites").select("user_id").eq("id", website_id).execute()
-        if not website_check.data or website_check.data[0]["user_id"] != current_user["id"]:
+        if not website_check.data or website_check.data[0]["user_id"] != user_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
         # Create zone
@@ -398,6 +444,18 @@ async def create_delivery_zone(
 
         if not result.data:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create zone")
+
+        # Increment usage counter for delivery zone creation
+        try:
+            from app.services.subscription_service import subscription_service
+            if _limit_check.get("using_addon"):
+                await subscription_service.use_addon_credit(user_id, "zone")
+                logger.info(f"Used addon credit for delivery zone: {user_id}")
+            else:
+                await subscription_service.increment_usage(user_id, "add_zone")
+                logger.info(f"Incremented delivery zone usage counter for user: {user_id}")
+        except Exception as usage_error:
+            logger.warning(f"Failed to increment delivery zone usage counter: {usage_error}")
 
         return result.data[0]
     except HTTPException:

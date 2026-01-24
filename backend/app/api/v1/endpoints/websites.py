@@ -23,6 +23,7 @@ from app.services.ai_service import ai_service
 from app.services.storage_service import storage_service
 from app.services.templates import TemplateService
 from app.core.config import settings
+from app.middleware.subscription_guard import SubscriptionGuard, check_and_increment_usage, decrement_usage_on_delete
 
 router = APIRouter()
 
@@ -31,10 +32,16 @@ router = APIRouter()
 async def generate_website(
     request: WebsiteGenerationRequest,
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    _limit_check: dict = Depends(SubscriptionGuard.check_limit("create_website"))
 ):
     """
     Generate a new website using AI
+
+    Subscription limits enforced:
+    - Starter: 1 website
+    - Basic: 5 websites
+    - Pro: Unlimited
     """
     try:
         user_id = current_user.get("sub")
@@ -76,6 +83,19 @@ async def generate_website(
         }
 
         website = await supabase_service.create_website(website_data)
+
+        # Increment usage counter for website creation
+        # Check if using addon credit
+        if _limit_check.get("using_addon"):
+            from app.services.subscription_service import subscription_service
+            addon_type = "website"
+            await subscription_service.use_addon_credit(user_id, addon_type)
+            logger.info(f"Used addon credit for website creation: {user_id}")
+        else:
+            # Increment the usage counter
+            from app.services.subscription_service import subscription_service
+            await subscription_service.increment_usage(user_id, "create_website")
+            logger.info(f"Incremented website usage counter for user: {user_id}")
 
         # Generate website in background
         background_tasks.add_task(
@@ -932,6 +952,14 @@ async def delete_website(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=delete_result.get("message", "Failed to delete website from database")
             )
+
+        # Decrement usage counter when website is deleted
+        try:
+            from app.services.subscription_service import subscription_service
+            await subscription_service.decrement_usage(current_user.get("sub"), "delete_website")
+            logger.info(f"Decremented website usage counter for user: {current_user.get('sub')}")
+        except Exception as usage_error:
+            logger.warning(f"Failed to decrement usage counter: {usage_error}")
 
         logger.info(f"✅ Website deleted successfully: {website_id} ({website.get('subdomain')})")
 
