@@ -7,10 +7,13 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Sparkles, Plus, Eye, Edit2, Trash2, ExternalLink, Calendar, Globe } from 'lucide-react'
+import { Sparkles, Plus, Eye, Edit2, Trash2, ExternalLink, Calendar, Globe, CreditCard } from 'lucide-react'
 import { API_BASE_URL } from '@/lib/env'
 import { supabase } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
+import { SubscriptionExpiredBanner } from '@/components/SubscriptionExpiredBanner'
+import { UsageWidget } from '@/components/UsageWidget'
+import { LimitReachedModal } from '@/components/LimitReachedModal'
 
 interface Project {
   id: string
@@ -30,6 +33,14 @@ export default function DashboardPage() {
   const [error, setError] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [showLimitModal, setShowLimitModal] = useState(false)
+  const [limitModalData, setLimitModalData] = useState({
+    resourceType: 'website' as 'website' | 'menu_item' | 'ai_hero' | 'ai_image' | 'zone' | 'rider',
+    currentUsage: 0,
+    limit: 0,
+    canBuyAddon: false,
+    addonPrice: 0
+  })
 
   useEffect(() => {
     loadProjects()
@@ -160,6 +171,9 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Subscription Expired Banner */}
+      <SubscriptionExpiredBanner />
+
       {/* Header */}
       <header className="bg-white border-b sticky top-0 z-40">
         <nav className="container mx-auto px-4 h-16 flex items-center justify-between">
@@ -168,6 +182,10 @@ export default function DashboardPage() {
             <span className="text-xl font-bold">BinaApp</span>
           </Link>
           <div className="flex items-center gap-4">
+            <Link href="/dashboard/billing" className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1">
+              <CreditCard className="w-4 h-4" />
+              Langganan
+            </Link>
             <Link href="/profile" className="text-sm text-gray-600 hover:text-gray-900">
               Profile
             </Link>
@@ -338,6 +356,25 @@ export default function DashboardPage() {
           <Plus className="w-6 h-6" />
         </Link>
       </div>
+
+      {/* Usage Widget Sidebar (Desktop) */}
+      <div className="hidden lg:block fixed right-6 top-24 w-72">
+        <UsageWidget
+          onUpgradeClick={() => router.push('/dashboard/billing')}
+          onRenewClick={() => router.push('/dashboard/billing')}
+        />
+      </div>
+
+      {/* Limit Reached Modal */}
+      <LimitReachedModal
+        show={showLimitModal}
+        onClose={() => setShowLimitModal(false)}
+        resourceType={limitModalData.resourceType}
+        currentUsage={limitModalData.currentUsage}
+        limit={limitModalData.limit}
+        canBuyAddon={limitModalData.canBuyAddon}
+        addonPrice={limitModalData.addonPrice}
+      />
     </div>
   )
 }
