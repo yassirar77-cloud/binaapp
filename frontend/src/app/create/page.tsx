@@ -12,6 +12,7 @@ import MultiDevicePreview from './components/MultiDevicePreview'
 import CodeAnimation from '@/components/CodeAnimation'
 import { UpgradeModal } from '@/components/UpgradeModal'
 import { AddonPurchaseModal } from '@/components/AddonPurchaseModal'
+import { LimitReachedModal } from '@/components/LimitReachedModal'
 import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
 import { supabase, signOut as customSignOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
@@ -138,6 +139,14 @@ export default function CreatePage() {
   // Upgrade/Addon modal states
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [showAddonModal, setShowAddonModal] = useState(false)
+  const [showLimitModal, setShowLimitModal] = useState(false)
+  const [limitModalData, setLimitModalData] = useState<{
+    resourceType: 'website' | 'menu_item' | 'ai_hero' | 'ai_image' | 'zone' | 'rider';
+    currentUsage: number;
+    limit: number;
+    canBuyAddon: boolean;
+    addonPrice?: number;
+  } | null>(null)
   const [selectedAddon, setSelectedAddon] = useState<{
     type: string;
     label: string;
@@ -147,6 +156,7 @@ export default function CreatePage() {
   } | null>(null)
   const [targetTier, setTargetTier] = useState<string>('basic')
   const [currentTier, setCurrentTier] = useState<string>('free')
+  const [limitWarning, setLimitWarning] = useState<string | null>(null)
 
   // Feature selector states
   const [selectedFeatures, setSelectedFeatures] = useState({
@@ -267,6 +277,93 @@ export default function CreatePage() {
     }
   }
 
+  // Check if user can create a website (subscription limit check)
+  async function checkWebsiteLimit(): Promise<boolean> {
+    try {
+      const token = getStoredToken()
+      if (!token) {
+        // Not logged in - allow generation but block publishing later
+        return true
+      }
+
+      const response = await fetch(`${DIRECT_BACKEND_URL}/api/v1/subscription/check-limit`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ action: 'create_website' })
+      })
+
+      const data = await response.json()
+      console.log('[Create] Limit check result:', data)
+
+      if (!response.ok || !data.allowed) {
+        // Show limit reached modal
+        setLimitModalData({
+          resourceType: 'website',
+          currentUsage: data.current_usage || 0,
+          limit: data.limit || 1,
+          canBuyAddon: data.can_buy_addon || false,
+          addonPrice: data.addon_price
+        })
+        setShowLimitModal(true)
+        return false
+      }
+
+      // Show warning if approaching limit
+      if (data.limit && !data.unlimited && data.current_usage >= data.limit * 0.8) {
+        setLimitWarning(`Amaran: Anda telah menggunakan ${data.current_usage}/${data.limit} website.`)
+      } else {
+        setLimitWarning(null)
+      }
+
+      return true
+    } catch (error) {
+      console.error('[Create] Limit check error:', error)
+      // Allow on error (backend will enforce anyway)
+      return true
+    }
+  }
+
+  // Check if user can use AI images
+  async function checkAIImageLimit(): Promise<boolean> {
+    if (imageChoice !== 'ai') return true
+
+    try {
+      const token = getStoredToken()
+      if (!token) return true
+
+      const response = await fetch(`${DIRECT_BACKEND_URL}/api/v1/subscription/check-limit`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ action: 'generate_ai_image' })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok || !data.allowed) {
+        setLimitModalData({
+          resourceType: 'ai_image',
+          currentUsage: data.current_usage || 0,
+          limit: data.limit || 5,
+          canBuyAddon: data.can_buy_addon || false,
+          addonPrice: data.addon_price
+        })
+        setShowLimitModal(true)
+        return false
+      }
+
+      return true
+    } catch (error) {
+      console.error('[Create] AI image limit check error:', error)
+      return true
+    }
+  }
+
   // Handle when a limit is reached - show upgrade or addon modal
   const handleLimitReached = (limitData: {
     addon_option?: { type: string; label: string; price: number; is_recurring?: boolean };
@@ -295,6 +392,18 @@ export default function CreatePage() {
 
   const handleGenerate = async () => {
     if (!description.trim()) return;
+
+    // Check subscription limits before generating
+    const canCreate = await checkWebsiteLimit()
+    if (!canCreate) {
+      return // Modal will be shown by checkWebsiteLimit
+    }
+
+    // Check AI image limits if AI images selected
+    const canUseAI = await checkAIImageLimit()
+    if (!canUseAI) {
+      return
+    }
 
     setLoading(true);
     setError('');
@@ -557,6 +666,13 @@ export default function CreatePage() {
       return
     }
 
+    // Check subscription limits before publishing
+    const canCreate = await checkWebsiteLimit()
+    if (!canCreate) {
+      setShowPublishModal(false)
+      return // Modal will be shown by checkWebsiteLimit
+    }
+
     // First try to get custom BinaApp token
     let accessToken = getStoredToken()
 
@@ -669,6 +785,9 @@ export default function CreatePage() {
                   <Link href="/my-projects" className="text-sm text-gray-600 hover:text-gray-900">
                     Website Saya
                   </Link>
+                  <Link href="/dashboard/billing" className="text-sm text-gray-600 hover:text-gray-900">
+                    💎 Langganan
+                  </Link>
                   <button
                     onClick={handleLogout}
                     className="text-sm text-red-500 hover:text-red-600"
@@ -703,6 +822,27 @@ export default function CreatePage() {
 
         {!generatedHtml && styleVariations.length === 0 ? (
           <div className="max-w-4xl mx-auto">
+            {/* Limit Warning Banner */}
+            {limitWarning && (
+              <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">⚠️</span>
+                  <div className="flex-1">
+                    <p className="text-orange-800 font-medium">{limitWarning}</p>
+                    <p className="text-orange-700 text-sm mt-1">
+                      Naik taraf pelan anda untuk lebih banyak website.
+                    </p>
+                  </div>
+                  <a
+                    href="/dashboard/billing"
+                    className="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors"
+                  >
+                    Naik Taraf
+                  </a>
+                </div>
+              </div>
+            )}
+
             <div style={{ marginBottom: '20px' }}>
               <a href="/menu-designer" style={{
                 display: 'inline-block',
@@ -1761,6 +1901,19 @@ export default function CreatePage() {
         addon={selectedAddon}
         onClose={() => setShowAddonModal(false)}
       />
+
+      {/* Limit Reached Modal */}
+      {limitModalData && (
+        <LimitReachedModal
+          show={showLimitModal}
+          onClose={() => setShowLimitModal(false)}
+          resourceType={limitModalData.resourceType}
+          currentUsage={limitModalData.currentUsage}
+          limit={limitModalData.limit}
+          canBuyAddon={limitModalData.canBuyAddon}
+          addonPrice={limitModalData.addonPrice}
+        />
+      )}
     </div>
   )
 }
