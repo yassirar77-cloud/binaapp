@@ -274,6 +274,7 @@ async def publish_website(
         logger.info("=" * 80)
 
         # CRITICAL: Check subscription limit for authenticated users
+        limit_result = None
         if current_user:
             logger.info("")
             logger.info("🔒 SUBSCRIPTION CHECK: Verifying website limit...")
@@ -434,10 +435,17 @@ async def publish_website(
             db_result = await retry_with_backoff(save_metadata, max_retries=3, initial_delay=1.0)
             logger.info(f"✅ Database record saved successfully: {project_id}")
 
-            # CRITICAL: Increment websites_count for authenticated users
+            # CRITICAL: Track usage for authenticated users (and consume addon if used)
             if current_user:
-                await subscription_service.increment_usage(user_id, "create_website")
-                logger.info(f"📊 Incremented websites_count for user {user_id}")
+                try:
+                    if limit_result and limit_result.get("using_addon"):
+                        await subscription_service.use_addon_credit(user_id, "website")
+                        logger.info(f"🧾 Consumed website addon credit for user {user_id}")
+
+                    await subscription_service.increment_usage(user_id, "create_website")
+                    logger.info(f"📊 Incremented websites_count for user {user_id}")
+                except Exception as usage_err:
+                    logger.warning(f"⚠️ Usage tracking failed for user {user_id}: {usage_err}")
         except Exception as e:
             # CRITICAL FIX: DO NOT silently ignore database errors!
             # Without database record, website won't appear in dashboard

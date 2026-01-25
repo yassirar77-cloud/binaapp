@@ -185,6 +185,23 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Auto-fill invoice_number if missing
+CREATE OR REPLACE FUNCTION transactions_set_invoice_number()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.invoice_number IS NULL OR NEW.invoice_number = '' THEN
+        NEW.invoice_number := generate_invoice_number();
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_transactions_set_invoice_number ON public.transactions;
+CREATE TRIGGER trg_transactions_set_invoice_number
+    BEFORE INSERT ON public.transactions
+    FOR EACH ROW
+    EXECUTE FUNCTION transactions_set_invoice_number();
+
 -- ==========================================================================
 -- SECTION 5: ADDON PURCHASES TABLE
 -- ==========================================================================

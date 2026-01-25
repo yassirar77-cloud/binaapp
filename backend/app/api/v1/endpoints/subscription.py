@@ -230,6 +230,7 @@ async def upgrade_subscription(
 
             # Store transaction record
             try:
+                invoice_number = await subscription_service.generate_invoice_number()
                 await supabase_service.insert_record("transactions", {
                     "user_id": user_id,
                     "transaction_type": "subscription",
@@ -237,6 +238,7 @@ async def upgrade_subscription(
                     "amount": price,
                     "toyyibpay_bill_code": bill_code,
                     "payment_status": "pending",
+                    "invoice_number": invoice_number,
                     "metadata": {"plan": new_plan, "previous_plan": current_plan}
                 })
             except Exception as db_error:
@@ -303,6 +305,7 @@ async def renew_subscription(current_user: dict = Depends(get_current_user)):
 
             # Store transaction record
             try:
+                invoice_number = await subscription_service.generate_invoice_number()
                 await supabase_service.insert_record("transactions", {
                     "user_id": user_id,
                     "transaction_type": "renewal",
@@ -310,6 +313,7 @@ async def renew_subscription(current_user: dict = Depends(get_current_user)):
                     "amount": price,
                     "toyyibpay_bill_code": bill_code,
                     "payment_status": "pending",
+                    "invoice_number": invoice_number,
                     "metadata": {"plan": plan_name}
                 })
             except Exception as db_error:
@@ -466,6 +470,7 @@ async def purchase_addon(
 
             # Store transaction record
             try:
+                invoice_number = await subscription_service.generate_invoice_number()
                 transaction_records = await supabase_service.insert_record("transactions", {
                     "user_id": user_id,
                     "transaction_type": "addon",
@@ -473,6 +478,7 @@ async def purchase_addon(
                     "amount": total_price,
                     "toyyibpay_bill_code": bill_code,
                     "payment_status": "pending",
+                    "invoice_number": invoice_number,
                     "metadata": {
                         "addon_type": addon_type,
                         "quantity": quantity,

@@ -23,7 +23,7 @@ from app.services.ai_service import ai_service
 from app.services.storage_service import storage_service
 from app.services.templates import TemplateService
 from app.core.config import settings
-from app.middleware.subscription_guard import SubscriptionGuard, check_and_increment_usage
+from app.middleware.subscription_guard import SubscriptionGuard
 from app.services.subscription_service import subscription_service
 
 router = APIRouter()
@@ -82,9 +82,17 @@ async def generate_website(
 
         website = await supabase_service.create_website(website_data)
 
-        # CRITICAL: Increment websites_count in usage_limits table
-        await subscription_service.increment_usage(user_id, "create_website")
-        logger.info(f"📊 Incremented websites_count for user {user_id}")
+        # CRITICAL: Track usage + consume addon credit if applicable
+        try:
+            if _limit_check and _limit_check.get("using_addon"):
+                await subscription_service.use_addon_credit(user_id, "website")
+                logger.info(f"🧾 Consumed website addon credit for user {user_id}")
+
+            await subscription_service.increment_usage(user_id, "create_website")
+            logger.info(f"📊 Incremented websites_count for user {user_id}")
+        except Exception as usage_err:
+            # Don't block website creation if usage tracking fails, but log loudly
+            logger.warning(f"⚠️ Usage tracking failed for user {user_id}: {usage_err}")
 
         # Generate website in background
         background_tasks.add_task(
@@ -1167,6 +1175,15 @@ async def delete_website(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=delete_result.get("message", "Failed to delete website from database")
             )
+
+        # Best-effort decrement (keeps counters closer to reality)
+        try:
+            user_id = current_user.get("sub")
+            if user_id:
+                await subscription_service.decrement_usage(user_id, "delete_website")
+                logger.info(f"📉 Decremented websites_count for user {user_id}")
+        except Exception as usage_err:
+            logger.warning(f"⚠️ Usage decrement failed: {usage_err}")
 
         logger.info(f"✅ Website deleted successfully: {website_id} ({website.get('subdomain')})")
 
