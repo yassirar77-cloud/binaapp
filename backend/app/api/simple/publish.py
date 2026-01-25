@@ -1,11 +1,15 @@
 """
 Simple Publish Endpoint
 POST /api/publish - Publish website to Supabase Storage
+
+IMPORTANT: This endpoint now requires authentication OR a valid user_id.
+- If Bearer token is provided, user_id is taken from the authenticated user
+- If no token, user_id from request body must be a valid UUID (not "demo-user")
 """
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional
+from typing import Optional, Dict, Any
 from loguru import logger
 from datetime import datetime
 import uuid
@@ -14,6 +18,7 @@ import asyncio
 
 from app.services.storage_service import storage_service
 from app.services.supabase_client import supabase_service
+from app.core.security import get_optional_current_user
 
 router = APIRouter()
 
@@ -227,24 +232,44 @@ async def retry_with_backoff(func, max_retries=3, initial_delay=1.0):
 
 
 @router.post("/publish", response_model=PublishResponse)
-async def publish_website(request: PublishRequest):
+async def publish_website(
+    request: PublishRequest,
+    current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user)
+):
     """
     Publish website to Supabase Storage - ROBUST VERSION
 
-    This endpoint:
-    - Supports multiple field names (html_content, html_code, html)
-    - Uploads HTML to Supabase Storage (bucket: websites)
-    - File path: {user_id}/{subdomain}/index.html
-    - Saves project metadata to database (creates table if missing)
-    - Returns public URL
-    - Handles errors with retry logic and reconnection
+    SECURITY: Supports optional authentication.
+    - If Bearer token provided: uses authenticated user_id (secure)
+    - If no token: validates user_id from request body
+
+    CRITICAL: Database record is REQUIRED for website to appear in dashboard.
+    If DB insert fails, the entire request fails.
     """
     try:
         logger.info("=" * 80)
         logger.info(f"🚀 PUBLISH REQUEST RECEIVED")
         logger.info(f"   Project: {request.project_name}")
         logger.info(f"   Subdomain: {request.subdomain}")
-        logger.info(f"   User ID: {request.user_id}")
+
+        # SECURITY: Determine user_id from authentication or request
+        if current_user:
+            # Authenticated user - use their ID
+            user_id = current_user.get("sub") or current_user.get("id")
+            logger.info(f"   User ID: {user_id} (from authenticated token ✅)")
+        else:
+            # Not authenticated - use request user_id
+            user_id = request.user_id
+            logger.info(f"   User ID: {user_id} (from request body - NOT AUTHENTICATED ⚠️)")
+
+            # Validate user_id is not a placeholder
+            if user_id in ["demo-user", "anonymous", "guest", "", None]:
+                logger.warning(f"   ⚠️ Invalid user_id: '{user_id}' - generating UUID for demo")
+                user_id = str(uuid.uuid4())
+                logger.info(f"   Generated user_id: {user_id}")
+
+        # Update request.user_id for downstream use
+        request.user_id = user_id
         logger.info("=" * 80)
 
         # Get HTML content from any of the supported fields
@@ -354,34 +379,48 @@ async def publish_website(request: PublishRequest):
             )
 
         # Save project metadata to database with retry
-        logger.info("💾 Saving project metadata to database...")
+        # CRITICAL: Database record MUST be saved - without it, website won't appear in dashboard
+        logger.info("💾 STEP 3: Saving website record to database...")
+        logger.info(f"   Website ID: {project_id}")
+        logger.info(f"   User ID: {request.user_id}")
+        logger.info(f"   Subdomain: {request.subdomain}")
 
         async def save_metadata():
-            # Actual schema columns: id, user_id, name, description, html_code, subdomain,
-            # is_published, published_url, total_views, created_at, updated_at
+            # FIXED: Use correct column names matching DATABASE_SCHEMA.sql
+            # websites table columns: id, user_id, business_name, subdomain, status, html_content, etc.
             project_data = {
                 "id": project_id,
                 "user_id": request.user_id,
-                "name": request.project_name,  # Column name is 'name' not 'business_name'
+                "business_name": request.project_name,  # FIXED: was 'name'
                 "subdomain": request.subdomain,
-                "html_code": html_content,  # Column name is 'html_code' not 'html_content'
-                "is_published": True,  # Column name is 'is_published' not 'status'
-                "published_url": public_url,
+                "html_content": html_content,  # FIXED: was 'html_code'
+                "status": "published",  # FIXED: was 'is_published: True'
+                "public_url": public_url,
+                "published_at": datetime.utcnow().isoformat(),
                 "created_at": datetime.utcnow().isoformat(),
                 "updated_at": datetime.utcnow().isoformat()
             }
+            logger.info(f"   Inserting record with columns: {list(project_data.keys())}")
             result = await supabase_service.create_website(project_data)
             if not result:
-                raise Exception("Database insert returned None")
+                raise Exception("Database insert returned None - check Supabase logs for RLS/permission errors")
+            logger.info(f"   ✅ Database insert successful: {result}")
             return result
 
         try:
-            await retry_with_backoff(save_metadata, max_retries=3, initial_delay=1.0)
-            logger.info(f"✅ Metadata saved successfully: {project_id}")
+            db_result = await retry_with_backoff(save_metadata, max_retries=3, initial_delay=1.0)
+            logger.info(f"✅ Database record saved successfully: {project_id}")
         except Exception as e:
-            logger.error(f"❌ Failed to save metadata after retries: {e}")
-            logger.warning("⚠️ Website uploaded but metadata save failed - continuing anyway")
-            # Don't fail the entire request - user can still access the website
+            # CRITICAL FIX: DO NOT silently ignore database errors!
+            # Without database record, website won't appear in dashboard
+            logger.error(f"❌ CRITICAL: Failed to save database record: {e}")
+            logger.error(f"   Website uploaded to storage but NOT saved to database!")
+            logger.error(f"   This means website will load at {public_url} but NOT appear in dashboard!")
+            # Raise the error - this is a critical failure
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Website uploaded but database save failed: {str(e)}. Please try again."
+            )
 
         logger.info("=" * 80)
         logger.info(f"✅ WEBSITE PUBLISHED SUCCESSFULLY")

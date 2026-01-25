@@ -159,3 +159,51 @@ def generate_api_key() -> str:
     """Generate a new API key"""
     import secrets
     return f"bina_{secrets.token_urlsafe(32)}"
+
+
+# Optional Bearer token security (doesn't throw if missing)
+optional_security = HTTPBearer(auto_error=False)
+
+
+async def get_optional_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security)
+) -> Optional[Dict[str, Any]]:
+    """
+    Get current authenticated user from token, or None if not authenticated.
+
+    Use this for endpoints that support both authenticated and unauthenticated access.
+    """
+    if not credentials:
+        return None
+
+    token = credentials.credentials
+
+    # Try to decode with our custom JWT secret
+    try:
+        payload = decode_access_token(token)
+        user_id = payload.get("sub")
+        if user_id:
+            logger.debug(f"Optional auth: Token verified for user: {user_id}")
+            return payload
+    except Exception:
+        pass
+
+    # Try SUPABASE_JWT_SECRET
+    if settings.SUPABASE_JWT_SECRET:
+        try:
+            payload = jwt.decode(
+                token,
+                settings.SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_aud": False}
+            )
+            user_id = payload.get("sub")
+            if user_id:
+                logger.debug(f"Optional auth: Supabase token verified for user: {user_id}")
+                return payload
+        except JWTError:
+            pass
+
+    # Token present but invalid - return None (don't throw)
+    logger.debug("Optional auth: Invalid token provided, continuing without auth")
+    return None

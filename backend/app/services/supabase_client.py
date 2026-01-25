@@ -245,19 +245,42 @@ class SupabaseService:
         """Insert a record into a table"""
         try:
             url = f"{self.url}/rest/v1/{table}"
-            
+
+            print(f"[DB INSERT] Table: {table}")
+            print(f"[DB INSERT] Columns: {list(data.keys())}")
+
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     url,
                     headers={**self.headers, "Prefer": "return=representation"},
                     json=data
                 )
-            
+
             if response.status_code in [200, 201]:
-                return response.json()
-            return None
+                result = response.json()
+                print(f"✅ [DB INSERT] Success! Inserted into {table}")
+                # Supabase returns an array, extract first element
+                if isinstance(result, list) and len(result) > 0:
+                    return result[0]
+                return result
+            else:
+                # CRITICAL: Log the actual error from Supabase
+                error_text = response.text
+                print(f"❌ [DB INSERT] Failed: {response.status_code}")
+                print(f"❌ [DB INSERT] Error: {error_text}")
+                print(f"❌ [DB INSERT] Table: {table}, Data keys: {list(data.keys())}")
+                # Check for common issues
+                if "violates row-level security" in error_text.lower():
+                    print(f"❌ [DB INSERT] RLS VIOLATION - Check user_id and auth token")
+                if "violates foreign key constraint" in error_text.lower():
+                    print(f"❌ [DB INSERT] FOREIGN KEY ERROR - user_id may not exist in auth.users")
+                if "duplicate key" in error_text.lower():
+                    print(f"❌ [DB INSERT] DUPLICATE KEY - Record already exists")
+                return None
         except Exception as e:
-            print(f"❌ Insert error: {str(e)}")
+            print(f"❌ [DB INSERT] Exception: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None
     
     async def select_records(self, table: str, filters: Optional[Dict[str, Any]] = None) -> Optional[list]:
