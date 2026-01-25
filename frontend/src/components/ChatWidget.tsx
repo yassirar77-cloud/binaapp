@@ -1,13 +1,18 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 
 interface Message {
     role: 'user' | 'assistant';
     content: string;
 }
 
+// Routes where BinaBot should NOT appear (customer-facing pages with their own chat)
+const HIDDEN_ROUTES = ['/delivery'];
+
 export default function ChatWidget() {
+    const pathname = usePathname();
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<Message[]>([
         {
@@ -18,6 +23,13 @@ export default function ChatWidget() {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    // Don't render on customer-facing routes that have their own chat widget
+    const shouldHide = HIDDEN_ROUTES.some(route => pathname?.startsWith(route));
+
+    if (shouldHide) {
+        return null;
+    }
 
     // Auto scroll to bottom
     useEffect(() => {
