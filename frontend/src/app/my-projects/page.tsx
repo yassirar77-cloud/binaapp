@@ -179,6 +179,9 @@ export default function MyProjectsPage() {
             <Link href="/create" className="text-sm text-gray-600 hover:text-gray-900">
               Bina Website
             </Link>
+            <Link href="/dashboard/billing" className="text-sm text-gray-600 hover:text-gray-900">
+              💎 Langganan
+            </Link>
             <button
               onClick={handleLogout}
               className="text-sm text-red-500 hover:text-red-600"
