@@ -1301,7 +1301,7 @@ function handleContactSubmit(e) {{
             <div id="rider-map-container" style="display:none;background:#f9fafb;padding:16px;border-radius:12px;margin-bottom:16px;border:2px solid #e0e7ff;">
                 <h4 style="font-weight:600;margin:0 0 12px 0;display:flex;align-items:center;gap:8px;justify-content:space-between;">
                     <span>🗺️ Lokasi Rider</span>
-                    <button onclick="toggleMapSize()" style="background:#3b82f6;color:white;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;">Expand</button>
+                    <button onclick="toggleMapSize()" style="background:#ea580c;color:white;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;">Expand</button>
                 </h4>
                 <div id="rider-map" style="width:100%;height:250px;border-radius:12px;"></div>
                 <p style="font-size:12px;color:#6b7280;margin:8px 0 0 0;text-align:center;" id="map-last-update">Menunggu lokasi rider...</p>
@@ -1310,8 +1310,8 @@ function handleContactSubmit(e) {{
             <!-- BinaApp Chat Section -->
             <div id="chat-section" style="display:none;margin-bottom:16px;">
                 <!-- Chat Interface -->
-                <div style="background:#f9fafb;border-radius:12px;border:2px solid #dbeafe;overflow:hidden;margin-bottom:16px;">
-                    <div style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;padding:12px 16px;">
+                <div style="background:#f9fafb;border-radius:12px;border:2px solid #fed7aa;overflow:hidden;margin-bottom:16px;">
+                    <div style="background:linear-gradient(135deg,#ea580c,#f97316);color:white;padding:12px 16px;">
                         <h4 style="font-weight:600;margin:0;display:flex;align-items:center;gap:8px;">
                             💬 Chat dengan Pemikedai
                             <span id="chat-status" style="width:8px;height:8px;background:#22c55e;border-radius:50%;margin-left:auto;"></span>
@@ -1336,7 +1336,7 @@ function handleContactSubmit(e) {{
                         <div style="display:flex;gap:8px;align-items:flex-end;">
                             <button onclick="showImageUpload()" style="background:#e5e7eb;border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:18px;flex-shrink:0;">📷</button>
                             <textarea id="chat-input" placeholder="Tulis mesej..." onkeypress="handleChatKeyPress(event)" oninput="handleTyping()" style="flex:1;padding:10px;border:2px solid #e5e7eb;border-radius:8px;resize:none;font-size:14px;font-family:inherit;min-height:40px;max-height:100px;"></textarea>
-                            <button onclick="sendChatMessage()" style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:600;flex-shrink:0;">Hantar</button>
+                            <button onclick="sendChatMessage()" style="background:linear-gradient(135deg,#ea580c,#f97316);color:white;border:none;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:600;flex-shrink:0;">Hantar</button>
                         </div>
                     </div>
                 </div>
@@ -1365,7 +1365,7 @@ function handleContactSubmit(e) {{
             <button onclick="closeTrackingView()" style="width:100%;background:#f3f4f6;color:#374151;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;margin-bottom:16px;">
                 ✕ Tutup
             </button>
-            <button onclick="refreshTracking()" style="width:100%;background:linear-gradient(to right,#3b82f6,#2563eb);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;">
+            <button onclick="refreshTracking()" style="width:100%;background:linear-gradient(135deg,#ea580c,#f97316);color:white;font-weight:bold;padding:16px;border-radius:12px;border:none;cursor:pointer;font-size:16px;">
                 🔄 Refresh Status
             </button>
         </div>
@@ -1385,10 +1385,10 @@ function handleContactSubmit(e) {{
         if "binaapp-delivery-btn" not in html and "</body>" in html:
             html = html.replace("</body>", delivery_button_inline + "\n</body>")
 
-        # STEP 3.5: Add floating chat button - always visible
+        # STEP 3.5: Add floating chat button - always visible (ORANGE theme, separate ID from chat-widget.js)
         chat_button_inline = '''
-<!-- Always-visible Chat Button - BinaApp -->
-<button id="binaapp-chat-btn" onclick="openGeneralChat()" style="position:fixed;bottom:100px;right:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 16px rgba(59,130,246,0.4);z-index:9998;display:flex;align-items:center;justify-content:center;font-family:sans-serif;">💬</button>
+<!-- Always-visible Chat Button - BinaApp (Orange Theme) -->
+<button id="binaapp-inline-chat-btn" onclick="openGeneralChat()" style="position:fixed;bottom:100px;left:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#ea580c,#f97316);color:white;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 16px rgba(234,88,12,0.4);z-index:9998;display:flex;align-items:center;justify-content:center;font-family:sans-serif;">💬</button>
 
 <!-- Customer Info Form Modal for Chat -->
 <div id="binaapp-customer-info-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10001;align-items:center;justify-content:center;">
@@ -1399,18 +1399,18 @@ function handleContactSubmit(e) {{
         </div>
         <p style="color:#6b7280;margin:0 0 20px;font-size:14px;">Masukkan maklumat anda untuk memulakan chat:</p>
         <div style="margin-bottom:16px;">
-            <input type="text" id="binaapp-chat-name" placeholder="Nama anda *" style="width:100%;padding:14px;border:2px solid #e5e7eb;border-radius:10px;font-size:15px;box-sizing:border-box;transition:border-color 0.2s;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#e5e7eb'" />
+            <input type="text" id="binaapp-chat-name" placeholder="Nama anda *" style="width:100%;padding:14px;border:2px solid #e5e7eb;border-radius:10px;font-size:15px;box-sizing:border-box;transition:border-color 0.2s;" onfocus="this.style.borderColor='#ea580c'" onblur="this.style.borderColor='#e5e7eb'" />
         </div>
         <div style="margin-bottom:24px;">
-            <input type="tel" id="binaapp-chat-phone" placeholder="No. telefon (cth: 0123456789)" style="width:100%;padding:14px;border:2px solid #e5e7eb;border-radius:10px;font-size:15px;box-sizing:border-box;transition:border-color 0.2s;" onfocus="this.style.borderColor='#3b82f6'" onblur="this.style.borderColor='#e5e7eb'" />
+            <input type="tel" id="binaapp-chat-phone" placeholder="No. telefon (cth: 0123456789)" style="width:100%;padding:14px;border:2px solid #e5e7eb;border-radius:10px;font-size:15px;box-sizing:border-box;transition:border-color 0.2s;" onfocus="this.style.borderColor='#ea580c'" onblur="this.style.borderColor='#e5e7eb'" />
         </div>
-        <button onclick="submitCustomerInfoChat()" style="width:100%;background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;border:none;padding:16px;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(59,130,246,0.3);transition:transform 0.1s,box-shadow 0.1s;" onmousedown="this.style.transform='scale(0.98)'" onmouseup="this.style.transform='scale(1)'">Mula Chat</button>
+        <button onclick="submitCustomerInfoChat()" style="width:100%;background:linear-gradient(135deg,#ea580c,#f97316);color:white;border:none;padding:16px;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(234,88,12,0.3);transition:transform 0.1s,box-shadow 0.1s;" onmousedown="this.style.transform='scale(0.98)'" onmouseup="this.style.transform='scale(1)'">Mula Chat</button>
         <p id="binaapp-chat-error" style="display:none;color:#ef4444;font-size:13px;margin:12px 0 0;text-align:center;"></p>
     </div>
 </div>'''
 
-        # Inject chat button if not already present
-        if "binaapp-chat-btn" not in html and "</body>" in html:
+        # Inject chat button if not already present (check both IDs to avoid duplicates)
+        if "binaapp-inline-chat-btn" not in html and "binaapp-chat-btn" not in html and "</body>" in html:
             html = html.replace("</body>", chat_button_inline + "\n</body>")
 
         # Convert Python booleans to JavaScript string for injection
