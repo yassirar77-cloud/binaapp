@@ -1,34 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/lib/supabase';
+import { getConversations, type Conversation } from '@/lib/chatApi';
 
 // =====================================================
 // TYPES
 // =====================================================
-
-interface Conversation {
-    id: string;
-    order_id?: string;
-    website_id: string;
-    customer_id: string;
-    customer_name?: string;
-    customer_phone?: string;
-    status: 'active' | 'closed' | 'archived';
-    unread_owner: number;
-    unread_customer: number;
-    unread_rider: number;
-    created_at: string;
-    updated_at: string;
-    chat_messages?: Array<{
-        id: string;
-        message?: string;
-        content?: string;
-        message_text?: string;
-        sender_type: string;
-        created_at: string;
-    }>;
-}
 
 interface ChatListProps {
     websiteId?: string; // Single website ID (deprecated - use websiteIds instead)
@@ -54,8 +31,6 @@ export default function ChatList({
     const [error, setError] = useState<string | null>(null);
     const [filter, setFilter] = useState<'all' | 'active' | 'closed'>('all');
 
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
-
     // =====================================================
     // LOAD CONVERSATIONS
     // =====================================================
@@ -72,39 +47,24 @@ export default function ChatList({
                 idsToFilter = [websiteId];
             }
 
-            // Build URL with website_ids parameter (comma-separated)
-            const url = idsToFilter.length > 0
-                ? `${API_URL}/api/v1/chat/conversations?website_ids=${idsToFilter.join(',')}`
-                : `${API_URL}/api/v1/chat/conversations`;
-
             console.log('[ChatList] Loading conversations for website IDs:', idsToFilter);
 
-            const session = supabase ? await supabase.auth.getSession() : null;
-            const accessToken = session?.data.session?.access_token;
-
-            const headers: Record<string, string> = {
-                'Content-Type': 'application/json'
-            };
-            if (accessToken) {
-                headers.Authorization = `Bearer ${accessToken}`;
-            }
-
-            const res = await fetch(url, { headers });
-            if (!res.ok) throw new Error('Failed to load conversations');
-
-            const data = await res.json();
-            const conversationsData = Array.isArray(data)
-                ? data
-                : data.conversations || [];
+            // Use chatApi with proper token handling
+            const data = await getConversations(idsToFilter.length > 0 ? idsToFilter : undefined);
+            const conversationsData = data.conversations || [];
             setConversations(conversationsData);
             setError(null);
-        } catch (err) {
+        } catch (err: any) {
             console.error('[ChatList] Failed to load:', err);
-            setError('Gagal memuatkan perbualan');
+            if (err.message?.includes('Sesi tamat') || err.message?.includes('401')) {
+                setError('Sesi tamat. Sila log masuk semula.');
+            } else {
+                setError('Gagal memuatkan perbualan');
+            }
         } finally {
             setIsLoading(false);
         }
-    }, [API_URL, websiteId, websiteIds]);
+    }, [websiteId, websiteIds]);
 
     useEffect(() => {
         loadConversations();
