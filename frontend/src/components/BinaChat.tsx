@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getConversation, uploadChatImage, type ChatMessage as ApiChatMessage } from '@/lib/chatApi';
-import { getStoredToken } from '@/lib/supabase';
+import { getApiAuthToken } from '@/lib/supabase';
 
 // Type declarations for Leaflet
 declare global {
@@ -449,7 +449,7 @@ export default function BinaChat({
 
         try {
             // Get auth token for upload request
-            const token = getStoredToken();
+            const token = await getApiAuthToken();
             const headers: Record<string, string> = {};
             if (token) {
                 headers['Authorization'] = `Bearer ${token}`;

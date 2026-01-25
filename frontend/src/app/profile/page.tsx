@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { supabase, getCurrentUser, getStoredToken, signOut as customSignOut } from '@/lib/supabase'
+import { supabase, getApiAuthToken, getCurrentUser, getStoredToken, signOut as customSignOut } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import dynamic from 'next/dynamic'
 
@@ -154,8 +154,7 @@ export default function ProfilePage() {
     try {
       setChatLoading(true)
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
-      const session = supabase ? await supabase.auth.getSession() : null
-      const accessToken = session?.data.session?.access_token
+      const accessToken = await getApiAuthToken()
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json'
@@ -205,7 +204,7 @@ export default function ProfilePage() {
           id: customUser.id,
           email: customUser.email,
           user_metadata: { full_name: customUser.full_name }
-        } as User
+        } as unknown as User
         setUser(mockUser)
         setAuthChecking(false)
 

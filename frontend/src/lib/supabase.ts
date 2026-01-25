@@ -41,6 +41,29 @@ export function getStoredToken(): string | null {
 }
 
 /**
+ * Get an auth token usable for backend API calls.
+ *
+ * Priority:
+ * 1) Custom backend JWT stored in localStorage (`binaapp_auth_token`)
+ * 2) Supabase session access token (OAuth / magic link)
+ */
+export async function getApiAuthToken(): Promise<string | null> {
+  const customToken = getStoredToken()
+  if (customToken) return customToken
+
+  if (typeof window === 'undefined' || !supabase) return null
+
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    return session?.access_token || null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Store auth token in localStorage AND as a cookie (for middleware)
  */
 function storeAuthData(token: string, user: any) {

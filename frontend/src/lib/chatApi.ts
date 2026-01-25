@@ -5,7 +5,7 @@
  * Uses stored JWT token for authentication to fix 401 errors.
  */
 
-import { getStoredToken } from './supabase'
+import { getApiAuthToken } from './supabase'
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -17,13 +17,13 @@ const API_BASE =
  * 1. Backend token from localStorage (binaapp_auth_token)
  * 2. Fallback to no auth for public endpoints
  */
-function getAuthHeaders(): Record<string, string> {
+async function getAuthHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
 
-  // Get token from localStorage
-  const token = getStoredToken()
+  // Get token from custom backend auth or Supabase session
+  const token = await getApiAuthToken()
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
     console.log('[ChatAPI] Auth token attached')
@@ -46,8 +46,9 @@ async function chatFetch<T>(
   const timeoutId = setTimeout(() => controller.abort(), timeout)
 
   try {
+    const baseHeaders = await getAuthHeaders()
     const headers = {
-      ...getAuthHeaders(),
+      ...baseHeaders,
       ...(options?.headers as Record<string, string> || {}),
     }
 
@@ -286,7 +287,7 @@ export async function uploadChatImage(
   const formData = new FormData()
   formData.append('file', file)
 
-  const token = getStoredToken()
+  const token = await getApiAuthToken()
   const headers: Record<string, string> = {}
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
