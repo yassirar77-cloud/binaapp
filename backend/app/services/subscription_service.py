@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 from loguru import logger
 from app.core.config import settings
+import secrets
 
 
 class SubscriptionService:
@@ -69,6 +70,31 @@ class SubscriptionService:
     def get_current_billing_period(self) -> str:
         """Get current billing period in YYYY-MM format"""
         return datetime.now().strftime("%Y-%m")
+
+    async def generate_invoice_number(self) -> str:
+        """
+        Generate an invoice number in format: INV-YYYYMMDD-XXXX
+
+        Prefers the DB function `generate_invoice_number()` if available.
+        Falls back to a local generator if RPC is unavailable.
+        """
+        # 1) Try Supabase RPC (if migration created the function)
+        try:
+            url = f"{self.url}/rest/v1/rpc/generate_invoice_number"
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(url, headers=self.headers, json={})
+            if resp.status_code == 200:
+                data = resp.json()
+                # Supabase may return a scalar JSON string, e.g. "INV-20260125-0001"
+                if isinstance(data, str) and data.startswith("INV-"):
+                    return data
+        except Exception as e:
+            logger.debug(f"Invoice RPC generation failed, using fallback: {e}")
+
+        # 2) Fallback (best-effort uniqueness)
+        date_part = datetime.utcnow().strftime("%Y%m%d")
+        suffix = secrets.randbelow(10000)
+        return f"INV-{date_part}-{suffix:04d}"
 
     async def get_subscription_plans(self) -> List[Dict[str, Any]]:
         """Get all active subscription plans"""
@@ -719,14 +745,16 @@ class SubscriptionService:
         try:
             target_date = (datetime.utcnow() + timedelta(days=days)).date()
             url = f"{self.url}/rest/v1/subscriptions"
-            params = {
-                "status": "eq.active",
-                "end_date": f"gte.{target_date}T00:00:00",
-                "end_date": f"lt.{target_date}T23:59:59"
-            }
+            # Use an explicit range query (avoid duplicate dict keys)
+            query_url = (
+                f"{url}"
+                f"?status=eq.active"
+                f"&end_date=gte.{target_date}T00:00:00"
+                f"&end_date=lt.{target_date}T23:59:59"
+            )
 
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=self.headers, params=params)
+                response = await client.get(query_url, headers=self.headers)
 
             if response.status_code == 200:
                 return response.json()

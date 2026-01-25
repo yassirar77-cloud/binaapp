@@ -437,23 +437,33 @@ async def _process_successful_payment(bill_code: str, tp_transaction_id: str = N
         transaction_type = transaction.get("transaction_type")
         metadata = transaction.get("metadata", {})
         amount = transaction.get("amount")
+        invoice_number = transaction.get("invoice_number")
 
         logger.info(f"📝 Found transaction: {transaction_id}")
         logger.info(f"   User: {user_id}")
         logger.info(f"   Type: {transaction_type}")
         logger.info(f"   Metadata: {metadata}")
 
-        # Update transaction status to success
+        # Update transaction status to success (and ensure invoice number exists)
+        patch_data = {
+            "payment_status": "success",
+            "toyyibpay_transaction_id": tp_transaction_id,
+            "payment_date": datetime.utcnow().isoformat()
+        }
+
+        if not invoice_number:
+            try:
+                from app.services.subscription_service import subscription_service
+                patch_data["invoice_number"] = await subscription_service.generate_invoice_number()
+            except Exception as inv_err:
+                logger.warning(f"Could not generate invoice number: {inv_err}")
+
         async with httpx.AsyncClient() as client:
             await client.patch(
                 url,
                 headers={**headers, "Prefer": "return=minimal"},
                 params={"transaction_id": f"eq.{transaction_id}"},
-                json={
-                    "payment_status": "success",
-                    "toyyibpay_transaction_id": tp_transaction_id,
-                    "payment_date": datetime.utcnow().isoformat()
-                }
+                json=patch_data
             )
 
         logger.info(f"✅ Transaction {transaction_id} marked as success")

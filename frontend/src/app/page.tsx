@@ -277,6 +277,247 @@ function LandingPageContent() {
         </div>
       </section>
 
+      {/* Subscription Packages & Limits (Detailed) */}
+      <section className="py-20 bg-gray-50">
+        <div className="container mx-auto px-4">
+          <h2 className="text-3xl font-bold text-center mb-4">
+            Subscription Packages & Limits
+          </h2>
+          <p className="text-center text-gray-600 mb-12 max-w-3xl mx-auto">
+            Bandingkan had penggunaan mengikut pelan. Had AI adalah bulanan (reset setiap bulan).
+          </p>
+
+          <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border">
+            <table className="min-w-[900px] w-full text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="text-left p-4 font-bold">Resource</th>
+                  <th className="text-left p-4 font-bold">Starter (RM 5/mo)</th>
+                  <th className="text-left p-4 font-bold">Basic (RM 29/mo)</th>
+                  <th className="text-left p-4 font-bold">Pro (RM 49/mo)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                <tr>
+                  <td className="p-4 font-medium">Websites</td>
+                  <td className="p-4">1</td>
+                  <td className="p-4">5</td>
+                  <td className="p-4">Unlimited</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">Menu Items</td>
+                  <td className="p-4">20</td>
+                  <td className="p-4">Unlimited</td>
+                  <td className="p-4">Unlimited</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">AI Hero Generations</td>
+                  <td className="p-4">1 / month</td>
+                  <td className="p-4">10 / month</td>
+                  <td className="p-4">Unlimited</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">AI Images</td>
+                  <td className="p-4">5 / month</td>
+                  <td className="p-4">30 / month</td>
+                  <td className="p-4">Unlimited</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">Delivery Zones</td>
+                  <td className="p-4">1</td>
+                  <td className="p-4">5</td>
+                  <td className="p-4">Unlimited</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">Riders (GPS)</td>
+                  <td className="p-4">0</td>
+                  <td className="p-4">0</td>
+                  <td className="p-4">10</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      {/* Features By Plan */}
+      <section className="py-20">
+        <div className="container mx-auto px-4">
+          <h2 className="text-3xl font-bold text-center mb-4">
+            ⭐ Features by Plan
+          </h2>
+          <p className="text-center text-gray-600 mb-12 max-w-3xl mx-auto">
+            Akses ciri bergantung pada pelan langganan anda.
+          </p>
+
+          <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border">
+            <table className="min-w-[900px] w-full text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="text-left p-4 font-bold">Feature</th>
+                  <th className="text-left p-4 font-bold">Starter</th>
+                  <th className="text-left p-4 font-bold">Basic</th>
+                  <th className="text-left p-4 font-bold">Pro</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                <tr>
+                  <td className="p-4 font-medium">Subdomain</td>
+                  <td className="p-4">✅</td>
+                  <td className="p-4">✅ Custom</td>
+                  <td className="p-4">✅</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">Custom Domain</td>
+                  <td className="p-4">❌</td>
+                  <td className="p-4">❌</td>
+                  <td className="p-4">✅</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">All Integrations</td>
+                  <td className="p-4">✅</td>
+                  <td className="p-4">✅</td>
+                  <td className="p-4">✅</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">Email Support</td>
+                  <td className="p-4">✅</td>
+                  <td className="p-4">✅</td>
+                  <td className="p-4">✅</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">Priority Support</td>
+                  <td className="p-4">❌</td>
+                  <td className="p-4">✅</td>
+                  <td className="p-4">✅</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">Priority AI</td>
+                  <td className="p-4">❌</td>
+                  <td className="p-4">✅</td>
+                  <td className="p-4">✅</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">Advanced AI</td>
+                  <td className="p-4">❌</td>
+                  <td className="p-4">❌</td>
+                  <td className="p-4">✅</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">Analytics</td>
+                  <td className="p-4">❌</td>
+                  <td className="p-4">✅</td>
+                  <td className="p-4">✅</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">QR Payment</td>
+                  <td className="p-4">❌</td>
+                  <td className="p-4">✅</td>
+                  <td className="p-4">✅</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">Contact Form</td>
+                  <td className="p-4">❌</td>
+                  <td className="p-4">✅</td>
+                  <td className="p-4">✅</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">White-label</td>
+                  <td className="p-4">❌</td>
+                  <td className="p-4">❌</td>
+                  <td className="p-4">✅</td>
+                </tr>
+                <tr>
+                  <td className="p-4 font-medium">API Access</td>
+                  <td className="p-4">❌</td>
+                  <td className="p-4">❌</td>
+                  <td className="p-4">✅</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      {/* Addon Pricing */}
+      <section className="py-20 bg-gray-50">
+        <div className="container mx-auto px-4">
+          <h2 className="text-3xl font-bold text-center mb-4">
+            🛒 Addon Pricing (Buy Extra Credits)
+          </h2>
+          <p className="text-center text-gray-600 mb-12 max-w-3xl mx-auto">
+            Bila capai had, anda boleh beli kredit addon (auto-deduct bila digunakan).
+          </p>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4 max-w-6xl mx-auto">
+            {[
+              { name: 'AI Image', price: 'RM 0.50' },
+              { name: 'AI Hero', price: 'RM 2.00' },
+              { name: 'Website', price: 'RM 5.00' },
+              { name: 'Rider', price: 'RM 3.00' },
+              { name: 'Delivery Zone', price: 'RM 2.00' },
+            ].map((a) => (
+              <div key={a.name} className="card text-center">
+                <div className="text-sm text-gray-500 mb-2">{a.name}</div>
+                <div className="text-2xl font-bold text-gray-900">{a.price}</div>
+                <div className="text-xs text-gray-500 mt-2">per credit</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Subscription Monitoring Features */}
+      <section className="py-20">
+        <div className="container mx-auto px-4">
+          <h2 className="text-3xl font-bold text-center mb-4">
+            📊 Subscription Monitoring Features
+          </h2>
+          <p className="text-center text-gray-600 mb-10 max-w-3xl mx-auto">
+            Sistem memantau penggunaan, enforce had secara real-time, dan simpan rekod transaksi.
+          </p>
+
+          <div className="grid md:grid-cols-2 gap-6 max-w-5xl mx-auto">
+            <div className="card">
+              <h3 className="font-bold mb-2">1) Usage Tracking</h3>
+              <p className="text-sm text-gray-600">
+                Monthly usage counters (reset each month): websites, menu items, AI hero, AI images, zones, riders.
+              </p>
+            </div>
+            <div className="card">
+              <h3 className="font-bold mb-2">2) Limit Enforcement</h3>
+              <p className="text-sm text-gray-600">
+                Real-time limit checking before actions, auto-block when exceeded, suggests addon purchase, auto-deduct addon credits.
+              </p>
+            </div>
+            <div className="card">
+              <h3 className="font-bold mb-2">3) Expiry Reminders</h3>
+              <p className="text-sm text-gray-600">
+                Email notifications at 7/3/1 day before expiry + on-expiry, with auto-suspension of expired subscriptions.
+              </p>
+            </div>
+            <div className="card">
+              <h3 className="font-bold mb-2">4) API Endpoints</h3>
+              <p className="text-sm text-gray-600">
+                Status, usage, check-limit, plans, transactions, and addon credits endpoints for full visibility.
+              </p>
+            </div>
+            <div className="card">
+              <h3 className="font-bold mb-2">5) Transaction Tracking</h3>
+              <p className="text-sm text-gray-600">
+                Complete audit trail with invoice numbers (INV-YYYYMMDD-XXXX) and ToyyibPay integration.
+              </p>
+            </div>
+            <div className="card">
+              <h3 className="font-bold mb-2">6) Feature Access Control</h3>
+              <p className="text-sm text-gray-600">
+                Middleware guards for feature-based access and per-plan feature restrictions.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="py-20 bg-primary-600 text-white">
         <div className="container mx-auto px-4 text-center">

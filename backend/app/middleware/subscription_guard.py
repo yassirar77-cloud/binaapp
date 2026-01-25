@@ -296,6 +296,8 @@ async def check_and_increment_usage(user_id: str, action: str) -> dict:
         addon_type = addon_type_map.get(action)
         if addon_type:
             await subscription_service.use_addon_credit(user_id, addon_type)
+        # Always increment usage counters so UI reflects total used
+        await subscription_service.increment_usage(user_id, action)
     else:
         # Increment the usage counter
         await subscription_service.increment_usage(user_id, action)

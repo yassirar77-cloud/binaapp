@@ -267,18 +267,23 @@ class SubscriptionReminderService:
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, headers=self.headers, params=params)
 
-            if response.status_code == 200:
+                if response.status_code != 200:
+                    return None
+
                 records = response.json()
-                if records:
-                    profile = records[0]
-                    # Also get email from auth
-                    auth_url = f"{self.url}/auth/v1/admin/users/{user_id}"
-                    auth_response = await client.get(auth_url, headers=self.headers)
-                    if auth_response.status_code == 200:
-                        auth_data = auth_response.json()
-                        profile["email"] = auth_data.get("email")
-                    return profile
-            return None
+                if not records:
+                    return None
+
+                profile = records[0]
+
+                # Also get email from auth admin API (service role only)
+                auth_url = f"{self.url}/auth/v1/admin/users/{user_id}"
+                auth_response = await client.get(auth_url, headers=self.headers)
+                if auth_response.status_code == 200:
+                    auth_data = auth_response.json()
+                    profile["email"] = auth_data.get("email")
+
+                return profile
 
         except Exception as e:
             logger.error(f"Error getting user {user_id}: {e}")
