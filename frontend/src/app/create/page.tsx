@@ -231,7 +231,7 @@ export default function CreatePage() {
           id: customUser.id,
           email: customUser.email,
           user_metadata: { full_name: customUser.full_name }
-        } as User
+        } as unknown as User
         setUser(mockUser)
         setAuthLoading(false)
         return
