@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
-import { supabase } from '@/lib/supabase'
+import { supabase, getStoredToken, getCurrentUser } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 
 const OwnerChatDashboard = dynamic(() => import('@/components/OwnerChatDashboard'), { ssr: false })
@@ -39,28 +39,54 @@ export default function ChatDashboardPage() {
       setLoading(true)
       setError(null)
 
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.user) {
-        router.push('/login')
+      // CRITICAL FIX: Check for backend token FIRST (for users logged in via /api/v1/login)
+      // Then fall back to Supabase session for OAuth users
+      const backendToken = getStoredToken()
+      let currentUser = null
+      let userId: string | null = null
+
+      if (backendToken) {
+        // User logged in via backend - get user from stored data
+        console.log('[ChatDashboard] Backend token found, using stored auth')
+        currentUser = await getCurrentUser()
+        userId = currentUser?.id || currentUser?.sub
+      }
+
+      // Fall back to Supabase session if no backend token
+      if (!userId) {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session?.user) {
+          currentUser = session.user
+          userId = session.user.id
+          console.log('[ChatDashboard] Using Supabase session')
+        }
+      }
+
+      // If still no user, redirect to login
+      if (!userId || !currentUser) {
+        console.log('[ChatDashboard] No auth found, redirecting to login')
+        router.push('/login?redirect=/dashboard/chat')
         return
       }
 
-      setUser(session.user)
+      setUser(currentUser as User)
 
+      // Fetch profile data using the resolved userId
       const { data: profileData } = await supabase
         .from('profiles')
         .select('full_name, business_name')
-        .eq('id', session.user.id)
+        .eq('id', userId)
         .maybeSingle()
 
       if (profileData) {
         setOwnerName(profileData.business_name || profileData.full_name || '')
       }
 
+      // Fetch user's websites
       const { data: websitesData, error: websitesError } = await supabase
         .from('websites')
         .select('id, business_name, name, subdomain')
-        .eq('user_id', session.user.id)
+        .eq('user_id', userId)
         .order('created_at', { ascending: false })
 
       if (websitesError) {
