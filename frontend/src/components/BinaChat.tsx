@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { getConversation, uploadChatImage, type ChatMessage as ApiChatMessage } from '@/lib/chatApi';
+import { getStoredToken } from '@/lib/supabase';
 
 // Type declarations for Leaflet
 declare global {
@@ -133,21 +135,23 @@ export default function BinaChat({
     const loadMessages = useCallback(async () => {
         try {
             setIsLoading(true);
-            const res = await fetch(`${API_URL}/api/v1/chat/conversations/${conversationId}`);
-            if (!res.ok) throw new Error('Failed to load messages');
-
-            const data = await res.json();
+            // Use chatApi with proper authentication
+            const data = await getConversation(conversationId);
             const normalizedMessages = (data.messages || []).map(normalizeMessage);
             setMessages(normalizedMessages);
             setParticipants(data.participants || []);
             setError(null);
-        } catch (err) {
+        } catch (err: any) {
             console.error('[BinaChat] Failed to load messages:', err);
-            setError('Gagal memuatkan mesej. Sila cuba lagi.');
+            if (err.message?.includes('Sesi tamat') || err.message?.includes('401')) {
+                setError('Sesi tamat. Sila log masuk semula.');
+            } else {
+                setError('Gagal memuatkan mesej. Sila cuba lagi.');
+            }
         } finally {
             setIsLoading(false);
         }
-    }, [API_URL, conversationId]);
+    }, [conversationId]);
 
     // =====================================================
     // WEBSOCKET CONNECTION
@@ -440,12 +444,20 @@ export default function BinaChat({
         }
 
         const endpoint = isPayment
-            ? '/v1/chat/messages/upload-payment'
-            : '/v1/chat/messages/upload-image';
+            ? '/api/v1/chat/messages/upload-payment'
+            : '/api/v1/chat/messages/upload-image';
 
         try {
+            // Get auth token for upload request
+            const token = getStoredToken();
+            const headers: Record<string, string> = {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
             const res = await fetch(`${API_URL}${endpoint}`, {
                 method: 'POST',
+                headers,
                 body: formData
             });
 

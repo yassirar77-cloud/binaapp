@@ -2,35 +2,13 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import BinaChat from '@/components/BinaChat'
-import { supabase } from '@/lib/supabase'
+import { getConversations, type Conversation } from '@/lib/chatApi'
 
 interface Website {
   id: string
   business_name?: string
   name?: string
   subdomain?: string
-}
-
-interface ChatMessage {
-  id: string
-  message?: string
-  content?: string
-  message_text?: string
-  sender_type?: string
-  created_at?: string
-}
-
-interface Conversation {
-  id: string
-  order_id?: string
-  website_id: string
-  website_name?: string
-  customer_name?: string
-  customer_phone?: string
-  status?: 'active' | 'closed' | 'archived'
-  unread_owner?: number
-  updated_at?: string
-  chat_messages?: ChatMessage[]
 }
 
 interface OwnerChatDashboardProps {
@@ -75,8 +53,6 @@ export default function OwnerChatDashboard({
   const [isMobileView, setIsMobileView] = useState(false)
   const [showChatList, setShowChatList] = useState(true)
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
-
   const websiteNameById = useMemo(() => {
     return websites.reduce<Record<string, string>>((acc, site) => {
       acc[site.id] = getWebsiteLabel(site)
@@ -112,42 +88,23 @@ export default function OwnerChatDashboard({
       setIsLoading(true)
       setError(null)
 
-      const session = supabase ? await supabase.auth.getSession() : null
-      const accessToken = session?.data.session?.access_token
-
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
-      }
-      if (accessToken) {
-        headers.Authorization = `Bearer ${accessToken}`
-      }
-
-      const params = new URLSearchParams()
-      if (activeWebsiteId !== 'all') {
-        params.set('website_ids', activeWebsiteId)
-      }
-
-      const url = params.toString()
-        ? `${API_URL}/api/v1/chat/conversations?${params.toString()}`
-        : `${API_URL}/api/v1/chat/conversations`
-
-      const res = await fetch(url, { headers })
-      if (!res.ok) {
-        throw new Error(`Failed to load conversations (${res.status})`)
-      }
-
-      const data = await res.json()
-      const conversationsData = Array.isArray(data)
-        ? data
-        : data.conversations || []
+      // Use chatApi with proper token handling
+      const websiteIds = activeWebsiteId !== 'all' ? activeWebsiteId : undefined
+      const data = await getConversations(websiteIds)
+      const conversationsData = data.conversations || []
       setConversations(conversationsData)
-    } catch (err) {
+    } catch (err: any) {
       console.error('[OwnerChatDashboard] Failed to load conversations:', err)
-      setError('Gagal memuatkan perbualan. Sila cuba lagi.')
+      // Check if it's an auth error
+      if (err.message?.includes('Sesi tamat') || err.message?.includes('401')) {
+        setError('Sesi tamat. Sila log masuk semula.')
+      } else {
+        setError('Gagal memuatkan perbualan. Sila cuba lagi.')
+      }
     } finally {
       setIsLoading(false)
     }
-  }, [API_URL, activeWebsiteId, websites.length])
+  }, [activeWebsiteId, websites.length])
 
   useEffect(() => {
     loadConversations()
