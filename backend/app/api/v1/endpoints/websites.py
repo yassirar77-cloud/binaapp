@@ -342,21 +342,51 @@ async def publish_website(
             )
 
         # Publish to Supabase Storage
-        public_url = await storage_service.publish_website(
-            subdomain=website["subdomain"],
-            html_content=website["html_content"],
-            website_id=website_id,
-            user_id=current_user.get("sub")
-        )
+        try:
+            public_url = await storage_service.publish_website(
+                subdomain=website["subdomain"],
+                html_content=website["html_content"],
+                website_id=website_id,
+                user_id=current_user.get("sub")
+            )
+        except Exception as storage_error:
+            logger.error(f"Storage upload failed for {website_id}: {storage_error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to upload website to storage"
+            )
 
-        # Update website status
+        # Update website status in database
         published_at = datetime.utcnow()
-        await supabase_service.update_website(website_id, {
-            "status": WebsiteStatus.PUBLISHED,
-            "published_at": published_at.isoformat(),
-            "public_url": public_url,
-            "updated_at": published_at.isoformat()
-        })
+        try:
+            update_success = await supabase_service.update_website(website_id, {
+                "status": WebsiteStatus.PUBLISHED,
+                "published_at": published_at.isoformat(),
+                "public_url": public_url,
+                "updated_at": published_at.isoformat()
+            })
+
+            if not update_success:
+                raise Exception("Database update returned failure")
+
+        except Exception as db_error:
+            # ROLLBACK: If database update fails, try to delete from storage
+            logger.error(f"Database update failed for {website_id}: {db_error}")
+            logger.warning(f"Attempting storage rollback for {website_id}...")
+            try:
+                await storage_service.delete_website(
+                    user_id=current_user.get("sub"),
+                    subdomain=website["subdomain"]
+                )
+                logger.info(f"Storage rollback successful for {website_id}")
+            except Exception as rollback_error:
+                logger.error(f"Storage rollback failed for {website_id}: {rollback_error}")
+                # Note: This leaves orphaned storage, but sync script can clean up
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update website status after publishing"
+            )
 
         logger.info(f"Website published: {website_id} -> {public_url}")
 
@@ -879,6 +909,202 @@ async def get_website_by_domain(domain: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to lookup website: {str(e)}"
+        )
+
+
+@router.post("/admin/sync-storage-db")
+async def sync_storage_and_database():
+    """
+    Admin endpoint to sync websites between Storage and Database.
+
+    This identifies orphaned websites (in Storage but not in DB) and creates
+    missing database records. This fixes foreign key constraint errors when
+    customers try to place orders on websites that exist in storage but
+    not in the database.
+
+    Returns:
+        Summary of sync operation including orphaned websites found and fixed.
+    """
+    try:
+        logger.info("🔄 Starting Storage-Database sync...")
+
+        # Get Supabase client
+        from app.core.supabase import get_supabase_client
+        supabase = get_supabase_client()
+
+        # Step 1: Get all websites from database
+        db_result = supabase.table("websites").select("id, subdomain").execute()
+        db_websites = {w["subdomain"]: w for w in (db_result.data or []) if w.get("subdomain")}
+        logger.info(f"Found {len(db_websites)} websites in database")
+
+        # Step 2: Get all folders from storage
+        bucket_name = settings.STORAGE_BUCKET_NAME if hasattr(settings, 'STORAGE_BUCKET_NAME') else "websites"
+
+        try:
+            storage_list = supabase.storage.from_(bucket_name).list()
+            storage_folders = [item["name"] for item in (storage_list or []) if item.get("name") and item.get("id")]
+        except Exception as storage_err:
+            logger.warning(f"Could not list storage: {storage_err}")
+            storage_folders = []
+
+        logger.info(f"Found {len(storage_folders)} folders in storage")
+
+        # Step 3: Find orphaned websites
+        orphaned = []
+        for folder in storage_folders:
+            # Skip if it looks like a UUID (user_id folder)
+            if len(folder) == 36 and folder.count("-") == 4:
+                continue
+            if folder not in db_websites:
+                orphaned.append(folder)
+
+        logger.info(f"Found {len(orphaned)} orphaned websites")
+
+        # Step 4: Create missing records
+        fixed = []
+        failed = []
+
+        for subdomain in orphaned:
+            try:
+                # Try to get website_id from storage HTML
+                website_id = None
+                try:
+                    public_url = supabase.storage.from_(bucket_name).get_public_url(f"{subdomain}/index.html")
+                    import httpx
+                    import re
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(public_url, timeout=10.0)
+                        if response.status_code == 200:
+                            html = response.text
+                            # Look for data-website-id
+                            match = re.search(r'data-website-id=["\']([a-f0-9-]{36})["\']', html, re.IGNORECASE)
+                            if match:
+                                website_id = match.group(1)
+                except Exception as html_err:
+                    logger.debug(f"Could not extract website_id from HTML: {html_err}")
+
+                # Generate ID if not found
+                if not website_id:
+                    website_id = str(uuid.uuid4())
+
+                # Create the record
+                website_data = {
+                    "id": website_id,
+                    "subdomain": subdomain,
+                    "business_name": subdomain.replace("-", " ").replace("_", " ").title(),
+                    "status": "published",
+                    "include_ecommerce": True,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+
+                supabase.table("websites").insert(website_data).execute()
+                fixed.append({"subdomain": subdomain, "id": website_id})
+                logger.info(f"✅ Created missing record: {subdomain} -> {website_id}")
+
+            except Exception as create_err:
+                failed.append({"subdomain": subdomain, "error": str(create_err)})
+                logger.error(f"❌ Failed to create {subdomain}: {create_err}")
+
+        result = {
+            "success": True,
+            "storage_count": len(storage_folders),
+            "database_count": len(db_websites),
+            "orphaned_count": len(orphaned),
+            "fixed_count": len(fixed),
+            "failed_count": len(failed),
+            "fixed": fixed,
+            "failed": failed
+        }
+
+        logger.info(f"✅ Sync complete: {len(fixed)} fixed, {len(failed)} failed")
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ Sync failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Sync failed: {str(e)}"
+        )
+
+
+@router.get("/admin/check-website/{website_id_or_subdomain}")
+async def check_website_status(website_id_or_subdomain: str):
+    """
+    Check if a website exists in both database and storage.
+
+    This diagnostic endpoint helps identify mismatches between
+    storage and database records.
+
+    Args:
+        website_id_or_subdomain: Either a UUID or subdomain to check
+    """
+    try:
+        import re
+        from app.core.supabase import get_supabase_client
+        supabase = get_supabase_client()
+
+        uuid_pattern = re.compile(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+            re.IGNORECASE
+        )
+
+        # Determine if input is UUID or subdomain
+        is_uuid = uuid_pattern.match(website_id_or_subdomain)
+
+        result = {
+            "input": website_id_or_subdomain,
+            "is_uuid": is_uuid is not None,
+            "database_record": None,
+            "storage_exists": False,
+            "issues": []
+        }
+
+        # Check database
+        if is_uuid:
+            db_result = supabase.table("websites")\
+                .select("id, subdomain, business_name, status, user_id")\
+                .eq("id", website_id_or_subdomain)\
+                .execute()
+        else:
+            db_result = supabase.table("websites")\
+                .select("id, subdomain, business_name, status, user_id")\
+                .eq("subdomain", website_id_or_subdomain)\
+                .execute()
+
+        if db_result.data:
+            result["database_record"] = db_result.data[0]
+            subdomain = db_result.data[0].get("subdomain")
+        else:
+            result["issues"].append("NOT_IN_DATABASE")
+            subdomain = website_id_or_subdomain if not is_uuid else None
+
+        # Check storage (if we have a subdomain)
+        if subdomain:
+            bucket_name = settings.STORAGE_BUCKET_NAME if hasattr(settings, 'STORAGE_BUCKET_NAME') else "websites"
+            try:
+                storage_list = supabase.storage.from_(bucket_name).list(subdomain)
+                if storage_list and len(storage_list) > 0:
+                    result["storage_exists"] = True
+                    result["storage_files"] = [f["name"] for f in storage_list[:10]]
+            except Exception as storage_err:
+                logger.debug(f"Storage check error: {storage_err}")
+
+        # Analyze issues
+        if result["database_record"] and not result["storage_exists"]:
+            result["issues"].append("IN_DATABASE_BUT_NOT_STORAGE")
+        elif result["storage_exists"] and not result["database_record"]:
+            result["issues"].append("IN_STORAGE_BUT_NOT_DATABASE")
+
+        result["healthy"] = len(result["issues"]) == 0
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Check website error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Check failed: {str(e)}"
         )
 
 

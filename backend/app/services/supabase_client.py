@@ -708,5 +708,166 @@ class SupabaseService:
             return None
 
 
+    async def list_storage_folders(self, bucket: str) -> list:
+        """
+        List all top-level folders in a storage bucket.
+        This is used to find websites in storage that may be missing from the database.
+
+        Returns a list of folder names (subdomains).
+        """
+        try:
+            url = f"{self.url}/storage/v1/object/list/{bucket}"
+
+            # Use service headers to bypass RLS
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    headers=self.service_headers,
+                    json={
+                        "prefix": "",
+                        "limit": 1000,
+                        "offset": 0,
+                        "sortBy": {"column": "name", "order": "asc"}
+                    },
+                    timeout=30.0
+                )
+
+            if response.status_code == 200:
+                items = response.json()
+                # Filter to only get folders (items with no dot extension that look like subdomains)
+                # Folders in Supabase storage are represented by their name
+                folders = []
+                for item in items:
+                    name = item.get("name", "")
+                    # Skip if it's a file (has extension) or empty
+                    if name and "." not in name:
+                        folders.append(name)
+                    # Also check if it's a UUID-like folder (for user_id paths)
+                    elif name and len(name) == 36 and name.count("-") == 4:
+                        folders.append(name)
+                return folders
+            else:
+                print(f"❌ List storage folders failed: {response.status_code} - {response.text}")
+                return []
+        except Exception as e:
+            print(f"❌ List storage folders error: {str(e)}")
+            return []
+
+    async def list_all_websites_from_db(self) -> list:
+        """
+        Get all websites from the database.
+        Returns list of website records with id, subdomain, user_id, business_name, status.
+        """
+        try:
+            url = f"{self.url}/rest/v1/websites"
+            params = {"select": "id,subdomain,user_id,business_name,status,created_at"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.service_headers,
+                    params=params
+                )
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"❌ List all websites failed: {response.status_code}")
+                return []
+        except Exception as e:
+            print(f"❌ List all websites error: {str(e)}")
+            return []
+
+    async def get_website_by_subdomain(self, subdomain: str) -> Optional[Dict[str, Any]]:
+        """Get a website by its subdomain"""
+        try:
+            url = f"{self.url}/rest/v1/websites"
+            params = {"subdomain": f"eq.{subdomain}", "select": "*"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.service_headers,
+                    params=params
+                )
+
+            if response.status_code == 200:
+                records = response.json()
+                return records[0] if records else None
+            return None
+        except Exception as e:
+            print(f"❌ Get website by subdomain error: {str(e)}")
+            return None
+
+    async def check_subdomain_available(self, subdomain: str) -> bool:
+        """Check if a subdomain is available (not in use)"""
+        website = await self.get_website_by_subdomain(subdomain)
+        return website is None
+
+    async def create_missing_website_record(
+        self,
+        subdomain: str,
+        user_id: Optional[str] = None,
+        business_name: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Create a missing website record for an orphaned storage folder.
+        This is used to fix websites that exist in storage but not in the database.
+
+        Args:
+            subdomain: The subdomain/folder name
+            user_id: The owner's user ID (if known)
+            business_name: The business name (if known, otherwise derived from subdomain)
+        """
+        import uuid
+        from datetime import datetime
+
+        try:
+            # Generate a new UUID for the website if not extractable from storage
+            website_id = str(uuid.uuid4())
+
+            # Use subdomain as business name if not provided
+            if not business_name:
+                # Convert subdomain to readable format (e.g., "wowo-makan" -> "Wowo Makan")
+                business_name = subdomain.replace("-", " ").replace("_", " ").title()
+
+            # If user_id is not known, we'll need to either:
+            # 1. Set it to a system/admin user
+            # 2. Try to extract from storage metadata
+            # For now, we'll create without user_id if not provided (will need manual fix)
+            website_data = {
+                "id": website_id,
+                "subdomain": subdomain,
+                "business_name": business_name,
+                "status": "published",  # Assume published since it's in storage
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat()
+            }
+
+            if user_id:
+                website_data["user_id"] = user_id
+
+            url = f"{self.url}/rest/v1/websites"
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    headers={**self.service_headers, "Prefer": "return=representation"},
+                    json=website_data
+                )
+
+            if response.status_code in [200, 201]:
+                result = response.json()
+                created = result[0] if isinstance(result, list) else result
+                print(f"✅ Created missing website record: {subdomain} -> {website_id}")
+                return created
+            else:
+                print(f"❌ Create missing website failed: {response.status_code} - {response.text}")
+                return None
+        except Exception as e:
+            print(f"❌ Create missing website error: {str(e)}")
+            return None
+
+
 # Create singleton instance
 supabase_service = SupabaseService()
