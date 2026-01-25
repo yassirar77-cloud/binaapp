@@ -19,6 +19,7 @@ import asyncio
 from app.services.storage_service import storage_service
 from app.services.supabase_client import supabase_service
 from app.core.security import get_optional_current_user
+from app.services.subscription_service import subscription_service
 
 router = APIRouter()
 
@@ -272,6 +273,28 @@ async def publish_website(
         request.user_id = user_id
         logger.info("=" * 80)
 
+        # CRITICAL: Check subscription limit for authenticated users
+        if current_user:
+            logger.info("")
+            logger.info("🔒 SUBSCRIPTION CHECK: Verifying website limit...")
+            limit_result = await subscription_service.check_limit(user_id, "create_website")
+
+            if not limit_result.get("allowed"):
+                logger.error(f"❌ LIMIT REACHED: User {user_id} has reached website limit")
+                logger.error(f"   Current: {limit_result.get('current_usage')}, Limit: {limit_result.get('limit')}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "limit_reached",
+                        "message": limit_result.get("message", "Had website tercapai. Sila naik taraf pelan anda."),
+                        "current_usage": limit_result.get("current_usage"),
+                        "limit": limit_result.get("limit"),
+                        "can_buy_addon": limit_result.get("can_buy_addon", False),
+                        "upgrade_url": "/dashboard/billing"
+                    }
+                )
+            logger.info(f"✅ Subscription check passed: {limit_result.get('current_usage')}/{limit_result.get('limit')} websites used")
+
         # Get HTML content from any of the supported fields
         html_content = request.html_content
         if not html_content:
@@ -410,6 +433,11 @@ async def publish_website(
         try:
             db_result = await retry_with_backoff(save_metadata, max_retries=3, initial_delay=1.0)
             logger.info(f"✅ Database record saved successfully: {project_id}")
+
+            # CRITICAL: Increment websites_count for authenticated users
+            if current_user:
+                await subscription_service.increment_usage(user_id, "create_website")
+                logger.info(f"📊 Incremented websites_count for user {user_id}")
         except Exception as e:
             # CRITICAL FIX: DO NOT silently ignore database errors!
             # Without database record, website won't appear in dashboard

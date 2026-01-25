@@ -23,6 +23,8 @@ from app.services.ai_service import ai_service
 from app.services.storage_service import storage_service
 from app.services.templates import TemplateService
 from app.core.config import settings
+from app.middleware.subscription_guard import SubscriptionGuard, check_and_increment_usage
+from app.services.subscription_service import subscription_service
 
 router = APIRouter()
 
@@ -31,10 +33,13 @@ router = APIRouter()
 async def generate_website(
     request: WebsiteGenerationRequest,
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    _limit_check: dict = Depends(SubscriptionGuard.check_limit("create_website"))
 ):
     """
     Generate a new website using AI
+
+    SUBSCRIPTION CHECK: Verifies user hasn't reached website limit before creation.
     """
     try:
         user_id = current_user.get("sub")
@@ -76,6 +81,10 @@ async def generate_website(
         }
 
         website = await supabase_service.create_website(website_data)
+
+        # CRITICAL: Increment websites_count in usage_limits table
+        await subscription_service.increment_usage(user_id, "create_website")
+        logger.info(f"📊 Incremented websites_count for user {user_id}")
 
         # Generate website in background
         background_tasks.add_task(
