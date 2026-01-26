@@ -265,7 +265,7 @@ function LandingPageContent() {
               tier="pro"
               features={[
                 'Unlimited websites',
-                'Custom domain',
+                'Unlimited AI',
                 'Advanced AI',
                 'White-label',
                 'API access'
