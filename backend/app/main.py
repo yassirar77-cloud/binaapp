@@ -673,9 +673,13 @@ Output ONLY improved HTML."""
 async def get_generation_status(job_id: str):
     """Check job status - called by frontend polling"""
 
-    logger.info(f"📊 Status poll for job: {job_id[:8]}...")
+    poll_timestamp = datetime.now().isoformat()
+    logger.info(f"📊 Status poll for job: {job_id[:8]}... at {poll_timestamp}")
 
     job = await get_job_from_supabase(job_id)
+
+    # DEBUG: Log raw Supabase response
+    logger.info(f"🔍 DEBUG: Raw Supabase response for {job_id[:8]}: status={job.get('status') if job else 'None'}, progress={job.get('progress') if job else 'None'}, updated_at={job.get('updated_at') if job else 'None'}")
 
     if not job:
         logger.warning(f"❌ Job not found in Supabase: {job_id[:8]}")
@@ -733,11 +737,15 @@ async def get_generation_status(job_id: str):
         "styles": styles if job_status == "completed" else None,
         "variants": variants if job_status == "completed" else None,  # Frontend expects this!
         "error": job_error,
-        "job_id": job_id
+        "job_id": job_id,
+        "polled_at": poll_timestamp,  # DEBUG: Track when this was polled
+        "updated_at": job.get("updated_at") if job else None  # DEBUG: Track DB update time
     }
 
     if job_status == "completed":
         logger.info(f"✅ Returning COMPLETED status for job {job_id[:8]} with {len(variants) if variants else 0} variants")
+    else:
+        logger.info(f"📊 Returning status for job {job_id[:8]}: {job_status}, progress={job_progress}%")
 
     return response
 
@@ -1643,10 +1651,11 @@ async def run_generation_task(
         # Step 1: Update to 20%
         logger.info(f"📊 Updating progress to 20%")
         if supabase:
-            supabase.table("generation_jobs").update({
+            result_20 = supabase.table("generation_jobs").update({
                 "progress": 20,
                 "updated_at": datetime.now().isoformat()
             }).eq("job_id", job_id).execute()
+            logger.info(f"📊 Progress 20% update: {len(result_20.data) if result_20.data else 0} rows affected")
 
         # Step 2: Generate website using ai_service (4-step flow: Stability AI + Cloudinary + DeepSeek + Qwen)
         logger.info(f"🚀 Using ai_service 4-step generation for: {description[:50]}...")
@@ -1741,11 +1750,13 @@ async def run_generation_task(
                 logger.warning(f"⚠️ WhatsApp sanitization failed (continuing): {wa_err}")
 
         # Step 3: Update progress to 60% after AI generation
+        logger.info(f"📊 Updating progress to 60%")
         if supabase:
-            supabase.table("generation_jobs").update({
+            result_60 = supabase.table("generation_jobs").update({
                 "progress": 60,
                 "updated_at": datetime.now().isoformat()
             }).eq("job_id", job_id).execute()
+            logger.info(f"📊 Progress 60% update: {len(result_60.data) if result_60.data else 0} rows affected")
 
         # OPTIONAL: Inject delivery/ordering system if user requested it via /api/generate/start payload.
         try:
@@ -1924,11 +1935,13 @@ async def run_generation_task(
             logger.warning(f"⚠️ Delivery injection skipped due to error: {inject_err}")
 
         # Step 4: Update progress to 80%
+        logger.info(f"📊 Updating progress to 80%")
         if supabase:
-            supabase.table("generation_jobs").update({
+            result_80 = supabase.table("generation_jobs").update({
                 "progress": 80,
                 "updated_at": datetime.now().isoformat()
             }).eq("job_id", job_id).execute()
+            logger.info(f"📊 Progress 80% update: {len(result_80.data) if result_80.data else 0} rows affected")
 
         # Increment usage (founders bypass)
         increment_usage(user_id, user_email)
@@ -1952,6 +1965,13 @@ async def run_generation_task(
                     logger.info(f"📊 Supabase update SUCCESS - rows updated: {len(result.data)}")
                     logger.info(f"   Updated status: {result.data[0].get('status')}")
                     logger.info(f"   Updated progress: {result.data[0].get('progress')}")
+
+                    # CRITICAL: Verify we can read back the completed status
+                    verify_job = await get_job_from_supabase(job_id)
+                    if verify_job:
+                        logger.info(f"🔍 VERIFICATION READ: status={verify_job.get('status')}, progress={verify_job.get('progress')}")
+                    else:
+                        logger.error(f"❌ VERIFICATION FAILED: Could not read back job {job_id}")
                 else:
                     logger.error(f"❌ Supabase update returned empty - job might not exist!")
                     logger.error(f"   job_id: {job_id}")
