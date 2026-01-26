@@ -197,6 +197,88 @@ class SubscriptionService:
         tier = subscription.get("tier", "starter") if subscription else "starter"
         return self.TIER_LIMITS.get(tier, self.TIER_LIMITS["starter"])
 
+    async def get_actual_resource_counts(self, user_id: str) -> Dict[str, int]:
+        """
+        Count actual persistent resources from their respective tables.
+        This ensures we always have accurate counts regardless of billing period.
+        """
+        counts = {
+            "websites_count": 0,
+            "menu_items_count": 0,
+            "delivery_zones_count": 0,
+            "riders_count": 0
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                # Count websites
+                response = await client.get(
+                    f"{self.url}/rest/v1/websites",
+                    headers={**self.headers, "Prefer": "count=exact"},
+                    params={"user_id": f"eq.{user_id}", "select": "id"}
+                )
+                if response.status_code == 200:
+                    count_header = response.headers.get("content-range", "")
+                    if "/" in count_header:
+                        counts["websites_count"] = int(count_header.split("/")[1])
+                    else:
+                        counts["websites_count"] = len(response.json())
+
+                # Count menu items across all user's websites
+                # First get user's website IDs
+                websites_response = await client.get(
+                    f"{self.url}/rest/v1/websites",
+                    headers=self.headers,
+                    params={"user_id": f"eq.{user_id}", "select": "id"}
+                )
+                if websites_response.status_code == 200:
+                    website_ids = [w["id"] for w in websites_response.json()]
+                    if website_ids:
+                        # Count menu items for these websites
+                        menu_response = await client.get(
+                            f"{self.url}/rest/v1/menu_items",
+                            headers={**self.headers, "Prefer": "count=exact"},
+                            params={"website_id": f"in.({','.join(website_ids)})", "select": "id"}
+                        )
+                        if menu_response.status_code == 200:
+                            count_header = menu_response.headers.get("content-range", "")
+                            if "/" in count_header:
+                                counts["menu_items_count"] = int(count_header.split("/")[1])
+                            else:
+                                counts["menu_items_count"] = len(menu_response.json())
+
+                        # Count delivery zones for these websites
+                        zones_response = await client.get(
+                            f"{self.url}/rest/v1/delivery_zones",
+                            headers={**self.headers, "Prefer": "count=exact"},
+                            params={"website_id": f"in.({','.join(website_ids)})", "select": "id"}
+                        )
+                        if zones_response.status_code == 200:
+                            count_header = zones_response.headers.get("content-range", "")
+                            if "/" in count_header:
+                                counts["delivery_zones_count"] = int(count_header.split("/")[1])
+                            else:
+                                counts["delivery_zones_count"] = len(zones_response.json())
+
+                # Count riders
+                riders_response = await client.get(
+                    f"{self.url}/rest/v1/riders",
+                    headers={**self.headers, "Prefer": "count=exact"},
+                    params={"user_id": f"eq.{user_id}", "select": "id"}
+                )
+                if riders_response.status_code == 200:
+                    count_header = riders_response.headers.get("content-range", "")
+                    if "/" in count_header:
+                        counts["riders_count"] = int(count_header.split("/")[1])
+                    else:
+                        counts["riders_count"] = len(riders_response.json())
+
+        except Exception as e:
+            logger.error(f"Error counting actual resources for user {user_id}: {e}")
+
+        logger.info(f"📊 Actual resource counts for user {user_id}: {counts}")
+        return counts
+
     async def get_or_create_usage_tracking(self, user_id: str) -> Dict[str, Any]:
         """Get or create usage tracking for current billing period"""
         billing_period = self.get_current_billing_period()
@@ -212,21 +294,35 @@ class SubscriptionService:
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, headers=self.headers, params=params)
 
+            existing_record = None
             if response.status_code == 200:
                 records = response.json()
                 if records:
-                    return records[0]
+                    existing_record = records[0]
 
-            # Create new record
+            # IMPORTANT: Always get actual counts for persistent resources
+            # This ensures limits are enforced correctly even if usage_tracking is stale
+            actual_counts = await self.get_actual_resource_counts(user_id)
+
+            if existing_record:
+                # Update with actual counts for persistent resources
+                # Keep AI usage from the tracking table (those reset each billing period)
+                existing_record["websites_count"] = actual_counts["websites_count"]
+                existing_record["menu_items_count"] = actual_counts["menu_items_count"]
+                existing_record["delivery_zones_count"] = actual_counts["delivery_zones_count"]
+                existing_record["riders_count"] = actual_counts["riders_count"]
+                return existing_record
+
+            # Create new record with actual counts
             usage_data = {
                 "user_id": user_id,
                 "billing_period": billing_period,
-                "websites_count": 0,
-                "menu_items_count": 0,
+                "websites_count": actual_counts["websites_count"],
+                "menu_items_count": actual_counts["menu_items_count"],
                 "ai_hero_used": 0,
                 "ai_images_used": 0,
-                "delivery_zones_count": 0,
-                "riders_count": 0
+                "delivery_zones_count": actual_counts["delivery_zones_count"],
+                "riders_count": actual_counts["riders_count"]
             }
 
             async with httpx.AsyncClient() as client:
@@ -244,14 +340,26 @@ class SubscriptionService:
 
         except Exception as e:
             logger.error(f"Error getting usage tracking: {e}")
-            return {
-                "websites_count": 0,
-                "menu_items_count": 0,
-                "ai_hero_used": 0,
-                "ai_images_used": 0,
-                "delivery_zones_count": 0,
-                "riders_count": 0
-            }
+            # On error, still try to get actual counts
+            try:
+                actual_counts = await self.get_actual_resource_counts(user_id)
+                return {
+                    "websites_count": actual_counts["websites_count"],
+                    "menu_items_count": actual_counts["menu_items_count"],
+                    "ai_hero_used": 0,
+                    "ai_images_used": 0,
+                    "delivery_zones_count": actual_counts["delivery_zones_count"],
+                    "riders_count": actual_counts["riders_count"]
+                }
+            except:
+                return {
+                    "websites_count": 0,
+                    "menu_items_count": 0,
+                    "ai_hero_used": 0,
+                    "ai_images_used": 0,
+                    "delivery_zones_count": 0,
+                    "riders_count": 0
+                }
 
     async def get_usage_with_limits(self, user_id: str) -> Dict[str, Any]:
         """Get user's usage alongside their limits"""
