@@ -154,9 +154,11 @@ export default function CreatePage() {
     quantity?: number;
     is_recurring?: boolean;
   } | null>(null)
-  const [targetTier, setTargetTier] = useState<string>('basic')
+  const [targetTier, setTargetTier] = useState<string>('starter')
   const [currentTier, setCurrentTier] = useState<string>('free')
   const [limitWarning, setLimitWarning] = useState<string | null>(null)
+  const [hasActiveSubscription, setHasActiveSubscription] = useState<boolean | null>(null)
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true)
 
   // Feature selector states
   const [selectedFeatures, setSelectedFeatures] = useState({
@@ -228,6 +230,43 @@ export default function CreatePage() {
     checkUser()
   }, [])
 
+  // Check subscription status
+  async function checkSubscriptionStatus() {
+    try {
+      setSubscriptionLoading(true)
+      const token = getStoredToken()
+      if (!token) {
+        setHasActiveSubscription(false)
+        setSubscriptionLoading(false)
+        return
+      }
+
+      const response = await fetch(`${DIRECT_BACKEND_URL}/api/v1/subscription/status`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        console.log('[Create] Subscription status:', data)
+        // Check if subscription is active and not expired
+        const isActive = data.status === 'active' && !data.is_expired
+        setHasActiveSubscription(isActive)
+        setCurrentTier(data.plan_name || 'free')
+      } else {
+        console.error('[Create] Failed to get subscription status:', response.status)
+        setHasActiveSubscription(false)
+      }
+    } catch (error) {
+      console.error('[Create] Error checking subscription:', error)
+      setHasActiveSubscription(false)
+    } finally {
+      setSubscriptionLoading(false)
+    }
+  }
+
   async function checkUser() {
     try {
       // First check for custom BinaApp token
@@ -244,6 +283,8 @@ export default function CreatePage() {
         } as unknown as User
         setUser(mockUser)
         setAuthLoading(false)
+        // Check subscription status after user is authenticated
+        await checkSubscriptionStatus()
         return
       }
 
@@ -392,6 +433,21 @@ export default function CreatePage() {
 
   const handleGenerate = async () => {
     if (!description.trim()) return;
+
+    // Check if user is logged in
+    if (!user) {
+      setError('Sila log masuk untuk mencipta website')
+      return
+    }
+
+    // Check if user has active subscription
+    if (hasActiveSubscription === false) {
+      setError('Sila langgan pelan untuk mencipta website. Bermula dari RM5/bulan.')
+      // Show upgrade modal
+      setTargetTier('starter')
+      setShowUpgradeModal(true)
+      return
+    }
 
     // Check subscription limits before generating
     const canCreate = await checkWebsiteLimit()
@@ -822,6 +878,56 @@ export default function CreatePage() {
 
         {!generatedHtml && styleVariations.length === 0 ? (
           <div className="max-w-4xl mx-auto">
+            {/* Subscription Required Banner */}
+            {!subscriptionLoading && hasActiveSubscription === false && user && (
+              <div className="mb-6 p-6 bg-red-50 border-2 border-red-300 rounded-xl">
+                <div className="flex flex-col md:flex-row items-center gap-4">
+                  <span className="text-4xl">🔒</span>
+                  <div className="flex-1 text-center md:text-left">
+                    <h3 className="text-red-800 font-bold text-lg mb-1">Langganan Diperlukan</h3>
+                    <p className="text-red-700 text-sm">
+                      Anda perlu melanggan pelan untuk mencipta website. Bermula dari RM5/bulan sahaja.
+                    </p>
+                  </div>
+                  <a
+                    href="/dashboard/billing"
+                    className="px-6 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"
+                  >
+                    Langgan Sekarang
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {/* Not Logged In Banner */}
+            {!authLoading && !user && (
+              <div className="mb-6 p-6 bg-blue-50 border-2 border-blue-300 rounded-xl">
+                <div className="flex flex-col md:flex-row items-center gap-4">
+                  <span className="text-4xl">👤</span>
+                  <div className="flex-1 text-center md:text-left">
+                    <h3 className="text-blue-800 font-bold text-lg mb-1">Log Masuk Diperlukan</h3>
+                    <p className="text-blue-700 text-sm">
+                      Sila log masuk dan langgan untuk mencipta website. Bermula dari RM5/bulan sahaja.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <a
+                      href="/login?redirect=/create"
+                      className="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
+                    >
+                      Log Masuk
+                    </a>
+                    <a
+                      href="/register"
+                      className="px-6 py-3 border-2 border-blue-600 text-blue-600 font-bold rounded-lg hover:bg-blue-50 transition-colors whitespace-nowrap"
+                    >
+                      Daftar
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Limit Warning Banner */}
             {limitWarning && (
               <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg">
