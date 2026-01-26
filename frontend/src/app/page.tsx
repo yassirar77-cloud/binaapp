@@ -71,15 +71,10 @@ function LandingPageContent() {
       return
     }
 
-    // User is logged in
-    if (tier === 'starter') {
-      // If selecting Starter, just redirect to create website
-      router.push('/create')
-    } else {
-      // Show upgrade modal for Basic or Pro
-      setTargetTier(tier)
-      setShowUpgradeModal(true)
-    }
+    // User is logged in - show upgrade/subscribe modal for ALL plans
+    // Users must pay before they can create websites
+    setTargetTier(tier)
+    setShowUpgradeModal(true)
   }
 
   return (
