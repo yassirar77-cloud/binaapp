@@ -27,14 +27,15 @@ export default function ChatWidget() {
     // Don't render on customer-facing routes that have their own chat widget
     const shouldHide = HIDDEN_ROUTES.some(route => pathname?.startsWith(route));
 
-    if (shouldHide) {
-        return null;
-    }
-
-    // Auto scroll to bottom
+    // Auto scroll to bottom - MUST be before any conditional returns
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
+
+    // Early return AFTER all hooks
+    if (shouldHide) {
+        return null;
+    }
 
     const sendMessage = async () => {
         if (!input.trim() || loading) return;
