@@ -297,15 +297,24 @@ async def get_website(
                 detail="Not authorized to access this website"
             )
 
+        # Handle potential null/missing values
+        website_status = website.get("status", "draft")
+        # Ensure status is valid enum value
+        if website_status not in ["draft", "generating", "published", "failed"]:
+            website_status = "draft"
+
+        subdomain = website.get("subdomain")
+        full_url = f"https://{subdomain}{settings.SUBDOMAIN_SUFFIX}" if subdomain else None
+
         return WebsiteResponse(
             id=website["id"],
             user_id=website["user_id"],
-            business_name=website["business_name"],
-            subdomain=website["subdomain"],
-            full_url=f"https://{website['subdomain']}{settings.SUBDOMAIN_SUFFIX}",
-            status=website["status"],
-            created_at=datetime.fromisoformat(website["created_at"]),
-            updated_at=datetime.fromisoformat(website["updated_at"]),
+            business_name=website.get("business_name"),
+            subdomain=subdomain,
+            full_url=full_url,
+            status=website_status,
+            created_at=datetime.fromisoformat(website["created_at"]) if website.get("created_at") else datetime.utcnow(),
+            updated_at=datetime.fromisoformat(website["updated_at"]) if website.get("updated_at") else None,
             published_at=datetime.fromisoformat(website["published_at"]) if website.get("published_at") else None,
             html_content=website.get("html_content"),
             preview_url=website.get("preview_url")

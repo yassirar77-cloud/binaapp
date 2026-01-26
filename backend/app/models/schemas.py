@@ -106,12 +106,12 @@ class WebsiteGenerationRequest(BaseModel):
 class WebsiteResponse(BaseModel):
     id: str
     user_id: str
-    business_name: str
-    subdomain: str
-    full_url: str
-    status: WebsiteStatus
+    business_name: Optional[str] = None
+    subdomain: Optional[str] = None
+    full_url: Optional[str] = None
+    status: WebsiteStatus = WebsiteStatus.DRAFT
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None
     published_at: Optional[datetime] = None
     html_content: Optional[str] = None
     preview_url: Optional[str] = None
