@@ -673,9 +673,12 @@ Output ONLY improved HTML."""
 async def get_generation_status(job_id: str):
     """Check job status - called by frontend polling"""
 
+    logger.info(f"📊 Status poll for job: {job_id[:8]}...")
+
     job = await get_job_from_supabase(job_id)
 
     if not job:
+        logger.warning(f"❌ Job not found in Supabase: {job_id[:8]}")
         return JSONResponse(
             status_code=404,
             content={
@@ -685,23 +688,58 @@ async def get_generation_status(job_id: str):
             }
         )
 
-    # Parse styles JSON if completed
-    styles = None
-    if job.get("status") == "completed" and job.get("styles"):
-        try:
-            styles = json.loads(job["styles"]) if isinstance(job["styles"], str) else job["styles"]
-        except:
-            styles = None
+    job_status = job.get("status", "unknown")
+    job_progress = job.get("progress", 0)
+    job_html = job.get("html")
+    job_error = job.get("error")
 
-    return {
+    logger.info(f"   Job {job_id[:8]}: status={job_status}, progress={job_progress}%, html={len(job_html) if job_html else 0} chars")
+
+    # Parse styles/variants JSON if completed
+    styles = None
+    variants = None
+
+    if job_status == "completed":
+        # Try to get styles from job
+        if job.get("styles"):
+            try:
+                styles = json.loads(job["styles"]) if isinstance(job["styles"], str) else job["styles"]
+            except:
+                styles = None
+
+        # Try to get variants from job
+        if job.get("variants"):
+            try:
+                variants = json.loads(job["variants"]) if isinstance(job["variants"], str) else job["variants"]
+            except:
+                variants = None
+
+        # CRITICAL FIX: If we have HTML but no variants/styles, create a single variant
+        # This ensures the frontend always gets data in the expected format
+        if job_html and not variants and not styles:
+            variants = [{
+                "style": "modern",
+                "html": job_html,
+                "thumbnail": None,
+                "social_preview": None
+            }]
+            logger.info(f"   Created single variant from HTML for job {job_id[:8]}")
+
+    response = {
         "success": True,
-        "status": job["status"],
-        "progress": job["progress"],
-        "html": job.get("html") if job["status"] == "completed" else None,
-        "styles": styles if job["status"] == "completed" else None,
-        "error": job.get("error"),
+        "status": job_status,
+        "progress": job_progress,
+        "html": job_html if job_status == "completed" else None,
+        "styles": styles if job_status == "completed" else None,
+        "variants": variants if job_status == "completed" else None,  # Frontend expects this!
+        "error": job_error,
         "job_id": job_id
     }
+
+    if job_status == "completed":
+        logger.info(f"✅ Returning COMPLETED status for job {job_id[:8]} with {len(variants) if variants else 0} variants")
+
+    return response
 
 
 def detect_business_type(desc: str) -> str:
@@ -1896,18 +1934,33 @@ async def run_generation_task(
         increment_usage(user_id, user_email)
 
         # Step 5: MARK COMPLETED - THIS IS CRITICAL!
-        logger.info(f"💾 Saving completed job to Supabase...")
+        logger.info(f"💾 Saving completed job to Supabase... (job_id={job_id})")
+        logger.info(f"   HTML length: {len(html)} chars")
 
         if supabase:
-            result = supabase.table("generation_jobs").update({
-                "status": "completed",
-                "progress": 100,
-                "html": html,
-                "updated_at": datetime.now().isoformat()
-            }).eq("job_id", job_id).execute()
+            try:
+                result = supabase.table("generation_jobs").update({
+                    "status": "completed",
+                    "progress": 100,
+                    "html": html,
+                    "updated_at": datetime.now().isoformat()
+                }).eq("job_id", job_id).execute()
 
-            logger.info(f"✅ JOB COMPLETED: {job_id}")
-            logger.info(f"📊 Supabase update result: {result.data}")
+                # Verify the update actually worked
+                if result.data and len(result.data) > 0:
+                    logger.info(f"✅ JOB COMPLETED: {job_id}")
+                    logger.info(f"📊 Supabase update SUCCESS - rows updated: {len(result.data)}")
+                    logger.info(f"   Updated status: {result.data[0].get('status')}")
+                    logger.info(f"   Updated progress: {result.data[0].get('progress')}")
+                else:
+                    logger.error(f"❌ Supabase update returned empty - job might not exist!")
+                    logger.error(f"   job_id: {job_id}")
+                    logger.error(f"   result.data: {result.data}")
+
+            except Exception as update_error:
+                logger.error(f"❌ Supabase update FAILED: {update_error}")
+                import traceback
+                logger.error(traceback.format_exc())
         else:
             logger.warning(f"⚠️ Supabase not available - job completed but not saved")
 
