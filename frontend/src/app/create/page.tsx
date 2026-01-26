@@ -571,15 +571,25 @@ export default function CreatePage() {
         }
 
         try {
-          const statusResponse = await fetch(`${DIRECT_BACKEND_URL}/api/generate/status/${jobId}`);
+          // Add cache-busting timestamp
+          const statusResponse = await fetch(`${DIRECT_BACKEND_URL}/api/generate/status/${jobId}?t=${Date.now()}`);
 
           if (!statusResponse.ok) {
-            console.warn('Status check failed, retrying...');
+            console.warn('Status check failed, retrying...', statusResponse.status, statusResponse.statusText);
             return; // Continue polling
           }
 
           const statusData = await statusResponse.json();
-          console.log(`📊 Progress: ${statusData.progress}%`, statusData.status);
+
+          // DEBUG: Log full response details
+          console.log('=== POLL RESPONSE ===');
+          console.log('Status:', statusData.status);
+          console.log('Progress:', statusData.progress);
+          console.log('Polled at:', statusData.polled_at);
+          console.log('DB updated_at:', statusData.updated_at);
+          console.log('Has variants:', statusData.variants?.length || 0);
+          console.log('Has HTML:', statusData.html?.length || 0);
+          console.log('=====================');
 
           // Update progress bar
           setProgress(statusData.progress || 0);
