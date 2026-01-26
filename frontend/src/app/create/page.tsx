@@ -2,7 +2,7 @@
  * Create Page - AI Website Generation
  */
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout } from 'lucide-react'
@@ -136,6 +136,10 @@ export default function CreatePage() {
   const [previewMode, setPreviewMode] = useState<'single' | 'multi'>('single')
   const [progress, setProgress] = useState(0)
 
+  // CRITICAL: Track current job ID and polling interval to prevent stale polling
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null)
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
   // Upgrade/Addon modal states
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [showAddonModal, setShowAddonModal] = useState(false)
@@ -229,6 +233,17 @@ export default function CreatePage() {
   useEffect(() => {
     checkUser()
   }, [])
+
+  // CRITICAL: Cleanup polling interval on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        console.log('🧹 Cleanup: Clearing polling interval on unmount');
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   // Check subscription status
   async function checkSubscriptionStatus() {
@@ -461,6 +476,15 @@ export default function CreatePage() {
       return
     }
 
+    // CRITICAL: Clear any existing polling interval to prevent stale job ID polling
+    if (pollIntervalRef.current) {
+      console.log('🧹 Clearing previous polling interval before starting new generation');
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    // Clear old job ID
+    setCurrentJobId(null);
+
     setLoading(true);
     setError('');
     setStyleVariations([]);
@@ -554,17 +578,21 @@ export default function CreatePage() {
       const startData = await startResponse.json();
       const jobId = startData.job_id;
 
-      console.log('✅ Job started:', jobId);
+      // CRITICAL: Store job ID in state so we track which job we're polling
+      setCurrentJobId(jobId);
+      console.log('✅ Job started:', jobId, '- Stored in state');
 
       // Step 2: Poll for results
       const maxAttempts = 100; // 100 attempts x 3 seconds = 5 minutes max (increased from 3 min)
       let attempt = 0;
 
-      const pollInterval = setInterval(async () => {
+      // CRITICAL: Store interval in ref so it can be cleared on retry
+      pollIntervalRef.current = setInterval(async () => {
         attempt++;
 
         if (attempt > maxAttempts) {
-          clearInterval(pollInterval);
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
           setError('Generation timed out after 5 minutes. Please try again with a shorter description.');
           // Keep loading=true so the modal stays open with retry button
           return;
@@ -595,7 +623,8 @@ export default function CreatePage() {
           setProgress(statusData.progress || 0);
 
           if (statusData.status === 'completed') {
-            clearInterval(pollInterval);
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
             console.log('✅ Generation complete!');
 
             // Set progress to 100% FIRST (before hiding modal)
@@ -626,7 +655,8 @@ export default function CreatePage() {
             // Hide loading modal AFTER setting progress to 100%
             setLoading(false);
           } else if (statusData.status === 'failed') {
-            clearInterval(pollInterval);
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
             setError(statusData.error || 'Generation failed. Please try again.');
             // Keep loading=true so the modal stays open with retry button
             // User can click Cancel or Try Again in the modal
