@@ -3,6 +3,7 @@ ToyyibPay Service - Malaysian Payment Gateway Integration
 Handles bill creation and payment processing
 """
 
+import json
 import requests
 from typing import Dict, Optional
 from loguru import logger
@@ -179,14 +180,40 @@ class ToyyibPayService:
                 timeout=30
             )
 
-            logger.info(f"📥 Response status: {response.status_code}")
-            logger.info(f"📥 Response body: {response.text[:500]}")  # Limit log length
+            # Always log raw response first for debugging
+            logger.info(f"📥 ToyyibPay Response Status: {response.status_code}")
+            logger.info(f"📥 ToyyibPay Raw Response: {response.text[:500]}")
+
+            # Check if response is HTML (error page)
+            if response.text.strip().startswith('<!') or response.text.strip().startswith('<html'):
+                logger.error(f"❌ ToyyibPay returned HTML instead of JSON. Likely invalid credentials or endpoint.")
+                logger.error(f"❌ Full HTML response: {response.text[:1000]}")
+                return {
+                    'success': False,
+                    'error': 'ToyyibPay returned an error page. Please check API credentials.',
+                    'details': f'Status: {response.status_code}, Response type: HTML'
+                }
 
             # Don't raise for 400 errors - we want to parse the response
             if response.status_code >= 500:
-                response.raise_for_status()
+                logger.error(f"❌ ToyyibPay server error: {response.status_code}")
+                return {
+                    'success': False,
+                    'error': f'ToyyibPay server error (HTTP {response.status_code})',
+                    'details': response.text[:500]
+                }
 
-            result = response.json()
+            # Try to parse JSON response
+            try:
+                result = response.json()
+            except json.JSONDecodeError as json_err:
+                logger.error(f"❌ ToyyibPay returned invalid JSON: {json_err}")
+                logger.error(f"❌ Raw response that failed to parse: {response.text[:500]}")
+                return {
+                    'success': False,
+                    'error': 'ToyyibPay returned invalid response format',
+                    'details': f'Response: {response.text[:200]}'
+                }
 
             # Parse ToyyibPay response
             if isinstance(result, list) and len(result) > 0:
@@ -221,18 +248,39 @@ class ToyyibPayService:
                 'details': result
             }
 
+        except requests.exceptions.Timeout as e:
+            logger.error(f"ToyyibPay API timeout: {e}")
+            return {
+                'success': False,
+                'error': 'Payment gateway timeout. Please try again.',
+                'details': str(e)
+            }
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"ToyyibPay connection error: {e}")
+            return {
+                'success': False,
+                'error': 'Cannot connect to payment gateway. Please try again.',
+                'details': str(e)
+            }
         except requests.exceptions.RequestException as e:
             logger.error(f"ToyyibPay API request failed: {e}")
             return {
                 'success': False,
-                'error': 'API request failed',
+                'error': 'Payment gateway request failed',
+                'details': str(e)
+            }
+        except json.JSONDecodeError as e:
+            logger.error(f"ToyyibPay returned invalid JSON: {e}")
+            return {
+                'success': False,
+                'error': 'Invalid response from payment gateway',
                 'details': str(e)
             }
         except Exception as e:
-            logger.error(f"Error creating ToyyibPay bill: {e}")
+            logger.error(f"Error creating ToyyibPay bill: {e}", exc_info=True)
             return {
                 'success': False,
-                'error': str(e)
+                'error': f'Unexpected error: {str(e)}'
             }
 
     def verify_callback(self, data: Dict) -> Dict:
@@ -311,14 +359,37 @@ class ToyyibPayService:
                 timeout=30
             )
 
-            response.raise_for_status()
-            result = response.json()
+            logger.info(f"📥 getBillTransactions status: {response.status_code}")
+            logger.info(f"📥 getBillTransactions response: {response.text[:300]}")
+
+            # Check for HTML error response
+            if response.text.strip().startswith('<!') or response.text.strip().startswith('<html'):
+                logger.error(f"❌ ToyyibPay returned HTML for getBillTransactions")
+                return {
+                    'success': False,
+                    'error': 'Invalid response from payment gateway'
+                }
+
+            try:
+                result = response.json()
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ getBillTransactions invalid JSON: {e}")
+                return {
+                    'success': False,
+                    'error': f'Invalid JSON response: {response.text[:100]}'
+                }
 
             return {
                 'success': True,
                 'transactions': result
             }
 
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error getting bill transactions: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
         except Exception as e:
             logger.error(f"Error getting bill transactions: {e}")
             return {
