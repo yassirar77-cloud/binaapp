@@ -17,7 +17,7 @@ function LandingPageContent() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
-  const [targetTier, setTargetTier] = useState<'starter' | 'basic' | 'pro'>('basic')
+  const [targetTier, setTargetTier] = useState<'starter' | 'basic' | 'pro'>('starter')
 
   useEffect(() => {
     checkUser()
@@ -130,12 +130,17 @@ function LandingPageContent() {
             AI kami akan jana website lengkap dengan WhatsApp, shopping cart, dan banyak lagi!
           </p>
           <div className="flex gap-4 justify-center animate-slide-up">
-            <Link href="/create" className="btn btn-primary text-lg px-8 py-3">
-              Mula Sekarang
-            </Link>
-            <Link href="/dashboard" className="btn btn-outline text-lg px-8 py-3">
-              Lihat Projects
-            </Link>
+            <button
+              onClick={() => handleSelectPlan('starter')}
+              className="btn btn-primary text-lg px-8 py-3"
+            >
+              Mula Sekarang - RM5/bulan
+            </button>
+            {user && (
+              <Link href="/my-projects" className="btn btn-outline text-lg px-8 py-3">
+                Website Saya
+              </Link>
+            )}
           </div>
         </div>
       </section>
