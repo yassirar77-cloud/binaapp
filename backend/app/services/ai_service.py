@@ -12,7 +12,7 @@ import time
 import json
 import re
 from loguru import logger
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Callable, Awaitable
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
 from app.services.business_types import get_business_config, detect_business_type
 from difflib import SequenceMatcher
@@ -2694,12 +2694,27 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         self,
         request: WebsiteGenerationRequest,
         style: Optional[str] = None,
-        image_choice: str = "upload"  # NEW: none, upload, or ai
+        image_choice: str = "upload",  # NEW: none, upload, or ai
+        progress_callback: Optional[Callable[[int, str], Awaitable[None]]] = None  # NEW: callback for progress updates
     ) -> AIGenerationResponse:
-        """Generate website with Stability AI + Cloudinary + DeepSeek + Qwen"""
+        """Generate website with Stability AI + Cloudinary + DeepSeek + Qwen
+
+        Args:
+            progress_callback: Optional async callback(progress_percent, status_message)
+        """
 
         import time
         start_time = time.time()
+
+        # Helper to safely call progress callback
+        async def update_progress(percent: int, message: str):
+            if progress_callback:
+                try:
+                    await progress_callback(percent, message)
+                except Exception as e:
+                    logger.warning(f"Progress callback failed: {e}")
+
+        await update_progress(25, "Starting website generation")
 
         logger.info("=" * 80)
         logger.info("🌐 WEBSITE GENERATION - FULL AI PIPELINE")
@@ -2750,6 +2765,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     image_urls[f"gallery{i}_name"] = get_image_name(request.uploaded_images[idx])
 
             logger.info(f"   ✅ Using {len(image_urls)} user-uploaded images with metadata")
+            await update_progress(35, "Processing uploaded images")
 
         else:
             # No user images - generate with Stability AI
@@ -2816,8 +2832,10 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             if failed > 0:
                 logger.warning(f"   ⚠️ Failed: {failed}/5 images")
             logger.info(f"   Total URLs: {len(image_urls)} images ready for HTML generation")
+            await update_progress(45, "AI images generated")
 
         # Build prompt WITH image URLs (or NO images if image_choice='none')
+        await update_progress(50, "Generating website HTML")
         logger.info(f"🔷 STEP 2: DeepSeek generating HTML... [{time.time() - start_time:.1f}s elapsed]")
         # Get language from request (default to "ms" for Bahasa Malaysia)
         language = request.language.value if hasattr(request, 'language') and request.language else "ms"
@@ -2894,15 +2912,19 @@ IMPORTANT INSTRUCTIONS:
 
             prompt += image_instructions
 
+        await update_progress(55, "Calling AI to generate HTML")
         html = await self._call_deepseek(prompt)
 
         if not html:
             logger.warning("⚠️ DeepSeek failed, trying Qwen...")
+            await update_progress(60, "Trying backup AI model")
             html = await self._call_qwen(prompt)
 
         if not html:
             logger.error("❌ Both AIs failed to generate")
             raise Exception("Failed to generate website")
+
+        await update_progress(75, "Processing generated HTML")
 
         # Extract HTML
         html = self._extract_html(html)
@@ -2982,6 +3004,8 @@ IMPORTANT INSTRUCTIONS:
         logger.info("✅ ALL STEPS COMPLETE")
         logger.info(f"   Final size: {len(html)} characters")
         logger.info(f"   ⏱️  Total generation time: {total_time:.1f}s")
+
+        await update_progress(90, "Finalizing website")
 
         # Determine integrations based on mode
         if request.include_ecommerce:

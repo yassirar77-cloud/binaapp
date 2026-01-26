@@ -1704,11 +1704,29 @@ async def run_generation_task(
             uploaded_images=(images if (images and normalized_image_choice != "none") else [])
         )
 
+        # Create progress callback to update Supabase during generation
+        async def progress_callback(progress: int, message: str):
+            """Update job progress in Supabase during AI generation"""
+            logger.info(f"📊 AI Progress: {progress}% - {message}")
+            if supabase:
+                try:
+                    result = supabase.table("generation_jobs").update({
+                        "progress": progress,
+                        "updated_at": datetime.now().isoformat()
+                    }).eq("job_id", job_id).execute()
+                    logger.info(f"📊 Progress {progress}% update: {len(result.data) if result.data else 0} rows affected")
+                except Exception as e:
+                    logger.warning(f"⚠️ Progress update failed: {e}")
+
         # Call ai_service.generate_website() - This triggers the 4-step flow
         logger.info("🎨 Starting 4-step generation (Stability AI + Cloudinary + DeepSeek + Qwen)...")
         logger.info(f"   ✅ WhatsApp enabled: {whatsapp_enabled}")
         logger.info(f"   🖼️ Image choice: {normalized_image_choice}")
-        ai_response = await ai_service.generate_website(ai_request, image_choice=normalized_image_choice)
+        ai_response = await ai_service.generate_website(
+            ai_request,
+            image_choice=normalized_image_choice,
+            progress_callback=progress_callback  # NEW: Pass progress callback
+        )
         html = ai_response.html_content
 
         logger.info(f"✅ Got HTML: {len(html)} chars")
@@ -1749,14 +1767,14 @@ async def run_generation_task(
             except Exception as wa_err:
                 logger.warning(f"⚠️ WhatsApp sanitization failed (continuing): {wa_err}")
 
-        # Step 3: Update progress to 60% after AI generation
-        logger.info(f"📊 Updating progress to 60%")
+        # Step 3: Update progress to 92% after AI generation and customizations
+        logger.info(f"📊 Updating progress to 92% - applying customizations")
         if supabase:
-            result_60 = supabase.table("generation_jobs").update({
-                "progress": 60,
+            result_92 = supabase.table("generation_jobs").update({
+                "progress": 92,
                 "updated_at": datetime.now().isoformat()
             }).eq("job_id", job_id).execute()
-            logger.info(f"📊 Progress 60% update: {len(result_60.data) if result_60.data else 0} rows affected")
+            logger.info(f"📊 Progress 92% update: {len(result_92.data) if result_92.data else 0} rows affected")
 
         # OPTIONAL: Inject delivery/ordering system if user requested it via /api/generate/start payload.
         try:
@@ -1934,14 +1952,14 @@ async def run_generation_task(
         except Exception as inject_err:
             logger.warning(f"⚠️ Delivery injection skipped due to error: {inject_err}")
 
-        # Step 4: Update progress to 80%
-        logger.info(f"📊 Updating progress to 80%")
+        # Step 4: Update progress to 95% - delivery system injected
+        logger.info(f"📊 Updating progress to 95% - delivery system processed")
         if supabase:
-            result_80 = supabase.table("generation_jobs").update({
-                "progress": 80,
+            result_95 = supabase.table("generation_jobs").update({
+                "progress": 95,
                 "updated_at": datetime.now().isoformat()
             }).eq("job_id", job_id).execute()
-            logger.info(f"📊 Progress 80% update: {len(result_80.data) if result_80.data else 0} rows affected")
+            logger.info(f"📊 Progress 95% update: {len(result_95.data) if result_95.data else 0} rows affected")
 
         # Increment usage (founders bypass)
         increment_usage(user_id, user_email)
