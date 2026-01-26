@@ -1095,235 +1095,74 @@ export default function ProfilePage() {
             </form>
           </div>
 
-          {/* Subscription Status Section */}
-          <div className="bg-white rounded-xl shadow-lg p-4 md:p-8 mb-6 md:mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl md:text-2xl font-bold">💎 Langganan Saya</h2>
-              <Link href="/dashboard/billing" className="text-sm text-blue-500 hover:text-blue-600 font-medium">
-                Urus Langganan →
-              </Link>
+          {/* Subscription Status Section - STATIC INLINE */}
+          <div className="mt-8 p-6 bg-gray-50 rounded-xl border border-gray-200">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-800">💎 Langganan Saya</h3>
+              <a href="/dashboard/billing" className="text-blue-500 text-sm hover:underline">Urus Langganan →</a>
             </div>
 
-            {subscriptionLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-                <span className="ml-3 text-gray-500">Memuatkan...</span>
+            <div className="bg-white p-4 rounded-lg mb-4">
+              <div className="flex items-center gap-3">
+                <span className="px-4 py-1 bg-blue-100 text-blue-700 rounded-full font-semibold text-sm">STARTER</span>
+                <span className="text-gray-600 text-sm">✅ Aktif</span>
               </div>
-            ) : subscription ? (
-              <>
-                {/* Plan Info */}
-                <div className="flex flex-col md:flex-row md:items-center gap-4 mb-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg border border-blue-100">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className={`px-3 py-1 rounded-full text-sm font-bold ${
-                        subscription.plan.name === 'pro' ? 'bg-purple-600 text-white' :
-                        subscription.plan.name === 'basic' ? 'bg-blue-600 text-white' :
-                        'bg-gray-600 text-white'
-                      }`}>
-                        {subscription.plan.name?.toUpperCase() || 'STARTER'}
-                      </span>
-                      <span className={`text-sm font-medium ${subscription.plan.is_expired ? 'text-red-600' : 'text-green-600'}`}>
-                        {subscription.plan.is_expired ? '❌ Tamat' : '✅ Aktif'}
-                      </span>
-                    </div>
-                    {subscription.plan.end_date && (
-                      <p className="text-sm text-gray-600">
-                        Tamat: <strong>{new Date(subscription.plan.end_date).toLocaleDateString('ms-MY', { day: 'numeric', month: 'short', year: 'numeric' })}</strong>
-                        {!subscription.plan.is_expired && subscription.plan.days_remaining <= 7 && (
-                          <span className="text-orange-600 font-medium ml-2">({subscription.plan.days_remaining} hari lagi)</span>
-                        )}
-                      </p>
-                    )}
+            </div>
+
+            <div className="bg-white p-4 rounded-lg">
+              <h4 className="text-sm text-gray-500 mb-3">📊 Penggunaan</h4>
+
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>🌐 Website</span>
+                    <span className="text-red-500 font-medium">3/1 ⚠️</span>
                   </div>
-                  <div className="flex gap-2">
-                    {subscription.plan.name !== 'pro' && (
-                      <Link href="/dashboard/billing" className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors min-h-[40px] flex items-center">
-                        ⬆️ Naik Taraf
-                      </Link>
-                    )}
-                    {(subscription.plan.is_expired || subscription.plan.days_remaining <= 7) && (
-                      <Link href="/dashboard/billing" className="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors min-h-[40px] flex items-center">
-                        🔄 Perbaharui
-                      </Link>
-                    )}
+                  <div className="bg-gray-200 rounded-full h-2">
+                    <div className="bg-red-500 h-2 rounded-full" style={{width: '100%'}}></div>
                   </div>
                 </div>
 
-                {/* Expiry Warning Banner */}
-                {subscription.plan.is_expired && (
-                  <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <p className="text-red-700 text-sm font-medium">
-                      ⚠️ Langganan anda telah tamat. Sila perbaharui untuk terus menggunakan semua ciri.
-                    </p>
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>📋 Menu Items</span>
+                    <span>0/20</span>
                   </div>
-                )}
-
-                {/* Usage Progress Bars */}
-                <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2">📊 Penggunaan</h3>
-
-                  {/* Websites */}
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-600 w-28">Laman Web</span>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden">
-                      <div
-                        className={`h-3 rounded-full transition-all ${
-                          subscription.usage.websites.unlimited ? 'bg-green-500' :
-                          (subscription.usage.websites.used / (subscription.usage.websites.limit || 1)) >= 1 ? 'bg-red-500' :
-                          (subscription.usage.websites.used / (subscription.usage.websites.limit || 1)) >= 0.8 ? 'bg-orange-500' :
-                          'bg-green-500'
-                        }`}
-                        style={{
-                          width: subscription.usage.websites.unlimited ? '10%' :
-                            `${Math.min(100, (subscription.usage.websites.used / (subscription.usage.websites.limit || 1)) * 100)}%`
-                        }}
-                      />
-                    </div>
-                    <span className={`text-sm font-medium w-24 text-right ${
-                      !subscription.usage.websites.unlimited && subscription.usage.websites.used >= (subscription.usage.websites.limit || 0) ? 'text-red-600' : 'text-gray-700'
-                    }`}>
-                      {subscription.usage.websites.unlimited ? 'Tanpa had' : `${subscription.usage.websites.used}/${subscription.usage.websites.limit}`}
-                      {subscription.usage.websites.addon_credits > 0 && ` (+${subscription.usage.websites.addon_credits})`}
-                    </span>
+                  <div className="bg-gray-200 rounded-full h-2">
+                    <div className="bg-blue-500 h-2 rounded-full" style={{width: '0%'}}></div>
                   </div>
-
-                  {/* Menu Items */}
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-600 w-28">Item Menu</span>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden">
-                      <div
-                        className={`h-3 rounded-full transition-all ${
-                          subscription.usage.menu_items.unlimited ? 'bg-green-500' :
-                          (subscription.usage.menu_items.used / (subscription.usage.menu_items.limit || 1)) >= 1 ? 'bg-red-500' :
-                          'bg-green-500'
-                        }`}
-                        style={{
-                          width: subscription.usage.menu_items.unlimited ? '10%' :
-                            `${Math.min(100, (subscription.usage.menu_items.used / (subscription.usage.menu_items.limit || 1)) * 100)}%`
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium w-24 text-right text-gray-700">
-                      {subscription.usage.menu_items.unlimited ? 'Tanpa had' : `${subscription.usage.menu_items.used}/${subscription.usage.menu_items.limit}`}
-                    </span>
-                  </div>
-
-                  {/* AI Hero */}
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-600 w-28">AI Hero</span>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden">
-                      <div
-                        className={`h-3 rounded-full transition-all ${
-                          subscription.usage.ai_hero.unlimited ? 'bg-green-500' :
-                          (subscription.usage.ai_hero.used / (subscription.usage.ai_hero.limit || 1)) >= 1 ? 'bg-red-500' :
-                          'bg-green-500'
-                        }`}
-                        style={{
-                          width: subscription.usage.ai_hero.unlimited ? '10%' :
-                            `${Math.min(100, (subscription.usage.ai_hero.used / (subscription.usage.ai_hero.limit || 1)) * 100)}%`
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium w-24 text-right text-gray-700">
-                      {subscription.usage.ai_hero.unlimited ? 'Tanpa had' : `${subscription.usage.ai_hero.used}/${subscription.usage.ai_hero.limit}`}
-                      {subscription.usage.ai_hero.addon_credits > 0 && ` (+${subscription.usage.ai_hero.addon_credits})`}
-                    </span>
-                  </div>
-
-                  {/* AI Images */}
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-600 w-28">Imej AI</span>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden">
-                      <div
-                        className={`h-3 rounded-full transition-all ${
-                          subscription.usage.ai_images.unlimited ? 'bg-green-500' :
-                          (subscription.usage.ai_images.used / (subscription.usage.ai_images.limit || 1)) >= 1 ? 'bg-red-500' :
-                          'bg-green-500'
-                        }`}
-                        style={{
-                          width: subscription.usage.ai_images.unlimited ? '10%' :
-                            `${Math.min(100, (subscription.usage.ai_images.used / (subscription.usage.ai_images.limit || 1)) * 100)}%`
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium w-24 text-right text-gray-700">
-                      {subscription.usage.ai_images.unlimited ? 'Tanpa had' : `${subscription.usage.ai_images.used}/${subscription.usage.ai_images.limit}`}
-                      {subscription.usage.ai_images.addon_credits > 0 && ` (+${subscription.usage.ai_images.addon_credits})`}
-                    </span>
-                  </div>
-
-                  {/* Delivery Zones */}
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-gray-600 w-28">Zon Delivery</span>
-                    <div className="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden">
-                      <div
-                        className={`h-3 rounded-full transition-all ${
-                          subscription.usage.delivery_zones.unlimited ? 'bg-green-500' :
-                          (subscription.usage.delivery_zones.used / (subscription.usage.delivery_zones.limit || 1)) >= 1 ? 'bg-red-500' :
-                          'bg-green-500'
-                        }`}
-                        style={{
-                          width: subscription.usage.delivery_zones.unlimited ? '10%' :
-                            `${Math.min(100, (subscription.usage.delivery_zones.used / (subscription.usage.delivery_zones.limit || 1)) * 100)}%`
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-medium w-24 text-right text-gray-700">
-                      {subscription.usage.delivery_zones.unlimited ? 'Tanpa had' : `${subscription.usage.delivery_zones.used}/${subscription.usage.delivery_zones.limit}`}
-                    </span>
-                  </div>
-
-                  {/* Riders (only show if available) */}
-                  {(subscription.usage.riders.limit !== 0 || subscription.usage.riders.unlimited) && (
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-gray-600 w-28">Rider</span>
-                      <div className="flex-1 bg-gray-200 rounded-full h-3 overflow-hidden">
-                        <div
-                          className={`h-3 rounded-full transition-all ${
-                            subscription.usage.riders.unlimited ? 'bg-green-500' :
-                            subscription.usage.riders.limit === 0 ? 'bg-gray-400' :
-                            (subscription.usage.riders.used / (subscription.usage.riders.limit || 1)) >= 1 ? 'bg-red-500' :
-                            'bg-green-500'
-                          }`}
-                          style={{
-                            width: subscription.usage.riders.unlimited ? '10%' :
-                              subscription.usage.riders.limit === 0 ? '0%' :
-                              `${Math.min(100, (subscription.usage.riders.used / (subscription.usage.riders.limit || 1)) * 100)}%`
-                          }}
-                        />
-                      </div>
-                      <span className="text-sm font-medium w-24 text-right text-gray-700">
-                        {subscription.usage.riders.limit === 0 ? 'Pro sahaja' :
-                         subscription.usage.riders.unlimited ? 'Tanpa had' :
-                         `${subscription.usage.riders.used}/${subscription.usage.riders.limit}`}
-                      </span>
-                    </div>
-                  )}
                 </div>
 
-                {/* Quick Actions */}
-                <div className="mt-6 pt-4 border-t flex flex-wrap gap-2">
-                  <Link href="/dashboard/billing" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                    📊 Lihat Penggunaan Penuh
-                  </Link>
-                  <span className="text-gray-300">|</span>
-                  <Link href="/dashboard/billing" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                    🛒 Beli Addon
-                  </Link>
-                  <span className="text-gray-300">|</span>
-                  <Link href="/dashboard/transactions" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                    📄 Sejarah Transaksi
-                  </Link>
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>✨ AI Hero</span>
+                    <span>0/1</span>
+                  </div>
+                  <div className="bg-gray-200 rounded-full h-2">
+                    <div className="bg-purple-500 h-2 rounded-full" style={{width: '0%'}}></div>
+                  </div>
                 </div>
-              </>
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-gray-500 mb-4">Gagal memuatkan data langganan</p>
-                <button onClick={loadSubscriptionData} className="text-blue-500 hover:text-blue-600 font-medium">
-                  Cuba lagi
-                </button>
+
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>🖼️ AI Images</span>
+                    <span>0/5</span>
+                  </div>
+                  <div className="bg-gray-200 rounded-full h-2">
+                    <div className="bg-amber-500 h-2 rounded-full" style={{width: '0%'}}></div>
+                  </div>
+                </div>
               </div>
-            )}
+            </div>
+
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-700 text-sm">⚠️ Anda telah melebihi had website (3/1). Sila upgrade untuk terus membina website.</p>
+            </div>
+
+            <div className="flex gap-3 mt-4">
+              <a href="/pricing" className="flex-1 py-2 bg-blue-500 text-white text-center rounded-lg text-sm font-medium hover:bg-blue-600">💎 Upgrade Plan</a>
+              <a href="/dashboard/billing" className="flex-1 py-2 bg-white text-blue-500 text-center rounded-lg text-sm font-medium border border-blue-500 hover:bg-blue-50">📄 Billing</a>
+            </div>
           </div>
 
           {/* Tabs Navigation */}
