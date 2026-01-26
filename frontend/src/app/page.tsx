@@ -266,9 +266,9 @@ function LandingPageContent() {
               features={[
                 'Unlimited websites',
                 'Unlimited AI',
-                'Advanced AI',
-                'White-label',
-                'API access'
+                'Unlimited zones',
+                'Rider GPS (10)',
+                'Priority support'
               ]}
               cta="Pilih Pro"
               onSelect={() => handleSelectPlan('pro')}

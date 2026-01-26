@@ -40,8 +40,8 @@ const features: Record<string, string[]> = {
     'Unlimited AI',
     'Unlimited zones',
     'Rider GPS (10 riders)',
-    'White-label',
-    'API access'
+    'Advanced analytics',
+    'Priority support'
   ]
 };
 

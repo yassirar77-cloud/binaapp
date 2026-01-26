@@ -53,9 +53,9 @@ const upgradePlans = [
     features: [
       'Laman web tanpa had',
       'AI tanpa had',
+      'Zon tanpa had',
       '10 rider dengan GPS',
-      'White-label',
-      'Akses API'
+      'Sokongan keutamaan'
     ]
   }
 ];
