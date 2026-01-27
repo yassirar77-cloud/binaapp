@@ -8,6 +8,8 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from loguru import logger
+import os
 
 from app.core.config import settings
 
@@ -68,29 +70,140 @@ def decode_access_token(token: str) -> Dict[str, Any]:
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> Dict[str, Any]:
-    """Get current authenticated user from token"""
+    """
+    Get current authenticated user from token.
+
+    Verifies JWT tokens LOCALLY without network calls for speed.
+
+    Order of verification:
+    1. Custom JWT_SECRET_KEY (tokens created by our backend)
+    2. SUPABASE_JWT_SECRET (tokens created by Supabase)
+    """
     token = credentials.credentials
-    payload = decode_access_token(token)
 
-    user_id = payload.get("sub")
-    if user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # FIRST: Try to decode with our custom JWT secret (tokens we create)
+    try:
+        payload = decode_access_token(token)
+        user_id = payload.get("sub")
+        if user_id:
+            logger.debug(f"Token verified with custom JWT secret for user: {user_id}")
+            return payload
+    except Exception as e:
+        logger.debug(f"Custom JWT verification failed: {e}")
 
-    return payload
+    # SECOND: Try SUPABASE_JWT_SECRET (for Supabase-signed tokens)
+    if settings.SUPABASE_JWT_SECRET:
+        try:
+            # Supabase tokens use HS256 algorithm
+            # Disable audience verification for compatibility
+            payload = jwt.decode(
+                token,
+                settings.SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_aud": False}
+            )
+            user_id = payload.get("sub")
+            if user_id:
+                logger.debug(f"Token verified with Supabase JWT secret for user: {user_id}")
+                return payload
+        except JWTError as e:
+            logger.debug(f"Supabase JWT verification failed: {e}")
+
+    # If all local verification fails, reject the token
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials - please login again",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def verify_api_key(api_key: str) -> bool:
-    """Verify API key for external integrations"""
-    # This would check against database or configured API keys
-    # For now, we'll just check against environment
-    return True  # Implement proper API key validation
+    """
+    Verify API key for external integrations.
+
+    SECURITY: Checks against configured API keys in environment or database.
+
+    For production, set BINAAPP_API_KEYS environment variable with comma-separated keys:
+    BINAAPP_API_KEYS="bina_abc123...,bina_xyz789..."
+
+    Returns:
+        bool: True if API key is valid, False otherwise
+    """
+    if not api_key:
+        return False
+
+    # Check environment variable for configured API keys
+    configured_keys = settings.BINAAPP_API_KEYS if hasattr(settings, 'BINAAPP_API_KEYS') else None
+
+    if configured_keys:
+        # Support comma-separated list of keys
+        valid_keys = [k.strip() for k in configured_keys.split(',') if k.strip()]
+
+        # SECURITY: Use constant-time comparison to prevent timing attacks
+        import hmac
+        for valid_key in valid_keys:
+            if hmac.compare_digest(api_key, valid_key):
+                return True
+        return False
+
+    # If no API keys configured, reject all (secure by default)
+    # To enable API key authentication, set BINAAPP_API_KEYS environment variable
+    logger.warning(
+        "API key validation attempted but no BINAAPP_API_KEYS configured. "
+        "Set BINAAPP_API_KEYS environment variable to enable API key authentication."
+    )
+    return False
 
 
 def generate_api_key() -> str:
     """Generate a new API key"""
     import secrets
     return f"bina_{secrets.token_urlsafe(32)}"
+
+
+# Optional Bearer token security (doesn't throw if missing)
+optional_security = HTTPBearer(auto_error=False)
+
+
+async def get_optional_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security)
+) -> Optional[Dict[str, Any]]:
+    """
+    Get current authenticated user from token, or None if not authenticated.
+
+    Use this for endpoints that support both authenticated and unauthenticated access.
+    """
+    if not credentials:
+        return None
+
+    token = credentials.credentials
+
+    # Try to decode with our custom JWT secret
+    try:
+        payload = decode_access_token(token)
+        user_id = payload.get("sub")
+        if user_id:
+            logger.debug(f"Optional auth: Token verified for user: {user_id}")
+            return payload
+    except Exception:
+        pass
+
+    # Try SUPABASE_JWT_SECRET
+    if settings.SUPABASE_JWT_SECRET:
+        try:
+            payload = jwt.decode(
+                token,
+                settings.SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_aud": False}
+            )
+            user_id = payload.get("sub")
+            if user_id:
+                logger.debug(f"Optional auth: Supabase token verified for user: {user_id}")
+                return payload
+        except JWTError:
+            pass
+
+    # Token present but invalid - return None (don't throw)
+    logger.debug("Optional auth: Invalid token provided, continuing without auth")
+    return None

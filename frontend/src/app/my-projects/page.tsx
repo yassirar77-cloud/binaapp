@@ -3,19 +3,25 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { supabase } from '@/lib/supabase'
-import { User } from '@supabase/supabase-js'
+import { getCurrentUser, getStoredToken, signOut } from '@/lib/supabase'
+
+// Backend API URL
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
 
 interface Website {
   id: string
-  name: string
+  business_name: string
   subdomain: string | null
-  description: string | null
-  template: string | null
+  full_url: string | null
   status: string
-  published_url: string | null
   created_at: string
-  updated_at: string
+  published_at: string | null
+}
+
+interface User {
+  id: string
+  email: string
+  full_name?: string
 }
 
 export default function MyProjectsPage() {
@@ -27,71 +33,112 @@ export default function MyProjectsPage() {
   const [deleting, setDeleting] = useState<string | null>(null)
 
   useEffect(() => {
-    getWebsites()
+    checkAuthAndGetWebsites()
   }, [])
 
-  async function getWebsites() {
-    if (!supabase) {
-      setLoading(false)
-      return
-    }
-
+  async function checkAuthAndGetWebsites() {
     try {
       setLoading(true)
 
-      const { data: { user } } = await supabase.auth.getUser()
+      // Check for custom BinaApp auth token
+      const token = getStoredToken()
+      const currentUser = await getCurrentUser()
 
-      if (!user) {
+      if (!token || !currentUser) {
         router.push('/login')
         return
       }
 
-      setUser(user)
+      setUser(currentUser as User)
 
-      const { data, error } = await supabase
-        .from('websites')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
+      // Fetch websites from backend API
+      const response = await fetch(`${API_BASE}/api/v1/websites/`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
 
-      if (error) {
-        console.error('Error fetching websites:', error)
-      } else {
+      if (response.status === 401) {
+        // Token expired or invalid
+        router.push('/login')
+        return
+      }
+
+      if (response.ok) {
+        const data = await response.json()
         setWebsites(data || [])
+      } else {
+        console.error('Error fetching websites:', response.status)
+        setWebsites([])
       }
     } catch (error) {
       console.error('Error:', error)
+      setWebsites([])
     } finally {
       setLoading(false)
     }
   }
 
-  async function deleteWebsite(id: string) {
-    if (!confirm('Adakah anda pasti mahu padam website ini?')) return
-    if (!supabase) return
+  async function deleteWebsite(id: string, websiteName: string) {
+    // Enhanced confirmation dialog
+    const confirmed = confirm(
+      `Adakah anda pasti mahu memadam "${websiteName}"?\n\n` +
+      `Ini akan memadam:\n` +
+      `• Website dan semua kandungan\n` +
+      `• Semua menu items\n` +
+      `• Semua pesanan\n` +
+      `• Semua data berkaitan\n\n` +
+      `Tindakan ini TIDAK BOLEH dibatalkan!`
+    )
+
+    if (!confirmed) return
 
     try {
       setDeleting(id)
 
-      const { error } = await supabase
-        .from('websites')
-        .delete()
-        .eq('id', id)
+      // Get auth token
+      const token = getStoredToken()
+      if (!token) {
+        alert('Sila log masuk semula')
+        router.push('/login')
+        return
+      }
 
-      if (error) throw error
+      // Call backend API endpoint
+      const response = await fetch(`${API_BASE}/api/v1/websites/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }))
+        throw new Error(errorData.detail || `HTTP ${response.status}`)
+      }
+
+      const result = await response.json()
+      console.log('Delete success:', result)
+
+      // Remove from local state
       setWebsites(websites.filter((w) => w.id !== id))
+
+      // Show success message
+      alert(`✅ Website "${websiteName}" berjaya dipadam!`)
+
     } catch (error) {
       console.error('Error deleting website:', error)
-      alert('Ralat memadam website. Sila cuba lagi.')
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      alert(`❌ Ralat memadam website:\n${errorMessage}\n\nSila cuba lagi atau hubungi sokongan.`)
     } finally {
       setDeleting(null)
     }
   }
 
   async function handleLogout() {
-    if (!supabase) return
-    await supabase.auth.signOut()
+    await signOut()
     router.push('/')
   }
 
@@ -131,6 +178,9 @@ export default function MyProjectsPage() {
             </Link>
             <Link href="/create" className="text-sm text-gray-600 hover:text-gray-900">
               Bina Website
+            </Link>
+            <Link href="/dashboard/billing" className="text-sm text-gray-600 hover:text-gray-900">
+              💎 Langganan
             </Link>
             <button
               onClick={handleLogout}
@@ -206,22 +256,17 @@ export default function MyProjectsPage() {
                   {/* Website Info */}
                   <div className="p-5">
                     <h3 className="font-semibold text-gray-800 text-lg mb-1 truncate">
-                      {website.name}
+                      {website.business_name}
                     </h3>
                     {website.subdomain && (
                       <a
-                        href={`https://${website.subdomain}.binaapp.my`}
+                        href={website.full_url || `https://${website.subdomain}.binaapp.my`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-blue-500 text-sm mb-3 block hover:underline"
                       >
                         {website.subdomain}.binaapp.my ↗
                       </a>
-                    )}
-                    {website.description && (
-                      <p className="text-gray-500 text-sm mb-3 line-clamp-2">
-                        {website.description}
-                      </p>
                     )}
                     <p className="text-gray-400 text-xs mb-4">
                       Dibuat: {new Date(website.created_at).toLocaleDateString('ms-MY', {
@@ -232,30 +277,38 @@ export default function MyProjectsPage() {
                     </p>
 
                     {/* Actions */}
-                    <div className="flex gap-2">
-                      {website.published_url && (
-                        <a
-                          href={website.published_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2 rounded-lg text-sm font-medium transition-colors"
+                    <div className="flex flex-col gap-2">
+                      <div className="flex gap-2">
+                        {(website.full_url || website.status === 'published') && (
+                          <a
+                            href={website.full_url || `https://${website.subdomain}.binaapp.my`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 bg-green-500 hover:bg-green-600 text-white text-center py-2 rounded-lg text-sm font-medium transition-colors"
+                          >
+                            👁 Lihat Live
+                          </a>
+                        )}
+                        <Link
+                          href={`/editor/${website.id}`}
+                          className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-center py-2 rounded-lg text-sm font-medium transition-colors"
                         >
-                          👁 Lihat Live
-                        </a>
-                      )}
+                          ✏️ Edit
+                        </Link>
+                        <button
+                          onClick={() => deleteWebsite(website.id, website.business_name)}
+                          disabled={deleting === website.id}
+                          className="bg-red-100 hover:bg-red-200 text-red-600 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                        >
+                          {deleting === website.id ? '...' : '🗑️'}
+                        </button>
+                      </div>
                       <Link
-                        href={`/create?edit=${website.id}`}
-                        className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-center py-2 rounded-lg text-sm font-medium transition-colors"
+                        href={`/analytics/${website.id}`}
+                        className="w-full bg-purple-100 hover:bg-purple-200 text-purple-700 text-center py-2 rounded-lg text-sm font-medium transition-colors"
                       >
-                        ✏️ Edit
+                        📊 Analytics
                       </Link>
-                      <button
-                        onClick={() => deleteWebsite(website.id)}
-                        disabled={deleting === website.id}
-                        className="bg-red-100 hover:bg-red-200 text-red-600 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                      >
-                        {deleting === website.id ? '...' : '🗑️'}
-                      </button>
                     </div>
                   </div>
                 </div>

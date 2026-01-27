@@ -61,11 +61,10 @@ class PaymentService:
                 "Unlimited websites",
                 "Premium templates",
                 "Advanced AI features",
-                "Custom domain support",
                 "Priority support",
                 "Advanced analytics",
-                "White-label option",
-                "API access"
+                "10 rider GPS tracking",
+                "Custom subdomain"
             ],
             "max_websites": -1,  # Unlimited
             "stripe_price_id_monthly": "price_pro_monthly",

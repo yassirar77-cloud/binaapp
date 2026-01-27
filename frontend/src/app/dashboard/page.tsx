@@ -6,8 +6,14 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Sparkles, Plus, Eye, Edit2, Trash2, ExternalLink, Calendar, Globe } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Sparkles, Plus, Eye, Edit2, Trash2, ExternalLink, Calendar, Globe, CreditCard } from 'lucide-react'
 import { API_BASE_URL } from '@/lib/env'
+import { supabase } from '@/lib/supabase'
+import { User } from '@supabase/supabase-js'
+import { SubscriptionExpiredBanner } from '@/components/SubscriptionExpiredBanner'
+import { UsageWidget } from '@/components/UsageWidget'
+import { LimitReachedModal } from '@/components/LimitReachedModal'
 
 interface Project {
   id: string
@@ -16,35 +22,76 @@ interface Project {
   url: string
   created_at: string
   published_at?: string
+  published_url?: string
 }
 
 export default function DashboardPage() {
+  const router = useRouter()
+  const [user, setUser] = useState<User | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
-
-  const userId = 'demo-user' // In production, get from auth
+  const [showLimitModal, setShowLimitModal] = useState(false)
+  const [limitModalData, setLimitModalData] = useState({
+    resourceType: 'website' as 'website' | 'menu_item' | 'ai_hero' | 'ai_image' | 'zone' | 'rider',
+    currentUsage: 0,
+    limit: 0,
+    canBuyAddon: false,
+    addonPrice: 0
+  })
 
   useEffect(() => {
     loadProjects()
   }, [])
 
   const loadProjects = async () => {
+    if (!supabase) {
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     setError('')
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/projects/${userId}`)
+      // Get authenticated user
+      const { data: { user } } = await supabase.auth.getUser()
 
-      if (!response.ok) {
+      if (!user) {
+        router.push('/login')
+        return
+      }
+
+      setUser(user)
+
+      // Fetch projects directly from Supabase
+      const { data, error: supabaseError } = await supabase
+        .from('websites')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+
+      if (supabaseError) {
+        console.error('Error fetching projects:', supabaseError)
         throw new Error('Failed to load projects')
       }
 
-      const data = await response.json()
-      setProjects(data)
+      // Transform to Project interface
+      const transformedProjects: Project[] = (data || []).map((website: any) => ({
+        id: website.id,
+        name: website.name || 'Untitled Project',
+        subdomain: website.subdomain || '',
+        url: website.published_url || `https://${website.subdomain}.binaapp.my`,
+        created_at: website.created_at,
+        published_at: website.updated_at,
+        published_url: website.published_url
+      }))
+
+      setProjects(transformedProjects)
     } catch (err: any) {
+      console.error('Load projects error:', err)
       setError(err.message || 'Failed to load projects')
     } finally {
       setLoading(false)
@@ -52,26 +99,39 @@ export default function DashboardPage() {
   }
 
   const handleDelete = async (projectId: string) => {
+    if (!confirm('Are you sure you want to delete this project?')) return
+    if (!supabase) return
+
     setDeleting(projectId)
     setError('')
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/projects/${userId}/${projectId}`,
-        { method: 'DELETE' }
-      )
+      const { error: deleteError } = await supabase
+        .from('websites')
+        .delete()
+        .eq('id', projectId)
 
-      if (!response.ok) {
-        throw new Error('Failed to delete project')
-      }
+      if (deleteError) throw deleteError
 
       // Remove from list
       setProjects(projects.filter(p => p.id !== projectId))
       setDeleteConfirm(null)
     } catch (err: any) {
+      console.error('Delete error:', err)
       setError(err.message || 'Failed to delete project')
     } finally {
       setDeleting(null)
+    }
+  }
+
+  const handleLogout = async () => {
+    if (!supabase) return
+    try {
+      await supabase.auth.signOut()
+      setUser(null)
+      router.push('/')
+    } catch (error) {
+      console.error('Logout error:', error)
     }
   }
 
@@ -88,8 +148,32 @@ export default function DashboardPage() {
     }
   }
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-800 mb-4">Please Log In</h1>
+          <Link href="/login" className="text-primary-600 hover:underline">
+            Log In
+          </Link>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Subscription Expired Banner */}
+      <SubscriptionExpiredBanner />
+
       {/* Header */}
       <header className="bg-white border-b sticky top-0 z-40">
         <nav className="container mx-auto px-4 h-16 flex items-center justify-between">
@@ -98,10 +182,23 @@ export default function DashboardPage() {
             <span className="text-xl font-bold">BinaApp</span>
           </Link>
           <div className="flex items-center gap-4">
-            <Link href="/create" className="btn btn-primary">
+            <Link href="/dashboard/billing" className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1">
+              <CreditCard className="w-4 h-4" />
+              Langganan
+            </Link>
+            <Link href="/profile" className="text-sm text-gray-600 hover:text-gray-900">
+              Profile
+            </Link>
+            <Link href="/create" className="btn btn-primary btn-sm">
               <Plus className="w-4 h-4 mr-2" />
               Create New Website
             </Link>
+            <button
+              onClick={handleLogout}
+              className="text-sm text-red-500 hover:text-red-600"
+            >
+              Log Out
+            </button>
           </div>
         </nav>
       </header>
@@ -259,6 +356,25 @@ export default function DashboardPage() {
           <Plus className="w-6 h-6" />
         </Link>
       </div>
+
+      {/* Usage Widget Sidebar (Desktop) */}
+      <div className="hidden lg:block fixed right-6 top-24 w-72">
+        <UsageWidget
+          onUpgradeClick={() => router.push('/dashboard/billing')}
+          onRenewClick={() => router.push('/dashboard/billing')}
+        />
+      </div>
+
+      {/* Limit Reached Modal */}
+      <LimitReachedModal
+        show={showLimitModal}
+        onClose={() => setShowLimitModal(false)}
+        resourceType={limitModalData.resourceType}
+        currentUsage={limitModalData.currentUsage}
+        limit={limitModalData.limit}
+        canBuyAddon={limitModalData.canBuyAddon}
+        addonPrice={limitModalData.addonPrice}
+      />
     </div>
   )
 }

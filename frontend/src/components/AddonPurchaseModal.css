@@ -1,0 +1,81 @@
+.addon-modal {
+  background: white;
+  border-radius: 12px;
+  padding: 30px;
+  max-width: 400px;
+  width: 90%;
+  position: relative;
+}
+
+.addon-modal h2 {
+  text-align: center;
+  color: #1e40af;
+  margin-bottom: 20px;
+}
+
+.addon-details {
+  text-align: center;
+  margin: 20px 0;
+  padding: 20px;
+  background: #f9fafb;
+  border-radius: 8px;
+}
+
+.addon-details h3 {
+  font-size: 18px;
+  margin-bottom: 10px;
+}
+
+.addon-price {
+  font-size: 24px;
+  font-weight: bold;
+  color: #1e40af;
+}
+
+.quantity-selector {
+  margin: 20px 0;
+}
+
+.quantity-selector label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.quantity-selector select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 16px;
+}
+
+.total-price {
+  text-align: center;
+  font-size: 20px;
+  margin: 20px 0;
+  padding: 15px;
+  background: #fef3c7;
+  border-radius: 8px;
+}
+
+.purchase-btn {
+  width: 100%;
+  padding: 15px;
+  background: #059669;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.purchase-btn:hover:not(:disabled) {
+  background: #047857;
+}
+
+.purchase-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}

@@ -4,21 +4,24 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { signUp } from '@/lib/supabase'
 import toast from 'react-hot-toast'
 import { Sparkles } from 'lucide-react'
 
-export default function RegisterPage() {
+function RegisterPageContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const redirectUrl = searchParams.get('redirect')
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
     password: '',
     confirmPassword: '',
   })
+  const [agreedToTerms, setAgreedToTerms] = useState(false)
   const [loading, setLoading] = useState(false)
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -30,6 +33,11 @@ export default function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (!agreedToTerms) {
+      toast.error('Sila bersetuju dengan Polisi Privasi dan Terma Perkhidmatan')
+      return
+    }
 
     if (formData.password !== formData.confirmPassword) {
       toast.error('Kata laluan tidak sama')
@@ -49,8 +57,13 @@ export default function RegisterPage() {
         formData.password,
         formData.fullName
       )
-      toast.success('Akaun berjaya didaftar! Sila lengkapkan profil anda.')
-      router.push('/profile?welcome=true')
+      toast.success('Akaun berjaya didaftar!')
+      // Redirect to my-projects (which uses custom auth) instead of profile (which uses Supabase auth)
+      if (redirectUrl) {
+        router.push(redirectUrl)
+      } else {
+        router.push('/my-projects')
+      }
     } catch (error: any) {
       toast.error(error.message || 'Gagal mendaftar akaun')
     } finally {
@@ -81,6 +94,7 @@ export default function RegisterPage() {
               placeholder="Nama Penuh"
               className="input"
               onChange={handleChange}
+              autoComplete="name"
               required
             />
             <input
@@ -89,6 +103,7 @@ export default function RegisterPage() {
               placeholder="Email"
               className="input"
               onChange={handleChange}
+              autoComplete="email"
               required
             />
             <input
@@ -97,6 +112,7 @@ export default function RegisterPage() {
               placeholder="Kata Laluan"
               className="input"
               onChange={handleChange}
+              autoComplete="new-password"
               required
             />
             <input
@@ -105,8 +121,45 @@ export default function RegisterPage() {
               placeholder="Sahkan Kata Laluan"
               className="input"
               onChange={handleChange}
+              autoComplete="new-password"
               required
             />
+
+            {/* Terms & Privacy Consent */}
+            <div className="space-y-2">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={agreedToTerms}
+                  onChange={(e) => setAgreedToTerms(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  required
+                />
+                <span className="text-sm text-gray-700">
+                  I have read and agree to the{' '}
+                  <a
+                    href="/privacy-policy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary-600 hover:underline font-medium"
+                  >
+                    Privacy Policy
+                  </a>{' '}
+                  and{' '}
+                  <a
+                    href="/terms-of-service"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary-600 hover:underline font-medium"
+                  >
+                    Terms of Service
+                  </a>
+                </span>
+              </label>
+              <p className="text-xs text-gray-500 pl-7">
+                By signing up, you consent to our data collection practices
+              </p>
+            </div>
 
             <button
               type="submit"
@@ -126,5 +179,13 @@ export default function RegisterPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <RegisterPageContent />
+    </Suspense>
   )
 }

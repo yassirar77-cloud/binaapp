@@ -1,0 +1,237 @@
+.subscription-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Expired State - Red */
+.subscription-banner.expired {
+  background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+  border: 1px solid #f87171;
+}
+
+.subscription-banner.expired .banner-icon {
+  background: #dc2626;
+  color: white;
+}
+
+.subscription-banner.expired h3 {
+  color: #991b1b;
+}
+
+.subscription-banner.expired p {
+  color: #7f1d1d;
+}
+
+/* Warning State - Yellow/Orange */
+.subscription-banner.warning {
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #fbbf24;
+}
+
+.subscription-banner.warning .banner-icon {
+  background: #f59e0b;
+  color: white;
+}
+
+.subscription-banner.warning h3 {
+  color: #92400e;
+}
+
+.subscription-banner.warning p {
+  color: #78350f;
+}
+
+/* Banner Content */
+.banner-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 280px;
+}
+
+.banner-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.banner-text {
+  flex: 1;
+}
+
+.banner-text h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 4px 0;
+}
+
+.banner-text p {
+  font-size: 14px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.banner-text p strong {
+  font-weight: 600;
+}
+
+/* Banner Actions */
+.banner-actions {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.renew-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.subscription-banner.expired .renew-btn {
+  background: #dc2626;
+  color: white;
+}
+
+.subscription-banner.expired .renew-btn:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.subscription-banner.warning .renew-btn {
+  background: #f59e0b;
+  color: white;
+}
+
+.subscription-banner.warning .renew-btn:hover:not(:disabled) {
+  background: #d97706;
+}
+
+.renew-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dismiss-btn {
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.subscription-banner.warning .dismiss-btn {
+  color: #92400e;
+}
+
+.dismiss-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .subscription-banner {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+    padding: 20px;
+  }
+
+  .banner-content {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .banner-icon {
+    margin: 0 auto;
+  }
+
+  .banner-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .renew-btn,
+  .dismiss-btn {
+    width: 100%;
+  }
+}
+
+/* Dark Mode */
+@media (prefers-color-scheme: dark) {
+  .subscription-banner.expired {
+    background: linear-gradient(135deg, #450a0a 0%, #7f1d1d 100%);
+    border-color: #b91c1c;
+  }
+
+  .subscription-banner.expired h3 {
+    color: #fecaca;
+  }
+
+  .subscription-banner.expired p {
+    color: #fca5a5;
+  }
+
+  .subscription-banner.warning {
+    background: linear-gradient(135deg, #451a03 0%, #78350f 100%);
+    border-color: #b45309;
+  }
+
+  .subscription-banner.warning h3 {
+    color: #fde68a;
+  }
+
+  .subscription-banner.warning p {
+    color: #fcd34d;
+  }
+
+  .subscription-banner.warning .dismiss-btn {
+    color: #fde68a;
+  }
+
+  .dismiss-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* Banner for Dashboard Header - Fixed Position */
+.subscription-banner-fixed {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  margin: 0;
+  border-radius: 0;
+}

@@ -21,53 +21,88 @@ router = APIRouter()
 @router.post("/register", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserCreate):
     """
-    Register a new user
+    Register a new user.
+
+    Flow:
+    1. Create auth user via Supabase Admin API (bypasses RLS)
+    2. Create user profile in public.users table
+    3. Initialize free subscription
+    4. Return JWT token
+
+    If step 2 fails, the auth user is rolled back (deleted).
     """
     try:
-        # Create user in Supabase Auth
+        # STEP 1: Create user in Supabase Auth using Admin API
         response = await supabase_service.create_user(
             email=user_data.email,
             password=user_data.password,
             full_name=user_data.full_name
         )
 
-        if not response.user:
+        if not response or not response.get("user"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Failed to create user"
             )
 
-        user = response.user
+        user = response["user"]
+        user_id = user.get("id")
+        user_email = user.get("email")
 
-        # Create JWT token
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to create user - no user ID returned"
+            )
+
+        # STEP 2: Create user profile in public.users table
+        profile_result = await supabase_service.create_user_profile(
+            user_id=user_id,
+            email=user_email,
+            full_name=user_data.full_name,
+            role="customer"
+        )
+
+        if not profile_result:
+            # ROLLBACK: Delete the auth user if profile creation fails
+            logger.error(f"Profile creation failed for {user_email}, rolling back auth user")
+            await supabase_service.delete_auth_user(user_id)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user profile"
+            )
+
+        # STEP 3: Create JWT token
         access_token = create_access_token(
             data={
-                "sub": user.id,
-                "email": user.email
+                "sub": user_id,
+                "email": user_email
             }
         )
 
-        # Initialize free subscription
-        await supabase_service.update_subscription(user.id, {
+        # STEP 4: Initialize free subscription
+        await supabase_service.update_subscription(user_id, {
             'tier': SubscriptionTier.FREE,
             'status': 'active'
         })
 
-        logger.info(f"User registered: {user.email}")
+        logger.info(f"✅ User registered successfully: {user_email}")
 
         return {
             "message": "User registered successfully",
             "access_token": access_token,
             "token_type": "bearer",
             "user": {
-                "id": user.id,
-                "email": user.email,
+                "id": user_id,
+                "email": user_email,
                 "full_name": user_data.full_name
             }
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Registration error: {e}")
+        logger.error(f"❌ Registration error: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e)
@@ -86,34 +121,44 @@ async def login(credentials: UserLogin):
             password=credentials.password
         )
 
-        if not response.user:
+        if not response or not response.get("user"):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid credentials"
             )
 
-        user = response.user
+        user = response["user"]
+        user_id = user.get("id")
+        user_email = user.get("email")
+
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials"
+            )
 
         # Create JWT token
         access_token = create_access_token(
             data={
-                "sub": user.id,
-                "email": user.email
+                "sub": user_id,
+                "email": user_email
             }
         )
 
-        logger.info(f"User logged in: {user.email}")
+        logger.info(f"User logged in: {user_email}")
 
         return {
             "message": "Login successful",
             "access_token": access_token,
             "token_type": "bearer",
             "user": {
-                "id": user.id,
-                "email": user.email
+                "id": user_id,
+                "email": user_email
             }
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Login error: {e}")
         raise HTTPException(

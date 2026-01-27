@@ -9,12 +9,14 @@ pydantic-settings
 email-validator
 
 # Database & Storage
-supabase
+supabase>=2.0.0
 httpx
+requests
 
 # Authentication & Security
 python-jose[cryptography]
 passlib[bcrypt]
+bcrypt==4.1.2
 python-dotenv
 
 # AI Integration
@@ -28,6 +30,7 @@ python-multipart
 Pillow
 aiofiles
 reportlab
+cloudinary==1.36.0
 
 # Templating
 jinja2
@@ -37,3 +40,10 @@ loguru
 
 # Type hints
 typing-extensions
+
+# Analytics
+user-agents==2.2.0
+
+# Testing (CI only)
+pytest
+pytest-cov

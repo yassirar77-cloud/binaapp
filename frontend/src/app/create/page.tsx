@@ -2,16 +2,19 @@
  * Create Page - AI Website Generation
  */
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout } from 'lucide-react'
-import ImageUpload from './components/ImageUpload'
+import VisualImageUpload from './components/VisualImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
 import CodeAnimation from '@/components/CodeAnimation'
-import { API_BASE_URL } from '@/lib/env'
-import { supabase, signOut } from '@/lib/supabase'
+import { UpgradeModal } from '@/components/UpgradeModal'
+import { AddonPurchaseModal } from '@/components/AddonPurchaseModal'
+import { LimitReachedModal } from '@/components/LimitReachedModal'
+import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
+import { supabase, signOut as customSignOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
 
@@ -46,6 +49,62 @@ interface StyleVariation {
   social_preview?: string
 }
 
+// Blocked subdomain words - must match backend list
+const BLOCKED_WORDS = [
+  // English offensive
+  "fuck", "shit", "ass", "bitch", "dick", "porn", "sex", "xxx",
+  "nude", "naked", "kill", "murder", "terrorist", "bomb", "drug",
+  "cocaine", "heroin", "weed", "gambling", "casino", "scam", "fraud",
+
+  // Malay offensive
+  "babi", "bodoh", "sial", "pukimak", "kimak", "lancau", "pantat",
+  "sundal", "jalang", "pelacur", "haram", "celaka", "bangang",
+  "bengap", "tolol", "goblok", "anjing", "asu",
+
+  // Religious/Political sensitive (Malaysia)
+  "allah", "nabi", "rasul", "agong", "sultan", "kerajaan",
+
+  // Brand/Trademark issues
+  "google", "facebook", "instagram", "tiktok", "twitter", "amazon",
+  "apple", "microsoft", "netflix", "shopee", "lazada", "grab",
+
+  // Government/Official
+  "gov", "government", "polis", "police", "tentera", "army",
+  "kementerian", "jabatan", "official", "rasmi",
+]
+
+/**
+ * Validate subdomain against content policy
+ * Returns error message if invalid, null if valid
+ */
+const validateSubdomain = (subdomain: string): string | null => {
+  const lower = subdomain.toLowerCase().trim()
+
+  if (lower.length < 3) {
+    return "Subdomain mesti sekurang-kurangnya 3 aksara. Minimum 3 characters."
+  }
+
+  if (lower.length > 30) {
+    return "Subdomain terlalu panjang. Subdomain too long."
+  }
+
+  if (!/^[a-z0-9-]+$/.test(lower)) {
+    return "Hanya huruf kecil, nombor dan (-) dibenarkan. Only lowercase, numbers and hyphens allowed."
+  }
+
+  if (lower.startsWith('-') || lower.endsWith('-')) {
+    return "Tidak boleh bermula/berakhir dengan (-). Cannot start/end with hyphen."
+  }
+
+  for (const word of BLOCKED_WORDS) {
+    if (lower.includes(word)) {
+      return "Nama ini tidak dibenarkan. This name is not allowed."
+    }
+  }
+
+  return null // Valid
+}
+
 export default function CreatePage() {
   const router = useRouter()
   const [user, setUser] = useState<User | null>(null)
@@ -59,11 +118,15 @@ export default function CreatePage() {
   const [error, setError] = useState('')
   const [showPublishModal, setShowPublishModal] = useState(false)
   const [subdomain, setSubdomain] = useState('')
+  const [subdomainError, setSubdomainError] = useState<string | null>(null)
   const [projectName, setProjectName] = useState('')
   const [publishing, setPublishing] = useState(false)
   const [publishedUrl, setPublishedUrl] = useState('')
   const [copied, setCopied] = useState(false)
-  const [uploadedImages, setUploadedImages] = useState<string[]>([])
+  const [uploadedImages, setUploadedImages] = useState<{
+    hero: string | null
+    gallery: { url: string; name: string; price: string }[]
+  }>({ hero: null, gallery: [] })
 
   const [multiStyle, setMultiStyle] = useState(true)
   const [styleVariations, setStyleVariations] = useState<StyleVariation[]>([])
@@ -71,18 +134,181 @@ export default function CreatePage() {
   const [generatePreviews, setGeneratePreviews] = useState(false)
 
   const [previewMode, setPreviewMode] = useState<'single' | 'multi'>('single')
+  const [progress, setProgress] = useState(0)
+
+  // CRITICAL: Track current job ID and polling interval to prevent stale polling
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null)
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Upgrade/Addon modal states
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  const [showAddonModal, setShowAddonModal] = useState(false)
+  const [showLimitModal, setShowLimitModal] = useState(false)
+  const [limitModalData, setLimitModalData] = useState<{
+    resourceType: 'website' | 'menu_item' | 'ai_hero' | 'ai_image' | 'zone' | 'rider';
+    currentUsage: number;
+    limit: number;
+    canBuyAddon: boolean;
+    addonPrice?: number;
+  } | null>(null)
+  const [selectedAddon, setSelectedAddon] = useState<{
+    type: string;
+    label: string;
+    price: number;
+    quantity?: number;
+    is_recurring?: boolean;
+  } | null>(null)
+  const [targetTier, setTargetTier] = useState<string>('starter')
+  const [currentTier, setCurrentTier] = useState<string>('free')
+  const [limitWarning, setLimitWarning] = useState<string | null>(null)
+  const [hasActiveSubscription, setHasActiveSubscription] = useState<boolean | null>(null)
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true)
+
+  // Feature selector states
+  const [selectedFeatures, setSelectedFeatures] = useState({
+    whatsapp: true,          // WhatsApp button
+    googleMap: false,        // Google Map embed
+    deliverySystem: false,   // Delivery ordering
+    contactForm: false,      // Contact form
+    socialMedia: false,      // Social media links
+    priceList: true,         // Show prices on menu
+    operatingHours: true,    // Show operating hours
+    gallery: true,           // Photo gallery section
+  })
+
+  // Business type state - for dynamic categories and labels
+  const [businessType, setBusinessType] = useState<'auto' | 'food' | 'clothing' | 'salon' | 'services' | 'bakery' | 'general'>('auto')
+
+  // STRICT IMAGE CONTROL - Explicit user choice for images
+  // 'none' = No images (text-only website)
+  // 'upload' = Use only user-uploaded images
+  // 'ai' = Generate AI images with Stability AI
+  const [imageChoice, setImageChoice] = useState<'none' | 'upload' | 'ai'>('none')
+
+  // Delivery system states
+  const [deliveryArea, setDeliveryArea] = useState('')
+  const [deliveryFee, setDeliveryFee] = useState('')
+  const [minimumOrder, setMinimumOrder] = useState('')
+  const [deliveryHours, setDeliveryHours] = useState('')
+
+  // Payment methods state (QR + COD only)
+  const [paymentMethods, setPaymentMethods] = useState({
+    cod: true,  // Cash on Delivery
+    qr: false   // QR Payment (DuitNow/TNG/Bank)
+  })
+  const [paymentQR, setPaymentQR] = useState<File | null>(null)
+  const [paymentQRPreview, setPaymentQRPreview] = useState<string>('')
+
+  // Fulfillment options state
+  const [fulfillment, setFulfillment] = useState({
+    delivery: true,
+    deliveryFee: '5.00',
+    minOrder: '20.00',
+    deliveryArea: '',
+    pickup: false,
+    pickupAddress: ''
+  })
+
+  // Google Map state
+  const [fullAddress, setFullAddress] = useState('')
+
+  // Social media states
+  const [instagram, setInstagram] = useState('')
+  const [facebook, setFacebook] = useState('')
+  const [tiktok, setTiktok] = useState('')
+
+  // Handle QR image upload
+  const handleQRUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setPaymentQR(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setPaymentQRPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
 
   useEffect(() => {
     checkUser()
   }, [])
 
-  async function checkUser() {
-    if (!supabase) {
-      setAuthLoading(false)
-      return
-    }
+  // CRITICAL: Cleanup polling interval on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        console.log('🧹 Cleanup: Clearing polling interval on unmount');
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, []);
 
+  // Check subscription status
+  async function checkSubscriptionStatus() {
     try {
+      setSubscriptionLoading(true)
+      const token = getStoredToken()
+      if (!token) {
+        setHasActiveSubscription(false)
+        setSubscriptionLoading(false)
+        return
+      }
+
+      const response = await fetch(`${DIRECT_BACKEND_URL}/api/v1/subscription/status`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        console.log('[Create] Subscription status:', data)
+        // Check if subscription is active and not expired
+        const isActive = data.status === 'active' && !data.is_expired
+        setHasActiveSubscription(isActive)
+        setCurrentTier(data.plan_name || 'free')
+      } else {
+        console.error('[Create] Failed to get subscription status:', response.status)
+        setHasActiveSubscription(false)
+      }
+    } catch (error) {
+      console.error('[Create] Error checking subscription:', error)
+      setHasActiveSubscription(false)
+    } finally {
+      setSubscriptionLoading(false)
+    }
+  }
+
+  async function checkUser() {
+    try {
+      // First check for custom BinaApp token
+      const customToken = getStoredToken()
+      const customUser = await getCurrentUser()
+
+      if (customToken && customUser) {
+        console.log('[Create] ✅ Using custom BinaApp auth')
+        // Create a mock user object compatible with Supabase User type
+        const mockUser = {
+          id: customUser.id,
+          email: customUser.email,
+          user_metadata: { full_name: customUser.full_name }
+        } as unknown as User
+        setUser(mockUser)
+        setAuthLoading(false)
+        // Check subscription status after user is authenticated
+        await checkSubscriptionStatus()
+        return
+      }
+
+      // Fallback to Supabase session
+      if (!supabase) {
+        setAuthLoading(false)
+        return
+      }
+
       const { data: { user } } = await supabase.auth.getUser()
       setUser(user)
     } catch (error) {
@@ -94,7 +320,12 @@ export default function CreatePage() {
 
   async function handleLogout() {
     try {
-      await signOut()
+      // Clear custom BinaApp token
+      await customSignOut()
+      // Also clear Supabase session if available
+      if (supabase) {
+        await supabase.auth.signOut()
+      }
       setUser(null)
       router.push('/')
     } catch (error) {
@@ -102,71 +333,348 @@ export default function CreatePage() {
     }
   }
 
+  // Check if user can create a website (subscription limit check)
+  async function checkWebsiteLimit(): Promise<boolean> {
+    try {
+      const token = getStoredToken()
+      if (!token) {
+        // Not logged in - allow generation but block publishing later
+        return true
+      }
+
+      const response = await fetch(`${DIRECT_BACKEND_URL}/api/v1/subscription/check-limit`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ action: 'create_website' })
+      })
+
+      const data = await response.json()
+      console.log('[Create] Limit check result:', data)
+
+      if (!response.ok || !data.allowed) {
+        // Show limit reached modal
+        setLimitModalData({
+          resourceType: 'website',
+          currentUsage: data.current_usage || 0,
+          limit: data.limit || 1,
+          canBuyAddon: data.can_buy_addon || false,
+          addonPrice: data.addon_price
+        })
+        setShowLimitModal(true)
+        return false
+      }
+
+      // Show warning if approaching limit
+      if (data.limit && !data.unlimited && data.current_usage >= data.limit * 0.8) {
+        setLimitWarning(`Amaran: Anda telah menggunakan ${data.current_usage}/${data.limit} website.`)
+      } else {
+        setLimitWarning(null)
+      }
+
+      return true
+    } catch (error) {
+      console.error('[Create] Limit check error:', error)
+      // Allow on error (backend will enforce anyway)
+      return true
+    }
+  }
+
+  // Check if user can use AI images
+  async function checkAIImageLimit(): Promise<boolean> {
+    if (imageChoice !== 'ai') return true
+
+    try {
+      const token = getStoredToken()
+      if (!token) return true
+
+      const response = await fetch(`${DIRECT_BACKEND_URL}/api/v1/subscription/check-limit`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ action: 'generate_ai_image' })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok || !data.allowed) {
+        setLimitModalData({
+          resourceType: 'ai_image',
+          currentUsage: data.current_usage || 0,
+          limit: data.limit || 5,
+          canBuyAddon: data.can_buy_addon || false,
+          addonPrice: data.addon_price
+        })
+        setShowLimitModal(true)
+        return false
+      }
+
+      return true
+    } catch (error) {
+      console.error('[Create] AI image limit check error:', error)
+      return true
+    }
+  }
+
+  // Handle when a limit is reached - show upgrade or addon modal
+  const handleLimitReached = (limitData: {
+    addon_option?: { type: string; label: string; price: number; is_recurring?: boolean };
+    upgrade_options?: { tier: string; price: number }[];
+  }) => {
+    if (limitData.addon_option) {
+      setSelectedAddon(limitData.addon_option)
+      setShowAddonModal(true)
+    } else if (limitData.upgrade_options && limitData.upgrade_options.length > 0) {
+      setTargetTier(limitData.upgrade_options[0].tier)
+      setShowUpgradeModal(true)
+    }
+  }
+
+  // Show upgrade modal directly
+  const showUpgrade = (tier: string = 'basic') => {
+    setTargetTier(tier)
+    setShowUpgradeModal(true)
+  }
+
+  // Show addon purchase modal
+  const showAddonPurchase = (addon: { type: string; label: string; price: number; is_recurring?: boolean }) => {
+    setSelectedAddon(addon)
+    setShowAddonModal(true)
+  }
+
   const handleGenerate = async () => {
-    if (description.length < 10) {
-      setError('Please provide a more detailed description (at least 10 characters)')
+    if (!description.trim()) return;
+
+    // Check if user is logged in
+    if (!user) {
+      setError('Sila log masuk untuk mencipta website')
       return
     }
 
-    setLoading(true)
-    setError('')
-    setGeneratedHtml('')
-    setStyleVariations([])
-    setSelectedStyle(null)
+    // Check if user has active subscription
+    if (hasActiveSubscription === false) {
+      setError('Sila langgan pelan untuk mencipta website. Bermula dari RM5/bulan.')
+      // Show upgrade modal
+      setTargetTier('starter')
+      setShowUpgradeModal(true)
+      return
+    }
+
+    // Check subscription limits before generating
+    const canCreate = await checkWebsiteLimit()
+    if (!canCreate) {
+      return // Modal will be shown by checkWebsiteLimit
+    }
+
+    // Check AI image limits if AI images selected
+    const canUseAI = await checkAIImageLimit()
+    if (!canUseAI) {
+      return
+    }
+
+    // CRITICAL: Clear any existing polling interval to prevent stale job ID polling
+    if (pollIntervalRef.current) {
+      console.log('🧹 Clearing previous polling interval before starting new generation');
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    // Clear old job ID
+    setCurrentJobId(null);
+
+    setLoading(true);
+    setError('');
+    setStyleVariations([]);
+    setProgress(0);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/generate`, {
+      console.log('🚀 Starting async generation...');
+
+      // Step 1: Start the job (returns immediately with job_id)
+      // Prepare images array - combine hero and gallery images with metadata
+      const galleryWithMetadata = uploadedImages.gallery.map(g => ({
+        url: g.url,
+        name: g.name || '',  // Ensure name is always a string
+        price: g.price || ''  // Include price
+      }));
+
+      const allImages = uploadedImages.hero
+        ? [{ url: uploadedImages.hero, name: 'Hero Image' }, ...galleryWithMetadata]
+        : galleryWithMetadata;
+
+      // STRICT IMAGE CONTROL: Determine final image choice
+      // If user uploaded images, force 'upload' mode
+      // Otherwise, use the user's explicit selection
+      const finalImageChoice = allImages.length > 0 ? 'upload' : imageChoice;
+      console.log(`🖼️ Image Choice: ${finalImageChoice} (user selected: ${imageChoice}, has uploads: ${allImages.length > 0})`);
+
+      // ===== COMPREHENSIVE DEBUG LOGGING =====
+      console.log('==========================================');
+      console.log('📤 SENDING TO BACKEND:');
+      console.log('  🖼️ Image Choice:', finalImageChoice);
+      console.log('  ✅ Features:', selectedFeatures);
+      console.log('  📱 WhatsApp:', selectedFeatures.whatsapp);
+      console.log('  🗺️ Google Map:', selectedFeatures.googleMap);
+      console.log('  🚚 Delivery:', selectedFeatures.deliverySystem);
+      console.log('  📧 Contact Form:', selectedFeatures.contactForm);
+      console.log('  📱 Social Media:', selectedFeatures.socialMedia);
+      console.log('==========================================');
+
+      const startResponse = await fetch(`${DIRECT_BACKEND_URL}/api/generate/start`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          description,
-          user_id: 'demo-user',
-          images: uploadedImages,
-          multi_style: multiStyle,
-          generate_previews: generatePreviews
-        })
-      })
-
-      if (!response.ok) {
-        throw new Error(`Failed to generate: ${response.statusText}`)
-      }
-
-      const data = await response.json()
-      
-      console.log('API Response:', data)
-      console.log('Variations:', data.variations)
-      
-      if (multiStyle && data.variations) {
-        // Convert backend object format to frontend array format
-        const formattedVariations = Object.entries(data.variations).map(([styleName, content]: [string, any]) => {
-          console.log(`Processing style: ${styleName}`, content)
-          return {
-            style: styleName,
-            html: content.html_content || content.html || '',
-            thumbnail: content.thumbnail || null,
-            preview_image: content.preview_image || null,
-            social_preview: content.social_preview || null
+          description: description,
+          business_description: description,
+          language: language,
+          user_id: user?.id || 'anonymous',
+          email: user?.email,  // Pass user email for founder bypass
+          images: allImages.length > 0 ? allImages : undefined,  // Send uploaded images with names
+          gallery_metadata: uploadedImages.gallery,  // Pass full gallery metadata separately for AI context
+          features: selectedFeatures,  // Pass selected features
+          business_type: businessType === 'auto' ? null : businessType,  // Pass business type for dynamic categories
+          // STRICT IMAGE CONTROL: Send explicit image choice
+          image_choice: finalImageChoice,
+          delivery: selectedFeatures.deliverySystem ? {
+            area: deliveryArea,
+            fee: deliveryFee,
+            minimum: minimumOrder,
+            hours: deliveryHours
+          } : null,
+          address: fullAddress || null,
+          social_media: selectedFeatures.socialMedia ? {
+            instagram: instagram,
+            facebook: facebook,
+            tiktok: tiktok
+          } : null,
+          payment: {
+            cod: paymentMethods.cod,
+            qr: paymentMethods.qr,
+            qr_image: paymentQRPreview || null
+          },
+          fulfillment: {
+            delivery: fulfillment.delivery,
+            delivery_fee: fulfillment.deliveryFee,
+            min_order: fulfillment.minOrder,
+            delivery_area: fulfillment.deliveryArea,
+            pickup: fulfillment.pickup,
+            pickup_address: fulfillment.pickupAddress
           }
-        })
-        
-        console.log('Formatted variations:', formattedVariations)
-        setStyleVariations(formattedVariations)
-        setDetectedFeatures(data.detected_features || [])
-        setTemplateUsed(data.template_used || 'general')
-      } else {
-        setGeneratedHtml(data.html || data.html_content)
-        setDetectedFeatures(data.detected_features || [])
-        setTemplateUsed(data.template_used || 'general')
+        }),
+      });
+
+      if (!startResponse.ok) {
+        const errorData = await startResponse.json();
+        // Check if content was blocked
+        if (errorData.blocked || errorData.detail?.includes('tidak dibenarkan') || errorData.detail?.includes('mencurigakan')) {
+          throw new Error(errorData.detail || '⚠️ Maaf, kandungan ini tidak dibenarkan. Sorry, this content is not allowed.');
+        }
+        throw new Error(errorData.error || errorData.detail || 'Failed to start generation');
       }
+
+      const startData = await startResponse.json();
+      const jobId = startData.job_id;
+
+      // CRITICAL: Store job ID in state so we track which job we're polling
+      setCurrentJobId(jobId);
+      console.log('✅ Job started:', jobId, '- Stored in state');
+
+      // Step 2: Poll for results
+      const maxAttempts = 100; // 100 attempts x 3 seconds = 5 minutes max (increased from 3 min)
+      let attempt = 0;
+
+      // CRITICAL: Store interval in ref so it can be cleared on retry
+      pollIntervalRef.current = setInterval(async () => {
+        attempt++;
+
+        if (attempt > maxAttempts) {
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          setError('Generation timed out after 5 minutes. Please try again with a shorter description.');
+          // Keep loading=true so the modal stays open with retry button
+          return;
+        }
+
+        try {
+          // Add cache-busting timestamp
+          const statusResponse = await fetch(`${DIRECT_BACKEND_URL}/api/generate/status/${jobId}?t=${Date.now()}`);
+
+          if (!statusResponse.ok) {
+            console.warn('Status check failed, retrying...', statusResponse.status, statusResponse.statusText);
+            return; // Continue polling
+          }
+
+          const statusData = await statusResponse.json();
+
+          // DEBUG: Log full response details
+          console.log('=== POLL RESPONSE ===');
+          console.log('Status:', statusData.status);
+          console.log('Progress:', statusData.progress);
+          console.log('Polled at:', statusData.polled_at);
+          console.log('DB updated_at:', statusData.updated_at);
+          console.log('Has variants:', statusData.variants?.length || 0);
+          console.log('Has HTML:', statusData.html?.length || 0);
+          console.log('=====================');
+
+          // Update progress bar
+          setProgress(statusData.progress || 0);
+
+          if (statusData.status === 'completed') {
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+            console.log('✅ Generation complete!');
+
+            // Set progress to 100% FIRST (before hiding modal)
+            setProgress(100);
+
+            // Handle completed job - backend returns 'variants' not 'styles'
+            if (statusData.variants?.length > 0) {
+              // Map variants to styleVariations format
+              const variations = statusData.variants.map((v: any) => ({
+                style: v.style,
+                html: v.html,
+                preview_image: v.preview_image,
+                thumbnail: v.thumbnail,
+                social_preview: v.social_preview
+              }));
+              setStyleVariations(variations);
+              setSelectedStyle(null);
+              console.log(`✅ Loaded ${variations.length} style variations`);
+            } else if (statusData.styles?.length > 0) {
+              // Fallback for backwards compatibility
+              setStyleVariations(statusData.styles);
+              setSelectedStyle(null);
+            } else if (statusData.html) {
+              setStyleVariations([{ style: 'modern', html: statusData.html }]);
+              setSelectedStyle(null);
+            }
+
+            // Hide loading modal AFTER setting progress to 100%
+            setLoading(false);
+          } else if (statusData.status === 'failed') {
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+            setError(statusData.error || 'Generation failed. Please try again.');
+            // Keep loading=true so the modal stays open with retry button
+            // User can click Cancel or Try Again in the modal
+          }
+          // If status is still 'processing', continue polling
+        } catch (pollError: any) {
+          console.warn('Poll error:', pollError);
+          // Continue polling on error
+        }
+      }, 3000); // Poll every 3 seconds
+
     } catch (err: any) {
-      console.error('Generation error:', err)
-      setError(err.message || 'Failed to generate website. Please try again.')
-    } finally {
-      setLoading(false)
+      console.error('Generation error:', err);
+      setError(err.message || 'Error connecting to server. Please check your internet connection and try again.');
+      // Keep loading=true so the modal stays open with retry button
+      // User can click Cancel or Try Again in the modal
     }
-  }
+  };
 
   const handleSelectVariation = (variation: StyleVariation) => {
     setSelectedStyle(variation.style)
@@ -238,22 +746,94 @@ export default function CreatePage() {
       return
     }
 
-    setPublishing(true)
+    // Validate subdomain before publishing
+    const cleanSubdomain = subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '')
+    const validationError = validateSubdomain(cleanSubdomain)
+    if (validationError) {
+      setError(validationError)
+      setSubdomainError(validationError)
+      return
+    }
+
     setError('')
 
-    const cleanSubdomain = subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '')
+    if (!user) {
+      setError('Sila log masuk untuk menerbitkan website')
+      return
+    }
+
+    // Check subscription limits before publishing
+    const canCreate = await checkWebsiteLimit()
+    if (!canCreate) {
+      setShowPublishModal(false)
+      return // Modal will be shown by checkWebsiteLimit
+    }
+
+    // First try to get custom BinaApp token
+    let accessToken = getStoredToken()
+
+    // Fallback to Supabase session if no custom token
+    if (!accessToken && supabase) {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      if (!sessionError && session?.access_token) {
+        accessToken = session.access_token
+      }
+    }
+
+    if (!accessToken) {
+      setError('Sila log masuk semula untuk menerbitkan website')
+      return
+    }
+    setPublishing(true)
 
     try {
+      // Provide backend with stable website id + delivery/menu context (for widget + DB rows)
+      const websiteId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+      const menuItemsForDelivery = (uploadedImages?.gallery || [])
+        .filter(g => !!g?.url)
+        .map((g, idx) => ({
+          name: g.name || `Menu Item ${idx + 1}`,
+          image_url: g.url,
+          price: g.price ? parseFloat(g.price) : null
+        }))
+
       const response = await fetch(`${API_BASE_URL}/api/publish`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
         },
         body: JSON.stringify({
           html_content: generatedHtml,
           subdomain: cleanSubdomain,
           project_name: projectName,
-          user_id: user?.id || 'demo-user'
+          user_id: user?.id || 'demo-user',
+          website_id: websiteId,
+          features: selectedFeatures,
+          delivery: selectedFeatures.deliverySystem ? {
+            area: deliveryArea,
+            fee: deliveryFee,
+            minimum: minimumOrder,
+            hours: deliveryHours
+          } : null,
+          menu_items: menuItemsForDelivery,
+          payment: {
+            cod: paymentMethods.cod,
+            qr: paymentMethods.qr,
+            qr_image: paymentQRPreview || null
+          },
+          fulfillment: {
+            delivery: fulfillment.delivery,
+            delivery_fee: fulfillment.deliveryFee,
+            min_order: fulfillment.minOrder,
+            delivery_area: fulfillment.deliveryArea,
+            pickup: fulfillment.pickup,
+            pickup_address: fulfillment.pickupAddress
+          }
         })
       })
 
@@ -265,29 +845,9 @@ export default function CreatePage() {
       const data = await response.json()
       const publishedWebsiteUrl = data.url
 
-      // Save to Supabase websites table if user is logged in
-      if (supabase && user) {
-        const { error: dbError } = await supabase
-          .from('websites')
-          .insert({
-            user_id: user.id,
-            name: projectName,
-            subdomain: cleanSubdomain,
-            description: description.substring(0, 500),
-            template: templateUsed || 'general',
-            html_content: generatedHtml,
-            status: 'published',
-            published_url: publishedWebsiteUrl,
-          })
-
-        if (dbError) {
-          console.error('Error saving to database:', dbError)
-          // Don't fail the publish if database save fails
-          toast.error('Website diterbitkan tetapi gagal disimpan ke akaun')
-        } else {
-          toast.success('Website berjaya diterbitkan dan disimpan!')
-        }
-      }
+      // Backend publish now upserts `websites` + delivery tables (service role),
+      // so we no longer duplicate inserts from the client.
+      toast.success('Website berjaya diterbitkan!')
 
       setPublishedUrl(publishedWebsiteUrl)
       setShowPublishModal(false)
@@ -320,6 +880,9 @@ export default function CreatePage() {
                   </Link>
                   <Link href="/my-projects" className="text-sm text-gray-600 hover:text-gray-900">
                     Website Saya
+                  </Link>
+                  <Link href="/dashboard/billing" className="text-sm text-gray-600 hover:text-gray-900">
+                    💎 Langganan
                   </Link>
                   <button
                     onClick={handleLogout}
@@ -355,6 +918,77 @@ export default function CreatePage() {
 
         {!generatedHtml && styleVariations.length === 0 ? (
           <div className="max-w-4xl mx-auto">
+            {/* Subscription Required Banner */}
+            {!subscriptionLoading && hasActiveSubscription === false && user && (
+              <div className="mb-6 p-6 bg-red-50 border-2 border-red-300 rounded-xl">
+                <div className="flex flex-col md:flex-row items-center gap-4">
+                  <span className="text-4xl">🔒</span>
+                  <div className="flex-1 text-center md:text-left">
+                    <h3 className="text-red-800 font-bold text-lg mb-1">Langganan Diperlukan</h3>
+                    <p className="text-red-700 text-sm">
+                      Anda perlu melanggan pelan untuk mencipta website. Bermula dari RM5/bulan sahaja.
+                    </p>
+                  </div>
+                  <a
+                    href="/dashboard/billing"
+                    className="px-6 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"
+                  >
+                    Langgan Sekarang
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {/* Not Logged In Banner */}
+            {!authLoading && !user && (
+              <div className="mb-6 p-6 bg-blue-50 border-2 border-blue-300 rounded-xl">
+                <div className="flex flex-col md:flex-row items-center gap-4">
+                  <span className="text-4xl">👤</span>
+                  <div className="flex-1 text-center md:text-left">
+                    <h3 className="text-blue-800 font-bold text-lg mb-1">Log Masuk Diperlukan</h3>
+                    <p className="text-blue-700 text-sm">
+                      Sila log masuk dan langgan untuk mencipta website. Bermula dari RM5/bulan sahaja.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <a
+                      href="/login?redirect=/create"
+                      className="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
+                    >
+                      Log Masuk
+                    </a>
+                    <a
+                      href="/register"
+                      className="px-6 py-3 border-2 border-blue-600 text-blue-600 font-bold rounded-lg hover:bg-blue-50 transition-colors whitespace-nowrap"
+                    >
+                      Daftar
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Limit Warning Banner */}
+            {limitWarning && (
+              <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">⚠️</span>
+                  <div className="flex-1">
+                    <p className="text-orange-800 font-medium">{limitWarning}</p>
+                    <p className="text-orange-700 text-sm mt-1">
+                      Naik taraf pelan anda untuk lebih banyak website.
+                    </p>
+                  </div>
+                  <a
+                    href="/dashboard/billing"
+                    className="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors"
+                  >
+                    Naik Taraf
+                  </a>
+                </div>
+              </div>
+            )}
+
             <div style={{ marginBottom: '20px' }}>
               <a href="/menu-designer" style={{
                 display: 'inline-block',
@@ -404,6 +1038,47 @@ export default function CreatePage() {
                   🇬🇧 English
                 </button>
               </div>
+            </div>
+
+            {/* Business Type Selector - for dynamic categories */}
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold mb-3">🏪 Jenis Perniagaan</h3>
+              <p className="text-gray-500 text-sm mb-3">Pilih jenis perniagaan anda</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {[
+                  { id: 'auto' as const, icon: '🔍', label: 'Auto Detect', desc: 'Sistem akan kesan automatik' },
+                  { id: 'food' as const, icon: '🍛', label: 'Restoran / Makanan', desc: 'Nasi, Lauk, Minuman' },
+                  { id: 'clothing' as const, icon: '👗', label: 'Pakaian / Butik', desc: 'Baju, Tudung, Aksesori' },
+                  { id: 'salon' as const, icon: '💇', label: 'Salon / Spa', desc: 'Potong, Rawatan, Warna' },
+                  { id: 'services' as const, icon: '🔧', label: 'Servis / Repair', desc: 'Perkhidmatan, Pakej' },
+                  { id: 'bakery' as const, icon: '🎂', label: 'Bakeri / Kek', desc: 'Kek, Pastri, Cookies' },
+                  { id: 'general' as const, icon: '🛒', label: 'Lain-lain', desc: 'Produk Umum' }
+                ].map(type => (
+                  <button
+                    key={type.id}
+                    type="button"
+                    onClick={() => setBusinessType(type.id)}
+                    className={`p-4 border-2 rounded-xl text-center transition ${
+                      businessType === type.id
+                        ? 'border-orange-500 bg-orange-50'
+                        : 'border-gray-200 hover:border-orange-300'
+                    }`}
+                  >
+                    <span className="text-3xl block mb-1">{type.icon}</span>
+                    <p className="text-sm font-medium">{type.label}</p>
+                    <p className="text-xs text-gray-500 mt-1">{type.desc}</p>
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                {businessType === 'auto' && '💡 Sistem akan mengesan jenis perniagaan anda secara automatik dari deskripsi'}
+                {businessType === 'food' && '🛵 Butang: "Pesan Delivery" | Kategori: Nasi, Lauk, Minuman'}
+                {businessType === 'clothing' && '🛍️ Butang: "Beli Sekarang" | Pilihan saiz & warna | Penghantaran'}
+                {businessType === 'salon' && '📅 Butang: "Tempah Sekarang" | Tarikh temujanji & pilih staff'}
+                {businessType === 'services' && '🔧 Butang: "Tempah Servis" | Tarikh & lokasi servis'}
+                {businessType === 'bakery' && '🎂 Butang: "Tempah Kek" | Pilihan saiz & mesej atas kek'}
+                {businessType === 'general' && '🛒 Butang: "Beli Sekarang" | Pilihan penghantaran'}
+              </p>
             </div>
 
             <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg">
@@ -463,7 +1138,382 @@ export default function CreatePage() {
               </div>
             </div>
 
-            <ImageUpload onImagesUploaded={setUploadedImages} />
+            <VisualImageUpload onImagesUploaded={setUploadedImages} />
+
+            {/* STRICT IMAGE CONTROL - Explicit User Choice */}
+            <div className="bg-white rounded-xl p-6 shadow-lg mt-6 border-2 border-purple-200">
+              <h3 className="text-lg font-bold mb-2">🖼️ Gambar untuk Website</h3>
+              <p className="text-gray-500 text-sm mb-4">Pilih bagaimana anda mahu gambar dalam website anda</p>
+
+              <div className="space-y-3">
+                {/* Option 1: No Images */}
+                <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${
+                  imageChoice === 'none' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'
+                }`}>
+                  <input
+                    type="radio"
+                    name="imageChoice"
+                    value="none"
+                    checked={imageChoice === 'none'}
+                    onChange={() => setImageChoice('none')}
+                    className="w-5 h-5 text-purple-600"
+                  />
+                  <span className="text-2xl">📝</span>
+                  <div className="flex-1">
+                    <p className="font-semibold">Tiada Gambar</p>
+                    <p className="text-sm text-gray-500">Website teks sahaja, tanpa gambar</p>
+                  </div>
+                </label>
+
+                {/* Option 2: Upload Own Images */}
+                <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${
+                  imageChoice === 'upload' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'
+                }`}>
+                  <input
+                    type="radio"
+                    name="imageChoice"
+                    value="upload"
+                    checked={imageChoice === 'upload'}
+                    onChange={() => setImageChoice('upload')}
+                    className="w-5 h-5 text-purple-600"
+                  />
+                  <span className="text-2xl">📷</span>
+                  <div className="flex-1">
+                    <p className="font-semibold">Muat Naik Gambar Sendiri</p>
+                    <p className="text-sm text-gray-500">Gunakan gambar yang anda upload di atas</p>
+                  </div>
+                  {uploadedImages.gallery.length > 0 && (
+                    <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">
+                      {uploadedImages.gallery.length} gambar dimuat naik
+                    </span>
+                  )}
+                </label>
+
+                {/* Option 3: Generate AI Images */}
+                <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${
+                  imageChoice === 'ai' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'
+                }`}>
+                  <input
+                    type="radio"
+                    name="imageChoice"
+                    value="ai"
+                    checked={imageChoice === 'ai'}
+                    onChange={() => setImageChoice('ai')}
+                    className="w-5 h-5 text-purple-600"
+                  />
+                  <span className="text-2xl">✨</span>
+                  <div className="flex-1">
+                    <p className="font-semibold">Jana Gambar AI</p>
+                    <p className="text-sm text-gray-500">AI akan jana gambar untuk perniagaan anda</p>
+                  </div>
+                  <span className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full">
+                    Premium
+                  </span>
+                </label>
+              </div>
+
+              {/* Warning if upload selected but no images */}
+              {imageChoice === 'upload' && uploadedImages.gallery.length === 0 && !uploadedImages.hero && (
+                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-yellow-800 text-sm">
+                    ⚠️ Anda belum muat naik gambar. Sila muat naik gambar di bahagian atas atau pilih pilihan lain.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Feature Selector */}
+            <div className="bg-white rounded-xl p-6 shadow-lg mt-6">
+              <h3 className="text-lg font-bold mb-2">⚡ Pilih Ciri-ciri Website</h3>
+              <p className="text-gray-500 text-sm mb-4">Pilih apa yang anda mahu dalam website anda</p>
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* WhatsApp */}
+                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.whatsapp}
+                    onChange={(e) => setSelectedFeatures({...selectedFeatures, whatsapp: e.target.checked})}
+                    className="w-5 h-5 text-green-600"
+                  />
+                  <span className="ml-3">
+                    <span className="text-xl">💬</span>
+                    <span className="ml-2 font-medium">WhatsApp</span>
+                  </span>
+                </label>
+
+                {/* Google Map */}
+                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.googleMap}
+                    onChange={(e) => setSelectedFeatures({...selectedFeatures, googleMap: e.target.checked})}
+                    className="w-5 h-5 text-blue-600"
+                  />
+                  <span className="ml-3">
+                    <span className="text-xl">📍</span>
+                    <span className="ml-2 font-medium">Google Map</span>
+                  </span>
+                </label>
+
+                {/* Delivery System */}
+                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.deliverySystem}
+                    onChange={(e) => setSelectedFeatures({...selectedFeatures, deliverySystem: e.target.checked})}
+                    className="w-5 h-5 text-orange-600"
+                  />
+                  <span className="ml-3">
+                    <span className="text-xl">🛵</span>
+                    <span className="ml-2 font-medium">Delivery Sendiri</span>
+                  </span>
+                </label>
+
+                {/* Contact Form */}
+                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.contactForm}
+                    onChange={(e) => setSelectedFeatures({...selectedFeatures, contactForm: e.target.checked})}
+                    className="w-5 h-5 text-purple-600"
+                  />
+                  <span className="ml-3">
+                    <span className="text-xl">📧</span>
+                    <span className="ml-2 font-medium">Borang Hubungi</span>
+                  </span>
+                </label>
+
+                {/* Social Media */}
+                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.socialMedia}
+                    onChange={(e) => setSelectedFeatures({...selectedFeatures, socialMedia: e.target.checked})}
+                    className="w-5 h-5 text-pink-600"
+                  />
+                  <span className="ml-3">
+                    <span className="text-xl">📱</span>
+                    <span className="ml-2 font-medium">Social Media</span>
+                  </span>
+                </label>
+
+                {/* Price List */}
+                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.priceList}
+                    onChange={(e) => setSelectedFeatures({...selectedFeatures, priceList: e.target.checked})}
+                    className="w-5 h-5 text-yellow-600"
+                  />
+                  <span className="ml-3">
+                    <span className="text-xl">💰</span>
+                    <span className="ml-2 font-medium">Senarai Harga</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* If Google Map selected, ask for address */}
+            {selectedFeatures.googleMap && (
+              <div className="bg-blue-50 rounded-xl p-6 mt-4 border border-blue-200">
+                <h4 className="font-bold text-blue-800 mb-3">📍 Google Map</h4>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Alamat Penuh</label>
+                  <input
+                    type="text"
+                    placeholder="cth: 123, Jalan Sultan, Shah Alam, Selangor"
+                    className="w-full px-4 py-2 border rounded-lg"
+                    value={fullAddress}
+                    onChange={(e) => setFullAddress(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* If Social Media selected */}
+            {selectedFeatures.socialMedia && (
+              <div className="bg-pink-50 rounded-xl p-6 mt-4 border border-pink-200">
+                <h4 className="font-bold text-pink-800 mb-3">📱 Social Media</h4>
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    placeholder="Instagram: @username"
+                    className="w-full px-4 py-2 border rounded-lg"
+                    value={instagram}
+                    onChange={(e) => setInstagram(e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Facebook: page name or URL"
+                    className="w-full px-4 py-2 border rounded-lg"
+                    value={facebook}
+                    onChange={(e) => setFacebook(e.target.value)}
+                  />
+                  <input
+                    type="text"
+                    placeholder="TikTok: @username"
+                    className="w-full px-4 py-2 border rounded-lg"
+                    value={tiktok}
+                    onChange={(e) => setTiktok(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Delivery Settings - Only show if Delivery Sendiri is checked */}
+            {selectedFeatures.deliverySystem && (
+              <div className="bg-orange-50 rounded-xl p-6 mt-4 border border-orange-200">
+                <h4 className="font-bold text-orange-800 mb-3">🛵 Tetapan Delivery</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm text-gray-600">Caj Delivery (RM)</label>
+                    <input 
+                      type="number" 
+                      placeholder="5.00" 
+                      step="0.50"
+                      value={fulfillment.deliveryFee}
+                      onChange={(e) => setFulfillment({...fulfillment, deliveryFee: e.target.value})}
+                      className="w-full p-2 border rounded-lg mt-1" 
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm text-gray-600">Min. Order (RM)</label>
+                    <input 
+                      type="number" 
+                      placeholder="20.00" 
+                      step="1"
+                      value={fulfillment.minOrder}
+                      onChange={(e) => setFulfillment({...fulfillment, minOrder: e.target.value})}
+                      className="w-full p-2 border rounded-lg mt-1" 
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-sm text-gray-600">Kawasan Delivery</label>
+                    <input 
+                      type="text" 
+                      placeholder="Shah Alam, Klang, Subang"
+                      value={fulfillment.deliveryArea}
+                      onChange={(e) => setFulfillment({...fulfillment, deliveryArea: e.target.value})}
+                      className="w-full p-2 border rounded-lg mt-1" 
+                    />
+                  </div>
+                </div>
+
+                {/* Self Pickup Option - Nested under Delivery */}
+                <div className="mt-4 pt-4 border-t border-orange-200">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input 
+                      type="checkbox"
+                      checked={fulfillment.pickup}
+                      onChange={(e) => setFulfillment({...fulfillment, pickup: e.target.checked})}
+                      className="w-5 h-5 rounded accent-orange-500" 
+                    />
+                    <span className="text-xl">🏪</span>
+                    <div className="flex-1">
+                      <p className="font-semibold text-gray-800">Self Pickup</p>
+                      <p className="text-sm text-gray-500">Pelanggan ambil di kedai</p>
+                    </div>
+                    <span className="text-green-600 font-bold">FREE</span>
+                  </label>
+                  
+                  {fulfillment.pickup && (
+                    <div className="mt-3 pl-10">
+                      <label className="text-sm text-gray-600">Alamat Pickup</label>
+                      <input 
+                        type="text" 
+                        placeholder="No. 123, Jalan ABC, Shah Alam"
+                        value={fulfillment.pickupAddress}
+                        onChange={(e) => setFulfillment({...fulfillment, pickupAddress: e.target.value})}
+                        className="w-full p-2 border rounded-lg mt-1" 
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Payment Settings - QR + COD only */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border mt-6">
+              <h3 className="text-lg font-semibold mb-2">💳 Tetapan Pembayaran</h3>
+              <p className="text-gray-500 text-sm mb-4">Pilih cara pembayaran yang anda terima</p>
+              
+              {/* Payment Methods */}
+              <div className="space-y-3 mb-4">
+                {/* COD */}
+                <label className="flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer hover:border-orange-300 transition-colors">
+                  <input 
+                    type="checkbox" 
+                    checked={paymentMethods.cod}
+                    onChange={(e) => setPaymentMethods({...paymentMethods, cod: e.target.checked})}
+                    className="w-5 h-5 rounded accent-orange-500" 
+                  />
+                  <span className="text-2xl">💵</span>
+                  <div>
+                    <p className="font-semibold">Cash on Delivery (COD)</p>
+                    <p className="text-sm text-gray-500">Bayar tunai bila terima</p>
+                  </div>
+                </label>
+                
+                {/* QR Payment */}
+                <label className="flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer hover:border-orange-300 transition-colors">
+                  <input 
+                    type="checkbox"
+                    checked={paymentMethods.qr}
+                    onChange={(e) => setPaymentMethods({...paymentMethods, qr: e.target.checked})}
+                    className="w-5 h-5 rounded accent-orange-500" 
+                  />
+                  <span className="text-2xl">📱</span>
+                  <div>
+                    <p className="font-semibold">QR Payment</p>
+                    <p className="text-sm text-gray-500">DuitNow / TNG / Bank QR</p>
+                  </div>
+                </label>
+              </div>
+              
+              {/* QR Upload - Only show if QR payment enabled */}
+              {paymentMethods.qr && (
+                <div className="bg-orange-50 rounded-xl p-4 border border-orange-200">
+                  <p className="font-medium mb-3">📱 Muat Naik QR Pembayaran Anda</p>
+                  <div className="flex gap-4 items-start">
+                    {/* QR Upload Box */}
+                    <div className="w-32 h-32 border-2 border-dashed border-orange-300 rounded-xl bg-white flex-shrink-0">
+                      <label className="cursor-pointer w-full h-full flex flex-col items-center justify-center">
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          className="hidden"
+                          onChange={handleQRUpload} 
+                        />
+                        {paymentQRPreview ? (
+                          <img 
+                            src={paymentQRPreview} 
+                            alt="Payment QR"
+                            className="w-full h-full object-contain rounded-xl p-1" 
+                          />
+                        ) : (
+                          <>
+                            <span className="text-3xl mb-1">📷</span>
+                            <span className="text-xs text-gray-500">Upload QR</span>
+                          </>
+                        )}
+                      </label>
+                    </div>
+                    
+                    {/* Instructions */}
+                    <div className="flex-1 text-sm text-gray-600">
+                      <p className="font-medium text-gray-800 mb-2">Cara mendapatkan QR:</p>
+                      <ol className="list-decimal list-inside space-y-1">
+                        <li>Buka app bank / TNG / DuitNow</li>
+                        <li>Pergi ke &quot;Receive Money&quot; atau &quot;My QR&quot;</li>
+                        <li>Screenshot QR code anda</li>
+                        <li>Upload di sini</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {error && (
               <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
@@ -492,43 +1542,133 @@ export default function CreatePage() {
             {loading && (
               <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
                 <div className="bg-gray-900 rounded-2xl p-8 max-w-2xl w-full mx-4">
-                  <div className="mb-6 relative">
-                    <CodeAnimation />
-                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-blue-500 rounded-full animate-ping"></div>
-                  </div>
+                  {error ? (
+                    /* Error State in Modal */
+                    <div className="text-center">
+                      <div className="mb-6">
+                        <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <span className="text-4xl">❌</span>
+                        </div>
+                        <h3 className="text-2xl font-bold text-white mb-2">Generation Failed</h3>
+                        <p className="text-gray-400 mb-4">Something went wrong while generating your website</p>
+                      </div>
 
-                  <div className="text-white mb-4 text-center">
-                    <div className="flex items-center justify-center gap-2 mb-2">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-                      <h3 className="text-2xl font-bold">Building your website...</h3>
+                      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-6 text-left">
+                        <p className="text-red-400 text-sm">{error}</p>
+                      </div>
+
+                      <div className="flex gap-3 justify-center">
+                        <button
+                          onClick={() => {
+                            setLoading(false);
+                            setError('');
+                            setProgress(0);
+                          }}
+                          className="px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => {
+                            setError('');
+                            setProgress(0);
+                            handleGenerate();
+                          }}
+                          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition flex items-center gap-2"
+                        >
+                          <span>🔄</span> Try Again
+                        </button>
+                      </div>
                     </div>
-                    <p className="text-gray-400">
-                      AI is writing production-ready HTML code for you
+                  ) : (
+                    /* Normal Loading State */
+                    <>
+                      <div className="mb-6 relative">
+                        <CodeAnimation />
+                        <div className="absolute -top-2 -right-2 w-6 h-6 bg-blue-500 rounded-full animate-ping"></div>
+                      </div>
+
+                      <div className="text-white mb-4 text-center">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                          <h3 className="text-2xl font-bold">Building your website...</h3>
+                        </div>
+                        <p className="text-gray-400">
+                          AI is writing production-ready HTML code for you
+                        </p>
+                      </div>
+
+                  {/* Progress bar */}
+                  <div className="mb-6">
+                    <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 transition-all duration-500 ease-out"
+                        style={{ width: `${progress}%` }}
+                      ></div>
+                    </div>
+                    <p className="text-center text-blue-400 mt-2 font-semibold">
+                      {progress}% Complete
                     </p>
                   </div>
 
                   <div className="mt-6 space-y-3 text-left max-w-md mx-auto">
+                    {/* Step 1: Analyzing (10-25%) */}
                     <div className="flex items-center gap-3 text-gray-300">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                      <span className="text-sm">Analyzing your business description...</span>
+                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                        progress >= 10 && progress < 30 ? 'bg-blue-500 animate-pulse' :
+                        progress >= 30 ? 'bg-green-500' : 'bg-gray-600'
+                      }`}></div>
+                      <span className={`text-sm ${progress >= 30 ? 'text-green-400' : ''}`}>
+                        {progress >= 30 ? '✓ ' : ''}Analyzing your business description...
+                      </span>
                     </div>
+                    {/* Step 2: Modern Style (30-50%) */}
                     <div className="flex items-center gap-3 text-gray-300">
-                      <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
-                      <span className="text-sm">Generating Modern style...</span>
+                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                        progress >= 30 && progress < 50 ? 'bg-purple-500 animate-pulse' :
+                        progress >= 50 ? 'bg-green-500' : 'bg-gray-600'
+                      }`}></div>
+                      <span className={`text-sm ${progress >= 50 ? 'text-green-400' : ''}`}>
+                        {progress >= 50 ? '✓ ' : ''}Generating Modern style...
+                      </span>
                     </div>
+                    {/* Step 3: Minimal Style (50-70%) */}
                     <div className="flex items-center gap-3 text-gray-300">
-                      <div className="w-2 h-2 bg-pink-500 rounded-full animate-pulse"></div>
-                      <span className="text-sm">Generating Minimal style...</span>
+                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                        progress >= 50 && progress < 70 ? 'bg-pink-500 animate-pulse' :
+                        progress >= 70 ? 'bg-green-500' : 'bg-gray-600'
+                      }`}></div>
+                      <span className={`text-sm ${progress >= 70 ? 'text-green-400' : ''}`}>
+                        {progress >= 70 ? '✓ ' : ''}Generating Minimal style...
+                      </span>
                     </div>
+                    {/* Step 4: Bold Style (70-90%) */}
                     <div className="flex items-center gap-3 text-gray-300">
-                      <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
-                      <span className="text-sm">Generating Bold style...</span>
+                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                        progress >= 70 && progress < 90 ? 'bg-orange-500 animate-pulse' :
+                        progress >= 90 ? 'bg-green-500' : 'bg-gray-600'
+                      }`}></div>
+                      <span className={`text-sm ${progress >= 90 ? 'text-green-400' : ''}`}>
+                        {progress >= 90 ? '✓ ' : ''}Generating Bold style...
+                      </span>
+                    </div>
+                    {/* Step 5: Finalizing (90-100%) */}
+                    <div className="flex items-center gap-3 text-gray-300">
+                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
+                        progress >= 90 && progress < 100 ? 'bg-yellow-500 animate-pulse' :
+                        progress >= 100 ? 'bg-green-500' : 'bg-gray-600'
+                      }`}></div>
+                      <span className={`text-sm ${progress >= 100 ? 'text-green-400' : ''}`}>
+                        {progress >= 100 ? '✓ ' : ''}Finalizing website...
+                      </span>
                     </div>
                   </div>
 
                   <p className="text-xs text-gray-500 mt-6 text-center">
-                    This usually takes 30-40 seconds ⏱️
+                    This usually takes 45-90 seconds. Progress updates every 3 seconds ⏱️
                   </p>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -832,15 +1972,28 @@ export default function CreatePage() {
                 <input
                   type="text"
                   value={subdomain}
-                  onChange={(e) => setSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                  onChange={(e) => {
+                    const value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
+                    setSubdomain(value)
+                    const validationError = validateSubdomain(value)
+                    setSubdomainError(validationError)
+                  }}
                   placeholder="kedaiayam"
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  className={`flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 ${
+                    subdomainError ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 />
                 <span className="text-gray-600">.binaapp.my</span>
               </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Only lowercase letters, numbers, and hyphens
-              </p>
+              {subdomainError ? (
+                <p className="text-xs text-red-600 mt-1 font-medium">
+                  ❌ {subdomainError}
+                </p>
+              ) : (
+                <p className="text-xs text-gray-500 mt-1">
+                  Only lowercase letters, numbers, and hyphens
+                </p>
+              )}
             </div>
 
             {error && (
@@ -854,6 +2007,7 @@ export default function CreatePage() {
                 onClick={() => {
                   setShowPublishModal(false)
                   setError('')
+                  setSubdomainError(null)
                 }}
                 className="flex-1 btn btn-outline"
                 disabled={publishing}
@@ -863,7 +2017,7 @@ export default function CreatePage() {
               <button
                 onClick={handlePublish}
                 className="flex-1 btn btn-primary"
-                disabled={publishing || !subdomain || !projectName}
+                disabled={publishing || !subdomain || !projectName || !!subdomainError}
               >
                 {publishing ? (
                   <>
@@ -877,6 +2031,34 @@ export default function CreatePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Upgrade Modal */}
+      <UpgradeModal
+        show={showUpgradeModal}
+        currentTier={currentTier}
+        targetTier={targetTier}
+        onClose={() => setShowUpgradeModal(false)}
+      />
+
+      {/* Addon Purchase Modal */}
+      <AddonPurchaseModal
+        show={showAddonModal}
+        addon={selectedAddon}
+        onClose={() => setShowAddonModal(false)}
+      />
+
+      {/* Limit Reached Modal */}
+      {limitModalData && (
+        <LimitReachedModal
+          show={showLimitModal}
+          onClose={() => setShowLimitModal(false)}
+          resourceType={limitModalData.resourceType}
+          currentUsage={limitModalData.currentUsage}
+          limit={limitModalData.limit}
+          canBuyAddon={limitModalData.canBuyAddon}
+          addonPrice={limitModalData.addonPrice}
+        />
       )}
     </div>
   )

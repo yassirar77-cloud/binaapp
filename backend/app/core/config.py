@@ -27,14 +27,21 @@ class Settings(BaseSettings):
     )
     
     # CORS
+    # SECURITY: Removed "*" and "null" which allow requests from ANY origin
+    # In production, set CORS_ORIGINS environment variable with actual domains
+    # Example: CORS_ORIGINS="https://binaapp.my,https://www.binaapp.my,https://dashboard.binaapp.my"
     CORS_ORIGINS: List[str] = [
         "http://localhost",
         "http://localhost:3000",
         "http://localhost:8000",
         "http://127.0.0.1",
         "http://127.0.0.1:8000",
-        "null",
-        "*"
+        "http://127.0.0.1:3000",
+        # Production domains - override via environment variable
+        "https://binaapp.my",
+        "https://www.binaapp.my",
+        "https://dashboard.binaapp.my",
+        "https://binaapp-backend.onrender.com"
     ]
     
     @validator("CORS_ORIGINS", pre=True)
@@ -80,6 +87,13 @@ class Settings(BaseSettings):
     STRIPE_PUBLIC_KEY: str = Field(default="", env="STRIPE_PUBLIC_KEY")
     STRIPE_SECRET_KEY: str = Field(default="", env="STRIPE_SECRET_KEY")
     STRIPE_WEBHOOK_SECRET: str = Field(default="", env="STRIPE_WEBHOOK_SECRET")
+
+    # ToyyibPay
+    TOYYIBPAY_SECRET_KEY: str = Field(default="", env="TOYYIBPAY_SECRET_KEY")
+    TOYYIBPAY_CATEGORY_CODE: str = Field(default="", env="TOYYIBPAY_CATEGORY_CODE")
+    TOYYIBPAY_SANDBOX: bool = Field(default=False, env="TOYYIBPAY_SANDBOX")
+    TOYYIBPAY_CALLBACK_URL: str = Field(default="", env="TOYYIBPAY_CALLBACK_URL")
+    TOYYIBPAY_RETURN_URL: str = Field(default="", env="TOYYIBPAY_RETURN_URL")
     
     # Domain Configuration
     MAIN_DOMAIN: str = Field(default="binaapp.my", env="MAIN_DOMAIN")
@@ -89,6 +103,18 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = Field(default="dev-secret-key-change-in-production", env="JWT_SECRET_KEY")
     JWT_ALGORITHM: str = Field(default="HS256", env="JWT_ALGORITHM")
     JWT_EXPIRATION_HOURS: int = Field(default=24, env="JWT_EXPIRATION_HOURS")
+
+    # Supabase JWT Secret (for verifying Supabase-signed tokens)
+    SUPABASE_JWT_SECRET: Optional[str] = Field(None, env="SUPABASE_JWT_SECRET")
+
+    # Supabase JWT Audience (for enhanced JWT verification)
+    # Set to "authenticated" to enable audience verification
+    # Increases security by preventing token reuse across services
+    SUPABASE_JWT_AUDIENCE: Optional[str] = Field(None, env="SUPABASE_JWT_AUDIENCE")
+
+    # API Keys for external integrations (comma-separated)
+    # Example: BINAAPP_API_KEYS="bina_abc123...,bina_xyz789..."
+    BINAAPP_API_KEYS: Optional[str] = Field(None, env="BINAAPP_API_KEYS")
     
     # Redis
     REDIS_URL: str = Field(default="redis://localhost:6379", env="REDIS_URL")

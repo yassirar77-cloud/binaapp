@@ -11,6 +11,7 @@ from datetime import datetime
 
 from app.services.storage_service import storage_service
 from app.services.supabase_client import supabase_service
+from app.api.simple.publish import inject_delivery_widget_if_needed
 
 router = APIRouter()
 
@@ -40,6 +41,7 @@ class UpdateProjectRequest(BaseModel):
     """Update project request"""
     name: Optional[str] = Field(None, min_length=2, max_length=100)
     html_code: Optional[str] = None
+    description: Optional[str] = Field(None, description="Business description for type detection")
 
 
 class DeleteResponse(BaseModel):
@@ -182,14 +184,21 @@ async def update_project(
             update_data["business_name"] = request.name
 
         if request.html_code:
-            update_data["html_content"] = request.html_code
+            # Inject delivery widget with dynamic label based on business type
+            html_to_save = inject_delivery_widget_if_needed(
+                request.html_code,
+                project_id,
+                request.name or website.get("business_name", "Business"),
+                description=request.description or request.name or ""
+            )
+            update_data["html_content"] = html_to_save
 
             # Re-upload to storage
             try:
                 public_url = await storage_service.upload_website(
                     user_id=user_id,
                     subdomain=website["subdomain"],
-                    html_content=request.html_code
+                    html_content=html_to_save
                 )
                 update_data["public_url"] = public_url
                 logger.info(f"Website re-uploaded to storage: {public_url}")
