@@ -368,12 +368,6 @@ function LandingPageContent() {
                   <td className="p-4">✅</td>
                 </tr>
                 <tr>
-                  <td className="p-4 font-medium">Custom Domain</td>
-                  <td className="p-4">❌</td>
-                  <td className="p-4">❌</td>
-                  <td className="p-4">✅</td>
-                </tr>
-                <tr>
                   <td className="p-4 font-medium">All Integrations</td>
                   <td className="p-4">✅</td>
                   <td className="p-4">✅</td>
@@ -419,18 +413,6 @@ function LandingPageContent() {
                   <td className="p-4 font-medium">Contact Form</td>
                   <td className="p-4">❌</td>
                   <td className="p-4">✅</td>
-                  <td className="p-4">✅</td>
-                </tr>
-                <tr>
-                  <td className="p-4 font-medium">White-label</td>
-                  <td className="p-4">❌</td>
-                  <td className="p-4">❌</td>
-                  <td className="p-4">✅</td>
-                </tr>
-                <tr>
-                  <td className="p-4 font-medium">API Access</td>
-                  <td className="p-4">❌</td>
-                  <td className="p-4">❌</td>
                   <td className="p-4">✅</td>
                 </tr>
               </tbody>

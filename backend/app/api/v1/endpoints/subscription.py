@@ -146,10 +146,8 @@ async def get_subscription_plans():
                 "Imej AI tanpa had",
                 "Zon penghantaran tanpa had",
                 "10 rider (GPS tracking)",
-                "Domain tersuai",
                 "AI lanjutan",
-                "White-label",
-                "Akses API"
+                "Subdomain tersuai"
             ]
         }
 
