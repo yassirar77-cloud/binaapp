@@ -161,6 +161,7 @@ export default function ProfilePage() {
   useEffect(() => {
     loadUserData()
     loadSubscriptionData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Set up auth state listener for mobile browsers
@@ -197,13 +198,15 @@ export default function ProfilePage() {
     return () => {
       subscription.unsubscribe()
     }
-  }, [supabase, router])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router])
 
   useEffect(() => {
     if (user && websites.length > 0) {
       loadOrders()
       loadRiders()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, websites])
 
   // Check if chat API is working when chat tab is active

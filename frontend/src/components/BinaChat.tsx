@@ -516,6 +516,7 @@ export default function BinaChat({
                     }`}>
                         {/* Image message */}
                         {msg.message_type === 'image' && msg.media_url && (
+                            // eslint-disable-next-line @next/next/no-img-element
                             <img
                                 src={msg.media_url}
                                 alt="Gambar"
@@ -537,6 +538,7 @@ export default function BinaChat({
                                     &#128179; Bukti Pembayaran
                                 </div>
                                 {msg.media_url && (
+                                    // eslint-disable-next-line @next/next/no-img-element
                                     <img
                                         src={msg.media_url}
                                         alt="Bukti Pembayaran"

@@ -115,6 +115,7 @@ export default function AssetsManager({ assets, onAssetsChange }: AssetsManagerP
         >
           {assets.logo ? (
             <div className="relative inline-block">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={assets.logo} alt="Logo" className="max-h-24 mx-auto" />
               <button
                 onClick={() => onAssetsChange({ ...assets, logo: null })}
@@ -228,6 +229,7 @@ export default function AssetsManager({ assets, onAssetsChange }: AssetsManagerP
           <div className="grid grid-cols-3 gap-3 mt-4">
             {assets.images.map((img, i) => (
               <div key={i} className="relative group">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={img} alt={`Asset ${i}`} className="w-full h-20 object-cover rounded-lg" />
                 <button
                   onClick={() => removeImage(i)}

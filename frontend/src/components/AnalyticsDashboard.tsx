@@ -62,6 +62,7 @@ export default function AnalyticsDashboard({ projectId }: { projectId: string })
     // Refresh realtime every 30 seconds
     const interval = setInterval(fetchRealtime, 30000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, timeRange]);
 
   const fetchAnalytics = async () => {
