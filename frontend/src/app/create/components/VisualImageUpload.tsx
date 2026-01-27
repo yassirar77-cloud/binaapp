@@ -185,6 +185,7 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
         >
           {heroPreview ? (
             <div className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={heroPreview} alt="Hero" className="w-full h-32 object-cover rounded-lg" />
               <button
                 onClick={(e) => { e.stopPropagation(); removeHero(); }}
@@ -234,6 +235,7 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
               >
                 {item.preview ? (
                   <div className="relative w-full h-full">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={item.preview}
                       alt={`Menu ${index + 1}`}

@@ -94,6 +94,7 @@ export default function ImageUpload({ onImagesUploaded }: ImageUploadProps) {
               overflow: 'hidden',
               border: '2px solid #e5e7eb'
             }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={url}
                 alt={`Upload ${i+1}`}
