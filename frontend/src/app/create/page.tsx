@@ -140,6 +140,12 @@ export default function CreatePage() {
   const [currentJobId, setCurrentJobId] = useState<string | null>(null)
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Track progress updates for stale detection
+  const [lastProgressUpdate, setLastProgressUpdate] = useState<Date | null>(null)
+  const [lastProgress, setLastProgress] = useState<number>(0)
+  const [staleWarning, setStaleWarning] = useState<boolean>(false)
+  const staleCheckRef = useRef<number>(0) // Count of polls with same progress
+
   // Upgrade/Addon modal states
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [showAddonModal, setShowAddonModal] = useState(false)
@@ -482,8 +488,12 @@ export default function CreatePage() {
       clearInterval(pollIntervalRef.current);
       pollIntervalRef.current = null;
     }
-    // Clear old job ID
+    // Clear old job ID and reset stale detection
     setCurrentJobId(null);
+    setLastProgressUpdate(null);
+    setLastProgress(0);
+    setStaleWarning(false);
+    staleCheckRef.current = 0;
 
     setLoading(true);
     setError('');
@@ -593,7 +603,9 @@ export default function CreatePage() {
         if (attempt > maxAttempts) {
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
-          setError('Generation timed out after 5 minutes. Please try again with a shorter description.');
+          const stuckInfo = progress > 0 ? ` (stuck at ${progress}%)` : '';
+          setError(`Generation timed out after 5 minutes${stuckInfo}. Job: ${jobId.slice(0, 8)}. Please try again.`);
+          console.error(`❌ Generation timeout - Job: ${jobId}, Progress: ${progress}%`);
           // Keep loading=true so the modal stays open with retry button
           return;
         }
@@ -620,7 +632,22 @@ export default function CreatePage() {
           console.log('=====================');
 
           // Update progress bar
-          setProgress(statusData.progress || 0);
+          const newProgress = statusData.progress || 0;
+          setProgress(newProgress);
+
+          // STALE PROGRESS DETECTION: Warn if progress hasn't changed for 10+ polls (30+ seconds)
+          if (newProgress === lastProgress && newProgress > 0 && newProgress < 100) {
+            staleCheckRef.current += 1;
+            if (staleCheckRef.current >= 10 && !staleWarning) {
+              console.warn(`⚠️ Progress stuck at ${newProgress}% for ${staleCheckRef.current * 3} seconds`);
+              setStaleWarning(true);
+            }
+          } else {
+            staleCheckRef.current = 0;
+            setStaleWarning(false);
+            setLastProgress(newProgress);
+            setLastProgressUpdate(new Date());
+          }
 
           if (statusData.status === 'completed') {
             if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -1664,9 +1691,27 @@ export default function CreatePage() {
                     </div>
                   </div>
 
+                  {/* Stale Progress Warning */}
+                  {staleWarning && (
+                    <div className="mt-4 p-3 bg-yellow-500/20 border border-yellow-500/50 rounded-lg">
+                      <p className="text-yellow-400 text-sm text-center">
+                        ⚠️ Progress appears to be stuck at {progress}%. The backend may be experiencing issues.
+                        <br />
+                        <span className="text-xs text-yellow-500">Job may still complete - please wait or try again.</span>
+                      </p>
+                    </div>
+                  )}
+
                   <p className="text-xs text-gray-500 mt-6 text-center">
                     This usually takes 45-90 seconds. Progress updates every 3 seconds ⏱️
                   </p>
+
+                  {/* Debug: Show Job ID for troubleshooting */}
+                  {currentJobId && (
+                    <p className="text-xs text-gray-600 mt-2 text-center font-mono">
+                      Job: {currentJobId.slice(0, 8)}...
+                    </p>
+                  )}
                     </>
                   )}
                 </div>
