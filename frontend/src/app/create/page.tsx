@@ -593,7 +593,7 @@ export default function CreatePage() {
       console.log('✅ Job started:', jobId, '- Stored in state');
 
       // Step 2: Poll for results
-      const maxAttempts = 100; // 100 attempts x 3 seconds = 5 minutes max (increased from 3 min)
+      const maxAttempts = 200; // 200 attempts x 3 seconds = 10 minutes max (increased from 5 min for complex sites)
       let attempt = 0;
 
       // CRITICAL: Store interval in ref so it can be cleared on retry
@@ -604,7 +604,7 @@ export default function CreatePage() {
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
           const stuckInfo = progress > 0 ? ` (stuck at ${progress}%)` : '';
-          setError(`Generation timed out after 5 minutes${stuckInfo}. Job: ${jobId.slice(0, 8)}. Please try again.`);
+          setError(`Generation timed out after 10 minutes${stuckInfo}. Job: ${jobId.slice(0, 8)}. Please try again.`);
           console.error(`❌ Generation timeout - Job: ${jobId}, Progress: ${progress}%`);
           // Keep loading=true so the modal stays open with retry button
           return;
