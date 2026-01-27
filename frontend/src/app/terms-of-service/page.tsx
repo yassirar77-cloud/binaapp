@@ -1,145 +1,109 @@
-/**
- * Terms of Service Page
- */
-
-import Link from 'next/link'
-import { Sparkles, ArrowLeft } from 'lucide-react'
-
-export const metadata = {
-  title: 'Terms of Service - BinaApp',
-  description: 'Terms of Service for BinaApp - AI Website Builder Malaysia',
-}
+'use client';
 
 export default function TermsOfServicePage() {
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="border-b bg-white">
-        <nav className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-primary-600" />
-            <span className="text-xl font-bold">BinaApp</span>
-          </Link>
-          <Link href="/" className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back to Home</span>
-          </Link>
-        </nav>
-      </header>
+    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-3xl mx-auto">
+        <div className="bg-white shadow-lg rounded-lg p-8 sm:p-12">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Terms of Service</h1>
+          <p className="text-sm text-gray-500 mb-8">Last updated: January 2025</p>
 
-      {/* Content */}
-      <main className="container mx-auto px-4 py-12 max-w-3xl">
-        <h1 className="text-3xl font-bold mb-2">Terms of Service</h1>
-        <p className="text-gray-500 mb-8">Last updated: January 2025</p>
+          <div className="space-y-8 text-gray-700">
+            <section>
+              <h2 className="text-xl font-semibold text-gray-900 mb-3">Service Description</h2>
+              <p>
+                BinaApp is a restaurant delivery platform that connects customers with local
+                restaurants and delivery services. We provide the technology infrastructure
+                to facilitate ordering, payment processing, and delivery coordination.
+              </p>
+            </section>
 
-        <div className="bg-white rounded-lg shadow-sm p-6 md:p-8 space-y-6">
-          <section>
-            <h2 className="text-xl font-semibold mb-3">1. Service Description</h2>
-            <p className="text-gray-600">
-              BinaApp provides an AI-powered website builder platform and restaurant delivery management
-              system for Malaysian businesses. Our services include website creation, menu management,
-              order processing, and delivery tracking.
-            </p>
-          </section>
+            <section>
+              <h2 className="text-xl font-semibold text-gray-900 mb-3">Subscription Plans</h2>
+              <p className="mb-3">BinaApp offers the following subscription plans for merchants:</p>
+              <ul className="list-disc list-inside space-y-2 ml-4">
+                <li><strong>Starter Plan:</strong> RM5/month - Basic features for small businesses</li>
+                <li><strong>Basic Plan:</strong> RM29/month - Enhanced features with priority support</li>
+                <li><strong>Pro Plan:</strong> RM49/month - Full access to all features and premium support</li>
+              </ul>
+            </section>
 
-          <section>
-            <h2 className="text-xl font-semibold mb-3">2. User Responsibilities</h2>
-            <ul className="list-disc list-inside text-gray-600 space-y-2">
-              <li>Provide accurate and truthful information</li>
-              <li>Keep your account credentials secure</li>
-              <li>Use the platform for lawful purposes only</li>
-              <li>Not upload harmful, offensive, or illegal content</li>
-              <li>Comply with all applicable Malaysian laws</li>
-            </ul>
-          </section>
+            <section>
+              <h2 className="text-xl font-semibold text-gray-900 mb-3">User Responsibilities</h2>
+              <p className="mb-3">As a user of BinaApp, you agree to:</p>
+              <ul className="list-disc list-inside space-y-2 ml-4">
+                <li>Provide accurate and complete information when creating an account</li>
+                <li>Keep your account credentials secure and confidential</li>
+                <li>Use the platform only for lawful purposes</li>
+                <li>Not engage in fraudulent or deceptive activities</li>
+              </ul>
+            </section>
 
-          <section>
-            <h2 className="text-xl font-semibold mb-3">3. Merchant Responsibilities</h2>
-            <p className="text-gray-600 mb-2">If you use BinaApp as a merchant, you agree to:</p>
-            <ul className="list-disc list-inside text-gray-600 space-y-2">
-              <li>Maintain accurate menu information and pricing</li>
-              <li>Fulfill orders in a timely manner</li>
-              <li>Ensure food safety and quality standards</li>
-              <li>Handle customer complaints professionally</li>
-            </ul>
-          </section>
+            <section>
+              <h2 className="text-xl font-semibold text-gray-900 mb-3">Merchant Responsibilities</h2>
+              <p className="mb-3">Merchants using BinaApp agree to:</p>
+              <ul className="list-disc list-inside space-y-2 ml-4">
+                <li>Maintain accurate and up-to-date menu information and pricing</li>
+                <li>Ensure timely fulfillment of orders</li>
+                <li>Comply with all applicable food safety and health regulations</li>
+                <li>Respond promptly to customer inquiries and complaints</li>
+              </ul>
+            </section>
 
-          <section>
-            <h2 className="text-xl font-semibold mb-3">4. Subscription & Pricing</h2>
-            <p className="text-gray-600 mb-2">Our current subscription plans:</p>
-            <ul className="list-disc list-inside text-gray-600 space-y-2">
-              <li><strong>Starter:</strong> RM5/month - 1 website</li>
-              <li><strong>Basic:</strong> RM29/month - 5 websites with analytics</li>
-              <li><strong>Pro:</strong> RM49/month - Unlimited websites with delivery features</li>
-            </ul>
-            <p className="text-gray-600 mt-2">
-              Payments are processed securely via ToyyibPay. Subscriptions auto-renew unless cancelled.
-            </p>
-          </section>
+            <section>
+              <h2 className="text-xl font-semibold text-gray-900 mb-3">Service Availability</h2>
+              <p>
+                BinaApp is provided on an "as-is" basis. While we strive to maintain high
+                availability, the service may experience downtime for maintenance, updates,
+                or due to circumstances beyond our control. We do not guarantee uninterrupted
+                access to the platform.
+              </p>
+            </section>
 
-          <section>
-            <h2 className="text-xl font-semibold mb-3">5. Service Availability</h2>
-            <p className="text-gray-600">
-              BinaApp is provided &quot;as-is&quot;. While we strive for 99% uptime, we may experience
-              occasional downtime for maintenance or unforeseen issues. We do not guarantee
-              uninterrupted service.
-            </p>
-          </section>
+            <section>
+              <h2 className="text-xl font-semibold text-gray-900 mb-3">Liability Limits</h2>
+              <p className="mb-3">BinaApp is not responsible for:</p>
+              <ul className="list-disc list-inside space-y-2 ml-4">
+                <li>Food quality, preparation, or safety issues from restaurant partners</li>
+                <li>Delivery delays caused by traffic, weather, or other external factors</li>
+                <li>Disputes between customers and merchants</li>
+                <li>Accuracy of restaurant information provided by merchants</li>
+              </ul>
+            </section>
 
-          <section>
-            <h2 className="text-xl font-semibold mb-3">6. Limitation of Liability</h2>
-            <p className="text-gray-600">BinaApp is not responsible for:</p>
-            <ul className="list-disc list-inside text-gray-600 space-y-2 mt-2">
-              <li>Food quality or safety issues (merchant responsibility)</li>
-              <li>Delivery delays beyond our reasonable control</li>
-              <li>Accuracy of AI-generated content</li>
-              <li>Third-party service disruptions (payment gateways, hosting)</li>
-              <li>Indirect or consequential damages</li>
-            </ul>
-          </section>
+            <section>
+              <h2 className="text-xl font-semibold text-gray-900 mb-3">Account Termination</h2>
+              <p>
+                BinaApp reserves the right to suspend or terminate accounts that violate these
+                Terms of Service, engage in fraudulent activity, or otherwise abuse the platform.
+                Users may also request account deletion at any time by contacting support.
+              </p>
+            </section>
 
-          <section>
-            <h2 className="text-xl font-semibold mb-3">7. Account Termination</h2>
-            <p className="text-gray-600">
-              We reserve the right to suspend or terminate accounts that violate these terms,
-              engage in fraudulent activity, or harm other users. You may cancel your account
-              at any time through your profile settings.
-            </p>
-          </section>
+            <section>
+              <h2 className="text-xl font-semibold text-gray-900 mb-3">Governing Law</h2>
+              <p>
+                These Terms of Service are governed by and construed in accordance with the
+                laws of Malaysia. Any disputes arising from the use of BinaApp shall be
+                subject to the exclusive jurisdiction of Malaysian courts.
+              </p>
+            </section>
 
-          <section>
-            <h2 className="text-xl font-semibold mb-3">8. Governing Law</h2>
-            <p className="text-gray-600">
-              These terms are governed by the laws of Malaysia. Any disputes shall be resolved
-              in Malaysian courts.
-            </p>
-          </section>
-
-          <section>
-            <h2 className="text-xl font-semibold mb-3">9. Contact Us</h2>
-            <p className="text-gray-600">
-              Questions about these terms? Contact us at{' '}
-              <a href="mailto:support@binaapp.my" className="text-primary-600 hover:underline">
-                support@binaapp.my
-              </a>
-            </p>
-          </section>
-        </div>
-      </main>
-
-      {/* Footer */}
-      <footer className="py-8 border-t bg-white mt-12">
-        <div className="container mx-auto px-4 text-center text-sm text-gray-500">
-          <div className="flex flex-wrap justify-center gap-4 mb-4">
-            <Link href="/privacy-policy" className="hover:text-gray-700">Privacy Policy</Link>
-            <span>|</span>
-            <Link href="/terms-of-service" className="hover:text-gray-700">Terms of Service</Link>
-            <span>|</span>
-            <a href="mailto:support@binaapp.my" className="hover:text-gray-700">Contact</a>
+            <section>
+              <h2 className="text-xl font-semibold text-gray-900 mb-3">Contact Us</h2>
+              <p>
+                If you have questions about these Terms of Service, please contact us at{' '}
+                <a
+                  href="mailto:support@binaapp.my"
+                  className="text-blue-600 hover:text-blue-800 underline"
+                >
+                  support@binaapp.my
+                </a>
+              </p>
+            </section>
           </div>
-          <p>&copy; 2025 BinaApp. All rights reserved.</p>
         </div>
-      </footer>
+      </div>
     </div>
-  )
+  );
 }
