@@ -152,6 +152,7 @@ export default function RiderApp() {
     return () => {
       stopGPSTracking();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn, rider]);
 
   // Fetch orders periodically
@@ -161,6 +162,7 @@ export default function RiderApp() {
       const interval = setInterval(fetchOrders, 30000); // Every 30 seconds
       return () => clearInterval(interval);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn, rider]);
 
   // PWA Install prompt

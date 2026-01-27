@@ -45,7 +45,7 @@ export default function TermsOfService() {
 
           <section>
             <h2 className="text-xl font-semibold text-gray-900 mb-3">Service Availability</h2>
-            <p>BinaApp is provided "as-is" without warranties. We strive for 99.9% uptime but may experience occasional downtime for maintenance or unforeseen technical issues.</p>
+            <p>BinaApp is provided &quot;as-is&quot; without warranties. We strive for 99.9% uptime but may experience occasional downtime for maintenance or unforeseen technical issues.</p>
           </section>
 
           <section>
