@@ -13,7 +13,7 @@ export default function PrivacyPolicy() {
             <ul className="list-disc pl-6 space-y-2">
               <li>Email and password for your account</li>
               <li>Phone number for order notifications</li>
-              <li>Restaurant information if you're a merchant</li>
+              <li>Restaurant information if you&apos;re a merchant</li>
               <li>GPS location only for delivery riders during active deliveries</li>
               <li>Payment information processed securely by ToyyibPay</li>
             </ul>
@@ -35,13 +35,13 @@ export default function PrivacyPolicy() {
               <li>Data is encrypted and stored securely on Supabase</li>
               <li>We never share your personal information without consent</li>
               <li>GPS data is deleted after 30 days</li>
-              <li>Payment details are handled by ToyyibPay - we don't store card numbers</li>
+              <li>Payment details are handled by ToyyibPay - we don&apos;t store card numbers</li>
             </ul>
           </section>
 
           <section>
             <h2 className="text-xl font-semibold text-gray-900 mb-3">Your Rights</h2>
-            <p className="mb-3">Under Malaysia's Personal Data Protection Act (PDPA), you can:</p>
+            <p className="mb-3">Under Malaysia&apos;s Personal Data Protection Act (PDPA), you can:</p>
             <ul className="list-disc pl-6 space-y-2">
               <li>Request to see your data</li>
               <li>Request correction of your data</li>
