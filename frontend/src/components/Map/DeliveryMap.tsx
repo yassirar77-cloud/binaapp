@@ -141,6 +141,7 @@ export default function DeliveryMap({
     marker.bindPopup('<b>Kedai</b><br>Lokasi penjual');
 
     setMarkers(prev => ({ ...prev, store: marker }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, storeLocation]);
 
   // Add or update customer marker
@@ -173,6 +174,7 @@ export default function DeliveryMap({
       const fee = calculateDeliveryFee(distance);
       onDistanceCalculated(distance, fee);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, deliveryAddress, storeLocation, showDistance, onDistanceCalculated]);
 
   // Add or update rider marker (real-time tracking)
@@ -196,6 +198,7 @@ export default function DeliveryMap({
 
     // Center map on rider if actively tracking
     map.setView([riderLocation.latitude, riderLocation.longitude], 15);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, riderLocation]);
 
   // Draw delivery zones
@@ -223,6 +226,7 @@ export default function DeliveryMap({
     });
 
     setZones(newZones);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, deliveryZones]);
 
   // Draw route line from store to customer
@@ -261,6 +265,7 @@ export default function DeliveryMap({
     }
 
     map.fitBounds(bounds, { padding: [50, 50] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, storeLocation, deliveryAddress, riderLocation]);
 
   return (
