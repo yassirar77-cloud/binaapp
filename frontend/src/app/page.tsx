@@ -523,7 +523,20 @@ function LandingPageContent() {
             <span className="text-lg font-bold text-white">BinaApp</span>
           </div>
           <p className="mb-4">AI-Powered Website Builder untuk SME Malaysia</p>
-          <p className="text-sm">&copy; 2024 BinaApp. Semua hak cipta terpelihara.</p>
+          <div className="flex flex-wrap justify-center gap-4 mb-4 text-sm">
+            <Link href="/privacy-policy" className="hover:text-white transition-colors">
+              Privacy Policy
+            </Link>
+            <span>|</span>
+            <Link href="/terms-of-service" className="hover:text-white transition-colors">
+              Terms of Service
+            </Link>
+            <span>|</span>
+            <a href="mailto:support@binaapp.my" className="hover:text-white transition-colors">
+              Contact
+            </a>
+          </div>
+          <p className="text-sm">&copy; 2025 BinaApp. All rights reserved.</p>
         </div>
       </footer>
 
