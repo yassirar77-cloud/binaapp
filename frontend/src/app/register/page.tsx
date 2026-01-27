@@ -125,15 +125,15 @@ function RegisterPageContent() {
               required
             />
 
-            {/* Terms & Privacy Consent */}
+            {/* Privacy & Terms Consent */}
             <div className="space-y-2">
               <label className="flex items-start gap-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={agreedToTerms}
                   onChange={(e) => setAgreedToTerms(e.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                   required
+                  className="mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                 />
                 <span className="text-sm text-gray-700">
                   I have read and agree to the{' '}
@@ -141,23 +141,23 @@ function RegisterPageContent() {
                     href="/privacy-policy"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-primary-600 hover:underline font-medium"
+                    className="text-blue-600 hover:underline"
                   >
                     Privacy Policy
-                  </a>{' '}
-                  and{' '}
+                  </a>
+                  {' '}and{' '}
                   <a
                     href="/terms-of-service"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-primary-600 hover:underline font-medium"
+                    className="text-blue-600 hover:underline"
                   >
                     Terms of Service
                   </a>
                 </span>
               </label>
               <p className="text-xs text-gray-500 pl-7">
-                By signing up, you consent to our data collection practices
+                By signing up, you consent to our data collection practices as described in our Privacy Policy
               </p>
             </div>
 
