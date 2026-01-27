@@ -1,13 +1,9 @@
-const path = require('path')
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
 
-  webpack: (config) => {
-    config.resolve.alias['@'] = path.resolve(__dirname, 'src')
-    return config
-  },
+  // Turbopack config (alias @ is handled by tsconfig.json paths)
+  turbopack: {},
 
   typescript: {
     ignoreBuildErrors: true
