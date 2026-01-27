@@ -29,6 +29,11 @@ function PaymentSuccessContent() {
     const userId = localStorage.getItem('user_id');
     const token = localStorage.getItem('token');
 
+    // Check if this is an addon payment
+    const pendingAddonType = localStorage.getItem('pending_addon_type');
+    const pendingAddonQty = localStorage.getItem('pending_addon_quantity');
+    const isAddonPayment = !!pendingAddonType;
+
     // Use billcode from URL or localStorage
     const effectiveBillCode = billcode || pendingBillCode;
 
@@ -44,16 +49,22 @@ function PaymentSuccessContent() {
 
         if (verifyData.success && verifyData.status === 'paid') {
           setStatus('success');
-          setMessage('Pembayaran Berjaya!');
+          setMessage(isAddonPayment ? 'Kredit Addon Berjaya Ditambah!' : 'Pembayaran Berjaya!');
 
-          // Clear pending data
+          // Clear all pending data
           localStorage.removeItem('pending_tier');
           localStorage.removeItem('pending_payment_id');
           localStorage.removeItem('pending_bill_code');
+          localStorage.removeItem('pending_addon_type');
+          localStorage.removeItem('pending_addon_quantity');
 
-          // Redirect after 3 seconds
+          // Redirect after 3 seconds - to /create for website addon, otherwise dashboard
           setTimeout(() => {
-            router.push('/dashboard');
+            if (isAddonPayment && pendingAddonType === 'website') {
+              router.push('/create');
+            } else {
+              router.push('/dashboard');
+            }
           }, 3000);
           return;
         }
@@ -66,10 +77,10 @@ function PaymentSuccessContent() {
     if (statusId === '1') {
       // Payment successful
       setStatus('success');
-      setMessage('Pembayaran Berjaya!');
+      setMessage(isAddonPayment ? 'Kredit Addon Berjaya Ditambah!' : 'Pembayaran Berjaya!');
 
-      // Update subscription if it was a subscription payment
-      if (tier && paymentId) {
+      // Update subscription if it was a subscription payment (not addon)
+      if (!isAddonPayment && tier && paymentId) {
         try {
           const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
           await fetch(`${apiUrl}/api/v1/payments/subscriptions/upgrade/${tier}`, {
@@ -83,20 +94,25 @@ function PaymentSuccessContent() {
               payment_id: paymentId
             })
           });
-
-          // Clear pending data
-          localStorage.removeItem('pending_tier');
-          localStorage.removeItem('pending_payment_id');
-          localStorage.removeItem('pending_bill_code');
-
         } catch (error) {
           console.error('Upgrade error:', error);
         }
       }
 
-      // Redirect after 3 seconds
+      // Clear all pending data
+      localStorage.removeItem('pending_tier');
+      localStorage.removeItem('pending_payment_id');
+      localStorage.removeItem('pending_bill_code');
+      localStorage.removeItem('pending_addon_type');
+      localStorage.removeItem('pending_addon_quantity');
+
+      // Redirect after 3 seconds - to /create for website addon, otherwise dashboard
       setTimeout(() => {
-        router.push('/dashboard');
+        if (isAddonPayment && pendingAddonType === 'website') {
+          router.push('/create');
+        } else {
+          router.push('/dashboard');
+        }
       }, 3000);
 
     } else if (statusId === '3') {
@@ -119,11 +135,19 @@ function PaymentSuccessContent() {
 
           if (verifyData.success && verifyData.status === 'paid') {
             setStatus('success');
-            setMessage('Pembayaran Berjaya!');
+            setMessage(isAddonPayment ? 'Kredit Addon Berjaya Ditambah!' : 'Pembayaran Berjaya!');
             localStorage.removeItem('pending_tier');
             localStorage.removeItem('pending_payment_id');
             localStorage.removeItem('pending_bill_code');
-            setTimeout(() => router.push('/dashboard'), 3000);
+            localStorage.removeItem('pending_addon_type');
+            localStorage.removeItem('pending_addon_quantity');
+            setTimeout(() => {
+              if (isAddonPayment && pendingAddonType === 'website') {
+                router.push('/create');
+              } else {
+                router.push('/dashboard');
+              }
+            }, 3000);
             return;
           } else if (verifyData.status === 'pending') {
             setStatus('pending');
@@ -153,9 +177,9 @@ function PaymentSuccessContent() {
       {status === 'success' && (
         <div className="success">
           <div className="checkmark">✓</div>
-          <h2>Pembayaran Berjaya!</h2>
-          <p>Terima kasih. Package anda telah dikemaskini.</p>
-          <p>Mengalih ke dashboard...</p>
+          <h2>{message}</h2>
+          <p>Terima kasih atas pembayaran anda.</p>
+          <p>Mengalih...</p>
         </div>
       )}
 
