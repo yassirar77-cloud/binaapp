@@ -715,8 +715,73 @@ async def _process_legacy_payment(bill_code: str, tp_transaction_id: str = None)
 
         else:
             logger.warning(f"⚠️ No payment record found in legacy table for bill_code: {bill_code}")
+            # Try addon_purchases table as a last resort (for old records with bill_code field)
+            await _process_legacy_addon_payment(bill_code, tp_transaction_id)
     except Exception as db_error:
         logger.error(f"❌ Database error processing legacy payment: {db_error}")
+
+
+async def _process_legacy_addon_payment(bill_code: str, tp_transaction_id: str = None):
+    """
+    Fallback to process addon payment from legacy addon_purchases records.
+    These records were created with bill_code field instead of proper transaction records.
+    """
+    try:
+        import httpx
+        url = f"{settings.SUPABASE_URL}/rest/v1/addon_purchases"
+        headers = {
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        # Look for addon_purchases with this bill_code that are still pending
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                headers=headers,
+                params={
+                    "bill_code": f"eq.{bill_code}",
+                    "status": "eq.pending"
+                }
+            )
+
+        if response.status_code != 200:
+            logger.warning(f"⚠️ Failed to query addon_purchases for bill_code: {bill_code}")
+            return
+
+        records = response.json()
+
+        if records and len(records) > 0:
+            addon_record = records[0]
+            addon_id = addon_record.get("addon_id") or addon_record.get("id")
+            user_id = addon_record.get("user_id")
+            addon_type = addon_record.get("addon_type")
+            quantity = addon_record.get("quantity", 1)
+
+            logger.info(f"📝 Found legacy addon_purchase record: addon_id={addon_id}, user={user_id}, type={addon_type}")
+
+            # Update the addon_purchase status to active
+            async with httpx.AsyncClient() as client:
+                update_response = await client.patch(
+                    url,
+                    headers={**headers, "Prefer": "return=minimal"},
+                    params={"bill_code": f"eq.{bill_code}"},
+                    json={
+                        "status": "active",
+                        "quantity_used": 0
+                    }
+                )
+
+            if update_response.status_code in [200, 204]:
+                logger.info(f"✅ Legacy addon_purchase activated for user {user_id}: {addon_type} x{quantity}")
+            else:
+                logger.error(f"❌ Failed to update legacy addon_purchase: {update_response.status_code}")
+        else:
+            logger.warning(f"⚠️ No addon_purchase record found for bill_code: {bill_code}")
+
+    except Exception as e:
+        logger.error(f"❌ Error processing legacy addon payment: {e}", exc_info=True)
 
 
 async def _update_usage_limits(user_id: str, tier: str):
@@ -1179,27 +1244,39 @@ async def purchase_addon(
             bill_code = result.get("bill_code")
             logger.info(f"ToyyibPay addon bill created: {bill_code}")
 
-            # Try to store addon purchase record (optional)
-            addon_id = bill_code
+            # CRITICAL: Create transaction record so callback handler can find it
+            # The callback handler looks for transactions by toyyibpay_bill_code
+            transaction_id = None
             try:
-                addon_record = await supabase_service.insert_record("addon_purchases", {
+                from app.services.subscription_service import subscription_service
+                invoice_number = await subscription_service.generate_invoice_number()
+
+                transaction_records = await supabase_service.insert_record("transactions", {
                     "user_id": str(user_id),
-                    "bill_code": bill_code,
-                    "addon_type": addon_type,
-                    "quantity": quantity,
+                    "transaction_type": "addon",
+                    "item_description": f"{addon_type} x{quantity}",
                     "amount": total_price,
-                    "status": "pending"
+                    "toyyibpay_bill_code": bill_code,
+                    "payment_status": "pending",
+                    "invoice_number": invoice_number,
+                    "metadata": {
+                        "addon_type": addon_type,
+                        "quantity": quantity,
+                        "unit_price": unit_price
+                    }
                 })
-                if addon_record and len(addon_record) > 0:
-                    addon_id = addon_record[0].get("id", bill_code)
+                if transaction_records and len(transaction_records) > 0:
+                    transaction_id = transaction_records[0].get("transaction_id")
+                    logger.info(f"✅ Transaction record created: {transaction_id}")
             except Exception as db_error:
-                logger.warning(f"Could not store addon purchase record: {db_error}")
+                logger.error(f"❌ Failed to create transaction record: {db_error}")
+                # Still continue - the payment might work via legacy fallback
 
             logger.info(f"Addon purchase created for user {user_id[:8]}: {addon_type} x{quantity}")
 
             return {
                 "success": True,
-                "addon_id": addon_id,
+                "transaction_id": transaction_id,
                 "payment_id": bill_code,
                 "bill_code": bill_code,
                 "payment_url": result.get("payment_url"),

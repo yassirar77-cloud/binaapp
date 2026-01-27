@@ -60,8 +60,13 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
       const data = await response.json();
 
       if (data.success) {
+        // Save addon info to localStorage so payment success page can handle it
         localStorage.setItem('pending_payment_id', data.payment_id);
-        localStorage.setItem('pending_addon_id', data.addon_id);
+        localStorage.setItem('pending_bill_code', data.bill_code);
+        localStorage.setItem('pending_addon_type', addon.type);
+        localStorage.setItem('pending_addon_quantity', String(quantity));
+        // Clear subscription-related pending info to avoid confusion
+        localStorage.removeItem('pending_tier');
 
         // Redirect to ToyyibPay
         window.location.href = data.payment_url;
