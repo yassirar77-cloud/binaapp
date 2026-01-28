@@ -13,49 +13,19 @@
   "lang": "ms",
   "icons": [
     {
-      "src": "/icons/rider-72x72.png",
-      "sizes": "72x72",
-      "type": "image/png"
-    },
-    {
-      "src": "/icons/rider-96x96.png",
-      "sizes": "96x96",
-      "type": "image/png"
-    },
-    {
-      "src": "/icons/rider-128x128.png",
-      "sizes": "128x128",
-      "type": "image/png"
-    },
-    {
-      "src": "/icons/rider-144x144.png",
-      "sizes": "144x144",
-      "type": "image/png"
-    },
-    {
-      "src": "/icons/rider-152x152.png",
-      "sizes": "152x152",
-      "type": "image/png"
-    },
-    {
-      "src": "/icons/rider-192x192.png",
+      "src": "/rider-icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/rider-384x384.png",
-      "sizes": "384x384",
-      "type": "image/png"
-    },
-    {
-      "src": "/icons/rider-512x512.png",
+      "src": "/rider-icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/rider-maskable-512x512.png",
+      "src": "/rider-icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
@@ -65,8 +35,7 @@
     {
       "name": "Pesanan Aktif",
       "short_name": "Pesanan",
-      "url": "/rider?tab=active",
-      "icons": [{ "src": "/icons/shortcut-orders.png", "sizes": "96x96" }]
+      "url": "/rider?tab=active"
     }
   ],
   "related_applications": [],

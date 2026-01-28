@@ -70,8 +70,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'Pesanan Baru!';
   const options = {
     body: data.body || 'Ada pesanan baru untuk dihantar',
-    icon: '/icons/rider-192x192.png',
-    badge: '/icons/rider-badge-72x72.png',
+    icon: '/rider-icon-192.png',
+    badge: '/rider-icon-192.png',
     tag: 'rider-order',
     vibrate: [200, 100, 200, 100, 200],
     requireInteraction: true,
