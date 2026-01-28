@@ -602,94 +602,172 @@ export default function ProfilePage() {
   }
 
   async function confirmOrder(orderId: string) {
-    if (!supabase) return
+    // Get authentication token - check both custom BinaApp token and Supabase session
+    const token = getStoredToken()
+    let accessToken = token
+
+    // If no custom token, try Supabase session
+    if (!accessToken && supabase) {
+      const { data: { session } } = await supabase.auth.getSession()
+      accessToken = session?.access_token || null
+    }
+
+    if (!accessToken) {
+      alert('❌ Sila log masuk semula untuk mengesahkan pesanan')
+      router.push('/login')
+      return
+    }
 
     try {
-      const { data, error } = await supabase
-        .from('delivery_orders')
-        .update({
+      console.log('[confirmOrder] Calling backend API with token...')
+
+      const response = await fetch(`${API_BASE}/api/v1/delivery/orders/${orderId}/status`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
           status: 'confirmed',
-          confirmed_at: new Date().toISOString()
+          notes: 'Pesanan disahkan oleh pemilik'
         })
-        .eq('id', orderId)
-        .select()
+      })
 
-      if (error) {
-        console.error('Error confirming order:', error)
-        console.error('Error details:', JSON.stringify(error, null, 2))
-        alert(`❌ Gagal mengesahkan pesanan\n\nError: ${error.message}\n\nCode: ${error.code}\n\nSila check console untuk details.`)
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Error confirming order:', response.status, errorData)
 
-        // Check if it's an RLS/permission error
-        if (error.code === 'PGRST301' || error.message?.includes('policy')) {
-          alert('⚠️ RLS Policy Issue: Sila run migration 006_fix_owner_orders_access.sql di Supabase SQL Editor')
+        if (response.status === 401) {
+          alert('❌ Sesi tamat tempoh. Sila log masuk semula.')
+          router.push('/login')
+          return
         }
-      } else {
-        console.log('✅ Order confirmed successfully:', data)
-        alert('✅ Pesanan disahkan!')
-        loadOrders()
+
+        alert(`❌ Gagal mengesahkan pesanan\n\nError: ${errorData.detail || response.statusText}`)
+        return
       }
+
+      const data = await response.json()
+      console.log('✅ Order confirmed successfully:', data)
+      alert('✅ Pesanan disahkan!')
+      loadOrders()
     } catch (error: any) {
       console.error('Error confirming order:', error)
-      alert(`❌ Gagal mengesahkan pesanan\n\nError: ${error?.message || 'Unknown error'}\n\nSila check console.`)
+      alert(`❌ Gagal mengesahkan pesanan\n\nError: ${error?.message || 'Network error'}\n\nSila periksa sambungan internet anda.`)
     }
   }
 
   async function rejectOrder(orderId: string) {
-    if (!supabase) return
-
     const reason = prompt('Sebab menolak pesanan:')
     if (!reason) return
 
-    try {
-      const { data, error } = await supabase
-        .from('delivery_orders')
-        .update({
-          status: 'cancelled',
-          cancelled_at: new Date().toISOString()
-        })
-        .eq('id', orderId)
-        .select()
+    // Get authentication token - check both custom BinaApp token and Supabase session
+    const token = getStoredToken()
+    let accessToken = token
 
-      if (error) {
-        console.error('Error rejecting order:', error)
-        console.error('Error details:', JSON.stringify(error, null, 2))
-        alert(`❌ Gagal menolak pesanan\n\nError: ${error.message}`)
-      } else {
-        console.log('✅ Order rejected successfully:', data)
-        alert('✅ Pesanan ditolak')
-        loadOrders()
+    // If no custom token, try Supabase session
+    if (!accessToken && supabase) {
+      const { data: { session } } = await supabase.auth.getSession()
+      accessToken = session?.access_token || null
+    }
+
+    if (!accessToken) {
+      alert('❌ Sila log masuk semula untuk menolak pesanan')
+      router.push('/login')
+      return
+    }
+
+    try {
+      console.log('[rejectOrder] Calling backend API with token...')
+
+      const response = await fetch(`${API_BASE}/api/v1/delivery/orders/${orderId}/status`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          status: 'cancelled',
+          notes: `Pesanan ditolak: ${reason}`
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Error rejecting order:', response.status, errorData)
+
+        if (response.status === 401) {
+          alert('❌ Sesi tamat tempoh. Sila log masuk semula.')
+          router.push('/login')
+          return
+        }
+
+        alert(`❌ Gagal menolak pesanan\n\nError: ${errorData.detail || response.statusText}`)
+        return
       }
+
+      const data = await response.json()
+      console.log('✅ Order rejected successfully:', data)
+      alert('✅ Pesanan ditolak')
+      loadOrders()
     } catch (error: any) {
       console.error('Error rejecting order:', error)
-      alert(`❌ Gagal menolak pesanan\n\nError: ${error?.message || 'Unknown error'}`)
+      alert(`❌ Gagal menolak pesanan\n\nError: ${error?.message || 'Network error'}\n\nSila periksa sambungan internet anda.`)
     }
   }
 
   async function assignRider(orderId: string, riderId: string) {
-    if (!supabase) return
+    // Get authentication token - check both custom BinaApp token and Supabase session
+    const token = getStoredToken()
+    let accessToken = token
+
+    // If no custom token, try Supabase session
+    if (!accessToken && supabase) {
+      const { data: { session } } = await supabase.auth.getSession()
+      accessToken = session?.access_token || null
+    }
+
+    if (!accessToken) {
+      alert('❌ Sila log masuk semula untuk menetapkan rider')
+      router.push('/login')
+      return
+    }
 
     try {
-      const { data, error } = await supabase
-        .from('delivery_orders')
-        .update({
-          status: 'assigned',
+      console.log('[assignRider] Calling backend API with token...')
+
+      const response = await fetch(`${API_BASE}/api/v1/delivery/orders/${orderId}/assign-rider`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
           rider_id: riderId
         })
-        .eq('id', orderId)
-        .select()
+      })
 
-      if (error) {
-        console.error('Error assigning rider:', error)
-        console.error('Error details:', JSON.stringify(error, null, 2))
-        alert(`❌ Gagal assign rider\n\nError: ${error.message}`)
-      } else {
-        console.log('✅ Rider assigned successfully:', data)
-        alert('✅ Rider ditetapkan!')
-        loadOrders()
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Error assigning rider:', response.status, errorData)
+
+        if (response.status === 401) {
+          alert('❌ Sesi tamat tempoh. Sila log masuk semula.')
+          router.push('/login')
+          return
+        }
+
+        alert(`❌ Gagal menetapkan rider\n\nError: ${errorData.detail || response.statusText}`)
+        return
       }
+
+      const data = await response.json()
+      console.log('✅ Rider assigned successfully:', data)
+      alert('✅ Rider ditetapkan!')
+      loadOrders()
     } catch (error: any) {
       console.error('Error assigning rider:', error)
-      alert(`❌ Gagal assign rider\n\nError: ${error?.message || 'Unknown error'}`)
+      alert(`❌ Gagal menetapkan rider\n\nError: ${error?.message || 'Network error'}\n\nSila periksa sambungan internet anda.`)
     }
   }
 
