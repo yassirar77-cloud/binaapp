@@ -1090,8 +1090,13 @@ async def assign_rider_to_order(
 ):
     """
     Assign (or unassign) a rider to an order (RLS enforced).
-    Phase 1: supports "Own Riders" only (rider.website_id must match order.website_id).
-    Phase 2+: Sends WhatsApp notification to rider when assigned.
+
+    Allows riders that:
+    - Belong to the same website as the order
+    - Are shared riders (NULL website_id)
+    - Belong to any website owned by the same user (multi-site owners)
+
+    Sends WhatsApp notification to rider when assigned.
     """
     try:
         # Get full order details for WhatsApp notification
@@ -1119,8 +1124,32 @@ async def assign_rider_to_order(
 
             if not rider_info.get("is_active", True):
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rider is inactive")
-            if str(rider_info.get("website_id")) != str(order.get("website_id")):
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rider does not belong to this website")
+
+            # Validate rider belongs to the same owner's network
+            rider_website_id = rider_info.get("website_id")
+            order_website_id = order.get("website_id")
+
+            # Allow shared riders (NULL website_id)
+            if rider_website_id is None:
+                logger.info(f"✅ Shared rider {rider_info.get('name')} can be assigned to any order")
+            elif str(rider_website_id) == str(order_website_id):
+                logger.info(f"✅ Rider {rider_info.get('name')} belongs to same website as order")
+            else:
+                # Check if both websites belong to the same owner
+                order_website_resp = supabase.table("websites").select("user_id").eq("id", order_website_id).execute()
+                rider_website_resp = supabase.table("websites").select("user_id").eq("id", rider_website_id).execute()
+
+                if not order_website_resp.data or not rider_website_resp.data:
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rider does not belong to this website")
+
+                order_owner = order_website_resp.data[0].get("user_id")
+                rider_owner = rider_website_resp.data[0].get("user_id")
+
+                if order_owner != rider_owner:
+                    logger.warning(f"❌ Rider {rider_info.get('name')} (owner: {rider_owner}) cannot be assigned to order from website owned by {order_owner}")
+                    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Rider does not belong to this website")
+
+                logger.info(f"✅ Rider {rider_info.get('name')} belongs to same owner's network, allowing assignment")
 
         updated = supabase.table("delivery_orders").update({"rider_id": rider_id}).eq("id", order_id).execute()
         if not updated.data:
@@ -2139,7 +2168,10 @@ async def assign_rider_to_order_public(
     """
     Assign (or unassign) a rider to an order (public endpoint for simple dashboards).
 
-    Phase 1: supports "Own Riders" only (rider.website_id must match order.website_id).
+    Allows riders that:
+    - Belong to the same website as the order
+    - Are shared riders (NULL website_id)
+    - Belong to any website owned by the same user (multi-site owners)
     """
     try:
         order_resp = supabase.table("delivery_orders").select(
@@ -2173,11 +2205,38 @@ async def assign_rider_to_order_public(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Rider is inactive"
                 )
-            if str(rider.get("website_id")) != str(order.get("website_id")):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Rider does not belong to this website"
-                )
+
+            # Validate rider belongs to the same owner's network
+            rider_website_id = rider.get("website_id")
+            order_website_id = order.get("website_id")
+
+            # Allow shared riders (NULL website_id)
+            if rider_website_id is None:
+                logger.info(f"✅ Shared rider {rider.get('name')} can be assigned to any order")
+            elif str(rider_website_id) == str(order_website_id):
+                logger.info(f"✅ Rider {rider.get('name')} belongs to same website as order")
+            else:
+                # Check if both websites belong to the same owner
+                order_website_resp = supabase.table("websites").select("user_id").eq("id", order_website_id).execute()
+                rider_website_resp = supabase.table("websites").select("user_id").eq("id", rider_website_id).execute()
+
+                if not order_website_resp.data or not rider_website_resp.data:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Rider does not belong to this website"
+                    )
+
+                order_owner = order_website_resp.data[0].get("user_id")
+                rider_owner = rider_website_resp.data[0].get("user_id")
+
+                if order_owner != rider_owner:
+                    logger.warning(f"❌ Rider {rider.get('name')} (owner: {rider_owner}) cannot be assigned to order from website owned by {order_owner}")
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Rider does not belong to this website"
+                    )
+
+                logger.info(f"✅ Rider {rider.get('name')} belongs to same owner's network, allowing assignment")
 
             # Auto-advance status to "ready" or "picked_up" if still preparing
             if new_status in ("pending", "confirmed", "preparing"):
