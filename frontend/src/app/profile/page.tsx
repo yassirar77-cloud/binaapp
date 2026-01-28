@@ -425,10 +425,10 @@ export default function ProfilePage() {
     try {
       setDeletingWebsite(websiteId)
 
-      // Get session token
-      const { data: { session } } = await supabase.auth.getSession()
+      // Get stored token (BinaApp uses custom token system)
+      const token = getStoredToken()
 
-      if (!session) {
+      if (!token) {
         alert('Sesi tamat. Sila log masuk semula.')
         router.push('/login')
         return
@@ -439,7 +439,7 @@ export default function ProfilePage() {
         {
           method: 'DELETE',
           headers: {
-            'Authorization': `Bearer ${session.access_token}`,
+            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           }
         }
@@ -524,15 +524,15 @@ export default function ProfilePage() {
         subdomain: w.subdomain
       })))
 
-      // Get the session token for authentication
-      const { data: { session } } = await supabase.auth.getSession()
+      // Get the stored token for authentication (BinaApp uses custom token system)
+      const token = getStoredToken()
 
-      if (!session) {
+      if (!token) {
         console.error('[Riders] No session available')
         return
       }
 
-      console.log('[DEBUG] Session user:', session.user?.email)
+      console.log('[DEBUG] Token available for rider loading')
 
       // FIX: Load riders for ALL websites, not just the first one
       // This fixes the bug where riders weren't showing if the user had multiple websites
@@ -548,7 +548,7 @@ export default function ProfilePage() {
           apiUrl,
           {
             headers: {
-              'Authorization': `Bearer ${session.access_token}`,
+              'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json'
             }
           }
