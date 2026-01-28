@@ -195,7 +195,7 @@ export default function RiderApp() {
     if ('serviceWorker' in navigator && typeof window !== 'undefined') {
       console.log('[Rider PWA] Attempting to register service worker...');
 
-      navigator.serviceWorker.register('/sw-rider.js', { scope: '/' })
+      navigator.serviceWorker.register('/rider/sw.js', { scope: '/rider' })
         .then((registration) => {
           console.log('[Rider PWA] ✅ Service Worker registered successfully');
           console.log('[Rider PWA] Scope:', registration.scope);

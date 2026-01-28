@@ -11,7 +11,7 @@ export function registerServiceWorker(): void {
       if (isRiderPage) {
         // Register Rider service worker for /rider pages
         try {
-          const registration = await navigator.serviceWorker.register('/sw-rider.js', {
+          const registration = await navigator.serviceWorker.register('/rider/sw.js', {
             scope: '/rider'
           });
           console.log('[Rider SW] Registered:', registration.scope);
