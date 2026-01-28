@@ -729,11 +729,12 @@ export default function ProfilePage() {
       setLoading(true)
 
       try {
-        // Get the session token for authentication
-        const { data: { session } } = await supabase.auth.getSession()
+        // Get the stored token for authentication (BinaApp uses custom token system)
+        const token = getStoredToken()
 
-        if (!session) {
+        if (!token) {
           alert('Sila log masuk semula')
+          router.push('/login')
           return
         }
 
@@ -751,7 +752,7 @@ export default function ProfilePage() {
         const response = await fetch(url, {
           method,
           headers: {
-            'Authorization': `Bearer ${(await supabase?.auth.getSession())?.data.session?.access_token}`,
+            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(submitData)
