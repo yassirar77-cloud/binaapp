@@ -380,12 +380,69 @@ class SupabaseService:
                 print(f"✅ Deleted from {table} where {column}={value}")
                 return {"success": True, "deleted": table}
             else:
-                print(f"⚠️ Delete from {table} returned {response.status_code}: {response.text}")
-                # Don't fail - some tables may not have matching records
-                return {"success": True, "deleted": table, "note": "No matching records"}
+                error_text = response.text
+                print(f"⚠️ Delete from {table} returned {response.status_code}: {error_text}")
+                # Check if it's a foreign key constraint error (code 23503)
+                if "23503" in error_text or "foreign key constraint" in error_text.lower():
+                    print(f"❌ Foreign key constraint prevents deletion from {table}")
+                    return {"success": False, "table": table, "error": f"Foreign key constraint: {error_text}"}
+                # For 404 or empty results, it's okay - no matching records
+                return {"success": True, "deleted": table, "note": "No matching records or already deleted"}
         except Exception as e:
             print(f"❌ Delete from {table} error: {str(e)}")
             return {"success": False, "table": table, "error": str(e)}
+
+    async def nullify_column_by_ids(self, table: str, column_to_nullify: str, filter_column: str, ids: list) -> Dict[str, Any]:
+        """Set a column to NULL for records matching given IDs"""
+        if not ids:
+            return {"success": True, "updated": 0}
+        try:
+            url = f"{self.url}/rest/v1/{table}"
+            # Use 'in' filter for multiple IDs
+            id_list = ",".join(ids)
+            params = {filter_column: f"in.({id_list})"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.patch(
+                    url,
+                    headers={**self.headers, "Prefer": "return=minimal"},
+                    params=params,
+                    json={column_to_nullify: None}
+                )
+
+            if response.status_code in [200, 204]:
+                print(f"✅ Nullified {column_to_nullify} in {table} for {len(ids)} records")
+                return {"success": True, "updated": len(ids)}
+            else:
+                print(f"⚠️ Nullify {column_to_nullify} in {table} returned {response.status_code}: {response.text}")
+                return {"success": False, "error": response.text}
+        except Exception as e:
+            print(f"❌ Nullify {column_to_nullify} in {table} error: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    async def nullify_column_by_website(self, table: str, column_to_nullify: str, website_id: str) -> Dict[str, Any]:
+        """Set a column to NULL for all records of a website"""
+        try:
+            url = f"{self.url}/rest/v1/{table}"
+            params = {"website_id": f"eq.{website_id}"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.patch(
+                    url,
+                    headers={**self.headers, "Prefer": "return=minimal"},
+                    params=params,
+                    json={column_to_nullify: None}
+                )
+
+            if response.status_code in [200, 204]:
+                print(f"✅ Nullified {column_to_nullify} in {table} for website {website_id}")
+                return {"success": True}
+            else:
+                print(f"⚠️ Nullify {column_to_nullify} in {table} returned {response.status_code}: {response.text}")
+                return {"success": False, "error": response.text}
+        except Exception as e:
+            print(f"❌ Nullify {column_to_nullify} in {table} error: {str(e)}")
+            return {"success": False, "error": str(e)}
 
     async def get_rider_ids_for_website(self, website_id: str) -> list:
         """Get all rider IDs for a website"""
@@ -498,8 +555,15 @@ class SupabaseService:
                 deleted_tables.append(f"order_items ({result.get('deleted', 0)} records)")
             print(f"[Delete Cascade] Deleted order items")
 
+            # STEP 5.5: Nullify rider_id on delivery_orders BEFORE deleting them
+            # This prevents FK constraint errors when deleting riders later
+            await self.nullify_column_by_website("delivery_orders", "rider_id", website_id)
+            print(f"[Delete Cascade] Nullified rider_id on delivery_orders")
+
             # STEP 6: Delete delivery orders
-            await self.delete_from_table("delivery_orders", "website_id", website_id)
+            result = await self.delete_from_table("delivery_orders", "website_id", website_id)
+            if not result.get("success"):
+                print(f"⚠️ [Delete Cascade] Warning: delivery_orders deletion may have failed: {result}")
             deleted_tables.append("delivery_orders")
             print(f"[Delete Cascade] Deleted delivery orders")
 
@@ -523,10 +587,21 @@ class SupabaseService:
             deleted_tables.append("delivery_settings")
             print(f"[Delete Cascade] Deleted delivery settings")
 
-            # STEP 11: Delete riders
-            await self.delete_from_table("riders", "website_id", website_id)
+            # STEP 11: Delete riders - CRITICAL for website deletion
+            rider_result = await self.delete_from_table("riders", "website_id", website_id)
+            if not rider_result.get("success"):
+                # If riders can't be deleted, try setting website_id to NULL instead
+                print(f"⚠️ [Delete Cascade] Riders delete failed, trying to nullify website_id")
+                nullify_result = await self.nullify_column_by_ids("riders", "website_id", "id", rider_ids)
+                if not nullify_result.get("success"):
+                    print(f"❌ [Delete Cascade] Cannot delete or nullify riders: {rider_result}")
+                    return {
+                        "success": False,
+                        "message": f"Failed to remove riders association: {rider_result.get('error', 'Unknown error')}",
+                        "deleted_tables": deleted_tables
+                    }
             deleted_tables.append("riders")
-            print(f"[Delete Cascade] Deleted riders")
+            print(f"[Delete Cascade] Deleted/nullified riders")
 
             # STEP 12: Delete generation jobs
             await self.delete_from_table("generation_jobs", "website_id", website_id)
