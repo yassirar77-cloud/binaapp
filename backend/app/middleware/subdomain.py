@@ -95,6 +95,14 @@ async def subdomain_middleware(request: Request, call_next):
                     html_content = re.sub(r'<script>window\.BINAAPP_WEBSITE_ID\s*=\s*["\'][^"\']*["\'];?</script>', '', html_content, flags=re.DOTALL)
 
                     # Inject correct widget scripts with proper website_id
+                    # Only inject chat-widget.js if inline chat button doesn't exist (avoid duplicates)
+                    has_inline_chat = "binaapp-inline-chat-btn" in html_content
+
+                    chat_widget_script = "" if has_inline_chat else f'''
+<script src="https://binaapp-backend.onrender.com/static/widgets/chat-widget.js"
+        data-website-id="{website_id}"
+        data-api-url="https://binaapp-backend.onrender.com/api/v1"></script>'''
+
                     widget_injection = f'''
 <!-- BinaApp Widgets - Auto-injected with correct website_id -->
 <div id="binaapp-widget-container" data-website-id="{website_id}"></div>
@@ -104,10 +112,7 @@ async def subdomain_middleware(request: Request, call_next):
         data-api-url="https://binaapp-backend.onrender.com/api/v1"
         data-primary-color="#ea580c"
         data-business-type="{business_type if website_id else 'food'}"
-        data-language="{language if website_id else 'ms'}"></script>
-<script src="https://binaapp-backend.onrender.com/static/widgets/chat-widget.js"
-        data-website-id="{website_id}"
-        data-api-url="https://binaapp-backend.onrender.com/api/v1"></script>
+        data-language="{language if website_id else 'ms'}"></script>{chat_widget_script}
 '''
 
                     # Inject before </body> or at end
