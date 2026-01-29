@@ -2647,9 +2647,22 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     replacements[old_url] = ai_url
                     logger.info(f"   ✅ Generated: {ai_url[:60]}...")
                 else:
-                    logger.warning(f"   ⚠️ Failed to generate image for: {item_name}")
+                    # FALLBACK: Use stock image when AI generation fails
+                    logger.warning(f"   ⚠️ AI generation failed for: {item_name}, using fallback image")
+                    fallback_url = self.get_matching_image(item_name)
+                    if fallback_url and old_url != fallback_url:
+                        replacements[old_url] = fallback_url
+                        logger.info(f"   🔄 Fallback image: {fallback_url[:60]}...")
             except Exception as e:
                 logger.error(f"   ❌ Error generating image for {item_name}: {e}")
+                # FALLBACK: Use stock image when exception occurs
+                try:
+                    fallback_url = self.get_matching_image(item_name)
+                    if fallback_url and old_url != fallback_url:
+                        replacements[old_url] = fallback_url
+                        logger.info(f"   🔄 Using fallback after error: {fallback_url[:60]}...")
+                except Exception:
+                    pass  # If even fallback fails, keep original
 
         # Apply replacements
         if replacements:
@@ -2687,6 +2700,90 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         html = html.replace("[SERVICE_3_NAME]", "Sokongan Pelanggan")
         html = html.replace("[SERVICE_3_DESC]", "Pasukan kami sentiasa bersedia membantu anda.")
         html = html.replace("[CONTACT_TEXT]", "Hubungi kami untuk sebarang pertanyaan. Kami sentiasa bersedia membantu!")
+
+        return html
+
+    def _fix_broken_image_urls(self, html: str, business_description: str = "") -> str:
+        """
+        Fix empty, broken, or invalid image URLs to ensure all images display correctly.
+
+        This is the FINAL safety net to catch any images that slipped through:
+        - Empty src attributes (src="", src="#", src="undefined")
+        - Invalid/broken URLs
+        - Placeholder patterns that weren't caught earlier
+        - Any img tags without valid URLs
+
+        Returns HTML with all broken images replaced with valid fallback images.
+        """
+        if not html:
+            return html
+
+        import re
+
+        logger.info("🔧 Final check: Fixing any broken/empty image URLs...")
+
+        # Detect business type for context-appropriate fallbacks
+        biz_type = self._detect_type(business_description)
+        fallback_imgs = self.IMAGES.get(biz_type, self.IMAGES["default"])
+        default_fallback = fallback_imgs.get("hero", self.BUSINESS_IMAGES["default"])
+
+        # Patterns for broken/invalid image URLs
+        broken_patterns = [
+            r'src=""',                                    # Empty src
+            r"src=''",                                    # Empty src (single quotes)
+            r'src="#"',                                   # Hash placeholder
+            r'src="undefined"',                           # JavaScript undefined
+            r'src="null"',                                # null value
+            r'src="javascript:[^"]*"',                    # JavaScript URLs
+            r'src="data:image/[^"]*;base64,"',           # Empty base64 (no actual data after comma)
+            r'src="[^"]*placeholder\.com[^"]*"',         # placeholder.com URLs
+            r'src="[^"]*via\.placeholder[^"]*"',         # via.placeholder URLs
+            r'src="[^"]*placehold\.it[^"]*"',            # placehold.it URLs
+            r'src="[^"]*placekitten[^"]*"',              # placekitten URLs
+            r'src="[^"]*dummyimage[^"]*"',               # dummyimage URLs
+        ]
+
+        fixed_count = 0
+        for pattern in broken_patterns:
+            matches = re.findall(pattern, html, re.IGNORECASE)
+            if matches:
+                for match in matches:
+                    # Try to extract nearby context to get a better fallback
+                    context_match = re.search(
+                        r'<[^>]*' + re.escape(match) + r'[^>]*>[\s\S]{0,300}?<h[2-4][^>]*>(.*?)</h[2-4]>',
+                        html,
+                        re.IGNORECASE
+                    )
+
+                    if context_match:
+                        item_name = re.sub(r'<[^>]+>', '', context_match.group(1)).strip()
+                        fallback_url = self.get_matching_image(item_name)
+                    else:
+                        # Use gallery images in rotation
+                        gallery_imgs = fallback_imgs.get("gallery", [default_fallback])
+                        fallback_url = gallery_imgs[fixed_count % len(gallery_imgs)] if gallery_imgs else default_fallback
+
+                    # Replace the broken src with fallback
+                    new_src = f'src="{fallback_url}"'
+                    html = html.replace(match, new_src, 1)  # Replace one at a time
+                    fixed_count += 1
+                    logger.info(f"   🔄 Fixed broken image: {match[:40]}... → {fallback_url[:50]}...")
+
+        # Also check for img tags that might have slipped through without any src
+        img_without_src = re.findall(r'<img(?![^>]*src=)[^>]*>', html, re.IGNORECASE)
+        for img_tag in img_without_src:
+            # Add a src attribute with fallback
+            gallery_imgs = fallback_imgs.get("gallery", [default_fallback])
+            fallback_url = gallery_imgs[fixed_count % len(gallery_imgs)] if gallery_imgs else default_fallback
+            new_img_tag = img_tag.replace('<img', f'<img src="{fallback_url}"', 1)
+            html = html.replace(img_tag, new_img_tag, 1)
+            fixed_count += 1
+            logger.info(f"   🔄 Added missing src to img tag")
+
+        if fixed_count > 0:
+            logger.info(f"✅ Fixed {fixed_count} broken/missing image URLs")
+        else:
+            logger.info("✅ All image URLs are valid")
 
         return html
 
@@ -3000,6 +3097,10 @@ IMPORTANT INSTRUCTIONS:
         if not (request.uploaded_images and len(request.uploaded_images) > 0):
             html = await self._generate_ai_food_images(html)
 
+        # FINAL SAFETY NET: Fix any remaining broken/empty image URLs
+        # This ensures no images are left blank or with invalid URLs
+        html = self._fix_broken_image_urls(html, request.description)
+
         total_time = time.time() - start_time
         logger.info("✅ ALL STEPS COMPLETE")
         logger.info(f"   Final size: {len(html)} characters")
@@ -3124,6 +3225,9 @@ IMPORTANT INSTRUCTIONS:
                 # This replaces Unsplash URLs with Cloudinary URLs from Stability AI
                 if not (request.uploaded_images and len(request.uploaded_images) > 0):
                     html = await self._generate_ai_food_images(html)
+
+                # FINAL SAFETY NET: Fix any remaining broken/empty image URLs
+                html = self._fix_broken_image_urls(html, request.description)
 
                 results[style] = AIGenerationResponse(
                     html_content=html,
