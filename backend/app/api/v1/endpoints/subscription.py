@@ -682,3 +682,298 @@ async def get_transaction_detail(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Gagal mendapatkan butiran transaksi"
         )
+
+
+# =============================================================================
+# Payment Verification Endpoint
+# =============================================================================
+
+class VerifyPaymentRequest(BaseModel):
+    bill_code: str
+    status_id: Optional[str] = None
+
+
+@router.post("/verify-payment")
+async def verify_payment(
+    request: VerifyPaymentRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Verify payment status from ToyyibPay and process if successful.
+    Called by frontend after returning from payment gateway.
+
+    1. Get bill status from ToyyibPay API
+    2. Find transaction in database by bill_code
+    3. If paid (status_id = 1), update transaction to 'completed'
+    4. Apply subscription upgrade or addon credits
+    5. Return success
+    """
+    try:
+        user_id = current_user.get("sub")
+        bill_code = request.bill_code
+        status_id = request.status_id
+
+        logger.info(f"Verifying payment for user {user_id}, bill_code: {bill_code}, status_id: {status_id}")
+
+        # Step 1: Get bill status from ToyyibPay API
+        toyyibpay_result = toyyibpay_service.get_bill_transactions(bill_code)
+
+        payment_status = "unknown"
+        toyyibpay_status = None
+
+        if toyyibpay_result.get("success"):
+            transactions = toyyibpay_result.get("transactions", [])
+            if isinstance(transactions, list) and len(transactions) > 0:
+                # Get the latest transaction
+                latest_txn = transactions[0]
+                toyyibpay_status = latest_txn.get("billpaymentStatus")
+
+                # ToyyibPay status: 1 = Paid, 2 = Pending, 3 = Failed
+                if toyyibpay_status == "1":
+                    payment_status = "paid"
+                elif toyyibpay_status == "2":
+                    payment_status = "pending"
+                elif toyyibpay_status == "3":
+                    payment_status = "failed"
+
+                logger.info(f"ToyyibPay transaction status: {toyyibpay_status} -> {payment_status}")
+        else:
+            # Fallback to URL status_id if ToyyibPay API fails
+            if status_id == "1":
+                payment_status = "paid"
+            elif status_id == "2":
+                payment_status = "pending"
+            elif status_id == "3":
+                payment_status = "failed"
+            logger.warning(f"ToyyibPay API failed, using URL status_id: {status_id}")
+
+        # Step 2: Find transaction in database by bill_code
+        import httpx
+
+        url = f"{settings.SUPABASE_URL}/rest/v1/transactions"
+        params = {
+            "toyyibpay_bill_code": f"eq.{bill_code}",
+            "select": "*"
+        }
+        headers = {
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, params=params)
+
+        transaction = None
+        if response.status_code == 200:
+            records = response.json()
+            if records:
+                transaction = records[0]
+                logger.info(f"Found transaction: {transaction.get('transaction_id')}")
+
+        if not transaction:
+            logger.warning(f"No transaction found for bill_code: {bill_code}")
+            return {
+                "success": False,
+                "payment_status": payment_status,
+                "message": "Transaksi tidak dijumpai"
+            }
+
+        # Verify transaction belongs to current user
+        if transaction.get("user_id") != user_id:
+            logger.warning(f"Transaction user mismatch: {transaction.get('user_id')} != {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Transaksi tidak sah"
+            )
+
+        # Step 3: If paid, update transaction and apply benefits
+        if payment_status == "paid" and transaction.get("payment_status") != "success":
+            logger.info(f"Processing successful payment for transaction {transaction.get('transaction_id')}")
+
+            # Update transaction status to success
+            transaction_id = transaction.get("transaction_id")
+            update_url = f"{settings.SUPABASE_URL}/rest/v1/transactions"
+            update_params = {"transaction_id": f"eq.{transaction_id}"}
+            update_data = {
+                "payment_status": "success",
+                "updated_at": datetime.utcnow().isoformat()
+            }
+
+            async with httpx.AsyncClient() as client:
+                await client.patch(
+                    update_url,
+                    headers={**headers, "Prefer": "return=minimal"},
+                    params=update_params,
+                    json=update_data
+                )
+
+            # Step 4: Apply subscription upgrade or addon credits
+            transaction_type = transaction.get("transaction_type")
+            metadata = transaction.get("metadata", {})
+
+            if transaction_type == "subscription":
+                # Apply subscription upgrade
+                plan = metadata.get("plan", "basic")
+                await _apply_subscription_upgrade(user_id, plan, headers)
+                logger.info(f"Applied subscription upgrade to {plan} for user {user_id}")
+
+            elif transaction_type == "renewal":
+                # Apply subscription renewal
+                plan = metadata.get("plan", "starter")
+                await _apply_subscription_renewal(user_id, plan, headers)
+                logger.info(f"Applied subscription renewal for {plan} for user {user_id}")
+
+            elif transaction_type == "addon":
+                # Apply addon credits
+                addon_type = metadata.get("addon_type")
+                quantity = metadata.get("quantity", 1)
+                await _apply_addon_credits(user_id, addon_type, quantity, headers)
+                logger.info(f"Applied {quantity}x {addon_type} addon for user {user_id}")
+
+            return {
+                "success": True,
+                "payment_status": "paid",
+                "transaction_type": transaction_type,
+                "message": "Pembayaran berjaya disahkan"
+            }
+
+        elif payment_status == "paid":
+            # Already processed
+            return {
+                "success": True,
+                "payment_status": "paid",
+                "message": "Pembayaran sudah diproses"
+            }
+
+        else:
+            return {
+                "success": False,
+                "payment_status": payment_status,
+                "message": "Pembayaran belum selesai" if payment_status == "pending" else "Pembayaran gagal"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error verifying payment: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal mengesahkan pembayaran"
+        )
+
+
+async def _apply_subscription_upgrade(user_id: str, plan: str, headers: dict):
+    """Apply subscription upgrade for user"""
+    import httpx
+    from datetime import timedelta
+
+    # Calculate new end date (30 days from now)
+    end_date = (datetime.utcnow() + timedelta(days=30)).isoformat()
+
+    # Check if subscription exists
+    url = f"{settings.SUPABASE_URL}/rest/v1/subscriptions"
+    params = {"user_id": f"eq.{user_id}"}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers, params=params)
+
+        if response.status_code == 200 and response.json():
+            # Update existing subscription
+            await client.patch(
+                url,
+                headers={**headers, "Prefer": "return=minimal"},
+                params=params,
+                json={
+                    "plan_name": plan,
+                    "status": "active",
+                    "end_date": end_date,
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+            )
+        else:
+            # Create new subscription
+            await client.post(
+                url,
+                headers={**headers, "Prefer": "return=minimal"},
+                json={
+                    "user_id": user_id,
+                    "plan_name": plan,
+                    "status": "active",
+                    "start_date": datetime.utcnow().isoformat(),
+                    "end_date": end_date
+                }
+            )
+
+
+async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
+    """Apply subscription renewal for user"""
+    import httpx
+    from datetime import timedelta
+
+    # Calculate new end date (30 days from now)
+    end_date = (datetime.utcnow() + timedelta(days=30)).isoformat()
+
+    url = f"{settings.SUPABASE_URL}/rest/v1/subscriptions"
+    params = {"user_id": f"eq.{user_id}"}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers, params=params)
+
+        if response.status_code == 200 and response.json():
+            # Update existing subscription - extend end date
+            existing = response.json()[0]
+            current_end = existing.get("end_date")
+
+            # If current subscription hasn't expired, extend from current end date
+            if current_end:
+                try:
+                    current_end_dt = datetime.fromisoformat(current_end.replace("Z", "+00:00"))
+                    if current_end_dt > datetime.utcnow().replace(tzinfo=current_end_dt.tzinfo):
+                        end_date = (current_end_dt + timedelta(days=30)).isoformat()
+                except:
+                    pass
+
+            await client.patch(
+                url,
+                headers={**headers, "Prefer": "return=minimal"},
+                params=params,
+                json={
+                    "status": "active",
+                    "end_date": end_date,
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+            )
+        else:
+            # Create new subscription if doesn't exist
+            await client.post(
+                url,
+                headers={**headers, "Prefer": "return=minimal"},
+                json={
+                    "user_id": user_id,
+                    "plan_name": plan,
+                    "status": "active",
+                    "start_date": datetime.utcnow().isoformat(),
+                    "end_date": end_date
+                }
+            )
+
+
+async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, headers: dict):
+    """Apply addon credits for user"""
+    import httpx
+
+    url = f"{settings.SUPABASE_URL}/rest/v1/addon_purchases"
+
+    async with httpx.AsyncClient() as client:
+        await client.post(
+            url,
+            headers={**headers, "Prefer": "return=minimal"},
+            json={
+                "user_id": user_id,
+                "addon_type": addon_type,
+                "quantity": quantity,
+                "status": "active",
+                "created_at": datetime.utcnow().isoformat()
+            }
+        )
