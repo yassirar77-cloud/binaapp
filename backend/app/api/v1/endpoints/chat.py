@@ -1153,7 +1153,14 @@ async def create_or_get_phone_conversation(data: ConversationCreate):
 
         if existing.data and len(existing.data) > 0:
             logger.info(f"[Chat] Found existing conversation for phone {data.customer_phone}")
-            return existing.data[0]
+            conv = existing.data[0]
+            # Return consistent format expected by frontend widget
+            return {
+                "success": True,
+                "conversation_id": conv["id"],
+                "customer_id": conv.get("customer_id", f"customer_{data.customer_phone}"),
+                **conv  # Include all original fields for backwards compatibility
+            }
 
         # Create new conversation
         conversation_id = str(uuid.uuid4())
@@ -1175,7 +1182,14 @@ async def create_or_get_phone_conversation(data: ConversationCreate):
             raise HTTPException(status_code=500, detail="Failed to create conversation")
 
         logger.info(f"[Chat] Created new conversation {conversation_id} for phone {data.customer_phone}")
-        return result.data[0]
+        conv = result.data[0]
+        # Return consistent format expected by frontend widget
+        return {
+            "success": True,
+            "conversation_id": conversation_id,
+            "customer_id": customer_id,
+            **conv  # Include all original fields for backwards compatibility
+        }
 
     except HTTPException:
         raise

@@ -1598,8 +1598,9 @@ function handleContactSubmit(e) {{
             const data = await response.json();
             console.log('[BinaChat] API Response:', data);
 
-            if (data.success || data.conversation_id) {{
-                currentConversationId = data.conversation_id;
+            if (data.success || data.conversation_id || data.id) {{
+                // Handle both conversation_id and id fields for compatibility
+                currentConversationId = data.conversation_id || data.id;
 
                 // Save customer identity with real UUID from backend
                 if (data.customer_id) {{
