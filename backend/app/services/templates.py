@@ -2881,6 +2881,17 @@ function handleContactSubmit(e) {{
         Returns:
             HTML with chat widget injected
         """
+        # Skip if inline chat button already exists (avoid duplicate chat widgets)
+        # The inline chat button is added by inject_delivery_ui and has full chat functionality
+        if "binaapp-inline-chat-btn" in html:
+            logger.info(f"⏭️ Skipping chat widget injection - inline chat button already exists for website {website_id}")
+            return html
+
+        # Also skip if chat-widget.js is already present
+        if "chat-widget.js" in html:
+            logger.info(f"⏭️ Skipping chat widget injection - chat-widget.js already present for website {website_id}")
+            return html
+
         # Chat widget script tag
         chat_widget = f'''
 <!-- BinaApp Chat Widget - Customer to Owner Chat -->
