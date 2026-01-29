@@ -229,7 +229,7 @@ export function PageErrorFallback({
         {/* Support link */}
         <p className="mt-8 text-sm text-gray-500">
           Need help?{' '}
-          <a href="mailto:support@binaapp.my" className="text-blue-600 hover:underline">
+          <a href="mailto:support.team@binaapp.my" className="text-blue-600 hover:underline">
             Contact support
           </a>
         </p>

@@ -46,7 +46,7 @@ export default function PrivacyPolicy() {
               <li>Request to see your data</li>
               <li>Request correction of your data</li>
               <li>Request deletion of your account</li>
-              <li>Contact us at: support@binaapp.my</li>
+              <li>Contact us at: support.team@binaapp.my</li>
             </ul>
           </section>
 
@@ -58,7 +58,7 @@ export default function PrivacyPolicy() {
           <section>
             <h2 className="text-xl font-semibold text-gray-900 mb-3">Contact</h2>
             <p>
-              For privacy questions: <a href="mailto:support@binaapp.my" className="text-blue-600 hover:underline">support@binaapp.my</a>
+              For privacy questions: <a href="mailto:support.team@binaapp.my" className="text-blue-600 hover:underline">support.team@binaapp.my</a>
             </p>
             <p className="mt-2">BinaApp is committed to protecting your privacy and complying with Malaysian law.</p>
           </section>

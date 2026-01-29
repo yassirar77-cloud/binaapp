@@ -8,6 +8,9 @@ pydantic[email]
 pydantic-settings
 email-validator
 
+# Email (SMTP)
+aiosmtplib
+
 # Database & Storage
 supabase>=2.0.0
 httpx
