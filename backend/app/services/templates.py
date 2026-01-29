@@ -1261,11 +1261,27 @@ function handleContactSubmit(e) {{
 <!-- Order Tracking View -->
 <div id="tracking-view-overlay" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.5);">
     <div style="position:absolute;bottom:0;left:0;right:0;background:white;border-radius:24px 24px 0 0;max-height:90vh;overflow-y:auto;-webkit-overflow-scrolling:touch;">
-        <div style="position:sticky;top:0;z-index:10;padding:16px;background:linear-gradient(135deg,#22c55e,#16a34a);color:white;border-radius:24px 24px 0 0;">
-            <div style="text-align:center;">
+        <div id="success-header" style="position:sticky;top:0;z-index:10;background:linear-gradient(135deg,#22c55e,#16a34a);color:white;border-radius:24px 24px 0 0;transition:all 0.3s ease;">
+            <!-- Toggle Button -->
+            <button id="success-toggle-btn" onclick="toggleSuccessHeader()" style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,0.2);border:none;color:white;width:32px;height:32px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:background 0.2s ease;z-index:11;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                <span id="toggle-icon">▼</span>
+            </button>
+            <!-- Full Content (shown when expanded) -->
+            <div id="success-full-content" style="padding:16px;text-align:center;transition:opacity 0.3s ease;overflow:hidden;opacity:1;">
                 <div style="font-size:48px;margin-bottom:8px;">✅</div>
                 <h3 style="font-weight:bold;font-size:20px;margin:0 0 4px 0;">Pesanan Berjaya!</h3>
                 <p style="margin:0;opacity:0.9;" id="tracking-order-number">No. Pesanan: -</p>
+                <p style="margin:4px 0 0 0;opacity:0.8;font-size:13px;" id="tracking-timestamp">Dikemaskini: -</p>
+            </div>
+            <!-- Minimized Content (shown when collapsed) -->
+            <div id="success-minimized-content" style="display:none;padding:12px 16px;padding-right:50px;transition:opacity 0.3s ease;opacity:0;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:20px;">✅</span>
+                    <div>
+                        <span style="font-weight:bold;font-size:15px;">Pesanan Berjaya!</span>
+                        <span style="opacity:0.9;font-size:14px;margin-left:8px;" id="tracking-order-number-mini">No. Pesanan: -</span>
+                    </div>
+                </div>
             </div>
         </div>
         <div style="padding:16px;">
@@ -2140,7 +2156,12 @@ function handleContactSubmit(e) {{
 
     // Show tracking view with order data
     function showTrackingView(orderData, subtotal, total) {{
-        document.getElementById('tracking-order-number').textContent = 'No. Pesanan: ' + (orderData.order_number || currentOrderNumber);
+        const orderNumber = orderData.order_number || currentOrderNumber;
+        const currentTime = new Date().toLocaleString('ms-MY');
+
+        document.getElementById('tracking-order-number').textContent = 'No. Pesanan: ' + orderNumber;
+        document.getElementById('tracking-order-number-mini').textContent = 'No. Pesanan: ' + orderNumber;
+        document.getElementById('tracking-timestamp').textContent = 'Dikemaskini: ' + currentTime;
 
         // Update status
         const status = orderData.status || 'pending';
@@ -2192,6 +2213,9 @@ function handleContactSubmit(e) {{
         // Show tracking overlay
         document.getElementById('tracking-view-overlay').style.display = 'block';
 
+        // Restore success header minimize/expand state from localStorage
+        restoreSuccessHeaderState();
+
         // Start auto-refresh
         startTrackingPolling();
     }}
@@ -2221,7 +2245,9 @@ function handleContactSubmit(e) {{
         document.getElementById('status-text').textContent = statusInfo.text;
 
         if (data.updated_at) {{
-            document.getElementById('status-time').textContent = new Date(data.updated_at).toLocaleString('ms-MY');
+            const formattedTime = new Date(data.updated_at).toLocaleString('ms-MY');
+            document.getElementById('status-time').textContent = formattedTime;
+            document.getElementById('tracking-timestamp').textContent = 'Dikemaskini: ' + formattedTime;
         }}
 
         // Update rider info
@@ -2267,6 +2293,59 @@ function handleContactSubmit(e) {{
     window.refreshTracking = function() {{
         loadTracking();
     }};
+
+    // Toggle success header (minimize/expand)
+    window.toggleSuccessHeader = function() {{
+        const fullContent = document.getElementById('success-full-content');
+        const miniContent = document.getElementById('success-minimized-content');
+        const toggleIcon = document.getElementById('toggle-icon');
+
+        const isExpanded = fullContent.style.display !== 'none';
+
+        if (isExpanded) {{
+            // Collapse/Minimize
+            fullContent.style.opacity = '0';
+            setTimeout(() => {{
+                fullContent.style.display = 'none';
+                miniContent.style.display = 'block';
+                setTimeout(() => {{
+                    miniContent.style.opacity = '1';
+                }}, 10);
+            }}, 150);
+            toggleIcon.textContent = '▲';
+            localStorage.setItem('binaapp_success_minimized', 'true');
+        }} else {{
+            // Expand
+            miniContent.style.opacity = '0';
+            setTimeout(() => {{
+                miniContent.style.display = 'none';
+                fullContent.style.display = 'block';
+                setTimeout(() => {{
+                    fullContent.style.opacity = '1';
+                }}, 10);
+            }}, 150);
+            toggleIcon.textContent = '▼';
+            localStorage.setItem('binaapp_success_minimized', 'false');
+        }}
+    }};
+
+    // Restore success header state from localStorage
+    function restoreSuccessHeaderState() {{
+        const isMinimized = localStorage.getItem('binaapp_success_minimized') === 'true';
+        if (isMinimized) {{
+            const fullContent = document.getElementById('success-full-content');
+            const miniContent = document.getElementById('success-minimized-content');
+            const toggleIcon = document.getElementById('toggle-icon');
+
+            if (fullContent && miniContent && toggleIcon) {{
+                fullContent.style.display = 'none';
+                fullContent.style.opacity = '0';
+                miniContent.style.display = 'block';
+                miniContent.style.opacity = '1';
+                toggleIcon.textContent = '▲';
+            }}
+        }}
+    }}
 
     // Close tracking view
     window.closeTrackingView = function() {{
