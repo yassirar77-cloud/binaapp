@@ -282,7 +282,7 @@ export default function TermsOfService() {
           <section>
             <h2 className="text-xl font-semibold text-gray-900 mb-3">Contact</h2>
             <p>
-              For questions about these terms: <a href="mailto:support@binaapp.my" className="text-blue-600 hover:underline">support@binaapp.my</a>
+              For questions about these terms: <a href="mailto:support.team@binaapp.my" className="text-blue-600 hover:underline">support.team@binaapp.my</a>
             </p>
           </section>
         </div>

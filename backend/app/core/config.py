@@ -119,11 +119,16 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = Field(default="redis://localhost:6379", env="REDIS_URL")
     
-    # Email
-    SMTP_HOST: Optional[str] = Field(None, env="SMTP_HOST")
+    # Email (Zoho SMTP)
+    SMTP_HOST: Optional[str] = Field(default="smtp.zoho.com", env="SMTP_HOST")
     SMTP_PORT: int = Field(default=587, env="SMTP_PORT")
     SMTP_USER: Optional[str] = Field(None, env="SMTP_USER")
     SMTP_PASSWORD: Optional[str] = Field(None, env="SMTP_PASSWORD")
+    FROM_EMAIL: Optional[str] = Field(default="info@binaapp.my", env="FROM_EMAIL")
+    FROM_NAME: str = Field(default="BinaApp", env="FROM_NAME")
+    SUPPORT_EMAIL: str = Field(default="support.team@binaapp.my", env="SUPPORT_EMAIL")
+    ADMIN_EMAIL: str = Field(default="admin@binaapp.my", env="ADMIN_EMAIL")
+    NOREPLY_EMAIL: str = Field(default="info@binaapp.my", env="NOREPLY_EMAIL")
     
     # WhatsApp
     WHATSAPP_BUSINESS_PHONE: Optional[str] = Field(None, env="WHATSAPP_BUSINESS_PHONE")

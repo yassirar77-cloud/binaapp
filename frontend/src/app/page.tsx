@@ -532,7 +532,7 @@ function LandingPageContent() {
               Terms of Service
             </Link>
             <span>|</span>
-            <a href="mailto:support@binaapp.my" className="hover:text-white transition-colors">
+            <a href="mailto:support.team@binaapp.my" className="hover:text-white transition-colors">
               Contact
             </a>
           </div>

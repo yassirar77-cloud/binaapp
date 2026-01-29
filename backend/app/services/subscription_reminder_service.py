@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from loguru import logger
 from app.core.config import settings
+from app.services.email_service import email_service
 
 
 class SubscriptionReminderService:
@@ -244,7 +245,9 @@ class SubscriptionReminderService:
             if user and user.get("email"):
                 await self._send_reactivation_email(
                     email=user.get("email"),
-                    user_name=user.get("full_name", "Pelanggan")
+                    user_name=user.get("full_name", "Pelanggan"),
+                    plan_name="BinaApp",
+                    expiry_date=new_end_date.strftime("%d %B %Y")
                 )
 
             logger.info(f"Reactivated subscription for user {user_id}")
@@ -407,55 +410,51 @@ class SubscriptionReminderService:
         days_before: int
     ) -> bool:
         """
-        Send reminder email.
-        Placeholder - integrate with actual email service (SendGrid, SES, etc.)
+        Send reminder email via Zoho SMTP.
         """
-        logger.info(f"[EMAIL] Reminder ({days_before} days) to {email}")
-        logger.info(f"  User: {user_name}")
-        logger.info(f"  Plan: {plan_name}")
-        logger.info(f"  Expires: {end_date}")
+        logger.info(f"[EMAIL] Sending reminder ({days_before} days) to {email}")
 
-        # TODO: Integrate with email service
-        # Example with SendGrid:
-        # await sendgrid.send(
-        #     to=email,
-        #     template="subscription-reminder",
-        #     data={
-        #         "user_name": user_name,
-        #         "plan_name": plan_name,
-        #         "days_remaining": days_before,
-        #         "renew_url": f"{settings.FRONTEND_URL}/dashboard/billing"
-        #     }
-        # )
+        renewal_link = f"{settings.FRONTEND_URL}/dashboard/billing"
 
-        return True  # Return True for now
+        return await email_service.send_subscription_reminder(
+            user_email=email,
+            user_name=user_name,
+            days_remaining=days_before,
+            plan_name=plan_name,
+            renewal_link=renewal_link
+        )
 
     async def _send_expiry_email(
         self, email: str, user_name: str, plan_name: str
     ) -> bool:
         """
-        Send subscription expired email.
-        Placeholder - integrate with actual email service.
+        Send subscription expired email via Zoho SMTP.
         """
-        logger.info(f"[EMAIL] Subscription expired notification to {email}")
-        logger.info(f"  User: {user_name}")
-        logger.info(f"  Plan: {plan_name}")
+        logger.info(f"[EMAIL] Sending subscription expired notification to {email}")
 
-        # TODO: Integrate with email service
+        renewal_link = f"{settings.FRONTEND_URL}/dashboard/billing"
 
-        return True
+        return await email_service.send_subscription_expired(
+            user_email=email,
+            user_name=user_name,
+            plan_name=plan_name,
+            renewal_link=renewal_link
+        )
 
-    async def _send_reactivation_email(self, email: str, user_name: str) -> bool:
+    async def _send_reactivation_email(
+        self, email: str, user_name: str, plan_name: str = "BinaApp", expiry_date: str = ""
+    ) -> bool:
         """
-        Send welcome back email after subscription reactivation.
-        Placeholder - integrate with actual email service.
+        Send welcome back email after subscription reactivation via Zoho SMTP.
         """
-        logger.info(f"[EMAIL] Subscription reactivated notification to {email}")
-        logger.info(f"  User: {user_name}")
+        logger.info(f"[EMAIL] Sending subscription reactivated notification to {email}")
 
-        # TODO: Integrate with email service
-
-        return True
+        return await email_service.send_subscription_reactivation(
+            user_email=email,
+            user_name=user_name,
+            plan_name=plan_name,
+            expiry_date=expiry_date
+        )
 
 
 # Singleton instance
