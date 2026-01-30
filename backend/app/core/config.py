@@ -79,6 +79,15 @@ class Settings(BaseSettings):
         default="qwen-max",  # Qwen Max model (use qwen-plus for faster/cheaper)
         env="QWEN_MODEL"
     )
+
+    # Anthropic Claude AI (for AI Email Support)
+    ANTHROPIC_API_KEY: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
+    ANTHROPIC_MODEL: str = Field(
+        default="claude-3-5-sonnet-20241022",
+        env="ANTHROPIC_MODEL"
+    )
+    AI_EMAIL_SUPPORT_ENABLED: bool = Field(default=True, env="AI_EMAIL_SUPPORT_ENABLED")
+    AI_CONFIDENCE_THRESHOLD: float = Field(default=0.7, env="AI_CONFIDENCE_THRESHOLD")
     
     # Supabase Storage
     STORAGE_BUCKET_NAME: str = Field(default="websites", env="STORAGE_BUCKET_NAME")

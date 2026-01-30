@@ -24,6 +24,7 @@ python-dotenv
 
 # AI Integration
 openai
+anthropic>=0.18.0
 
 # Payment Processing
 stripe
