@@ -969,3 +969,11 @@ class SupabaseService:
 
 # Create singleton instance
 supabase_service = SupabaseService()
+
+
+async def get_supabase_client():
+    """
+    Async helper function to get the supabase client.
+    Returns the supabase client from the service instance.
+    """
+    return supabase_service.supabase
