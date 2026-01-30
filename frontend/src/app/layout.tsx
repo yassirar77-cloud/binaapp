@@ -4,11 +4,13 @@
 
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
+import { Suspense } from 'react'
 import './globals.css'
 import { Toaster } from 'react-hot-toast'
 import { PWAInstallPrompt } from '@/components/PWAInstallPrompt'
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister'
 import ChatWidget from '@/components/ChatWidget'
+import { AuthProvider } from '@/components/AuthProvider'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -59,7 +61,11 @@ export default function RootLayout({
         <meta name="msapplication-tap-highlight" content="no" />
       </head>
       <body className={inter.className}>
-        {children}
+        <Suspense fallback={null}>
+          <AuthProvider>
+            {children}
+          </AuthProvider>
+        </Suspense>
         <ServiceWorkerRegister swPath="/sw.js" />
         <PWAInstallPrompt appName="BinaApp" />
         <ChatWidget />

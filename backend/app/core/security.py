@@ -59,10 +59,25 @@ def decode_access_token(token: str) -> Dict[str, Any]:
             algorithms=[settings.JWT_ALGORITHM]
         )
         return payload
-    except JWTError as e:
+    except jwt.ExpiredSignatureError as e:
+        logger.info(f"Token expired - user needs to refresh or re-login")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail="Session expired - please refresh or login again",
+            headers={"WWW-Authenticate": "Bearer", "X-Token-Expired": "true"},
+        ) from e
+    except jwt.JWTClaimsError as e:
+        logger.warning(f"Invalid JWT claims: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from e
+    except JWTError as e:
+        logger.warning(f"JWT verification failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials - please login again",
             headers={"WWW-Authenticate": "Bearer"},
         ) from e
 
@@ -80,6 +95,7 @@ async def get_current_user(
     2. SUPABASE_JWT_SECRET (tokens created by Supabase)
     """
     token = credentials.credentials
+    is_token_expired = False
 
     # DEBUG: Log token info (first 20 chars only for security)
     token_preview = token[:20] if token and len(token) > 20 else token
@@ -102,6 +118,13 @@ async def get_current_user(
         if user_id:
             logger.info(f"✅ AUTH DEBUG - Token verified with custom JWT for user: {user_id}")
             return payload
+        else:
+            logger.warning("Token missing 'sub' claim")
+    except HTTPException as e:
+        # Check if token is expired
+        if "expired" in str(e.detail).lower():
+            is_token_expired = True
+        logger.debug(f"Custom JWT verification failed: {e.detail}")
     except Exception as e:
         logger.warning(f"🔍 AUTH DEBUG - Custom JWT verification failed: {e}")
         logger.info(f"🔍 AUTH DEBUG - JWT_SECRET_KEY (first 10): {settings.JWT_SECRET_KEY[:10] if settings.JWT_SECRET_KEY else 'NOT SET'}...")
@@ -122,18 +145,70 @@ async def get_current_user(
             if user_id:
                 logger.info(f"✅ AUTH DEBUG - Token verified with Supabase JWT for user: {user_id}")
                 return payload
+        except jwt.ExpiredSignatureError:
+            is_token_expired = True
+            logger.debug("Supabase token expired")
         except JWTError as e:
             logger.warning(f"🔍 AUTH DEBUG - Supabase JWT verification failed: {e}")
     else:
         logger.warning("🔍 AUTH DEBUG - SUPABASE_JWT_SECRET is NOT SET")
 
+    # If token was expired, return specific message
+    if is_token_expired:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired - please refresh or login again",
+            headers={"WWW-Authenticate": "Bearer", "X-Token-Expired": "true"},
+        )
+
     # If all local verification fails, reject the token
     logger.error("❌ AUTH DEBUG - All token verification methods failed")
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials - please login again",
+        detail="Invalid authentication token - please login again",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def decode_token_for_refresh(token: str) -> Optional[Dict[str, Any]]:
+    """
+    Decode a JWT token for refresh purposes.
+    Allows expired tokens but requires valid signature.
+
+    Returns payload if token signature is valid (even if expired), None otherwise.
+    """
+    # Try our custom JWT secret first
+    try:
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM],
+            options={"verify_exp": False}  # Allow expired tokens
+        )
+        user_id = payload.get("sub")
+        if user_id:
+            logger.debug(f"Token decoded for refresh (custom secret) for user: {user_id}")
+            return payload
+    except JWTError as e:
+        logger.debug(f"Custom JWT decode for refresh failed: {e}")
+
+    # Try Supabase JWT secret
+    if settings.SUPABASE_JWT_SECRET:
+        try:
+            payload = jwt.decode(
+                token,
+                settings.SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_exp": False, "verify_aud": False}
+            )
+            user_id = payload.get("sub")
+            if user_id:
+                logger.debug(f"Token decoded for refresh (Supabase secret) for user: {user_id}")
+                return payload
+        except JWTError as e:
+            logger.debug(f"Supabase JWT decode for refresh failed: {e}")
+
+    return None
 
 
 def verify_api_key(api_key: str) -> bool:
