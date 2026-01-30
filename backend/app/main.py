@@ -37,6 +37,10 @@ from app.api.chatbot import router as chatbot_router
 from app.services.templates import template_service
 from app.core.security import get_current_user
 
+# Subscription lock system
+from app.middleware.subscription_guard import subscription_check_middleware
+from app.api.v1.endpoints import subscription_status
+
 # Initialize AI service
 ai_service = AIService()
 
@@ -112,6 +116,7 @@ app.include_router(menu_delivery_router, prefix="/api/v1", tags=["Menu & Deliver
 app.include_router(v1_router, prefix="/api/v1")  # New delivery system + all v1 endpoints
 app.include_router(health_router, tags=["Health"])  # Health check endpoints
 app.include_router(chatbot_router, tags=["Chatbot"])  # Customer support chatbot
+app.include_router(subscription_status.router, prefix="/api/v1", tags=["Subscription"])  # Subscription status endpoints
 
 # Mount static files for widgets (chat, delivery, etc.)
 # Files are accessible at /static/widgets/chat-widget.js, etc.
@@ -146,6 +151,10 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=3600,
 )
+
+# Subscription lock check middleware
+# Checks if user's subscription is locked and blocks protected routes
+app.middleware("http")(subscription_check_middleware)
 
 # Add CORS headers manually for preflight requests and mobile browsers
 @app.middleware("http")
