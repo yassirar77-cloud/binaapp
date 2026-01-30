@@ -8,6 +8,8 @@ import subprocess
 import json
 import os
 
+from app.core.config import settings
+
 router = APIRouter()
 
 
@@ -88,6 +90,40 @@ async def trigger_health_check():
             "status": "error",
             "message": str(e)
         }
+
+
+@router.get("/health/auth-config")
+async def check_auth_config():
+    """
+    Diagnostic endpoint to check auth configuration.
+    Returns masked values to verify secrets are set without exposing them.
+    """
+    def mask_secret(secret: str | None) -> str:
+        if not secret:
+            return "NOT SET ❌"
+        if len(secret) < 10:
+            return f"SET (too short: {len(secret)} chars) ⚠️"
+        return f"SET ✅ (first 10: {secret[:10]}..., length: {len(secret)})"
+
+    return {
+        "status": "ok",
+        "timestamp": datetime.utcnow().isoformat(),
+        "auth_config": {
+            "JWT_SECRET_KEY": mask_secret(settings.JWT_SECRET_KEY),
+            "SUPABASE_JWT_SECRET": mask_secret(settings.SUPABASE_JWT_SECRET),
+            "JWT_ALGORITHM": settings.JWT_ALGORITHM,
+            "JWT_EXPIRATION_HOURS": settings.JWT_EXPIRATION_HOURS,
+            "SUPABASE_URL": "SET ✅" if settings.SUPABASE_URL else "NOT SET ❌",
+            "SUPABASE_ANON_KEY": "SET ✅" if settings.SUPABASE_ANON_KEY else "NOT SET ❌",
+            "SUPABASE_SERVICE_ROLE_KEY": "SET ✅" if settings.SUPABASE_SERVICE_ROLE_KEY else "NOT SET ❌",
+        },
+        "notes": [
+            "JWT_SECRET_KEY: Used to sign/verify tokens created by our backend",
+            "SUPABASE_JWT_SECRET: Used to verify tokens from Supabase (OAuth/magic links)",
+            "If getting 401 errors, check that JWT_SECRET_KEY matches between environments",
+            "SUPABASE_JWT_SECRET should match the JWT Secret from Supabase Dashboard > Settings > API"
+        ]
+    }
 
 
 @router.get("/health/telegram-test")
