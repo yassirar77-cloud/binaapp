@@ -1,6 +1,8 @@
 """
 Subdomain Middleware - Routes requests to user websites based on subdomain
 Handles: sitename.binaapp.my → serves user's published website
+
+Includes subscription lock check - locked websites show "Website Tidak Aktif" page
 """
 
 from fastapi import Request
@@ -8,9 +10,52 @@ from fastapi.responses import HTMLResponse
 import httpx
 from loguru import logger
 import re
+import os
+from pathlib import Path
 
 from app.core.config import settings
 from app.core.database import get_supabase
+from app.services.website_lock_checker import is_website_locked
+
+
+# Load locked page template once at startup
+_LOCKED_PAGE_TEMPLATE = None
+
+def _get_locked_page_html() -> str:
+    """Load the locked page template"""
+    global _LOCKED_PAGE_TEMPLATE
+    if _LOCKED_PAGE_TEMPLATE is None:
+        template_path = Path(__file__).parent.parent / "templates" / "website_locked.html"
+        try:
+            _LOCKED_PAGE_TEMPLATE = template_path.read_text(encoding="utf-8")
+        except Exception as e:
+            logger.error(f"Failed to load locked page template: {e}")
+            # Fallback minimal HTML
+            _LOCKED_PAGE_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Website Tidak Aktif</title>
+    <style>
+        body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f5f5f5; }
+        .container { text-align: center; padding: 40px; background: white; border-radius: 16px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        p { color: #666; }
+        a { color: #3b82f6; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 Website Tidak Aktif</h1>
+        <p>Pemilik website sedang membuat kemas kini langganan.</p>
+        <p><a href="https://binaapp.my/login">Log masuk untuk aktifkan</a></p>
+    </div>
+</body>
+</html>
+"""
+    return _LOCKED_PAGE_TEMPLATE
 
 
 async def get_subdomain(request: Request) -> str | None:
@@ -65,6 +110,23 @@ async def subdomain_middleware(request: Request, call_next):
                 business_type = website_result.data.get("business_type", "food")
                 language = website_result.data.get("language", "ms")
                 logger.info(f"Found website_id {website_id} for subdomain {subdomain}")
+
+                # SUBSCRIPTION LOCK CHECK: Check if website is locked due to subscription
+                try:
+                    if await is_website_locked(website_id):
+                        logger.info(f"Website {subdomain} is locked - showing locked page")
+                        return HTMLResponse(
+                            content=_get_locked_page_html(),
+                            status_code=200,  # Use 200 to not affect SEO negatively
+                            headers={
+                                "Content-Type": "text/html; charset=utf-8",
+                                "Cache-Control": "no-cache, no-store, must-revalidate",
+                                "X-Robots-Tag": "noindex, nofollow"
+                            }
+                        )
+                except Exception as lock_check_error:
+                    # Log but don't block - fail open
+                    logger.error(f"Error checking website lock status: {lock_check_error}")
 
             # STEP 2: Try to fetch HTML from Supabase storage
             # First try: subdomain/index.html (new structure)
