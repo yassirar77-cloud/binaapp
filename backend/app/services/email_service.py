@@ -88,13 +88,18 @@ class EmailService:
                 recipients.extend(bcc)
 
             # Send email via Zoho SMTP
+            # Port 465 uses SSL, Port 587 uses STARTTLS
+            use_tls = self.smtp_port == 465
+            start_tls = self.smtp_port == 587
+
             await aiosmtplib.send(
                 message,
                 hostname=self.smtp_host,
                 port=self.smtp_port,
                 username=self.smtp_user,
                 password=self.smtp_password,
-                start_tls=True
+                use_tls=use_tls,
+                start_tls=start_tls
             )
 
             logger.info(f"Email sent successfully to {to_email}: {subject}")
