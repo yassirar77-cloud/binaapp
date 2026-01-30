@@ -17,6 +17,7 @@ import bcrypt
 
 from app.core.supabase import get_supabase_client
 from app.core.security import get_current_user
+from app.services.email_service import email_service
 from app.models.delivery_schemas import (
     # Zones
     DeliveryZoneResponse,
@@ -748,6 +749,33 @@ async def create_order(
             except Exception as wa_error:
                 logger.warning(f"⚠️ Failed to send WhatsApp to owner: {wa_error}")
                 # Don't fail the order creation if WhatsApp fails
+
+        # 9. Send order confirmation email to customer
+        if order.customer_email:
+            try:
+                # Get business name for email
+                business_name = website_check.data[0].get("business_name", "Restaurant")
+
+                await email_service.send_order_confirmation(
+                    customer_email=order.customer_email,
+                    customer_name=order.customer_name,
+                    order_id=created_order['order_number'],
+                    order_items=[
+                        {
+                            "name": item["item_name"],
+                            "quantity": item["quantity"],
+                            "price": item["total_price"]
+                        }
+                        for item in order_items_data
+                    ],
+                    total_amount=float(total_amount),
+                    delivery_address=order.delivery_address,
+                    restaurant_name=business_name
+                )
+                logger.info(f"📧 Order confirmation email sent to {order.customer_email}")
+            except Exception as email_error:
+                logger.warning(f"⚠️ Failed to send order confirmation email: {email_error}")
+                # Don't fail the order creation if email fails
 
         logger.info(f"✅ Order created: {created_order['order_number']} - Total: RM{total_amount}")
 
