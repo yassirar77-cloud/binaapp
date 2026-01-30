@@ -59,6 +59,7 @@ export default function ProfilePage() {
   const [showAddRider, setShowAddRider] = useState(false)
   const [editingRider, setEditingRider] = useState<any>(null)
   const [deletingWebsite, setDeletingWebsite] = useState<string | null>(null)
+  const [selectedWebsiteId, setSelectedWebsiteId] = useState<string | null>(null)
 
   // Subscription state
   const [subscription, setSubscription] = useState<SubscriptionUsage | null>(null)
@@ -205,6 +206,10 @@ export default function ProfilePage() {
     if (user && websites.length > 0) {
       loadOrders()
       loadRiders()
+      // Auto-select the first website if none selected
+      if (!selectedWebsiteId) {
+        setSelectedWebsiteId(websites[0].id)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, websites])
@@ -788,8 +793,15 @@ export default function ProfilePage() {
     return <span className={`px-3 py-1 rounded-full text-xs font-medium ${badge.color}`}>{badge.label}</span>
   }
 
+  // Helper function to validate UUID format
+  function isValidUUID(str: string | null | undefined): boolean {
+    if (!str) return false
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    return uuidRegex.test(str)
+  }
+
   // Rider Form Component
-  function AddRiderForm({ websiteId, editData, onSuccess, onCancel }: any) {
+  function AddRiderForm({ websiteId, websites: formWebsites, editData, onSuccess, onCancel, onWebsiteChange }: any) {
     const [formData, setFormData] = useState(editData || {
       name: '',
       email: '',
@@ -801,9 +813,18 @@ export default function ProfilePage() {
       is_active: true
     })
     const [loading, setLoading] = useState(false)
+    const [formError, setFormError] = useState<string | null>(null)
 
     async function handleSubmit(e: React.FormEvent) {
       e.preventDefault()
+      setFormError(null)
+
+      // Validate website_id before submission
+      if (!editData && !isValidUUID(websiteId)) {
+        setFormError('Sila pilih website terlebih dahulu')
+        return
+      }
+
       setLoading(true)
 
       try {
@@ -820,12 +841,21 @@ export default function ProfilePage() {
           ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/riders/${editData.id}`
           : `${process.env.NEXT_PUBLIC_API_URL}/api/v1/delivery/admin/websites/${websiteId}/riders`
 
+        // Double-check UUID validity for new riders
+        if (!editData && !isValidUUID(websiteId)) {
+          setFormError('Website ID tidak sah. Sila pilih website terlebih dahulu.')
+          setLoading(false)
+          return
+        }
+
         const method = editData ? 'PUT' : 'POST'
 
         // Filter out empty password when editing (only include if user wants to change it)
         const submitData = editData && !formData.password
           ? { ...formData, password: undefined }
           : formData
+
+        console.log('[AddRider] Creating rider for website:', websiteId)
 
         const response = await fetch(url, {
           method,
@@ -856,6 +886,47 @@ export default function ProfilePage() {
         <h3 className="text-xl font-bold text-gray-900 mb-4">
           {editData ? '✏️ Edit Rider' : '➕ Tambah Rider Baru'}
         </h3>
+
+        {/* Error Message Display */}
+        {formError && (
+          <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-700 text-sm font-medium">{formError}</p>
+          </div>
+        )}
+
+        {/* Website Selector - Only show for new riders and if multiple websites */}
+        {!editData && formWebsites && formWebsites.length > 1 && (
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              🌐 Pilih Website untuk Rider *
+            </label>
+            <select
+              value={websiteId || ''}
+              onChange={(e) => onWebsiteChange && onWebsiteChange(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              required
+            >
+              <option value="">-- Pilih Website --</option>
+              {formWebsites.map((w: any) => (
+                <option key={w.id} value={w.id}>
+                  {w.name || w.business_name} {w.subdomain ? `(${w.subdomain}.binaapp.my)` : ''}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-blue-600">
+              Rider akan dikaitkan dengan website yang dipilih
+            </p>
+          </div>
+        )}
+
+        {/* Show current website for single website users */}
+        {!editData && formWebsites && formWebsites.length === 1 && (
+          <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+            <p className="text-sm text-gray-600">
+              <span className="font-medium">🌐 Website:</span> {formWebsites[0].name || formWebsites[0].business_name}
+            </p>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Name */}
@@ -1568,7 +1639,8 @@ export default function ProfilePage() {
                     </p>
                   </div>
 
-                  {!showAddRider && !editingRider && (
+                  {/* Only show Tambah Rider button if user has at least one website */}
+                  {!showAddRider && !editingRider && websites.length > 0 && (
                     <button
                       onClick={() => setShowAddRider(true)}
                       className="bg-orange-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-orange-700 flex items-center gap-2 min-h-[44px]"
@@ -1578,10 +1650,30 @@ export default function ProfilePage() {
                   )}
                 </div>
 
+                {/* No Websites Warning */}
+                {websites.length === 0 && (
+                  <div className="text-center py-12 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="text-6xl mb-4">🌐</div>
+                    <h3 className="text-xl font-semibold text-yellow-800 mb-2">
+                      Tiada Website
+                    </h3>
+                    <p className="text-yellow-700 mb-6">
+                      Anda perlu membina website terlebih dahulu sebelum boleh menambah rider.
+                    </p>
+                    <Link
+                      href="/create"
+                      className="bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 inline-flex items-center gap-2 min-h-[44px]"
+                    >
+                      ✨ Bina Website Sekarang
+                    </Link>
+                  </div>
+                )}
+
                 {/* Add/Edit Form */}
-                {(showAddRider || editingRider) && (
+                {(showAddRider || editingRider) && websites.length > 0 && (
                   <AddRiderForm
-                    websiteId={websites[0]?.id}
+                    websiteId={selectedWebsiteId}
+                    websites={websites}
                     editData={editingRider}
                     onSuccess={() => {
                       setShowAddRider(false)
@@ -1592,11 +1684,12 @@ export default function ProfilePage() {
                       setShowAddRider(false)
                       setEditingRider(null)
                     }}
+                    onWebsiteChange={(newWebsiteId: string) => setSelectedWebsiteId(newWebsiteId)}
                   />
                 )}
 
                 {/* Riders List */}
-                {!showAddRider && !editingRider && (
+                {!showAddRider && !editingRider && websites.length > 0 && (
                   <>
                     {riders.length === 0 ? (
                       <div className="text-center py-12 bg-gray-50 rounded-lg">
