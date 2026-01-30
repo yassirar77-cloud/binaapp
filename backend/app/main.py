@@ -41,6 +41,9 @@ from app.core.security import get_current_user
 from app.middleware.subscription_guard import subscription_check_middleware
 from app.api.v1.endpoints import subscription_status
 
+# Email polling system
+from app.api.v1.endpoints.email_polling import router as email_polling_router
+
 # Initialize AI service
 ai_service = AIService()
 
@@ -117,6 +120,7 @@ app.include_router(v1_router, prefix="/api/v1")  # New delivery system + all v1 
 app.include_router(health_router, tags=["Health"])  # Health check endpoints
 app.include_router(chatbot_router, tags=["Chatbot"])  # Customer support chatbot
 app.include_router(subscription_status.router, prefix="/api/v1", tags=["Subscription"])  # Subscription status endpoints
+app.include_router(email_polling_router, prefix="/api/v1", tags=["Email Polling"])  # Email polling admin endpoints
 
 # Mount static files for widgets (chat, delivery, etc.)
 # Files are accessible at /static/widgets/chat-widget.js, etc.
@@ -274,6 +278,39 @@ async def startup_event():
         logger.info("🚀 BinaApp API started with Supabase connected!")
     else:
         logger.error("🚀 BinaApp API started but Supabase NOT connected!")
+
+    # Initialize email polling scheduler
+    try:
+        from app.core.scheduler import start_email_polling
+        from app.core.config import settings
+
+        if settings.EMAIL_POLLING_ENABLED:
+            logger.info("📧 Starting email polling service...")
+            polling_started = await start_email_polling()
+            if polling_started:
+                logger.info("📧 Email polling service started successfully!")
+            else:
+                logger.warning("📧 Email polling service could not be started (check configuration)")
+        else:
+            logger.info("📧 Email polling is disabled in settings")
+    except Exception as e:
+        logger.error(f"📧 Failed to start email polling service: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Gracefully shutdown background services"""
+    logger.info("🛑 Shutting down BinaApp API...")
+
+    # Stop email polling scheduler
+    try:
+        from app.core.scheduler import stop_email_polling
+        stop_email_polling()
+        logger.info("📧 Email polling service stopped")
+    except Exception as e:
+        logger.error(f"📧 Error stopping email polling service: {e}")
+
+    logger.info("🛑 BinaApp API shutdown complete")
 
 # API Keys from environment
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
