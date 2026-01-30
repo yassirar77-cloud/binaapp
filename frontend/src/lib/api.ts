@@ -61,10 +61,19 @@ export async function apiFetch(
     if (!options?.skipAuth) {
       const token = await getAuthToken()
       if (token) {
-        extraHeaders['Authorization'] = `Bearer ${token}`
-        console.log('[API] Added Authorization header for:', path)
+        // DEBUG: Log token info (first 20 chars only for security)
+        console.log('[API] 🔍 Token being sent:', token.substring(0, 20) + '...')
+        console.log('[API] 🔍 Token length:', token.length)
+
+        // Validate token is not a literal string "undefined" or "null"
+        if (token === 'undefined' || token === 'null' || token === 'None') {
+          console.error('[API] ❌ Invalid token value detected:', token)
+        } else {
+          extraHeaders['Authorization'] = `Bearer ${token}`
+          console.log('[API] ✅ Added Authorization header for:', path)
+        }
       } else {
-        console.warn('[API] No auth token available for:', path)
+        console.warn('[API] ⚠️ No auth token available for:', path)
       }
     }
 

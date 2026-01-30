@@ -37,7 +37,25 @@ export const supabase =
  */
 export function getStoredToken(): string | null {
   if (typeof window === 'undefined') return null
-  return localStorage.getItem(TOKEN_KEY)
+  const token = localStorage.getItem(TOKEN_KEY)
+
+  // DEBUG: Log token retrieval
+  if (token) {
+    console.log('[Auth] 🔍 Retrieved token from localStorage:', token.substring(0, 20) + '...')
+    console.log('[Auth] 🔍 Token length:', token.length)
+
+    // Check for invalid token values
+    if (token === 'undefined' || token === 'null' || token === 'None' || token === '') {
+      console.error('[Auth] ❌ Invalid token stored in localStorage:', token)
+      // Clear the invalid token
+      localStorage.removeItem(TOKEN_KEY)
+      return null
+    }
+  } else {
+    console.log('[Auth] ⚠️ No token found in localStorage')
+  }
+
+  return token
 }
 
 /**
@@ -68,6 +86,16 @@ export async function getApiAuthToken(): Promise<string | null> {
  */
 function storeAuthData(token: string, user: any) {
   if (typeof window === 'undefined') return
+
+  // DEBUG: Validate token before storing
+  if (!token || token === 'undefined' || token === 'null' || token === 'None') {
+    console.error('[Auth] ❌ Attempted to store invalid token:', token)
+    return
+  }
+
+  console.log('[Auth] ✅ Storing token:', token.substring(0, 20) + '...')
+  console.log('[Auth] ✅ Token length:', token.length)
+
   localStorage.setItem(TOKEN_KEY, token)
   localStorage.setItem(USER_KEY, JSON.stringify(user))
 

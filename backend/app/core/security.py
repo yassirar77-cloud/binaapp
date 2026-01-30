@@ -81,18 +81,34 @@ async def get_current_user(
     """
     token = credentials.credentials
 
+    # DEBUG: Log token info (first 20 chars only for security)
+    token_preview = token[:20] if token and len(token) > 20 else token
+    logger.info(f"🔍 AUTH DEBUG - Token received: {token_preview}...")
+    logger.info(f"🔍 AUTH DEBUG - Token length: {len(token) if token else 0}")
+
+    # Check for common invalid token patterns
+    if not token or token in ('undefined', 'null', 'None', ''):
+        logger.error(f"🔍 AUTH DEBUG - Invalid token value: '{token}'")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No valid token provided - please login again",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # FIRST: Try to decode with our custom JWT secret (tokens we create)
     try:
         payload = decode_access_token(token)
         user_id = payload.get("sub")
         if user_id:
-            logger.debug(f"Token verified with custom JWT secret for user: {user_id}")
+            logger.info(f"✅ AUTH DEBUG - Token verified with custom JWT for user: {user_id}")
             return payload
     except Exception as e:
-        logger.debug(f"Custom JWT verification failed: {e}")
+        logger.warning(f"🔍 AUTH DEBUG - Custom JWT verification failed: {e}")
+        logger.info(f"🔍 AUTH DEBUG - JWT_SECRET_KEY (first 10): {settings.JWT_SECRET_KEY[:10] if settings.JWT_SECRET_KEY else 'NOT SET'}...")
 
     # SECOND: Try SUPABASE_JWT_SECRET (for Supabase-signed tokens)
     if settings.SUPABASE_JWT_SECRET:
+        logger.info(f"🔍 AUTH DEBUG - Trying Supabase JWT secret (first 10): {settings.SUPABASE_JWT_SECRET[:10]}...")
         try:
             # Supabase tokens use HS256 algorithm
             # Disable audience verification for compatibility
@@ -104,12 +120,15 @@ async def get_current_user(
             )
             user_id = payload.get("sub")
             if user_id:
-                logger.debug(f"Token verified with Supabase JWT secret for user: {user_id}")
+                logger.info(f"✅ AUTH DEBUG - Token verified with Supabase JWT for user: {user_id}")
                 return payload
         except JWTError as e:
-            logger.debug(f"Supabase JWT verification failed: {e}")
+            logger.warning(f"🔍 AUTH DEBUG - Supabase JWT verification failed: {e}")
+    else:
+        logger.warning("🔍 AUTH DEBUG - SUPABASE_JWT_SECRET is NOT SET")
 
     # If all local verification fails, reject the token
+    logger.error("❌ AUTH DEBUG - All token verification methods failed")
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials - please login again",
