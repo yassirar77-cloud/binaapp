@@ -9,9 +9,31 @@ const TOKEN_KEY = 'binaapp_auth_token'
 const FOUNDER_ACCESS_KEY = 'founder_access'
 
 /**
+ * Decode JWT token to check expiration (middleware-compatible version)
+ * Note: This only checks expiration, not signature validity
+ */
+function isTokenExpiredInMiddleware(token: string): boolean {
+  try {
+    const base64Url = token.split('.')[1]
+    if (!base64Url) return true
+
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+    const payload = JSON.parse(Buffer.from(base64, 'base64').toString('utf-8'))
+
+    if (!payload.exp) return true
+
+    const expiresAt = payload.exp * 1000 // Convert to milliseconds
+    return Date.now() >= expiresAt
+  } catch {
+    return true
+  }
+}
+
+/**
  * Middleware to handle:
  * 1. Coming Soon page - redirects public visitors to /coming-soon
  * 2. Authentication - protects routes that require login
+ * 3. Session expiry - redirects to login with appropriate message
  */
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
@@ -54,6 +76,15 @@ export async function middleware(req: NextRequest) {
 
   // Check for custom BinaApp token in cookies
   const binaappToken = req.cookies.get(TOKEN_KEY)?.value
+  let isTokenExpired = false
+
+  // Check if the token is expired
+  if (binaappToken) {
+    isTokenExpired = isTokenExpiredInMiddleware(binaappToken)
+    if (isTokenExpired) {
+      console.log('[Middleware] BinaApp token is expired')
+    }
+  }
 
   // Also check Supabase session as fallback
   let supabaseSession = null
@@ -65,9 +96,10 @@ export async function middleware(req: NextRequest) {
     // Ignore Supabase errors
   }
 
-  const hasAuth = !!binaappToken || !!supabaseSession
+  // Valid auth = has non-expired token OR has Supabase session
+  const hasValidAuth = (!!binaappToken && !isTokenExpired) || !!supabaseSession
 
-  console.log('[Middleware] Path:', pathname, 'Founder:', hasFounderAccess, 'BinaApp token:', !!binaappToken, 'Supabase session:', !!supabaseSession)
+  console.log('[Middleware] Path:', pathname, 'Founder:', hasFounderAccess, 'BinaApp token:', !!binaappToken, 'Token expired:', isTokenExpired, 'Supabase session:', !!supabaseSession)
 
   // Protected routes that require authentication
   const protectedPaths = ['/profile', '/my-projects', '/create']
@@ -75,9 +107,9 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith(path)
   )
 
-  // Redirect to login if accessing protected route without auth
-  if (isProtectedPath && !hasAuth) {
-    console.log('[Middleware] No auth, redirecting to login/daftar')
+  // Redirect to login if accessing protected route without valid auth
+  if (isProtectedPath && !hasValidAuth) {
+    console.log('[Middleware] No valid auth, redirecting to login/daftar')
     const redirectUrl = req.nextUrl.clone()
     if (pathname.startsWith('/create')) {
       redirectUrl.pathname = '/daftar'
@@ -85,12 +117,28 @@ export async function middleware(req: NextRequest) {
       redirectUrl.pathname = '/login'
     }
     redirectUrl.searchParams.set('redirect', pathname)
+
+    // Add session_expired flag if token was present but expired
+    if (binaappToken && isTokenExpired) {
+      redirectUrl.searchParams.set('error', 'session_expired')
+    }
+
+    // Clear the expired token cookie in the response
+    if (isTokenExpired) {
+      const response = NextResponse.redirect(redirectUrl)
+      response.cookies.set(TOKEN_KEY, '', {
+        path: '/',
+        expires: new Date(0)
+      })
+      return response
+    }
+
     return NextResponse.redirect(redirectUrl)
   }
 
   // Redirect to dashboard if accessing login/register with active auth
   const authPaths = ['/login', '/register', '/daftar']
-  if (authPaths.includes(pathname) && hasAuth) {
+  if (authPaths.includes(pathname) && hasValidAuth) {
     console.log('[Middleware] Already logged in, redirecting to my-projects')
     const redirectUrl = req.nextUrl.clone()
     redirectUrl.pathname = '/my-projects'

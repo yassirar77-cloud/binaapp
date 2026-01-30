@@ -3,7 +3,7 @@ Authentication Endpoints
 Handles user registration, login, and authentication
 """
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Request
 from loguru import logger
 
 from app.models.schemas import (
@@ -13,7 +13,7 @@ from app.models.schemas import (
     SubscriptionTier
 )
 from app.services.supabase_client import supabase_service
-from app.core.security import create_access_token, get_current_user
+from app.core.security import create_access_token, get_current_user, decode_token_for_refresh
 
 router = APIRouter()
 
@@ -217,4 +217,63 @@ async def logout(current_user: dict = Depends(get_current_user)):
 
     return {
         "message": "Logged out successfully"
+    }
+
+
+@router.post("/refresh", response_model=dict)
+async def refresh_token(request: Request):
+    """
+    Refresh an authentication token.
+
+    Accepts an expired (but valid signature) token and returns a new token.
+    This allows users to stay logged in without re-entering credentials.
+
+    The token must have a valid signature - only the expiration is ignored.
+    """
+    # Get authorization header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid authorization header"
+        )
+
+    token = auth_header.replace("Bearer ", "")
+
+    # Decode the token (allows expired but requires valid signature)
+    payload = decode_token_for_refresh(token)
+
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token - please login again"
+        )
+
+    user_id = payload.get("sub")
+    email = payload.get("email")
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload - please login again"
+        )
+
+    # Create a new token with the same claims
+    new_token = create_access_token(
+        data={
+            "sub": user_id,
+            "email": email
+        }
+    )
+
+    logger.info(f"Token refreshed for user: {email}")
+
+    return {
+        "message": "Token refreshed successfully",
+        "access_token": new_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user_id,
+            "email": email
+        }
     }
