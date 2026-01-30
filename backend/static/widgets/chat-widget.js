@@ -334,6 +334,25 @@
       line-height: 1.4;
     }
 
+    .binaapp-message-image {
+      max-width: 100%;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .binaapp-message-image:hover {
+      opacity: 0.9;
+    }
+
+    .binaapp-message.customer .binaapp-message-image {
+      border: 2px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .binaapp-message.owner .binaapp-message-image {
+      border: 1px solid #e5e7eb;
+    }
+
     .binaapp-message-time {
       font-size: 10px;
       opacity: 0.7;
@@ -676,12 +695,32 @@
         : msg.sender_type === 'system' ? 'system'
         : 'owner';
       const messageText = msg.message_text || msg.message || msg.content || '';
+      const messageType = msg.message_type || 'text';
+      const mediaUrl = msg.media_url || null;
 
       const time = new Date(msg.created_at).toLocaleTimeString('ms-MY', {
         hour: '2-digit',
         minute: '2-digit'
       });
 
+      // Render image messages
+      if ((messageType === 'image' || messageType === 'payment') && mediaUrl) {
+        return `
+          <div class="binaapp-message ${senderClass}">
+            <div class="binaapp-message-bubble">
+              <img
+                src="${escapeHtml(mediaUrl)}"
+                alt="${messageType === 'payment' ? 'Bukti Pembayaran' : 'Gambar'}"
+                class="binaapp-message-image"
+                onclick="window.open('${escapeHtml(mediaUrl)}', '_blank')"
+              />
+              <div class="binaapp-message-time">${time}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      // Render text messages
       return `
         <div class="binaapp-message ${senderClass}">
           <div class="binaapp-message-bubble">
