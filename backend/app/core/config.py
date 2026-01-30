@@ -138,6 +138,13 @@ class Settings(BaseSettings):
     SUPPORT_EMAIL: str = Field(default="support.team@binaapp.my", env="SUPPORT_EMAIL")
     ADMIN_EMAIL: str = Field(default="admin@binaapp.my", env="ADMIN_EMAIL")
     NOREPLY_EMAIL: str = Field(default="info@binaapp.my", env="NOREPLY_EMAIL")
+
+    # Email Polling (IMAP) - for support.team@binaapp.my
+    SUPPORT_EMAIL_PASSWORD: Optional[str] = Field(None, env="SUPPORT_EMAIL_PASSWORD")
+    EMAIL_POLLING_ENABLED: bool = Field(default=True, env="EMAIL_POLLING_ENABLED")
+    EMAIL_POLLING_INTERVAL_SECONDS: int = Field(default=120, env="EMAIL_POLLING_INTERVAL_SECONDS")
+    IMAP_SERVER: str = Field(default="imap.zoho.com", env="IMAP_SERVER")
+    IMAP_PORT: int = Field(default=993, env="IMAP_PORT")
     
     # WhatsApp
     WHATSAPP_BUSINESS_PHONE: Optional[str] = Field(None, env="WHATSAPP_BUSINESS_PHONE")

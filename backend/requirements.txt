@@ -11,6 +11,13 @@ email-validator
 # Email (SMTP)
 aiosmtplib
 
+# Email Polling (IMAP)
+imap-tools>=1.7.0
+html2text>=2020.1.16
+
+# Background Task Scheduling
+apscheduler>=3.10.0
+
 # Database & Storage
 supabase>=2.0.0
 httpx
