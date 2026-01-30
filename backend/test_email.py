@@ -56,7 +56,7 @@ async def test_order_confirmation():
         return False
 
     # Test email recipient
-    test_email = "yassirabdulrahman77@gmail.com"
+    test_email = "yassirar77@gmail.com"
 
     # Sample order data
     order_data = {
