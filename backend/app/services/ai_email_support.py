@@ -5,6 +5,7 @@ Uses Claude AI to automatically respond to customer support emails
 import os
 import re
 import json
+import httpx
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime, timedelta
@@ -20,7 +21,6 @@ except ImportError:
 
 from app.core.config import settings
 from app.services.email_service import email_service
-from app.services.supabase_client import get_supabase_client
 
 
 class AIEmailSupportService:
@@ -57,14 +57,24 @@ class AIEmailSupportService:
         """Initialize the AI Email Support Service"""
         self.client = None
         self.knowledge_base = ""
-        self.model = settings.ANTHROPIC_MODEL
-        self.enabled = settings.AI_EMAIL_SUPPORT_ENABLED
-        self.confidence_threshold = settings.AI_CONFIDENCE_THRESHOLD
+        self.model = getattr(settings, 'ANTHROPIC_MODEL', 'claude-3-5-sonnet-20241022')
+        self.enabled = getattr(settings, 'AI_EMAIL_SUPPORT_ENABLED', True)
+        self.confidence_threshold = getattr(settings, 'AI_CONFIDENCE_THRESHOLD', 0.7)
+
+        # Database config
+        self.supabase_url = settings.SUPABASE_URL
+        self.supabase_key = settings.SUPABASE_SERVICE_ROLE_KEY
+        self.db_headers = {
+            "apikey": self.supabase_key,
+            "Authorization": f"Bearer {self.supabase_key}",
+            "Content-Type": "application/json"
+        }
 
         # Initialize Claude client if available
-        if ANTHROPIC_AVAILABLE and settings.ANTHROPIC_API_KEY:
+        api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
+        if ANTHROPIC_AVAILABLE and api_key:
             try:
-                self.client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+                self.client = anthropic.Anthropic(api_key=api_key)
                 logger.info("Claude AI client initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize Claude client: {e}")
@@ -90,6 +100,75 @@ class AIEmailSupportService:
     def is_available(self) -> bool:
         """Check if AI email support is available and enabled"""
         return bool(self.client and self.enabled and self.knowledge_base)
+
+    async def _db_insert(self, table: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Insert a record into a database table"""
+        try:
+            url = f"{self.supabase_url}/rest/v1/{table}"
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    headers={**self.db_headers, "Prefer": "return=representation"},
+                    json=data,
+                    timeout=30.0
+                )
+            if response.status_code in [200, 201]:
+                result = response.json()
+                return result[0] if isinstance(result, list) else result
+            else:
+                logger.error(f"DB insert failed: {response.status_code} - {response.text}")
+                return None
+        except Exception as e:
+            logger.error(f"DB insert error: {e}")
+            return None
+
+    async def _db_select(self, table: str, filters: Optional[Dict[str, str]] = None,
+                         select: str = "*", order_by: Optional[str] = None,
+                         limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Select records from a database table"""
+        try:
+            url = f"{self.supabase_url}/rest/v1/{table}"
+            params = {"select": select}
+
+            if filters:
+                params.update(filters)
+            if order_by:
+                params["order"] = order_by
+            if limit:
+                params["limit"] = str(limit)
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.db_headers,
+                    params=params,
+                    timeout=30.0
+                )
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"DB select failed: {response.status_code} - {response.text}")
+                return []
+        except Exception as e:
+            logger.error(f"DB select error: {e}")
+            return []
+
+    async def _db_update(self, table: str, filters: Dict[str, str], data: Dict[str, Any]) -> bool:
+        """Update records in a database table"""
+        try:
+            url = f"{self.supabase_url}/rest/v1/{table}"
+            async with httpx.AsyncClient() as client:
+                response = await client.patch(
+                    url,
+                    headers={**self.db_headers, "Prefer": "return=minimal"},
+                    params=filters,
+                    json=data,
+                    timeout=30.0
+                )
+            return response.status_code in [200, 204]
+        except Exception as e:
+            logger.error(f"DB update error: {e}")
+            return False
 
     async def analyze_email(self, email_content: str, subject: str, sender_email: str) -> Dict[str, Any]:
         """
@@ -308,33 +387,38 @@ Write a helpful, professional response in the same language the customer used (E
         Returns:
             Tuple of (should_escalate, reasons)
         """
-        reasons = analysis.get("escalation_reasons", [])
+        reasons = list(analysis.get("escalation_reasons", []))
         should_escalate = analysis.get("should_escalate", False)
 
         # Check for repeated contact (multiple emails in short time)
         if thread_id:
             try:
-                supabase = await get_supabase_client()
-                # Count messages in the last hour
                 one_hour_ago = (datetime.utcnow() - timedelta(hours=1)).isoformat()
-                result = supabase.table("email_messages").select("id").eq(
-                    "thread_id", thread_id
-                ).eq(
-                    "sender_type", "customer"
-                ).gte(
-                    "created_at", one_hour_ago
-                ).execute()
 
-                if result.data and len(result.data) >= 3:
+                # Count customer messages in the last hour
+                messages = await self._db_select(
+                    "email_messages",
+                    filters={
+                        "thread_id": f"eq.{thread_id}",
+                        "sender_type": "eq.customer",
+                        "created_at": f"gte.{one_hour_ago}"
+                    }
+                )
+
+                if len(messages) >= 3:
                     reasons.append("Multiple emails in short time (3+ in 1 hour)")
                     should_escalate = True
 
                 # Check if already escalated
-                existing = supabase.table("ai_escalations").select("id").eq(
-                    "thread_id", thread_id
-                ).is_("resolved_at", "null").execute()
+                escalations = await self._db_select(
+                    "ai_escalations",
+                    filters={
+                        "thread_id": f"eq.{thread_id}",
+                        "resolved_at": "is.null"
+                    }
+                )
 
-                if existing.data:
+                if escalations:
                     reasons.append("Thread already escalated")
                     should_escalate = True
 
@@ -509,21 +593,21 @@ Write a helpful, professional response in the same language the customer used (E
             Tuple of (thread_id, message_id)
         """
         try:
-            supabase = await get_supabase_client()
-
             # Create or get thread
             if not thread_id:
                 # Check for existing open thread from this email
-                existing = supabase.table("email_threads").select("id").eq(
-                    "customer_email", customer_email
-                ).in_(
-                    "status", ["open", "in_progress"]
-                ).order(
-                    "created_at", desc=True
-                ).limit(1).execute()
+                existing = await self._db_select(
+                    "email_threads",
+                    filters={
+                        "customer_email": f"eq.{customer_email}",
+                        "status": "in.(open,in_progress)"
+                    },
+                    order_by="created_at.desc",
+                    limit=1
+                )
 
-                if existing.data:
-                    thread_id = existing.data[0]["id"]
+                if existing:
+                    thread_id = existing[0]["id"]
                 else:
                     # Create new thread
                     priority = "normal"
@@ -539,16 +623,19 @@ Write a helpful, professional response in the same language the customer used (E
                         if analysis.get("should_escalate"):
                             status = "escalated"
 
-                    thread_result = supabase.table("email_threads").insert({
+                    thread_result = await self._db_insert("email_threads", {
                         "customer_email": customer_email,
                         "customer_name": customer_name,
                         "subject": subject,
                         "status": status,
                         "priority": priority,
                         "category": category
-                    }).execute()
+                    })
 
-                    thread_id = thread_result.data[0]["id"]
+                    if thread_result:
+                        thread_id = thread_result["id"]
+                    else:
+                        raise Exception("Failed to create email thread")
 
             # Add message to thread
             message_data = {
@@ -563,8 +650,11 @@ Write a helpful, professional response in the same language the customer used (E
             if ai_confidence is not None:
                 message_data["ai_confidence"] = ai_confidence
 
-            message_result = supabase.table("email_messages").insert(message_data).execute()
-            message_id = message_result.data[0]["id"]
+            message_result = await self._db_insert("email_messages", message_data)
+            if not message_result:
+                raise Exception("Failed to create email message")
+
+            message_id = message_result["id"]
 
             # Record escalation if needed
             if analysis and analysis.get("should_escalate"):
@@ -574,20 +664,24 @@ Write a helpful, professional response in the same language the customer used (E
                 elif analysis.get("sentiment") in ["angry", "negative"]:
                     escalation_type = "negative_sentiment"
 
-                supabase.table("ai_escalations").insert({
+                await self._db_insert("ai_escalations", {
                     "thread_id": thread_id,
                     "message_id": message_id,
                     "reason": "; ".join(analysis.get("escalation_reasons", ["Unknown"])),
                     "escalation_type": escalation_type,
                     "confidence_score": analysis.get("confidence"),
                     "detected_keywords": analysis.get("detected_keywords", [])
-                }).execute()
+                })
 
                 # Update thread status to escalated
-                supabase.table("email_threads").update({
-                    "status": "escalated",
-                    "priority": "high" if analysis.get("urgency") != "urgent" else "urgent"
-                }).eq("id", thread_id).execute()
+                await self._db_update(
+                    "email_threads",
+                    {"id": f"eq.{thread_id}"},
+                    {
+                        "status": "escalated",
+                        "priority": "high" if analysis.get("urgency") != "urgent" else "urgent"
+                    }
+                )
 
             logger.info(f"Tracked message {message_id} in thread {thread_id}")
             return (thread_id, message_id)
@@ -662,16 +756,12 @@ Write a helpful, professional response in the same language the customer used (E
             # Step 4: Generate and send AI response (even if escalated, send acknowledgment)
             if self.is_available():
                 # Get conversation history
-                supabase = await get_supabase_client()
-                history_result = supabase.table("email_messages").select(
-                    "sender_type", "content"
-                ).eq(
-                    "thread_id", thread_id
-                ).order(
-                    "created_at", desc=False
-                ).limit(10).execute()
-
-                conversation_history = history_result.data if history_result.data else []
+                conversation_history = await self._db_select(
+                    "email_messages",
+                    filters={"thread_id": f"eq.{thread_id}"},
+                    order_by="created_at.asc",
+                    limit=10
+                )
 
                 # Generate response
                 ai_response, confidence = await self.generate_response(
@@ -721,13 +811,10 @@ Write a helpful, professional response in the same language the customer used (E
     async def get_settings(self) -> Dict[str, Any]:
         """Get current AI email support settings"""
         try:
-            supabase = await get_supabase_client()
-            result = supabase.table("email_support_settings").select("*").execute()
-
+            results = await self._db_select("email_support_settings")
             settings_dict = {}
-            for row in result.data:
+            for row in results:
                 settings_dict[row["setting_key"]] = row["setting_value"]
-
             return settings_dict
         except Exception as e:
             logger.error(f"Error getting settings: {e}")
@@ -736,18 +823,47 @@ Write a helpful, professional response in the same language the customer used (E
     async def update_settings(self, updates: Dict[str, Any]) -> bool:
         """Update AI email support settings"""
         try:
-            supabase = await get_supabase_client()
-
             for key, value in updates.items():
-                supabase.table("email_support_settings").upsert({
-                    "setting_key": key,
-                    "setting_value": str(value),
-                    "updated_at": datetime.utcnow().isoformat()
-                }).execute()
+                # Upsert each setting
+                url = f"{self.supabase_url}/rest/v1/email_support_settings"
+                async with httpx.AsyncClient() as client:
+                    # Try to update first
+                    response = await client.patch(
+                        url,
+                        headers={**self.db_headers, "Prefer": "return=minimal"},
+                        params={"setting_key": f"eq.{key}"},
+                        json={
+                            "setting_value": str(value),
+                            "updated_at": datetime.utcnow().isoformat()
+                        },
+                        timeout=30.0
+                    )
+
+                    # If no rows updated, insert
+                    if response.status_code == 204:
+                        # Check if row exists
+                        check_resp = await client.get(
+                            url,
+                            headers=self.db_headers,
+                            params={"setting_key": f"eq.{key}"},
+                            timeout=30.0
+                        )
+                        if check_resp.status_code == 200 and not check_resp.json():
+                            # Insert new
+                            await client.post(
+                                url,
+                                headers=self.db_headers,
+                                json={
+                                    "setting_key": key,
+                                    "setting_value": str(value),
+                                    "updated_at": datetime.utcnow().isoformat()
+                                },
+                                timeout=30.0
+                            )
 
             # Update local settings
             if "ai_enabled" in updates:
-                self.enabled = updates["ai_enabled"].lower() == "true"
+                self.enabled = str(updates["ai_enabled"]).lower() == "true"
             if "confidence_threshold" in updates:
                 self.confidence_threshold = float(updates["confidence_threshold"])
 
