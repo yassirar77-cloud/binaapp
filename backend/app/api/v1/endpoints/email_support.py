@@ -3,19 +3,106 @@ AI Email Support API Endpoints
 Handles email webhooks, thread management, and admin controls
 """
 
+import httpx
 from fastapi import APIRouter, HTTPException, status, Depends, Request, Query, BackgroundTasks
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from loguru import logger
 
 from app.core.security import get_current_user
 from app.core.config import settings
 from app.services.ai_email_support import ai_email_support
-from app.services.supabase_client import get_supabase_client
 from app.services.email_service import email_service
 
 router = APIRouter()
+
+# Database helpers
+DB_URL = settings.SUPABASE_URL
+DB_KEY = settings.SUPABASE_SERVICE_ROLE_KEY
+DB_HEADERS = {
+    "apikey": DB_KEY,
+    "Authorization": f"Bearer {DB_KEY}",
+    "Content-Type": "application/json"
+}
+
+
+async def db_select(table: str, filters: Optional[Dict[str, str]] = None,
+                    select: str = "*", order_by: Optional[str] = None,
+                    limit: Optional[int] = None, offset: Optional[int] = None) -> List[Dict]:
+    """Select records from database"""
+    try:
+        url = f"{DB_URL}/rest/v1/{table}"
+        params = {"select": select}
+        if filters:
+            params.update(filters)
+        if order_by:
+            params["order"] = order_by
+        if limit:
+            params["limit"] = str(limit)
+        if offset:
+            params["offset"] = str(offset)
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=DB_HEADERS, params=params, timeout=30.0)
+        if response.status_code == 200:
+            return response.json()
+        logger.error(f"DB select failed: {response.status_code} - {response.text}")
+        return []
+    except Exception as e:
+        logger.error(f"DB select error: {e}")
+        return []
+
+
+async def db_select_one(table: str, filters: Dict[str, str], select: str = "*") -> Optional[Dict]:
+    """Select single record from database"""
+    results = await db_select(table, filters, select, limit=1)
+    return results[0] if results else None
+
+
+async def db_update(table: str, filters: Dict[str, str], data: Dict[str, Any]) -> bool:
+    """Update records in database"""
+    try:
+        url = f"{DB_URL}/rest/v1/{table}"
+        async with httpx.AsyncClient() as client:
+            response = await client.patch(
+                url,
+                headers={**DB_HEADERS, "Prefer": "return=minimal"},
+                params=filters,
+                json=data,
+                timeout=30.0
+            )
+        return response.status_code in [200, 204]
+    except Exception as e:
+        logger.error(f"DB update error: {e}")
+        return False
+
+
+async def db_count(table: str, filters: Optional[Dict[str, str]] = None) -> int:
+    """Count records in database"""
+    try:
+        url = f"{DB_URL}/rest/v1/{table}"
+        params = {"select": "id"}
+        if filters:
+            params.update(filters)
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                headers={**DB_HEADERS, "Prefer": "count=exact"},
+                params=params,
+                timeout=30.0
+            )
+        if response.status_code == 200:
+            # Count is in content-range header
+            content_range = response.headers.get("content-range", "")
+            if "/" in content_range:
+                return int(content_range.split("/")[1])
+            return len(response.json())
+        return 0
+    except Exception as e:
+        logger.error(f"DB count error: {e}")
+        return 0
 
 
 # =====================================================
@@ -208,45 +295,36 @@ async def list_email_threads(
     Supports filtering by status, priority, and category.
     """
     try:
-        supabase = await get_supabase_client()
-
-        # Build query
-        query = supabase.table("email_threads").select(
-            "*, email_messages(count)"
-        )
-
-        # Apply filters
+        # Build filters
+        filters = {}
         if status_filter:
-            query = query.eq("status", status_filter)
+            filters["status"] = f"eq.{status_filter}"
         if priority_filter:
-            query = query.eq("priority", priority_filter)
+            filters["priority"] = f"eq.{priority_filter}"
         if category_filter:
-            query = query.eq("category", category_filter)
+            filters["category"] = f"eq.{category_filter}"
 
         # Pagination
         offset = (page - 1) * page_size
-        query = query.order("created_at", desc=True).range(offset, offset + page_size - 1)
 
-        result = query.execute()
+        # Get threads
+        threads = await db_select(
+            "email_threads",
+            filters=filters,
+            order_by="created_at.desc",
+            limit=page_size,
+            offset=offset
+        )
 
         # Get total count
-        count_query = supabase.table("email_threads").select("id", count="exact")
-        if status_filter:
-            count_query = count_query.eq("status", status_filter)
-        if priority_filter:
-            count_query = count_query.eq("priority", priority_filter)
-        if category_filter:
-            count_query = count_query.eq("category", category_filter)
-
-        count_result = count_query.execute()
-        total = count_result.count if hasattr(count_result, 'count') else len(result.data)
+        total = await db_count("email_threads", filters)
 
         return {
-            "threads": result.data,
+            "threads": threads,
             "total": total,
             "page": page,
             "page_size": page_size,
-            "total_pages": (total + page_size - 1) // page_size
+            "total_pages": (total + page_size - 1) // page_size if total > 0 else 0
         }
 
     except Exception as e:
@@ -271,33 +349,33 @@ async def get_email_thread(
     - AI decisions and escalation history
     """
     try:
-        supabase = await get_supabase_client()
-
         # Get thread
-        thread_result = supabase.table("email_threads").select("*").eq(
-            "id", thread_id
-        ).single().execute()
+        thread = await db_select_one("email_threads", {"id": f"eq.{thread_id}"})
 
-        if not thread_result.data:
+        if not thread:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Thread not found"
             )
 
         # Get messages
-        messages_result = supabase.table("email_messages").select("*").eq(
-            "thread_id", thread_id
-        ).order("created_at", desc=False).execute()
+        messages = await db_select(
+            "email_messages",
+            filters={"thread_id": f"eq.{thread_id}"},
+            order_by="created_at.asc"
+        )
 
         # Get escalations
-        escalations_result = supabase.table("ai_escalations").select("*").eq(
-            "thread_id", thread_id
-        ).order("escalated_at", desc=True).execute()
+        escalations = await db_select(
+            "ai_escalations",
+            filters={"thread_id": f"eq.{thread_id}"},
+            order_by="escalated_at.desc"
+        )
 
         return {
-            "thread": thread_result.data,
-            "messages": messages_result.data,
-            "escalations": escalations_result.data
+            "thread": thread,
+            "messages": messages,
+            "escalations": escalations
         }
 
     except HTTPException:
@@ -323,20 +401,14 @@ async def send_manual_reply(
     Optionally marks the thread as resolved.
     """
     try:
-        supabase = await get_supabase_client()
-
         # Get thread
-        thread_result = supabase.table("email_threads").select("*").eq(
-            "id", thread_id
-        ).single().execute()
+        thread = await db_select_one("email_threads", {"id": f"eq.{thread_id}"})
 
-        if not thread_result.data:
+        if not thread:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Thread not found"
             )
-
-        thread = thread_result.data
 
         # Send email
         sent = await ai_email_support.send_reply(
@@ -373,14 +445,18 @@ async def send_manual_reply(
         if request.mark_resolved:
             update_data["resolved_at"] = datetime.utcnow().isoformat()
 
-        supabase.table("email_threads").update(update_data).eq("id", thread_id).execute()
+        await db_update("email_threads", {"id": f"eq.{thread_id}"}, update_data)
 
         # Resolve any open escalations
         if request.mark_resolved:
-            supabase.table("ai_escalations").update({
-                "resolved_at": datetime.utcnow().isoformat(),
-                "resolved_by": admin_email
-            }).eq("thread_id", thread_id).is_("resolved_at", "null").execute()
+            await db_update(
+                "ai_escalations",
+                {"thread_id": f"eq.{thread_id}", "resolved_at": "is.null"},
+                {
+                    "resolved_at": datetime.utcnow().isoformat(),
+                    "resolved_by": admin_email
+                }
+            )
 
         return {
             "success": True,
@@ -401,25 +477,21 @@ async def send_manual_reply(
 @router.put("/threads/{thread_id}/status")
 async def update_thread_status(
     thread_id: str,
-    new_status: str = Query(..., regex="^(open|in_progress|resolved|escalated|closed)$"),
+    new_status: str = Query(..., pattern="^(open|in_progress|resolved|escalated|closed)$"),
     current_user: Dict = Depends(get_current_user)
 ):
     """Update the status of an email thread."""
     try:
-        supabase = await get_supabase_client()
-
         update_data = {"status": new_status}
         if new_status == "resolved":
             update_data["resolved_at"] = datetime.utcnow().isoformat()
 
-        result = supabase.table("email_threads").update(update_data).eq(
-            "id", thread_id
-        ).execute()
+        success = await db_update("email_threads", {"id": f"eq.{thread_id}"}, update_data)
 
-        if not result.data:
+        if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Thread not found"
+                detail="Thread not found or update failed"
             )
 
         return {"success": True, "status": new_status}
@@ -447,25 +519,34 @@ async def list_escalations(
 ):
     """List AI escalations for review."""
     try:
-        supabase = await get_supabase_client()
-
-        query = supabase.table("ai_escalations").select(
-            "*, email_threads(customer_email, customer_name, subject)"
-        )
-
+        filters = {}
         if resolved is not None:
             if resolved:
-                query = query.not_.is_("resolved_at", "null")
+                filters["resolved_at"] = "not.is.null"
             else:
-                query = query.is_("resolved_at", "null")
+                filters["resolved_at"] = "is.null"
 
         offset = (page - 1) * page_size
-        query = query.order("escalated_at", desc=True).range(offset, offset + page_size - 1)
 
-        result = query.execute()
+        escalations = await db_select(
+            "ai_escalations",
+            filters=filters,
+            order_by="escalated_at.desc",
+            limit=page_size,
+            offset=offset
+        )
+
+        # Get thread info for each escalation
+        for esc in escalations:
+            thread = await db_select_one(
+                "email_threads",
+                {"id": f"eq.{esc['thread_id']}"},
+                select="customer_email,customer_name,subject"
+            )
+            esc["thread"] = thread
 
         return {
-            "escalations": result.data,
+            "escalations": escalations,
             "page": page,
             "page_size": page_size
         }
@@ -485,14 +566,16 @@ async def acknowledge_escalation(
 ):
     """Mark an escalation as acknowledged."""
     try:
-        supabase = await get_supabase_client()
+        success = await db_update(
+            "ai_escalations",
+            {"id": f"eq.{escalation_id}"},
+            {
+                "acknowledged_at": datetime.utcnow().isoformat(),
+                "acknowledged_by": current_user.get("email", "admin")
+            }
+        )
 
-        result = supabase.table("ai_escalations").update({
-            "acknowledged_at": datetime.utcnow().isoformat(),
-            "acknowledged_by": current_user.get("email", "admin")
-        }).eq("id", escalation_id).execute()
-
-        if not result.data:
+        if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Escalation not found"
@@ -525,7 +608,7 @@ async def get_email_support_settings(
         return {
             "settings": settings_data,
             "ai_available": ai_email_support.is_available(),
-            "model": settings.ANTHROPIC_MODEL
+            "model": ai_email_support.model
         }
 
     except Exception as e:
@@ -589,29 +672,30 @@ async def get_email_analytics(
 ):
     """Get email support analytics for the specified period."""
     try:
-        supabase = await get_supabase_client()
-
-        # Get thread statistics
-        from datetime import timedelta
         start_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
-        threads_result = supabase.table("email_threads").select(
-            "status, priority, category"
-        ).gte("created_at", start_date).execute()
+        # Get threads
+        threads = await db_select(
+            "email_threads",
+            filters={"created_at": f"gte.{start_date}"},
+            select="status,priority,category"
+        )
 
-        messages_result = supabase.table("email_messages").select(
-            "sender_type, ai_generated, ai_confidence"
-        ).gte("created_at", start_date).execute()
+        # Get messages
+        messages = await db_select(
+            "email_messages",
+            filters={"created_at": f"gte.{start_date}"},
+            select="sender_type,ai_generated,ai_confidence"
+        )
 
-        escalations_result = supabase.table("ai_escalations").select(
-            "escalation_type, resolved_at"
-        ).gte("escalated_at", start_date).execute()
+        # Get escalations
+        escalations = await db_select(
+            "ai_escalations",
+            filters={"escalated_at": f"gte.{start_date}"},
+            select="escalation_type,resolved_at"
+        )
 
         # Calculate statistics
-        threads = threads_result.data
-        messages = messages_result.data
-        escalations = escalations_result.data
-
         total_threads = len(threads)
         status_breakdown = {}
         priority_breakdown = {}
@@ -620,21 +704,21 @@ async def get_email_analytics(
         for t in threads:
             status_breakdown[t["status"]] = status_breakdown.get(t["status"], 0) + 1
             priority_breakdown[t["priority"]] = priority_breakdown.get(t["priority"], 0) + 1
-            if t["category"]:
+            if t.get("category"):
                 category_breakdown[t["category"]] = category_breakdown.get(t["category"], 0) + 1
 
         total_messages = len(messages)
-        ai_messages = sum(1 for m in messages if m["ai_generated"])
-        customer_messages = sum(1 for m in messages if m["sender_type"] == "customer")
+        ai_messages = sum(1 for m in messages if m.get("ai_generated"))
+        customer_messages = sum(1 for m in messages if m.get("sender_type") == "customer")
 
-        ai_confidences = [m["ai_confidence"] for m in messages if m["ai_confidence"] is not None]
+        ai_confidences = [m["ai_confidence"] for m in messages if m.get("ai_confidence") is not None]
         avg_confidence = sum(ai_confidences) / len(ai_confidences) if ai_confidences else 0
 
         total_escalations = len(escalations)
-        resolved_escalations = sum(1 for e in escalations if e["resolved_at"])
+        resolved_escalations = sum(1 for e in escalations if e.get("resolved_at"))
         escalation_types = {}
         for e in escalations:
-            etype = e["escalation_type"] or "unknown"
+            etype = e.get("escalation_type") or "unknown"
             escalation_types[etype] = escalation_types.get(etype, 0) + 1
 
         return {
