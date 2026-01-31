@@ -113,6 +113,7 @@ async def get_subscription_status_from_db(user_id: str) -> Dict[str, Any]:
 
         sub = records[0]
         now = datetime.utcnow()
+        tier = sub.get("tier", "starter")
 
         # Parse dates
         end_date = None
@@ -132,8 +133,16 @@ async def get_subscription_status_from_db(user_id: str) -> Dict[str, Any]:
         if grace_period_end:
             grace_days_remaining = max(0, (grace_period_end - now).days)
 
+        # Check if this is a founder/admin account (special tiers that shouldn't be locked)
+        # Founder accounts have very long expiry dates (e.g., 2030) or special tier names
+        is_founder_account = tier in ("founder", "admin") or (days_remaining is not None and days_remaining > 365)
+
         # Determine effective status
         db_status = sub.get("status", "active")
+
+        # Override status for founder accounts - they should always be active
+        if is_founder_account and db_status in ("expired", "grace", "locked"):
+            db_status = "active"
         is_locked = db_status == SubscriptionStatus.LOCKED
         is_grace = db_status == SubscriptionStatus.GRACE
         is_expired = db_status == SubscriptionStatus.EXPIRED
@@ -146,7 +155,7 @@ async def get_subscription_status_from_db(user_id: str) -> Dict[str, Any]:
             "subscription_id": sub.get("id"),
             "user_id": user_id,
             "status": db_status,
-            "tier": sub.get("tier", "starter"),
+            "tier": tier,
             "end_date": sub.get("end_date"),
             "grace_period_end": sub.get("grace_period_end"),
             "locked_at": sub.get("locked_at"),
@@ -154,6 +163,7 @@ async def get_subscription_status_from_db(user_id: str) -> Dict[str, Any]:
             "is_locked": is_locked,
             "is_grace": is_grace,
             "is_expired": is_expired,
+            "is_founder": is_founder_account,
             "days_remaining": days_remaining,
             "grace_days_remaining": grace_days_remaining,
             "can_use_dashboard": can_use_dashboard,

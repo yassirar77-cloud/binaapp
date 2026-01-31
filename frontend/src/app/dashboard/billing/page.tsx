@@ -240,7 +240,8 @@ export default function BillingPage() {
               </p>
             )}
           </div>
-          {(subscription?.is_expired || (subscription?.days_remaining || 0) <= 7) && (
+          {/* Show renew button if expired, expiring soon, or user came from warning banner */}
+          {(subscription?.is_expired || (subscription?.days_remaining || 0) <= 30) && (
             <button
               className="renew-btn-large"
               onClick={handleRenew}

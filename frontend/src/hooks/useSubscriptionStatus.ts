@@ -20,6 +20,7 @@ export interface SubscriptionStatusData {
   is_locked: boolean;
   is_grace: boolean;
   is_expired: boolean;
+  is_founder?: boolean;
   days_remaining: number | null;
   grace_days_remaining: number | null;
   can_use_dashboard: boolean;
@@ -39,6 +40,7 @@ interface UseSubscriptionStatusReturn {
   isGrace: boolean;
   isExpired: boolean;
   isActive: boolean;
+  isFounder: boolean;
   daysRemaining: number | null;
   graceDaysRemaining: number | null;
   canUseDashboard: boolean;
@@ -168,6 +170,12 @@ export function useSubscriptionStatus(): UseSubscriptionStatusReturn {
   const isExpired = data?.is_expired || status === 'expired';
   const isActive = status === 'active' && !isLocked && !isGrace && !isExpired;
 
+  // Check if founder account (from API or fallback to tier/days check)
+  const tier = data?.tier || 'starter';
+  const daysRemaining = data?.days_remaining ?? null;
+  const isFounder = data?.is_founder || tier === 'founder' || tier === 'admin' ||
+    (daysRemaining !== null && daysRemaining > 365);
+
   return {
     status,
     data,
@@ -176,10 +184,11 @@ export function useSubscriptionStatus(): UseSubscriptionStatusReturn {
     isGrace,
     isExpired,
     isActive,
-    daysRemaining: data?.days_remaining ?? null,
+    isFounder,
+    daysRemaining,
     graceDaysRemaining: data?.grace_days_remaining ?? null,
     canUseDashboard: data?.can_use_dashboard ?? true,
-    tier: data?.tier || 'starter',
+    tier,
     lockReason: data?.lock_reason ?? null,
     paymentUrl: data?.payment_url || '/dashboard/billing',
     error,

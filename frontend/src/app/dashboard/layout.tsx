@@ -24,6 +24,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     isLocked,
     isGrace,
     isExpired,
+    isFounder,
     daysRemaining,
     graceDaysRemaining,
     tier,
@@ -46,8 +47,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     ? (graceDaysRemaining ?? 0)
     : (daysRemaining ?? 0);
 
-  // Show banner for grace or expired status
-  const showBanner = isGrace || isExpired || (daysRemaining !== null && daysRemaining <= 5);
+  // Show banner for grace or expired status, but NOT for founder/admin accounts
+  // isFounder flag comes from the hook and checks tier or days_remaining > 365
+  const showBanner = !isFounder && (isGrace || isExpired || (daysRemaining !== null && daysRemaining <= 5));
 
   return (
     <div className="min-h-screen bg-gray-50">
