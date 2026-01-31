@@ -245,44 +245,24 @@ async def polling_health_check():
     Health check endpoint for the email polling service
 
     Public endpoint - useful for monitoring systems
+
+    Returns:
+        - is_running: Whether the scheduler is actively running
+        - last_poll_time: When the last poll occurred
+        - emails_processed_today: Number of emails processed today
+        - last_error: Last error message if any
+        - imap_connection_status: Current IMAP connection status
     """
     from app.services.email_polling_service import email_polling_service
     from app.core.scheduler import email_polling_scheduler
 
-    service_available = email_polling_service.is_available()
-    scheduler_running = email_polling_scheduler.is_running
     last_poll = email_polling_service.last_poll_time
-    last_status = email_polling_service.last_poll_status
-
-    # Determine health status
-    health_status = "healthy"
-    issues = []
-
-    if not service_available:
-        health_status = "degraded"
-        issues.append("Email polling service not available")
-
-    if not scheduler_running:
-        health_status = "degraded"
-        issues.append("Scheduler not running")
-
-    if last_status == "error":
-        health_status = "unhealthy"
-        issues.append("Last poll resulted in error")
-
-    # Check if last poll was too long ago (more than 2x the interval)
-    if last_poll:
-        from datetime import timedelta
-        max_age = timedelta(seconds=email_polling_service.polling_interval * 2)
-        if datetime.utcnow() - last_poll > max_age:
-            health_status = "unhealthy"
-            issues.append("Last poll was too long ago")
+    last_poll_formatted = last_poll.strftime("%Y-%m-%d %H:%M:%S") if last_poll else None
 
     return {
-        "status": health_status,
-        "service_available": service_available,
-        "scheduler_running": scheduler_running,
-        "last_poll_time": last_poll.isoformat() if last_poll else None,
-        "last_poll_status": last_status,
-        "issues": issues
+        "is_running": email_polling_scheduler.is_running,
+        "last_poll_time": last_poll_formatted,
+        "emails_processed_today": email_polling_service.emails_processed_today,
+        "last_error": email_polling_service.last_error,
+        "imap_connection_status": email_polling_service.imap_connection_status
     }
