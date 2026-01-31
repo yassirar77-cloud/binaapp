@@ -47,6 +47,8 @@ class EmailPollingService:
         self.is_running = False
         self.last_poll_time: Optional[datetime] = None
         self.last_poll_status: str = "never_run"
+        self.last_error: Optional[str] = None
+        self.imap_connection_status: str = "disconnected"
         self.emails_processed_today: int = 0
         self.errors_today: List[Dict[str, Any]] = []
         self._processed_uids: Set[str] = set()  # Track processed email UIDs
@@ -56,7 +58,15 @@ class EmailPollingService:
         self._last_email_sent_time: Optional[datetime] = None
         self._min_email_interval_seconds: int = 5  # Minimum 5 seconds between sends
 
-        logger.info(f"Email Polling Service initialized. Enabled: {self.enabled}")
+        logger.info("=" * 60)
+        logger.info("EMAIL POLLING SERVICE INITIALIZATION")
+        logger.info("=" * 60)
+        logger.info(f"Enabled: {self.enabled}")
+        logger.info(f"IMAP Server: {self.imap_server}:{self.imap_port}")
+        logger.info(f"Email Account: {self.email}")
+        logger.info(f"Polling Interval: {self.polling_interval} seconds")
+        logger.info(f"Password configured: {'Yes' if self.password else 'NO - MISSING!'}")
+        logger.info("=" * 60)
 
     def is_available(self) -> bool:
         """Check if email polling is available and properly configured"""
@@ -287,39 +297,61 @@ class EmailPollingService:
         self._reset_daily_stats()
         self.last_poll_time = datetime.utcnow()
         self.last_poll_status = "in_progress"
+        self.last_error = None
+
+        logger.info("=" * 60)
+        logger.info("EMAIL POLLING - STARTING INBOX POLL")
+        logger.info("=" * 60)
+        logger.info(f"Poll started at: {self.last_poll_time.isoformat()}")
 
         mailbox = None
         try:
-            logger.info(f"Connecting to IMAP server: {self.imap_server}:{self.imap_port}")
+            logger.info(f"[IMAP] Attempting connection to {self.imap_server}:{self.imap_port}")
+            logger.info(f"[IMAP] Using account: {self.email}")
+            self.imap_connection_status = "connecting"
 
             # Connect to IMAP with retry logic
             max_retries = 3
             for attempt in range(max_retries):
                 try:
+                    logger.info(f"[IMAP] Connection attempt {attempt + 1}/{max_retries}")
                     mailbox = MailBox(self.imap_server, self.imap_port)
+                    logger.info(f"[IMAP] MailBox object created, attempting login...")
                     mailbox.login(self.email, self.password)
-                    logger.info("IMAP login successful")
+                    logger.info("[IMAP] LOGIN SUCCESSFUL!")
+                    self.imap_connection_status = "connected"
                     break
                 except Exception as conn_error:
+                    logger.error(f"[IMAP] Connection attempt {attempt + 1} FAILED: {conn_error}")
+                    self.imap_connection_status = "failed"
                     if attempt < max_retries - 1:
                         wait_time = 2 ** (attempt + 1)  # Exponential backoff
-                        logger.warning(f"IMAP connection failed (attempt {attempt + 1}), retrying in {wait_time}s: {conn_error}")
+                        logger.warning(f"[IMAP] Retrying in {wait_time}s...")
                         await asyncio.sleep(wait_time)
                     else:
+                        logger.error(f"[IMAP] All {max_retries} connection attempts FAILED")
                         raise conn_error
 
             # Select INBOX
+            logger.info("[IMAP] Selecting INBOX folder...")
             mailbox.folder.set("INBOX")
+            logger.info("[IMAP] INBOX selected successfully")
 
             # Fetch unread emails
             # Search for UNSEEN emails that don't have our processed flag
+            logger.info("[IMAP] Fetching unread emails (limit: 20)...")
             messages = list(mailbox.fetch(AND(seen=False), limit=20, reverse=True))
             poll_result["emails_found"] = len(messages)
 
-            logger.info(f"Found {len(messages)} unread emails in inbox")
+            logger.info(f"[EMAIL] Found {len(messages)} unread emails in inbox")
+            if len(messages) == 0:
+                logger.info("[EMAIL] No unread emails to process")
+            else:
+                logger.info("[EMAIL] Starting email processing...")
 
             # Process each email
-            for msg in messages:
+            for idx, msg in enumerate(messages, 1):
+                logger.info(f"[EMAIL {idx}/{len(messages)}] Processing: {msg.subject} | From: {msg.from_}")
                 try:
                     email_result = await self.process_email(msg, mailbox)
                     if email_result.get("processed"):
@@ -340,11 +372,19 @@ class EmailPollingService:
 
             poll_result["success"] = True
             self.last_poll_status = "success"
+            logger.info("[EMAIL] Polling completed successfully")
 
         except Exception as e:
+            logger.error("=" * 60)
+            logger.error("EMAIL POLLING - ERROR OCCURRED")
+            logger.error("=" * 60)
             logger.error(f"Error polling inbox: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             poll_result["error"] = str(e)
             self.last_poll_status = "error"
+            self.last_error = str(e)
+            self.imap_connection_status = "error"
             self.errors_today.append({
                 "time": datetime.utcnow().isoformat(),
                 "error": f"Polling error: {str(e)}"
@@ -354,18 +394,25 @@ class EmailPollingService:
             # Always close the connection
             if mailbox:
                 try:
+                    logger.info("[IMAP] Closing connection...")
                     mailbox.logout()
-                    logger.debug("IMAP connection closed")
+                    logger.info("[IMAP] Connection closed successfully")
+                    self.imap_connection_status = "disconnected"
                 except Exception as logout_error:
-                    logger.warning(f"Error closing IMAP connection: {logout_error}")
+                    logger.warning(f"[IMAP] Error closing connection: {logout_error}")
 
         poll_result["completed_at"] = datetime.utcnow().isoformat()
 
-        logger.info(
-            f"Polling completed: {poll_result['emails_processed']}/{poll_result['emails_found']} processed, "
-            f"{poll_result['emails_escalated']} escalated, "
-            f"{len(poll_result['errors'])} errors"
-        )
+        logger.info("=" * 60)
+        logger.info("EMAIL POLLING - SUMMARY")
+        logger.info("=" * 60)
+        logger.info(f"Status: {self.last_poll_status.upper()}")
+        logger.info(f"Emails Found: {poll_result['emails_found']}")
+        logger.info(f"Emails Processed: {poll_result['emails_processed']}")
+        logger.info(f"Emails Escalated: {poll_result['emails_escalated']}")
+        logger.info(f"Errors: {len(poll_result['errors'])}")
+        logger.info(f"Total Processed Today: {self.emails_processed_today}")
+        logger.info("=" * 60)
 
         return poll_result
 
@@ -377,6 +424,8 @@ class EmailPollingService:
             "enabled": self.enabled,
             "last_poll_time": self.last_poll_time.isoformat() if self.last_poll_time else None,
             "last_poll_status": self.last_poll_status,
+            "last_error": self.last_error,
+            "imap_connection_status": self.imap_connection_status,
             "emails_processed_today": self.emails_processed_today,
             "errors_today_count": len(self.errors_today),
             "recent_errors": self.errors_today[-5:] if self.errors_today else [],
