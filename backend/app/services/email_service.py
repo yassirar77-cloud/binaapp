@@ -38,7 +38,11 @@ class EmailService:
         from_name: Optional[str] = None,
         reply_to: Optional[str] = None,
         cc: Optional[List[str]] = None,
-        bcc: Optional[List[str]] = None
+        bcc: Optional[List[str]] = None,
+        smtp_host: Optional[str] = None,
+        smtp_port: Optional[int] = None,
+        smtp_user: Optional[str] = None,
+        smtp_password: Optional[str] = None
     ) -> bool:
         """
         Send an email via Zoho SMTP
@@ -53,11 +57,21 @@ class EmailService:
             reply_to: Reply-to email address
             cc: List of CC email addresses
             bcc: List of BCC email addresses
+            smtp_host: Override SMTP host (optional)
+            smtp_port: Override SMTP port (optional)
+            smtp_user: Override SMTP user (optional)
+            smtp_password: Override SMTP password (optional)
 
         Returns:
             bool: True if email sent successfully, False otherwise
         """
-        if not self._is_configured():
+        # Use override credentials if provided, otherwise use defaults
+        effective_smtp_host = smtp_host or self.smtp_host
+        effective_smtp_port = smtp_port or self.smtp_port
+        effective_smtp_user = smtp_user or self.smtp_user
+        effective_smtp_password = smtp_password or self.smtp_password
+
+        if not effective_smtp_user or not effective_smtp_password:
             logger.warning("Email service not configured. Skipping email send.")
             return False
 
@@ -89,15 +103,15 @@ class EmailService:
 
             # Send email via Zoho SMTP
             # Port 465 uses SSL, Port 587 uses STARTTLS
-            use_tls = self.smtp_port == 465
-            start_tls = self.smtp_port == 587
+            use_tls = effective_smtp_port == 465
+            start_tls = effective_smtp_port == 587
 
             await aiosmtplib.send(
                 message,
-                hostname=self.smtp_host,
-                port=self.smtp_port,
-                username=self.smtp_user,
-                password=self.smtp_password,
+                hostname=effective_smtp_host,
+                port=effective_smtp_port,
+                username=effective_smtp_user,
+                password=effective_smtp_password,
                 use_tls=use_tls,
                 start_tls=start_tls
             )

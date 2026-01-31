@@ -470,7 +470,7 @@ Write a helpful, professional response in the same language the customer used (E
             </html>
             """
 
-            # Use the existing email service
+            # Use the existing email service with support SMTP credentials
             result = await email_service._send_email(
                 to_email=to_email,
                 subject=f"Re: {subject}",
@@ -478,7 +478,11 @@ Write a helpful, professional response in the same language the customer used (E
                 text_content=content,
                 from_email=settings.SUPPORT_EMAIL,
                 from_name="BinaApp Support",
-                reply_to=settings.SUPPORT_EMAIL
+                reply_to=settings.SUPPORT_EMAIL,
+                smtp_host=settings.SUPPORT_SMTP_HOST,
+                smtp_port=settings.SUPPORT_SMTP_PORT,
+                smtp_user=settings.SUPPORT_SMTP_USER or settings.SUPPORT_EMAIL,
+                smtp_password=settings.SUPPORT_SMTP_PASSWORD or settings.SUPPORT_EMAIL_PASSWORD
             )
 
             if result:

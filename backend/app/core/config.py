@@ -141,6 +141,10 @@ class Settings(BaseSettings):
 
     # Email Polling (IMAP) - for support.team@binaapp.my
     SUPPORT_EMAIL_PASSWORD: Optional[str] = Field(None, env="SUPPORT_EMAIL_PASSWORD")
+    SUPPORT_SMTP_HOST: str = Field(default="smtppro.zoho.com", env="SUPPORT_SMTP_HOST")
+    SUPPORT_SMTP_PORT: int = Field(default=465, env="SUPPORT_SMTP_PORT")
+    SUPPORT_SMTP_USER: Optional[str] = Field(None, env="SUPPORT_SMTP_USER")
+    SUPPORT_SMTP_PASSWORD: Optional[str] = Field(None, env="SUPPORT_SMTP_PASSWORD")
     EMAIL_POLLING_ENABLED: bool = Field(default=True, env="EMAIL_POLLING_ENABLED")
     EMAIL_POLLING_INTERVAL_SECONDS: int = Field(default=120, env="EMAIL_POLLING_INTERVAL_SECONDS")
     IMAP_SERVER: str = Field(default="imap.zoho.com", env="IMAP_SERVER")
