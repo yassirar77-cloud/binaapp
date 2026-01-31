@@ -50,8 +50,14 @@ class AIEmailSupportService:
         "website": ["website", "laman web", "domain", "subdomain", "design", "template", "publish"],
         "technical": ["error", "bug", "crash", "slow", "loading", "not working", "tidak berfungsi", "masalah"],
         "delivery": ["delivery", "penghantaran", "rider", "gps", "tracking", "location", "lokasi"],
-        "chat": ["chat", "message", "mesej", "binachat", "conversation"]
+        "chat": ["chat", "message", "mesej", "binachat", "conversation"],
+        "partnership": ["partner", "rakan kongsi", "collaboration", "kerjasama", "b2b", "wholesale", "franchise", "francais"],
+        "investment": ["invest", "pelaburan", "funding", "modal", "investor"],
+        "media": ["media", "press", "interview", "wartawan", "berita"]
     }
+
+    # Categories that require admin attention (business inquiries)
+    BUSINESS_INQUIRY_CATEGORIES = ["partnership", "investment", "media"]
 
     def __init__(self):
         """Initialize the AI Email Support Service"""
@@ -251,6 +257,12 @@ Respond ONLY with valid JSON, no other text."""
                 escalation_reasons.append(f"Escalation keywords: {', '.join(detected_keywords[:5])}")
                 should_escalate = True
 
+            # Check for business inquiry categories (partnership, investment, media)
+            is_business_inquiry = category in self.BUSINESS_INQUIRY_CATEGORIES
+            if is_business_inquiry:
+                escalation_reasons.append(f"Business inquiry - requires admin attention")
+                should_escalate = True
+
             return {
                 "sentiment": sentiment,
                 "urgency": urgency,
@@ -259,7 +271,8 @@ Respond ONLY with valid JSON, no other text."""
                 "confidence": confidence,
                 "should_escalate": should_escalate,
                 "detected_keywords": detected_keywords,
-                "summary": analysis.get("summary", "")
+                "summary": analysis.get("summary", ""),
+                "is_business_inquiry": is_business_inquiry
             }
 
         except json.JSONDecodeError as e:
@@ -578,6 +591,199 @@ Write a helpful, professional response in the same language the customer used (E
             logger.error(f"Error notifying admin: {e}")
             return False
 
+    async def forward_business_inquiry(
+        self,
+        thread_id: str,
+        customer_email: str,
+        customer_name: str,
+        subject: str,
+        email_content: str,
+        category: str
+    ) -> bool:
+        """Forward business inquiry emails (partnership, investment, media) to admin"""
+        try:
+            category_labels = {
+                "partnership": "Partnership/Collaboration",
+                "investment": "Investment/Funding",
+                "media": "Media/Press"
+            }
+            category_label = category_labels.get(category, category.title())
+
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                    .header {{ background: #6366f1; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
+                    .content {{ background: #f9fafb; padding: 20px; border-radius: 0 0 8px 8px; }}
+                    .info-box {{ background: #fff; border: 1px solid #e5e7eb; padding: 15px; border-radius: 6px; margin: 15px 0; }}
+                    .message-box {{ background: #fff; border-left: 4px solid #6366f1; padding: 15px; margin: 15px 0; white-space: pre-wrap; }}
+                    .category-badge {{ display: inline-block; background: #6366f1; color: white; padding: 5px 12px; border-radius: 20px; font-size: 0.9em; }}
+                    .action-btn {{ display: inline-block; padding: 10px 20px; background: #10b981; color: white; text-decoration: none; border-radius: 6px; margin: 5px; }}
+                    .note {{ background: #fef3c7; border: 1px solid #f59e0b; padding: 12px; border-radius: 6px; margin: 15px 0; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>Business Inquiry</h1>
+                        <span class="category-badge">{category_label}</span>
+                    </div>
+                    <div class="content">
+                        <div class="note">
+                            <strong>Note:</strong> This email was escalated because it appears to be a {category_label.lower()} inquiry.
+                        </div>
+
+                        <div class="info-box">
+                            <p><strong>Thread ID:</strong> {thread_id}</p>
+                            <p><strong>From:</strong> {customer_name} ({customer_email})</p>
+                            <p><strong>Subject:</strong> {subject}</p>
+                            <p><strong>Category:</strong> {category_label}</p>
+                            <p><strong>Time:</strong> {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}</p>
+                        </div>
+
+                        <p><strong>Full Message:</strong></p>
+                        <div class="message-box">
+                            {email_content}
+                        </div>
+
+                        <p style="text-align: center; margin-top: 20px;">
+                            <a href="mailto:{customer_email}?subject=Re: {subject}" class="action-btn">Reply to Sender</a>
+                        </p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+
+            result = await email_service._send_email(
+                to_email=settings.ADMIN_EMAIL,
+                subject=f"[{category_label.upper()}] {subject} - from {customer_email}",
+                html_content=html_content,
+                text_content=f"Business Inquiry ({category_label})\n\nFrom: {customer_name} ({customer_email})\nSubject: {subject}\n\nNote: This email was escalated because it appears to be a {category_label.lower()} inquiry.\n\nMessage:\n{email_content}",
+                from_email=settings.NOREPLY_EMAIL,
+                from_name="BinaApp AI Support"
+            )
+
+            if result:
+                logger.info(f"Business inquiry forwarded to admin for thread {thread_id}")
+            else:
+                logger.error(f"Failed to forward business inquiry to admin")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error forwarding business inquiry: {e}")
+            return False
+
+    async def send_business_inquiry_auto_reply(
+        self,
+        to_email: str,
+        to_name: str,
+        subject: str,
+        thread_id: str,
+        category: str
+    ) -> bool:
+        """Send auto-reply for business inquiry emails"""
+        try:
+            category_labels = {
+                "partnership": "partnership/collaboration",
+                "investment": "investment",
+                "media": "media/press"
+            }
+            category_label = category_labels.get(category, "business")
+
+            content_en = f"""Thank you for your interest in BinaApp.
+
+We have received your {category_label} inquiry and our team will review it carefully.
+
+You can expect to hear from us within 1-2 business days.
+
+If you have any urgent matters, please contact us directly at {settings.ADMIN_EMAIL}.
+
+Best regards,
+BinaApp Team"""
+
+            content_ms = f"""Terima kasih atas minat anda terhadap BinaApp.
+
+Kami telah menerima pertanyaan {category_label} anda dan pasukan kami akan menyemaknya dengan teliti.
+
+Anda boleh menjangkakan maklum balas daripada kami dalam masa 1-2 hari bekerja.
+
+Jika anda mempunyai perkara yang mendesak, sila hubungi kami terus di {settings.ADMIN_EMAIL}.
+
+Yang benar,
+Pasukan BinaApp"""
+
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <style>
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                    .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                    .header {{ background: #6366f1; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
+                    .content {{ background: #f9fafb; padding: 20px; border-radius: 0 0 8px 8px; }}
+                    .message {{ background: #fff; padding: 20px; border-radius: 6px; margin: 15px 0; }}
+                    .divider {{ border-top: 1px solid #e5e7eb; margin: 20px 0; }}
+                    .footer {{ text-align: center; margin-top: 20px; color: #666; font-size: 0.9em; padding: 20px; }}
+                    .ref {{ font-size: 0.8em; color: #999; margin-top: 20px; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h2>BinaApp</h2>
+                        <p>Thank you for contacting us</p>
+                    </div>
+                    <div class="content">
+                        <div class="message">
+                            {content_en.replace(chr(10), '<br>')}
+                        </div>
+                        <div class="divider"></div>
+                        <div class="message">
+                            {content_ms.replace(chr(10), '<br>')}
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <p>BinaApp - Platform Restoran Digital Malaysia</p>
+                        <p>https://binaapp.my</p>
+                        <p class="ref">Ref: {thread_id[:8]}</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+
+            result = await email_service._send_email(
+                to_email=to_email,
+                subject=f"Re: {subject}",
+                html_content=html_content,
+                text_content=f"{content_en}\n\n---\n\n{content_ms}",
+                from_email=settings.SUPPORT_EMAIL,
+                from_name="BinaApp",
+                reply_to=settings.ADMIN_EMAIL,
+                smtp_host=settings.SUPPORT_SMTP_HOST,
+                smtp_port=settings.SUPPORT_SMTP_PORT,
+                smtp_user=settings.SUPPORT_SMTP_USER or settings.SUPPORT_EMAIL,
+                smtp_password=settings.SUPPORT_SMTP_PASSWORD or settings.SUPPORT_EMAIL_PASSWORD
+            )
+
+            if result:
+                logger.info(f"Business inquiry auto-reply sent to {to_email}")
+            else:
+                logger.error(f"Failed to send business inquiry auto-reply to {to_email}")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error sending business inquiry auto-reply: {e}")
+            return False
+
     async def track_conversation(
         self,
         customer_email: str,
@@ -744,9 +950,54 @@ Write a helpful, professional response in the same language the customer used (E
             # Step 3: Check if should escalate
             should_escalate, escalation_reasons = await self.should_escalate(analysis, thread_id)
 
-            if should_escalate:
+            # Check if this is a business inquiry (partnership, investment, media)
+            is_business_inquiry = analysis.get("is_business_inquiry", False)
+            category = analysis.get("category", "general")
+
+            if is_business_inquiry:
+                # Handle business inquiries differently
                 result["escalated"] = True
-                # Notify admin
+                result["business_inquiry"] = True
+
+                # Forward to admin with business inquiry template
+                await self.forward_business_inquiry(
+                    thread_id=thread_id,
+                    customer_email=sender_email,
+                    customer_name=sender_name or "Customer",
+                    subject=subject,
+                    email_content=email_content,
+                    category=category
+                )
+
+                # Send auto-reply to customer
+                sent = await self.send_business_inquiry_auto_reply(
+                    to_email=sender_email,
+                    to_name=sender_name or "Customer",
+                    subject=subject,
+                    thread_id=thread_id,
+                    category=category
+                )
+
+                if sent:
+                    result["ai_response_sent"] = True
+                    # Track the auto-reply
+                    auto_reply_content = f"Thank you for your interest in BinaApp. We have received your {category} inquiry and our team will contact you within 1-2 business days."
+                    await self.track_conversation(
+                        customer_email=sender_email,
+                        customer_name=sender_name,
+                        subject=subject,
+                        message_content=auto_reply_content,
+                        sender_type="ai",
+                        ai_generated=True,
+                        ai_confidence=1.0,
+                        thread_id=thread_id
+                    )
+
+                logger.info(f"Business inquiry ({category}) forwarded to admin: {sender_email}")
+
+            elif should_escalate:
+                result["escalated"] = True
+                # Notify admin for regular escalations
                 await self.notify_admin(
                     thread_id=thread_id,
                     customer_email=sender_email,
@@ -757,52 +1008,86 @@ Write a helpful, professional response in the same language the customer used (E
                 )
                 logger.info(f"Email escalated to human support: {escalation_reasons}")
 
-            # Step 4: Generate and send AI response (even if escalated, send acknowledgment)
-            if self.is_available():
-                # Get conversation history
-                conversation_history = await self._db_select(
-                    "email_messages",
-                    filters={"thread_id": f"eq.{thread_id}"},
-                    order_by="created_at.asc",
-                    limit=10
-                )
-
-                # Generate response
-                ai_response, confidence = await self.generate_response(
-                    email_content=email_content,
-                    subject=subject,
-                    sender_name=sender_name or "Customer",
-                    analysis=analysis,
-                    conversation_history=conversation_history
-                )
-
-                if ai_response and confidence >= 0.5:  # Only send if somewhat confident
-                    # If escalated, add note about human follow-up
-                    if should_escalate:
-                        ai_response += "\n\n---\nNota: Mesej anda telah dimaklumkan kepada pasukan sokongan kami dan mereka akan menghubungi anda secepat mungkin.\n(Note: Your message has been forwarded to our support team and they will contact you as soon as possible.)"
-
-                    # Send the reply
-                    sent = await self.send_reply(
-                        to_email=sender_email,
-                        to_name=sender_name or "Customer",
-                        subject=subject,
-                        content=ai_response,
-                        thread_id=thread_id
+                # Still send AI response for regular escalations
+                if self.is_available():
+                    conversation_history = await self._db_select(
+                        "email_messages",
+                        filters={"thread_id": f"eq.{thread_id}"},
+                        order_by="created_at.asc",
+                        limit=10
                     )
 
-                    if sent:
-                        result["ai_response_sent"] = True
-                        # Track the AI response
-                        await self.track_conversation(
-                            customer_email=sender_email,
-                            customer_name=sender_name,
+                    ai_response, confidence = await self.generate_response(
+                        email_content=email_content,
+                        subject=subject,
+                        sender_name=sender_name or "Customer",
+                        analysis=analysis,
+                        conversation_history=conversation_history
+                    )
+
+                    if ai_response and confidence >= 0.5:
+                        ai_response += "\n\n---\nNota: Mesej anda telah dimaklumkan kepada pasukan sokongan kami dan mereka akan menghubungi anda secepat mungkin.\n(Note: Your message has been forwarded to our support team and they will contact you as soon as possible.)"
+
+                        sent = await self.send_reply(
+                            to_email=sender_email,
+                            to_name=sender_name or "Customer",
                             subject=subject,
-                            message_content=ai_response,
-                            sender_type="ai",
-                            ai_generated=True,
-                            ai_confidence=confidence,
+                            content=ai_response,
                             thread_id=thread_id
                         )
+
+                        if sent:
+                            result["ai_response_sent"] = True
+                            await self.track_conversation(
+                                customer_email=sender_email,
+                                customer_name=sender_name,
+                                subject=subject,
+                                message_content=ai_response,
+                                sender_type="ai",
+                                ai_generated=True,
+                                ai_confidence=confidence,
+                                thread_id=thread_id
+                            )
+
+            else:
+                # Normal flow - generate and send AI response
+                if self.is_available():
+                    conversation_history = await self._db_select(
+                        "email_messages",
+                        filters={"thread_id": f"eq.{thread_id}"},
+                        order_by="created_at.asc",
+                        limit=10
+                    )
+
+                    ai_response, confidence = await self.generate_response(
+                        email_content=email_content,
+                        subject=subject,
+                        sender_name=sender_name or "Customer",
+                        analysis=analysis,
+                        conversation_history=conversation_history
+                    )
+
+                    if ai_response and confidence >= 0.5:
+                        sent = await self.send_reply(
+                            to_email=sender_email,
+                            to_name=sender_name or "Customer",
+                            subject=subject,
+                            content=ai_response,
+                            thread_id=thread_id
+                        )
+
+                        if sent:
+                            result["ai_response_sent"] = True
+                            await self.track_conversation(
+                                customer_email=sender_email,
+                                customer_name=sender_name,
+                                subject=subject,
+                                message_content=ai_response,
+                                sender_type="ai",
+                                ai_generated=True,
+                                ai_confidence=confidence,
+                                thread_id=thread_id
+                            )
 
             result["success"] = True
             return result
