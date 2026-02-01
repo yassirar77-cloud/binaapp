@@ -1079,8 +1079,8 @@ async def create_subscription_payment(
                     "tier": tier,
                     "status": "pending"
                 })
-                if payment_record and len(payment_record) > 0:
-                    payment_id = payment_record[0].get("id", bill_code)
+                if payment_record:
+                    payment_id = payment_record.get("id", bill_code)
                     logger.info(f"Payment record stored: {payment_id}")
                 else:
                     logger.warning("Payment record not stored (payments table may not exist)")
@@ -1209,7 +1209,7 @@ async def purchase_addon(
                 from app.services.subscription_service import subscription_service
                 invoice_number = await subscription_service.generate_invoice_number()
 
-                transaction_records = await supabase_service.insert_record("transactions", {
+                transaction_record = await supabase_service.insert_record("transactions", {
                     "user_id": str(user_id),
                     "transaction_type": "addon",
                     "item_description": f"{addon_type} x{quantity}",
@@ -1223,8 +1223,8 @@ async def purchase_addon(
                         "unit_price": unit_price
                     }
                 })
-                if transaction_records and len(transaction_records) > 0:
-                    transaction_id = transaction_records[0].get("transaction_id")
+                if transaction_record:
+                    transaction_id = transaction_record.get("transaction_id")
                     logger.info(f"✅ Transaction record created: {transaction_id}")
             except Exception as db_error:
                 logger.error(f"❌ Failed to create transaction record: {db_error}")
