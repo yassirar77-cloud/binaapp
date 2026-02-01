@@ -828,8 +828,12 @@ async def verify_payment(
                 # Apply addon credits
                 addon_type = metadata.get("addon_type")
                 quantity = metadata.get("quantity", 1)
-                await _apply_addon_credits(user_id, addon_type, quantity, headers)
-                logger.info(f"Applied {quantity}x {addon_type} addon for user {user_id}")
+                success = await _apply_addon_credits(user_id, addon_type, quantity, headers, transaction_id)
+                if success:
+                    logger.info(f"Applied {quantity}x {addon_type} addon for user {user_id}")
+                else:
+                    logger.error(f"Failed to apply addon credits for user {user_id}")
+                    # Don't fail the whole response - transaction is already marked as success
 
             return {
                 "success": True,
@@ -959,22 +963,67 @@ async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
             )
 
 
-async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, headers: dict):
-    """Apply addon credits for user"""
+async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, headers: dict, transaction_id: str = None):
+    """
+    Apply addon credits for user.
+    Creates a record in addon_purchases table with status 'active'.
+
+    CRITICAL: Must include unit_price and total_price as they are NOT NULL in the database schema.
+    """
     import httpx
+
+    # Addon prices - must match subscription_service.ADDON_PRICES
+    ADDON_PRICES = {
+        "ai_image": 1.00,
+        "ai_hero": 2.00,
+        "website": 5.00,
+        "rider": 3.00,
+        "zone": 2.00
+    }
+
+    unit_price = ADDON_PRICES.get(addon_type, 1.00)
+    total_price = unit_price * quantity
 
     url = f"{settings.SUPABASE_URL}/rest/v1/addon_purchases"
 
-    async with httpx.AsyncClient() as client:
-        await client.post(
-            url,
-            headers={**headers, "Prefer": "return=minimal"},
-            json={
-                "user_id": user_id,
-                "addon_type": addon_type,
-                "quantity": quantity,
-                "quantity_used": 0,  # CRITICAL: Must be 0 so credits are available
-                "status": "active",
-                "created_at": datetime.utcnow().isoformat()
-            }
-        )
+    logger.info(f"📝 Applying addon credits for user {user_id}: {addon_type} x{quantity}")
+    logger.info(f"   Unit price: RM{unit_price}, Total: RM{total_price}")
+
+    try:
+        insert_data = {
+            "user_id": user_id,
+            "addon_type": addon_type,
+            "quantity": quantity,
+            "quantity_used": 0,  # CRITICAL: Must be 0 so credits are available
+            "unit_price": unit_price,
+            "total_price": total_price,
+            "status": "active",
+            "created_at": datetime.utcnow().isoformat()
+        }
+
+        # Include transaction_id if provided
+        if transaction_id:
+            insert_data["transaction_id"] = transaction_id
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                url,
+                headers={**headers, "Prefer": "return=representation"},
+                json=insert_data
+            )
+
+        if response.status_code in [200, 201]:
+            result = response.json()
+            addon_id = result[0].get("addon_id") if result else "N/A"
+            logger.info(f"✅ Addon credits applied successfully for user {user_id}")
+            logger.info(f"   Addon ID: {addon_id}, Type: {addon_type}, Qty: {quantity}")
+            return True
+        else:
+            logger.error(f"❌ Failed to apply addon credits for user {user_id}")
+            logger.error(f"   Status: {response.status_code}")
+            logger.error(f"   Response: {response.text}")
+            return False
+
+    except Exception as e:
+        logger.error(f"❌ Error applying addon credits for user {user_id}: {e}", exc_info=True)
+        return False
