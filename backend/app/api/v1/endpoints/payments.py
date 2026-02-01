@@ -472,7 +472,7 @@ async def _process_successful_payment(bill_code: str, tp_transaction_id: str = N
         if transaction_type in ["subscription", "renewal"]:
             await _process_subscription_payment(user_id, metadata, bill_code)
         elif transaction_type == "addon":
-            await _process_addon_payment(user_id, transaction_id, metadata)
+            await _process_addon_payment(user_id, transaction_id, metadata, bill_code)
 
     except Exception as e:
         logger.error(f"Error processing payment for bill_code {bill_code}: {e}", exc_info=True)
@@ -607,13 +607,13 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
         logger.error(f"Error processing subscription payment: {e}", exc_info=True)
 
 
-async def _process_addon_payment(user_id: str, transaction_id: str, metadata: dict):
+async def _process_addon_payment(user_id: str, transaction_id: str, metadata: dict, bill_code: str = None):
     """Process an addon purchase payment."""
 
     addon_type = metadata.get("addon_type")
     quantity = metadata.get("quantity", 1)
     unit_price = metadata.get("unit_price", ADDON_PRICES.get(addon_type, 0))
-    total_price = unit_price * quantity
+    total_amount = unit_price * quantity
 
     logger.info(f"📝 Processing addon payment for user {user_id}: {addon_type} x{quantity}")
 
@@ -632,20 +632,19 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
                 headers={**headers, "Prefer": "return=representation"},
                 json={
                     "user_id": user_id,
-                    "transaction_id": transaction_id,
+                    "bill_code": bill_code or "",
                     "addon_type": addon_type,
                     "quantity": quantity,
-                    "quantity_used": 0,
-                    "unit_price": unit_price,
-                    "total_price": total_price,
-                    "status": "active"
+                    "amount": total_amount,
+                    "status": "completed",
+                    "transaction_id": str(transaction_id) if transaction_id else None
                 }
             )
 
         if response.status_code in [200, 201]:
             addon_record = response.json()
             logger.info(f"✅ Addon credits added for user {user_id}: {addon_type} x{quantity}")
-            logger.info(f"   Addon ID: {addon_record[0].get('addon_id') if addon_record else 'N/A'}")
+            logger.info(f"   Addon ID: {addon_record[0].get('id') if addon_record else 'N/A'}")
         else:
             logger.error(f"❌ Failed to create addon purchase: {response.status_code}")
             logger.error(f"   Response: {response.text}")
