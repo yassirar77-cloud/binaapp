@@ -608,12 +608,17 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
 
 
 async def _process_addon_payment(user_id: str, transaction_id: str, metadata: dict, bill_code: str = None):
-    """Process an addon purchase payment."""
+    """Process an addon purchase payment.
+
+    Uses migration 005 schema for addon_purchases:
+    addon_id, user_id, transaction_id, addon_type, quantity, quantity_used,
+    unit_price, total_price, status, expires_at, created_at
+    """
 
     addon_type = metadata.get("addon_type")
     quantity = metadata.get("quantity", 1)
     unit_price = metadata.get("unit_price", ADDON_PRICES.get(addon_type, 0))
-    total_amount = unit_price * quantity
+    total_price = unit_price * quantity
 
     logger.info(f"📝 Processing addon payment for user {user_id}: {addon_type} x{quantity}")
 
@@ -632,19 +637,20 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
                 headers={**headers, "Prefer": "return=representation"},
                 json={
                     "user_id": user_id,
-                    "bill_code": bill_code or "",
+                    "transaction_id": transaction_id,
                     "addon_type": addon_type,
                     "quantity": quantity,
-                    "amount": total_amount,
-                    "status": "completed",
-                    "transaction_id": str(transaction_id) if transaction_id else None
+                    "quantity_used": 0,
+                    "unit_price": float(unit_price),
+                    "total_price": float(total_price),
+                    "status": "active"
                 }
             )
 
         if response.status_code in [200, 201]:
             addon_record = response.json()
             logger.info(f"✅ Addon credits added for user {user_id}: {addon_type} x{quantity}")
-            logger.info(f"   Addon ID: {addon_record[0].get('id') if addon_record else 'N/A'}")
+            logger.info(f"   Addon ID: {addon_record[0].get('addon_id') if addon_record else 'N/A'}")
         else:
             logger.error(f"❌ Failed to create addon purchase: {response.status_code}")
             logger.error(f"   Response: {response.text}")
