@@ -122,3 +122,5 @@ __marimo__/
 marimo/_static/
 marimo/_lsp/
 .pypirc
+.vercel
+.env*.local
