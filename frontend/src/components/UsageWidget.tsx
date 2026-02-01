@@ -47,9 +47,10 @@ const UsageBar: React.FC<{
   blocked?: boolean;
   addonCredits?: number;
 }> = ({ label, used, limit, unlimited, blocked, addonCredits }) => {
+  const totalLimit = (limit || 0) + (addonCredits || 0);
   const percentage = unlimited || limit === null
     ? 0
-    : Math.min(100, (used / (limit + (addonCredits || 0))) * 100);
+    : Math.min(100, (used / totalLimit) * 100);
 
   const getBarColor = () => {
     if (blocked) return '#6b7280';
@@ -61,10 +62,7 @@ const UsageBar: React.FC<{
   const getLimitText = () => {
     if (blocked) return 'Tidak tersedia';
     if (unlimited) return 'Tanpa had';
-    if (addonCredits && addonCredits > 0) {
-      return `${used} / ${limit} (+${addonCredits} addon)`;
-    }
-    return `${used} / ${limit}`;
+    return `${used} / ${totalLimit}`;
   };
 
   return (
@@ -73,6 +71,11 @@ const UsageBar: React.FC<{
         <span className="usage-label">{label}</span>
         <span className="usage-value">{getLimitText()}</span>
       </div>
+      {addonCredits && addonCredits > 0 && !blocked && !unlimited && (
+        <div className="usage-breakdown">
+          (Asas: {limit}, Tambahan: {addonCredits})
+        </div>
+      )}
       <div className="usage-bar-track">
         <div
           className="usage-bar-fill"

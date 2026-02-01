@@ -105,6 +105,13 @@
   color: #6b7280;
 }
 
+.usage-breakdown {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: -2px;
+  padding-left: 2px;
+}
+
 .usage-bar-track {
   height: 6px;
   background: #e5e7eb;
@@ -297,6 +304,10 @@
 
   .usage-value {
     color: #9ca3af;
+  }
+
+  .usage-breakdown {
+    color: #6b7280;
   }
 
   .usage-bar-track {
