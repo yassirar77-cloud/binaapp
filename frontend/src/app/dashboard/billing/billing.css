@@ -438,7 +438,7 @@
   cursor: not-allowed;
 }
 
-/* Sidebar */
+/* Sidebar - Desktop only */
 .billing-sidebar {
   position: fixed;
   right: 24px;
@@ -446,10 +446,75 @@
   width: 280px;
 }
 
+/* Mobile Usage Section - hidden on desktop */
+.mobile-usage-section {
+  display: none;
+  margin-bottom: 24px;
+  border-radius: 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+}
+
+.mobile-usage-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: white;
+  border: none;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mobile-usage-toggle:hover {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+}
+
+.toggle-icon {
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+
+.toggle-text {
+  flex: 1;
+  text-align: left;
+}
+
+.toggle-hint {
+  font-size: 13px;
+  font-weight: 400;
+  opacity: 0.9;
+}
+
+.mobile-usage-content {
+  padding: 16px;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Responsive */
 @media (max-width: 1200px) {
   .billing-sidebar {
     display: none;
+  }
+
+  .mobile-usage-section {
+    display: block;
   }
 }
 
@@ -597,5 +662,15 @@
 
   .addons-intro {
     color: #9ca3af;
+  }
+
+  /* Dark mode for mobile usage section */
+  .mobile-usage-section {
+    background: #1f2937;
+    border-color: #374151;
+  }
+
+  .mobile-usage-content {
+    background: #1f2937;
   }
 }
