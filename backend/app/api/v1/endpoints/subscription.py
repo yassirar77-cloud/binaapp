@@ -355,7 +355,7 @@ async def get_available_addons():
                 "type": "ai_image",
                 "name": "Imej AI",
                 "description": "Jana 1 imej AI untuk menu",
-                "price": 0.50
+                "price": 1.00
             },
             {
                 "type": "ai_hero",

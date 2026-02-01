@@ -433,7 +433,7 @@ function LandingPageContent() {
 
           <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-4 max-w-6xl mx-auto">
             {[
-              { name: 'AI Image', price: 'RM 0.50' },
+              { name: 'AI Image', price: 'RM 1.00' },
               { name: 'AI Hero', price: 'RM 2.00' },
               { name: 'Website', price: 'RM 5.00' },
               { name: 'Rider', price: 'RM 3.00' },
