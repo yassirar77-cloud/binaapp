@@ -968,10 +968,11 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
     Apply addon credits for user.
     Creates a record in addon_purchases table with status 'active'.
 
-    Schema (migration 015):
-    id, user_id, bill_code, addon_type, quantity, amount, status, transaction_id, reference_no, created_at, updated_at
+    Schema (migration 005):
+    addon_id, user_id, transaction_id, addon_type, quantity, quantity_used,
+    unit_price, total_price, status, expires_at, created_at
 
-    CHECK constraint allows: 'active', 'expired', 'grace', 'locked', 'cancelled', 'pending'
+    Status values: 'active', 'depleted', 'expired'
     """
     import httpx
 
@@ -985,26 +986,27 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
     }
 
     unit_price = ADDON_PRICES.get(addon_type, 1.00)
-    total_amount = unit_price * quantity
+    total_price = unit_price * quantity
 
     url = f"{settings.SUPABASE_URL}/rest/v1/addon_purchases"
 
     logger.info(f"📝 Applying addon credits for user {user_id}: {addon_type} x{quantity}")
-    logger.info(f"   Unit price: RM{unit_price}, Total: RM{total_amount}")
+    logger.info(f"   Unit price: RM{unit_price}, Total: RM{total_price}")
 
     try:
         insert_data = {
             "user_id": user_id,
-            "bill_code": bill_code or f"MANUAL_{addon_type}_{user_id[:8]}",
             "addon_type": addon_type,
             "quantity": quantity,
-            "amount": total_amount,
+            "quantity_used": 0,
+            "unit_price": float(unit_price),
+            "total_price": float(total_price),
             "status": "active"
         }
 
-        # Include transaction_id if provided (as string for VARCHAR column)
+        # Include transaction_id if provided
         if transaction_id:
-            insert_data["transaction_id"] = str(transaction_id)
+            insert_data["transaction_id"] = transaction_id
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -1015,7 +1017,7 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
 
         if response.status_code in [200, 201]:
             result = response.json()
-            addon_id = result[0].get("id") if result else "N/A"
+            addon_id = result[0].get("addon_id") if result else "N/A"
             logger.info(f"✅ Addon credits applied successfully for user {user_id}")
             logger.info(f"   Addon ID: {addon_id}, Type: {addon_type}, Qty: {quantity}")
             return True
