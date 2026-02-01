@@ -469,7 +469,7 @@ async def purchase_addon(
             # Store transaction record
             try:
                 invoice_number = await subscription_service.generate_invoice_number()
-                transaction_records = await supabase_service.insert_record("transactions", {
+                transaction_record = await supabase_service.insert_record("transactions", {
                     "user_id": user_id,
                     "transaction_type": "addon",
                     "item_description": f"{addon_name} x{quantity}",
@@ -484,7 +484,7 @@ async def purchase_addon(
                     }
                 })
 
-                transaction_id = transaction_records[0].get("transaction_id") if transaction_records else None
+                transaction_id = transaction_record.get("transaction_id") if transaction_record else None
             except Exception as db_error:
                 logger.warning(f"Could not store transaction: {db_error}")
                 transaction_id = None
