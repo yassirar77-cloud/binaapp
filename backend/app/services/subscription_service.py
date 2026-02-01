@@ -624,13 +624,18 @@ class SubscriptionService:
             return False
 
     async def get_available_addon_credits(self, user_id: str, addon_type: Optional[str] = None) -> Dict[str, int]:
-        """Get available addon credits for a user"""
+        """
+        Get available addon credits for a user.
+
+        Uses migration 015 schema: id, user_id, bill_code, addon_type, quantity, amount, status
+        For active addons, quantity represents available credits.
+        """
         try:
             url = f"{self.url}/rest/v1/addon_purchases"
             params = {
                 "user_id": f"eq.{user_id}",
                 "status": "eq.active",
-                "select": "addon_type,quantity,quantity_used"
+                "select": "addon_type,quantity"
             }
 
             if addon_type:
@@ -644,7 +649,8 @@ class SubscriptionService:
                 credits = {}
                 for record in records:
                     atype = record.get("addon_type")
-                    available = record.get("quantity", 0) - record.get("quantity_used", 0)
+                    # For migration 015, quantity is the available credits
+                    available = record.get("quantity", 0)
                     if atype in credits:
                         credits[atype] += available
                     else:
@@ -658,13 +664,19 @@ class SubscriptionService:
             return {}
 
     async def use_addon_credit(self, user_id: str, addon_type: str) -> bool:
-        """Use one addon credit"""
+        """
+        Use one addon credit.
+
+        Uses migration 015 schema: id, user_id, bill_code, addon_type, quantity, amount, status
+        Decrements quantity by 1. When quantity reaches 0, marks as 'depleted'.
+        """
         try:
             url = f"{self.url}/rest/v1/addon_purchases"
             params = {
                 "user_id": f"eq.{user_id}",
                 "addon_type": f"eq.{addon_type}",
                 "status": "eq.active",
+                "quantity": "gt.0",  # Only get records with available credits
                 "order": "created_at.asc",
                 "limit": 1
             }
@@ -680,24 +692,23 @@ class SubscriptionService:
                 return False
 
             addon = records[0]
-            addon_id = addon.get("addon_id")
+            addon_id = addon.get("id")  # migration 015 uses 'id' not 'addon_id'
             quantity = addon.get("quantity", 0)
-            quantity_used = addon.get("quantity_used", 0)
 
-            if quantity_used >= quantity:
+            if quantity <= 0:
                 return False
 
-            # Update the addon purchase
-            new_used = quantity_used + 1
-            new_status = "depleted" if new_used >= quantity else "active"
+            # Update the addon purchase - decrement quantity
+            new_quantity = quantity - 1
+            new_status = "depleted" if new_quantity <= 0 else "active"
 
             update_url = f"{self.url}/rest/v1/addon_purchases"
             async with httpx.AsyncClient() as client:
                 response = await client.patch(
                     update_url,
                     headers={**self.headers, "Prefer": "return=minimal"},
-                    params={"addon_id": f"eq.{addon_id}"},
-                    json={"quantity_used": new_used, "status": new_status}
+                    params={"id": f"eq.{addon_id}"},
+                    json={"quantity": new_quantity, "status": new_status}
                 )
 
             return response.status_code in [200, 204]

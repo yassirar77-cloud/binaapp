@@ -828,7 +828,9 @@ async def verify_payment(
                 # Apply addon credits
                 addon_type = metadata.get("addon_type")
                 quantity = metadata.get("quantity", 1)
-                success = await _apply_addon_credits(user_id, addon_type, quantity, headers, transaction_id)
+                # Pass bill_code from transaction for addon_purchases table (required field)
+                toyyibpay_bill_code = transaction.get("toyyibpay_bill_code") or bill_code
+                success = await _apply_addon_credits(user_id, addon_type, quantity, headers, toyyibpay_bill_code)
                 if success:
                     logger.info(f"Applied {quantity}x {addon_type} addon for user {user_id}")
                 else:
@@ -963,12 +965,15 @@ async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
             )
 
 
-async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, headers: dict, transaction_id: str = None):
+async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, headers: dict, bill_code: str = None):
     """
     Apply addon credits for user.
     Creates a record in addon_purchases table with status 'active'.
 
-    CRITICAL: Must include unit_price and total_price as they are NOT NULL in the database schema.
+    IMPORTANT: Uses migration 015 schema which has:
+    - id (UUID, auto-generated)
+    - user_id, bill_code (required), addon_type, quantity, amount, status
+    - NO unit_price/total_price/quantity_used columns
     """
     import httpx
 
@@ -982,28 +987,28 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
     }
 
     unit_price = ADDON_PRICES.get(addon_type, 1.00)
-    total_price = unit_price * quantity
+    total_amount = unit_price * quantity
 
     url = f"{settings.SUPABASE_URL}/rest/v1/addon_purchases"
 
     logger.info(f"📝 Applying addon credits for user {user_id}: {addon_type} x{quantity}")
-    logger.info(f"   Unit price: RM{unit_price}, Total: RM{total_price}")
+    logger.info(f"   Amount: RM{total_amount}, Bill Code: {bill_code}")
+
+    # bill_code is required - generate a fallback if not provided
+    if not bill_code:
+        import time
+        bill_code = f"ADDON_{addon_type.upper()}_{int(time.time())}"
+        logger.warning(f"   No bill_code provided, generated fallback: {bill_code}")
 
     try:
         insert_data = {
             "user_id": user_id,
+            "bill_code": bill_code,
             "addon_type": addon_type,
             "quantity": quantity,
-            "quantity_used": 0,  # CRITICAL: Must be 0 so credits are available
-            "unit_price": unit_price,
-            "total_price": total_price,
-            "status": "active",
-            "created_at": datetime.utcnow().isoformat()
+            "amount": total_amount,
+            "status": "active"
         }
-
-        # Include transaction_id if provided
-        if transaction_id:
-            insert_data["transaction_id"] = transaction_id
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -1014,7 +1019,7 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
 
         if response.status_code in [200, 201]:
             result = response.json()
-            addon_id = result[0].get("addon_id") if result else "N/A"
+            addon_id = result[0].get("id") if result else "N/A"
             logger.info(f"✅ Addon credits applied successfully for user {user_id}")
             logger.info(f"   Addon ID: {addon_id}, Type: {addon_type}, Qty: {quantity}")
             return True
