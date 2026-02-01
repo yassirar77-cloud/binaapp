@@ -997,7 +997,7 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
             "addon_type": addon_type,
             "quantity": quantity,
             "amount": total_amount,
-            "status": "completed"
+            "status": "active"
         }
 
         # Include transaction_id if provided (as string for VARCHAR column)
