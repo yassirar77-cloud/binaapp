@@ -31,7 +31,7 @@ export default function PrivacyPolicy() {
             <p className="mb-3">
               Welcome to BinaApp. We are committed to protecting your personal information and your 
               right to privacy. This Privacy Policy explains how Ezy Work Asia Solution (SSM: 002944700-D) 
-              collects, uses, stores, and protects your personal data in accordance with Malaysia's 
+              collects, uses, stores, and protects your personal data in accordance with Malaysia&apos;s 
               Personal Data Protection Act 2010 (PDPA 2010).
             </p>
             <p>
@@ -251,7 +251,7 @@ export default function PrivacyPolicy() {
           <section className="bg-blue-50 p-6 rounded">
             <h2 className="text-xl font-semibold text-gray-900 mb-3">7. Your Rights Under Malaysian PDPA 2010</h2>
             
-            <p className="mb-4">Under Malaysia's Personal Data Protection Act 2010, you have the following rights:</p>
+            <p className="mb-4">Under Malaysia&apos;s Personal Data Protection Act 2010, you have the following rights:</p>
 
             <div className="grid md:grid-cols-2 gap-4 mb-4">
               <div className="bg-white p-4 rounded">
@@ -403,7 +403,7 @@ export default function PrivacyPolicy() {
             </p>
           </section>
 
-          {/* Section 11: Children's Privacy */}
+          {/* Section 11: Children&apos;s Privacy */}
           <section>
             <h2 className="text-xl font-semibold text-gray-900 mb-3">11. Children&apos;s Privacy</h2>
             
