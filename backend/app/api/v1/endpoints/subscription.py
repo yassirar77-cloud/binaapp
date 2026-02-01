@@ -973,6 +973,7 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
                 "user_id": user_id,
                 "addon_type": addon_type,
                 "quantity": quantity,
+                "quantity_used": 0,  # CRITICAL: Must be 0 so credits are available
                 "status": "active",
                 "created_at": datetime.utcnow().isoformat()
             }

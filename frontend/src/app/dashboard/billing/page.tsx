@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { getStoredToken } from '@/lib/supabase';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { getStoredToken, backupAuthState } from '@/lib/supabase';
 import { UsageWidget } from '@/components/UsageWidget';
 import './billing.css';
 
@@ -38,16 +38,30 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 export default function BillingPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [addons, setAddons] = useState<Addon[]>([]);
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [processing, setProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<'plans' | 'addons' | 'history'>('plans');
+  const [paymentMessage, setPaymentMessage] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
-  }, []);
+
+    // Check if returning from payment
+    const paymentStatus = searchParams.get('payment');
+    if (paymentStatus === 'success') {
+      setPaymentMessage('Pembayaran berjaya! Data telah dikemaskini.');
+      // Clear the URL parameter without reload
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+
+      // Clear message after 5 seconds
+      setTimeout(() => setPaymentMessage(null), 5000);
+    }
+  }, [searchParams]);
 
   const fetchData = async () => {
     try {
@@ -109,6 +123,8 @@ export default function BillingPage() {
       if (data.success && data.payment_url) {
         localStorage.setItem('pending_tier', tier);
         localStorage.setItem('pending_bill_code', data.bill_code);
+        // Backup auth state before external redirect
+        backupAuthState();
         window.location.href = data.payment_url;
       } else {
         alert('Ralat: ' + (data.detail?.message || data.detail || 'Gagal memproses'));
@@ -140,6 +156,8 @@ export default function BillingPage() {
       if (data.success && data.payment_url) {
         localStorage.setItem('pending_renewal', 'true');
         localStorage.setItem('pending_bill_code', data.bill_code);
+        // Backup auth state before external redirect
+        backupAuthState();
         window.location.href = data.payment_url;
       } else {
         alert('Ralat: ' + (data.detail || 'Gagal memproses'));
@@ -172,6 +190,8 @@ export default function BillingPage() {
       if (data.success && data.payment_url) {
         localStorage.setItem('pending_addon_type', addonType);
         localStorage.setItem('pending_bill_code', data.bill_code);
+        // Backup auth state before external redirect
+        backupAuthState();
         window.location.href = data.payment_url;
       } else {
         alert('Ralat: ' + (data.detail || 'Gagal memproses'));
@@ -218,6 +238,14 @@ export default function BillingPage() {
         </button>
         <h1>Pengurusan Langganan</h1>
       </div>
+
+      {/* Payment Success Message */}
+      {paymentMessage && (
+        <div className="payment-success-banner">
+          <span className="success-icon">&#x2713;</span>
+          {paymentMessage}
+        </div>
+      )}
 
       {/* Current Subscription Status */}
       <div className="current-subscription">

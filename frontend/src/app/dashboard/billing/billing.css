@@ -56,6 +56,37 @@
   margin: 0;
 }
 
+/* Payment Success Banner */
+.payment-success-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  font-size: 15px;
+  font-weight: 500;
+  animation: slideIn 0.3s ease-out;
+}
+
+.payment-success-banner .success-icon {
+  font-size: 20px;
+  font-weight: bold;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Current Subscription */
 .current-subscription {
   background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);

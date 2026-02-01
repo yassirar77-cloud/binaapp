@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { getCurrentUser, getStoredToken } from '@/lib/supabase';
+import { getCurrentUser, getStoredToken, backupAuthState } from '@/lib/supabase';
 import './AddonPurchaseModal.css';
 
 interface Addon {
@@ -67,6 +67,10 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
         localStorage.setItem('pending_addon_quantity', String(quantity));
         // Clear subscription-related pending info to avoid confusion
         localStorage.removeItem('pending_tier');
+
+        // CRITICAL: Backup auth state before external redirect
+        // This helps restore the session if localStorage is cleared during redirect
+        backupAuthState();
 
         // Redirect to ToyyibPay
         window.location.href = data.payment_url;
