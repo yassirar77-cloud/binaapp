@@ -636,21 +636,34 @@ class SubscriptionService:
             if addon_type:
                 params["addon_type"] = f"eq.{addon_type}"
 
+            logger.debug(f"🔍 Querying addon credits for user {user_id[:8]}... with params: {params}")
+
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, headers=self.headers, params=params)
 
+            logger.debug(f"📥 Addon credits query response: status={response.status_code}")
+
             if response.status_code == 200:
                 records = response.json()
+                logger.debug(f"📦 Found {len(records)} addon_purchases records")
+
                 credits = {}
                 for record in records:
                     atype = record.get("addon_type")
-                    available = record.get("quantity", 0) - record.get("quantity_used", 0)
+                    quantity = record.get("quantity", 0)
+                    quantity_used = record.get("quantity_used", 0)
+                    available = quantity - quantity_used
+                    logger.debug(f"   - {atype}: qty={quantity}, used={quantity_used}, available={available}")
+
                     if atype in credits:
                         credits[atype] += available
                     else:
                         credits[atype] = available
+
+                logger.info(f"✅ Addon credits for user {user_id[:8]}...: {credits}")
                 return credits
 
+            logger.warning(f"⚠️ Failed to query addon_purchases: {response.status_code} - {response.text[:200]}")
             return {}
 
         except Exception as e:

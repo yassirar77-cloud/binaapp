@@ -1303,6 +1303,228 @@ async def purchase_addon(
         )
 
 
+@router.get("/addon/debug/{user_id}")
+async def debug_addon_credits(user_id: str):
+    """
+    Debug endpoint to check addon credits for a user.
+    Shows raw addon_purchases records and calculated credits.
+    """
+    try:
+        import httpx
+        url = f"{settings.SUPABASE_URL}/rest/v1/addon_purchases"
+        headers = {
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        # Get ALL addon_purchases for this user (not just active)
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                headers=headers,
+                params={"user_id": f"eq.{user_id}", "select": "*"}
+            )
+
+        all_records = response.json() if response.status_code == 200 else []
+
+        # Also get pending transactions for this user
+        tx_url = f"{settings.SUPABASE_URL}/rest/v1/transactions"
+        async with httpx.AsyncClient() as client:
+            tx_response = await client.get(
+                tx_url,
+                headers=headers,
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "transaction_type": "eq.addon",
+                    "select": "*",
+                    "order": "created_at.desc",
+                    "limit": "10"
+                }
+            )
+
+        transactions = tx_response.json() if tx_response.status_code == 200 else []
+
+        # Calculate credits by status
+        credits_by_status = {}
+        for record in all_records:
+            status = record.get("status", "unknown")
+            addon_type = record.get("addon_type")
+            quantity = record.get("quantity", 0)
+            quantity_used = record.get("quantity_used", 0)
+            available = quantity - quantity_used
+
+            if status not in credits_by_status:
+                credits_by_status[status] = {}
+            if addon_type not in credits_by_status[status]:
+                credits_by_status[status][addon_type] = 0
+            credits_by_status[status][addon_type] += available
+
+        return {
+            "user_id": user_id,
+            "addon_purchases_count": len(all_records),
+            "addon_purchases": all_records,
+            "credits_by_status": credits_by_status,
+            "recent_addon_transactions": transactions,
+            "debug_info": {
+                "supabase_url": settings.SUPABASE_URL,
+                "query_status": response.status_code
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error in debug addon credits: {e}", exc_info=True)
+        return {"error": str(e)}
+
+
+@router.post("/addon/process-pending/{bill_code}")
+async def process_pending_addon(bill_code: str):
+    """
+    Manually process a pending addon payment.
+    Use this when ToyyibPay callback fails to reach the server.
+    """
+    try:
+        logger.info(f"🔧 Manually processing pending addon for bill_code: {bill_code}")
+
+        # First, verify with ToyyibPay that payment was successful
+        result = toyyibpay_service.get_bill_transactions(bill_code)
+
+        if not result.get("success"):
+            return {
+                "success": False,
+                "error": "Could not verify payment with ToyyibPay",
+                "details": result
+            }
+
+        transactions = result.get("transactions", [])
+        payment_successful = False
+
+        for txn in transactions:
+            if txn.get("billpaymentStatus") == "1":
+                payment_successful = True
+                break
+
+        if not payment_successful:
+            return {
+                "success": False,
+                "error": "Payment not confirmed as successful by ToyyibPay",
+                "toyyibpay_transactions": transactions
+            }
+
+        # Find the transaction record
+        import httpx
+        url = f"{settings.SUPABASE_URL}/rest/v1/transactions"
+        headers = {
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                url,
+                headers=headers,
+                params={"toyyibpay_bill_code": f"eq.{bill_code}"}
+            )
+
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to query transactions: {response.status_code}"
+            }
+
+        tx_records = response.json()
+
+        if not tx_records:
+            return {
+                "success": False,
+                "error": f"No transaction found for bill_code: {bill_code}"
+            }
+
+        tx = tx_records[0]
+        transaction_id = tx.get("transaction_id")
+        user_id = tx.get("user_id")
+        transaction_type = tx.get("transaction_type")
+        metadata = tx.get("metadata", {})
+        current_status = tx.get("payment_status")
+
+        logger.info(f"📝 Found transaction: {transaction_id}, status: {current_status}, type: {transaction_type}")
+
+        if transaction_type != "addon":
+            return {
+                "success": False,
+                "error": f"Transaction is not an addon purchase, it's: {transaction_type}"
+            }
+
+        # Update transaction status to success
+        from datetime import datetime
+        patch_data = {
+            "payment_status": "success",
+            "payment_date": datetime.utcnow().isoformat()
+        }
+
+        async with httpx.AsyncClient() as client:
+            await client.patch(
+                url,
+                headers={**headers, "Prefer": "return=minimal"},
+                params={"transaction_id": f"eq.{transaction_id}"},
+                json=patch_data
+            )
+
+        logger.info(f"✅ Transaction {transaction_id} marked as success")
+
+        # Insert addon credits
+        addon_type = metadata.get("addon_type")
+        quantity = metadata.get("quantity", 1)
+        unit_price = metadata.get("unit_price", ADDON_PRICES.get(addon_type, 0))
+        total_price = float(unit_price) * int(quantity)
+
+        addon_url = f"{settings.SUPABASE_URL}/rest/v1/addon_purchases"
+        async with httpx.AsyncClient() as client:
+            addon_response = await client.post(
+                addon_url,
+                headers={**headers, "Prefer": "return=representation"},
+                json={
+                    "user_id": user_id,
+                    "transaction_id": transaction_id,
+                    "addon_type": addon_type,
+                    "quantity": int(quantity),
+                    "quantity_used": 0,
+                    "unit_price": float(unit_price),
+                    "total_price": total_price,
+                    "status": "active"
+                }
+            )
+
+        if addon_response.status_code in [200, 201]:
+            addon_record = addon_response.json()
+            logger.info(f"✅ Addon credits added for user {user_id}: {addon_type} x{quantity}")
+
+            return {
+                "success": True,
+                "message": f"Addon credits added successfully",
+                "transaction_id": transaction_id,
+                "user_id": user_id,
+                "addon_type": addon_type,
+                "quantity": quantity,
+                "addon_record": addon_record[0] if addon_record else None
+            }
+        else:
+            logger.error(f"❌ Failed to insert addon: {addon_response.status_code} - {addon_response.text}")
+            return {
+                "success": False,
+                "error": f"Failed to insert addon credits: {addon_response.status_code}",
+                "details": addon_response.text
+            }
+
+    except Exception as e:
+        logger.error(f"Error processing pending addon: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
 @router.post("/subscriptions/upgrade/{tier}")
 async def upgrade_subscription(
     tier: str,
