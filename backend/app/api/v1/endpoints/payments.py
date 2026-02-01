@@ -1012,7 +1012,7 @@ TIER_PRICES = {
 
 # Addon pricing (RM)
 ADDON_PRICES = {
-    "ai_image": 0.50,
+    "ai_image": 1.00,
     "ai_hero": 2.00,
     "extra_website": 5.00,
     "extra_rider": 3.00,

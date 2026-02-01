@@ -23,7 +23,7 @@ class SubscriptionService:
 
     # Addon pricing (RM)
     ADDON_PRICES = {
-        "ai_image": 0.50,
+        "ai_image": 1.00,
         "ai_hero": 2.00,
         "website": 5.00,
         "rider": 3.00,
