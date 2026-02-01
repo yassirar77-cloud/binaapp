@@ -626,39 +626,40 @@ class SubscriptionService:
     async def get_available_addon_credits(self, user_id: str, addon_type: Optional[str] = None) -> Dict[str, int]:
         """Get available addon credits for a user.
 
-        Schema (migration 005):
-        addon_id, user_id, transaction_id, addon_type, quantity, quantity_used,
-        unit_price, total_price, status, expires_at, created_at
+        Schema (actual table):
+        id, user_id, addon_type, quantity, price_per_unit, total_price,
+        status, used (boolean), used_at, expires_at, toyyibpay_bill_code, created_at
 
         Status 'active' means credits are available.
-        Available credits = quantity - quantity_used
+        Available credits = quantity WHERE used=false
         """
         try:
             url = f"{self.url}/rest/v1/addon_purchases"
             params = {
                 "user_id": f"eq.{user_id}",
                 "status": "eq.active",
-                "select": "addon_type,quantity,quantity_used"
+                "used": "eq.false",
+                "select": "addon_type,quantity,used"
             }
 
             if addon_type:
                 params["addon_type"] = f"eq.{addon_type}"
 
-            logger.debug(f"🔍 Querying addon credits for user {user_id[:8]}... status=active")
+            logger.debug(f"🔍 Querying addon credits for user {user_id[:8]}... status=active, used=false")
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, headers=self.headers, params=params)
 
             if response.status_code == 200:
                 records = response.json()
-                logger.debug(f"📦 Found {len(records)} addon_purchases records with status=active")
+                logger.debug(f"📦 Found {len(records)} addon_purchases records with status=active, used=false")
 
                 credits = {}
                 for record in records:
                     atype = record.get("addon_type")
                     quantity = record.get("quantity", 0)
-                    quantity_used = record.get("quantity_used", 0)
-                    available = quantity - quantity_used
+                    # used=false means all credits in this record are available
+                    available = quantity
 
                     if atype in credits:
                         credits[atype] += available
@@ -676,13 +677,18 @@ class SubscriptionService:
             return {}
 
     async def use_addon_credit(self, user_id: str, addon_type: str) -> bool:
-        """Use one addon credit"""
+        """Use one addon credit.
+
+        With boolean 'used' column, we mark the entire addon_purchase as used.
+        Each addon_purchase record represents a single purchase that can be used once.
+        """
         try:
             url = f"{self.url}/rest/v1/addon_purchases"
             params = {
                 "user_id": f"eq.{user_id}",
                 "addon_type": f"eq.{addon_type}",
                 "status": "eq.active",
+                "used": "eq.false",
                 "order": "created_at.asc",
                 "limit": 1
             }
@@ -698,24 +704,21 @@ class SubscriptionService:
                 return False
 
             addon = records[0]
-            addon_id = addon.get("addon_id")
-            quantity = addon.get("quantity", 0)
-            quantity_used = addon.get("quantity_used", 0)
+            addon_id = addon.get("id")
 
-            if quantity_used >= quantity:
-                return False
-
-            # Update the addon purchase
-            new_used = quantity_used + 1
-            new_status = "depleted" if new_used >= quantity else "active"
-
+            # Mark the addon purchase as used
+            from datetime import datetime
             update_url = f"{self.url}/rest/v1/addon_purchases"
             async with httpx.AsyncClient() as client:
                 response = await client.patch(
                     update_url,
                     headers={**self.headers, "Prefer": "return=minimal"},
-                    params={"addon_id": f"eq.{addon_id}"},
-                    json={"quantity_used": new_used, "status": new_status}
+                    params={"id": f"eq.{addon_id}"},
+                    json={
+                        "used": True,
+                        "used_at": datetime.utcnow().isoformat(),
+                        "status": "depleted"
+                    }
                 )
 
             return response.status_code in [200, 204]
