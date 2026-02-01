@@ -624,33 +624,47 @@ class SubscriptionService:
             return False
 
     async def get_available_addon_credits(self, user_id: str, addon_type: Optional[str] = None) -> Dict[str, int]:
-        """Get available addon credits for a user"""
+        """Get available addon credits for a user.
+
+        Schema (migration 015):
+        id, user_id, bill_code, addon_type, quantity, amount, status, transaction_id, reference_no, created_at, updated_at
+
+        Status 'completed' means payment was successful and credits are available.
+        """
         try:
             url = f"{self.url}/rest/v1/addon_purchases"
             params = {
                 "user_id": f"eq.{user_id}",
-                "status": "eq.active",
-                "select": "addon_type,quantity,quantity_used"
+                "status": "eq.completed",
+                "select": "addon_type,quantity"
             }
 
             if addon_type:
                 params["addon_type"] = f"eq.{addon_type}"
+
+            logger.debug(f"🔍 Querying addon credits for user {user_id[:8]}... status=completed")
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, headers=self.headers, params=params)
 
             if response.status_code == 200:
                 records = response.json()
+                logger.debug(f"📦 Found {len(records)} addon_purchases records with status=completed")
+
                 credits = {}
                 for record in records:
                     atype = record.get("addon_type")
-                    available = record.get("quantity", 0) - record.get("quantity_used", 0)
+                    quantity = record.get("quantity", 0)
+
                     if atype in credits:
-                        credits[atype] += available
+                        credits[atype] += quantity
                     else:
-                        credits[atype] = available
+                        credits[atype] = quantity
+
+                logger.info(f"✅ Addon credits for user {user_id[:8]}...: {credits}")
                 return credits
 
+            logger.warning(f"⚠️ Failed to query addon_purchases: {response.status_code}")
             return {}
 
         except Exception as e:
