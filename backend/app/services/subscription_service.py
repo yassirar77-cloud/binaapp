@@ -629,27 +629,28 @@ class SubscriptionService:
         Schema (migration 015):
         id, user_id, bill_code, addon_type, quantity, amount, status, transaction_id, reference_no, created_at, updated_at
 
-        Status 'completed' means payment was successful and credits are available.
+        Status 'active' means payment was successful and credits are available.
+        CHECK constraint allows: 'active', 'expired', 'grace', 'locked', 'cancelled', 'pending'
         """
         try:
             url = f"{self.url}/rest/v1/addon_purchases"
             params = {
                 "user_id": f"eq.{user_id}",
-                "status": "eq.completed",
+                "status": "eq.active",
                 "select": "addon_type,quantity"
             }
 
             if addon_type:
                 params["addon_type"] = f"eq.{addon_type}"
 
-            logger.debug(f"🔍 Querying addon credits for user {user_id[:8]}... status=completed")
+            logger.debug(f"🔍 Querying addon credits for user {user_id[:8]}... status=active")
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, headers=self.headers, params=params)
 
             if response.status_code == 200:
                 records = response.json()
-                logger.debug(f"📦 Found {len(records)} addon_purchases records with status=completed")
+                logger.debug(f"📦 Found {len(records)} addon_purchases records with status=active")
 
                 credits = {}
                 for record in records:

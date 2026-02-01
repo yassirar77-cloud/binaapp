@@ -966,10 +966,12 @@ async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
 async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, headers: dict, transaction_id: str = None, bill_code: str = None):
     """
     Apply addon credits for user.
-    Creates a record in addon_purchases table with status 'completed'.
+    Creates a record in addon_purchases table with status 'active'.
 
     Schema (migration 015):
     id, user_id, bill_code, addon_type, quantity, amount, status, transaction_id, reference_no, created_at, updated_at
+
+    CHECK constraint allows: 'active', 'expired', 'grace', 'locked', 'cancelled', 'pending'
     """
     import httpx
 
@@ -997,7 +999,7 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
             "addon_type": addon_type,
             "quantity": quantity,
             "amount": total_amount,
-            "status": "completed"
+            "status": "active"
         }
 
         # Include transaction_id if provided (as string for VARCHAR column)

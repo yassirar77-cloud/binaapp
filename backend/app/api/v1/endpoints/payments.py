@@ -640,7 +640,7 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
                     "addon_type": addon_type,
                     "quantity": int(quantity),
                     "amount": total_amount,
-                    "status": "completed",
+                    "status": "active",
                     "transaction_id": str(transaction_id) if transaction_id else None
                 }
             )
@@ -764,14 +764,14 @@ async def _process_legacy_addon_payment(bill_code: str, tp_transaction_id: str =
 
             logger.info(f"📝 Found legacy addon_purchase record: addon_id={addon_id}, user={user_id}, type={addon_type}")
 
-            # Update the addon_purchase status to completed
+            # Update the addon_purchase status to active
             async with httpx.AsyncClient() as client:
                 update_response = await client.patch(
                     url,
                     headers={**headers, "Prefer": "return=minimal"},
                     params={"bill_code": f"eq.{bill_code}"},
                     json={
-                        "status": "completed"
+                        "status": "active"
                     }
                 )
 
