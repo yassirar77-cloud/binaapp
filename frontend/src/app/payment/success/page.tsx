@@ -2,8 +2,12 @@
 
 import React, { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { getStoredToken, getApiAuthToken, supabase } from '@/lib/supabase';
+import { getStoredToken, getApiAuthToken, supabase, refreshToken, isTokenExpired } from '@/lib/supabase';
 import './PaymentSuccess.css';
+
+// Constants
+const AUTH_TOKEN_BACKUP_KEY = 'binaapp_auth_token_backup';
+const USER_BACKUP_KEY = 'binaapp_user_backup';
 
 function PaymentSuccessContent() {
   const searchParams = useSearchParams();
@@ -41,7 +45,52 @@ function PaymentSuccessContent() {
     // =========================================================================
     let authToken = getStoredToken();
 
-    // If no stored token, try to get from Supabase session
+    // Step 1: If we have a token but it's expired, try to refresh it
+    if (authToken && isTokenExpired()) {
+      console.log('Token expired, attempting refresh...');
+      try {
+        const newToken = await refreshToken();
+        if (newToken) {
+          authToken = newToken;
+          console.log('Token refreshed successfully after expiry');
+        } else {
+          console.log('Token refresh failed, will try backup');
+          authToken = null;
+        }
+      } catch (error) {
+        console.error('Token refresh error:', error);
+        authToken = null;
+      }
+    }
+
+    // Step 2: If no token, try to restore from sessionStorage backup
+    if (!authToken) {
+      try {
+        const backupToken = sessionStorage.getItem(AUTH_TOKEN_BACKUP_KEY);
+        if (backupToken) {
+          console.log('Restoring token from sessionStorage backup...');
+          // Restore token to localStorage
+          localStorage.setItem('binaapp_auth_token', backupToken);
+
+          // Also restore user data if available
+          const backupUser = sessionStorage.getItem(USER_BACKUP_KEY);
+          if (backupUser) {
+            localStorage.setItem('binaapp_user', backupUser);
+          }
+
+          authToken = backupToken;
+          console.log('Token restored from backup');
+
+          // Clear backups after restore
+          sessionStorage.removeItem(AUTH_TOKEN_BACKUP_KEY);
+          sessionStorage.removeItem(USER_BACKUP_KEY);
+        }
+      } catch (error) {
+        console.error('Backup restore error:', error);
+      }
+    }
+
+    // Step 3: If still no token, try to get from Supabase session
     if (!authToken && supabase) {
       try {
         console.log('No stored token, attempting Supabase session recovery...');
@@ -52,16 +101,16 @@ function PaymentSuccessContent() {
           console.log('Session recovered from Supabase');
         } else {
           // Try to refresh the session
-          console.log('No session, attempting refresh...');
+          console.log('No session, attempting Supabase refresh...');
           const { data: { session: refreshedSession } } = await supabase.auth.refreshSession();
 
           if (refreshedSession?.access_token) {
             authToken = refreshedSession.access_token;
-            console.log('Session refreshed successfully');
+            console.log('Supabase session refreshed successfully');
           }
         }
       } catch (error) {
-        console.error('Session recovery error:', error);
+        console.error('Supabase session recovery error:', error);
       }
     }
 
@@ -124,10 +173,15 @@ function PaymentSuccessContent() {
           // Clear all pending data
           clearPendingPaymentData();
 
-          // Redirect after 3 seconds - to /create for website addon, otherwise dashboard
+          // Redirect after 3 seconds
+          // - Website addon: go to /create to use the new credit
+          // - Other addons: go to billing page to see updated limits
+          // - Subscription: go to dashboard
           setTimeout(() => {
             if (isAddonPayment && pendingAddonType === 'website') {
               router.push('/create?payment=success');
+            } else if (isAddonPayment) {
+              router.push('/dashboard/billing?payment=success');
             } else {
               router.push('/dashboard?payment=success');
             }
@@ -177,10 +231,15 @@ function PaymentSuccessContent() {
       // Clear all pending data
       clearPendingPaymentData();
 
-      // Redirect after 3 seconds - to /create for website addon, otherwise dashboard
+      // Redirect after 3 seconds
+      // - Website addon: go to /create to use the new credit
+      // - Other addons: go to billing page to see updated limits
+      // - Subscription: go to dashboard
       setTimeout(() => {
         if (isAddonPayment && pendingAddonType === 'website') {
           router.push('/create?payment=success');
+        } else if (isAddonPayment) {
+          router.push('/dashboard/billing?payment=success');
         } else {
           router.push('/dashboard?payment=success');
         }
@@ -210,6 +269,8 @@ function PaymentSuccessContent() {
             setTimeout(() => {
               if (isAddonPayment && pendingAddonType === 'website') {
                 router.push('/create?payment=success');
+              } else if (isAddonPayment) {
+                router.push('/dashboard/billing?payment=success');
               } else {
                 router.push('/dashboard?payment=success');
               }

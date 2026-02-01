@@ -290,6 +290,67 @@ export async function ensureValidToken(): Promise<string | null> {
   return token
 }
 
+// Backup keys for session preservation during external redirects
+const AUTH_TOKEN_BACKUP_KEY = 'binaapp_auth_token_backup'
+const USER_BACKUP_KEY = 'binaapp_user_backup'
+
+/**
+ * Backup auth state to sessionStorage before external redirect (e.g., payment gateway)
+ * This helps preserve the session if localStorage is cleared during redirect
+ */
+export function backupAuthState(): void {
+  if (typeof window === 'undefined') return
+
+  try {
+    const token = localStorage.getItem(TOKEN_KEY)
+    const user = localStorage.getItem(USER_KEY)
+
+    if (token) {
+      sessionStorage.setItem(AUTH_TOKEN_BACKUP_KEY, token)
+      console.log('[Auth] Backed up token to sessionStorage')
+    }
+    if (user) {
+      sessionStorage.setItem(USER_BACKUP_KEY, user)
+      console.log('[Auth] Backed up user to sessionStorage')
+    }
+  } catch (error) {
+    console.error('[Auth] Failed to backup auth state:', error)
+  }
+}
+
+/**
+ * Restore auth state from sessionStorage backup
+ * Used after returning from external redirect if localStorage was cleared
+ */
+export function restoreAuthState(): boolean {
+  if (typeof window === 'undefined') return false
+
+  try {
+    const backupToken = sessionStorage.getItem(AUTH_TOKEN_BACKUP_KEY)
+    const backupUser = sessionStorage.getItem(USER_BACKUP_KEY)
+
+    if (backupToken) {
+      localStorage.setItem(TOKEN_KEY, backupToken)
+      console.log('[Auth] Restored token from sessionStorage backup')
+
+      if (backupUser) {
+        localStorage.setItem(USER_KEY, backupUser)
+      }
+
+      // Clear backups after restore
+      sessionStorage.removeItem(AUTH_TOKEN_BACKUP_KEY)
+      sessionStorage.removeItem(USER_BACKUP_KEY)
+
+      return true
+    }
+
+    return false
+  } catch (error) {
+    console.error('[Auth] Failed to restore auth state:', error)
+    return false
+  }
+}
+
 /**
  * Register a new user via backend API
  */
