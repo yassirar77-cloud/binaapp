@@ -6,6 +6,40 @@ import { getStoredToken, backupAuthState } from '@/lib/supabase';
 import { UsageWidget } from '@/components/UsageWidget';
 import './billing.css';
 
+// Mobile collapsible usage section
+function MobileUsageSection({
+  onUpgradeClick,
+  onRenewClick
+}: {
+  onUpgradeClick: () => void;
+  onRenewClick: () => void;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div className="mobile-usage-section">
+      <button
+        className="mobile-usage-toggle"
+        onClick={() => setIsExpanded(!isExpanded)}
+        aria-expanded={isExpanded}
+      >
+        <span className="toggle-icon">{isExpanded ? '▼' : '▶'}</span>
+        <span className="toggle-text">Penggunaan Anda</span>
+        <span className="toggle-hint">{isExpanded ? 'Tutup' : 'Lihat'}</span>
+      </button>
+      {isExpanded && (
+        <div className="mobile-usage-content">
+          <UsageWidget
+            onUpgradeClick={onUpgradeClick}
+            onRenewClick={onRenewClick}
+            compact={true}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Plan {
   plan_name: string;
   display_name: string;
@@ -301,6 +335,12 @@ export default function BillingPage() {
           Sejarah Transaksi
         </button>
       </div>
+
+      {/* Mobile Usage Section - visible only on smaller screens */}
+      <MobileUsageSection
+        onUpgradeClick={() => setActiveTab('plans')}
+        onRenewClick={handleRenew}
+      />
 
       {/* Plans Tab */}
       {activeTab === 'plans' && (
