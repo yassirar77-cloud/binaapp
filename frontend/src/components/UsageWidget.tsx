@@ -233,7 +233,7 @@ export function UsageWidget({ onUpgradeClick, onRenewClick, compact = false }: U
           used={usage.riders.used}
           limit={usage.riders.limit}
           unlimited={usage.riders.unlimited}
-          blocked={usage.riders.limit === 0}
+          blocked={(usage.riders.limit || 0) + (usage.riders.addon_credits || 0) === 0}
           addonCredits={usage.riders.addon_credits}
         />
       </div>
