@@ -7,8 +7,9 @@ import { supabase, getApiAuthToken, getCurrentUser, getStoredToken, signOut as c
 import { User } from '@supabase/supabase-js'
 import dynamic from 'next/dynamic'
 
-// Dynamically import chat dashboard to avoid SSR issues
+// Dynamically import components to avoid SSR issues
 const OwnerChatDashboard = dynamic(() => import('@/components/OwnerChatDashboard'), { ssr: false })
+const AnimatedUsageWidget = dynamic(() => import('@/components/AnimatedUsageWidget'), { ssr: false })
 
 // Subscription types
 interface UsageData {
@@ -1248,74 +1249,13 @@ export default function ProfilePage() {
             </form>
           </div>
 
-          {/* Subscription Status Section - STATIC INLINE */}
-          <div className="mt-8 p-6 bg-gray-50 rounded-xl border border-gray-200">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-800">💎 Langganan Saya</h3>
-              <a href="/dashboard/billing" className="text-blue-500 text-sm hover:underline">Urus Langganan →</a>
-            </div>
-
-            <div className="bg-white p-4 rounded-lg mb-4">
-              <div className="flex items-center gap-3">
-                <span className="px-4 py-1 bg-blue-100 text-blue-700 rounded-full font-semibold text-sm">STARTER</span>
-                <span className="text-gray-600 text-sm">✅ Aktif</span>
-              </div>
-            </div>
-
-            <div className="bg-white p-4 rounded-lg">
-              <h4 className="text-sm text-gray-500 mb-3">📊 Penggunaan</h4>
-
-              <div className="space-y-3">
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>🌐 Website</span>
-                    <span className="text-red-500 font-medium">3/1 ⚠️</span>
-                  </div>
-                  <div className="bg-gray-200 rounded-full h-2">
-                    <div className="bg-red-500 h-2 rounded-full" style={{width: '100%'}}></div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>📋 Menu Items</span>
-                    <span>0/20</span>
-                  </div>
-                  <div className="bg-gray-200 rounded-full h-2">
-                    <div className="bg-blue-500 h-2 rounded-full" style={{width: '0%'}}></div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>✨ AI Hero</span>
-                    <span>0/1</span>
-                  </div>
-                  <div className="bg-gray-200 rounded-full h-2">
-                    <div className="bg-purple-500 h-2 rounded-full" style={{width: '0%'}}></div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>🖼️ AI Images</span>
-                    <span>0/5</span>
-                  </div>
-                  <div className="bg-gray-200 rounded-full h-2">
-                    <div className="bg-amber-500 h-2 rounded-full" style={{width: '0%'}}></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-red-700 text-sm">⚠️ Anda telah melebihi had website (3/1). Sila upgrade untuk terus membina website.</p>
-            </div>
-
-            <div className="flex gap-3 mt-4">
-              <a href="/pricing" className="flex-1 py-2 bg-blue-500 text-white text-center rounded-lg text-sm font-medium hover:bg-blue-600">💎 Upgrade Plan</a>
-              <a href="/dashboard/billing" className="flex-1 py-2 bg-white text-blue-500 text-center rounded-lg text-sm font-medium border border-blue-500 hover:bg-blue-50">📄 Billing</a>
-            </div>
+          {/* Subscription Status Section - Animated Widget */}
+          <div className="mt-8">
+            <AnimatedUsageWidget
+              subscription={subscription}
+              loading={subscriptionLoading}
+              compact={false}
+            />
           </div>
 
           {/* Tabs Navigation */}
