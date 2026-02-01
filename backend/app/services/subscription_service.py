@@ -626,18 +626,19 @@ class SubscriptionService:
     async def get_available_addon_credits(self, user_id: str, addon_type: Optional[str] = None) -> Dict[str, int]:
         """Get available addon credits for a user.
 
-        Schema (migration 015):
-        id, user_id, bill_code, addon_type, quantity, amount, status, transaction_id, reference_no, created_at, updated_at
+        Schema (migration 005):
+        addon_id, user_id, transaction_id, addon_type, quantity, quantity_used,
+        unit_price, total_price, status, expires_at, created_at
 
-        Status 'active' means payment was successful and credits are available.
-        CHECK constraint allows: 'active', 'expired', 'grace', 'locked', 'cancelled', 'pending'
+        Status 'active' means credits are available.
+        Available credits = quantity - quantity_used
         """
         try:
             url = f"{self.url}/rest/v1/addon_purchases"
             params = {
                 "user_id": f"eq.{user_id}",
                 "status": "eq.active",
-                "select": "addon_type,quantity"
+                "select": "addon_type,quantity,quantity_used"
             }
 
             if addon_type:
@@ -656,11 +657,13 @@ class SubscriptionService:
                 for record in records:
                     atype = record.get("addon_type")
                     quantity = record.get("quantity", 0)
+                    quantity_used = record.get("quantity_used", 0)
+                    available = quantity - quantity_used
 
                     if atype in credits:
-                        credits[atype] += quantity
+                        credits[atype] += available
                     else:
-                        credits[atype] = quantity
+                        credits[atype] = available
 
                 logger.info(f"✅ Addon credits for user {user_id[:8]}...: {credits}")
                 return credits

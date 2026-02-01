@@ -610,14 +610,17 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
 async def _process_addon_payment(user_id: str, transaction_id: str, metadata: dict, bill_code: str = None):
     """Process an addon purchase payment.
 
-    Schema (migration 015):
-    id, user_id, bill_code, addon_type, quantity, amount, status, transaction_id, reference_no, created_at, updated_at
+    Schema (migration 005):
+    addon_id, user_id, transaction_id, addon_type, quantity, quantity_used,
+    unit_price, total_price, status, expires_at, created_at
+
+    Status values: 'active', 'depleted', 'expired'
     """
 
     addon_type = metadata.get("addon_type")
     quantity = metadata.get("quantity", 1)
     unit_price = metadata.get("unit_price", ADDON_PRICES.get(addon_type, 0))
-    total_amount = float(unit_price) * int(quantity)
+    total_price = float(unit_price) * int(quantity)
 
     logger.info(f"📝 Processing addon payment for user {user_id}: {addon_type} x{quantity}")
 
@@ -636,19 +639,20 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
                 headers={**headers, "Prefer": "return=representation"},
                 json={
                     "user_id": user_id,
-                    "bill_code": bill_code or f"CB_{addon_type}_{user_id[:8]}",
+                    "transaction_id": transaction_id,
                     "addon_type": addon_type,
                     "quantity": int(quantity),
-                    "amount": total_amount,
-                    "status": "active",
-                    "transaction_id": str(transaction_id) if transaction_id else None
+                    "quantity_used": 0,
+                    "unit_price": float(unit_price),
+                    "total_price": float(total_price),
+                    "status": "active"
                 }
             )
 
         if response.status_code in [200, 201]:
             addon_record = response.json()
             logger.info(f"✅ Addon credits added for user {user_id}: {addon_type} x{quantity}")
-            logger.info(f"   Addon ID: {addon_record[0].get('id') if addon_record else 'N/A'}")
+            logger.info(f"   Addon ID: {addon_record[0].get('addon_id') if addon_record else 'N/A'}")
         else:
             logger.error(f"❌ Failed to create addon purchase: {response.status_code}")
             logger.error(f"   Response: {response.text}")
@@ -726,64 +730,13 @@ async def _process_legacy_payment(bill_code: str, tp_transaction_id: str = None)
 
 async def _process_legacy_addon_payment(bill_code: str, tp_transaction_id: str = None):
     """
-    Fallback to process addon payment from legacy addon_purchases records.
-    These records were created with bill_code field instead of proper transaction records.
+    Fallback to process addon payment from legacy records.
+    Note: Migration 005 schema doesn't have bill_code column, so this is a no-op.
+    All addon payments should go through the main _process_addon_payment flow.
     """
-    try:
-        import httpx
-        url = f"{settings.SUPABASE_URL}/rest/v1/addon_purchases"
-        headers = {
-            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
-            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-            "Content-Type": "application/json"
-        }
-
-        # Look for addon_purchases with this bill_code that are still pending
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                url,
-                headers=headers,
-                params={
-                    "bill_code": f"eq.{bill_code}",
-                    "status": "eq.pending"
-                }
-            )
-
-        if response.status_code != 200:
-            logger.warning(f"⚠️ Failed to query addon_purchases for bill_code: {bill_code}")
-            return
-
-        records = response.json()
-
-        if records and len(records) > 0:
-            addon_record = records[0]
-            addon_id = addon_record.get("addon_id") or addon_record.get("id")
-            user_id = addon_record.get("user_id")
-            addon_type = addon_record.get("addon_type")
-            quantity = addon_record.get("quantity", 1)
-
-            logger.info(f"📝 Found legacy addon_purchase record: addon_id={addon_id}, user={user_id}, type={addon_type}")
-
-            # Update the addon_purchase status to active
-            async with httpx.AsyncClient() as client:
-                update_response = await client.patch(
-                    url,
-                    headers={**headers, "Prefer": "return=minimal"},
-                    params={"bill_code": f"eq.{bill_code}"},
-                    json={
-                        "status": "active"
-                    }
-                )
-
-            if update_response.status_code in [200, 204]:
-                logger.info(f"✅ Legacy addon_purchase activated for user {user_id}: {addon_type} x{quantity}")
-            else:
-                logger.error(f"❌ Failed to update legacy addon_purchase: {update_response.status_code}")
-        else:
-            logger.warning(f"⚠️ No addon_purchase record found for bill_code: {bill_code}")
-
-    except Exception as e:
-        logger.error(f"❌ Error processing legacy addon payment: {e}", exc_info=True)
+    logger.info(f"⚠️ Legacy addon payment handler called for bill_code: {bill_code}")
+    logger.info(f"   This is a no-op - addon_purchases table uses transaction_id, not bill_code")
+    # No-op - the main flow handles everything via transactions table
 
 
 async def _update_usage_limits(user_id: str, tier: str):
