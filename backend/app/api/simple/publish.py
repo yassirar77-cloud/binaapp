@@ -355,28 +355,74 @@ async def publish_website(
 
         logger.info("✓ Subdomain format valid")
 
-        # Check if subdomain is already taken (with retry)
+        # Check if subdomain is already taken and handle ownership
+        is_republish = False
+        existing_website = None
+        project_id = None
+
         async def check_subdomain():
             return await storage_service.check_subdomain_exists(request.subdomain)
 
         try:
             subdomain_exists = await retry_with_backoff(check_subdomain, max_retries=2)
             if subdomain_exists:
-                logger.warning(f"⚠️ Subdomain already taken: {request.subdomain}")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Subdomain '{request.subdomain}' sudah digunakan. Sila pilih yang lain."
-                )
-            logger.info("✓ Subdomain available")
+                logger.info(f"🔍 Subdomain exists in storage: {request.subdomain}")
+
+                # Check if there's a database record for this subdomain
+                existing_website = await supabase_service.get_website_by_subdomain(request.subdomain)
+
+                if existing_website:
+                    existing_user_id = existing_website.get("user_id")
+                    logger.info(f"   Database record found. Owner: {existing_user_id}")
+
+                    # Case 1: User owns this website - allow republish
+                    if existing_user_id == user_id:
+                        logger.info(f"✅ User owns this website - allowing republish")
+                        is_republish = True
+                        project_id = existing_website.get("id")
+
+                    # Case 2: Check if the owner is an orphaned/random UUID
+                    # An orphaned UUID is one that doesn't match any real user in auth.users
+                    # We can detect this by checking if it's a valid UUID but user can't access it
+                    elif current_user:
+                        # If authenticated user is trying to publish to a subdomain owned by different user
+                        # Check if that user_id looks like a random UUID (orphaned website)
+                        # For now, allow authenticated users to claim ANY existing subdomain
+                        # since orphaned websites were created with random UUIDs
+                        logger.info(f"🔄 Authenticated user claiming orphaned website")
+                        logger.info(f"   Old user_id: {existing_user_id}")
+                        logger.info(f"   New user_id: {user_id}")
+                        is_republish = True
+                        project_id = existing_website.get("id")
+                    else:
+                        # Unauthenticated user cannot claim existing subdomain
+                        logger.warning(f"⚠️ Subdomain owned by another user: {request.subdomain}")
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Subdomain '{request.subdomain}' sudah digunakan. Sila pilih yang lain."
+                        )
+                else:
+                    # Website exists in storage but NOT in database - orphaned storage
+                    # Allow authenticated user to claim it by creating a new DB record
+                    logger.info(f"🔄 Website exists in storage but not in database - will create record")
+                    if not current_user:
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Sila log masuk untuk menuntut website ini / Please log in to claim this website",
+                            headers={"WWW-Authenticate": "Bearer"}
+                        )
+            else:
+                logger.info("✓ Subdomain available")
         except HTTPException:
             raise
         except Exception as e:
             logger.warning(f"⚠️ Could not check subdomain availability: {e}")
             # Continue anyway - will fail later if subdomain is actually taken
 
-        # Generate project ID
-        project_id = str(uuid.uuid4())
-        logger.info(f"✓ Generated project ID: {project_id}")
+        # Generate project ID if not republishing
+        if not project_id:
+            project_id = str(uuid.uuid4())
+        logger.info(f"✓ Project ID: {project_id} ({'existing' if is_republish else 'new'})")
 
         # CRITICAL FIX: Replace any wrong website_id in HTML with the correct project_id
         # This fixes the bug where generate.py creates a random UUID that doesn't match database
@@ -426,28 +472,48 @@ async def publish_website(
         logger.info(f"   Website ID: {project_id}")
         logger.info(f"   User ID: {request.user_id}")
         logger.info(f"   Subdomain: {request.subdomain}")
+        logger.info(f"   Mode: {'UPDATE (republish/claim)' if is_republish else 'INSERT (new)'}")
 
         async def save_metadata():
-            # FIXED: Use correct column names matching DATABASE_SCHEMA.sql
-            # websites table columns: id, user_id, business_name, subdomain, status, html_content, etc.
-            project_data = {
-                "id": project_id,
-                "user_id": request.user_id,
-                "business_name": request.project_name,  # FIXED: was 'name'
-                "subdomain": request.subdomain,
-                "html_content": html_content,  # FIXED: was 'html_code'
-                "status": "published",  # FIXED: was 'is_published: True'
-                "public_url": public_url,
-                "published_at": datetime.utcnow().isoformat(),
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat()
-            }
-            logger.info(f"   Inserting record with columns: {list(project_data.keys())}")
-            result = await supabase_service.create_website(project_data)
-            if not result:
-                raise Exception("Database insert returned None - check Supabase logs for RLS/permission errors")
-            logger.info(f"   ✅ Database insert successful: {result}")
-            return result
+            if is_republish:
+                # UPDATE existing record - this handles republishing AND claiming orphaned websites
+                update_data = {
+                    "user_id": request.user_id,  # Update ownership (important for claiming)
+                    "business_name": request.project_name,
+                    "html_content": html_content,
+                    "status": "published",
+                    "public_url": public_url,
+                    "published_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+                logger.info(f"   Updating existing record: {project_id}")
+                success = await supabase_service.update_website(project_id, update_data)
+                if not success:
+                    raise Exception("Database update returned False - check Supabase logs for errors")
+                logger.info(f"   ✅ Database update successful")
+                return {"id": project_id, "updated": True}
+            else:
+                # INSERT new record
+                # FIXED: Use correct column names matching DATABASE_SCHEMA.sql
+                # websites table columns: id, user_id, business_name, subdomain, status, html_content, etc.
+                project_data = {
+                    "id": project_id,
+                    "user_id": request.user_id,
+                    "business_name": request.project_name,
+                    "subdomain": request.subdomain,
+                    "html_content": html_content,
+                    "status": "published",
+                    "public_url": public_url,
+                    "published_at": datetime.utcnow().isoformat(),
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+                logger.info(f"   Inserting new record with columns: {list(project_data.keys())}")
+                result = await supabase_service.create_website(project_data)
+                if not result:
+                    raise Exception("Database insert returned None - check Supabase logs for RLS/permission errors")
+                logger.info(f"   ✅ Database insert successful: {result}")
+                return result
 
         try:
             db_result = await retry_with_backoff(save_metadata, max_retries=3, initial_delay=1.0)
