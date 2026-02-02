@@ -165,9 +165,16 @@ export default function RiderApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn, rider]);
 
-  // PWA Install prompt
+  // PWA Install prompt - with early capture support
   useEffect(() => {
     console.log('[Rider PWA] Setting up install prompt listener...');
+
+    // Check if prompt was already captured globally (before React mounted)
+    if ((window as any).__pwaInstallPromptCaptured && (window as any).__pwaInstallPrompt) {
+      console.log('[Rider PWA] ✅ Using globally captured install prompt');
+      setInstallPrompt((window as any).__pwaInstallPrompt);
+      setShowInstallBanner(true);
+    }
 
     const handleBeforeInstallPrompt = (e: Event) => {
       console.log('[Rider PWA] ✅ Install prompt event captured!');
@@ -176,7 +183,17 @@ export default function RiderApp() {
       setShowInstallBanner(true);
     };
 
+    // Also listen for our custom event dispatched from the early capture script
+    const handlePromptReady = () => {
+      if ((window as any).__pwaInstallPrompt) {
+        console.log('[Rider PWA] ✅ Install prompt ready from early capture');
+        setInstallPrompt((window as any).__pwaInstallPrompt);
+        setShowInstallBanner(true);
+      }
+    };
+
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('pwa-prompt-ready', handlePromptReady);
 
     // Check if already installed
     if (window.matchMedia('(display-mode: standalone)').matches) {
@@ -187,6 +204,7 @@ export default function RiderApp() {
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('pwa-prompt-ready', handlePromptReady);
     };
   }, []);
 
@@ -770,6 +788,9 @@ export default function RiderApp() {
     }
 
     setInstallPrompt(null);
+    // Clear global prompt
+    (window as any).__pwaInstallPrompt = null;
+    (window as any).__pwaInstallPromptCaptured = false;
   };
 
   // Pull to refresh handlers

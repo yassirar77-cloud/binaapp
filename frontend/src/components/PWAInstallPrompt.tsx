@@ -7,6 +7,14 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
+// Extend Window interface to include our global PWA variables
+declare global {
+  interface Window {
+    __pwaInstallPrompt: BeforeInstallPromptEvent | null;
+    __pwaInstallPromptCaptured: boolean;
+  }
+}
+
 interface Props {
   appName?: string;
   themeColor?: string;
@@ -20,37 +28,64 @@ export function PWAInstallPrompt({ appName = 'BinaApp', themeColor = '#3b82f6' }
 
   useEffect(() => {
     // Check if already installed
-    const standalone = window.matchMedia('(display-mode: standalone)').matches;
+    const standalone = window.matchMedia('(display-mode: standalone)').matches
+      || (window.navigator as any).standalone === true;
     setIsStandalone(standalone);
 
-    // Check if iOS
-    const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
-    setIsIOS(ios);
+    // Improved iOS detection - handles Safari, WebView, and various iOS browsers
+    const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera || '';
+    const ios = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
+    // Also check for iPad on iOS 13+ which reports as Mac
+    const isIPadOS = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    const isIOSDevice = ios || isIPadOS;
+    setIsIOS(isIOSDevice);
 
-    // Listen for install prompt (Android/Desktop)
+    // Check if prompt was already captured globally (before React mounted)
+    if (window.__pwaInstallPromptCaptured && window.__pwaInstallPrompt) {
+      console.log('[PWA] Using globally captured install prompt');
+      setDeferredPrompt(window.__pwaInstallPrompt);
+      setShowPrompt(true);
+    }
+
+    // Listen for install prompt (Android/Desktop) - for late events
     const handleBeforeInstall = (e: Event) => {
       e.preventDefault();
-      console.log('[PWA] Install prompt captured');
+      console.log('[PWA] Install prompt captured in React');
       setDeferredPrompt(e as BeforeInstallPromptEvent);
       setShowPrompt(true);
     };
 
+    // Also listen for our custom event dispatched from the early capture script
+    const handlePromptReady = () => {
+      if (window.__pwaInstallPrompt) {
+        console.log('[PWA] Install prompt ready from early capture');
+        setDeferredPrompt(window.__pwaInstallPrompt);
+        setShowPrompt(true);
+      }
+    };
+
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('pwa-prompt-ready', handlePromptReady);
 
     // Listen for successful install
-    window.addEventListener('appinstalled', () => {
+    const handleInstalled = () => {
       console.log('[PWA] App installed successfully');
       setShowPrompt(false);
       setDeferredPrompt(null);
-    });
+      window.__pwaInstallPrompt = null;
+      window.__pwaInstallPromptCaptured = false;
+    };
+    window.addEventListener('appinstalled', handleInstalled);
 
-    // Show iOS prompt after 3 seconds if not installed
-    if (ios && !standalone) {
+    // Show iOS prompt after 3 seconds if not installed and not in standalone mode
+    if (isIOSDevice && !standalone) {
       setTimeout(() => setShowPrompt(true), 3000);
     }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('pwa-prompt-ready', handlePromptReady);
+      window.removeEventListener('appinstalled', handleInstalled);
     };
   }, []);
 
@@ -67,6 +102,9 @@ export function PWAInstallPrompt({ appName = 'BinaApp', themeColor = '#3b82f6' }
       setShowPrompt(false);
     }
     setDeferredPrompt(null);
+    // Clear global prompt
+    window.__pwaInstallPrompt = null;
+    window.__pwaInstallPromptCaptured = false;
   };
 
   const handleDismiss = () => {
