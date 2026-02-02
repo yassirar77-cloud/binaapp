@@ -259,15 +259,33 @@ async def publish_website(
             user_id = current_user.get("sub") or current_user.get("id")
             logger.info(f"   User ID: {user_id} (from authenticated token ✅)")
         else:
-            # Not authenticated - use request user_id
+            # Not authenticated via token - check if request has valid user_id
             user_id = request.user_id
-            logger.info(f"   User ID: {user_id} (from request body - NOT AUTHENTICATED ⚠️)")
+            logger.info(f"   User ID: {user_id} (from request body - NOT AUTHENTICATED via token ⚠️)")
 
-            # Validate user_id is not a placeholder
+            # Validate user_id - MUST be a valid UUID, not a placeholder
             if user_id in ["demo-user", "anonymous", "guest", "", None]:
-                logger.warning(f"   ⚠️ Invalid user_id: '{user_id}' - generating UUID for demo")
-                user_id = str(uuid.uuid4())
-                logger.info(f"   Generated user_id: {user_id}")
+                # CRITICAL FIX: Instead of generating random UUID, reject the request
+                # Random UUIDs create orphaned websites that don't appear in user's dashboard
+                logger.error(f"   ❌ Invalid user_id: '{user_id}' - authentication required")
+                logger.error(f"   ❌ Website would be orphaned if published with random UUID")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Sila log masuk untuk menerbitkan website / Please log in to publish website",
+                    headers={"WWW-Authenticate": "Bearer"}
+                )
+
+            # Check if user_id is a valid UUID format
+            try:
+                uuid.UUID(user_id)
+                logger.info(f"   User ID is valid UUID format ✅")
+            except ValueError:
+                logger.error(f"   ❌ Invalid user_id format: '{user_id}' - not a valid UUID")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Sila log masuk untuk menerbitkan website / Please log in to publish website",
+                    headers={"WWW-Authenticate": "Bearer"}
+                )
 
         # Update request.user_id for downstream use
         request.user_id = user_id
