@@ -190,6 +190,8 @@ async def subdomain_middleware(request: Request, call_next):
     This middleware intercepts requests to subdomains like kitcat.binaapp.my
     and serves the actual website HTML from Supabase Storage instead of
     showing the API health check response.
+
+    CRITICAL: This now checks the database FIRST to ensure website audit tracking.
     """
 
     host = request.headers.get("host", "")
@@ -203,8 +205,37 @@ async def subdomain_middleware(request: Request, call_next):
         if subdomain and subdomain not in ["binaapp", "www", "api"]:
             logger.info(f"🌐 Subdomain request detected: {subdomain}.binaapp.my")
 
-            # Get Supabase URL
+            # Get Supabase URL and credentials
             SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+            SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
+
+            # CRITICAL FIX: Check database FIRST for proper website audit tracking
+            website_id = None
+            website_in_database = False
+
+            try:
+                db_url = f"{SUPABASE_URL}/rest/v1/websites"
+                db_params = {"subdomain": f"eq.{subdomain}", "select": "id,user_id,business_name,status"}
+                db_headers = {
+                    "apikey": SUPABASE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_KEY}",
+                    "Content-Type": "application/json"
+                }
+
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    db_response = await client.get(db_url, params=db_params, headers=db_headers)
+
+                    if db_response.status_code == 200:
+                        records = db_response.json()
+                        if records and len(records) > 0:
+                            website_record = records[0]
+                            website_id = website_record.get("id")
+                            website_in_database = True
+                            logger.info(f"✅ Website '{subdomain}' found in DATABASE (id: {website_id}, user: {website_record.get('user_id')})")
+                        else:
+                            logger.warning(f"⚠️ Website '{subdomain}' NOT in database - will serve from storage but won't appear in dashboard!")
+            except Exception as db_error:
+                logger.error(f"❌ Database check failed for '{subdomain}': {db_error}")
 
             # Fetch website from Supabase Storage
             storage_url = f"{SUPABASE_URL}/storage/v1/object/public/websites/{subdomain}/index.html"
@@ -216,8 +247,22 @@ async def subdomain_middleware(request: Request, call_next):
                     response = await client.get(storage_url)
 
                     if response.status_code == 200:
-                        logger.info(f"✅ Website '{subdomain}' found and served!")
-                        return HTMLResponse(content=response.text, status_code=200)
+                        html_content = response.text
+
+                        # If website is in database, inject correct website_id
+                        if website_id and website_in_database:
+                            logger.info(f"✅ Website '{subdomain}' found and served! (in audit: YES)")
+                            # Inject website_id for widgets
+                            widget_injection = f'''
+<!-- BinaApp - Website ID injected by middleware -->
+<script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>
+'''
+                            if "</head>" in html_content:
+                                html_content = html_content.replace("</head>", widget_injection + "</head>")
+                        else:
+                            logger.warning(f"⚠️ Website '{subdomain}' served but NOT IN AUDIT (orphaned)")
+
+                        return HTMLResponse(content=html_content, status_code=200)
                     else:
                         logger.warning(f"⚠️ Website '{subdomain}' not found (status: {response.status_code})")
                         return HTMLResponse(

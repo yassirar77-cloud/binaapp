@@ -126,12 +126,36 @@ class StorageService:
 
     async def check_subdomain_exists(self, subdomain: str) -> bool:
         """
-        Check if subdomain already exists
-        For now, always return False to allow publishing
-        (Real check would require listing all storage folders)
+        Check if subdomain already exists in the database.
+
+        This is the source of truth for subdomain ownership and is critical
+        for ensuring websites appear correctly in user dashboards.
+
+        Returns True if subdomain exists in database OR storage.
         """
-        # TODO: Implement proper subdomain check via database
-        return False
+        try:
+            # CRITICAL FIX: Check database first (source of truth for ownership)
+            existing_website = await self.supabase.get_website_by_subdomain(subdomain)
+            if existing_website:
+                logger.info(f"✅ Subdomain '{subdomain}' found in database (id: {existing_website.get('id')})")
+                return True
+
+            # Also check storage as fallback (for orphaned websites)
+            import httpx
+            storage_url = f"{self.supabase.url}/storage/v1/object/public/{self.bucket_name}/{subdomain}/index.html"
+            async with httpx.AsyncClient() as client:
+                response = await client.head(storage_url, timeout=5.0)
+                if response.status_code == 200:
+                    logger.info(f"⚠️ Subdomain '{subdomain}' found in storage but NOT in database (orphaned)")
+                    return True
+
+            logger.info(f"ℹ️ Subdomain '{subdomain}' not found anywhere")
+            return False
+        except Exception as e:
+            logger.warning(f"⚠️ Error checking subdomain '{subdomain}': {e}")
+            # Return False on error to allow publishing attempt
+            # The database constraint will catch duplicates if they exist
+            return False
 
     async def list_user_websites(self, user_id: str) -> List[Dict]:
         """List all websites for a user (from database)"""
