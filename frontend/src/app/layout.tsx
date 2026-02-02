@@ -59,6 +59,22 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="msapplication-TileColor" content="#3b82f6" />
         <meta name="msapplication-tap-highlight" content="no" />
+        {/* Early PWA install prompt capture - must run before React mounts */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.__pwaInstallPrompt = null;
+              window.__pwaInstallPromptCaptured = false;
+              window.addEventListener('beforeinstallprompt', function(e) {
+                e.preventDefault();
+                window.__pwaInstallPrompt = e;
+                window.__pwaInstallPromptCaptured = true;
+                console.log('[PWA] Install prompt captured early (before React mount)');
+                window.dispatchEvent(new CustomEvent('pwa-prompt-ready'));
+              });
+            `,
+          }}
+        />
       </head>
       <body className={inter.className}>
         <Suspense fallback={null}>

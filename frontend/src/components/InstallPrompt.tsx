@@ -35,9 +35,13 @@ export default function InstallPrompt() {
       || (window.navigator as any).standalone === true;
     setIsStandalone(isStandaloneMode);
 
-    // Check if iOS
-    const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-    setIsIOS(iOS);
+    // Improved iOS detection - handles Safari, WebView, and various iOS browsers
+    const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera || '';
+    const iOS = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
+    // Also check for iPad on iOS 13+ which reports as Mac
+    const isIPadOS = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    const isIOSDevice = iOS || isIPadOS;
+    setIsIOS(isIOSDevice);
 
     // Check if prompt was dismissed recently (use different key for each app)
     const storageKey = isRider ? 'riderPwaPromptDismissed' : 'pwaPromptDismissed';
@@ -50,6 +54,13 @@ export default function InstallPrompt() {
       }
     }
 
+    // Check if prompt was already captured globally (before React mounted)
+    if ((window as any).__pwaInstallPromptCaptured && (window as any).__pwaInstallPrompt) {
+      console.log('[InstallPrompt] Using globally captured install prompt');
+      setDeferredPrompt((window as any).__pwaInstallPrompt);
+      setTimeout(() => setShowPrompt(true), 3000);
+    }
+
     // Listen for the install prompt event
     const handler = (e: BeforeInstallPromptEvent) => {
       e.preventDefault();
@@ -58,8 +69,27 @@ export default function InstallPrompt() {
       setTimeout(() => setShowPrompt(true), 3000);
     };
 
+    // Also listen for our custom event dispatched from the early capture script
+    const handlePromptReady = () => {
+      if ((window as any).__pwaInstallPrompt) {
+        console.log('[InstallPrompt] Install prompt ready from early capture');
+        setDeferredPrompt((window as any).__pwaInstallPrompt);
+        setTimeout(() => setShowPrompt(true), 3000);
+      }
+    };
+
     window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
+    window.addEventListener('pwa-prompt-ready', handlePromptReady);
+
+    // Show iOS prompt after 3 seconds if not installed
+    if (isIOSDevice && !isStandaloneMode) {
+      setTimeout(() => setShowPrompt(true), 3000);
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      window.removeEventListener('pwa-prompt-ready', handlePromptReady);
+    };
   }, []);
 
   const handleInstall = async () => {
@@ -74,6 +104,9 @@ export default function InstallPrompt() {
 
     setDeferredPrompt(null);
     setShowPrompt(false);
+    // Clear global prompt
+    (window as any).__pwaInstallPrompt = null;
+    (window as any).__pwaInstallPromptCaptured = false;
   };
 
   const handleDismiss = () => {
