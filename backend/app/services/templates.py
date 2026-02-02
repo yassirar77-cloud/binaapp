@@ -2563,7 +2563,7 @@ function handleContactSubmit(e) {{
             type: 'message',
             sender_name: customerName || 'Pelanggan',
             message_type: 'text',
-            content: message
+            message_text: message
         }}));
 
         // Clear input
@@ -2617,11 +2617,13 @@ function handleContactSubmit(e) {{
         container.innerHTML = chatMessages.map(msg => {{
             const isCustomer = msg.sender_type === 'customer';
             const isSystem = msg.sender_type === 'system';
+            // Normalize message text field (backend uses message_text, some APIs use content)
+            const messageText = msg.message_text || msg.content || '';
 
             if (isSystem) {{
                 return `
                     <div style="text-align:center;font-size:13px;color:#6b7280;padding:8px;background:#f9fafb;border-radius:8px;">
-                        ${{escapeHtml(msg.content)}}
+                        ${{escapeHtml(messageText)}}
                     </div>
                 `;
             }}
@@ -2634,10 +2636,10 @@ function handleContactSubmit(e) {{
             if (msg.message_type === 'image' || msg.message_type === 'payment') {{
                 contentHtml = `
                     <img src="${{msg.media_url}}" alt="Image" style="max-width:100%;border-radius:8px;margin-bottom:8px;cursor:pointer;" onclick="window.open('${{msg.media_url}}', '_blank')">
-                    <p style="margin:0;font-size:13px;">${{escapeHtml(msg.content)}}</p>
+                    <p style="margin:0;font-size:13px;">${{escapeHtml(messageText)}}</p>
                 `;
             }} else {{
-                contentHtml = `<p style="margin:0;">${{escapeHtml(msg.content)}}</p>`;
+                contentHtml = `<p style="margin:0;">${{escapeHtml(messageText)}}</p>`;
             }}
 
             const time = new Date(msg.created_at).toLocaleTimeString('ms-MY', {{ hour: '2-digit', minute: '2-digit' }});
