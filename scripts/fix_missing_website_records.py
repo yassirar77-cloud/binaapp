@@ -38,11 +38,18 @@ load_dotenv()
 
 # Known orphaned websites to fix
 # Format: {"subdomain": {"website_id": "...", "business_name": "...", "user_id": "..." (optional)}}
+# NOTE: Add new orphaned websites here as they are discovered
 KNOWN_ORPHANED_WEBSITES = {
     "wowo": {
         "website_id": "22d8d212-1834-48a2-97a5-0062105da61e",
         "business_name": "Wowo",
         "user_id": None  # Unknown - will be set to system default or left null
+    },
+    # Added 2026-02-02: toko.binaapp.my - FK constraint error on delivery_orders
+    "toko": {
+        "website_id": "03438375-5e23-4ba8-a4d1-a98c85ac3b95",
+        "business_name": "Saya - Nasi Kandar Penang",
+        "user_id": None  # Will be discovered from storage metadata or left null
     }
 }
 

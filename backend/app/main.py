@@ -279,6 +279,17 @@ async def startup_event():
     else:
         logger.error("🚀 BinaApp API started but Supabase NOT connected!")
 
+    # =====================================================
+    # ORPHANED WEBSITE CHECK
+    # =====================================================
+    # Check for websites that exist in Storage but not in Database
+    # This can cause FK constraint errors on delivery_orders
+    if supabase:
+        try:
+            await check_orphaned_websites()
+        except Exception as e:
+            logger.error(f"⚠️ Orphaned website check failed: {e}")
+
     # Initialize email polling scheduler
     try:
         from app.core.scheduler import start_email_polling
@@ -295,6 +306,67 @@ async def startup_event():
             logger.info("📧 Email polling is disabled in settings")
     except Exception as e:
         logger.error(f"📧 Failed to start email polling service: {e}")
+
+
+async def check_orphaned_websites():
+    """
+    Check for websites in Storage that are missing from Database.
+    This detects orphaned websites that can cause FK constraint errors
+    when customers try to place orders.
+
+    Does NOT auto-fix - just logs warnings for admin attention.
+    Use POST /api/v1/websites/admin/sync-storage-db to fix.
+    """
+    global supabase
+    if not supabase:
+        return
+
+    logger.info("🔍 Checking for orphaned websites...")
+
+    try:
+        # Get database websites
+        db_result = supabase.table("websites").select("subdomain").execute()
+        db_subdomains = {w["subdomain"] for w in (db_result.data or []) if w.get("subdomain")}
+        logger.info(f"   Database: {len(db_subdomains)} websites")
+
+        # Get storage folders
+        bucket_name = os.getenv("STORAGE_BUCKET_NAME", "websites")
+        try:
+            storage_list = supabase.storage.from_(bucket_name).list()
+            storage_folders = []
+            for item in (storage_list or []):
+                name = item.get("name", "")
+                # Skip if it looks like a UUID (user_id folder)
+                if name and not (len(name) == 36 and name.count("-") == 4):
+                    storage_folders.append(name)
+        except Exception as storage_err:
+            logger.warning(f"   Could not list storage: {storage_err}")
+            return
+
+        logger.info(f"   Storage: {len(storage_folders)} folders")
+
+        # Find orphaned
+        orphaned = [f for f in storage_folders if f not in db_subdomains]
+
+        if orphaned:
+            logger.warning("=" * 60)
+            logger.warning(f"⚠️ CRITICAL: Found {len(orphaned)} ORPHANED websites!")
+            logger.warning("   These websites exist in Storage but NOT in Database.")
+            logger.warning("   Orders will FAIL with FK constraint error!")
+            logger.warning("")
+            for subdomain in orphaned[:10]:  # Log first 10
+                logger.warning(f"   - {subdomain}.binaapp.my")
+            if len(orphaned) > 10:
+                logger.warning(f"   ... and {len(orphaned) - 10} more")
+            logger.warning("")
+            logger.warning("   FIX: POST /api/v1/websites/admin/sync-storage-db")
+            logger.warning("   OR:  python scripts/sync_websites_storage_db.py --fix")
+            logger.warning("=" * 60)
+        else:
+            logger.info("✅ No orphaned websites found - Storage and Database are in sync")
+
+    except Exception as e:
+        logger.error(f"   Orphaned check error: {e}")
 
 
 @app.on_event("shutdown")

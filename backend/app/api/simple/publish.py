@@ -380,34 +380,20 @@ async def publish_website(
             api_url="https://binaapp-backend.onrender.com"
         )
 
-        # Upload to Supabase Storage with retry logic
-        logger.info(f"📤 Uploading to Supabase Storage: {request.user_id}/{request.subdomain}/index.html")
+        # =====================================================
+        # ATOMIC WEBSITE CREATION: Database FIRST, Storage SECOND
+        # =====================================================
+        # CRITICAL FIX: Create database record FIRST to prevent orphaned websites
+        # If storage upload fails later, we rollback the database record.
+        # This prevents the FK constraint error on delivery_orders.
 
-        async def upload_html():
-            return await storage_service.upload_website(
-                user_id=request.user_id,
-                subdomain=request.subdomain,
-                html_content=html_content
-            )
-
-        try:
-            public_url = await retry_with_backoff(upload_html, max_retries=3, initial_delay=2.0)
-            if not public_url:
-                raise Exception("Upload returned no URL")
-            logger.info(f"✅ Upload successful: {public_url}")
-        except Exception as e:
-            logger.error(f"❌ Failed to upload after retries: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Gagal memuat naik website: {str(e)}"
-            )
-
-        # Save project metadata to database with retry
-        # CRITICAL: Database record MUST be saved - without it, website won't appear in dashboard
-        logger.info("💾 STEP 3: Saving website record to database...")
+        logger.info("💾 STEP 2: Creating database record FIRST (atomic fix)...")
         logger.info(f"   Website ID: {project_id}")
         logger.info(f"   User ID: {request.user_id}")
         logger.info(f"   Subdomain: {request.subdomain}")
+
+        # Prepare public URL (will be confirmed after storage upload)
+        expected_public_url = f"https://{request.subdomain}.binaapp.my"
 
         async def save_metadata():
             # FIXED: Use correct column names matching DATABASE_SCHEMA.sql
@@ -419,7 +405,7 @@ async def publish_website(
                 "subdomain": request.subdomain,
                 "html_content": html_content,  # FIXED: was 'html_code'
                 "status": "published",  # FIXED: was 'is_published: True'
-                "public_url": public_url,
+                "public_url": expected_public_url,
                 "published_at": datetime.utcnow().isoformat(),
                 "created_at": datetime.utcnow().isoformat(),
                 "updated_at": datetime.utcnow().isoformat()
@@ -433,30 +419,65 @@ async def publish_website(
 
         try:
             db_result = await retry_with_backoff(save_metadata, max_retries=3, initial_delay=1.0)
-            logger.info(f"✅ Database record saved successfully: {project_id}")
-
-            # CRITICAL: Track usage for authenticated users (and consume addon if used)
-            if current_user:
-                try:
-                    if limit_result and limit_result.get("using_addon"):
-                        await subscription_service.use_addon_credit(user_id, "website")
-                        logger.info(f"🧾 Consumed website addon credit for user {user_id}")
-
-                    await subscription_service.increment_usage(user_id, "create_website")
-                    logger.info(f"📊 Incremented websites_count for user {user_id}")
-                except Exception as usage_err:
-                    logger.warning(f"⚠️ Usage tracking failed for user {user_id}: {usage_err}")
+            logger.info(f"✅ Database record created successfully: {project_id}")
         except Exception as e:
-            # CRITICAL FIX: DO NOT silently ignore database errors!
-            # Without database record, website won't appear in dashboard
-            logger.error(f"❌ CRITICAL: Failed to save database record: {e}")
-            logger.error(f"   Website uploaded to storage but NOT saved to database!")
-            logger.error(f"   This means website will load at {public_url} but NOT appear in dashboard!")
-            # Raise the error - this is a critical failure
+            # Database creation failed - no cleanup needed since nothing was created
+            logger.error(f"❌ CRITICAL: Failed to create database record: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Website uploaded but database save failed: {str(e)}. Please try again."
+                detail=f"Failed to create website record: {str(e)}. Please try again."
             )
+
+        # Now upload to Supabase Storage (database record exists, so we can rollback if this fails)
+        logger.info(f"📤 STEP 3: Uploading to Supabase Storage: {request.user_id}/{request.subdomain}/index.html")
+
+        async def upload_html():
+            return await storage_service.upload_website(
+                user_id=request.user_id,
+                subdomain=request.subdomain,
+                html_content=html_content
+            )
+
+        try:
+            public_url = await retry_with_backoff(upload_html, max_retries=3, initial_delay=2.0)
+            if not public_url:
+                raise Exception("Upload returned no URL")
+            logger.info(f"✅ Upload successful: {public_url}")
+
+            # Update the database record with actual public URL if different
+            if public_url != expected_public_url:
+                try:
+                    await supabase_service.update_website(project_id, {"public_url": public_url})
+                    logger.info(f"   Updated public_url in database: {public_url}")
+                except Exception as update_err:
+                    logger.warning(f"⚠️ Could not update public_url: {update_err}")
+
+        except Exception as e:
+            # ROLLBACK: Storage upload failed - delete the database record we just created
+            logger.error(f"❌ Storage upload failed: {e}")
+            logger.warning(f"🔄 ROLLBACK: Deleting database record {project_id}...")
+            try:
+                await supabase_service.delete_website(project_id)
+                logger.info(f"   ✅ Database record rolled back successfully")
+            except Exception as rollback_err:
+                logger.error(f"   ❌ Rollback failed: {rollback_err}")
+                logger.error(f"   Manual cleanup required for website_id: {project_id}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Gagal memuat naik website: {str(e)}"
+            )
+
+        # STEP 4: Track usage for authenticated users (and consume addon if used)
+        if current_user:
+            try:
+                if limit_result and limit_result.get("using_addon"):
+                    await subscription_service.use_addon_credit(user_id, "website")
+                    logger.info(f"🧾 Consumed website addon credit for user {user_id}")
+
+                await subscription_service.increment_usage(user_id, "create_website")
+                logger.info(f"📊 Incremented websites_count for user {user_id}")
+            except Exception as usage_err:
+                logger.warning(f"⚠️ Usage tracking failed for user {user_id}: {usage_err}")
 
         logger.info("=" * 80)
         logger.info(f"✅ WEBSITE PUBLISHED SUCCESSFULLY")
