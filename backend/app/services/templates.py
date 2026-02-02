@@ -1656,6 +1656,15 @@ function handleContactSubmit(e) {{
     function showChatModal() {{
         const chatSection = document.getElementById('chat-section');
         if (chatSection) {{
+            // CRITICAL: Move chat-section to body if it's inside a hidden parent
+            // The tracking-view-overlay has display:none, making children invisible
+            const trackingOverlay = document.getElementById('tracking-view-overlay');
+            if (trackingOverlay && trackingOverlay.contains(chatSection) && trackingOverlay.style.display === 'none') {{
+                // Move to body so it's not hidden by parent
+                document.body.appendChild(chatSection);
+                console.log('[BinaChat] 📦 Moved chat to body for visibility');
+            }}
+
             chatSection.style.display = 'block';
             chatSection.style.position = 'fixed';
             chatSection.style.bottom = '20px';
@@ -1670,6 +1679,8 @@ function handleContactSubmit(e) {{
             chatSection.style.overflow = 'hidden';
 
             console.log('[BinaChat] ✅ Chat modal displayed');
+        }} else {{
+            console.error('[BinaChat] ❌ chat-section element not found');
         }}
     }}
 
