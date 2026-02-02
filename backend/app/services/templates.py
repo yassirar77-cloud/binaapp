@@ -1404,7 +1404,7 @@ function handleContactSubmit(e) {{
         # STEP 3.5: Add floating chat button - always visible (ORANGE theme, separate ID from chat-widget.js)
         chat_button_inline = '''
 <!-- Always-visible Chat Button - BinaApp (Orange Theme) -->
-<button id="binaapp-inline-chat-btn" onclick="openGeneralChat()" style="position:fixed;bottom:100px;left:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#ea580c,#f97316);color:white;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 16px rgba(234,88,12,0.4);z-index:9998;display:flex;align-items:center;justify-content:center;font-family:sans-serif;">💬</button>
+<button id="binaapp-inline-chat-btn" onclick="event.stopPropagation(); openGeneralChat();" style="position:fixed;bottom:100px;left:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#ea580c,#f97316);color:white;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 16px rgba(234,88,12,0.4);z-index:9998;display:flex;align-items:center;justify-content:center;font-family:sans-serif;">💬</button>
 
 <!-- Customer Info Form Modal for Chat -->
 <div id="binaapp-customer-info-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10001;align-items:center;justify-content:center;">
@@ -1479,6 +1479,10 @@ function handleContactSubmit(e) {{
     let chatTypingTimeout = null;
     let riderLocationMarker = null;
     let chatMap = null;
+
+    // Guard flags to prevent infinite loops and race conditions
+    let isChatOpening = false;
+    let isCreatingConversation = false;
 
     // WebSocket URL derived from API_URL
     const WS_URL = API_URL.replace('https://', 'wss://').replace('http://', 'ws://');
@@ -1564,24 +1568,44 @@ function handleContactSubmit(e) {{
 
     // Open general chat from floating button
     window.openGeneralChat = async function() {{
-        console.log('[BinaChat] 🎯 Opening general chat...');
-
-        // If no customer identity, show form modal
-        if (!customerName || !customerPhone) {{
-            showCustomerInfoModal();
+        // Guard: Prevent re-entry if already opening or chat is already displayed
+        const chatSection = document.getElementById('chat-section');
+        if (isChatOpening || (chatSection && chatSection.style.display === 'block')) {{
+            console.log('[BinaChat] ⏳ Chat already open or opening, skipping...');
             return;
         }}
 
-        // Create conversation if not exists
-        if (!currentConversationId) {{
-            await createChatConversation();
-        }} else {{
-            showChatModal();
+        isChatOpening = true;
+        console.log('[BinaChat] 🎯 Opening general chat...');
+
+        try {{
+            // If no customer identity, show form modal
+            if (!customerName || !customerPhone) {{
+                showCustomerInfoModal();
+                return;
+            }}
+
+            // Create conversation if not exists
+            if (!currentConversationId) {{
+                await createChatConversation();
+            }} else {{
+                showChatModal();
+            }}
+        }} finally {{
+            isChatOpening = false;
         }}
     }};
 
     // Create chat conversation via API
     async function createChatConversation() {{
+        // Guard: Prevent concurrent conversation creation
+        if (isCreatingConversation) {{
+            console.log('[BinaChat] ⏳ Already creating conversation, skipping...');
+            return;
+        }}
+
+        isCreatingConversation = true;
+
         try {{
             console.log('[BinaChat] 📝 Creating conversation...', {{ customerName, customerPhone, WEBSITE_ID }});
 
@@ -1623,6 +1647,8 @@ function handleContactSubmit(e) {{
                 errorEl.textContent = 'Gagal membuka chat. Sila cuba lagi.';
                 errorEl.style.display = 'block';
             }}
+        }} finally {{
+            isCreatingConversation = false;
         }}
     }}
 
