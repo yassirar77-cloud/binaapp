@@ -2522,10 +2522,14 @@ async def publish_website(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Publish website to subdomain - STORAGE ONLY (NO DATABASE)
+    Publish website to subdomain.
 
-    This endpoint ONLY uploads HTML to Supabase Storage.
-    No database operations to avoid schema cache errors.
+    This endpoint:
+    1. Creates/updates website record in database (CRITICAL for dashboard visibility)
+    2. Uploads HTML to Supabase Storage for serving
+    3. Optionally sets up delivery system (menu, zones, settings)
+
+    The database record MUST be created for the website to appear in user's dashboard.
     """
 
     logger.info("📤 PUBLISH REQUEST RECEIVED")
@@ -2606,6 +2610,36 @@ async def publish_website(
 
         delivery_enabled = bool(features.get("deliverySystem")) or bool(delivery)
 
+        # CRITICAL FIX: ALWAYS create database record BEFORE storage upload
+        # Without this, websites appear in storage but NOT in dashboard
+        # Previously, DB record was only created when delivery_enabled=True
+        published_url = f"https://{subdomain}.binaapp.my"
+        if supabase:
+            try:
+                logger.info(f"💾 Creating database record for website: {website_id}")
+                supabase.table("websites").upsert({
+                    "id": website_id,
+                    "user_id": user_id,
+                    "business_name": project_name,
+                    "subdomain": subdomain,
+                    "status": "published",
+                    "public_url": published_url,
+                    "html_content": html_content,
+                    "published_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat()
+                }, on_conflict="id").execute()
+                logger.info(f"✅ Database record created/updated: {website_id}")
+            except Exception as db_err:
+                logger.error(f"❌ CRITICAL: Database insert failed: {db_err}")
+                # Don't continue - if DB fails, the website will be orphaned
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "success": False,
+                        "error": f"Failed to save website record: {str(db_err)}. Please try again."
+                    }
+                )
+
         # If delivery enabled, inject widget and persist minimal menu/zones/settings (service role bypasses RLS).
         if delivery_enabled and supabase:
             try:
@@ -2627,18 +2661,11 @@ async def publish_website(
                 else:
                     html_content += widget_init
 
-                # Upsert website record so FK inserts work
-                published_url = f"https://{subdomain}.binaapp.my"
-                supabase.table("websites").upsert({
-                    "id": website_id,
-                    "user_id": user_id,
-                    "name": project_name,
-                    "subdomain": subdomain,
-                    "status": "published",
-                    "published_url": published_url,
+                # Update HTML content with widget
+                supabase.table("websites").update({
                     "html_content": html_content,
                     "updated_at": datetime.now().isoformat()
-                }, on_conflict="id").execute()
+                }).eq("id", website_id).execute()
 
                 # Create a default category if none exists
                 cat_resp = supabase.table("menu_categories").select("id").eq("website_id", website_id).limit(1).execute()
