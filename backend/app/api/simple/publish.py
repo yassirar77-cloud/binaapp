@@ -475,27 +475,8 @@ async def publish_website(
         logger.info(f"   Mode: {'UPDATE (republish/claim)' if is_republish else 'INSERT (new)'}")
 
         async def save_metadata():
-            if is_republish:
-                # UPDATE existing record - this handles republishing AND claiming orphaned websites
-                update_data = {
-                    "user_id": request.user_id,  # Update ownership (important for claiming)
-                    "business_name": request.project_name,
-                    "html_content": html_content,
-                    "status": "published",
-                    "public_url": public_url,
-                    "published_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat()
-                }
-                logger.info(f"   Updating existing record: {project_id}")
-                success = await supabase_service.update_website(project_id, update_data)
-                if not success:
-                    raise Exception("Database update returned False - check Supabase logs for errors")
-                logger.info(f"   ✅ Database update successful")
-                return {"id": project_id, "updated": True}
-            else:
-                # INSERT new record
-                # FIXED: Use correct column names matching DATABASE_SCHEMA.sql
-                # websites table columns: id, user_id, business_name, subdomain, status, html_content, etc.
+            # Helper function to INSERT a new record
+            async def do_insert():
                 project_data = {
                     "id": project_id,
                     "user_id": request.user_id,
@@ -514,6 +495,32 @@ async def publish_website(
                     raise Exception("Database insert returned None - check Supabase logs for RLS/permission errors")
                 logger.info(f"   ✅ Database insert successful: {result}")
                 return result
+
+            if is_republish:
+                # UPDATE existing record - this handles republishing AND claiming orphaned websites
+                update_data = {
+                    "user_id": request.user_id,  # Update ownership (important for claiming)
+                    "business_name": request.project_name,
+                    "html_content": html_content,
+                    "status": "published",
+                    "public_url": public_url,
+                    "published_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+                logger.info(f"   Attempting UPDATE on existing record: {project_id}")
+                success = await supabase_service.update_website(project_id, update_data)
+                if success:
+                    logger.info(f"   ✅ Database update successful")
+                    return {"id": project_id, "updated": True}
+                else:
+                    # CRITICAL FIX: UPDATE failed (0 rows affected) - record may have been deleted
+                    # Fall back to INSERT to ensure the database record is created
+                    logger.warning(f"   ⚠️ UPDATE failed for {project_id} - falling back to INSERT")
+                    logger.warning(f"   This can happen when claiming orphaned storage or if record was deleted")
+                    return await do_insert()
+            else:
+                # INSERT new record
+                return await do_insert()
 
         try:
             db_result = await retry_with_backoff(save_metadata, max_retries=3, initial_delay=1.0)
