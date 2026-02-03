@@ -55,24 +55,10 @@
       "purpose": "any"
     },
     {
-      "src": "/icons/maskable-icon-512x512.png",
+      "src": "/icons/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
-    }
-  ],
-  "screenshots": [
-    {
-      "src": "/screenshots/desktop.png",
-      "sizes": "1280x720",
-      "type": "image/png",
-      "form_factor": "wide"
-    },
-    {
-      "src": "/screenshots/mobile.png",
-      "sizes": "640x1136",
-      "type": "image/png",
-      "form_factor": "narrow"
     }
   ],
   "shortcuts": [
@@ -80,13 +66,13 @@
       "name": "Bina Website Baru",
       "short_name": "Bina",
       "url": "/create",
-      "icons": [{ "src": "/icons/shortcut-create.png", "sizes": "96x96" }]
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
     },
     {
       "name": "Website Saya",
       "short_name": "Website",
       "url": "/profile",
-      "icons": [{ "src": "/icons/shortcut-profile.png", "sizes": "96x96" }]
+      "icons": [{ "src": "/icons/icon-96x96.png", "sizes": "96x96" }]
     }
   ],
   "related_applications": [],
