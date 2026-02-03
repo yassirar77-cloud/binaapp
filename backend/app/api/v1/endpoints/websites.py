@@ -40,13 +40,29 @@ async def generate_website(
     Generate a new website using AI
 
     SUBSCRIPTION CHECK: Verifies user hasn't reached website limit before creation.
+    PROFILE CHECK: Ensures user profile exists before creating website (FK constraint).
     """
     try:
         user_id = current_user.get("sub")
+        user_email = current_user.get("email")
+
+        logger.info(f"[GENERATE] Starting website generation for user={user_id}, subdomain={request.subdomain}")
+
+        # CRITICAL: Ensure profile exists BEFORE creating website
+        # The websites table has FK to profiles, not auth.users
+        profile_exists = await supabase_service.ensure_profile_exists(user_id, user_email)
+        if not profile_exists:
+            logger.error(f"[GENERATE] ❌ Profile creation/verification failed for user: {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to verify user profile. Please try logging out and back in."
+            )
+        logger.info(f"[GENERATE] ✅ Profile check passed for user: {user_id}")
 
         # Check subdomain availability
         subdomain_available = await supabase_service.check_subdomain_available(request.subdomain)
         if not subdomain_available:
+            logger.warning(f"[GENERATE] Subdomain already taken: {request.subdomain}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Subdomain already taken"
@@ -55,6 +71,7 @@ async def generate_website(
         # Check if storage also has this subdomain
         storage_exists = await storage_service.check_subdomain_exists(request.subdomain)
         if storage_exists:
+            logger.warning(f"[GENERATE] Subdomain exists in storage: {request.subdomain}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Subdomain already exists in storage"
@@ -1132,6 +1149,249 @@ async def check_website_status(website_id_or_subdomain: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Check failed: {str(e)}"
         )
+
+
+@router.get("/admin/orphan-check")
+async def check_orphaned_websites():
+    """
+    Detect websites in storage that don't exist in database (orphans).
+    Also detects auth users without profiles (broken foreign key).
+
+    This is a diagnostic endpoint to identify data integrity issues.
+    Run this periodically or after deployments to catch orphans early.
+    """
+    try:
+        logger.info("[ORPHAN CHECK] Starting comprehensive orphan detection...")
+
+        from app.core.supabase import get_supabase_client
+        supabase = get_supabase_client()
+
+        # === STEP 1: Check for orphaned websites (in storage but not DB) ===
+        logger.info("[ORPHAN CHECK] Step 1: Checking for orphaned websites...")
+
+        # Get all websites from database
+        db_result = supabase.table("websites").select("id, subdomain, user_id").execute()
+        db_websites = {w["subdomain"]: w for w in (db_result.data or []) if w.get("subdomain")}
+        db_subdomains = set(db_websites.keys())
+        logger.info(f"[ORPHAN CHECK] Found {len(db_subdomains)} websites in database")
+
+        # Get all folders from storage
+        bucket_name = settings.STORAGE_BUCKET_NAME if hasattr(settings, 'STORAGE_BUCKET_NAME') else "websites"
+        storage_subdomains = set()
+
+        try:
+            storage_list = supabase.storage.from_(bucket_name).list()
+            for item in (storage_list or []):
+                name = item.get("name", "")
+                # Skip UUID-like folders (user_id paths) and placeholders
+                if name and not (len(name) == 36 and name.count("-") == 4) and name != ".emptyFolderPlaceholder":
+                    storage_subdomains.add(name)
+            logger.info(f"[ORPHAN CHECK] Found {len(storage_subdomains)} folders in storage")
+        except Exception as storage_err:
+            logger.warning(f"[ORPHAN CHECK] Could not list storage: {storage_err}")
+
+        # Find orphaned websites (in storage but NOT in database)
+        orphaned_websites = list(storage_subdomains - db_subdomains)
+        logger.info(f"[ORPHAN CHECK] Found {len(orphaned_websites)} orphaned websites")
+
+        # === STEP 2: Check for missing profiles (auth users without profiles) ===
+        logger.info("[ORPHAN CHECK] Step 2: Checking for missing profiles...")
+
+        # Get all auth users
+        auth_users = await supabase_service.list_auth_users()
+        auth_user_ids = {u.get("id") for u in auth_users if u.get("id")}
+        logger.info(f"[ORPHAN CHECK] Found {len(auth_user_ids)} auth users")
+
+        # Get all profiles
+        profiles = await supabase_service.list_all_profiles()
+        profile_ids = {p.get("id") for p in profiles if p.get("id")}
+        logger.info(f"[ORPHAN CHECK] Found {len(profile_ids)} profiles")
+
+        # Find users without profiles
+        missing_profiles = list(auth_user_ids - profile_ids)
+        logger.info(f"[ORPHAN CHECK] Found {len(missing_profiles)} users without profiles")
+
+        # === STEP 3: Check for websites with invalid user_id (FK violation risk) ===
+        logger.info("[ORPHAN CHECK] Step 3: Checking for websites with invalid user references...")
+
+        websites_with_invalid_user = []
+        for subdomain, website in db_websites.items():
+            user_id = website.get("user_id")
+            if user_id and user_id not in profile_ids:
+                websites_with_invalid_user.append({
+                    "subdomain": subdomain,
+                    "website_id": website.get("id"),
+                    "user_id": user_id
+                })
+
+        logger.info(f"[ORPHAN CHECK] Found {len(websites_with_invalid_user)} websites with invalid user references")
+
+        result = {
+            "success": True,
+            "timestamp": datetime.utcnow().isoformat(),
+            "summary": {
+                "total_websites_in_db": len(db_subdomains),
+                "total_websites_in_storage": len(storage_subdomains),
+                "total_auth_users": len(auth_user_ids),
+                "total_profiles": len(profile_ids),
+            },
+            "issues": {
+                "orphaned_websites_count": len(orphaned_websites),
+                "orphaned_websites": orphaned_websites[:50],  # Limit to 50 for response size
+                "missing_profiles_count": len(missing_profiles),
+                "missing_profiles": missing_profiles[:50],
+                "websites_with_invalid_user_count": len(websites_with_invalid_user),
+                "websites_with_invalid_user": websites_with_invalid_user[:50],
+            },
+            "is_healthy": (
+                len(orphaned_websites) == 0 and
+                len(missing_profiles) == 0 and
+                len(websites_with_invalid_user) == 0
+            )
+        }
+
+        logger.info(f"[ORPHAN CHECK] ✅ Complete. Healthy: {result['is_healthy']}")
+        return result
+
+    except Exception as e:
+        logger.error(f"[ORPHAN CHECK] ❌ Error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Orphan check failed: {str(e)}"
+        )
+
+
+@router.post("/admin/fix-orphans")
+async def fix_orphaned_data():
+    """
+    Automatically fix orphaned data:
+    1. Create missing profiles for auth users
+    2. Create DB records for orphaned storage websites
+
+    This is a repair endpoint - use with caution.
+    """
+    try:
+        logger.info("[FIX ORPHANS] Starting automatic repair...")
+
+        results = {
+            "profiles_created": [],
+            "profiles_failed": [],
+            "websites_created": [],
+            "websites_failed": []
+        }
+
+        # === STEP 1: Fix missing profiles ===
+        logger.info("[FIX ORPHANS] Step 1: Creating missing profiles...")
+
+        auth_users = await supabase_service.list_auth_users()
+        profiles = await supabase_service.list_all_profiles()
+        profile_ids = {p.get("id") for p in profiles}
+
+        for user in auth_users:
+            user_id = user.get("id")
+            if user_id and user_id not in profile_ids:
+                email = user.get("email", "")
+                success = await supabase_service.ensure_profile_exists(user_id, email)
+                if success:
+                    results["profiles_created"].append(user_id)
+                    logger.info(f"[FIX ORPHANS] ✅ Created profile for: {user_id}")
+                else:
+                    results["profiles_failed"].append(user_id)
+                    logger.error(f"[FIX ORPHANS] ❌ Failed to create profile for: {user_id}")
+
+        # === STEP 2: Fix orphaned websites ===
+        logger.info("[FIX ORPHANS] Step 2: Creating DB records for orphaned websites...")
+
+        from app.core.supabase import get_supabase_client
+        supabase = get_supabase_client()
+
+        # Get current state
+        db_result = supabase.table("websites").select("subdomain").execute()
+        db_subdomains = {w["subdomain"] for w in (db_result.data or []) if w.get("subdomain")}
+
+        bucket_name = settings.STORAGE_BUCKET_NAME if hasattr(settings, 'STORAGE_BUCKET_NAME') else "websites"
+
+        try:
+            storage_list = supabase.storage.from_(bucket_name).list()
+            for item in (storage_list or []):
+                name = item.get("name", "")
+                # Skip UUID-like folders and placeholders
+                if name and not (len(name) == 36 and name.count("-") == 4) and name != ".emptyFolderPlaceholder":
+                    if name not in db_subdomains:
+                        # This is an orphaned website - create DB record
+                        website_id = str(uuid.uuid4())
+                        website_data = {
+                            "id": website_id,
+                            "subdomain": name,
+                            "business_name": name.replace("-", " ").replace("_", " ").title(),
+                            "status": "published",
+                            "include_ecommerce": True,
+                            "created_at": datetime.utcnow().isoformat(),
+                            "updated_at": datetime.utcnow().isoformat()
+                            # Note: user_id is NULL - needs manual claim
+                        }
+
+                        try:
+                            supabase.table("websites").insert(website_data).execute()
+                            results["websites_created"].append({"subdomain": name, "id": website_id})
+                            logger.info(f"[FIX ORPHANS] ✅ Created website record: {name} -> {website_id}")
+                        except Exception as insert_err:
+                            results["websites_failed"].append({"subdomain": name, "error": str(insert_err)})
+                            logger.error(f"[FIX ORPHANS] ❌ Failed to create website: {name}: {insert_err}")
+        except Exception as storage_err:
+            logger.error(f"[FIX ORPHANS] ❌ Storage listing failed: {storage_err}")
+
+        result = {
+            "success": True,
+            "profiles_created": len(results["profiles_created"]),
+            "profiles_failed": len(results["profiles_failed"]),
+            "websites_created": len(results["websites_created"]),
+            "websites_failed": len(results["websites_failed"]),
+            "details": results
+        }
+
+        logger.info(f"[FIX ORPHANS] ✅ Complete. Profiles: {result['profiles_created']} created, {result['profiles_failed']} failed. Websites: {result['websites_created']} created, {result['websites_failed']} failed.")
+        return result
+
+    except Exception as e:
+        logger.error(f"[FIX ORPHANS] ❌ Error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Fix orphans failed: {str(e)}"
+        )
+
+
+@router.get("/health/data-integrity")
+async def check_data_integrity():
+    """
+    Health check endpoint for data integrity monitoring.
+    Returns healthy/degraded status based on orphan detection.
+
+    Use this endpoint for production monitoring dashboards.
+    """
+    try:
+        # Run orphan check
+        orphan_result = await check_orphaned_websites()
+
+        is_healthy = orphan_result.get("is_healthy", False)
+
+        return {
+            "status": "healthy" if is_healthy else "degraded",
+            "timestamp": datetime.utcnow().isoformat(),
+            "orphaned_websites": orphan_result["issues"]["orphaned_websites_count"],
+            "missing_profiles": orphan_result["issues"]["missing_profiles_count"],
+            "invalid_user_refs": orphan_result["issues"]["websites_with_invalid_user_count"],
+            "details": orphan_result["summary"] if not is_healthy else None,
+            "recommendation": None if is_healthy else "Run POST /api/v1/websites/admin/fix-orphans to repair"
+        }
+
+    except Exception as e:
+        logger.error(f"[HEALTH CHECK] ❌ Error: {e}")
+        return {
+            "status": "error",
+            "timestamp": datetime.utcnow().isoformat(),
+            "error": str(e)
+        }
 
 
 @router.delete("/{website_id}")

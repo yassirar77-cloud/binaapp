@@ -922,6 +922,148 @@ class SupabaseService:
         website = await self.get_website_by_subdomain(subdomain)
         return website is None
 
+    async def check_profile_exists(self, user_id: str) -> bool:
+        """
+        Check if a profile exists for the given user_id.
+
+        This is CRITICAL because the websites table has a foreign key to profiles,
+        NOT to auth.users. If a profile doesn't exist, website creation will fail
+        with a foreign key constraint error.
+        """
+        try:
+            url = f"{self.url}/rest/v1/profiles"
+            params = {"id": f"eq.{user_id}", "select": "id"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.service_headers,
+                    params=params
+                )
+
+            if response.status_code == 200:
+                records = response.json()
+                exists = len(records) > 0
+                if exists:
+                    print(f"✅ [PROFILE CHECK] Profile exists for user: {user_id}")
+                else:
+                    print(f"⚠️ [PROFILE CHECK] Profile NOT found for user: {user_id}")
+                return exists
+            else:
+                print(f"❌ [PROFILE CHECK] Error checking profile: {response.status_code}")
+                return False
+        except Exception as e:
+            print(f"❌ [PROFILE CHECK] Exception: {str(e)}")
+            return False
+
+    async def ensure_profile_exists(self, user_id: str, email: Optional[str] = None) -> bool:
+        """
+        Ensure a profile exists for the user, creating one if necessary.
+
+        This is a safety mechanism for cases where:
+        1. User registered before the profile trigger was added
+        2. Profile creation failed during registration
+        3. Database was migrated without profile records
+
+        Returns True if profile exists or was created, False on error.
+        """
+        try:
+            # First check if profile already exists
+            if await self.check_profile_exists(user_id):
+                return True
+
+            print(f"⚠️ [PROFILE ENSURE] Profile missing for user {user_id}, auto-creating...")
+
+            # Try to get user email from auth if not provided
+            if not email:
+                user = await self.get_user(user_id)
+                if user:
+                    email = user.email
+
+            # Create the missing profile
+            url = f"{self.url}/rest/v1/profiles"
+            profile_data = {
+                "id": user_id,
+                "full_name": email.split("@")[0] if email else "User",  # Default name from email
+                "created_at": "now()",
+                "updated_at": "now()"
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    url,
+                    headers={**self.service_headers, "Prefer": "return=representation"},
+                    json=profile_data
+                )
+
+            if response.status_code in [200, 201]:
+                print(f"✅ [PROFILE ENSURE] Auto-created profile for user: {user_id}")
+                return True
+            elif "duplicate key" in response.text.lower() or "23505" in response.text:
+                # Profile was created between our check and insert (race condition)
+                print(f"✅ [PROFILE ENSURE] Profile already exists (race condition): {user_id}")
+                return True
+            else:
+                print(f"❌ [PROFILE ENSURE] Failed to create profile: {response.status_code} - {response.text}")
+                return False
+        except Exception as e:
+            print(f"❌ [PROFILE ENSURE] Exception: {str(e)}")
+            return False
+
+    async def list_auth_users(self) -> list:
+        """
+        List all users from Supabase Auth.
+        Used for orphan detection to find users without profiles.
+        """
+        try:
+            url = f"{self.url}/auth/v1/admin/users"
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.service_headers,
+                    timeout=30.0
+                )
+
+            if response.status_code == 200:
+                data = response.json()
+                users = data.get("users", [])
+                print(f"✅ [AUTH] Retrieved {len(users)} auth users")
+                return users
+            else:
+                print(f"❌ [AUTH] Failed to list users: {response.status_code}")
+                return []
+        except Exception as e:
+            print(f"❌ [AUTH] Exception listing users: {str(e)}")
+            return []
+
+    async def list_all_profiles(self) -> list:
+        """
+        List all profiles from the profiles table.
+        Used for orphan detection.
+        """
+        try:
+            url = f"{self.url}/rest/v1/profiles"
+            params = {"select": "id,full_name,created_at"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    url,
+                    headers=self.service_headers,
+                    params=params
+                )
+
+            if response.status_code == 200:
+                profiles = response.json()
+                print(f"✅ [PROFILES] Retrieved {len(profiles)} profiles")
+                return profiles
+            else:
+                print(f"❌ [PROFILES] Failed to list: {response.status_code}")
+                return []
+        except Exception as e:
+            print(f"❌ [PROFILES] Exception: {str(e)}")
+            return []
+
     async def create_missing_website_record(
         self,
         subdomain: str,

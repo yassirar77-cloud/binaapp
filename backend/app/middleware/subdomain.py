@@ -99,13 +99,15 @@ async def subdomain_middleware(request: Request, call_next):
         try:
             # STEP 1: Get correct website_id from database
             supabase = get_supabase()
-            website_result = supabase.table("websites").select("id, business_type, language").eq("subdomain", subdomain).single().execute()
+            website_result = supabase.table("websites").select("id, business_type, language, user_id").eq("subdomain", subdomain).single().execute()
 
             if not website_result.data:
-                logger.warning(f"Website not found in database for subdomain: {subdomain}")
-                # Continue to storage check below
+                logger.warning(f"[SERVE] ⚠️ Website '{subdomain}' NOT in database - checking storage for auto-recovery...")
+                # Continue to storage check below - we'll try auto-recovery
                 website_id = None
+                should_try_recovery = True
             else:
+                should_try_recovery = False
                 website_id = str(website_result.data["id"])
                 business_type = website_result.data.get("business_type", "food")
                 language = website_result.data.get("language", "ms")
@@ -147,6 +149,37 @@ async def subdomain_middleware(request: Request, call_next):
                     if response.status_code == 200:
                         html_content = response.text
                         logger.info(f"Fetched HTML from legacy storage for subdomain: {subdomain}")
+
+                # STEP 2.5: AUTO-RECOVERY - If we have HTML but no website_id, this is an orphan
+                if html_content and should_try_recovery and not website_id:
+                    logger.warning(f"[SERVE] 🔄 Orphan detected: {subdomain} - attempting auto-recovery...")
+                    try:
+                        import uuid
+                        from datetime import datetime
+
+                        # Create a new website record for this orphan
+                        recovery_id = str(uuid.uuid4())
+                        recovery_data = {
+                            "id": recovery_id,
+                            "subdomain": subdomain,
+                            "business_name": subdomain.replace("-", " ").replace("_", " ").title(),
+                            "status": "published",
+                            "include_ecommerce": True,
+                            "created_at": datetime.utcnow().isoformat(),
+                            "updated_at": datetime.utcnow().isoformat()
+                            # Note: user_id is NULL - needs manual claim later
+                        }
+
+                        supabase.table("websites").insert(recovery_data).execute()
+                        website_id = recovery_id
+                        business_type = "food"  # Default
+                        language = "ms"  # Default
+
+                        logger.info(f"[SERVE] ✅ Auto-recovered orphan: {subdomain} -> {website_id}")
+
+                    except Exception as recovery_error:
+                        logger.error(f"[SERVE] ❌ Auto-recovery failed for {subdomain}: {recovery_error}")
+                        # Continue without website_id - will serve as-is
 
                 # STEP 3: If we have HTML and website_id, inject correct widget scripts
                 if html_content and website_id:
