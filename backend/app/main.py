@@ -3504,8 +3504,27 @@ async def edit_html(request: Request):
     logger.info(f"   HTML length: {len(html)} chars")
     logger.info("=" * 50)
 
-    if not html or not instruction:
+    if not instruction:
         return {"error": "Missing data", "success": False}
+
+    # Provide default template if HTML is empty
+    if not html:
+        html = """<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Laman Web Saya</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+  </style>
+</head>
+<body>
+  <h1>Selamat Datang</h1>
+  <p>Ini adalah laman web anda.</p>
+</body>
+</html>"""
+        logger.info("🤖 Using default HTML template")
 
     # Truncate HTML if too long
     MAX_HTML = 10000
