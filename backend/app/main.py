@@ -2623,7 +2623,7 @@ async def publish_website(
                     "business_name": project_name,
                     "subdomain": subdomain,
                     "status": "published",
-                    "public_url": published_url,
+                    "published_url": published_url,
                     "html_content": html_content,
                     "published_at": datetime.now().isoformat(),
                     "updated_at": datetime.now().isoformat()
