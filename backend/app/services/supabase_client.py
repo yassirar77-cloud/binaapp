@@ -345,7 +345,12 @@ class SupabaseService:
             return None
 
     async def update_website(self, website_id: str, data: Dict[str, Any]) -> bool:
-        """Update a website record"""
+        """
+        Update a website record.
+
+        CRITICAL FIX: Uses return=representation to verify rows were actually updated.
+        Supabase returns 204 even when 0 rows match, so we must check the response body.
+        """
         try:
             url = f"{self.url}/rest/v1/websites"
             params = {"id": f"eq.{website_id}"}
@@ -353,12 +358,27 @@ class SupabaseService:
             async with httpx.AsyncClient() as client:
                 response = await client.patch(
                     url,
-                    headers={**self.headers, "Prefer": "return=minimal"},
+                    # CRITICAL: Use return=representation to get updated rows back
+                    # return=minimal returns 204 even when 0 rows are updated!
+                    headers={**self.headers, "Prefer": "return=representation"},
                     params=params,
                     json=data
                 )
 
-            return response.status_code in [200, 204]
+            if response.status_code in [200, 204]:
+                # CRITICAL: Check if any rows were actually updated
+                result = response.json() if response.text else []
+                if isinstance(result, list) and len(result) > 0:
+                    print(f"✅ [DB UPDATE] Website {website_id} updated successfully")
+                    return True
+                else:
+                    # No rows updated - this is a failure!
+                    print(f"❌ [DB UPDATE] Website {website_id}: 0 rows affected (record may not exist)")
+                    print(f"❌ [DB UPDATE] Response: {response.text}")
+                    return False
+            else:
+                print(f"❌ [DB UPDATE] Failed: {response.status_code} - {response.text}")
+                return False
         except Exception as e:
             print(f"❌ Update website error: {str(e)}")
             return False
