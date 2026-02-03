@@ -2620,12 +2620,11 @@ async def publish_website(
                 supabase.table("websites").upsert({
                     "id": website_id,
                     "user_id": user_id,
-                    "business_name": project_name,
+                    "name": project_name,
                     "subdomain": subdomain,
                     "status": "published",
                     "published_url": published_url,
                     "html_content": html_content,
-                    "published_at": datetime.now().isoformat(),
                     "updated_at": datetime.now().isoformat()
                 }, on_conflict="id").execute()
                 logger.info(f"✅ Database record created/updated: {website_id}")
