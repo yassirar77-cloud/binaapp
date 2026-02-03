@@ -291,28 +291,9 @@ async def publish_website(
         request.user_id = user_id
         logger.info("=" * 80)
 
-        # CRITICAL: Check subscription limit for authenticated users
+        # NOTE: Subscription limit check is moved AFTER is_republish is determined
+        # This allows users to republish/update their existing websites even when at limit
         limit_result = None
-        if current_user:
-            logger.info("")
-            logger.info("🔒 SUBSCRIPTION CHECK: Verifying website limit...")
-            limit_result = await subscription_service.check_limit(user_id, "create_website")
-
-            if not limit_result.get("allowed"):
-                logger.error(f"❌ LIMIT REACHED: User {user_id} has reached website limit")
-                logger.error(f"   Current: {limit_result.get('current_usage')}, Limit: {limit_result.get('limit')}")
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail={
-                        "error": "limit_reached",
-                        "message": limit_result.get("message", "Had website tercapai. Sila naik taraf pelan anda."),
-                        "current_usage": limit_result.get("current_usage"),
-                        "limit": limit_result.get("limit"),
-                        "can_buy_addon": limit_result.get("can_buy_addon", False),
-                        "upgrade_url": "/dashboard/billing"
-                    }
-                )
-            logger.info(f"✅ Subscription check passed: {limit_result.get('current_usage')}/{limit_result.get('limit')} websites used")
 
         # Get HTML content from any of the supported fields
         html_content = request.html_content
@@ -424,6 +405,31 @@ async def publish_website(
             project_id = str(uuid.uuid4())
         logger.info(f"✓ Project ID: {project_id} ({'existing' if is_republish else 'new'})")
 
+        # CRITICAL: Check subscription limit for authenticated users ONLY for NEW websites
+        # Republishing existing websites should always be allowed (user already owns them)
+        if current_user and not is_republish:
+            logger.info("")
+            logger.info("🔒 SUBSCRIPTION CHECK: Verifying website limit for NEW website...")
+            limit_result = await subscription_service.check_limit(user_id, "create_website")
+
+            if not limit_result.get("allowed"):
+                logger.error(f"❌ LIMIT REACHED: User {user_id} has reached website limit")
+                logger.error(f"   Current: {limit_result.get('current_usage')}, Limit: {limit_result.get('limit')}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "limit_reached",
+                        "message": limit_result.get("message", "Had website tercapai. Sila naik taraf pelan anda."),
+                        "current_usage": limit_result.get("current_usage"),
+                        "limit": limit_result.get("limit"),
+                        "can_buy_addon": limit_result.get("can_buy_addon", False),
+                        "upgrade_url": "/dashboard/billing"
+                    }
+                )
+            logger.info(f"✅ Subscription check passed: {limit_result.get('current_usage')}/{limit_result.get('limit')} websites used")
+        elif is_republish:
+            logger.info("✅ Republishing existing website - skipping limit check")
+
         # CRITICAL FIX: Replace any wrong website_id in HTML with the correct project_id
         # This fixes the bug where generate.py creates a random UUID that doesn't match database
         html_content = fix_website_id_in_html(html_content, project_id)
@@ -526,8 +532,9 @@ async def publish_website(
             db_result = await retry_with_backoff(save_metadata, max_retries=3, initial_delay=1.0)
             logger.info(f"✅ Database record saved successfully: {project_id}")
 
-            # CRITICAL: Track usage for authenticated users (and consume addon if used)
-            if current_user:
+            # CRITICAL: Track usage for authenticated users ONLY for NEW websites
+            # Republishing should NOT increment usage (user is updating, not creating)
+            if current_user and not is_republish:
                 try:
                     if limit_result and limit_result.get("using_addon"):
                         await subscription_service.use_addon_credit(user_id, "website")
@@ -537,6 +544,8 @@ async def publish_website(
                     logger.info(f"📊 Incremented websites_count for user {user_id}")
                 except Exception as usage_err:
                     logger.warning(f"⚠️ Usage tracking failed for user {user_id}: {usage_err}")
+            elif is_republish:
+                logger.info(f"📊 Republishing existing website - usage count unchanged for user {user_id}")
         except Exception as e:
             # CRITICAL FIX: DO NOT silently ignore database errors!
             # Without database record, website won't appear in dashboard
