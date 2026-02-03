@@ -29,22 +29,31 @@ export default function AIEditor({ html, onHtmlChange }: AIEditorProps) {
 
       const data = await response.json();
 
-      if (data.html) {
+      if (data.success && data.html) {
         onHtmlChange(data.html);
         setHistory(prev => [...prev, {
           role: 'assistant',
           content: 'Perubahan berjaya!'
         }]);
       } else {
+        // Show specific error message if available
+        const errorMsg = data.error === 'Timeout - cuba lagi'
+          ? 'Timeout - cuba lagi dalam beberapa saat.'
+          : data.error === 'No API key'
+          ? 'API tidak dikonfigurasi. Sila hubungi sokongan.'
+          : data.error === 'Missing data'
+          ? 'Data tidak lengkap. Cuba lagi.'
+          : 'Gagal. Cuba lagi.';
         setHistory(prev => [...prev, {
           role: 'assistant',
-          content: 'Gagal. Cuba lagi.'
+          content: errorMsg
         }]);
       }
     } catch (error) {
+      console.error('AI Editor error:', error);
       setHistory(prev => [...prev, {
         role: 'assistant',
-        content: 'Gagal. Cuba lagi.'
+        content: 'Ralat rangkaian. Cuba lagi.'
       }]);
     }
 
