@@ -18,6 +18,10 @@ export default function AIEditor({ html, onHtmlChange }: AIEditorProps) {
     setHistory(prev => [...prev, { role: 'user', content: prompt }]);
 
     try {
+      // Add timeout using AbortController
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
+
       const response = await fetch('/api/edit-website', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -25,9 +29,39 @@ export default function AIEditor({ html, onHtmlChange }: AIEditorProps) {
           html: html,
           instruction: prompt,
         }),
+        signal: controller.signal,
       });
 
-      const data = await response.json();
+      clearTimeout(timeoutId);
+
+      // Check response status before parsing JSON
+      if (!response.ok) {
+        console.error('AI Editor: Response not OK:', response.status);
+        let errorMsg = 'Gagal. Cuba lagi.';
+        try {
+          const errorData = await response.json();
+          if (errorData.error === 'Backend error') {
+            errorMsg = 'Pelayan sibuk. Cuba lagi dalam beberapa saat.';
+          }
+        } catch {
+          // Response might not be JSON
+        }
+        setHistory(prev => [...prev, { role: 'assistant', content: errorMsg }]);
+        return;
+      }
+
+      // Parse JSON response
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        console.error('AI Editor: JSON parse error:', parseError);
+        setHistory(prev => [...prev, {
+          role: 'assistant',
+          content: 'Ralat memproses respons. Cuba lagi.'
+        }]);
+        return;
+      }
 
       if (data.success && data.html) {
         onHtmlChange(data.html);
@@ -43,6 +77,10 @@ export default function AIEditor({ html, onHtmlChange }: AIEditorProps) {
           ? 'API tidak dikonfigurasi. Sila hubungi sokongan.'
           : data.error === 'Missing data'
           ? 'Data tidak lengkap. Cuba lagi.'
+          : data.error === 'Failed to extract HTML'
+          ? 'AI tidak dapat mengubah HTML. Cuba arahan yang lebih mudah.'
+          : data.error === 'API error'
+          ? 'Pelayan AI sibuk. Cuba lagi.'
           : 'Gagal. Cuba lagi.';
         setHistory(prev => [...prev, {
           role: 'assistant',
@@ -51,9 +89,18 @@ export default function AIEditor({ html, onHtmlChange }: AIEditorProps) {
       }
     } catch (error) {
       console.error('AI Editor error:', error);
+      // Provide more specific error messages
+      let errorMsg = 'Ralat rangkaian. Cuba lagi.';
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          errorMsg = 'Timeout - operasi mengambil masa terlalu lama. Cuba lagi.';
+        } else if (error.message.includes('fetch')) {
+          errorMsg = 'Tidak dapat menghubungi pelayan. Semak sambungan internet anda.';
+        }
+      }
       setHistory(prev => [...prev, {
         role: 'assistant',
-        content: 'Ralat rangkaian. Cuba lagi.'
+        content: errorMsg
       }]);
     }
 
