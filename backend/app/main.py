@@ -3526,8 +3526,8 @@ async def edit_html(request: Request):
 </html>"""
         logger.info("🤖 Using default HTML template")
 
-    # Truncate HTML if too long
-    MAX_HTML = 10000
+    # Truncate HTML if too long (DeepSeek supports 64K+ context)
+    MAX_HTML = 150000
     if len(html) > MAX_HTML:
         logger.warning(f"🤖 Truncating HTML from {len(html)} to {MAX_HTML}")
         html = html[:MAX_HTML]
@@ -3562,7 +3562,7 @@ OUTPUT THE COMPLETE MODIFIED HTML:"""
 
         logger.info("🔷 Calling DeepSeek...")
 
-        async with httpx.AsyncClient(timeout=90.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             response = await client.post(
                 "https://api.deepseek.com/v1/chat/completions",
                 headers={
@@ -3572,7 +3572,7 @@ OUTPUT THE COMPLETE MODIFIED HTML:"""
                 json={
                     "model": "deepseek-chat",
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 8000,
+                    "max_tokens": 16000,
                     "temperature": 0.3
                 }
             )
