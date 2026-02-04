@@ -1249,12 +1249,13 @@ export default function ProfilePage() {
             </form>
           </div>
 
-          {/* Subscription Status Section - Animated Widget */}
+          {/* Subscription Status Section - Floating/Collapsible Widget */}
           <div className="mt-8">
             <AnimatedUsageWidget
               subscription={subscription}
               loading={subscriptionLoading}
               compact={false}
+              floatingMode={true}
             />
           </div>
 
