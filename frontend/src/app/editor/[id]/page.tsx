@@ -104,10 +104,45 @@ export default function EditorPage() {
   }
 
   async function saveWebsite() {
-    if (!supabase || !website) return;
+    if (!website) return;
 
     setSaving(true);
     try {
+      // First try using custom BinaApp token
+      const customToken = getStoredToken();
+
+      if (customToken) {
+        // Use backend API for custom auth users
+        const response = await fetch(`${API_BASE}/api/v1/websites/${id}`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${customToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            html_content: html
+          })
+        });
+
+        if (response.ok) {
+          alert('✅ Berjaya disimpan!');
+          return;
+        } else if (response.status === 401) {
+          // Token expired, redirect to login
+          router.push('/login');
+          return;
+        } else {
+          throw new Error('Failed to save via API');
+        }
+      }
+
+      // Fallback to Supabase for legacy users
+      if (!supabase) {
+        alert('❌ Sila log masuk semula.');
+        router.push('/login');
+        return;
+      }
+
       // Update database
       const { error } = await supabase
         .from('websites')

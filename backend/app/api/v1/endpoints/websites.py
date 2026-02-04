@@ -3,7 +3,7 @@ Website Endpoints
 Handles website generation, management, and publishing
 """
 
-from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks, Request
 from typing import List
 from loguru import logger
 from datetime import datetime
@@ -1392,6 +1392,80 @@ async def check_data_integrity():
             "timestamp": datetime.utcnow().isoformat(),
             "error": str(e)
         }
+
+
+@router.put("/{website_id}")
+async def update_website(
+    website_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Update a website's HTML content
+    """
+    try:
+        body = await request.json()
+        html_content = body.get("html_content")
+
+        if not html_content:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="html_content is required"
+            )
+
+        website = await supabase_service.get_website(website_id)
+
+        if not website:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Website not found"
+            )
+
+        # Check ownership
+        user_id = current_user.get("sub")
+        if website["user_id"] != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to update this website"
+            )
+
+        # Update website in database
+        update_data = {
+            "html_content": html_content,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+
+        await supabase_service.update_website(website_id, update_data)
+
+        # If published, also update storage
+        if website.get("status") == "published" and website.get("subdomain"):
+            try:
+                await storage_service.publish_website(
+                    subdomain=website["subdomain"],
+                    html_content=html_content,
+                    website_id=website_id,
+                    user_id=user_id
+                )
+                logger.info(f"✅ Updated storage for published website: {website['subdomain']}")
+            except Exception as storage_err:
+                logger.warning(f"⚠️ Storage update failed (DB updated OK): {storage_err}")
+
+        logger.info(f"✅ Website updated: {website_id}")
+
+        return {
+            "success": True,
+            "message": "Website updated successfully",
+            "website_id": website_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating website {website_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update website: {str(e)}"
+        )
 
 
 @router.delete("/{website_id}")
