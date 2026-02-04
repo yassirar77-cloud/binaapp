@@ -3572,7 +3572,7 @@ OUTPUT THE COMPLETE MODIFIED HTML:"""
                 json={
                     "model": "deepseek-chat",
                     "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 16000,
+                    "max_tokens": 8192,
                     "temperature": 0.3
                 }
             )
