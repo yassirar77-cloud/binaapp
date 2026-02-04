@@ -33,6 +33,7 @@ interface AnimatedUsageWidgetProps {
   subscription: SubscriptionUsage | null
   loading: boolean
   compact?: boolean
+  floatingMode?: boolean // Enable floating/collapsible mode
 }
 
 // Animated counter hook
@@ -161,9 +162,11 @@ function AnimatedUsageItem({
 export default function AnimatedUsageWidget({
   subscription,
   loading,
-  compact = false
+  compact = false,
+  floatingMode = false
 }: AnimatedUsageWidgetProps) {
   const [isVisible, setIsVisible] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(!floatingMode) // Start collapsed in floating mode
   const widgetRef = useRef<HTMLDivElement>(null)
 
   // Trigger animation when widget becomes visible
@@ -220,8 +223,14 @@ export default function AnimatedUsageWidget({
   const { plan, usage } = subscription
   const hasWarning = Object.values(usage).some(u => {
     const total = u.unlimited ? Infinity : (u.limit || 0) + u.addon_credits
-    return u.used >= total
+    return u.used > total
   })
+
+  // Count items over limit for badge
+  const overLimitCount = Object.values(usage).filter(u => {
+    const total = u.unlimited ? Infinity : (u.limit || 0) + u.addon_credits
+    return u.used > total
+  }).length
 
   // Plan badge colors
   const planColors: Record<string, { bg: string, text: string, border: string }> = {
@@ -231,6 +240,46 @@ export default function AnimatedUsageWidget({
     enterprise: { bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-200' }
   }
   const planStyle = planColors[plan.name.toLowerCase()] || planColors.starter
+
+  // Floating collapsed view - shows a small clickable bar
+  if (floatingMode && !isExpanded) {
+    return (
+      <div
+        ref={widgetRef}
+        className={`transition-all duration-300 ${
+          isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
+        }`}
+      >
+        <button
+          onClick={() => setIsExpanded(true)}
+          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border shadow-sm transition-all hover:shadow-md ${
+            hasWarning
+              ? 'bg-gradient-to-r from-red-50 to-amber-50 border-red-200 hover:border-red-300'
+              : 'bg-gradient-to-r from-slate-50 to-blue-50 border-gray-200 hover:border-blue-300'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span className={`px-3 py-1 ${planStyle.bg} ${planStyle.text} rounded-full font-bold text-xs border ${planStyle.border}`}>
+              {plan.name.toUpperCase()}
+            </span>
+            <span className="text-sm text-gray-600">💎 Langganan Saya</span>
+            {hasWarning && (
+              <span className="flex items-center gap-1 text-xs text-red-600 bg-red-100 px-2 py-0.5 rounded-full animate-pulse">
+                <span>⚠️</span>
+                <span>{overLimitCount} had tercapai</span>
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Klik untuk butiran</span>
+            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </div>
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -243,15 +292,28 @@ export default function AnimatedUsageWidget({
       <div className="px-6 py-4 bg-gradient-to-r from-slate-50 to-blue-50 border-b border-gray-100">
         <div className="flex justify-between items-center">
           <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-            <span className="text-xl">📊</span>
-            Penggunaan
+            <span className="text-xl">💎</span>
+            Langganan Saya
           </h3>
-          <Link
-            href="/dashboard/billing"
-            className="text-blue-500 text-sm hover:text-blue-600 hover:underline transition-colors"
-          >
-            Urus Langganan →
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/dashboard/billing"
+              className="text-blue-500 text-sm hover:text-blue-600 hover:underline transition-colors"
+            >
+              Urus Langganan →
+            </Link>
+            {floatingMode && (
+              <button
+                onClick={() => setIsExpanded(false)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                title="Tutup"
+              >
+                <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
