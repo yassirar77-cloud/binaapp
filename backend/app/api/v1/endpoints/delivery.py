@@ -781,10 +781,10 @@ async def track_order(
         logger.info(f"[TRACK] Fetching order: {order_number}")
 
         # Only select columns that EXIST in the delivery_orders table
-        # Note: updated_at does NOT exist in this table
+        # Note: updated_at does NOT exist, and it's delivery_address NOT customer_address
         response = supabase.table("delivery_orders").select(
             "id, order_number, status, created_at, confirmed_at, "
-            "customer_name, customer_phone, customer_address, delivery_address, "
+            "customer_name, customer_phone, customer_email, delivery_address, "
             "total_amount, subtotal, delivery_fee, payment_method, "
             "rider_id, website_id, delivery_latitude, delivery_longitude, "
             "estimated_delivery_time"
@@ -819,7 +819,8 @@ async def track_order(
                 "confirmed_at": order.get("confirmed_at"),
                 "customer_name": order.get("customer_name"),
                 "customer_phone": order.get("customer_phone"),
-                "delivery_address": order.get("delivery_address") or order.get("customer_address"),
+                "customer_email": order.get("customer_email"),
+                "delivery_address": order.get("delivery_address"),
                 "total_amount": float(order.get("total_amount", 0)) if order.get("total_amount") else 0,
                 "delivery_fee": float(order.get("delivery_fee", 0)) if order.get("delivery_fee") else 0,
                 "subtotal": float(order.get("subtotal", 0)) if order.get("subtotal") else 0,
