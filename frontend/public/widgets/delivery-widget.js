@@ -1067,8 +1067,11 @@
                     title.textContent = this.t('trackOrder');
                     body.innerHTML = this.renderTracking();
                     this.loadTracking();
-                    // BUG FIX #1: Subscribe to realtime updates for instant status changes
+                    // CRITICAL: Always start polling first as primary update mechanism
+                    // Polling is guaranteed to work, realtime may fail silently
                     if (this.state.orderNumber) {
+                        this.startBackupPolling();
+                        // Also try realtime as bonus (will switch to backup polling if connected)
                         this.subscribeToOrderUpdates(this.state.orderNumber);
                     }
                     break;
@@ -1109,10 +1112,7 @@
                         this.initializeMap();
                     }, 200);
 
-                    // Start polling if not already started
-                    if (!this.state.trackingInterval) {
-                        this.startTrackingPolling();
-                    }
+                    // Polling is now managed by showView - no need to start here
                 } else {
                     // Update marker if map already initialized
                     this.updateRiderMarker();
@@ -1352,6 +1352,65 @@
             }
         },
 
+        // Backup polling - runs even when realtime is "connected"
+        // This ensures updates still come through if realtime silently fails
+        startBackupPolling: function() {
+            this.stopTrackingPolling();
+
+            // Poll every 10 seconds as backup (faster than before)
+            this.state.trackingInterval = setInterval(() => {
+                if (this.state.currentView === 'tracking' && this.state.orderNumber) {
+                    console.log('[BinaApp] 🔄 Backup poll - checking for updates...');
+                    this.refreshTracking();
+                }
+            }, 10000);
+
+            console.log('[BinaApp] Started backup polling (every 10s)');
+        },
+
+        // Refresh tracking without full re-render (for backup polling)
+        refreshTracking: async function() {
+            try {
+                if (!this.state.orderNumber) return;
+
+                const res = await fetch(`${this.config.apiUrl}/delivery/orders/${this.state.orderNumber}/track`);
+                if (!res.ok) return;
+
+                const data = await res.json();
+                const oldStatus = this.state.trackingData?.order?.status;
+                const newStatus = data.order?.status;
+
+                // Only update if status changed
+                if (oldStatus !== newStatus) {
+                    console.log('[BinaApp] 📥 Status changed via polling:', oldStatus, '→', newStatus);
+                    this.state.trackingData = data;
+
+                    // Show toast notification
+                    this.showStatusChangeNotification(newStatus);
+
+                    // Re-render tracking view
+                    const body = document.getElementById('binaapp-modal-body');
+                    if (body && this.state.currentView === 'tracking') {
+                        body.innerHTML = this.renderTracking();
+                        setTimeout(() => this.initializeMap(), 200);
+                    }
+
+                    // Check if order reached terminal state
+                    if (this.shouldClearOrder(newStatus)) {
+                        this.clearActiveOrder();
+                    }
+                } else {
+                    // Update rider location even if status didn't change
+                    if (data.rider && this.state.trackingData) {
+                        this.state.trackingData.rider = data.rider;
+                        this.updateRiderMarker();
+                    }
+                }
+            } catch (e) {
+                console.error('[BinaApp] Refresh tracking error:', e);
+            }
+        },
+
         // ============================================
         // BUG FIX #2: localStorage ORDER PERSISTENCE
         // ============================================
@@ -1572,9 +1631,10 @@
                         if (status === 'SUBSCRIBED') {
                             this.realtimeState.connected = true;
                             this.realtimeState.reconnectAttempts = 0;
-                            // Stop polling since we have realtime now
-                            this.stopTrackingPolling();
-                            console.log('[BinaApp] ✅ Realtime connected, polling stopped');
+                            // IMPORTANT: Keep polling as backup - realtime may not work due to RLS
+                            // Just reduce frequency to 30 seconds instead of stopping
+                            this.startBackupPolling();
+                            console.log('[BinaApp] ✅ Realtime connected, backup polling active');
                         } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
                             this.realtimeState.connected = false;
                             this.handleRealtimeDisconnect();
