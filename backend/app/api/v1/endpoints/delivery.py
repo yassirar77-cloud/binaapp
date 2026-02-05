@@ -861,16 +861,16 @@ async def track_order(
 
                     # Also check rider_locations table for latest location
                     loc_response = supabase.table("rider_locations").select(
-                        "latitude, longitude, created_at"
+                        "latitude, longitude, recorded_at"
                     ).eq("rider_id", order["rider_id"]).order(
-                        "created_at", desc=True
+                        "recorded_at", desc=True
                     ).limit(1).execute()
 
                     if loc_response.data:
                         result["rider_location"] = {
                             "latitude": loc_response.data[0]["latitude"],
                             "longitude": loc_response.data[0]["longitude"],
-                            "recorded_at": loc_response.data[0]["created_at"]
+                            "recorded_at": loc_response.data[0]["recorded_at"]
                         }
                         logger.info(f"[TRACK] Rider location from history found")
             except Exception as rider_err:
