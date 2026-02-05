@@ -2275,15 +2275,17 @@ function handleContactSubmit(e) {{
 
     // Update tracking display with API data
     function updateTrackingDisplay(data) {{
-        const status = data.status || 'pending';
+        // API returns order data nested under 'order' key
+        const order = data.order || {{}};
+        const status = order.status || 'pending';
         const statusInfo = statusMap[status] || statusMap['pending'];
 
         document.getElementById('status-emoji').textContent = statusInfo.emoji;
         document.getElementById('status-emoji').style.background = statusInfo.color;
         document.getElementById('status-text').textContent = statusInfo.text;
 
-        if (data.updated_at) {{
-            const formattedTime = new Date(data.updated_at).toLocaleString('ms-MY');
+        if (order.updated_at) {{
+            const formattedTime = new Date(order.updated_at).toLocaleString('ms-MY');
             document.getElementById('status-time').textContent = formattedTime;
             document.getElementById('tracking-timestamp').textContent = 'Dikemaskini: ' + formattedTime;
         }}
@@ -2316,8 +2318,8 @@ function handleContactSubmit(e) {{
         }}
 
         // Update total if available
-        if (data.total_amount) {{
-            document.getElementById('tracking-total').textContent = parseFloat(data.total_amount).toFixed(2);
+        if (order.total_amount) {{
+            document.getElementById('tracking-total').textContent = parseFloat(order.total_amount).toFixed(2);
         }}
     }}
 
