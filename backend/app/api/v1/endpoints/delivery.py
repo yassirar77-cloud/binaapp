@@ -2827,6 +2827,95 @@ async def update_order_status_by_rider(
 
 
 # =====================================================
+# CUSTOMER ORDER CANCELLATION
+# =====================================================
+
+@router.post("/orders/{order_number}/cancel")
+async def cancel_order_by_customer(
+    order_number: str,
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Cancel an order by order number.
+
+    **Public endpoint** - Customers can cancel their own orders.
+    Only allows cancellation if order is in 'pending' or 'confirmed' status.
+
+    Returns:
+    - Success message if cancelled
+    - Error if order cannot be cancelled (already in progress, etc.)
+    """
+    try:
+        # 1. Find order by order_number
+        order_response = supabase.table("delivery_orders").select("*").eq(
+            "order_number", order_number
+        ).execute()
+
+        if not order_response.data or len(order_response.data) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Order not found"
+            )
+
+        order = order_response.data[0]
+        current_status = order.get("status")
+
+        # 2. Check if order can be cancelled
+        cancellable_statuses = ["pending", "confirmed"]
+        if current_status not in cancellable_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot cancel order in '{current_status}' status. Only pending or confirmed orders can be cancelled."
+            )
+
+        # 3. Update order status to cancelled
+        from datetime import datetime
+        update_data = {
+            "status": "cancelled",
+            "cancelled_at": datetime.utcnow().isoformat()
+        }
+
+        updated_response = supabase.table("delivery_orders").update(
+            update_data
+        ).eq("id", order["id"]).execute()
+
+        if not updated_response.data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to cancel order"
+            )
+
+        # 4. Add to order status history
+        try:
+            supabase.table("order_status_history").insert({
+                "order_id": order["id"],
+                "status": "cancelled",
+                "notes": "Cancelled by customer",
+                "updated_by": "customer"
+            }).execute()
+        except Exception as history_err:
+            logger.warning(f"Failed to add status history: {history_err}")
+
+        logger.info(f"✅ Order {order_number} cancelled by customer")
+
+        return {
+            "success": True,
+            "message": "Order cancelled successfully",
+            "order_number": order_number,
+            "status": "cancelled"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error cancelling order: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel order: {str(e)}"
+        )
+
+
+# =====================================================
 # RIDER AUTHENTICATION
 # =====================================================
 

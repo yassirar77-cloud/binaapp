@@ -486,6 +486,22 @@
             console.log('[BinaApp] Canonical Website ID:', this.config.websiteId);
             console.log('[BinaApp] Payment config:', this.paymentConfig);
             console.log('[BinaApp] Fulfillment config:', this.fulfillmentConfig);
+
+            // BUG FIX #2: Check for active order to recover on page load
+            this.checkForActiveOrder();
+        },
+
+        // Check for and recover active order on page load
+        checkForActiveOrder: async function() {
+            const recovered = await this.recoverActiveOrder();
+            if (recovered) {
+                console.log('[BinaApp] 🔄 Active order found, auto-opening tracking');
+                // Auto-open modal to tracking view
+                setTimeout(() => {
+                    this.openModal();
+                    this.showView('tracking');
+                }, 500);
+            }
         },
 
         // Get business config helper
@@ -1020,6 +1036,9 @@
             document.getElementById('binaapp-modal').classList.remove('active');
             // Stop tracking polling when modal is closed (Phase 2)
             this.stopTrackingPolling();
+            // BUG FIX #1: Unsubscribe from realtime when modal is closed
+            // Note: We don't cleanup localStorage here - order should persist
+            this.unsubscribeFromOrderUpdates();
         },
 
         // Show different views
@@ -1048,6 +1067,10 @@
                     title.textContent = this.t('trackOrder');
                     body.innerHTML = this.renderTracking();
                     this.loadTracking();
+                    // BUG FIX #1: Subscribe to realtime updates for instant status changes
+                    if (this.state.orderNumber) {
+                        this.subscribeToOrderUpdates(this.state.orderNumber);
+                    }
                     break;
             }
 
@@ -1326,6 +1349,449 @@
                 clearInterval(this.state.trackingInterval);
                 this.state.trackingInterval = null;
                 console.log('[BinaApp] Stopped tracking polling');
+            }
+        },
+
+        // ============================================
+        // BUG FIX #2: localStorage ORDER PERSISTENCE
+        // ============================================
+        // These functions ensure orders survive page navigation
+
+        // Save active order to localStorage
+        saveActiveOrder: function(orderData) {
+            try {
+                const key = `binaapp_active_order_${this.config.websiteId}`;
+                localStorage.setItem(key, JSON.stringify(orderData));
+                console.log('[BinaApp] ✅ Active order saved to localStorage:', orderData.order_number);
+            } catch (e) {
+                console.error('[BinaApp] Failed to save active order:', e);
+            }
+        },
+
+        // Get active order from localStorage
+        getActiveOrder: function() {
+            try {
+                const key = `binaapp_active_order_${this.config.websiteId}`;
+                const data = localStorage.getItem(key);
+                if (!data) return null;
+
+                const order = JSON.parse(data);
+
+                // Check if order is expired (24 hours)
+                const createdAt = new Date(order.created_at);
+                const now = new Date();
+                const hoursDiff = (now - createdAt) / (1000 * 60 * 60);
+
+                if (hoursDiff > 24) {
+                    console.log('[BinaApp] Active order expired (>24h), clearing');
+                    this.clearActiveOrder();
+                    return null;
+                }
+
+                // Verify website_id matches
+                if (order.website_id !== this.config.websiteId) {
+                    console.log('[BinaApp] Active order website mismatch, ignoring');
+                    return null;
+                }
+
+                return order;
+            } catch (e) {
+                console.error('[BinaApp] Failed to get active order:', e);
+                return null;
+            }
+        },
+
+        // Clear active order from localStorage
+        clearActiveOrder: function() {
+            try {
+                const key = `binaapp_active_order_${this.config.websiteId}`;
+                localStorage.removeItem(key);
+                console.log('[BinaApp] Active order cleared from localStorage');
+            } catch (e) {
+                console.error('[BinaApp] Failed to clear active order:', e);
+            }
+        },
+
+        // Check if order should be cleared (completed/cancelled status)
+        shouldClearOrder: function(status) {
+            const terminalStatuses = ['completed', 'cancelled', 'rejected', 'delivered'];
+            return terminalStatuses.includes(status);
+        },
+
+        // Recover active order on page load
+        recoverActiveOrder: async function() {
+            const savedOrder = this.getActiveOrder();
+            if (!savedOrder || !savedOrder.order_number) {
+                console.log('[BinaApp] No active order to recover');
+                return false;
+            }
+
+            console.log('[BinaApp] 🔄 Recovering active order:', savedOrder.order_number);
+
+            try {
+                // Fetch latest order status from server
+                const res = await fetch(`${this.config.apiUrl}/delivery/orders/${savedOrder.order_number}/track`);
+
+                if (!res.ok) {
+                    // Order not found or error - clear localStorage
+                    console.log('[BinaApp] Order not found on server, clearing localStorage');
+                    this.clearActiveOrder();
+                    return false;
+                }
+
+                const data = await res.json();
+                const status = data.order?.status;
+
+                // Check if order is in terminal state
+                if (this.shouldClearOrder(status)) {
+                    console.log('[BinaApp] Order in terminal state:', status, '- clearing');
+                    this.clearActiveOrder();
+                    return false;
+                }
+
+                // Order is still active - restore state
+                this.state.orderNumber = savedOrder.order_number;
+                this.state.conversationId = savedOrder.conversation_id;
+                this.state.customerId = savedOrder.customer_id;
+                this.state.trackingData = data;
+
+                console.log('[BinaApp] ✅ Order recovered successfully, status:', status);
+
+                // Show notification about recovered order
+                this.showNotification(this.t('orderRecovered') || `Order ${savedOrder.order_number} recovered`);
+
+                return true;
+            } catch (e) {
+                console.error('[BinaApp] Failed to recover order:', e);
+                return false;
+            }
+        },
+
+        // ============================================
+        // BUG FIX #1: SUPABASE REALTIME SUBSCRIPTIONS
+        // ============================================
+
+        // Supabase Realtime state
+        realtimeState: {
+            channel: null,
+            connected: false,
+            reconnectAttempts: 0,
+            maxReconnectAttempts: 3,
+            reconnectDelay: 2000,
+            supabaseClient: null
+        },
+
+        // Load Supabase client for realtime
+        loadSupabaseClient: function() {
+            return new Promise((resolve, reject) => {
+                // Check if already loaded
+                if (window.supabase) {
+                    resolve(window.supabase);
+                    return;
+                }
+
+                // Load Supabase JS SDK
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+                script.async = true;
+                script.onload = () => {
+                    console.log('[BinaApp] Supabase SDK loaded');
+                    resolve(window.supabase);
+                };
+                script.onerror = () => {
+                    console.error('[BinaApp] Failed to load Supabase SDK');
+                    reject(new Error('Failed to load Supabase SDK'));
+                };
+                document.head.appendChild(script);
+            });
+        },
+
+        // Initialize Supabase client
+        initSupabaseClient: async function() {
+            if (this.realtimeState.supabaseClient) {
+                return this.realtimeState.supabaseClient;
+            }
+
+            try {
+                await this.loadSupabaseClient();
+
+                // Get Supabase URL and anon key from config or environment
+                // These are safe to expose - RLS protects the data
+                const supabaseUrl = this.config.supabaseUrl || 'https://knnoityamiuqnhpnkvvi.supabase.co';
+                const supabaseAnonKey = this.config.supabaseAnonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtubm9pdHlhbWl1cW5ocG5rdnZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzY1OTg2MjYsImV4cCI6MjA1MjE3NDYyNn0.z2MSBnqKFx8zaoQ8R-ANGkqGBNIrJdlMuNrjl-RkHfw';
+
+                this.realtimeState.supabaseClient = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+                console.log('[BinaApp] Supabase client initialized');
+
+                return this.realtimeState.supabaseClient;
+            } catch (e) {
+                console.error('[BinaApp] Failed to init Supabase client:', e);
+                return null;
+            }
+        },
+
+        // Subscribe to order status changes via Supabase Realtime
+        subscribeToOrderUpdates: async function(orderNumber) {
+            if (!orderNumber) {
+                console.log('[BinaApp] No order number for realtime subscription');
+                return;
+            }
+
+            try {
+                const client = await this.initSupabaseClient();
+                if (!client) {
+                    console.log('[BinaApp] Supabase client not available, falling back to polling');
+                    this.startTrackingPolling();
+                    return;
+                }
+
+                // Unsubscribe from any existing channel first
+                this.unsubscribeFromOrderUpdates();
+
+                const channelName = `order-${orderNumber}-${Date.now()}`;
+                console.log('[BinaApp] 📡 Subscribing to realtime channel:', channelName);
+
+                this.realtimeState.channel = client
+                    .channel(channelName)
+                    .on(
+                        'postgres_changes',
+                        {
+                            event: 'UPDATE',
+                            schema: 'public',
+                            table: 'delivery_orders',
+                            filter: `order_number=eq.${orderNumber}`
+                        },
+                        (payload) => {
+                            console.log('[BinaApp] 📥 Realtime update received:', payload);
+                            this.handleRealtimeUpdate(payload);
+                        }
+                    )
+                    .subscribe((status) => {
+                        console.log('[BinaApp] Realtime subscription status:', status);
+
+                        if (status === 'SUBSCRIBED') {
+                            this.realtimeState.connected = true;
+                            this.realtimeState.reconnectAttempts = 0;
+                            // Stop polling since we have realtime now
+                            this.stopTrackingPolling();
+                            console.log('[BinaApp] ✅ Realtime connected, polling stopped');
+                        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+                            this.realtimeState.connected = false;
+                            this.handleRealtimeDisconnect();
+                        }
+                    });
+
+            } catch (e) {
+                console.error('[BinaApp] Failed to subscribe to realtime:', e);
+                // Fallback to polling
+                this.startTrackingPolling();
+            }
+        },
+
+        // Handle realtime update
+        handleRealtimeUpdate: function(payload) {
+            const newData = payload.new;
+            const oldStatus = this.state.trackingData?.order?.status;
+            const newStatus = newData.status;
+
+            console.log('[BinaApp] Status change:', oldStatus, '→', newStatus);
+
+            // Update tracking data
+            if (this.state.trackingData && this.state.trackingData.order) {
+                // Update order fields
+                Object.assign(this.state.trackingData.order, newData);
+            }
+
+            // Re-render tracking view if visible
+            if (this.state.currentView === 'tracking') {
+                // Reload full tracking data to get rider info, etc.
+                this.loadTracking();
+            }
+
+            // Show toast notification if status changed
+            if (oldStatus && newStatus && oldStatus !== newStatus) {
+                this.showStatusChangeNotification(newStatus);
+            }
+
+            // Check if order reached terminal state
+            if (this.shouldClearOrder(newStatus)) {
+                console.log('[BinaApp] Order reached terminal state, clearing localStorage');
+                this.clearActiveOrder();
+                this.unsubscribeFromOrderUpdates();
+            }
+        },
+
+        // Show notification when status changes
+        showStatusChangeNotification: function(status) {
+            const statusText = this.getStatusText(status);
+            const emoji = this.getStatusEmoji(status);
+            const message = `${emoji} ${statusText}`;
+
+            // Create toast notification
+            this.showToast(message, status === 'cancelled' || status === 'rejected' ? 'error' : 'success');
+        },
+
+        // Show toast notification
+        showToast: function(message, type = 'info') {
+            // Remove existing toast
+            const existingToast = document.getElementById('binaapp-toast');
+            if (existingToast) {
+                existingToast.remove();
+            }
+
+            const bgColor = type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : '#3b82f6';
+
+            const toast = document.createElement('div');
+            toast.id = 'binaapp-toast';
+            toast.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: ${bgColor};
+                color: white;
+                padding: 16px 24px;
+                border-radius: 12px;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                font-size: 14px;
+                font-weight: 600;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+                z-index: 999999;
+                animation: binaapp-toast-slide-in 0.3s ease;
+            `;
+            toast.textContent = message;
+
+            // Add animation keyframes
+            if (!document.getElementById('binaapp-toast-styles')) {
+                const style = document.createElement('style');
+                style.id = 'binaapp-toast-styles';
+                style.textContent = `
+                    @keyframes binaapp-toast-slide-in {
+                        from { transform: translateX(100%); opacity: 0; }
+                        to { transform: translateX(0); opacity: 1; }
+                    }
+                    @keyframes binaapp-toast-slide-out {
+                        from { transform: translateX(0); opacity: 1; }
+                        to { transform: translateX(100%); opacity: 0; }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+
+            document.body.appendChild(toast);
+
+            // Auto-remove after 4 seconds
+            setTimeout(() => {
+                toast.style.animation = 'binaapp-toast-slide-out 0.3s ease forwards';
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        },
+
+        // Handle realtime disconnection
+        handleRealtimeDisconnect: function() {
+            console.log('[BinaApp] Realtime disconnected');
+
+            if (this.realtimeState.reconnectAttempts < this.realtimeState.maxReconnectAttempts) {
+                const delay = this.realtimeState.reconnectDelay * Math.pow(2, this.realtimeState.reconnectAttempts);
+                console.log(`[BinaApp] Reconnecting in ${delay}ms (attempt ${this.realtimeState.reconnectAttempts + 1}/${this.realtimeState.maxReconnectAttempts})`);
+
+                this.realtimeState.reconnectAttempts++;
+
+                setTimeout(() => {
+                    if (this.state.orderNumber) {
+                        this.subscribeToOrderUpdates(this.state.orderNumber);
+                    }
+                }, delay);
+            } else {
+                console.log('[BinaApp] Max reconnect attempts reached, falling back to polling');
+                this.showToast(this.t('connectionLost') || 'Connection lost, using backup sync', 'error');
+                this.startTrackingPolling();
+            }
+        },
+
+        // Unsubscribe from realtime updates
+        unsubscribeFromOrderUpdates: function() {
+            if (this.realtimeState.channel) {
+                console.log('[BinaApp] Unsubscribing from realtime channel');
+                this.realtimeState.channel.unsubscribe();
+                this.realtimeState.channel = null;
+                this.realtimeState.connected = false;
+            }
+        },
+
+        // ============================================
+        // BUG FIX #3: CLEANUP FOR CANCEL/RE-ORDER
+        // ============================================
+
+        // Complete cleanup of order state (for cancel or completion)
+        cleanupOrderState: function() {
+            console.log('[BinaApp] 🧹 Cleaning up order state');
+
+            // 1. Unsubscribe from realtime
+            this.unsubscribeFromOrderUpdates();
+
+            // 2. Stop polling
+            this.stopTrackingPolling();
+
+            // 3. Clear localStorage
+            this.clearActiveOrder();
+
+            // 4. Reset state
+            this.state.orderNumber = null;
+            this.state.trackingData = null;
+            this.state.trackingLoading = false;
+            this.state.trackingError = null;
+            this.state.conversationId = null;
+
+            // 5. Clear map state
+            if (this.state.riderMap) {
+                this.state.riderMap.remove();
+                this.state.riderMap = null;
+            }
+            this.state.riderMarker = null;
+            this.state.customerMarker = null;
+            this.state.routeLine = null;
+
+            console.log('[BinaApp] ✅ Order state cleaned up');
+        },
+
+        // Cancel order (called when user cancels)
+        cancelOrder: async function() {
+            if (!this.state.orderNumber) {
+                console.log('[BinaApp] No order to cancel');
+                return false;
+            }
+
+            const orderNumber = this.state.orderNumber;
+            console.log('[BinaApp] Cancelling order:', orderNumber);
+
+            try {
+                // Update order status to cancelled via API
+                const res = await fetch(`${this.config.apiUrl}/delivery/orders/${orderNumber}/cancel`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (!res.ok) {
+                    const error = await res.text();
+                    console.error('[BinaApp] Cancel failed:', error);
+                    this.showToast(this.t('cancelFailed') || 'Failed to cancel order', 'error');
+                    return false;
+                }
+
+                // Cleanup state
+                this.cleanupOrderState();
+
+                // Show success notification
+                this.showToast(this.t('orderCancelled') || 'Order cancelled', 'success');
+
+                // Return to menu view
+                this.showView('menu');
+
+                return true;
+            } catch (e) {
+                console.error('[BinaApp] Cancel error:', e);
+                this.showToast(this.t('cancelFailed') || 'Failed to cancel order', 'error');
+                return false;
             }
         },
 
@@ -2659,6 +3125,17 @@
                             localStorage.setItem('binaapp_customer_phone', customerPhone);
                             localStorage.setItem('binaapp_customer_name', customerName);
                         }
+
+                        // BUG FIX #2: Persist active order to localStorage for recovery
+                        // This ensures orders aren't lost when user navigates away
+                        this.saveActiveOrder({
+                            order_number: this.state.orderNumber,
+                            website_id: this.config.websiteId,
+                            conversation_id: this.state.conversationId,
+                            customer_id: this.state.customerId,
+                            created_at: new Date().toISOString()
+                        });
+
                         console.log('[BinaApp] ✅ Order created:', this.state.orderNumber, 'conversation:', this.state.conversationId);
                     } else {
                         const errorText = await createRes.text();
@@ -3219,7 +3696,14 @@
                     orderCreationFailed: 'Gagal membuat pesanan',
                     orderCreatedSuccess: 'Pesanan berjaya dibuat!',
                     // Chat
-                    chatWithSeller: 'Chat dengan Penjual'
+                    chatWithSeller: 'Chat dengan Penjual',
+                    // Bug fix translations
+                    orderRecovered: 'Pesanan dipulihkan',
+                    orderCancelled: 'Pesanan dibatalkan',
+                    cancelFailed: 'Gagal membatalkan pesanan',
+                    connectionLost: 'Sambungan terputus, sila muat semula',
+                    cancelOrder: 'Batal Pesanan',
+                    confirmCancel: 'Adakah anda pasti mahu membatalkan pesanan ini?'
                 },
                 en: {
                     orderNow: 'Order Now',
@@ -3300,7 +3784,14 @@
                     orderCreationFailed: 'Failed to create order',
                     orderCreatedSuccess: 'Order created successfully!',
                     // Chat
-                    chatWithSeller: 'Chat with Seller'
+                    chatWithSeller: 'Chat with Seller',
+                    // Bug fix translations
+                    orderRecovered: 'Order recovered',
+                    orderCancelled: 'Order cancelled',
+                    cancelFailed: 'Failed to cancel order',
+                    connectionLost: 'Connection lost, please refresh',
+                    cancelOrder: 'Cancel Order',
+                    confirmCancel: 'Are you sure you want to cancel this order?'
                 }
             };
 
