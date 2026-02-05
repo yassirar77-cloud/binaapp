@@ -1104,6 +1104,11 @@
                 this.state.trackingData = data;
                 this.state.trackingLoading = false;
 
+                // Subscribe to rider location updates if rider is assigned
+                if (data.rider && data.rider.id) {
+                    this.subscribeToRiderUpdates(data.rider.id);
+                }
+
                 if (body && this.state.currentView === 'tracking') {
                     body.innerHTML = this.renderTracking();
 
@@ -1185,16 +1190,33 @@
 
         // Initialize Map with Leaflet + OpenStreetMap (FREE!) - Updated for Phase 3
         // Now shows map even when rider GPS is not yet available
-        initializeMap: async function() {
+        // FIXED: Map initialization with retry logic
+        initializeMap: async function(retryCount = 0) {
             try {
-                if (!this.state.trackingData) return;
+                if (!this.state.trackingData) {
+                    console.log('[BinaApp Map] No tracking data yet');
+                    return;
+                }
 
                 const rider = this.state.trackingData.rider;
                 const order = this.state.trackingData.order;
 
+                // Check if map container exists - if not, retry
+                const container = document.getElementById('binaapp-rider-map');
+                if (!container) {
+                    if (retryCount < 5) {
+                        console.log('[BinaApp Map] Container not found, retrying in 300ms... (attempt', retryCount + 1, ')');
+                        setTimeout(() => this.initializeMap(retryCount + 1), 300);
+                        return;
+                    } else {
+                        console.error('[BinaApp Map] Container not found after 5 retries');
+                        return;
+                    }
+                }
+
                 // Need at least a rider assigned to show the map
                 if (!rider) {
-                    console.log('[BinaApp] No rider assigned yet');
+                    console.log('[BinaApp Map] No rider assigned yet - map will show when rider assigned');
                     return;
                 }
 
@@ -1207,6 +1229,8 @@
                 const customerLat = order.delivery_latitude ? parseFloat(order.delivery_latitude) : 3.1390;
                 const customerLng = order.delivery_longitude ? parseFloat(order.delivery_longitude) : 101.6869;
 
+                console.log('[BinaApp Map] Initializing map - Rider GPS:', hasRiderGPS, 'Customer:', customerLat, customerLng);
+
                 // Call the Leaflet.js initialization function (now handles null rider coords)
                 await this.initRiderTrackingMap(
                     riderLat,
@@ -1216,9 +1240,14 @@
                     rider.name || 'Rider'
                 );
 
-                console.log('[BinaApp] Map initialized successfully via initRiderTrackingMap, hasRiderGPS:', hasRiderGPS);
+                console.log('[BinaApp Map] Map initialized successfully, hasRiderGPS:', hasRiderGPS);
             } catch (error) {
-                console.error('[BinaApp] Map initialization error:', error);
+                console.error('[BinaApp Map] Initialization error:', error);
+                // Retry on error if we haven't exceeded retries
+                if (retryCount < 3) {
+                    console.log('[BinaApp Map] Retrying after error...');
+                    setTimeout(() => this.initializeMap(retryCount + 1), 500);
+                }
             }
         },
 
@@ -1354,36 +1383,68 @@
 
         // Backup polling - runs even when realtime is "connected"
         // This ensures updates still come through if realtime silently fails
+        // CRITICAL: This is the PRIMARY update mechanism - realtime often fails due to RLS
         startBackupPolling: function() {
             this.stopTrackingPolling();
 
-            // Poll every 10 seconds as backup (faster than before)
+            // Poll every 5 seconds - AGGRESSIVE polling to ensure status updates
+            // Realtime often fails silently, so polling is our safety net
             this.state.trackingInterval = setInterval(() => {
                 if (this.state.currentView === 'tracking' && this.state.orderNumber) {
                     console.log('[BinaApp] 🔄 Backup poll - checking for updates...');
                     this.refreshTracking();
                 }
-            }, 10000);
+            }, 5000);
 
-            console.log('[BinaApp] Started backup polling (every 10s)');
+            // Also do an immediate poll on start
+            if (this.state.currentView === 'tracking' && this.state.orderNumber) {
+                setTimeout(() => this.refreshTracking(), 500);
+            }
+
+            console.log('[BinaApp] Started backup polling (every 5s - aggressive mode)');
         },
 
         // Refresh tracking without full re-render (for backup polling)
+        // FIXED: No longer silently fails - logs errors and retries
         refreshTracking: async function() {
             try {
-                if (!this.state.orderNumber) return;
+                if (!this.state.orderNumber) {
+                    console.log('[BinaApp] refreshTracking: No order number');
+                    return;
+                }
 
+                console.log('[BinaApp] 🔍 Fetching status for order:', this.state.orderNumber);
                 const res = await fetch(`${this.config.apiUrl}/delivery/orders/${this.state.orderNumber}/track`);
-                if (!res.ok) return;
+
+                if (!res.ok) {
+                    // DON'T silently fail - log the error
+                    console.error('[BinaApp] ❌ Fetch failed with status:', res.status, res.statusText);
+                    return;
+                }
 
                 const data = await res.json();
                 const oldStatus = this.state.trackingData?.order?.status;
                 const newStatus = data.order?.status;
 
-                // Only update if status changed
-                if (oldStatus !== newStatus) {
-                    console.log('[BinaApp] 📥 Status changed via polling:', oldStatus, '→', newStatus);
+                console.log('[BinaApp] 📊 Status check - Old:', oldStatus, 'New:', newStatus);
+
+                // ALWAYS update trackingData to ensure we have latest info
+                const statusChanged = oldStatus !== newStatus;
+
+                // Check if rider was newly assigned
+                const oldRiderId = this.state.trackingData?.rider?.id;
+                const newRiderId = data.rider?.id;
+                const riderChanged = oldRiderId !== newRiderId && newRiderId;
+
+                if (statusChanged) {
+                    console.log('[BinaApp] 📥 STATUS CHANGED via polling:', oldStatus, '→', newStatus);
                     this.state.trackingData = data;
+
+                    // Subscribe to rider updates if newly assigned
+                    if (riderChanged) {
+                        console.log('[BinaApp] 🛵 New rider assigned:', newRiderId);
+                        this.subscribeToRiderUpdates(newRiderId);
+                    }
 
                     // Show toast notification
                     this.showStatusChangeNotification(newStatus);
@@ -1400,14 +1461,31 @@
                         this.clearActiveOrder();
                     }
                 } else {
-                    // Update rider location even if status didn't change
-                    if (data.rider && this.state.trackingData) {
-                        this.state.trackingData.rider = data.rider;
+                    // Check for rider assignment change even if status didn't change
+                    if (riderChanged) {
+                        console.log('[BinaApp] 🛵 Rider assigned (no status change):', newRiderId);
+                        this.subscribeToRiderUpdates(newRiderId);
+                        this.state.trackingData = data;
+                        // Re-render to show rider info and map
+                        const body = document.getElementById('binaapp-modal-body');
+                        if (body && this.state.currentView === 'tracking') {
+                            body.innerHTML = this.renderTracking();
+                            setTimeout(() => this.initializeMap(), 200);
+                        }
+                    } else if (data.rider) {
+                        // Update rider location even if status didn't change
+                        if (!this.state.trackingData) {
+                            this.state.trackingData = data;
+                        } else {
+                            this.state.trackingData.rider = data.rider;
+                            // Also update the order in case other fields changed
+                            this.state.trackingData.order = data.order;
+                        }
                         this.updateRiderMarker();
                     }
                 }
             } catch (e) {
-                console.error('[BinaApp] Refresh tracking error:', e);
+                console.error('[BinaApp] ❌ Refresh tracking error:', e);
             }
         },
 
@@ -1533,6 +1611,7 @@
         // Supabase Realtime state
         realtimeState: {
             channel: null,
+            riderChannel: null,  // For rider location updates
             connected: false,
             reconnectAttempts: 0,
             maxReconnectAttempts: 3,
@@ -1771,10 +1850,86 @@
         // Unsubscribe from realtime updates
         unsubscribeFromOrderUpdates: function() {
             if (this.realtimeState.channel) {
-                console.log('[BinaApp] Unsubscribing from realtime channel');
+                console.log('[BinaApp] Unsubscribing from order realtime channel');
                 this.realtimeState.channel.unsubscribe();
                 this.realtimeState.channel = null;
                 this.realtimeState.connected = false;
+            }
+            // Also unsubscribe from rider channel
+            if (this.realtimeState.riderChannel) {
+                console.log('[BinaApp] Unsubscribing from rider realtime channel');
+                this.realtimeState.riderChannel.unsubscribe();
+                this.realtimeState.riderChannel = null;
+            }
+        },
+
+        // Subscribe to rider location updates for live GPS tracking
+        subscribeToRiderUpdates: async function(riderId) {
+            if (!riderId) {
+                console.log('[BinaApp] No rider ID for realtime subscription');
+                return;
+            }
+
+            try {
+                const client = await this.initSupabaseClient();
+                if (!client) {
+                    console.log('[BinaApp] Supabase client not available for rider updates');
+                    return;
+                }
+
+                // Unsubscribe from any existing rider channel
+                if (this.realtimeState.riderChannel) {
+                    this.realtimeState.riderChannel.unsubscribe();
+                }
+
+                const channelName = `rider-${riderId}-${Date.now()}`;
+                console.log('[BinaApp] 📡 Subscribing to rider location channel:', channelName);
+
+                this.realtimeState.riderChannel = client
+                    .channel(channelName)
+                    .on(
+                        'postgres_changes',
+                        {
+                            event: 'UPDATE',
+                            schema: 'public',
+                            table: 'riders',
+                            filter: `id=eq.${riderId}`
+                        },
+                        (payload) => {
+                            console.log('[BinaApp] 📍 Rider location update received:', payload);
+                            this.handleRiderLocationUpdate(payload);
+                        }
+                    )
+                    .subscribe((status) => {
+                        console.log('[BinaApp] Rider subscription status:', status);
+                    });
+
+            } catch (e) {
+                console.error('[BinaApp] Failed to subscribe to rider updates:', e);
+            }
+        },
+
+        // Handle rider location update from realtime
+        handleRiderLocationUpdate: function(payload) {
+            const newData = payload.new;
+            if (!newData) return;
+
+            // Update rider data in tracking state
+            if (this.state.trackingData && this.state.trackingData.rider) {
+                const oldLat = this.state.trackingData.rider.current_latitude;
+                const oldLng = this.state.trackingData.rider.current_longitude;
+                const newLat = newData.current_latitude;
+                const newLng = newData.current_longitude;
+
+                // Update rider location
+                this.state.trackingData.rider.current_latitude = newLat;
+                this.state.trackingData.rider.current_longitude = newLng;
+                this.state.trackingData.rider.last_location_update = newData.last_location_update;
+
+                console.log('[BinaApp] 📍 Rider GPS updated:', oldLat, oldLng, '→', newLat, newLng);
+
+                // Update the marker on the map
+                this.updateRiderMarker();
             }
         },
 
