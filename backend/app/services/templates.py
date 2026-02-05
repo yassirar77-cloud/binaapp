@@ -2260,13 +2260,24 @@ function handleContactSubmit(e) {{
 
     // Load tracking data from API
     async function loadTracking() {{
-        if (!currentOrderNumber) return;
+        console.log('[BinaApp] loadTracking called, orderNumber:', currentOrderNumber);
+        if (!currentOrderNumber) {{
+            console.warn('[BinaApp] No order number set, skipping tracking fetch');
+            return;
+        }}
 
         try {{
-            const response = await fetch(API_URL + '/delivery/orders/' + currentOrderNumber + '/track');
+            const trackingUrl = API_URL + '/delivery/orders/' + currentOrderNumber + '/track';
+            console.log('[BinaApp] Fetching tracking from:', trackingUrl);
+            const response = await fetch(trackingUrl);
+            console.log('[BinaApp] Tracking response status:', response.status);
             if (response.ok) {{
                 const data = await response.json();
+                console.log('[BinaApp] Tracking data received:', data);
                 updateTrackingDisplay(data);
+            }} else {{
+                const errorText = await response.text();
+                console.error('[BinaApp] Tracking fetch failed:', response.status, errorText);
             }}
         }} catch (error) {{
             console.error('[BinaApp] Tracking fetch error:', error);
@@ -2352,6 +2363,7 @@ function handleContactSubmit(e) {{
 
     // Refresh tracking manually
     window.refreshTracking = function() {{
+        console.log('[BinaApp] 🔄 Refresh button clicked');
         loadTracking();
     }};
 
