@@ -2260,13 +2260,24 @@ function handleContactSubmit(e) {{
 
     // Load tracking data from API
     async function loadTracking() {{
-        if (!currentOrderNumber) return;
+        console.log('[BinaApp] loadTracking called, orderNumber:', currentOrderNumber);
+        if (!currentOrderNumber) {{
+            console.warn('[BinaApp] No order number set, skipping tracking fetch');
+            return;
+        }}
 
         try {{
-            const response = await fetch(API_URL + '/delivery/orders/' + currentOrderNumber + '/track');
+            const trackingUrl = API_URL + '/delivery/orders/' + currentOrderNumber + '/track';
+            console.log('[BinaApp] Fetching tracking from:', trackingUrl);
+            const response = await fetch(trackingUrl);
+            console.log('[BinaApp] Tracking response status:', response.status);
             if (response.ok) {{
                 const data = await response.json();
+                console.log('[BinaApp] Tracking data received:', data);
                 updateTrackingDisplay(data);
+            }} else {{
+                const errorText = await response.text();
+                console.error('[BinaApp] Tracking fetch failed:', response.status, errorText);
             }}
         }} catch (error) {{
             console.error('[BinaApp] Tracking fetch error:', error);
@@ -2275,17 +2286,38 @@ function handleContactSubmit(e) {{
 
     // Update tracking display with API data
     function updateTrackingDisplay(data) {{
+        console.log('[BinaApp] updateTrackingDisplay called with:', data);
+
         // API returns order data nested under 'order' key
         const order = data.order || {{}};
         const status = order.status || 'pending';
         const statusInfo = statusMap[status] || statusMap['pending'];
 
+        console.log('[BinaApp] Order status:', status, '- Display text:', statusInfo.text);
+
         document.getElementById('status-emoji').textContent = statusInfo.emoji;
         document.getElementById('status-emoji').style.background = statusInfo.color;
         document.getElementById('status-text').textContent = statusInfo.text;
 
-        if (order.updated_at) {{
-            const formattedTime = new Date(order.updated_at).toLocaleString('ms-MY');
+        // Get the most relevant timestamp based on current status
+        // Order has specific timestamps: created_at, confirmed_at, preparing_at, ready_at, picked_up_at, delivered_at, completed_at, cancelled_at
+        const statusTimestamps = {{
+            'pending': order.created_at,
+            'confirmed': order.confirmed_at || order.created_at,
+            'assigned': order.confirmed_at || order.created_at,
+            'preparing': order.preparing_at || order.confirmed_at || order.created_at,
+            'ready': order.ready_at || order.preparing_at || order.created_at,
+            'picked_up': order.picked_up_at || order.ready_at || order.created_at,
+            'delivering': order.picked_up_at || order.created_at,
+            'delivered': order.delivered_at || order.picked_up_at || order.created_at,
+            'completed': order.completed_at || order.delivered_at || order.created_at,
+            'cancelled': order.cancelled_at || order.created_at,
+            'rejected': order.cancelled_at || order.created_at
+        }};
+
+        const statusTimestamp = statusTimestamps[status] || order.created_at;
+        if (statusTimestamp) {{
+            const formattedTime = new Date(statusTimestamp).toLocaleString('ms-MY');
             document.getElementById('status-time').textContent = formattedTime;
             document.getElementById('tracking-timestamp').textContent = 'Dikemaskini: ' + formattedTime;
         }}
@@ -2331,6 +2363,7 @@ function handleContactSubmit(e) {{
 
     // Refresh tracking manually
     window.refreshTracking = function() {{
+        console.log('[BinaApp] 🔄 Refresh button clicked');
         loadTracking();
     }};
 
