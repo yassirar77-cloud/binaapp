@@ -767,86 +767,123 @@ async def create_order(
         )
 
 
-@router.get("/orders/{order_number}/track", response_model=OrderTrackingResponse)
+@router.get("/orders/{order_number}/track")
 async def track_order(
     order_number: str,
     supabase: Client = Depends(get_supabase_client)
 ):
     """
-    Get order status and tracking information
+    Track order status for customer widget - used by polling
 
     **Public endpoint** - Anyone with order number can track
     """
     try:
-        # 1. Get order
-        order_response = supabase.table("delivery_orders").select("*").eq(
-            "order_number", order_number
-        ).execute()
+        logger.info(f"[TRACK] Fetching order: {order_number}")
 
-        if not order_response.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Order not found"
-            )
+        # Only select columns that EXIST in the delivery_orders table
+        # Note: updated_at does NOT exist in this table
+        response = supabase.table("delivery_orders").select(
+            "id, order_number, status, created_at, confirmed_at, "
+            "customer_name, customer_phone, customer_address, delivery_address, "
+            "total_amount, subtotal, delivery_fee, payment_method, "
+            "rider_id, website_id, delivery_latitude, delivery_longitude, "
+            "estimated_delivery_time"
+        ).eq("order_number", order_number).execute()
 
-        order = convert_db_row_to_dict(order_response.data[0])
+        if not response.data:
+            logger.warning(f"[TRACK] Order not found: {order_number}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
+
+        order = response.data[0]
         order_id = order['id']
+        logger.info(f"[TRACK] Order found, status: {order.get('status')}")
 
-        # 2. Get order items
-        items_response = supabase.table("order_items").select("*").eq(
-            "order_id", order_id
-        ).execute()
+        # Get order items
+        items_response = supabase.table("order_items").select(
+            "id, order_id, menu_item_id, item_name, quantity, unit_price, total_price, options, notes"
+        ).eq("order_id", order_id).execute()
+        items = items_response.data if items_response.data else []
 
-        items = [convert_db_row_to_dict(i) for i in items_response.data]
+        # Get status history
+        history_response = supabase.table("order_status_history").select(
+            "id, order_id, status, notes, updated_by, created_at"
+        ).eq("order_id", order_id).order("created_at").execute()
+        status_history = history_response.data if history_response.data else []
 
-        # 3. Get status history
-        history_response = supabase.table("order_status_history").select("*").eq(
-            "order_id", order_id
-        ).order("created_at").execute()
-
-        status_history = [convert_db_row_to_dict(h) for h in history_response.data]
-
-        # 4. Get rider info if assigned (Phase 2: now includes GPS)
-        rider = None
-        rider_location = None
-        eta_minutes = None
-
-        if order.get('rider_id'):
-            rider_response = supabase.table("riders").select(
-                "id, name, phone, photo_url, vehicle_type, vehicle_plate, rating, "
-                "current_latitude, current_longitude, last_location_update"
-            ).eq("id", order['rider_id']).execute()
-
-            if rider_response.data:
-                rider = convert_db_row_to_dict(rider_response.data[0])
-
-                # Phase 2: Return GPS coordinates for real-time tracking
-                # (GPS fields will be null if rider hasn't sent location yet)
-
-                # Build rider_location object if GPS available
-                if rider.get('current_latitude') and rider.get('current_longitude'):
-                    rider_location = {
-                        "latitude": rider['current_latitude'],
-                        "longitude": rider['current_longitude'],
-                        "recorded_at": rider.get('last_location_update')
-                    }
-
-                # TODO: Calculate ETA using Google Maps API
-                eta_minutes = order.get('estimated_delivery_time', 30)
-
-        return {
-            "order": order,
+        result = {
+            "order": {
+                "id": order["id"],
+                "order_number": order["order_number"],
+                "status": order["status"],
+                "created_at": order.get("created_at"),
+                "confirmed_at": order.get("confirmed_at"),
+                "customer_name": order.get("customer_name"),
+                "customer_phone": order.get("customer_phone"),
+                "delivery_address": order.get("delivery_address") or order.get("customer_address"),
+                "total_amount": float(order.get("total_amount", 0)) if order.get("total_amount") else 0,
+                "delivery_fee": float(order.get("delivery_fee", 0)) if order.get("delivery_fee") else 0,
+                "subtotal": float(order.get("subtotal", 0)) if order.get("subtotal") else 0,
+                "payment_method": order.get("payment_method"),
+                "rider_id": order.get("rider_id"),
+                "website_id": order.get("website_id"),
+                "delivery_latitude": float(order.get("delivery_latitude")) if order.get("delivery_latitude") else None,
+                "delivery_longitude": float(order.get("delivery_longitude")) if order.get("delivery_longitude") else None,
+                "estimated_delivery_time": order.get("estimated_delivery_time")
+            },
             "items": items,
             "status_history": status_history,
-            "rider": rider,
-            "rider_location": rider_location,
-            "eta_minutes": eta_minutes
+            "rider": None,
+            "rider_location": None,
+            "eta_minutes": order.get("estimated_delivery_time", 30)
         }
+
+        # Fetch rider info if assigned
+        if order.get("rider_id"):
+            try:
+                rider_response = supabase.table("riders").select(
+                    "id, name, phone, photo_url, vehicle_type, vehicle_plate, rating, "
+                    "current_latitude, current_longitude, last_location_update"
+                ).eq("id", order["rider_id"]).execute()
+
+                if rider_response.data:
+                    rider = rider_response.data[0]
+                    result["rider"] = rider
+                    logger.info(f"[TRACK] Rider found: {rider.get('name')}")
+
+                    # Build rider_location if GPS available
+                    if rider.get('current_latitude') and rider.get('current_longitude'):
+                        result["rider_location"] = {
+                            "latitude": rider['current_latitude'],
+                            "longitude": rider['current_longitude'],
+                            "recorded_at": rider.get('last_location_update')
+                        }
+
+                    # Also check rider_locations table for latest location
+                    loc_response = supabase.table("rider_locations").select(
+                        "latitude, longitude, created_at"
+                    ).eq("rider_id", order["rider_id"]).order(
+                        "created_at", desc=True
+                    ).limit(1).execute()
+
+                    if loc_response.data:
+                        result["rider_location"] = {
+                            "latitude": loc_response.data[0]["latitude"],
+                            "longitude": loc_response.data[0]["longitude"],
+                            "recorded_at": loc_response.data[0]["created_at"]
+                        }
+                        logger.info(f"[TRACK] Rider location from history found")
+            except Exception as rider_err:
+                logger.warning(f"[TRACK] Could not fetch rider info: {rider_err}")
+                # Continue without rider info
+
+        logger.info(f"[TRACK] Returning result for {order_number}")
+        return result
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error tracking order: {e}")
+        logger.error(f"[TRACK] Error tracking order {order_number}: {str(e)}")
+        logger.exception(e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to track order: {str(e)}"
