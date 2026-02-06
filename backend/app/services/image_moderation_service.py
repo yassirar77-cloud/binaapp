@@ -13,9 +13,12 @@ import os
 import json
 from loguru import logger
 
+# Use QWEN_API_KEY for authentication (same key works for both text and vision)
 QWEN_API_KEY = os.getenv("QWEN_API_KEY")
-QWEN_API_URL = os.getenv("QWEN_API_URL", "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation")
-QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen-vl-max")
+
+# Use separate QWEN_VL variables for vision/moderation
+QWEN_VL_API_URL = os.getenv("QWEN_VL_API_URL", "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation")
+QWEN_VL_MODEL = os.getenv("QWEN_VL_MODEL", "qwen-vl-plus")
 
 
 async def check_image_safety(image_data: bytes = None, image_url: str = None) -> dict:
@@ -70,7 +73,7 @@ If ANY inappropriate content is detected, respond with is_safe: false and list d
         }
 
         payload = {
-            "model": QWEN_MODEL,
+            "model": QWEN_VL_MODEL,
             "input": {
                 "messages": [
                     {
@@ -91,7 +94,7 @@ If ANY inappropriate content is detected, respond with is_safe: false and list d
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                QWEN_API_URL,
+                QWEN_VL_API_URL,
                 headers=headers,
                 json=payload
             )
