@@ -17,6 +17,7 @@ export interface SubscriptionStatusData {
   grace_period_end: string | null;
   locked_at: string | null;
   lock_reason: string | null;
+  auto_renew: boolean;
   is_locked: boolean;
   is_grace: boolean;
   is_expired: boolean;
@@ -39,6 +40,7 @@ interface UseSubscriptionStatusReturn {
   isGrace: boolean;
   isExpired: boolean;
   isActive: boolean;
+  autoRenew: boolean;
   daysRemaining: number | null;
   graceDaysRemaining: number | null;
   canUseDashboard: boolean;
@@ -77,6 +79,7 @@ export function useSubscriptionStatus(): UseSubscriptionStatusReturn {
           grace_period_end: null,
           locked_at: null,
           lock_reason: null,
+          auto_renew: false,
           is_locked: false,
           is_grace: false,
           is_expired: false,
@@ -108,6 +111,7 @@ export function useSubscriptionStatus(): UseSubscriptionStatusReturn {
             grace_period_end: null,
             locked_at: errorData.locked_at || null,
             lock_reason: errorData.lock_reason || 'subscription_expired',
+            auto_renew: false,
             is_locked: true,
             is_grace: false,
             is_expired: true,
@@ -138,6 +142,7 @@ export function useSubscriptionStatus(): UseSubscriptionStatusReturn {
         grace_period_end: null,
         locked_at: null,
         lock_reason: null,
+        auto_renew: false,
         is_locked: false,
         is_grace: false,
         is_expired: false,
@@ -176,6 +181,7 @@ export function useSubscriptionStatus(): UseSubscriptionStatusReturn {
     isGrace,
     isExpired,
     isActive,
+    autoRenew: data?.auto_renew ?? false,
     daysRemaining: data?.days_remaining ?? null,
     graceDaysRemaining: data?.grace_days_remaining ?? null,
     canUseDashboard: data?.can_use_dashboard ?? true,

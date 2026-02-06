@@ -90,7 +90,11 @@ async def get_subscription_status(
         sub_status["status_message_en"] = status_messages[current_status]["message_en"]
 
     # Add urgency level for UI
-    if current_status == "locked":
+    # Active subscriptions with auto-renew should never show urgency
+    auto_renew = sub_status.get("auto_renew", False)
+    if current_status == "active" and auto_renew:
+        sub_status["urgency"] = "none"
+    elif current_status == "locked":
         sub_status["urgency"] = "critical"
     elif current_status == "grace":
         sub_status["urgency"] = "high"
@@ -298,6 +302,16 @@ async def get_expiry_warning(
     days_remaining = sub_status.get("days_remaining")
     grace_days_remaining = sub_status.get("grace_days_remaining")
     status_value = sub_status.get("status")
+    auto_renew = sub_status.get("auto_renew", False)
+
+    # Active subscription with auto-renew enabled should not show expiry warnings
+    # The subscription will renew automatically when the billing cycle ends
+    if status_value == "active" and auto_renew:
+        return {
+            "show_warning": False,
+            "warning_level": "none",
+            "days_remaining": days_remaining,
+        }
 
     # Determine warning level
     if status_value == "locked":
