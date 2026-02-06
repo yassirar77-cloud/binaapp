@@ -6,6 +6,7 @@
  */
 
 import { getApiAuthToken } from './supabase'
+import { checkImageSafety } from '@/utils/imageModeration'
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -284,6 +285,12 @@ export interface UploadImageResponse {
 export async function uploadChatImage(
   file: File
 ): Promise<UploadImageResponse> {
+  // Moderation check before upload
+  const moderationResult = await checkImageSafety(file)
+  if (!moderationResult.allowed) {
+    throw new Error(moderationResult.message)
+  }
+
   const formData = new FormData()
   formData.append('file', file)
 

@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { checkImageSafety } from '@/utils/imageModeration';
 
 interface Assets {
   logo: string | null;
@@ -30,6 +31,13 @@ export default function AssetsManager({ assets, onAssetsChange }: AssetsManagerP
     setUploading(true);
     try {
       for (const file of files) {
+        // Moderation check before upload
+        const moderationResult = await checkImageSafety(file);
+        if (!moderationResult.allowed) {
+          alert(moderationResult.message);
+          continue; // Skip this file, try next
+        }
+
         const fileName = `${Date.now()}-${file.name}`;
         const { data, error } = await supabase.storage
           .from('assets')
@@ -61,6 +69,13 @@ export default function AssetsManager({ assets, onAssetsChange }: AssetsManagerP
     setUploading(true);
     try {
       for (const file of Array.from(files)) {
+        // Moderation check before upload
+        const moderationResult = await checkImageSafety(file);
+        if (!moderationResult.allowed) {
+          alert(moderationResult.message);
+          continue; // Skip this file, try next
+        }
+
         const fileName = `${Date.now()}-${file.name}`;
         const { data } = await supabase.storage
           .from('assets')

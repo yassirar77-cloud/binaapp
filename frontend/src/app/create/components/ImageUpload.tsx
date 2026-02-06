@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { API_BASE_URL } from '@/lib/env'
+import { checkImageSafety } from '@/utils/imageModeration'
 
 interface ImageUploadProps {
   onImagesUploaded: (urls: string[]) => void
@@ -20,6 +21,14 @@ export default function ImageUpload({ onImagesUploaded }: ImageUploadProps) {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
+
+      // Moderation check before upload
+      const moderationResult = await checkImageSafety(file)
+      if (!moderationResult.allowed) {
+        alert(moderationResult.message)
+        continue // Skip this file, try next
+      }
+
       const formData = new FormData()
       formData.append('file', file)
 
