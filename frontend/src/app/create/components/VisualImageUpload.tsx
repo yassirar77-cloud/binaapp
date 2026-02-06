@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { API_BASE_URL } from '@/lib/env'
+import { checkImageSafety } from '@/utils/imageModeration'
 
 interface GalleryImage {
   url: string
@@ -62,6 +63,13 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
   const handleHeroUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      // Moderation check before upload
+      const moderationResult = await checkImageSafety(file)
+      if (!moderationResult.allowed) {
+        alert(moderationResult.message)
+        return
+      }
+
       setHeroImage(file)
       const preview = URL.createObjectURL(file)
       setHeroPreview(preview)
@@ -85,6 +93,13 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
   const handleMenuImageUpload = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      // Moderation check before upload
+      const moderationResult = await checkImageSafety(file)
+      if (!moderationResult.allowed) {
+        alert(moderationResult.message)
+        return
+      }
+
       const preview = URL.createObjectURL(file)
       const newItems = [...menuItems]
       newItems[index] = { ...newItems[index], file, preview }

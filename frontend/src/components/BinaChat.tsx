@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getConversation, uploadChatImage, type ChatMessage as ApiChatMessage } from '@/lib/chatApi';
 import { getApiAuthToken } from '@/lib/supabase';
+import { checkImageSafety } from '@/utils/imageModeration';
 
 // Type declarations for Leaflet
 declare global {
@@ -431,6 +432,13 @@ export default function BinaChat({
     // =====================================================
 
     const uploadImage = async (file: File, isPayment: boolean = false) => {
+        // Moderation check before upload
+        const moderationResult = await checkImageSafety(file);
+        if (!moderationResult.allowed) {
+            alert(moderationResult.message);
+            return;
+        }
+
         const formData = new FormData();
         formData.append('file', file);
         formData.append('conversation_id', conversationId);
