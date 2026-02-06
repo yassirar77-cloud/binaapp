@@ -224,7 +224,7 @@ class SubscriptionService:
                     else:
                         counts["websites_count"] = len(response.json())
 
-                # Count menu items across all user's websites
+                # Count menu items, delivery zones, and riders across all user's websites
                 # First get user's website IDs
                 websites_response = await client.get(
                     f"{self.url}/rest/v1/websites",
@@ -260,18 +260,18 @@ class SubscriptionService:
                             else:
                                 counts["delivery_zones_count"] = len(zones_response.json())
 
-                # Count riders
-                riders_response = await client.get(
-                    f"{self.url}/rest/v1/riders",
-                    headers={**self.headers, "Prefer": "count=exact"},
-                    params={"user_id": f"eq.{user_id}", "select": "id"}
-                )
-                if riders_response.status_code == 200:
-                    count_header = riders_response.headers.get("content-range", "")
-                    if "/" in count_header:
-                        counts["riders_count"] = int(count_header.split("/")[1])
-                    else:
-                        counts["riders_count"] = len(riders_response.json())
+                        # Count riders for these websites (riders linked via website_id, not user_id)
+                        riders_response = await client.get(
+                            f"{self.url}/rest/v1/riders",
+                            headers={**self.headers, "Prefer": "count=exact"},
+                            params={"website_id": f"in.({','.join(website_ids)})", "select": "id"}
+                        )
+                        if riders_response.status_code == 200:
+                            count_header = riders_response.headers.get("content-range", "")
+                            if "/" in count_header:
+                                counts["riders_count"] = int(count_header.split("/")[1])
+                            else:
+                                counts["riders_count"] = len(riders_response.json())
 
         except Exception as e:
             logger.error(f"Error counting actual resources for user {user_id}: {e}")
@@ -314,15 +314,16 @@ class SubscriptionService:
                 return existing_record
 
             # Create new record with actual counts
+            # Note: usage_tracking table only has: usage_id, user_id, billing_period,
+            # websites_count, menu_items_count, ai_hero_used, ai_images_used
+            # delivery_zones_count and riders_count are NOT columns in this table
             usage_data = {
                 "user_id": user_id,
                 "billing_period": billing_period,
                 "websites_count": actual_counts["websites_count"],
                 "menu_items_count": actual_counts["menu_items_count"],
                 "ai_hero_used": 0,
-                "ai_images_used": 0,
-                "delivery_zones_count": actual_counts["delivery_zones_count"],
-                "riders_count": actual_counts["riders_count"]
+                "ai_images_used": 0
             }
 
             async with httpx.AsyncClient() as client:
@@ -334,9 +335,14 @@ class SubscriptionService:
 
             if response.status_code in [200, 201]:
                 records = response.json()
-                return records[0] if records else usage_data
+                result = records[0] if records else usage_data
+            else:
+                result = usage_data
 
-            return usage_data
+            # Add computed counts that aren't in the DB table but are needed by callers
+            result["delivery_zones_count"] = actual_counts["delivery_zones_count"]
+            result["riders_count"] = actual_counts["riders_count"]
+            return result
 
         except Exception as e:
             logger.error(f"Error getting usage tracking: {e}")
@@ -522,14 +528,14 @@ class SubscriptionService:
         # Ensure usage record exists
         await self.get_or_create_usage_tracking(user_id)
 
-        # Map action to field name
+        # Map action to field name in usage_tracking table
+        # Note: delivery_zones and riders counts are computed from their actual tables
+        # via get_actual_resource_counts(), so they don't need tracking here
         field_mapping = {
             "create_website": "websites_count",
             "add_menu_item": "menu_items_count",
             "generate_ai_hero": "ai_hero_used",
-            "generate_ai_image": "ai_images_used",
-            "add_zone": "delivery_zones_count",
-            "add_rider": "riders_count"
+            "generate_ai_image": "ai_images_used"
         }
 
         field = field_mapping.get(action)
@@ -574,15 +580,13 @@ class SubscriptionService:
         """Decrement usage counter (for deletions)"""
         billing_period = self.get_current_billing_period()
 
+        # Note: delivery_zones and riders counts are computed from their actual tables
+        # via get_actual_resource_counts(), so they don't need tracking here
         field_mapping = {
             "create_website": "websites_count",
             "delete_website": "websites_count",
             "add_menu_item": "menu_items_count",
-            "delete_menu_item": "menu_items_count",
-            "add_zone": "delivery_zones_count",
-            "delete_zone": "delivery_zones_count",
-            "add_rider": "riders_count",
-            "delete_rider": "riders_count"
+            "delete_menu_item": "menu_items_count"
         }
 
         field = field_mapping.get(action)
