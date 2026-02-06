@@ -24,6 +24,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     isLocked,
     isGrace,
     isExpired,
+    isActive,
+    autoRenew,
     daysRemaining,
     graceDaysRemaining,
     tier,
@@ -47,7 +49,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     : (daysRemaining ?? 0);
 
   // Show banner for grace or expired status
-  const showBanner = isGrace || isExpired || (daysRemaining !== null && daysRemaining <= 5);
+  // Don't show expiry warnings for active subscriptions with auto-renew enabled
+  // (the subscription will renew automatically at the end of the billing cycle)
+  const showBanner = isGrace || isExpired || (
+    !autoRenew && daysRemaining !== null && daysRemaining <= 5
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">

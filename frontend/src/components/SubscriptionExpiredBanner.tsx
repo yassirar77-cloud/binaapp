@@ -10,6 +10,7 @@ interface SubscriptionStatus {
   days_remaining: number;
   end_date: string | null;
   is_expired: boolean;
+  auto_renew?: boolean;
 }
 
 interface SubscriptionExpiredBannerProps {
@@ -102,9 +103,13 @@ export function SubscriptionExpiredBanner({ onRenewClick }: SubscriptionExpiredB
     return null;
   }
 
+  // Active subscription with auto-renew: don't show expiry warnings
+  // (subscription will renew automatically at end of billing cycle)
+  const isActiveAutoRenew = (status.status === 'active' || status.status === 'aktif') && status.auto_renew;
+
   // Determine which banner to show
   const isExpired = status.is_expired || status.status === 'expired' || status.status === 'suspended';
-  const isExpiringSoon = !isExpired && status.days_remaining <= 7;
+  const isExpiringSoon = !isExpired && !isActiveAutoRenew && status.days_remaining <= 7;
 
   // Don't show if not expired and not expiring soon
   if (!isExpired && !isExpiringSoon) {

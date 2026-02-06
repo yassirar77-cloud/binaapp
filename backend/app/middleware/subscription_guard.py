@@ -82,7 +82,7 @@ async def get_subscription_status_from_db(user_id: str) -> Dict[str, Any]:
         url = f"{settings.SUPABASE_URL}/rest/v1/subscriptions"
         params = {
             "user_id": f"eq.{user_id}",
-            "select": "id,user_id,tier,status,end_date,grace_period_end,locked_at,lock_reason,last_payment_reminder"
+            "select": "id,user_id,tier,status,end_date,grace_period_end,locked_at,lock_reason,last_payment_reminder,auto_renew"
         }
         headers = {
             "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
@@ -151,6 +151,7 @@ async def get_subscription_status_from_db(user_id: str) -> Dict[str, Any]:
             "grace_period_end": sub.get("grace_period_end"),
             "locked_at": sub.get("locked_at"),
             "lock_reason": sub.get("lock_reason"),
+            "auto_renew": sub.get("auto_renew", False),
             "is_locked": is_locked,
             "is_grace": is_grace,
             "is_expired": is_expired,
