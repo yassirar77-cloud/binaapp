@@ -10,6 +10,7 @@ import dynamic from 'next/dynamic'
 // Dynamically import components to avoid SSR issues
 const OwnerChatDashboard = dynamic(() => import('@/components/OwnerChatDashboard'), { ssr: false })
 const AnimatedUsageWidget = dynamic(() => import('@/components/AnimatedUsageWidget'), { ssr: false })
+const DashboardTab = dynamic(() => import('@/components/dashboard/DashboardTab'), { ssr: false })
 
 // Subscription types
 interface UsageData {
@@ -52,7 +53,7 @@ export default function ProfilePage() {
   const [websites, setWebsites] = useState<any[]>([])
   const [orders, setOrders] = useState<any[]>([])
   const [riders, setRiders] = useState<any[]>([])
-  const [activeTab, setActiveTab] = useState<'websites' | 'orders' | 'riders' | 'chat'>('websites')
+  const [activeTab, setActiveTab] = useState<'websites' | 'orders' | 'riders' | 'chat' | 'dashboard'>('websites')
   const [loadingOrders, setLoadingOrders] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [chatEnabled, setChatEnabled] = useState(true) // Default to true - API is working
@@ -1303,6 +1304,16 @@ export default function ProfilePage() {
               >
                 💬 Chat
               </button>
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className={`px-4 md:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm md:text-base min-h-[44px] ${
+                  activeTab === 'dashboard'
+                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                📊 Dashboard
+              </button>
             </div>
 
             {/* Websites Tab */}
@@ -1888,6 +1899,11 @@ export default function ProfilePage() {
                   />
                 ) : null}
               </div>
+            )}
+
+            {/* Dashboard Tab */}
+            {activeTab === 'dashboard' && (
+              <DashboardTab websites={websites} userId={user.id} />
             )}
           </div>
         </div>
