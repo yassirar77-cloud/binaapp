@@ -21,6 +21,8 @@ export async function GET() {
       weekUsersRes,
       revenueRes,
       weekRevenueRes,
+      addonRevenueRes,
+      addonWeekRevenueRes,
       websitesRes,
       failedWebsitesRes,
       errorsRes,
@@ -30,13 +32,21 @@ export async function GET() {
       // Users this week
       supabaseAdmin.from('profiles').select('id', { count: 'exact', head: true })
         .gte('created_at', startOfWeek),
-      // Revenue this month (from transactions)
-      supabaseAdmin.from('transactions').select('amount')
-        .eq('payment_status', 'success')
+      // Revenue this month (from payments table, not transactions)
+      supabaseAdmin.from('payments').select('amount')
+        .eq('status', 'paid')
         .gte('created_at', startOfMonth),
-      // Revenue this week
-      supabaseAdmin.from('transactions').select('amount')
-        .eq('payment_status', 'success')
+      // Revenue this week (from payments)
+      supabaseAdmin.from('payments').select('amount')
+        .eq('status', 'paid')
+        .gte('created_at', startOfWeek),
+      // Addon revenue this month
+      supabaseAdmin.from('addon_purchases').select('amount')
+        .eq('status', 'paid')
+        .gte('created_at', startOfMonth),
+      // Addon revenue this week
+      supabaseAdmin.from('addon_purchases').select('amount')
+        .eq('status', 'paid')
         .gte('created_at', startOfWeek),
       // Total websites
       supabaseAdmin.from('websites').select('id', { count: 'exact', head: true }),
@@ -49,11 +59,27 @@ export async function GET() {
         .gte('created_at', startOfDay),
     ])
 
+    // Log each query result for debugging
+    console.log('[Stats] profiles count:', usersRes.count, 'error:', usersRes.error?.message)
+    console.log('[Stats] week profiles count:', weekUsersRes.count, 'error:', weekUsersRes.error?.message)
+    console.log('[Stats] payments rows:', revenueRes.data?.length, 'error:', revenueRes.error?.message)
+    console.log('[Stats] week payments rows:', weekRevenueRes.data?.length, 'error:', weekRevenueRes.error?.message)
+    console.log('[Stats] addon_purchases rows:', addonRevenueRes.data?.length, 'error:', addonRevenueRes.error?.message)
+    console.log('[Stats] addon week rows:', addonWeekRevenueRes.data?.length, 'error:', addonWeekRevenueRes.error?.message)
+    console.log('[Stats] websites count:', websitesRes.count, 'error:', websitesRes.error?.message)
+    console.log('[Stats] failed websites count:', failedWebsitesRes.count, 'error:', failedWebsitesRes.error?.message)
+    console.log('[Stats] errors count:', errorsRes.count, 'error:', errorsRes.error?.message)
+
     const totalUsers = usersRes.count ?? 0
     const weekUsers = weekUsersRes.count ?? 0
 
-    const revenueMTD = (revenueRes.data ?? []).reduce((sum, t) => sum + (t.amount || 0), 0)
-    const revenueWeek = (weekRevenueRes.data ?? []).reduce((sum, t) => sum + (t.amount || 0), 0)
+    const paymentSum = (revenueRes.data ?? []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)
+    const addonSum = (addonRevenueRes.data ?? []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)
+    const revenueMTD = paymentSum + addonSum
+
+    const paymentWeekSum = (weekRevenueRes.data ?? []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)
+    const addonWeekSum = (addonWeekRevenueRes.data ?? []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0)
+    const revenueWeek = paymentWeekSum + addonWeekSum
 
     const totalWebsites = websitesRes.count ?? 0
     const failedWebsites = failedWebsitesRes.count ?? 0
@@ -80,7 +106,7 @@ export async function GET() {
       qwenFails,
     })
   } catch (error) {
-    console.error('Stats API error:', error)
+    console.error('[Stats] API error:', error)
     return NextResponse.json({ error: 'Failed to fetch stats' }, { status: 500 })
   }
 }
