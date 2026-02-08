@@ -2080,7 +2080,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             return None
 
         try:
-            logger.info("🔷 Calling DeepSeek API...")
+            logger.info(f"🔷 Calling DeepSeek API... (prompt length: {len(prompt)} chars)")
             async with httpx.AsyncClient(timeout=120.0) as client:
                 r = await client.post(
                     f"{self.deepseek_base_url}/chat/completions",
@@ -2098,7 +2098,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": temperature,
-                        "max_tokens": 12000,
+                        "max_tokens": 8000,
                     }
                 )
                 if r.status_code == 200:
@@ -2106,7 +2106,11 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     logger.info(f"🔷 DeepSeek ✅ Generated {len(content)} characters")
                     return content
                 else:
-                    logger.error(f"🔷 DeepSeek ❌ Status {r.status_code}")
+                    try:
+                        error_body = r.text[:500]
+                    except Exception:
+                        error_body = "(unable to read response)"
+                    logger.error(f"🔷 DeepSeek ❌ Status {r.status_code}: {error_body}")
         except httpx.TimeoutException as e:
             logger.error(f"🔷 DeepSeek ❌ Timeout after 120s: {e}")
         except httpx.ConnectError as e:
@@ -2122,7 +2126,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             return None
 
         try:
-            logger.info("🟡 Calling Qwen API...")
+            logger.info(f"🟡 Calling Qwen API... (prompt length: {len(prompt)} chars)")
             async with httpx.AsyncClient(timeout=120.0) as client:
                 r = await client.post(
                     f"{self.qwen_base_url}/chat/completions",
@@ -2140,7 +2144,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": temperature,
-                        "max_tokens": 12000,
+                        "max_tokens": 8000,
                     }
                 )
                 if r.status_code == 200:
@@ -2148,7 +2152,11 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     logger.info(f"🟡 Qwen ✅ Generated {len(content)} characters")
                     return content
                 else:
-                    logger.error(f"🟡 Qwen ❌ Status {r.status_code}")
+                    try:
+                        error_body = r.text[:500]
+                    except Exception:
+                        error_body = "(unable to read response)"
+                    logger.error(f"🟡 Qwen ❌ Status {r.status_code}: {error_body}")
         except httpx.TimeoutException as e:
             logger.error(f"🟡 Qwen ❌ Timeout after 120s: {e}")
         except httpx.ConnectError as e:
