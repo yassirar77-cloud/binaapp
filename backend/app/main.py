@@ -1734,6 +1734,7 @@ async def run_generation_task(
     language: str = "ms",
     image_choice: str = "none",
     color_mode: str = "light",
+    template_id: Optional[str] = None,
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -1795,6 +1796,7 @@ async def run_generation_task(
             # If user chose "none", do not pass any uploaded images through.
             uploaded_images=(images if (images and normalized_image_choice != "none") else []),
             color_mode=color_mode,
+            template_id=template_id,
         )
 
         # Create progress callback to update Supabase during generation
@@ -2142,6 +2144,9 @@ async def start_generation(request: Request):
     if color_mode not in ("light", "dark"):
         color_mode = "light"
 
+    # Template gallery: optional design template selection
+    template_id = body.get("template_id") or body.get("templateId") or None
+
     # Get dish names from request
     dish_names = body.get("dish_names", [])
     uploaded_images = body.get("uploaded_images", {})
@@ -2272,6 +2277,7 @@ MANDATORY REQUIREMENTS:
         language,
         image_choice=image_choice,
         color_mode=color_mode,
+        template_id=template_id,
     ))
 
     logger.info(f"🚀 Job started: {job_id}")

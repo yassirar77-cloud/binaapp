@@ -82,6 +82,7 @@ class WebsiteGenerationRequest(BaseModel):
     colors: Optional[dict] = Field(default=None, description="Color scheme with primary, secondary, accent colors")
     theme: Optional[str] = Field(default=None, description="Detected theme name (e.g., 'Purrfect Paws Theme')")
     color_mode: Optional[str] = Field(default="light", description="Color mode: 'light' or 'dark'")
+    template_id: Optional[str] = Field(default=None, description="Design template ID from template gallery (e.g., 'elegance_dark', 'fresh_clean')")
 
     @field_validator("subdomain")
     @classmethod
