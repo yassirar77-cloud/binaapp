@@ -13,34 +13,40 @@ export async function GET(request: NextRequest) {
 
     if (countOnly) {
       // Quick count of today's errors
-      const { count } = await supabaseAdmin
+      const { count, error } = await supabaseAdmin
         .from('generation_jobs')
         .select('id', { count: 'exact', head: true })
         .eq('status', 'failed')
         .gte('created_at', since || startOfDay)
 
+      console.log('[Errors] count_only:', count, 'error:', error?.message)
+
       return NextResponse.json({ count: count ?? 0 })
     }
 
     // Get failed generation jobs with details
-    const { data: failedJobs } = await supabaseAdmin
+    const { data: failedJobs, error: jobsError } = await supabaseAdmin
       .from('generation_jobs')
       .select('id, job_id, status, error, user_id, created_at')
       .eq('status', 'failed')
       .order('created_at', { ascending: false })
       .limit(100)
 
+    console.log('[Errors] failed jobs:', failedJobs?.length, 'error:', jobsError?.message)
+
     // Get error_logs if table exists
     let errorLogs: Array<Record<string, unknown>> = []
     try {
-      const { data } = await supabaseAdmin
+      const { data, error: logsError } = await supabaseAdmin
         .from('error_logs')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(100)
+
+      console.log('[Errors] error_logs:', data?.length, 'error:', logsError?.message)
       errorLogs = data ?? []
-    } catch {
-      // Table may not exist yet
+    } catch (e) {
+      console.log('[Errors] error_logs table may not exist:', e)
     }
 
     // Count today's errors by type
@@ -57,18 +63,24 @@ export async function GET(request: NextRequest) {
       e => e.error?.toLowerCase().includes('stability')
     ).length
 
-    // Get user names
+    // Get user names - note: generation_jobs.user_id is TEXT, profiles.id is UUID
+    // Need to filter valid UUIDs before querying profiles
     const userIds = [...new Set(
       (failedJobs ?? []).map(j => j.user_id).filter(Boolean)
     )]
-    const { data: profiles } = await supabaseAdmin
-      .from('profiles')
-      .select('id, full_name')
-      .in('id', userIds.length > 0 ? userIds : ['none'])
 
     const profileMap: Record<string, string> = {}
-    for (const p of profiles ?? []) {
-      profileMap[p.id] = p.full_name
+    if (userIds.length > 0) {
+      const { data: profiles, error: profilesError } = await supabaseAdmin
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds)
+
+      console.log('[Errors] profiles:', profiles?.length, 'error:', profilesError?.message)
+
+      for (const p of profiles ?? []) {
+        profileMap[p.id] = p.full_name
+      }
     }
 
     // Classify errors with severity
@@ -114,7 +126,7 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('Errors API error:', error)
+    console.error('[Errors] API error:', error)
     return NextResponse.json({ error: 'Failed to fetch errors' }, { status: 500 })
   }
 }

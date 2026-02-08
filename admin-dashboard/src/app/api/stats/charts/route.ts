@@ -9,15 +9,26 @@ export async function GET() {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
     const since = thirtyDaysAgo.toISOString()
 
-    const [usersRes, transactionsRes] = await Promise.all([
+    const [usersRes, paymentsRes, addonRes] = await Promise.all([
       supabaseAdmin.from('profiles').select('created_at')
         .gte('created_at', since)
         .order('created_at', { ascending: true }),
-      supabaseAdmin.from('transactions').select('amount, created_at')
-        .eq('payment_status', 'success')
+      // Use payments table instead of transactions
+      supabaseAdmin.from('payments').select('amount, created_at')
+        .eq('status', 'paid')
+        .gte('created_at', since)
+        .order('created_at', { ascending: true }),
+      // Also include addon_purchases for complete revenue picture
+      supabaseAdmin.from('addon_purchases').select('amount, created_at')
+        .eq('status', 'paid')
         .gte('created_at', since)
         .order('created_at', { ascending: true }),
     ])
+
+    // Log query results for debugging
+    console.log('[Charts] profiles rows:', usersRes.data?.length, 'error:', usersRes.error?.message)
+    console.log('[Charts] payments rows:', paymentsRes.data?.length, 'error:', paymentsRes.error?.message)
+    console.log('[Charts] addon_purchases rows:', addonRes.data?.length, 'error:', addonRes.error?.message)
 
     // Group users by day
     const usersByDay: Record<string, number> = {}
@@ -26,11 +37,15 @@ export async function GET() {
       usersByDay[day] = (usersByDay[day] || 0) + 1
     }
 
-    // Group revenue by day
+    // Group revenue by day (combine payments + addon_purchases)
     const revenueByDay: Record<string, number> = {}
-    for (const t of transactionsRes.data ?? []) {
+    for (const t of paymentsRes.data ?? []) {
       const day = t.created_at.split('T')[0]
-      revenueByDay[day] = (revenueByDay[day] || 0) + (t.amount || 0)
+      revenueByDay[day] = (revenueByDay[day] || 0) + (Number(t.amount) || 0)
+    }
+    for (const t of addonRes.data ?? []) {
+      const day = t.created_at.split('T')[0]
+      revenueByDay[day] = (revenueByDay[day] || 0) + (Number(t.amount) || 0)
     }
 
     // Generate full 30 day range
@@ -55,7 +70,7 @@ export async function GET() {
 
     return NextResponse.json({ signupChart, revenueChart })
   } catch (error) {
-    console.error('Charts API error:', error)
+    console.error('[Charts] API error:', error)
     return NextResponse.json({ error: 'Failed to fetch chart data' }, { status: 500 })
   }
 }

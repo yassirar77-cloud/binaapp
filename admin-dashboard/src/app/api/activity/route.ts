@@ -16,7 +16,7 @@ export async function GET() {
   try {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
 
-    const [usersRes, websitesRes, jobsRes, transactionsRes] = await Promise.all([
+    const [usersRes, websitesRes, jobsRes, paymentsRes] = await Promise.all([
       // Recent user registrations
       supabaseAdmin.from('profiles')
         .select('id, full_name, created_at')
@@ -25,7 +25,7 @@ export async function GET() {
         .limit(20),
       // Recent website changes
       supabaseAdmin.from('websites')
-        .select('id, business_name, subdomain, status, created_at, updated_at, user_id, profiles!left(full_name)')
+        .select('id, business_name, subdomain, status, created_at, updated_at, user_id')
         .gte('updated_at', oneHourAgo)
         .order('updated_at', { ascending: false })
         .limit(20),
@@ -35,29 +35,40 @@ export async function GET() {
         .gte('created_at', oneHourAgo)
         .order('created_at', { ascending: false })
         .limit(20),
-      // Recent transactions
-      supabaseAdmin.from('transactions')
-        .select('transaction_id, amount, item_description, payment_status, created_at, user_id')
+      // Recent payments (was: transactions table which doesn't exist)
+      supabaseAdmin.from('payments')
+        .select('id, transaction_id, amount, tier, type, status, created_at, user_id')
         .gte('created_at', oneHourAgo)
         .order('created_at', { ascending: false })
         .limit(20),
     ])
 
-    // Get user names
+    // Log query results for debugging
+    console.log('[Activity] profiles:', usersRes.data?.length, 'error:', usersRes.error?.message)
+    console.log('[Activity] websites:', websitesRes.data?.length, 'error:', websitesRes.error?.message)
+    console.log('[Activity] generation_jobs:', jobsRes.data?.length, 'error:', jobsRes.error?.message)
+    console.log('[Activity] payments:', paymentsRes.data?.length, 'error:', paymentsRes.error?.message)
+
+    // Get user names for website owners, jobs, and payments
     const allUserIds = [
+      ...(websitesRes.data ?? []).map(w => w.user_id),
       ...(jobsRes.data ?? []).map(j => j.user_id),
-      ...(transactionsRes.data ?? []).map(t => t.user_id),
+      ...(paymentsRes.data ?? []).map(t => t.user_id),
     ].filter(Boolean)
     const uniqueIds = [...new Set(allUserIds)]
 
-    const { data: profiles } = await supabaseAdmin
-      .from('profiles')
-      .select('id, full_name')
-      .in('id', uniqueIds.length > 0 ? uniqueIds : ['none'])
-
     const nameMap: Record<string, string> = {}
-    for (const p of profiles ?? []) {
-      nameMap[p.id] = p.full_name || 'Unknown'
+    if (uniqueIds.length > 0) {
+      const { data: profiles, error: profilesError } = await supabaseAdmin
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', uniqueIds)
+
+      console.log('[Activity] profile lookup:', profiles?.length, 'error:', profilesError?.message)
+
+      for (const p of profiles ?? []) {
+        nameMap[p.id] = p.full_name || 'Unknown'
+      }
     }
 
     const activities: ActivityItem[] = []
@@ -76,8 +87,7 @@ export async function GET() {
 
     // Website changes
     for (const w of websitesRes.data ?? []) {
-      const profile = Array.isArray(w.profiles) ? w.profiles[0] : w.profiles
-      const owner = profile?.full_name || 'Unknown'
+      const owner = nameMap[w.user_id] || 'Unknown'
 
       if (w.status === 'published') {
         activities.push({
@@ -123,20 +133,21 @@ export async function GET() {
       }
     }
 
-    // Transactions
-    for (const t of transactionsRes.data ?? []) {
-      if (t.payment_status === 'success') {
+    // Payments (was: transactions)
+    for (const t of paymentsRes.data ?? []) {
+      const description = t.tier ? `${t.tier} subscription` : (t.type || 'Subscription')
+      if (t.status === 'paid') {
         activities.push({
-          id: `pay-${t.transaction_id}`,
+          id: `pay-${t.transaction_id || t.id}`,
           type: 'payment',
           message: 'Payment received',
-          detail: `RM ${t.amount} - ${t.item_description || 'Subscription'} by ${nameMap[t.user_id] || 'Unknown'}`,
+          detail: `RM ${t.amount} - ${description} by ${nameMap[t.user_id] || 'Unknown'}`,
           created_at: t.created_at,
           severity: 'success',
         })
-      } else if (t.payment_status === 'failed') {
+      } else if (t.status === 'failed') {
         activities.push({
-          id: `pay-fail-${t.transaction_id}`,
+          id: `pay-fail-${t.transaction_id || t.id}`,
           type: 'payment',
           message: 'Payment failed',
           detail: `RM ${t.amount} by ${nameMap[t.user_id] || 'Unknown'}`,
@@ -151,7 +162,7 @@ export async function GET() {
 
     return NextResponse.json({ activities: activities.slice(0, 50) })
   } catch (error) {
-    console.error('Activity API error:', error)
+    console.error('[Activity] API error:', error)
     return NextResponse.json({ error: 'Failed to fetch activity' }, { status: 500 })
   }
 }
