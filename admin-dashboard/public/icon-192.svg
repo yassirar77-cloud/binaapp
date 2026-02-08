@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
+  <rect width="192" height="192" rx="32" ry="32" fill="#0f172a"/>
+  <rect x="6" y="6" width="180" height="180" rx="28" ry="28" fill="none" stroke="#1e293b" stroke-width="2"/>
+  <text x="96" y="112" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif" font-size="88" font-weight="800" fill="#ea580c" text-anchor="middle" letter-spacing="-2">BA</text>
+</svg>
