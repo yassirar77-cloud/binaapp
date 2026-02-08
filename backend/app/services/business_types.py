@@ -505,6 +505,46 @@ def get_order_config(business_type: str, language: str = "ms") -> Dict:
     }
 
 
+def get_design_type(business_type: str, description: str = "") -> str:
+    """
+    Map a business type to a more granular design system type.
+    The design system supports: food, cafe, salon, clothing, bakery,
+    services, gym, clinic, general.
+
+    Args:
+        business_type: Detected business type from detect_business_type()
+        description: Original business description for sub-type detection
+
+    Returns:
+        Design type string for use with DesignSystem
+    """
+    desc_lower = description.lower() if description else ""
+
+    if business_type == "food":
+        # Check if it's specifically a cafe
+        cafe_keywords = ["cafe", "kafe", "coffee", "kopi", "kopitiam", "espresso", "latte", "barista"]
+        if any(kw in desc_lower for kw in cafe_keywords):
+            return "cafe"
+        return "food"
+
+    if business_type == "services":
+        # Check for gym/fitness
+        gym_keywords = ["gym", "fitness", "exercise", "workout", "senaman", "crossfit", "yoga", "pilates"]
+        if any(kw in desc_lower for kw in gym_keywords):
+            return "gym"
+        # Check for clinic/health
+        clinic_keywords = ["clinic", "klinik", "doctor", "doktor", "health", "kesihatan", "medical", "perubatan", "dental", "gigi"]
+        if any(kw in desc_lower for kw in clinic_keywords):
+            return "clinic"
+        return "services"
+
+    # Direct mappings
+    if business_type in ("salon", "clothing", "bakery"):
+        return business_type
+
+    return "general"
+
+
 def get_all_category_options() -> Dict[str, List[Dict]]:
     """
     Get all category options for all business types.

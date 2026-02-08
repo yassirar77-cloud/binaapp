@@ -184,6 +184,7 @@ export default function CreatePage() {
 
   // Business type state - for dynamic categories and labels
   const [businessType, setBusinessType] = useState<'auto' | 'food' | 'clothing' | 'salon' | 'services' | 'bakery' | 'general'>('auto')
+  const [colorMode, setColorMode] = useState<'light' | 'dark'>('light')
 
   // STRICT IMAGE CONTROL - Explicit user choice for images
   // 'none' = No images (text-only website)
@@ -548,6 +549,7 @@ export default function CreatePage() {
           business_type: businessType === 'auto' ? null : businessType,  // Pass business type for dynamic categories
           // STRICT IMAGE CONTROL: Send explicit image choice
           image_choice: finalImageChoice,
+          color_mode: colorMode,
           delivery: selectedFeatures.deliverySystem ? {
             area: deliveryArea,
             fee: deliveryFee,
@@ -1106,6 +1108,40 @@ export default function CreatePage() {
                 {businessType === 'bakery' && '🎂 Butang: "Tempah Kek" | Pilihan saiz & mesej atas kek'}
                 {businessType === 'general' && '🛒 Butang: "Beli Sekarang" | Pilihan penghantaran'}
               </p>
+            </div>
+
+            {/* Color Mode Selector */}
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold mb-3">🎨 Tema Warna / Color Theme</h3>
+              <p className="text-gray-500 text-sm mb-3">Pilih tema warna untuk website anda</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setColorMode('light')}
+                  className={`p-4 border-2 rounded-xl text-center transition ${
+                    colorMode === 'light'
+                      ? 'border-orange-500 bg-orange-50'
+                      : 'border-gray-200 hover:border-orange-300'
+                  }`}
+                >
+                  <span className="text-3xl block mb-1">&#9728;&#65039;</span>
+                  <p className="text-sm font-medium">Cerah / Light</p>
+                  <p className="text-xs text-gray-500 mt-1">Latar belakang terang</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setColorMode('dark')}
+                  className={`p-4 border-2 rounded-xl text-center transition ${
+                    colorMode === 'dark'
+                      ? 'border-orange-500 bg-orange-50'
+                      : 'border-gray-200 hover:border-orange-300'
+                  }`}
+                >
+                  <span className="text-3xl block mb-1">&#127769;</span>
+                  <p className="text-sm font-medium">Gelap / Dark</p>
+                  <p className="text-xs text-gray-500 mt-1">Latar belakang gelap</p>
+                </button>
+              </div>
             </div>
 
             <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg">

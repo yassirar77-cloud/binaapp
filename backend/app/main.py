@@ -1733,6 +1733,7 @@ async def run_generation_task(
     business_name: Optional[str] = None,
     language: str = "ms",
     image_choice: str = "none",
+    color_mode: str = "light",
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -1792,7 +1793,8 @@ async def run_generation_task(
             include_ecommerce=False,
             contact_email=None,
             # If user chose "none", do not pass any uploaded images through.
-            uploaded_images=(images if (images and normalized_image_choice != "none") else [])
+            uploaded_images=(images if (images and normalized_image_choice != "none") else []),
+            color_mode=color_mode,
         )
 
         # Create progress callback to update Supabase during generation
@@ -2136,6 +2138,9 @@ async def start_generation(request: Request):
     payment = body.get("payment") or None  # Payment methods (cod, qr, qr_image)
     business_name = body.get("business_name") or body.get("businessName") or None  # Actual business name
     language = body.get("language") or "ms"
+    color_mode = body.get("color_mode") or body.get("colorMode") or "light"
+    if color_mode not in ("light", "dark"):
+        color_mode = "light"
 
     # Get dish names from request
     dish_names = body.get("dish_names", [])
@@ -2265,7 +2270,8 @@ MANDATORY REQUIREMENTS:
         payment,
         business_name,
         language,
-        image_choice=image_choice
+        image_choice=image_choice,
+        color_mode=color_mode,
     ))
 
     logger.info(f"🚀 Job started: {job_id}")

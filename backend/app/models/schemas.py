@@ -81,6 +81,7 @@ class WebsiteGenerationRequest(BaseModel):
     fonts: Optional[list] = Field(default=[], description="Font names to use in the website (e.g., ['Inter', 'Poppins'])")
     colors: Optional[dict] = Field(default=None, description="Color scheme with primary, secondary, accent colors")
     theme: Optional[str] = Field(default=None, description="Detected theme name (e.g., 'Purrfect Paws Theme')")
+    color_mode: Optional[str] = Field(default="light", description="Color mode: 'light' or 'dark'")
 
     @field_validator("subdomain")
     @classmethod
