@@ -4,7 +4,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout } from 'lucide-react'
 import VisualImageUpload from './components/VisualImageUpload'
 import DevicePreview from './components/DevicePreview'
@@ -107,6 +107,8 @@ const validateSubdomain = (subdomain: string): string | null => {
 
 export default function CreatePage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const selectedTemplateId = searchParams.get('template') || null
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [description, setDescription] = useState('')
@@ -550,6 +552,8 @@ export default function CreatePage() {
           // STRICT IMAGE CONTROL: Send explicit image choice
           image_choice: finalImageChoice,
           color_mode: colorMode,
+          // Template gallery: pass selected design template if any
+          template_id: selectedTemplateId || undefined,
           delivery: selectedFeatures.deliverySystem ? {
             area: deliveryArea,
             fee: deliveryFee,
@@ -943,6 +947,16 @@ export default function CreatePage() {
           <p className="text-gray-600 text-lg">
             Describe your business in Bahasa Malaysia or English, and let AI build your website
           </p>
+          {/* Template gallery link */}
+          <Link
+            href="/create/templates"
+            className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 text-orange-700 rounded-full text-sm font-medium hover:from-orange-100 hover:to-amber-100 transition-all"
+          >
+            <Layout className="w-4 h-4" />
+            {selectedTemplateId
+              ? `Template: ${selectedTemplateId.replace(/_/g, ' ')}`
+              : 'Browse Design Templates'}
+          </Link>
         </div>
 
         {!generatedHtml && styleVariations.length === 0 ? (

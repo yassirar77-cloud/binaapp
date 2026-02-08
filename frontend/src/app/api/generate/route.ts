@@ -248,7 +248,7 @@ function extractHtml(text: string): string {
 // ==================== MAIN GENERATION ====================
 async function generateWebsite(
   description: string,
-  opts?: { image_choice?: string; features?: Record<string, any> }
+  opts?: { image_choice?: string; features?: Record<string, any>; template_id?: string }
 ): Promise<string | null> {
   console.log('');
   console.log('🌐 WEBSITE GENERATION - TRIPLE AI MODE');
@@ -319,8 +319,23 @@ ${sectionsRequirements}${whatsappRequirements}6. Use Bahasa Malaysia if descript
 
 Output ONLY the complete HTML code.`;
 
-  let html = await callDeepSeek(htmlPrompt);
-  if (!html) html = await callQwen(htmlPrompt);
+  // Template Gallery: inject design tokens if a template was selected
+  let finalPrompt = htmlPrompt;
+  if (opts?.template_id) {
+    try {
+      const { getTemplatePromptInjection } = await import('@/lib/templateGallery');
+      const injection = getTemplatePromptInjection(opts.template_id);
+      if (injection) {
+        finalPrompt = htmlPrompt + '\n' + injection;
+        console.log(`🎨 Template: injected design for '${opts.template_id}'`);
+      }
+    } catch (e) {
+      console.warn('Template injection failed:', e);
+    }
+  }
+
+  let html = await callDeepSeek(finalPrompt);
+  if (!html) html = await callQwen(finalPrompt);
   if (!html) return null;
 
   html = extractHtml(html);
@@ -359,6 +374,7 @@ export async function POST(request: NextRequest) {
     const description = body.business_description || body.description || '';
     const image_choice = body.image_choice || body.imageChoice || 'ai';
     const features = body.features || {};
+    const template_id = body.template_id || body.templateId || undefined;
 
     if (!description) {
       return NextResponse.json({ error: 'Description required' }, { status: 400 });
@@ -368,7 +384,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No AI API keys' }, { status: 500 });
     }
 
-    const html = await generateWebsite(description, { image_choice, features });
+    const html = await generateWebsite(description, { image_choice, features, template_id });
 
     if (!html) {
       return NextResponse.json({ error: 'Generation failed' }, { status: 500 });

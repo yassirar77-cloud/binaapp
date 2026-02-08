@@ -2829,6 +2829,18 @@ IMPORTANT INSTRUCTIONS:
 
             prompt += image_instructions
 
+        # Template Gallery: inject design tokens if a template was selected
+        _tpl_id = getattr(request, "template_id", None)
+        if _tpl_id:
+            try:
+                from app.services.template_gallery import get_template_prompt_injection
+                _tpl_injection = get_template_prompt_injection(_tpl_id)
+                if _tpl_injection:
+                    prompt += "\n" + _tpl_injection
+                    logger.info(f"🎨 Template gallery: injected design for '{_tpl_id}'")
+            except Exception as _tpl_err:
+                logger.warning(f"⚠️ Template injection failed: {_tpl_err}")
+
         await update_progress(55, "Calling AI to generate HTML")
         html = await self._call_deepseek(prompt)
 
