@@ -1,10 +1,26 @@
 'use client'
 
+import { useState } from 'react'
 import { AuthProvider, useAuth } from '@/lib/auth-context'
 import { Dashboard } from '@/components/Dashboard'
 
 function AppContent() {
   const { user, isFounder, loading, signIn, signOut } = useAuth()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setSubmitting(true)
+    const { error: signInError } = await signIn(email, password)
+    if (signInError) {
+      setError(signInError)
+    }
+    setSubmitting(false)
+  }
 
   if (loading) {
     return (
@@ -26,12 +42,34 @@ function AppContent() {
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">BinaApp Admin</h1>
           <p className="text-gray-400 mb-8">Founder Dashboard</p>
-          <button
-            onClick={signIn}
-            className="w-full bg-brand-orange hover:bg-brand-orange-light text-white font-semibold py-3 px-6 rounded-xl transition-colors active:scale-95 transform"
-          >
-            Sign in with Google
-          </button>
+          <form onSubmit={handleSignIn} className="space-y-4">
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="w-full bg-gray-900 border border-gray-700 text-white rounded-xl py-3 px-4 focus:outline-none focus:border-brand-orange"
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="w-full bg-gray-900 border border-gray-700 text-white rounded-xl py-3 px-4 focus:outline-none focus:border-brand-orange"
+            />
+            {error && (
+              <p className="text-red-400 text-sm">{error}</p>
+            )}
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full bg-brand-orange hover:bg-brand-orange-light text-white font-semibold py-3 px-6 rounded-xl transition-colors active:scale-95 transform disabled:opacity-50"
+            >
+              {submitting ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
           <p className="text-gray-600 text-xs mt-4">Authorized access only</p>
         </div>
       </div>

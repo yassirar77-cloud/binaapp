@@ -8,7 +8,7 @@ type AuthState = {
   user: User | null
   isFounder: boolean
   loading: boolean
-  signIn: () => Promise<void>
+  signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
 }
 
@@ -16,7 +16,7 @@ const AuthContext = createContext<AuthState>({
   user: null,
   isFounder: false,
   loading: true,
-  signIn: async () => {},
+  signIn: async () => ({ error: null }),
   signOut: async () => {},
 })
 
@@ -40,13 +40,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  const signIn = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin,
-      },
+  const signIn = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     })
+    return { error: error?.message ?? null }
   }
 
   const signOut = async () => {
