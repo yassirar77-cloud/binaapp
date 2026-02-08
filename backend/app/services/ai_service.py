@@ -14,7 +14,8 @@ import re
 from loguru import logger
 from typing import Optional, List, Dict, Tuple, Callable, Awaitable
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
-from app.services.business_types import get_business_config, detect_business_type
+from app.services.business_types import get_business_config, detect_business_type, get_design_type
+from app.services.design_system import DesignSystem
 from difflib import SequenceMatcher
 import cloudinary
 import cloudinary.uploader
@@ -1653,7 +1654,7 @@ Generate prompts now:"""
         }
 
     async def _improve_with_qwen(self, html: str, description: str) -> str:
-        """Use Qwen to improve content"""
+        """Use Qwen to improve content while preserving design elements"""
         prompt = (
             "Improve the copywriting in this HTML for a Malaysian business.\n"
             "STRICT RULES:\n"
@@ -1661,7 +1662,13 @@ Generate prompts now:"""
             "- Do NOT change any links (especially WhatsApp wa.me links).\n"
             "- Keep all image URLs unchanged.\n"
             "- Keep the language consistent with the existing page (if it's Bahasa Malaysia, keep it fully Bahasa Malaysia; do NOT introduce English headings).\n"
-            "- Only improve wording/clarity while preserving meaning.\n\n"
+            "- Only improve wording/clarity while preserving meaning.\n"
+            "- Do NOT remove or modify any <script> tags (especially tailwind.config).\n"
+            "- Do NOT remove or modify any data-aos attributes.\n"
+            "- Do NOT remove or modify any <link> tags in <head> (Google Fonts, AOS CSS, Font Awesome).\n"
+            "- Do NOT change any CSS classes, Tailwind utility classes, or inline styles.\n"
+            "- Do NOT change any CSS custom properties (--bg-color, --surface-color, etc.).\n"
+            "- ONLY improve the visible TEXT content (headings, paragraphs, descriptions, button labels).\n\n"
             f"{html}"
         )
         improved = await self._call_qwen(prompt, temperature=0.7)
@@ -1824,96 +1831,53 @@ Generate prompts now:"""
         language: str = "ms",
         whatsapp_number: Optional[str] = None,
         location_address: Optional[str] = None,
-        image_choice: str = "upload",  # NEW: none, upload, or ai
-        include_ecommerce: bool = False,  # NEW: Enable delivery mode
+        image_choice: str = "upload",
+        include_ecommerce: bool = False,
+        color_mode: str = "light",
     ) -> str:
-        """Build STRICT prompt that forbids placeholders"""
+        """Build STRICT prompt with premium design system"""
         biz_type = self._detect_type(desc)
         imgs = self.IMAGES.get(biz_type, self.IMAGES["default"])
 
-        # Get business type for colors - map old types to new system
-        business_type_map = {
-            "restaurant": "food",
-            "cafe": "food",
-            "food": "food",
-            "clothing": "clothing",
-            "salon": "salon",
-            "services": "services",
-            "bakery": "bakery",
-            "default": "general"
-        }
-        detected_biz_type = business_type_map.get(biz_type, "general")
-
-        # Use proper business type detection
+        # Detect business type and get design type
         try:
             detected_biz_type = detect_business_type(desc)
-        except:
-            pass
+        except Exception:
+            detected_biz_type = "general"
 
-        business_config = get_business_config(detected_biz_type)
-        primary_color = business_config.get("primary_color", "#3b82f6")
+        design_type = get_design_type(detected_biz_type, desc)
 
-        # Generate color scheme based on business type
-        color_map = {
-            "#ea580c": {  # food (orange)
-                "gradient": "from-orange-600 to-red-500",
-                "accent": "orange-600",
-                "hover": "orange-700",
-                "light": "orange-50",
-                "names": "orange, red, amber"
-            },
-            "#ec4899": {  # clothing (pink)
-                "gradient": "from-pink-600 to-purple-500",
-                "accent": "pink-600",
-                "hover": "pink-700",
-                "light": "pink-50",
-                "names": "pink, purple, rose"
-            },
-            "#8b5cf6": {  # salon (purple)
-                "gradient": "from-purple-600 to-indigo-500",
-                "accent": "purple-600",
-                "hover": "purple-700",
-                "light": "purple-50",
-                "names": "purple, indigo, violet"
-            },
-            "#3b82f6": {  # services (blue)
-                "gradient": "from-blue-600 to-cyan-500",
-                "accent": "blue-600",
-                "hover": "blue-700",
-                "light": "blue-50",
-                "names": "blue, cyan, sky"
-            },
-            "#f59e0b": {  # bakery (amber)
-                "gradient": "from-amber-600 to-orange-500",
-                "accent": "amber-600",
-                "hover": "amber-700",
-                "light": "amber-50",
-                "names": "amber, yellow, orange"
-            },
-            "#10b981": {  # general (green)
-                "gradient": "from-green-600 to-teal-500",
-                "accent": "green-600",
-                "hover": "green-700",
-                "light": "green-50",
-                "names": "green, teal, emerald"
-            }
-        }
+        # Initialize design system
+        try:
+            design = DesignSystem()
+            fonts = design.get_font_pairing(design_type)
+            palette = design.get_color_palette(design_type, color_mode)
+            layout = design.get_layout_template(design_type)
+            hero_variant = design.get_hero_variant(design_type, has_images=(image_choice != "none"))
+            animations = design.get_animation_config()
+            tw_config = design.get_tailwind_config(design_type, color_mode)
+            typography = design.get_typography_rules()
+            design_patterns = design.get_design_patterns(color_mode)
+        except Exception as e:
+            logger.error(f"DesignSystem error: {e}")
+            # Fallback to basic values
+            fonts = {"cdn_link": "", "heading": "Inter", "body": "Inter", "heading_fallback": "sans-serif", "body_fallback": "sans-serif"}
+            palette = {"primary": "#3b82f6", "secondary": "#1e40af", "accent": "#dbeafe", "background": "#ffffff", "surface": "#ffffff", "text": "#0f172a", "text_muted": "#64748b"}
+            layout = ""
+            hero_variant = ""
+            animations = ""
+            tw_config = ""
+            typography = ""
+            design_patterns = ""
 
-        colors = color_map.get(primary_color, color_map["#3b82f6"])
-        logger.info(f"🎨 Using color scheme for {detected_biz_type}: {primary_color} -> {colors['names']}")
+        logger.info(f"🎨 Design: type={design_type}, mode={color_mode}, fonts={fonts.get('heading')}/{fonts.get('body')}")
 
-        # CRITICAL: Handle "no images" mode
+        # ---- IMAGE HANDLING (unchanged logic) ----
         if image_choice == "none":
-            # User explicitly wants NO images - set all image URLs to empty
             logger.info("🚫 _build_strict_prompt: image_choice='none' - NO IMAGES MODE")
             hero = ""
-            g1 = ""
-            g2 = ""
-            g3 = ""
-            g4 = ""
+            g1 = g2 = g3 = g4 = ""
         else:
-            # Use user images if provided, otherwise use curated Unsplash
-            # Helper to extract URL from image (can be string or dict)
             def get_url(img):
                 if isinstance(img, dict):
                     return img.get('url', img.get('URL', ''))
@@ -1924,52 +1888,39 @@ Generate prompts now:"""
                     return img.get('name', '')
                 return ''
 
-            # IMPORTANT: Separate hero image from product/gallery images
-            # Hero image is ONLY used if explicitly named 'Hero Image'
-            # Product/gallery images should NOT appear as hero background
-            hero = imgs["hero"]  # Default to curated hero
-            gallery_start_index = 0  # Start index for gallery images
+            hero = imgs["hero"]
+            gallery_start_index = 0
 
             if user_images and len(user_images) > 0:
                 first_img_name = get_name(user_images[0])
-                # Only use first image as hero if it's explicitly a hero image
                 if first_img_name == 'Hero Image' or 'hero' in first_img_name.lower():
                     hero = get_url(user_images[0])
-                    gallery_start_index = 1  # Gallery starts from index 1
-                # Otherwise, don't use any product image as hero - keep default
-                # Product images will be used in gallery section only
+                    gallery_start_index = 1
 
-            # Gallery images - use user's product images (starting after hero if present)
             g1 = get_url(user_images[gallery_start_index]) if user_images and len(user_images) > gallery_start_index else imgs["gallery"][0]
             g2 = get_url(user_images[gallery_start_index + 1]) if user_images and len(user_images) > gallery_start_index + 1 else imgs["gallery"][1]
             g3 = get_url(user_images[gallery_start_index + 2]) if user_images and len(user_images) > gallery_start_index + 2 else imgs["gallery"][2]
             g4 = get_url(user_images[gallery_start_index + 3]) if user_images and len(user_images) > gallery_start_index + 3 else imgs["gallery"][3]
 
-        # Determine language instruction based on explicit language parameter
+        # ---- LANGUAGE ----
         if language == "ms":
-            language_instruction = """5. LANGUAGE - BAHASA MALAYSIA (WAJIB):
-   PENTING: Hasilkan SEMUA kandungan dalam BAHASA MELAYU sepenuhnya!
-   ✅ Semua teks MESTI dalam Bahasa Melayu
-   ✅ Gunakan: "Selamat Datang", "Tentang Kami", "Hubungi Kami", "Menu", "Perkhidmatan"
-   ✅ Navigasi: "Laman Utama", "Menu", "Tentang", "Hubungi"
-   ✅ Butang: "Pesan Sekarang", "Hubungi Kami", "Lihat Menu"
-   ❌ JANGAN gunakan Bahasa Inggeris untuk kandungan
-   ❌ JANGAN tulis tajuk/navigasi dalam English (contoh: Home, About Us, Contact, Services)
-   
-   CONTOH TEKS YANG BETUL:
-   - Hero: "Selamat Datang ke Nama Perniagaan" 
-   - About: "Kami menyediakan perkhidmatan terbaik..."
-   - Contact: "Hubungi kami untuk sebarang pertanyaan"
-   - Footer: "Hak Cipta © 2024. Semua Hak Terpelihara."""
+            language_instruction = """LANGUAGE - BAHASA MALAYSIA (WAJIB):
+PENTING: Hasilkan SEMUA kandungan dalam BAHASA MELAYU sepenuhnya!
+✅ Semua teks MESTI dalam Bahasa Melayu
+✅ Gunakan: "Selamat Datang", "Tentang Kami", "Hubungi Kami", "Menu", "Perkhidmatan"
+✅ Navigasi: "Laman Utama", "Menu", "Tentang", "Hubungi"
+✅ Butang: "Pesan Sekarang", "Hubungi Kami", "Lihat Menu"
+❌ JANGAN gunakan Bahasa Inggeris untuk kandungan
+❌ JANGAN tulis tajuk/navigasi dalam English"""
         else:
-            language_instruction = """5. LANGUAGE - ENGLISH:
-   Generate ALL content in English
-   ✅ Use: "Welcome", "About Us", "Contact Us", "Menu", "Services"
-   ✅ Navigation: "Home", "Menu", "About", "Contact"
-   ✅ Buttons: "Order Now", "Contact Us", "View Menu"
-   Keep all text consistent in English throughout."""
+            language_instruction = """LANGUAGE - ENGLISH:
+Generate ALL content in English.
+✅ Use: "Welcome", "About Us", "Contact Us", "Menu", "Services"
+✅ Navigation: "Home", "Menu", "About", "Contact"
+✅ Buttons: "Order Now", "Contact Us", "View Menu"
+Keep all text consistent in English throughout."""
 
-        # WhatsApp number normalization for wa.me links (digits only)
+        # ---- WHATSAPP ----
         wa_raw = whatsapp_number or "60123456789"
         wa_digits = re.sub(r"\D", "", str(wa_raw))
         if wa_digits.startswith("0"):
@@ -1979,300 +1930,146 @@ Generate prompts now:"""
         if not wa_digits:
             wa_digits = "60123456789"
 
-        # Only mention an address if we actually have one (avoid AI inventing locations)
+        # ---- ADDRESS ----
         address_line = ""
         if location_address and str(location_address).strip():
-            address_line = f"   ✅ Address (use EXACTLY, do not invent): {str(location_address).strip()}"
+            address_line = f"✅ Address (use EXACTLY, do not invent): {str(location_address).strip()}"
 
-        examples = ""
-        if language == "ms":
-            examples = """
-
-CONTOH HERO (tunjuk imej penuh):
-<section id="home" class="relative h-[400px] bg-gray-100">
-    <img src="HERO_URL" alt="Imej Hero" class="w-full h-full object-contain">
-    <div class="absolute inset-0 bg-black/30 flex items-center">
-        <!-- kandungan -->
-    </div>
-</section>
-
-ATAU gaya cover tetapi tunjuk bahagian atas:
-<section id="home" class="relative h-[50vh] md:h-[400px]">
-    <img src="HERO_URL" alt="Imej Hero" class="w-full h-full object-cover object-top">
-</section>
-
-CONTOH KAD GALERI:
-<div class="rounded-xl overflow-hidden shadow-lg">
-  <img src="..." class="w-full h-48 object-cover" alt="Gambar produk">
-  <div class="p-4">
-    <h3>Nama Produk</h3>
-    <p>Penerangan ringkas</p>
-  </div>
-</div>
-"""
-        else:
-            examples = """
-
-Example hero that shows FULL image:
-<section id="home" class="relative h-[400px] bg-gray-100">
-    <img src="HERO_URL" alt="Hero Image" class="w-full h-full object-contain">
-    <div class="absolute inset-0 bg-black/30 flex items-center">
-        <!-- content -->
-    </div>
-</section>
-
-OR if you want cover style but show top:
-<section id="home" class="relative h-[50vh] md:h-[400px]">
-    <img src="HERO_URL" alt="Hero Image" class="w-full h-full object-cover object-top">
-</section>
-
-Example gallery card:
-<div class="rounded-xl overflow-hidden shadow-lg">
-  <img src="..." class="w-full h-48 object-cover" alt="Product image">
-  <div class="p-4">
-    <h3>Product Name</h3>
-    <p>Short description</p>
-  </div>
-</div>
-"""
-
-        # Build style-specific instructions with business-aware colors
-        style_instructions = {
-            "modern": f"""
-STYLE DESIGN - MODERN (REQUIRED):
-- Use vibrant gradient backgrounds: {colors['gradient']} (matching business type)
-- Add glassmorphism effect: bg-white/20 backdrop-blur-lg
-- Rounded corners everywhere: rounded-xl, rounded-2xl, rounded-3xl
-- Soft shadows: shadow-xl, shadow-2xl
-- Smooth hover transitions: transition-all duration-300
-- Floating elements with hover:scale-105
-- Modern gradient buttons using business colors
-- Use accent colors: {colors['names']} (warm for food, cool for services, elegant for fashion)
-- Font: text-lg for body, headings with gradient text
-- Add subtle animations on scroll
-- Navigation: Solid white background with shadow-lg for readability
-- Hero: Use business-appropriate colors, NOT generic purple/blue""",
-            "minimal": """
-STYLE DESIGN - MINIMAL (REQUIRED):
-- Maximum white space, clean layout
-- Primary colors: black (#000) and white (#fff) only
-- Very thin borders: border border-gray-200
-- NO or minimal shadows: shadow-none or shadow-sm only
-- Sharp edges preferred: rounded-none or rounded-sm
-- Simple serif fonts for headings
-- Thin line dividers
-- Lots of padding and margin for breathing room
-- Muted hover effects: hover:bg-gray-50
-- Monochromatic color scheme
-- Focus on typography hierarchy
-- NO gradients, NO vibrant colors""",
-            "bold": """
-STYLE DESIGN - BOLD (REQUIRED):
-- Vibrant, saturated colors: orange-500, red-500, yellow-400
-- Large, bold typography: text-4xl font-black, text-5xl font-black
-- High contrast: dark backgrounds with light text
-- Thick borders: border-4 border-orange-500
-- Big, chunky buttons: px-8 py-4 text-xl font-bold
-- Strong shadows: shadow-2xl
-- Eye-catching gradients: from-orange-500 to-red-600
-- Asymmetric layouts allowed
-- Bold hover effects: hover:scale-110
-- Use accent colors: orange, red, yellow, pink
-- Make everything stand out and attention-grabbing"""
-        }
-
-        style_guide = style_instructions.get(style, style_instructions["modern"])
-
-        # Build image-specific instructions based on image_choice
+        # ---- IMAGE INSTRUCTIONS ----
         if image_choice == "none":
-            # NO IMAGES MODE - Tell AI explicitly to NOT use any images
-            image_instructions = f"""
-===== CRITICAL: NO IMAGES MODE =====
-
-🚫 ABSOLUTELY NO IMAGES ALLOWED:
-   ❌ DO NOT include ANY <img> tags
-   ❌ DO NOT use background-image CSS
-   ❌ DO NOT use any image URLs (Unsplash, Cloudinary, Pexels, etc.)
-   ❌ DO NOT use placeholder images
-   ❌ DO NOT use stock photos
-
-✅ INSTEAD USE:
-   ✅ Business-appropriate gradient backgrounds (warm colors for food, elegant for fashion, cool for services)
-   ✅ Solid color backgrounds matching business type
-   ✅ Font Awesome icons: <i class="fas fa-icon-name"></i>
-   ✅ Emoji icons: 🍽️ 👕 🏠 ✨ etc.
-   ✅ Text-only design with good typography
-
-NAVIGATION BAR (MUST BE READABLE):
-<header class="fixed top-0 left-0 w-full z-50 bg-white shadow-lg">
-    <nav class="container mx-auto px-4 py-4 flex justify-between items-center">
-        <a href="#home" class="text-2xl font-bold text-{colors['accent']}">{name}</a>
-        <ul class="hidden md:flex space-x-6">
-            <li><a href="#home" class="text-gray-700 hover:text-{colors['accent']} font-medium">Home</a></li>
-            <li><a href="#menu" class="text-gray-700 hover:text-{colors['accent']} font-medium">Menu</a></li>
-            <li><a href="#about" class="text-gray-700 hover:text-{colors['accent']} font-medium">About</a></li>
-            <li><a href="#contact" class="text-gray-700 hover:text-{colors['accent']} font-medium">Contact</a></li>
-        </ul>
-        <a href="#delivery" class="bg-{colors['accent']} text-white px-6 py-2 rounded-full font-semibold hover:bg-{colors['hover']}">Order Now</a>
-    </nav>
-</header>
-
-HERO SECTION (NO IMAGES) - Use business-appropriate colors:
-<section id="home" class="relative h-[60vh] md:h-[500px] overflow-hidden">
-    <div class="absolute inset-0 bg-gradient-to-br {colors['gradient']}">
-        <div class="absolute inset-0 bg-black/20"></div>
-    </div>
-    <div class="relative container mx-auto px-4 h-full flex items-center justify-center">
-        <div class="max-w-3xl text-center text-white">
-            <h1 class="text-5xl md:text-7xl font-bold mb-6 drop-shadow-2xl">{name}</h1>
-            <p class="text-xl md:text-2xl mb-8 bg-white/20 backdrop-blur-sm p-6 rounded-3xl inline-block">Your compelling tagline here</p>
-            <a href="#menu" class="inline-block bg-white text-{colors['accent']} px-10 py-4 rounded-full font-bold text-lg shadow-2xl hover:shadow-3xl transition-all hover:scale-105">
-                View Menu <i class="fas fa-arrow-right ml-2"></i>
-            </a>
-        </div>
-    </div>
-</section>
-
-PRODUCT/SERVICE CARD (NO IMAGES) - Consistent design:
-<div class="bg-white rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl transition-all">
-    <!-- If no image, use colored placeholder -->
-    <div class="w-full h-48 bg-gradient-to-br {colors['gradient']} flex items-center justify-center">
-        <i class="fas fa-utensils text-6xl text-white opacity-40"></i>
-    </div>
-    <div class="p-6">
-        <h3 class="text-2xl font-bold text-gray-800 mb-2">Product/Service Name</h3>
-        <p class="text-gray-600 mb-4">Brief description of the item or service</p>
-        <div class="flex justify-between items-center">
-            <span class="text-{colors['accent']} font-bold text-xl">RM10.00</span>
-            <button class="bg-{colors['accent']} text-white px-6 py-2 rounded-full hover:bg-{colors['hover']} transition-all">Order</button>
-        </div>
-    </div>
-</div>
-
-IMPORTANT DESIGN RULES:
-- Navigation MUST have solid white background for readability
-- Hero section should use business-appropriate colors (warm for food, elegant for fashion)
-- All cards must be consistent in structure and styling
-- Use rounded-2xl for modern feel
-- Add hover effects for interactivity
-"""
+            image_section = """IMAGE MODE: NO IMAGES
+🚫 DO NOT include ANY <img> tags
+🚫 DO NOT use background-image CSS with URLs
+🚫 DO NOT use any image URLs (Unsplash, Cloudinary, Pexels, etc.)
+✅ Use gradient backgrounds, Font Awesome icons, and text-only design
+✅ Use colored placeholder divs with icons for cards: bg-gradient-to-br from-primary to-secondary with icon"""
         else:
-            # WITH IMAGES MODE - Provide image URLs
-            image_instructions = f"""
-===== IMAGE INSTRUCTIONS =====
+            image_section = f"""IMAGE MODE: USE EXACT URLS
+USE THESE EXACT IMAGE URLS (copy-paste exactly):
+- HERO IMAGE: {hero}
+- GALLERY IMAGE 1: {g1}
+- GALLERY IMAGE 2: {g2}
+- GALLERY IMAGE 3: {g3}
+- GALLERY IMAGE 4: {g4}
 
-1. USE THESE EXACT IMAGE URLS (copy-paste exactly as shown):
-   - HERO IMAGE: {hero}
-   - GALLERY IMAGE 1: {g1}
-   - GALLERY IMAGE 2: {g2}
-   - GALLERY IMAGE 3: {g3}
-   - GALLERY IMAGE 4: {g4}
+RULES:
+- Use ONLY the exact URLs provided above
+- Do NOT modify the URLs or use other sources
+- Gallery images: h-48 or h-52 with object-cover
+- All gallery cards MUST be consistent in height"""
 
-2. IMAGE REQUIREMENTS:
-   - Use ONLY the exact URLs provided above
-   - Do NOT modify the URLs
-   - Do NOT use any other image sources
-   - Do NOT use Unsplash, Pexels, or stock photos
+        # ---- ECOMMERCE MODE ----
+        ecommerce_section = ""
+        if include_ecommerce:
+            ecommerce_section = """DELIVERY MODE:
+🛒 DO NOT add WhatsApp order buttons in menu/product cards
+🛒 Menu items show product name, description, and price ONLY
+🛒 A separate ordering system will be integrated later
+✅ WhatsApp button is ONLY for contact/inquiries in footer section"""
 
-3. IMAGE SIZE GUIDELINES:
-   - Gallery images: Use 'h-48' or 'h-52' (NOT h-64 - too big!)
-   - Gallery images: Use 'object-cover' for proper fill
-   - All gallery cards MUST be consistent in height and structure
+        # ---- DARK MODE EXTRA RULES ----
+        dark_mode_section = ""
+        if color_mode == "dark":
+            dark_mode_section = f"""
+DARK MODE STYLING (CRITICAL):
+- Page body background: {palette['background']}
+- Card/surface backgrounds: {palette['surface']} with backdrop-blur
+- Heading text: {palette['text']}
+- Body text: {palette['text_muted']}
+- Borders: {palette.get('border', 'rgba(255,255,255,0.1)')}
+- Navigation: bg-[{palette['surface']}]/90 backdrop-blur-xl (NOT white!)
+- Set CSS variables in <style>: --bg-color: {palette['background']}; --surface-color: {palette['surface']}; --text-color: {palette['text']}; --text-muted-color: {palette['text_muted']};"""
+        else:
+            dark_mode_section = f"""
+LIGHT MODE STYLING:
+- Page body background: {palette['background']} (NOT pure white #fff)
+- Card backgrounds: {palette['surface']}
+- Heading text: {palette['text']}
+- Body text: {palette['text_muted']}
+- Navigation: bg-white/90 backdrop-blur-xl shadow-sm
+- Set CSS variables in <style>: --bg-color: {palette['background']}; --surface-color: {palette['surface']}; --text-color: {palette['text']}; --text-muted-color: {palette['text_muted']};"""
 
-NAVIGATION BAR (MUST BE READABLE):
-<header class="fixed top-0 left-0 w-full z-50 bg-white shadow-lg">
-    <nav class="container mx-auto px-4 py-4 flex justify-between items-center">
-        <a href="#home" class="text-2xl font-bold text-{colors['accent']}">{name}</a>
-        <ul class="hidden md:flex space-x-6">
-            <li><a href="#menu" class="text-gray-700 hover:text-{colors['accent']} font-medium">Menu</a></li>
-            <li><a href="#about" class="text-gray-700 hover:text-{colors['accent']} font-medium">About</a></li>
-            <li><a href="#contact" class="text-gray-700 hover:text-{colors['accent']} font-medium">Contact</a></li>
-        </ul>
-        <a href="#delivery" class="bg-{colors['accent']} text-white px-6 py-2 rounded-full font-semibold hover:bg-{colors['hover']}">Order Now</a>
-    </nav>
-</header>
+        # ---- STYLE-SPECIFIC ADDITIONS ----
+        style_note = ""
+        if style == "minimal":
+            style_note = """STYLE NOTE - MINIMAL:
+- Keep the design system colors but use them sparingly
+- Focus on typography hierarchy, generous whitespace
+- Cards: minimal shadows (shadow-sm), thin borders
+- NO gradients on buttons, use solid primary color only"""
+        elif style == "bold":
+            style_note = """STYLE NOTE - BOLD:
+- Make colors more saturated and vivid
+- Use larger typography (increase heading sizes by one step)
+- Stronger shadows: shadow-2xl
+- Bolder buttons: px-10 py-4 text-lg font-bold uppercase tracking-wider"""
 
-HERO SECTION WITH IMAGE:
-- Use h-[60vh] or h-[500px] for good proportion
-- Use object-contain if image has logo/text
-- OR use object-cover with object-center for full coverage
-- Add dark overlay (bg-black/40) for text readability
-- Background color: bg-{colors['light']} or bg-gray-100
-
-GALLERY/MENU CARDS - MUST BE CONSISTENT:
-<div class="bg-white rounded-2xl overflow-hidden shadow-xl hover:shadow-2xl transition-all">
-    <img src="..." class="w-full h-48 object-cover" alt="Item name">
-    <div class="p-6">
-        <h3 class="text-2xl font-bold text-gray-800 mb-2">Item Name</h3>
-        <p class="text-gray-600 mb-4">Description here</p>
-        <div class="flex justify-between items-center">
-            <span class="text-{colors['accent']} font-bold text-xl">RM10.00</span>
-            <button class="bg-{colors['accent']} text-white px-6 py-2 rounded-full hover:bg-{colors['hover']}">Order</button>
-        </div>
-    </div>
-</div>
-
-IMPORTANT DESIGN RULES:
-- Navigation MUST have solid white background for readability (NOT transparent!)
-- All menu/product cards MUST have identical structure and height
-- Use business-appropriate colors ({colors['names']}) throughout
-- Ensure visual hierarchy: larger headings, readable body text
-- Add proper whitespace and padding
-
-{examples}
-"""
-
+        # ---- ASSEMBLE PROMPT ----
         return f"""Generate a COMPLETE production-ready HTML website.
 
 BUSINESS: {name}
 DESCRIPTION: {desc}
 STYLE: {style.upper()}
-TYPE: {biz_type}
+COLOR MODE: {color_mode.upper()}
 TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
 
-{style_guide}
+===== HEAD SECTION (MUST INCLUDE ALL) =====
+{fonts['cdn_link']}
+<link href="https://unpkg.com/aos@2.3.4/dist/aos.css" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+{tw_config}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+html {{ scroll-behavior: smooth; }}
+:root {{ --bg-color: {palette['background']}; --surface-color: {palette['surface']}; --text-color: {palette['text']}; --text-muted-color: {palette['text_muted']}; }}
+body {{ background-color: var(--bg-color); }}
+</style>
 
-===== CRITICAL RULES - MUST FOLLOW =====
+===== BEFORE </body> (MUST INCLUDE) =====
+<script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>
+<script>AOS.init({{ duration: 800, once: true, offset: 100 }});</script>
 
-{image_instructions}
+===== DESIGN SYSTEM =====
 
-ABSOLUTELY FORBIDDEN - DO NOT USE:
-   ❌ via.placeholder.com
-   ❌ placeholder.com
-   ❌ example.com
-   ❌ [PLACEHOLDER] or any [ ] brackets
-   ❌ [BUSINESS_TAGLINE]
-   ❌ [ABOUT_TEXT]
-   ❌ [SERVICE_X_NAME]
-   ❌ Any text with brackets
+{typography}
+
+{design_patterns}
+
+{animations}
+
+{dark_mode_section}
+
+{style_note}
+
+===== {layout} =====
+
+===== {image_section} =====
+
+===== CONTENT RULES =====
+ABSOLUTELY FORBIDDEN:
+❌ via.placeholder.com, placeholder.com, example.com
+❌ [PLACEHOLDER] or any [ ] brackets
+❌ Any invented facts, phone numbers, addresses, awards
 
 MUST WRITE REAL CONTENT:
-   ✅ Real business name: {name}
-   ✅ Real catchy tagline based on the business description
-   ✅ Real about section (2-3 sentences)
-   ✅ Real service names and descriptions (3-4 services)
-   ✅ Real contact message
-   {"✅ WhatsApp contact button ONLY in footer/contact section: https://wa.me/" + wa_digits if include_ecommerce else "✅ WhatsApp button for orders: https://wa.me/" + wa_digits}
+✅ Real business name: {name}
+✅ Real catchy tagline based on description
+✅ Real about section (2-3 sentences)
+✅ Real service names and descriptions (3-4 services)
+✅ Real contact message
+{"✅ WhatsApp contact ONLY in footer: https://wa.me/" + wa_digits if include_ecommerce else "✅ WhatsApp button: https://wa.me/" + wa_digits}
 {address_line}
-   🚫 DO NOT invent phone numbers, addresses, cities, awards, certifications
+🚫 DO NOT invent phone numbers, addresses, cities, awards
 
-{"ORDERING SYSTEM - DELIVERY MODE:" if include_ecommerce else ""}
-{"   🛒 DO NOT add WhatsApp order buttons in menu/product cards" if include_ecommerce else ""}
-{"   🛒 DO NOT add 'Order via WhatsApp' buttons for products" if include_ecommerce else ""}
-{"   🛒 Menu items should show product name, description, and price ONLY" if include_ecommerce else ""}
-{"   🛒 A separate ordering system will be integrated later" if include_ecommerce else ""}
-{"   ✅ WhatsApp button is ONLY for contact/inquiries in footer section" if include_ecommerce else ""}
+{ecommerce_section}
 
-TECHNICAL REQUIREMENTS:
-   - Single complete HTML file
-   - Tailwind CSS CDN: <script src="https://cdn.tailwindcss.com"></script>
-   - Font Awesome CDN (for icons): <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-   - Mobile responsive (critical!)
-   - Sections: Header, Hero, About, Services/Gallery, Contact, Footer
-   - Smooth animations and hover effects
-   - Professional {style} design
+===== {language_instruction} =====
 
-{language_instruction}
+TECHNICAL:
+- Single complete HTML file
+- Mobile responsive (critical!)
+- Use font-heading for all headings, font-body for all body text
+- Use the primary, secondary, accent, surface colors from tailwind.config
 
 Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HTML."""
 
@@ -2301,7 +2098,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": temperature,
-                        "max_tokens": 8000,
+                        "max_tokens": 12000,
                     }
                 )
                 if r.status_code == 200:
@@ -2343,7 +2140,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": temperature,
-                        "max_tokens": 8000,
+                        "max_tokens": 12000,
                     }
                 )
                 if r.status_code == 200:
@@ -2400,7 +2197,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         for pattern in patterns_to_remove:
             text = re.sub(pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
 
-        return text.strip()
+        # Safety: auto-close truncated HTML
+        text = text.strip()
+        if text and not text.rstrip().endswith('</html>'):
+            logger.warning("⚠️ HTML output appears truncated, auto-closing tags")
+            if '</body>' not in text:
+                text += '\n</body>\n</html>'
+            else:
+                text += '\n</html>'
+
+        return text
 
     def _validate_generated_html(
         self,
@@ -2937,6 +2743,11 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         # Get language from request (default to "ms" for Bahasa Malaysia)
         language = request.language.value if hasattr(request, 'language') and request.language else "ms"
         logger.info(f"   Language: {language}")
+        # Get color_mode from request (default to "light")
+        color_mode = getattr(request, 'color_mode', 'light') or 'light'
+        if color_mode not in ('light', 'dark'):
+            color_mode = 'light'
+
         prompt = self._build_strict_prompt(
             request.business_name,
             request.description,
@@ -2947,6 +2758,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             location_address=request.location_address,
             image_choice=image_choice,  # CRITICAL: Pass image_choice to prompt builder
             include_ecommerce=request.include_ecommerce,  # CRITICAL: Pass delivery mode flag
+            color_mode=color_mode,
         )
 
         # Add image URLs to prompt with STRONG emphasis
@@ -3142,6 +2954,11 @@ IMPORTANT INSTRUCTIONS:
             # Get language from request
             language = request.language.value if hasattr(request, 'language') and request.language else "ms"
 
+            # Get color_mode from request
+            color_mode = getattr(request, 'color_mode', 'light') or 'light'
+            if color_mode not in ('light', 'dark'):
+                color_mode = 'light'
+
             prompt = self._build_strict_prompt(
                 request.business_name,
                 request.description,
@@ -3150,6 +2967,7 @@ IMPORTANT INSTRUCTIONS:
                 language,
                 whatsapp_number=request.whatsapp_number,
                 location_address=request.location_address,
+                color_mode=color_mode,
             )
 
             # Try preferred AI first
