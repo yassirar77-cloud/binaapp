@@ -136,21 +136,15 @@ async def create_dispute(dispute: DisputeCreate):
         dispute_data = {
             "order_id": dispute.order_id,
             "website_id": website_id,
-            "customer_id": dispute.customer_phone or customer_name,
-            "customer_name": customer_name,
-            "customer_phone": dispute.customer_phone,
-            "customer_email": dispute.customer_email,
             "category": dispute.category.value,
             "description": dispute.description,
             "evidence_urls": dispute.evidence_urls or [],
-            "order_amount": order_amount,
-            "disputed_amount": dispute.disputed_amount,
-            "ai_category_confidence": ai_analysis.get("category_confidence"),
-            "ai_severity_score": ai_analysis.get("severity_score"),
-            "ai_recommendation": ai_analysis.get("recommended_resolution"),
             "evidence_analysis": ai_analysis,
+            "severity": ai_analysis.get("severity_score"),
+            "ai_decision": ai_analysis.get("recommended_resolution"),
+            "ai_reasoning": ai_analysis.get("reasoning"),
+            "ai_confidence": ai_analysis.get("category_confidence"),
             "status": "open",
-            "priority": ai_analysis.get("priority", "medium"),
         }
 
         result = supabase.table("ai_disputes").insert(dispute_data).execute()
