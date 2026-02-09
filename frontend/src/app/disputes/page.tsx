@@ -350,9 +350,8 @@ export default function DisputesPage() {
         body: JSON.stringify({
           category: createCategory,
           description: createDescription,
-          severity,
           website_id: createWebsiteId || undefined,
-          evidence: createEvidence.length > 0 ? createEvidence : undefined,
+          evidence_urls: createEvidence.length > 0 ? createEvidence : undefined,
         }),
       })
 

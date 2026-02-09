@@ -22,6 +22,14 @@ class DisputeCategory(str, Enum):
     NEVER_DELIVERED = "never_delivered"
     RIDER_ISSUE = "rider_issue"
     OTHER = "other"
+    # Subscriber dispute categories (complaints against BinaApp)
+    POOR_DESIGN = "poor_design"
+    WEBSITE_BUG = "website_bug"
+    SERVICE_OUTAGE = "service_outage"
+    PAYMENT_ISSUE = "payment_issue"
+    TECHNICAL_PROBLEM = "technical_problem"
+    ORDER_SYSTEM = "order_system"
+    CHAT_ISSUE = "chat_issue"
 
 
 class DisputeStatus(str, Enum):
@@ -65,24 +73,25 @@ class DisputeMessageSender(str, Enum):
 
 class DisputeCreate(BaseModel):
     """Schema for creating a new dispute"""
-    order_id: str
+    order_id: Optional[str] = None
     category: DisputeCategory
     description: str = Field(..., min_length=10, max_length=2000)
     evidence_urls: Optional[List[str]] = None
     disputed_amount: Optional[float] = None
-    customer_name: str
+    customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
     customer_email: Optional[str] = None
+    website_id: Optional[str] = None
 
 
 class DisputeResponse(BaseModel):
     """Schema for dispute response"""
     id: str
     dispute_number: str
-    order_id: str
-    website_id: str
-    customer_id: str
-    customer_name: str
+    order_id: Optional[str] = None
+    website_id: Optional[str] = None
+    customer_id: Optional[str] = None
+    customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
     customer_email: Optional[str] = None
     category: str

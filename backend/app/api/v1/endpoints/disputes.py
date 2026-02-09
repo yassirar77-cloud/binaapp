@@ -66,74 +66,84 @@ def get_supabase_rls_client(
 @router.post("/create", response_model=DisputeResponse)
 async def create_dispute(dispute: DisputeCreate):
     """
-    Create a new dispute for an order.
+    Create a new dispute for an order or a subscriber complaint.
     Available to customers without authentication.
     Triggers AI analysis automatically.
     """
     supabase = get_supabase_client()
 
     try:
-        # 1. Verify the order exists and get order details
-        order_result = supabase.table("delivery_orders").select(
-            "*, order_items(*)"
-        ).eq("id", dispute.order_id).execute()
+        order = None
+        order_amount = 0.0
 
-        if not order_result.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Order not found",
-            )
+        if dispute.order_id:
+            # 1. Verify the order exists and get order details
+            order_result = supabase.table("delivery_orders").select(
+                "*, order_items(*)"
+            ).eq("id", dispute.order_id).execute()
 
-        order = order_result.data[0]
+            if not order_result.data:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Order not found",
+                )
 
-        # 2. Check if a dispute already exists for this order
-        existing = supabase.table("ai_disputes").select("id, dispute_number").eq(
-            "order_id", dispute.order_id
-        ).in_("status", ["open", "under_review", "awaiting_response"]).execute()
+            order = order_result.data[0]
+            order_amount = float(order.get("total_amount", 0))
 
-        if existing.data:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"An active dispute (#{existing.data[0]['dispute_number']}) already exists for this order",
-            )
+            # 2. Check if a dispute already exists for this order
+            existing = supabase.table("ai_disputes").select("id, dispute_number").eq(
+                "order_id", dispute.order_id
+            ).in_("status", ["open", "under_review", "awaiting_response"]).execute()
+
+            if existing.data:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"An active dispute (#{existing.data[0]['dispute_number']}) already exists for this order",
+                )
 
         # 3. Run AI analysis
-        order_details = {
-            "order_number": order.get("order_number"),
-            "items": [
-                {
-                    "name": item.get("item_name"),
-                    "quantity": item.get("quantity"),
-                    "price": float(item.get("unit_price", 0)),
-                }
-                for item in order.get("order_items", [])
-            ],
-            "payment_method": order.get("payment_method"),
-            "status": order.get("status"),
-            "created_at": order.get("created_at"),
-            "delivered_at": order.get("delivered_at"),
-        }
+        order_details = {}
+        if order:
+            order_details = {
+                "order_number": order.get("order_number"),
+                "items": [
+                    {
+                        "name": item.get("item_name"),
+                        "quantity": item.get("quantity"),
+                        "price": float(item.get("unit_price", 0)),
+                    }
+                    for item in order.get("order_items", [])
+                ],
+                "payment_method": order.get("payment_method"),
+                "status": order.get("status"),
+                "created_at": order.get("created_at"),
+                "delivered_at": order.get("delivered_at"),
+            }
 
         ai_analysis = await dispute_ai_service.analyze_dispute(
             category=dispute.category.value,
             description=dispute.description,
-            order_amount=float(order.get("total_amount", 0)),
+            order_amount=order_amount,
             disputed_amount=dispute.disputed_amount,
             order_details=order_details,
         )
 
         # 4. Create the dispute record
+        customer_name = dispute.customer_name or "Subscriber"
+        website_id = dispute.website_id or (order.get("website_id") if order else None)
+
         dispute_data = {
             "order_id": dispute.order_id,
-            "website_id": order.get("website_id"),
-            "customer_id": dispute.customer_phone or dispute.customer_name,
-            "customer_name": dispute.customer_name,
+            "website_id": website_id,
+            "customer_id": dispute.customer_phone or customer_name,
+            "customer_name": customer_name,
             "customer_phone": dispute.customer_phone,
             "customer_email": dispute.customer_email,
             "category": dispute.category.value,
             "description": dispute.description,
             "evidence_urls": dispute.evidence_urls or [],
-            "order_amount": float(order.get("total_amount", 0)),
+            "order_amount": order_amount,
             "disputed_amount": dispute.disputed_amount,
             "ai_category_confidence": ai_analysis.get("category_confidence"),
             "ai_severity_score": ai_analysis.get("severity_score"),
@@ -154,11 +164,12 @@ async def create_dispute(dispute: DisputeCreate):
         dispute_record = result.data[0]
 
         # 5. Create initial system message
+        order_ref = f" for order #{order.get('order_number', 'N/A')}" if order else ""
         supabase.table("dispute_messages").insert({
             "dispute_id": dispute_record["id"],
             "sender_type": "system",
             "sender_name": "System",
-            "message": f"Dispute #{dispute_record['dispute_number']} created for order #{order.get('order_number', 'N/A')}. Category: {dispute.category.value.replace('_', ' ').title()}.",
+            "message": f"Dispute #{dispute_record['dispute_number']} created{order_ref}. Category: {dispute.category.value.replace('_', ' ').title()}.",
         }).execute()
 
         # 6. Add AI analysis message
@@ -175,9 +186,10 @@ async def create_dispute(dispute: DisputeCreate):
                 },
             }).execute()
 
+        order_info = f"for order {order.get('order_number')}" if order else "(subscriber complaint)"
         logger.info(
             f"Dispute created: #{dispute_record['dispute_number']} "
-            f"for order {order.get('order_number')} "
+            f"{order_info} "
             f"(severity: {ai_analysis.get('severity_score')}, "
             f"recommendation: {ai_analysis.get('recommended_resolution')})"
         )
@@ -187,7 +199,8 @@ async def create_dispute(dispute: DisputeCreate):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error creating dispute: {e}")
+        logger.error(f"[Disputes] CREATE ERROR: {e}")
+        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create dispute: {str(e)}",
