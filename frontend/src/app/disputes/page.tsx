@@ -274,7 +274,7 @@ export default function DisputesPage() {
     const token = getStoredToken()
     if (!token) return
     try {
-      const res = await fetch(`${API_BASE}/api/v1/websites`, {
+      const res = await fetch(`${API_BASE}/api/v1/websites/`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (res.ok) {
