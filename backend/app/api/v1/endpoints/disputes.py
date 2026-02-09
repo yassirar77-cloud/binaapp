@@ -64,12 +64,12 @@ def get_supabase_rls_client(
 # =====================================================
 
 @router.post("/create", response_model=DisputeResponse)
-async def create_dispute(dispute: DisputeCreate):
+async def create_dispute(dispute: DisputeCreate, current_user: dict = Depends(get_current_user)):
     """
     Create a new dispute for an order or a subscriber complaint.
-    Available to customers without authentication.
     Triggers AI analysis automatically.
     """
+    user_id = current_user.get("sub")
     supabase = get_supabase_client()
 
     try:
@@ -134,6 +134,7 @@ async def create_dispute(dispute: DisputeCreate):
         website_id = dispute.website_id or (order.get("website_id") if order else None)
 
         dispute_data = {
+            "user_id": user_id,
             "order_id": dispute.order_id,
             "website_id": website_id,
             "category": dispute.category.value,
