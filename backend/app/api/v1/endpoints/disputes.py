@@ -10,6 +10,7 @@ from typing import Optional
 from loguru import logger
 from datetime import datetime
 import os
+import traceback
 from supabase import create_client
 
 from app.core.supabase import get_supabase_client
@@ -412,9 +413,116 @@ async def list_owner_disputes(
 
     except Exception as e:
         logger.error(f"Error listing owner disputes: {e}")
+        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list disputes: {str(e)}",
+        )
+
+
+@router.get("/owner/summary", response_model=DisputeSummary)
+async def get_dispute_summary(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get dispute summary/analytics for the business owner.
+    """
+    supabase = get_supabase_client()
+    user_id = current_user.get("sub")
+
+    try:
+        # Get owner's website IDs
+        websites = supabase.table("websites").select("id").eq(
+            "user_id", user_id
+        ).execute()
+
+        if not websites.data:
+            return DisputeSummary()
+
+        website_ids = [w["id"] for w in websites.data]
+
+        # Get all disputes for these websites
+        disputes = supabase.table("disputes").select("*").in_(
+            "website_id", website_ids
+        ).execute()
+
+        all_disputes = disputes.data or []
+
+        if not all_disputes:
+            return DisputeSummary()
+
+        # Calculate summary
+        total = len(all_disputes)
+        open_count = sum(
+            1
+            for d in all_disputes
+            if d["status"] in ("open", "under_review", "awaiting_response")
+        )
+        resolved_count = sum(
+            1 for d in all_disputes if d["status"] in ("resolved", "closed")
+        )
+        escalated_count = sum(
+            1 for d in all_disputes if d["status"] == "escalated"
+        )
+
+        total_refunded = sum(
+            float(d.get("refund_amount") or 0) for d in all_disputes
+        )
+
+        resolution_rate = (resolved_count / total * 100) if total > 0 else 0
+
+        # Count by category
+        by_category = {}
+        for d in all_disputes:
+            cat = d.get("category", "other")
+            by_category[cat] = by_category.get(cat, 0) + 1
+
+        # Count by priority
+        by_priority = {}
+        for d in all_disputes:
+            pri = d.get("priority", "medium")
+            by_priority[pri] = by_priority.get(pri, 0) + 1
+
+        # Calculate average resolution time
+        resolution_times = []
+        for d in all_disputes:
+            if d.get("resolved_at") and d.get("created_at"):
+                try:
+                    created = datetime.fromisoformat(
+                        d["created_at"].replace("Z", "+00:00")
+                    )
+                    resolved = datetime.fromisoformat(
+                        d["resolved_at"].replace("Z", "+00:00")
+                    )
+                    hours = (resolved - created).total_seconds() / 3600
+                    resolution_times.append(hours)
+                except (ValueError, TypeError):
+                    pass
+
+        avg_time = (
+            sum(resolution_times) / len(resolution_times)
+            if resolution_times
+            else None
+        )
+
+        return DisputeSummary(
+            total_disputes=total,
+            open_disputes=open_count,
+            resolved_disputes=resolved_count,
+            escalated_disputes=escalated_count,
+            avg_resolution_time_hours=round(avg_time, 1) if avg_time else None,
+            total_refunded=total_refunded,
+            resolution_rate=round(resolution_rate, 1),
+            by_category=by_category,
+            by_priority=by_priority,
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting dispute summary: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get summary: {str(e)}",
         )
 
 
@@ -710,111 +818,6 @@ async def resolve_dispute(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to resolve dispute: {str(e)}",
-        )
-
-
-@router.get("/owner/summary", response_model=DisputeSummary)
-async def get_dispute_summary(
-    current_user: dict = Depends(get_current_user),
-):
-    """
-    Get dispute summary/analytics for the business owner.
-    """
-    supabase = get_supabase_client()
-    user_id = current_user.get("sub")
-
-    try:
-        # Get owner's website IDs
-        websites = supabase.table("websites").select("id").eq(
-            "user_id", user_id
-        ).execute()
-
-        if not websites.data:
-            return DisputeSummary()
-
-        website_ids = [w["id"] for w in websites.data]
-
-        # Get all disputes for these websites
-        disputes = supabase.table("disputes").select("*").in_(
-            "website_id", website_ids
-        ).execute()
-
-        all_disputes = disputes.data or []
-
-        if not all_disputes:
-            return DisputeSummary()
-
-        # Calculate summary
-        total = len(all_disputes)
-        open_count = sum(
-            1
-            for d in all_disputes
-            if d["status"] in ("open", "under_review", "awaiting_response")
-        )
-        resolved_count = sum(
-            1 for d in all_disputes if d["status"] in ("resolved", "closed")
-        )
-        escalated_count = sum(
-            1 for d in all_disputes if d["status"] == "escalated"
-        )
-
-        total_refunded = sum(
-            float(d.get("refund_amount") or 0) for d in all_disputes
-        )
-
-        resolution_rate = (resolved_count / total * 100) if total > 0 else 0
-
-        # Count by category
-        by_category = {}
-        for d in all_disputes:
-            cat = d.get("category", "other")
-            by_category[cat] = by_category.get(cat, 0) + 1
-
-        # Count by priority
-        by_priority = {}
-        for d in all_disputes:
-            pri = d.get("priority", "medium")
-            by_priority[pri] = by_priority.get(pri, 0) + 1
-
-        # Calculate average resolution time
-        resolution_times = []
-        for d in all_disputes:
-            if d.get("resolved_at") and d.get("created_at"):
-                try:
-                    created = datetime.fromisoformat(
-                        d["created_at"].replace("Z", "+00:00")
-                    )
-                    resolved = datetime.fromisoformat(
-                        d["resolved_at"].replace("Z", "+00:00")
-                    )
-                    hours = (resolved - created).total_seconds() / 3600
-                    resolution_times.append(hours)
-                except (ValueError, TypeError):
-                    pass
-
-        avg_time = (
-            sum(resolution_times) / len(resolution_times)
-            if resolution_times
-            else None
-        )
-
-        return DisputeSummary(
-            total_disputes=total,
-            open_disputes=open_count,
-            resolved_disputes=resolved_count,
-            escalated_disputes=escalated_count,
-            avg_resolution_time_hours=round(avg_time, 1) if avg_time else None,
-            total_refunded=total_refunded,
-            resolution_rate=round(resolution_rate, 1),
-            by_category=by_category,
-            by_priority=by_priority,
-        )
-
-    except Exception as e:
-        logger.error(f"Error getting dispute summary: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get summary: {str(e)}",
         )
 
 
