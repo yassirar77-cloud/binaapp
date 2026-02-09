@@ -141,7 +141,9 @@ async def create_dispute(dispute: DisputeCreate, current_user: dict = Depends(ge
             "description": dispute.description,
             "evidence_urls": dispute.evidence_urls or [],
             "evidence_analysis": ai_analysis,
-            "severity": ai_analysis.get("severity_score"),
+            "severity": dispute_ai_service._map_severity_score_to_level(
+                ai_analysis.get("severity_score", 5)
+            ),
             "ai_decision": ai_analysis.get("recommended_resolution"),
             "ai_reasoning": ai_analysis.get("reasoning"),
             "ai_confidence": ai_analysis.get("category_confidence"),
@@ -152,6 +154,11 @@ async def create_dispute(dispute: DisputeCreate, current_user: dict = Depends(ge
         valid_decisions = {'approved', 'rejected', 'partial', 'escalated'}
         if dispute_data.get('ai_decision') not in valid_decisions:
             dispute_data['ai_decision'] = 'escalated'
+
+        # Safety: ensure severity is always a valid text level before insert
+        valid_severities = {'minor', 'medium', 'major', 'critical'}
+        if dispute_data.get('severity') not in valid_severities:
+            dispute_data['severity'] = 'medium'
 
         result = supabase.table("ai_disputes").insert(dispute_data).execute()
 

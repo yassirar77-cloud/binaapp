@@ -214,6 +214,18 @@ Respond with ONLY a valid JSON object (no markdown, no extra text):
     "risk_flags": [<list of any risk flags like "repeat_complaint", "high_value", "potential_fraud">]
 }}"""
 
+    def _map_severity_score_to_level(self, severity_score: int) -> str:
+        """Map integer severity score (1-10) to valid severity text level."""
+        score = max(1, min(10, int(severity_score)))
+        if score <= 3:
+            return 'minor'
+        elif score <= 5:
+            return 'medium'
+        elif score <= 7:
+            return 'major'
+        else:
+            return 'critical'
+
     def _map_to_valid_decision(self, ai_recommendation: str) -> str:
         """Map any AI recommendation to a valid ai_decision value."""
         VALID = {'approved', 'rejected', 'partial', 'escalated'}
