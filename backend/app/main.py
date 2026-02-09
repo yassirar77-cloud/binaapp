@@ -149,14 +149,36 @@ else:
 ALLOWED_ORIGINS = [
     "https://binaapp.my",
     "https://www.binaapp.my",
+    "https://admin.binaapp.my",
     "http://localhost:3000",
     "http://localhost:3001",
     "http://localhost:8000",
 ]
 
+# Add any extra origins from environment variable (comma-separated)
+_extra_origins = os.getenv("CORS_EXTRA_ORIGINS", "")
+if _extra_origins:
+    ALLOWED_ORIGINS.extend([o.strip() for o in _extra_origins.split(",") if o.strip()])
+
+# Regex to match Vercel preview/production deployments
+ALLOWED_ORIGIN_REGEX = r"^https://[\w-]+\.vercel\.app$"
+
+_vercel_origin_pattern = re.compile(ALLOWED_ORIGIN_REGEX)
+
+
+def is_allowed_origin(origin: str) -> bool:
+    """Check if an origin is allowed (explicit list or Vercel pattern)"""
+    if origin in ALLOWED_ORIGINS:
+        return True
+    if _vercel_origin_pattern.match(origin):
+        return True
+    return False
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -174,18 +196,15 @@ async def add_cors_headers(request: Request, call_next):
     """Add explicit CORS headers for browser compatibility"""
     origin = request.headers.get("origin", "")
 
-    # Check if the origin is in our allowed list
-    if origin in ALLOWED_ORIGINS:
-        allowed_origin = origin
-    else:
-        allowed_origin = ""
+    # Check if the origin is allowed (explicit list + Vercel pattern)
+    allowed_origin = origin if is_allowed_origin(origin) else ""
 
     # Handle preflight OPTIONS request
     if request.method == "OPTIONS" and allowed_origin:
         response = JSONResponse(content={"status": "ok"})
         response.headers["Access-Control-Allow-Origin"] = allowed_origin
-        response.headers["Access-Control-Allow-Methods"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With"
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Max-Age"] = "3600"
         return response
@@ -193,8 +212,8 @@ async def add_cors_headers(request: Request, call_next):
     response = await call_next(request)
     if allowed_origin:
         response.headers["Access-Control-Allow-Origin"] = allowed_origin
-        response.headers["Access-Control-Allow-Methods"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type, Accept, Origin, X-Requested-With"
         response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
 
