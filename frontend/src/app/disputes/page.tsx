@@ -48,6 +48,18 @@ const RESOLUTION_LABELS: Record<string, string> = {
   escalated: 'Escalated',
 }
 
+// Subscriber dispute categories (complaints against BinaApp)
+const SUBSCRIBER_CATEGORIES = [
+  { key: 'poor_design', icon: '\uD83C\uDFA8', label: 'Reka Bentuk Buruk', desc: 'Laman web yang dijana tidak memuaskan' },
+  { key: 'website_bug', icon: '\uD83C\uDF10', label: 'Masalah Laman Web', desc: 'Laman web tidak berfungsi dengan betul' },
+  { key: 'service_outage', icon: '\u26A1', label: 'Gangguan Perkhidmatan', desc: 'Platform BinaApp tidak boleh diakses' },
+  { key: 'payment_issue', icon: '\uD83D\uDCB3', label: 'Masalah Pembayaran', desc: 'Caj salah atau pembayaran gagal' },
+  { key: 'technical_problem', icon: '\uD83D\uDC1B', label: 'Masalah Teknikal', desc: 'Fungsi tidak berjalan seperti sepatutnya' },
+  { key: 'order_system', icon: '\uD83D\uDCF1', label: 'Masalah Pesanan', desc: 'Sistem pesanan atau penghantaran bermasalah' },
+  { key: 'chat_issue', icon: '\uD83D\uDCAC', label: 'Masalah Chat', desc: 'Chat widget tidak berfungsi' },
+  { key: 'other', icon: '\u2753', label: 'Lain-lain', desc: 'Masalah lain yang tidak disenaraikan' },
+] as const
+
 export default function DisputesPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -68,9 +80,20 @@ export default function DisputesPage() {
   const [refundAmount, setRefundAmount] = useState('')
   const [resolving, setResolving] = useState(false)
 
+  // Create subscriber dispute state
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createStep, setCreateStep] = useState<'form' | 'submitting' | 'result'>('form')
+  const [createCategory, setCreateCategory] = useState('')
+  const [createDescription, setCreateDescription] = useState('')
+  const [createWebsiteId, setCreateWebsiteId] = useState('')
+  const [createEvidence, setCreateEvidence] = useState<string[]>([])
+  const [createResult, setCreateResult] = useState<{ status: string; message: string; amount?: number } | null>(null)
+  const [websites, setWebsites] = useState<{ id: string; name: string }[]>([])
+
   useEffect(() => {
     loadDisputes()
     loadSummary()
+    loadWebsites()
   }, [activeTab])
 
   async function loadDisputes() {
@@ -247,6 +270,129 @@ export default function DisputesPage() {
     })
   }
 
+  async function loadWebsites() {
+    const token = getStoredToken()
+    if (!token) return
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/websites`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setWebsites((data.websites || data || []).map((w: any) => ({ id: w.id, name: w.name || w.business_name || w.domain || 'Website' })))
+      }
+    } catch (error) {
+      console.error('[Disputes] Error loading websites:', error)
+    }
+  }
+
+  function handleEvidenceUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files
+    if (!files) return
+    const remaining = 5 - createEvidence.length
+    const toProcess = Array.from(files).slice(0, remaining)
+    toProcess.forEach((file) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        setCreateEvidence((prev) => {
+          if (prev.length >= 5) return prev
+          return [...prev, reader.result as string]
+        })
+      }
+      reader.readAsDataURL(file)
+    })
+    e.target.value = ''
+  }
+
+  function removeEvidence(index: number) {
+    setCreateEvidence((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  function openCreateModal() {
+    setCreateStep('form')
+    setCreateCategory('')
+    setCreateDescription('')
+    setCreateWebsiteId('')
+    setCreateEvidence([])
+    setCreateResult(null)
+    setShowCreateModal(true)
+  }
+
+  function closeCreateModal() {
+    setShowCreateModal(false)
+    if (createResult) {
+      loadDisputes()
+      loadSummary()
+    }
+  }
+
+  async function submitSubscriberDispute() {
+    if (!createCategory || createDescription.length < 10) return
+
+    const token = getStoredToken()
+    if (!token) return
+
+    setCreateStep('submitting')
+    try {
+      const severity =
+        createCategory === 'service_outage' || createCategory === 'payment_issue'
+          ? 'high'
+          : createCategory === 'technical_problem' || createCategory === 'order_system'
+          ? 'medium'
+          : 'low'
+
+      const res = await fetch(`${API_BASE}/api/v1/disputes/create`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          category: createCategory,
+          description: createDescription,
+          severity,
+          website_id: createWebsiteId || undefined,
+          evidence: createEvidence.length > 0 ? createEvidence : undefined,
+        }),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        const status = data.status || data.ai_decision || 'under_review'
+        if (status === 'approved' || status === 'resolved') {
+          setCreateResult({
+            status: 'approved',
+            message: `BinaCredit RM${(data.refund_amount || data.credit_amount || 0).toFixed(2)} telah ditambah ke akaun anda`,
+            amount: data.refund_amount || data.credit_amount,
+          })
+        } else if (status === 'rejected') {
+          setCreateResult({
+            status: 'rejected',
+            message: 'Aduan tidak dapat disahkan. Anda boleh mengemukakan bukti tambahan.',
+          })
+        } else {
+          setCreateResult({
+            status: 'under_review',
+            message: 'Aduan anda telah dihantar untuk semakan lanjut',
+          })
+        }
+      } else {
+        setCreateResult({
+          status: 'under_review',
+          message: 'Aduan anda telah dihantar untuk semakan lanjut',
+        })
+      }
+      setCreateStep('result')
+    } catch (error) {
+      console.error('[Disputes] Error creating subscriber dispute:', error)
+      setCreateResult({
+        status: 'under_review',
+        message: 'Aduan anda telah dihantar. Kami akan menyemak secepat mungkin.',
+      })
+      setCreateStep('result')
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -263,6 +409,15 @@ export default function DisputesPage() {
               <p className="text-sm text-gray-500">AI-powered dispute management</p>
             </div>
           </div>
+          <button
+            onClick={openCreateModal}
+            className="px-4 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center gap-2 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Buat Aduan Baru
+          </button>
         </div>
       </header>
 
@@ -572,6 +727,194 @@ export default function DisputesPage() {
           </div>
         </div>
       </div>
+
+      {/* Create Subscriber Dispute Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="sticky top-0 bg-white rounded-t-2xl border-b border-gray-100 px-6 py-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-gray-900">
+                {createStep === 'form' ? 'Buat Aduan Baru' : createStep === 'submitting' ? 'Menghantar Aduan...' : 'Keputusan Aduan'}
+              </h3>
+              <button onClick={closeCreateModal} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Form Step */}
+            {createStep === 'form' && (
+              <div className="p-6 space-y-5">
+                {/* Category Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">Kategori Aduan</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {SUBSCRIBER_CATEGORIES.map((cat) => (
+                      <button
+                        key={cat.key}
+                        onClick={() => setCreateCategory(cat.key)}
+                        className={`text-left p-3 rounded-xl border-2 transition-all ${
+                          createCategory === cat.key
+                            ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-200'
+                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="text-xl">{cat.icon}</span>
+                        <p className="text-sm font-medium text-gray-800 mt-1">{cat.label}</p>
+                        <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{cat.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Terangkan masalah anda secara terperinci
+                  </label>
+                  <textarea
+                    value={createDescription}
+                    onChange={(e) => setCreateDescription(e.target.value)}
+                    placeholder="Sila terangkan masalah yang anda hadapi dengan BinaApp... (minimum 10 aksara)"
+                    rows={4}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">{createDescription.length}/500 aksara</p>
+                </div>
+
+                {/* Related Website */}
+                {websites.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Laman Web Berkaitan <span className="text-gray-400">(Pilihan)</span>
+                    </label>
+                    <select
+                      value={createWebsiteId}
+                      onChange={(e) => setCreateWebsiteId(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                      <option value="">-- Pilih laman web --</option>
+                      {websites.map((w) => (
+                        <option key={w.id} value={w.id}>{w.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Evidence Upload */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Bukti <span className="text-gray-400">(Pilihan, maks 5 gambar)</span>
+                  </label>
+                  <p className="text-xs text-gray-400 mb-2">Tangkap layar masalah, rekod pembayaran, dsb.</p>
+
+                  {/* Image Previews */}
+                  {createEvidence.length > 0 && (
+                    <div className="flex gap-2 mb-3 flex-wrap">
+                      {createEvidence.map((img, i) => (
+                        <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-200 group">
+                          <img src={img} alt={`Bukti ${i + 1}`} className="w-full h-full object-cover" />
+                          <button
+                            onClick={() => removeEvidence(i)}
+                            className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {createEvidence.length < 5 && (
+                    <label className="flex items-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/50 transition-colors">
+                      <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      <span className="text-sm text-gray-500">Muat naik gambar ({createEvidence.length}/5)</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleEvidenceUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  onClick={submitSubscriberDispute}
+                  disabled={!createCategory || createDescription.length < 10}
+                  className="w-full px-6 py-3 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Hantar Aduan
+                </button>
+              </div>
+            )}
+
+            {/* Submitting Step */}
+            {createStep === 'submitting' && (
+              <div className="p-12 text-center">
+                <div className="animate-spin w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full mx-auto mb-4" />
+                <p className="text-gray-700 font-medium">AI sedang menganalisis...</p>
+                <p className="text-gray-400 text-sm mt-1">Sila tunggu sebentar</p>
+              </div>
+            )}
+
+            {/* Result Step */}
+            {createStep === 'result' && createResult && (
+              <div className="p-8 text-center">
+                {createResult.status === 'approved' && (
+                  <>
+                    <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <h4 className="text-lg font-bold text-green-700 mb-2">Diluluskan</h4>
+                    <p className="text-sm text-gray-600">{createResult.message}</p>
+                  </>
+                )}
+                {createResult.status === 'rejected' && (
+                  <>
+                    <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-8 h-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </div>
+                    <h4 className="text-lg font-bold text-red-700 mb-2">Ditolak</h4>
+                    <p className="text-sm text-gray-600">{createResult.message}</p>
+                  </>
+                )}
+                {createResult.status === 'under_review' && (
+                  <>
+                    <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-8 h-8 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                      </svg>
+                    </div>
+                    <h4 className="text-lg font-bold text-yellow-700 mb-2">Dalam Semakan</h4>
+                    <p className="text-sm text-gray-600">{createResult.message}</p>
+                  </>
+                )}
+
+                <button
+                  onClick={closeCreateModal}
+                  className="mt-6 px-6 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+                >
+                  Tutup
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Resolve Modal */}
       {showResolveModal && selectedDispute && (
