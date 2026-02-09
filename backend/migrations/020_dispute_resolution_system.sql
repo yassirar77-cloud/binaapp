@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS public.dispute_messages (
     dispute_id UUID REFERENCES public.disputes(id) ON DELETE CASCADE NOT NULL,
 
     -- Sender
-    sender_type TEXT NOT NULL,           -- 'customer', 'owner', 'admin', 'ai', 'system'
+    sender_type TEXT NOT NULL DEFAULT 'user',  -- 'customer', 'owner', 'admin', 'ai', 'system', 'user'
     sender_id TEXT,
     sender_name TEXT,
 
@@ -137,12 +137,21 @@ CREATE TABLE IF NOT EXISTS public.dispute_messages (
     is_internal BOOLEAN DEFAULT false,   -- Internal notes (not visible to customer)
     metadata JSONB,                      -- Extra data (AI analysis results, etc.)
 
+    -- Read & Status Tracking
+    read_at TIMESTAMPTZ,                 -- When the message was read
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    status TEXT DEFAULT 'sent',          -- 'sent', 'delivered', 'read'
+    reply_to UUID REFERENCES public.dispute_messages(id) ON DELETE SET NULL,  -- Threading
+
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_dispute_messages_dispute ON public.dispute_messages(dispute_id);
 CREATE INDEX idx_dispute_messages_created ON public.dispute_messages(created_at DESC);
 CREATE INDEX idx_dispute_messages_sender ON public.dispute_messages(sender_type);
+CREATE INDEX idx_dispute_messages_reply_to ON public.dispute_messages(reply_to);
+CREATE INDEX idx_dispute_messages_read_at ON public.dispute_messages(read_at) WHERE read_at IS NULL;
+CREATE INDEX idx_dispute_messages_status ON public.dispute_messages(status);
 
 ALTER TABLE public.dispute_messages ENABLE ROW LEVEL SECURITY;
 
@@ -252,7 +261,7 @@ CREATE TRIGGER update_disputes_updated_at
 -- ===================================
 
 GRANT SELECT, INSERT, UPDATE ON public.disputes TO authenticated;
-GRANT SELECT, INSERT ON public.dispute_messages TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.dispute_messages TO authenticated;
 GRANT SELECT, INSERT ON public.dispute_status_history TO authenticated;
 
 GRANT SELECT, INSERT ON public.disputes TO anon;

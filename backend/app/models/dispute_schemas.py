@@ -65,6 +65,7 @@ class DisputeMessageSender(str, Enum):
     ADMIN = "admin"
     AI = "ai"
     SYSTEM = "system"
+    USER = "user"
 
 
 # =====================================================
@@ -156,10 +157,11 @@ class OwnerResponse(BaseModel):
 class DisputeMessageCreate(BaseModel):
     """Schema for creating a dispute message"""
     message: str = Field(..., min_length=1, max_length=2000)
-    sender_type: DisputeMessageSender
+    sender_type: DisputeMessageSender = DisputeMessageSender.CUSTOMER
     sender_name: Optional[str] = None
     attachments: Optional[List[str]] = None
     is_internal: bool = False
+    reply_to: Optional[str] = None
 
 
 class DisputeMessageResponse(BaseModel):
@@ -173,6 +175,10 @@ class DisputeMessageResponse(BaseModel):
     attachments: Optional[List[str]] = None
     is_internal: bool = False
     metadata: Optional[Dict[str, Any]] = None
+    read_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    status: str = "sent"
+    reply_to: Optional[str] = None
     created_at: datetime
 
     class Config:

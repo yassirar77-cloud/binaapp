@@ -321,7 +321,11 @@ async def add_customer_message(dispute_number: str, message: DisputeMessageCreat
             "message": message.message,
             "attachments": message.attachments or [],
             "is_internal": False,
+            "status": "sent",
         }
+
+        if message.reply_to:
+            msg_data["reply_to"] = message.reply_to
 
         result = supabase.table("dispute_messages").insert(msg_data).execute()
 
@@ -964,7 +968,11 @@ async def add_owner_message(
             "message": message.message,
             "attachments": message.attachments or [],
             "is_internal": message.is_internal,
+            "status": "sent",
         }
+
+        if message.reply_to:
+            msg_data["reply_to"] = message.reply_to
 
         result = supabase.table("dispute_messages").insert(msg_data).execute()
 
@@ -983,4 +991,62 @@ async def add_owner_message(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to send message: {str(e)}",
+        )
+
+
+@router.patch("/owner/{dispute_id}/messages/read")
+async def mark_messages_read(
+    dispute_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Mark all unread messages in a dispute as read for the business owner.
+    """
+    supabase = get_supabase_client()
+    user_id = current_user.get("sub")
+
+    try:
+        # Verify ownership
+        dispute = supabase.table("ai_disputes").select("website_id").eq(
+            "id", dispute_id
+        ).execute()
+
+        if not dispute.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Dispute not found",
+            )
+
+        website = supabase.table("websites").select("id").eq(
+            "id", dispute.data[0]["website_id"]
+        ).eq("user_id", user_id).execute()
+
+        if not website.data:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to this dispute",
+            )
+
+        # Mark unread messages as read (messages not sent by owner)
+        now = datetime.utcnow().isoformat()
+        supabase.table("dispute_messages").update({
+            "read_at": now,
+            "status": "read",
+        }).eq(
+            "dispute_id", dispute_id
+        ).is_(
+            "read_at", "null"
+        ).neq(
+            "sender_type", "owner"
+        ).execute()
+
+        return {"status": "success", "message": "Messages marked as read"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error marking messages as read: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to mark messages as read: {str(e)}",
         )
