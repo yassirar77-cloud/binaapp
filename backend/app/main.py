@@ -145,11 +145,19 @@ else:
     app.mount("/static", StaticFiles(directory=static_dir_str), name="static")
     logger.info(f"✅ Static directory created and mounted: {static_dir_str}")
 
-# CORS - CRITICAL: allow_credentials must be False when using wildcard origins
+# CORS - explicit origins for security and proper browser handling
+ALLOWED_ORIGINS = [
+    "https://binaapp.my",
+    "https://www.binaapp.my",
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:8000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow ALL origins for mobile compatibility
-    allow_credentials=False,  # Must be False when using "*"
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
@@ -163,20 +171,31 @@ app.middleware("http")(subscription_check_middleware)
 # Add CORS headers manually for preflight requests and mobile browsers
 @app.middleware("http")
 async def add_cors_headers(request: Request, call_next):
-    """Add explicit CORS headers for mobile browser compatibility"""
+    """Add explicit CORS headers for browser compatibility"""
+    origin = request.headers.get("origin", "")
+
+    # Check if the origin is in our allowed list
+    if origin in ALLOWED_ORIGINS:
+        allowed_origin = origin
+    else:
+        allowed_origin = ""
+
     # Handle preflight OPTIONS request
-    if request.method == "OPTIONS":
+    if request.method == "OPTIONS" and allowed_origin:
         response = JSONResponse(content={"status": "ok"})
-        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Origin"] = allowed_origin
         response.headers["Access-Control-Allow-Methods"] = "*"
         response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Max-Age"] = "3600"
         return response
 
     response = await call_next(request)
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "*"
+    if allowed_origin:
+        response.headers["Access-Control-Allow-Origin"] = allowed_origin
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
 
 # ============================================
