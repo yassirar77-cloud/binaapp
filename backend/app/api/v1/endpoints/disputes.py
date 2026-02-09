@@ -87,7 +87,7 @@ async def create_dispute(dispute: DisputeCreate):
         order = order_result.data[0]
 
         # 2. Check if a dispute already exists for this order
-        existing = supabase.table("disputes").select("id, dispute_number").eq(
+        existing = supabase.table("ai_disputes").select("id, dispute_number").eq(
             "order_id", dispute.order_id
         ).in_("status", ["open", "under_review", "awaiting_response"]).execute()
 
@@ -143,7 +143,7 @@ async def create_dispute(dispute: DisputeCreate):
             "priority": ai_analysis.get("priority", "medium"),
         }
 
-        result = supabase.table("disputes").insert(dispute_data).execute()
+        result = supabase.table("ai_disputes").insert(dispute_data).execute()
 
         if not result.data:
             raise HTTPException(
@@ -203,7 +203,7 @@ async def track_dispute(dispute_number: str):
     supabase = get_supabase_client()
 
     try:
-        result = supabase.table("disputes").select("*").eq(
+        result = supabase.table("ai_disputes").select("*").eq(
             "dispute_number", dispute_number
         ).execute()
 
@@ -235,7 +235,7 @@ async def get_dispute_messages_public(dispute_number: str):
 
     try:
         # Get dispute ID
-        dispute = supabase.table("disputes").select("id").eq(
+        dispute = supabase.table("ai_disputes").select("id").eq(
             "dispute_number", dispute_number
         ).execute()
 
@@ -276,7 +276,7 @@ async def add_customer_message(dispute_number: str, message: DisputeMessageCreat
 
     try:
         # Get dispute
-        dispute = supabase.table("disputes").select("id, status").eq(
+        dispute = supabase.table("ai_disputes").select("id, status").eq(
             "dispute_number", dispute_number
         ).execute()
 
@@ -332,7 +332,7 @@ async def get_disputes_for_order(order_id: str):
     supabase = get_supabase_client()
 
     try:
-        result = supabase.table("disputes").select("*").eq(
+        result = supabase.table("ai_disputes").select("*").eq(
             "order_id", order_id
         ).order("created_at", desc=True).execute()
 
@@ -383,7 +383,7 @@ async def list_owner_disputes(
         website_ids = [w["id"] for w in websites.data]
 
         # Build query
-        query = supabase.table("disputes").select(
+        query = supabase.table("ai_disputes").select(
             "*", count="exact"
         ).in_("website_id", website_ids)
 
@@ -442,7 +442,7 @@ async def get_dispute_summary(
         website_ids = [w["id"] for w in websites.data]
 
         # Get all disputes for these websites
-        disputes = supabase.table("disputes").select("*").in_(
+        disputes = supabase.table("ai_disputes").select("*").in_(
             "website_id", website_ids
         ).execute()
 
@@ -540,7 +540,7 @@ async def get_owner_dispute_detail(
 
     try:
         # Verify ownership
-        result = supabase.table("disputes").select("*").eq(
+        result = supabase.table("ai_disputes").select("*").eq(
             "id", dispute_id
         ).execute()
 
@@ -588,7 +588,7 @@ async def get_owner_dispute_messages(
 
     try:
         # Verify ownership
-        dispute = supabase.table("disputes").select("website_id").eq(
+        dispute = supabase.table("ai_disputes").select("website_id").eq(
             "id", dispute_id
         ).execute()
 
@@ -643,7 +643,7 @@ async def owner_respond_to_dispute(
 
     try:
         # Verify ownership
-        dispute_result = supabase.table("disputes").select("*").eq(
+        dispute_result = supabase.table("ai_disputes").select("*").eq(
             "id", dispute_id
         ).execute()
 
@@ -693,7 +693,7 @@ async def owner_respond_to_dispute(
             if response.proposed_refund_amount is not None:
                 update_data["refund_amount"] = response.proposed_refund_amount
 
-        supabase.table("disputes").update(update_data).eq(
+        supabase.table("ai_disputes").update(update_data).eq(
             "id", dispute_id
         ).execute()
 
@@ -744,7 +744,7 @@ async def resolve_dispute(
 
     try:
         # Verify ownership
-        dispute_result = supabase.table("disputes").select("*").eq(
+        dispute_result = supabase.table("ai_disputes").select("*").eq(
             "id", dispute_id
         ).execute()
 
@@ -784,7 +784,7 @@ async def resolve_dispute(
         if resolution.refund_amount is not None:
             update_data["refund_amount"] = resolution.refund_amount
 
-        supabase.table("disputes").update(update_data).eq(
+        supabase.table("ai_disputes").update(update_data).eq(
             "id", dispute_id
         ).execute()
 
@@ -861,7 +861,7 @@ async def escalate_dispute(
     user_id = current_user.get("sub")
 
     try:
-        dispute_result = supabase.table("disputes").select("*").eq(
+        dispute_result = supabase.table("ai_disputes").select("*").eq(
             "id", dispute_id
         ).execute()
 
@@ -874,7 +874,7 @@ async def escalate_dispute(
         dispute = dispute_result.data[0]
 
         # Update status to escalated
-        supabase.table("disputes").update({
+        supabase.table("ai_disputes").update({
             "status": "escalated",
             "priority": "urgent",
         }).eq("id", dispute_id).execute()
@@ -916,7 +916,7 @@ async def add_owner_message(
 
     try:
         # Verify ownership
-        dispute = supabase.table("disputes").select("website_id, status").eq(
+        dispute = supabase.table("ai_disputes").select("website_id, status").eq(
             "id", dispute_id
         ).execute()
 
