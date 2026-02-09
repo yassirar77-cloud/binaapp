@@ -378,7 +378,7 @@ export default function TrackDisputePage() {
               <h3 className="text-sm font-semibold text-gray-700 mb-4">Messages</h3>
 
               {messages.length === 0 ? (
-                <p className="text-gray-400 text-sm text-center py-4">No messages yet. We'll respond shortly.</p>
+                <p className="text-gray-400 text-sm text-center py-4">No messages yet. We&apos;ll respond shortly.</p>
               ) : (
                 <div className="space-y-3 mb-4">
                   {messages.map((msg) => (
