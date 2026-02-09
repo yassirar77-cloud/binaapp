@@ -64,6 +64,7 @@ class DisputeMessageSender(str, Enum):
     OWNER = "owner"
     ADMIN = "admin"
     AI = "ai"
+    AI_SYSTEM = "ai_system"
     SYSTEM = "system"
 
 
@@ -109,6 +110,7 @@ class DisputeResponse(BaseModel):
     resolution_notes: Optional[str] = None
     resolved_by: Optional[str] = None
     priority: str
+    ai_auto_reply_disabled: bool = False
     created_at: datetime
     updated_at: datetime
     reviewed_at: Optional[datetime] = None

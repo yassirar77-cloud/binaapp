@@ -422,6 +422,301 @@ Respond with ONLY a valid JSON object (no markdown, no extra text):
         }
         return responses.get(category, responses["other"])
 
+    # =====================================================
+    # AI AUTO-REPLY GENERATION
+    # =====================================================
+
+    AI_REPLY_SYSTEM_PROMPT = (
+        "You are BinaApp AI, a professional and empathetic customer service representative "
+        "for BinaApp, a Malaysian food delivery and restaurant platform. "
+        "You communicate in a warm, solution-oriented manner following Malaysian business "
+        "communication norms. You use polite language and show genuine concern for the customer. "
+        "You are bilingual in Bahasa Malaysia and English. "
+        "Always reply in the same language the customer used in their most recent message. "
+        "If unsure, default to Bahasa Malaysia. "
+        "Keep responses concise (2-4 paragraphs max). "
+        "Never make promises you cannot keep. "
+        "Always remind customers they can request to speak with a human operator."
+    )
+
+    async def generate_ai_reply(
+        self,
+        dispute_id: str,
+        trigger_type: str,
+        dispute_data: Dict[str, Any],
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+        customer_message: Optional[str] = None,
+    ) -> Optional[str]:
+        """
+        Generate an AI auto-reply for a dispute.
+
+        Args:
+            dispute_id: The dispute UUID
+            trigger_type: One of 'creation', 'customer_message', 'escalation'
+            dispute_data: Full dispute record from DB
+            conversation_history: List of previous messages in the dispute
+            customer_message: The latest customer message (for customer_message trigger)
+
+        Returns:
+            The generated reply text, or None if generation failed
+        """
+        try:
+            prompt = self._build_reply_prompt(
+                trigger_type, dispute_data, conversation_history, customer_message
+            )
+
+            # Try DeepSeek first
+            reply = None
+            if self.deepseek_api_key:
+                reply = await self._generate_reply_with_deepseek(prompt)
+
+            # Fallback to Anthropic
+            if not reply and self.anthropic_api_key:
+                reply = await self._generate_reply_with_anthropic(prompt)
+
+            # Fallback to template-based reply
+            if not reply:
+                reply = self._generate_template_reply(
+                    trigger_type, dispute_data
+                )
+
+            return reply
+
+        except Exception as e:
+            logger.error(f"Failed to generate AI reply for dispute {dispute_id}: {e}")
+            return self._generate_template_reply(trigger_type, dispute_data)
+
+    def _build_reply_prompt(
+        self,
+        trigger_type: str,
+        dispute_data: Dict[str, Any],
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+        customer_message: Optional[str] = None,
+    ) -> str:
+        """Build the prompt for AI reply generation based on trigger type."""
+        category = dispute_data.get("category", "other")
+        description = dispute_data.get("description", "")
+        evidence_analysis = dispute_data.get("evidence_analysis") or {}
+        severity = evidence_analysis.get("severity_score", dispute_data.get("ai_severity_score", 5))
+        recommendation = evidence_analysis.get(
+            "recommended_resolution",
+            dispute_data.get("ai_decision", "escalated"),
+        )
+        reasoning = evidence_analysis.get(
+            "reasoning", dispute_data.get("ai_reasoning", "")
+        )
+        dispute_number = dispute_data.get("dispute_number", "N/A")
+        status = dispute_data.get("status", "open")
+
+        # Build conversation context
+        convo_context = ""
+        if conversation_history:
+            convo_lines = []
+            for msg in conversation_history[-10:]:  # Last 10 messages for context
+                sender = msg.get("sender_name") or msg.get("sender_type", "unknown")
+                convo_lines.append(f"[{sender}]: {msg.get('message', '')}")
+            convo_context = "\n".join(convo_lines)
+
+        if trigger_type == "creation":
+            return f"""A new dispute has been created. Generate an initial AI response to the customer.
+
+Dispute #{dispute_number}
+Category: {category.replace('_', ' ').title()}
+Customer's complaint: {description}
+AI Analysis - Severity: {severity}/10
+AI Analysis - Recommendation: {recommendation}
+AI Analysis - Reasoning: {reasoning}
+
+Instructions:
+- Acknowledge the customer's complaint empathetically
+- Explain what the AI analysis found (severity level and recommendation) in simple terms
+- If recommendation is 'approved': Explain the resolution (refund/replacement) and that it will be processed within 1-3 business days
+- If recommendation is 'rejected': Explain politely why the claim could not be approved and suggest next steps (provide more evidence, contact support)
+- If recommendation is 'partial': Explain the partial resolution and why
+- If recommendation is 'escalated': Explain that the case needs human review and give estimated response time
+- Always mention they can request escalation to a human operator at any time
+- Reply in Bahasa Malaysia (default for new disputes)
+- Sign off as "BinaApp AI"
+"""
+
+        elif trigger_type == "customer_message":
+            return f"""A customer has sent a new message in an existing dispute. Generate a contextual AI reply.
+
+Dispute #{dispute_number}
+Category: {category.replace('_', ' ').title()}
+Original complaint: {description}
+Current status: {status}
+AI Analysis - Severity: {severity}/10
+AI Analysis - Recommendation: {recommendation}
+AI Analysis - Reasoning: {reasoning}
+
+Conversation history:
+{convo_context}
+
+Latest customer message: {customer_message or '(no message)'}
+
+Instructions:
+- Reply contextually based on what the customer is asking or saying
+- Reference the original dispute context when relevant
+- If the customer is asking for an update, provide the current status
+- If the customer provides new information/evidence, acknowledge it and explain it will be reviewed
+- If the customer is frustrated, be extra empathetic and offer escalation
+- Reply in the SAME LANGUAGE the customer used in their latest message
+- Keep it conversational and helpful
+- Sign off as "BinaApp AI"
+"""
+
+        elif trigger_type == "escalation":
+            return f"""A dispute has been escalated to human review. Generate an escalation notification message to the customer.
+
+Dispute #{dispute_number}
+Category: {category.replace('_', ' ').title()}
+Original complaint: {description}
+
+Conversation history:
+{convo_context}
+
+Instructions:
+- Inform the customer that their case has been escalated to a human operator
+- Explain that a human representative will review their case
+- Give an estimated response time of 1-2 business days (hari bekerja)
+- Reassure them that their case is being taken seriously
+- Thank them for their patience
+- Reply in Bahasa Malaysia
+- Sign off as "BinaApp AI"
+"""
+
+        return f"Generate a helpful customer service reply for dispute #{dispute_number} about {category}."
+
+    async def _generate_reply_with_deepseek(self, prompt: str) -> Optional[str]:
+        """Generate reply using DeepSeek API."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://api.deepseek.com/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.deepseek_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "deepseek-chat",
+                        "messages": [
+                            {"role": "system", "content": self.AI_REPLY_SYSTEM_PROMPT},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": 0.6,
+                        "max_tokens": 800,
+                    },
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    return data["choices"][0]["message"]["content"].strip()
+
+        except Exception as e:
+            logger.warning(f"DeepSeek reply generation failed: {e}")
+
+        return None
+
+    async def _generate_reply_with_anthropic(self, prompt: str) -> Optional[str]:
+        """Generate reply using Anthropic Claude API as fallback."""
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": self.anthropic_api_key,
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "claude-3-haiku-20240307",
+                        "max_tokens": 800,
+                        "messages": [
+                            {"role": "user", "content": prompt},
+                        ],
+                        "system": self.AI_REPLY_SYSTEM_PROMPT,
+                    },
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    return data["content"][0]["text"].strip()
+
+        except Exception as e:
+            logger.warning(f"Anthropic reply generation failed: {e}")
+
+        return None
+
+    def _generate_template_reply(
+        self,
+        trigger_type: str,
+        dispute_data: Dict[str, Any],
+    ) -> str:
+        """Generate a template-based reply when AI APIs are unavailable."""
+        category = dispute_data.get("category", "other")
+        dispute_number = dispute_data.get("dispute_number", "N/A")
+        evidence_analysis = dispute_data.get("evidence_analysis") or {}
+        recommendation = evidence_analysis.get(
+            "recommended_resolution",
+            dispute_data.get("ai_decision", "escalated"),
+        )
+
+        if trigger_type == "creation":
+            base_response = self._get_default_response(category)
+
+            if recommendation in ("approved",):
+                resolution_note = (
+                    "Berdasarkan analisis kami, aduan anda telah diluluskan. "
+                    "Bayaran balik akan diproses dalam masa 1-3 hari bekerja."
+                )
+            elif recommendation in ("rejected",):
+                resolution_note = (
+                    "Setelah semakan, kami memerlukan maklumat tambahan untuk memproses aduan anda. "
+                    "Sila berikan bukti tambahan jika ada."
+                )
+            elif recommendation in ("partial",):
+                resolution_note = (
+                    "Berdasarkan analisis kami, bayaran balik separa akan diproses. "
+                    "Kami akan menghubungi anda dengan butiran lanjut."
+                )
+            else:
+                resolution_note = (
+                    "Aduan anda sedang disemak oleh pasukan kami. "
+                    "Kami akan memberikan maklum balas dalam masa 1-2 hari bekerja."
+                )
+
+            return (
+                f"Terima kasih kerana menghubungi kami mengenai aduan #{dispute_number}.\n\n"
+                f"{base_response}\n\n"
+                f"{resolution_note}\n\n"
+                f"Jika anda ingin bercakap dengan wakil manusia, sila maklumkan kami.\n\n"
+                f"- BinaApp AI"
+            )
+
+        elif trigger_type == "customer_message":
+            return (
+                f"Terima kasih atas mesej anda mengenai aduan #{dispute_number}. "
+                f"Kami telah menerima mesej anda dan sedang menyemaknya. "
+                f"Kami akan memberikan maklum balas secepat mungkin.\n\n"
+                f"Jika anda ingin bercakap dengan wakil manusia, sila maklumkan kami.\n\n"
+                f"- BinaApp AI"
+            )
+
+        elif trigger_type == "escalation":
+            return (
+                f"Aduan #{dispute_number} anda telah dinaik taraf kepada pasukan sokongan manusia kami. "
+                f"Wakil kami akan menyemak kes anda dan menghubungi anda dalam masa 1-2 hari bekerja.\n\n"
+                f"Terima kasih atas kesabaran anda. Kami mengambil serius setiap aduan pelanggan.\n\n"
+                f"- BinaApp AI"
+            )
+
+        return (
+            f"Terima kasih kerana menghubungi kami. Aduan #{dispute_number} anda "
+            f"sedang diproses. Kami akan maklumkan anda sebarang perkembangan.\n\n"
+            f"- BinaApp AI"
+        )
+
     async def generate_resolution_summary(
         self, dispute_data: Dict[str, Any]
     ) -> str:
