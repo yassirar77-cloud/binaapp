@@ -179,19 +179,28 @@ async def create_dispute(dispute: DisputeCreate, current_user: dict = Depends(ge
             "message": f"Dispute #{dispute_record['dispute_number']} created{order_ref}. Category: {dispute.category.value.replace('_', ' ').title()}.",
         }).execute()
 
-        # 6. Add AI analysis message
-        if ai_analysis.get("suggested_response"):
-            supabase.table("dispute_messages").insert({
-                "dispute_id": dispute_record["id"],
-                "sender_type": "ai",
-                "sender_name": "AI Assistant",
-                "message": ai_analysis["suggested_response"],
-                "metadata": {
-                    "severity_score": ai_analysis.get("severity_score"),
-                    "recommended_resolution": ai_analysis.get("recommended_resolution"),
-                    "reasoning": ai_analysis.get("reasoning"),
-                },
-            }).execute()
+        # 6. Generate AI auto-reply message
+        try:
+            ai_reply = await dispute_ai_service.generate_ai_reply(
+                dispute_id=dispute_record["id"],
+                trigger_type="creation",
+                dispute_data=dispute_record,
+            )
+            if ai_reply:
+                supabase.table("dispute_messages").insert({
+                    "dispute_id": dispute_record["id"],
+                    "sender_type": "ai_system",
+                    "sender_name": "BinaApp AI",
+                    "message": ai_reply,
+                    "metadata": {
+                        "trigger_type": "creation",
+                        "severity_score": ai_analysis.get("severity_score"),
+                        "recommended_resolution": ai_analysis.get("recommended_resolution"),
+                        "reasoning": ai_analysis.get("reasoning"),
+                    },
+                }).execute()
+        except Exception as e:
+            logger.warning(f"Failed to generate AI auto-reply on creation: {e}")
 
         order_info = f"for order {order.get('order_number')}" if order else "(subscriber complaint)"
         logger.info(
@@ -291,12 +300,13 @@ async def get_dispute_messages_public(dispute_number: str):
 async def add_customer_message(dispute_number: str, message: DisputeMessageCreate):
     """
     Add a message from the customer to the dispute.
+    Triggers AI auto-reply if not disabled.
     """
     supabase = get_supabase_client()
 
     try:
-        # Get dispute
-        dispute = supabase.table("ai_disputes").select("id, status").eq(
+        # Get full dispute data (needed for AI reply context)
+        dispute = supabase.table("ai_disputes").select("*").eq(
             "dispute_number", dispute_number
         ).execute()
 
@@ -330,6 +340,35 @@ async def add_customer_message(dispute_number: str, message: DisputeMessageCreat
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to send message",
             )
+
+        # Trigger AI auto-reply if not disabled
+        if not dispute_data.get("ai_auto_reply_disabled", False):
+            try:
+                # Fetch conversation history for context
+                history = supabase.table("dispute_messages").select("*").eq(
+                    "dispute_id", dispute_data["id"]
+                ).eq("is_internal", False).order("created_at").execute()
+
+                ai_reply = await dispute_ai_service.generate_ai_reply(
+                    dispute_id=dispute_data["id"],
+                    trigger_type="customer_message",
+                    dispute_data=dispute_data,
+                    conversation_history=history.data or [],
+                    customer_message=message.message,
+                )
+
+                if ai_reply:
+                    supabase.table("dispute_messages").insert({
+                        "dispute_id": dispute_data["id"],
+                        "sender_type": "ai_system",
+                        "sender_name": "BinaApp AI",
+                        "message": ai_reply,
+                        "metadata": {
+                            "trigger_type": "customer_message",
+                        },
+                    }).execute()
+            except Exception as e:
+                logger.warning(f"Failed to generate AI auto-reply for customer message: {e}")
 
         return DisputeMessageResponse(**result.data[0])
 
@@ -907,6 +946,32 @@ async def escalate_dispute(
             "message": "This dispute has been escalated to the BinaApp platform team for review.",
         }).execute()
 
+        # Generate AI escalation notification to customer
+        try:
+            history = supabase.table("dispute_messages").select("*").eq(
+                "dispute_id", dispute_id
+            ).eq("is_internal", False).order("created_at").execute()
+
+            ai_reply = await dispute_ai_service.generate_ai_reply(
+                dispute_id=dispute_id,
+                trigger_type="escalation",
+                dispute_data=dispute,
+                conversation_history=history.data or [],
+            )
+
+            if ai_reply:
+                supabase.table("dispute_messages").insert({
+                    "dispute_id": dispute_id,
+                    "sender_type": "ai_system",
+                    "sender_name": "BinaApp AI",
+                    "message": ai_reply,
+                    "metadata": {
+                        "trigger_type": "escalation",
+                    },
+                }).execute()
+        except Exception as e:
+            logger.warning(f"Failed to generate AI escalation reply: {e}")
+
         logger.info(f"Dispute {dispute['dispute_number']} escalated to admin")
 
         return {"status": "success", "message": "Dispute escalated to platform admin"}
@@ -930,6 +995,7 @@ async def add_owner_message(
     """
     Add a message from the business owner to the dispute.
     Supports internal notes visible only to the owner.
+    When owner sends a public (non-internal) message, AI auto-reply is paused.
     """
     supabase = get_supabase_client()
     user_id = current_user.get("sub")
@@ -974,6 +1040,16 @@ async def add_owner_message(
                 detail="Failed to send message",
             )
 
+        # Pause AI auto-reply when owner sends a public message (takes over conversation)
+        if not message.is_internal:
+            supabase.table("ai_disputes").update({
+                "ai_auto_reply_disabled": True,
+            }).eq("id", dispute_id).execute()
+
+            logger.info(
+                f"AI auto-reply disabled for dispute {dispute_id} - owner took over"
+            )
+
         return DisputeMessageResponse(**result.data[0])
 
     except HTTPException:
@@ -983,4 +1059,65 @@ async def add_owner_message(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to send message: {str(e)}",
+        )
+
+
+@router.post("/owner/{dispute_id}/ai-auto-reply")
+async def toggle_ai_auto_reply(
+    dispute_id: str,
+    enabled: bool = Query(..., description="Set to true to enable AI auto-reply, false to disable"),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Toggle AI auto-reply for a specific dispute.
+    Owner can re-enable AI replies after taking over, or disable them.
+    """
+    supabase = get_supabase_client()
+    user_id = current_user.get("sub")
+
+    try:
+        # Verify ownership
+        dispute = supabase.table("ai_disputes").select("website_id, dispute_number").eq(
+            "id", dispute_id
+        ).execute()
+
+        if not dispute.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Dispute not found",
+            )
+
+        website = supabase.table("websites").select("id").eq(
+            "id", dispute.data[0]["website_id"]
+        ).eq("user_id", user_id).execute()
+
+        if not website.data:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have access to this dispute",
+            )
+
+        # Update the ai_auto_reply_disabled flag (inverted: enabled=True means disabled=False)
+        supabase.table("ai_disputes").update({
+            "ai_auto_reply_disabled": not enabled,
+        }).eq("id", dispute_id).execute()
+
+        state = "enabled" if enabled else "disabled"
+        logger.info(
+            f"AI auto-reply {state} for dispute {dispute.data[0]['dispute_number']} by owner"
+        )
+
+        return {
+            "status": "success",
+            "message": f"AI auto-reply {state} for this dispute",
+            "ai_auto_reply_enabled": enabled,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error toggling AI auto-reply: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to toggle AI auto-reply: {str(e)}",
         )
