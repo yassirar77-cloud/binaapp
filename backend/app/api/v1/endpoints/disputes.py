@@ -148,6 +148,11 @@ async def create_dispute(dispute: DisputeCreate, current_user: dict = Depends(ge
             "status": "open",
         }
 
+        # Safety: ensure ai_decision is always valid before insert
+        valid_decisions = {'approved', 'rejected', 'partial', 'escalated'}
+        if dispute_data.get('ai_decision') not in valid_decisions:
+            dispute_data['ai_decision'] = 'escalated'
+
         result = supabase.table("ai_disputes").insert(dispute_data).execute()
 
         if not result.data:
