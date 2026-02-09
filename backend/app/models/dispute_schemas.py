@@ -103,7 +103,7 @@ class DisputeResponse(BaseModel):
     ai_category_confidence: Optional[float] = None
     ai_severity_score: Optional[int] = None
     ai_recommendation: Optional[str] = None
-    ai_analysis: Optional[Dict[str, Any]] = None
+    ai_analysis: Optional[Dict[str, Any]] = Field(None, validation_alias="evidence_analysis")
     status: str
     resolution_type: Optional[str] = None
     resolution_notes: Optional[str] = None
@@ -117,6 +117,7 @@ class DisputeResponse(BaseModel):
 
     class Config:
         from_attributes = True
+        populate_by_name = True
 
 
 class DisputeListResponse(BaseModel):

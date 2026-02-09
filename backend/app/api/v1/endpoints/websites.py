@@ -269,7 +269,7 @@ async def list_websites(current_user: dict = Depends(get_current_user)):
 
                 result.append(WebsiteListResponse(
                     id=w["id"],
-                    business_name=w.get("business_name") or "Untitled",
+                    business_name=w.get("business_name") or w.get("name") or w.get("subdomain") or "Untitled",
                     subdomain=w.get("subdomain"),
                     full_url=f"https://{w['subdomain']}{settings.SUBDOMAIN_SUFFIX}" if w.get("subdomain") else None,
                     status=website_status,
