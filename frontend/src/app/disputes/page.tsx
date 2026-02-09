@@ -279,7 +279,7 @@ export default function DisputesPage() {
       })
       if (res.ok) {
         const data = await res.json()
-        setWebsites((data.websites || data || []).map((w: any) => ({ id: w.id, name: w.name || w.business_name || w.domain || 'Website' })))
+        setWebsites((data.websites || data || []).map((w: any, index: number) => ({ id: w.id, name: w.business_name || w.name || w.subdomain || `Laman Web ${index + 1}` })))
       }
     } catch (error) {
       console.error('[Disputes] Error loading websites:', error)

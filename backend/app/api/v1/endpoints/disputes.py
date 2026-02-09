@@ -148,7 +148,7 @@ async def create_dispute(dispute: DisputeCreate):
             "ai_category_confidence": ai_analysis.get("category_confidence"),
             "ai_severity_score": ai_analysis.get("severity_score"),
             "ai_recommendation": ai_analysis.get("recommended_resolution"),
-            "ai_analysis": ai_analysis,
+            "evidence_analysis": ai_analysis,
             "status": "open",
             "priority": ai_analysis.get("priority", "medium"),
         }
