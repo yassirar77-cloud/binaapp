@@ -199,7 +199,7 @@ Order Details:
 Dispute Category: {category} ({category_desc})
 Customer Description: {description}
 Order Amount: RM {order_amount:.2f}
-Disputed Amount: RM {disputed_amount:.2f if disputed_amount else order_amount:.2f}
+Disputed Amount: RM {(disputed_amount if disputed_amount is not None else order_amount):.2f}
 {order_info}
 
 Respond with ONLY a valid JSON object (no markdown, no extra text):
