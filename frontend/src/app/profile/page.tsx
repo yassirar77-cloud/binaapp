@@ -1314,6 +1314,12 @@ export default function ProfilePage() {
               >
                 📊 Dashboard
               </button>
+              <a
+                href="/disputes"
+                className="px-4 md:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm md:text-base min-h-[44px] text-gray-500 hover:text-gray-700 flex items-center"
+              >
+                ⚖️ <span className="hidden sm:inline ml-1">Disputes</span>
+              </a>
             </div>
 
             {/* Websites Tab */}
