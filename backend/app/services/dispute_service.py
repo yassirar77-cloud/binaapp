@@ -214,6 +214,44 @@ Respond with ONLY a valid JSON object (no markdown, no extra text):
     "risk_flags": [<list of any risk flags like "repeat_complaint", "high_value", "potential_fraud">]
 }}"""
 
+    def _map_to_valid_decision(self, ai_recommendation: str) -> str:
+        """Map any AI recommendation to a valid ai_decision value."""
+        VALID = {'approved', 'rejected', 'partial', 'escalated'}
+
+        MAP = {
+            # Negative responses
+            'apology': 'rejected',
+            'deny': 'rejected',
+            'reject': 'rejected',
+            'rejected': 'rejected',
+            'decline': 'rejected',
+            'inappropriate': 'rejected',
+            'invalid': 'rejected',
+            'no_action': 'rejected',
+            # Positive responses
+            'refund': 'approved',
+            'full_refund': 'approved',
+            'credit': 'approved',
+            'approve': 'approved',
+            'approved': 'approved',
+            'compensate': 'approved',
+            'replacement': 'approved',
+            # Partial
+            'partial_refund': 'partial',
+            'partial_credit': 'partial',
+            'partial': 'partial',
+            # Escalate
+            'escalate': 'escalated',
+            'escalated': 'escalated',
+            'investigate': 'escalated',
+            'review': 'escalated',
+        }
+
+        mapped = MAP.get(ai_recommendation.lower().strip(), None)
+        if mapped and mapped in VALID:
+            return mapped
+        return 'escalated'  # safe fallback
+
     def _parse_ai_response(
         self, content: str, category: str
     ) -> Optional[Dict[str, Any]]:
@@ -231,6 +269,7 @@ Respond with ONLY a valid JSON object (no markdown, no extra text):
             analysis = json.loads(content)
 
             # Validate and normalize fields
+            raw_resolution = analysis.get("recommended_resolution", "partial_refund")
             result = {
                 "category_confidence": min(
                     1.0, max(0.0, float(analysis.get("category_confidence", 0.5)))
@@ -238,9 +277,7 @@ Respond with ONLY a valid JSON object (no markdown, no extra text):
                 "severity_score": min(
                     10, max(1, int(analysis.get("severity_score", 5)))
                 ),
-                "recommended_resolution": analysis.get(
-                    "recommended_resolution", "partial_refund"
-                ),
+                "recommended_resolution": self._map_to_valid_decision(str(raw_resolution)),
                 "recommended_refund_percentage": analysis.get(
                     "recommended_refund_percentage"
                 ),
@@ -317,7 +354,7 @@ Respond with ONLY a valid JSON object (no markdown, no extra text):
         return {
             "category_confidence": 0.85,
             "severity_score": severity,
-            "recommended_resolution": resolution,
+            "recommended_resolution": self._map_to_valid_decision(resolution),
             "recommended_refund_percentage": refund_pct,
             "priority": priority,
             "reasoning": (
