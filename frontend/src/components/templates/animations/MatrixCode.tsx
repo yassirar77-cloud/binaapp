@@ -75,7 +75,7 @@ export default function MatrixCode({ isVisible }: MatrixCodeProps) {
           className="font-mono text-xs font-bold tracking-wider"
           style={{ color: '#34d399', textShadow: '0 0 8px rgba(52,211,153,0.5)' }}
         >
-          // ORDER NOW
+          {'// ORDER NOW'}
         </p>
       </div>
     </div>
