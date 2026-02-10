@@ -639,3 +639,205 @@ async def get_admin_actions(
     except Exception as e:
         logger.error(f"Get admin actions failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to get admin actions")
+
+
+# =====================================================
+# ADMIN DISPUTE CHAT (Owner Complaints)
+# =====================================================
+
+class AdminDisputeMessage(BaseModel):
+    message: str = Field(..., min_length=1)
+
+
+class AdminAwardCredit(BaseModel):
+    amount: float = Field(..., gt=0)
+    reason: Optional[str] = None
+
+
+@router.get("/disputes/{dispute_id}/messages")
+async def get_dispute_messages(
+    dispute_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get all messages for a specific dispute (admin view)."""
+    _verify_admin(current_user)
+    supabase = get_supabase_client()
+
+    try:
+        result = supabase.table("dispute_messages").select("*").eq(
+            "dispute_id", dispute_id
+        ).eq("is_internal", False).order("created_at").execute()
+        return {"messages": result.data or []}
+    except Exception as e:
+        logger.error(f"Get dispute messages failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get dispute messages")
+
+
+@router.post("/disputes/{dispute_id}/message")
+async def admin_send_dispute_message(
+    dispute_id: str,
+    request: AdminDisputeMessage,
+    current_user: dict = Depends(get_current_user),
+):
+    """Admin sends a message in an owner dispute. Disables AI auto-reply for this dispute."""
+    admin_id = _verify_admin(current_user)
+    supabase = get_supabase_client()
+
+    try:
+        # Verify dispute exists
+        dispute_result = supabase.table("ai_disputes").select("id, dispute_number").eq(
+            "id", dispute_id
+        ).execute()
+        if not dispute_result.data:
+            raise HTTPException(status_code=404, detail="Dispute not found")
+
+        # Save admin message
+        supabase.table("dispute_messages").insert({
+            "dispute_id": dispute_id,
+            "sender_type": "admin",
+            "sender_name": "BinaApp Admin",
+            "message": request.message,
+            "is_internal": False,
+            "metadata": {"admin_user_id": admin_id},
+        }).execute()
+
+        # Disable AI auto-reply — admin is handling this dispute
+        supabase.table("ai_disputes").update({
+            "ai_auto_reply_disabled": True,
+        }).eq("id", dispute_id).execute()
+
+        # Log admin action
+        supabase.table("admin_actions").insert({
+            "id": str(uuid.uuid4()),
+            "admin_user_id": admin_id,
+            "target_type": "dispute",
+            "target_id": dispute_id,
+            "action": "dispute_message",
+            "notes": request.message[:200],
+        }).execute()
+
+        logger.info(f"Admin sent message in dispute {dispute_id}, AI disabled")
+        return {"status": "sent", "dispute_id": dispute_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Admin send dispute message failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send message")
+
+
+@router.post("/disputes/{dispute_id}/credit")
+async def admin_award_dispute_credit(
+    dispute_id: str,
+    request: AdminAwardCredit,
+    current_user: dict = Depends(get_current_user),
+):
+    """Award BinaCredit to the dispute owner as compensation."""
+    admin_id = _verify_admin(current_user)
+    supabase = get_supabase_client()
+
+    try:
+        # Get dispute to find the owner
+        dispute_result = supabase.table("ai_disputes").select(
+            "id, dispute_number, website_id"
+        ).eq("id", dispute_id).execute()
+        if not dispute_result.data:
+            raise HTTPException(status_code=404, detail="Dispute not found")
+
+        dispute_data = dispute_result.data[0]
+
+        # Find the website owner
+        website_result = supabase.table("websites").select("user_id").eq(
+            "id", dispute_data["website_id"]
+        ).execute()
+        if not website_result.data:
+            raise HTTPException(status_code=404, detail="Website owner not found")
+
+        user_id = website_result.data[0]["user_id"]
+
+        # Update credit balance
+        wallet_result = supabase.table("bina_credits").select("balance").eq(
+            "user_id", user_id
+        ).execute()
+        if wallet_result.data:
+            new_balance = float(wallet_result.data[0].get("balance", 0)) + request.amount
+            supabase.table("bina_credits").update({"balance": new_balance}).eq(
+                "user_id", user_id
+            ).execute()
+        else:
+            new_balance = request.amount
+            supabase.table("bina_credits").insert({
+                "user_id": user_id, "balance": new_balance
+            }).execute()
+
+        # Record transaction
+        supabase.table("credit_transactions").insert({
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "type": "earned",
+            "amount": request.amount,
+            "description": request.reason or f"Pampasan aduan #{dispute_data.get('dispute_number', '')}",
+            "source": "admin",
+        }).execute()
+
+        # Add system message in dispute chat
+        supabase.table("dispute_messages").insert({
+            "dispute_id": dispute_id,
+            "sender_type": "system",
+            "sender_name": "System",
+            "message": f"Admin telah memberi pampasan BinaCredit RM{request.amount:.2f} kepada pemilik.",
+            "is_internal": False,
+        }).execute()
+
+        # Log admin action
+        supabase.table("admin_actions").insert({
+            "id": str(uuid.uuid4()),
+            "admin_user_id": admin_id,
+            "target_type": "dispute",
+            "target_id": dispute_id,
+            "action": "award_dispute_credit",
+            "details": {"amount": request.amount, "user_id": user_id},
+            "notes": request.reason,
+        }).execute()
+
+        logger.info(f"Admin awarded RM{request.amount} BinaCredit for dispute {dispute_id}")
+        return {
+            "status": "credited",
+            "amount": request.amount,
+            "new_balance": new_balance,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Admin award dispute credit failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to award credit")
+
+
+@router.post("/disputes/{dispute_id}/toggle-ai")
+async def admin_toggle_dispute_ai(
+    dispute_id: str,
+    enabled: bool = Query(..., description="Enable or disable AI auto-reply"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Admin re-enables or disables AI auto-reply for a dispute."""
+    admin_id = _verify_admin(current_user)
+    supabase = get_supabase_client()
+
+    try:
+        dispute_result = supabase.table("ai_disputes").select("id").eq(
+            "id", dispute_id
+        ).execute()
+        if not dispute_result.data:
+            raise HTTPException(status_code=404, detail="Dispute not found")
+
+        supabase.table("ai_disputes").update({
+            "ai_auto_reply_disabled": not enabled,
+        }).eq("id", dispute_id).execute()
+
+        state = "enabled" if enabled else "disabled"
+        logger.info(f"Admin {state} AI auto-reply for dispute {dispute_id}")
+        return {"status": "success", "ai_auto_reply_enabled": enabled}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Admin toggle dispute AI failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to toggle AI")

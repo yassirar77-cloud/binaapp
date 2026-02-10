@@ -77,7 +77,55 @@ interface MonitorEvent {
   user_id?: string
 }
 
-type ActiveTab = 'overview' | 'disputes' | 'chats' | 'restaurants' | 'monitor'
+interface OwnerDispute {
+  id: string
+  dispute_number?: string
+  category?: string
+  description?: string
+  status: string
+  created_at?: string
+  ai_auto_reply_disabled?: boolean
+  website_id?: string
+}
+
+interface DisputeMessage {
+  id: string
+  dispute_id: string
+  sender_type: string
+  sender_name: string
+  message: string
+  created_at?: string
+  metadata?: Record<string, unknown>
+}
+
+// Owner complaint categories (matches backend OWNER_COMPLAINT_CATEGORIES)
+const OWNER_COMPLAINT_CATEGORIES = new Set([
+  'poor_design', 'reka_bentuk_buruk',
+  'website_bug', 'website_issue', 'masalah_laman_web',
+  'service_outage', 'service_disruption', 'gangguan_perkhidmatan',
+  'payment_issue', 'masalah_pembayaran',
+  'technical_problem', 'technical_issue', 'masalah_teknikal',
+  'order_system', 'order_issue', 'masalah_pesanan',
+  'chat_issue', 'masalah_chat',
+  'other', 'lain_lain',
+])
+
+const OWNER_CATEGORY_LABELS: Record<string, string> = {
+  poor_design: 'Reka Bentuk Buruk',
+  website_bug: 'Bug Laman Web',
+  website_issue: 'Masalah Laman Web',
+  service_outage: 'Gangguan Perkhidmatan',
+  service_disruption: 'Gangguan Perkhidmatan',
+  payment_issue: 'Masalah Pembayaran',
+  technical_problem: 'Masalah Teknikal',
+  technical_issue: 'Masalah Teknikal',
+  order_system: 'Masalah Pesanan',
+  order_issue: 'Masalah Pesanan',
+  chat_issue: 'Masalah Chat',
+  other: 'Lain-lain',
+}
+
+type ActiveTab = 'overview' | 'disputes' | 'owner_complaints' | 'chats' | 'restaurants' | 'monitor'
 
 export default function AdminPage() {
   const router = useRouter()
@@ -91,6 +139,13 @@ export default function AdminPage() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [monitorEvents, setMonitorEvents] = useState<MonitorEvent[]>([])
+  // Owner complaints state
+  const [ownerDisputes, setOwnerDisputes] = useState<OwnerDispute[]>([])
+  const [selectedDisputeId, setSelectedDisputeId] = useState<string | null>(null)
+  const [disputeMessages, setDisputeMessages] = useState<DisputeMessage[]>([])
+  const [adminDisputeMsg, setAdminDisputeMsg] = useState('')
+  const [sendingDisputeMsg, setSendingDisputeMsg] = useState(false)
+  const [creditAmount, setCreditAmount] = useState('')
 
   const apiFetch = useCallback(async (path: string, options?: RequestInit) => {
     const token = getStoredToken()
@@ -140,6 +195,11 @@ export default function AdminPage() {
         if (activeTab === 'disputes') {
           const data = await apiFetch('/api/v1/admin/disputes/escalated')
           setDisputes(data.disputes || [])
+        } else if (activeTab === 'owner_complaints') {
+          // Fetch all disputes and filter to owner complaints client-side
+          const data = await apiFetch('/api/v1/admin/disputes?limit=200')
+          const all = (data.disputes || []) as OwnerDispute[]
+          setOwnerDisputes(all.filter((d) => d.category && OWNER_COMPLAINT_CATEGORIES.has(d.category)))
         } else if (activeTab === 'chats') {
           const data = await apiFetch('/api/v1/admin/chats/escalated')
           setChats(data.chats || [])
@@ -223,6 +283,84 @@ export default function AdminPage() {
     setRestaurants(data.restaurants || [])
   }
 
+  // Owner complaint handlers
+  const handleViewDispute = async (disputeId: string) => {
+    setSelectedDisputeId(disputeId)
+    try {
+      const data = await apiFetch(`/api/v1/admin/disputes/${disputeId}/messages`)
+      setDisputeMessages(data.messages || [])
+    } catch (err) {
+      console.error('Failed to load dispute messages:', err)
+    }
+  }
+
+  const handleSendDisputeMessage = async () => {
+    if (!adminDisputeMsg.trim() || !selectedDisputeId || sendingDisputeMsg) return
+    setSendingDisputeMsg(true)
+    try {
+      await apiFetch(`/api/v1/admin/disputes/${selectedDisputeId}/message`, {
+        method: 'POST',
+        body: JSON.stringify({ message: adminDisputeMsg.trim() }),
+      })
+      setAdminDisputeMsg('')
+      // Reload messages
+      const data = await apiFetch(`/api/v1/admin/disputes/${selectedDisputeId}/messages`)
+      setDisputeMessages(data.messages || [])
+    } catch (err) {
+      console.error('Failed to send dispute message:', err)
+    } finally {
+      setSendingDisputeMsg(false)
+    }
+  }
+
+  const handleResolveDispute = async (disputeId: string) => {
+    const notes = prompt('Nota penyelesaian:')
+    if (!notes) return
+    try {
+      await apiFetch(`/api/v1/admin/disputes/${disputeId}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({ resolution_type: 'issue_resolved', notes }),
+      })
+      setOwnerDisputes((prev) => prev.map((d) => d.id === disputeId ? { ...d, status: 'resolved' } : d))
+      if (selectedDisputeId === disputeId) {
+        const data = await apiFetch(`/api/v1/admin/disputes/${disputeId}/messages`)
+        setDisputeMessages(data.messages || [])
+      }
+    } catch (err) {
+      console.error('Failed to resolve dispute:', err)
+    }
+  }
+
+  const handleAwardCredit = async (disputeId: string) => {
+    const amount = parseFloat(creditAmount)
+    if (!amount || amount <= 0) return
+    try {
+      await apiFetch(`/api/v1/admin/disputes/${disputeId}/credit`, {
+        method: 'POST',
+        body: JSON.stringify({ amount, reason: 'Pampasan aduan pemilik' }),
+      })
+      setCreditAmount('')
+      // Reload messages to show system message
+      const data = await apiFetch(`/api/v1/admin/disputes/${disputeId}/messages`)
+      setDisputeMessages(data.messages || [])
+    } catch (err) {
+      console.error('Failed to award credit:', err)
+    }
+  }
+
+  const handleToggleDisputeAI = async (disputeId: string, enable: boolean) => {
+    try {
+      await apiFetch(`/api/v1/admin/disputes/${disputeId}/toggle-ai?enabled=${enable}`, {
+        method: 'POST',
+      })
+      setOwnerDisputes((prev) =>
+        prev.map((d) => d.id === disputeId ? { ...d, ai_auto_reply_disabled: !enable } : d)
+      )
+    } catch (err) {
+      console.error('Failed to toggle AI:', err)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -249,9 +387,12 @@ export default function AdminPage() {
     )
   }
 
+  const openOwnerComplaints = ownerDisputes.filter((d) => d.status === 'open' || d.status === 'escalated').length
+
   const tabs: { key: ActiveTab; label: string }[] = [
     { key: 'overview', label: 'Gambaran' },
     { key: 'disputes', label: `Aduan (${stats?.escalated_disputes || 0})` },
+    { key: 'owner_complaints', label: `Aduan Pemilik${openOwnerComplaints > 0 ? ` (${openOwnerComplaints})` : ''}` },
     { key: 'chats', label: `Chat (${stats?.escalated_chats || 0})` },
     { key: 'restaurants', label: 'Restoran' },
     { key: 'monitor', label: `Monitor (${stats?.monitor_events_unacknowledged || 0})` },
@@ -332,6 +473,218 @@ export default function AdminPage() {
                   onReject={handleRejectDispute}
                 />
               ))
+            )}
+          </div>
+        )}
+
+        {/* Owner Complaints */}
+        {activeTab === 'owner_complaints' && (
+          <div className="space-y-4">
+            <h2 className="text-base font-semibold text-gray-700">Aduan Pemilik (Owner Complaints)</h2>
+
+            {/* Status filter pills */}
+            <div className="flex gap-2 text-xs">
+              <span className="px-2 py-1 bg-red-100 text-red-700 rounded-full">
+                Buka: {ownerDisputes.filter((d) => d.status === 'open').length}
+              </span>
+              <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full">
+                Eskalasi: {ownerDisputes.filter((d) => d.status === 'escalated').length}
+              </span>
+              <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full">
+                Selesai: {ownerDisputes.filter((d) => d.status === 'resolved' || d.status === 'closed').length}
+              </span>
+            </div>
+
+            {selectedDisputeId ? (
+              // Chat view for selected dispute
+              (() => {
+                const dispute = ownerDisputes.find((d) => d.id === selectedDisputeId)
+                return (
+                  <div className="space-y-4">
+                    <button
+                      onClick={() => { setSelectedDisputeId(null); setDisputeMessages([]); setAdminDisputeMsg('') }}
+                      className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1"
+                    >
+                      &larr; Kembali ke senarai
+                    </button>
+
+                    {/* Dispute info header */}
+                    <div className="border rounded-xl bg-white p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold text-gray-800">
+                          Aduan #{dispute?.dispute_number || dispute?.id.slice(0, 8)}
+                        </h3>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          dispute?.status === 'open' ? 'bg-red-100 text-red-700' :
+                          dispute?.status === 'escalated' ? 'bg-yellow-100 text-yellow-700' :
+                          dispute?.status === 'resolved' ? 'bg-green-100 text-green-700' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {dispute?.status}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-500 space-y-1">
+                        <p>Kategori: {dispute?.category ? (OWNER_CATEGORY_LABELS[dispute.category] || dispute.category) : '-'}</p>
+                        <p className="text-gray-600">{dispute?.description}</p>
+                        {dispute?.created_at && (
+                          <p>Tarikh: {new Date(dispute.created_at).toLocaleString('ms-MY')}</p>
+                        )}
+                        <p>
+                          AI Auto-reply: {dispute?.ai_auto_reply_disabled ? (
+                            <button onClick={() => handleToggleDisputeAI(selectedDisputeId, true)} className="text-blue-600 hover:underline ml-1">Dimatikan - Aktifkan?</button>
+                          ) : (
+                            <button onClick={() => handleToggleDisputeAI(selectedDisputeId, false)} className="text-green-600 hover:underline ml-1">Aktif - Matikan?</button>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Messages */}
+                    <div className="border rounded-xl bg-white overflow-hidden flex flex-col max-h-[500px]">
+                      <div className="p-3 border-b bg-gray-50">
+                        <span className="text-sm font-semibold text-gray-700">Perbualan</span>
+                      </div>
+                      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                        {disputeMessages.length === 0 ? (
+                          <p className="text-center text-gray-400 text-sm py-8">Tiada mesej.</p>
+                        ) : (
+                          disputeMessages.map((msg) => {
+                            const isOwner = msg.sender_type === 'owner'
+                            const isAdmin = msg.sender_type === 'admin'
+                            const isAI = msg.sender_type === 'ai_system'
+                            const isSystem = msg.sender_type === 'system'
+
+                            return (
+                              <div key={msg.id} className={`flex ${isOwner ? 'justify-end' : 'justify-start'}`}>
+                                <div className="max-w-[80%]">
+                                  <p className={`text-[10px] mb-0.5 ${isOwner ? 'text-right' : ''} text-gray-400`}>
+                                    {msg.sender_name}
+                                  </p>
+                                  <div className={`rounded-xl px-3 py-2 text-sm ${
+                                    isOwner ? 'bg-blue-600 text-white' :
+                                    isAdmin ? 'bg-amber-50 text-amber-800 border border-amber-200' :
+                                    isAI ? 'bg-gray-100 text-gray-800' :
+                                    isSystem ? 'bg-purple-50 text-purple-700 border border-purple-200' :
+                                    'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    <p className="whitespace-pre-wrap break-words">{msg.message}</p>
+                                  </div>
+                                  {msg.created_at && (
+                                    <p className={`text-[10px] mt-0.5 text-gray-400 ${isOwner ? 'text-right' : ''}`}>
+                                      {new Date(msg.created_at).toLocaleString('ms-MY')}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+
+                      {/* Admin message input */}
+                      <div className="border-t p-3 bg-gray-50">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={adminDisputeMsg}
+                            onChange={(e) => setAdminDisputeMsg(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSendDisputeMessage()}
+                            placeholder="Balas sebagai admin..."
+                            className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                            disabled={sendingDisputeMsg}
+                          />
+                          <button
+                            onClick={handleSendDisputeMessage}
+                            disabled={!adminDisputeMsg.trim() || sendingDisputeMsg}
+                            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                          >
+                            {sendingDisputeMsg ? '...' : 'Hantar'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex gap-2 flex-wrap">
+                      {dispute?.status !== 'resolved' && dispute?.status !== 'closed' && (
+                        <button
+                          onClick={() => handleResolveDispute(selectedDisputeId)}
+                          className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                        >
+                          Selesai
+                        </button>
+                      )}
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          value={creditAmount}
+                          onChange={(e) => setCreditAmount(e.target.value)}
+                          placeholder="RM"
+                          className="w-20 border rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-blue-400"
+                          min="0"
+                          step="0.50"
+                        />
+                        <button
+                          onClick={() => handleAwardCredit(selectedDisputeId)}
+                          disabled={!creditAmount || parseFloat(creditAmount) <= 0}
+                          className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                        >
+                          Beri BinaCredit
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()
+            ) : (
+              // Dispute list
+              <>
+                {ownerDisputes.length === 0 ? (
+                  <p className="text-center py-12 text-gray-400">Tiada aduan pemilik.</p>
+                ) : (
+                  ownerDisputes.map((dispute) => (
+                    <div
+                      key={dispute.id}
+                      onClick={() => handleViewDispute(dispute.id)}
+                      className="border rounded-lg bg-white p-4 cursor-pointer hover:shadow-sm transition-shadow"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-medium text-gray-800">
+                              Aduan #{dispute.dispute_number || dispute.id.slice(0, 8)}
+                            </span>
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              dispute.status === 'open' ? 'bg-red-100 text-red-700' :
+                              dispute.status === 'escalated' ? 'bg-yellow-100 text-yellow-700' :
+                              dispute.status === 'resolved' ? 'bg-green-100 text-green-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>
+                              {dispute.status}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 mb-1">
+                            {dispute.category ? (OWNER_CATEGORY_LABELS[dispute.category] || dispute.category) : '-'}
+                          </p>
+                          <p className="text-sm text-gray-600 line-clamp-1">{dispute.description}</p>
+                        </div>
+                        <div className="text-right ml-3 shrink-0">
+                          {dispute.ai_auto_reply_disabled ? (
+                            <span className="text-[10px] text-red-500">AI mati</span>
+                          ) : (
+                            <span className="text-[10px] text-green-500">AI aktif</span>
+                          )}
+                          {dispute.created_at && (
+                            <p className="text-[10px] text-gray-400 mt-1">
+                              {new Date(dispute.created_at).toLocaleDateString('ms-MY')}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </>
             )}
           </div>
         )}
