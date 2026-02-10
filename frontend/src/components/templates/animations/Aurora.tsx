@@ -77,7 +77,7 @@ export default function Aurora() {
         </span>
       </div>
 
-      <style jsx>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes auroraFlow {
           0%, 100% { transform: translateX(-10%) skewY(-5deg) scaleY(1); }
           33% { transform: translateX(10%) skewY(3deg) scaleY(1.3); }
@@ -87,7 +87,7 @@ export default function Aurora() {
           0%, 100% { opacity: 0.3; }
           50% { opacity: 1; }
         }
-      `}</style>
+      `}} />
     </div>
   )
 }

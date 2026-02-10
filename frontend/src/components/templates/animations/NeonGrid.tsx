@@ -58,7 +58,7 @@ export default function NeonGrid() {
         </p>
       </div>
 
-      <style jsx>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes gridMove {
           0% { background-position: 0 0; }
           100% { background-position: 0 40px; }
@@ -67,7 +67,7 @@ export default function NeonGrid() {
           0%, 100% { opacity: 0.5; transform: scale(1); }
           50% { opacity: 1; transform: scale(1.2); }
         }
-      `}</style>
+      `}} />
     </div>
   )
 }

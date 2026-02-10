@@ -38,12 +38,12 @@ export default function GradientWave() {
         <p className="text-white/50 text-[10px] mt-1">Rasa yang tidak terlupa</p>
       </div>
 
-      <style jsx>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes waveSlide {
           0% { transform: translateX(0); }
           100% { transform: translateX(-50%); }
         }
-      `}</style>
+      `}} />
     </div>
   )
 }
