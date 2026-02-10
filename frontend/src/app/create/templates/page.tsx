@@ -200,7 +200,7 @@ export default function TemplateGalleryPage() {
       </main>
 
       {/* Global keyframe for card entrance animation */}
-      <style jsx global>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes fadeUp {
           from {
             opacity: 0;
@@ -211,7 +211,7 @@ export default function TemplateGalleryPage() {
             transform: translateY(0);
           }
         }
-      `}</style>
+      `}} />
     </div>
   )
 }

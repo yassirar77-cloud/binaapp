@@ -50,12 +50,12 @@ export default function ParallaxLayers() {
         </span>
       </div>
 
-      <style jsx>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes parallaxFloat {
           0%, 100% { transform: translateY(0); }
           50% { transform: translateY(calc(var(--y-offset, 10px) * -1)); }
         }
-      `}</style>
+      `}} />
     </div>
   )
 }

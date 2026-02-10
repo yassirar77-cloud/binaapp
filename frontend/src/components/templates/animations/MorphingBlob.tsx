@@ -35,7 +35,7 @@ export default function MorphingBlob() {
         </span>
       </div>
 
-      <style jsx>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes blobMorph {
           0%   { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
           25%  { border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%; }
@@ -43,7 +43,7 @@ export default function MorphingBlob() {
           75%  { border-radius: 60% 30% 60% 40% / 70% 50% 40% 60%; }
           100% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
         }
-      `}</style>
+      `}} />
     </div>
   )
 }

@@ -58,7 +58,7 @@ export default function Spotlight() {
         </span>
       </div>
 
-      <style jsx>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes spotlightMove {
           0% { top: 10%; left: 10%; }
           25% { top: 10%; left: 60%; }
@@ -70,7 +70,7 @@ export default function Spotlight() {
           0%, 100% { transform: scale(1); opacity: 0.7; }
           50% { transform: scale(1.1); opacity: 1; }
         }
-      `}</style>
+      `}} />
     </div>
   )
 }

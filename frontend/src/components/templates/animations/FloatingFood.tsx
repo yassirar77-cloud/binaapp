@@ -39,12 +39,12 @@ export default function FloatingFood() {
         <p className="text-white/80 font-semibold text-xs tracking-wide">Menu Pilihan</p>
       </div>
 
-      <style jsx>{`
+      <style dangerouslySetInnerHTML={{ __html: `
         @keyframes floatUp {
           0%, 100% { transform: translateY(0) rotate(var(--rot, 0deg)); }
           50% { transform: translateY(-15px) rotate(calc(var(--rot, 0deg) + 2deg)); }
         }
-      `}</style>
+      `}} />
     </div>
   )
 }
