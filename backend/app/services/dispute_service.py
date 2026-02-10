@@ -439,6 +439,19 @@ Respond with ONLY a valid JSON object (no markdown, no extra text):
         "Always remind customers they can request to speak with a human operator."
     )
 
+    AI_OWNER_SUPPORT_PROMPT = (
+        "You are BinaApp Support AI. You help restaurant owners who have complaints "
+        "about the BinaApp platform. You are responding to the restaurant OWNER, not a customer. "
+        "Respond in the same language the owner used. If unsure, default to Bahasa Melayu. "
+        "Be professional, empathetic, and helpful. "
+        "You can: acknowledge their issue, provide troubleshooting steps, explain how BinaApp "
+        "features work, promise to escalate to admin if needed. "
+        "Keep responses short and helpful (2-4 sentences). "
+        "Do NOT promise things you cannot deliver. "
+        "If the issue is serious (payment problems, data loss), recommend escalation to admin. "
+        "Sign off as 'BinaApp Support'."
+    )
+
     async def generate_ai_reply(
         self,
         dispute_id: str,
@@ -452,10 +465,10 @@ Respond with ONLY a valid JSON object (no markdown, no extra text):
 
         Args:
             dispute_id: The dispute UUID
-            trigger_type: One of 'creation', 'customer_message', 'escalation'
+            trigger_type: One of 'creation', 'customer_message', 'escalation', 'owner_complaint'
             dispute_data: Full dispute record from DB
             conversation_history: List of previous messages in the dispute
-            customer_message: The latest customer message (for customer_message trigger)
+            customer_message: The latest customer/owner message
 
         Returns:
             The generated reply text, or None if generation failed
@@ -465,14 +478,21 @@ Respond with ONLY a valid JSON object (no markdown, no extra text):
                 trigger_type, dispute_data, conversation_history, customer_message
             )
 
+            # Use owner support system prompt for owner complaints
+            system_prompt = (
+                self.AI_OWNER_SUPPORT_PROMPT
+                if trigger_type == "owner_complaint"
+                else self.AI_REPLY_SYSTEM_PROMPT
+            )
+
             # Try DeepSeek first
             reply = None
             if self.deepseek_api_key:
-                reply = await self._generate_reply_with_deepseek(prompt)
+                reply = await self._generate_reply_with_deepseek(prompt, system_prompt)
 
             # Fallback to Anthropic
             if not reply and self.anthropic_api_key:
-                reply = await self._generate_reply_with_anthropic(prompt)
+                reply = await self._generate_reply_with_anthropic(prompt, system_prompt)
 
             # Fallback to template-based reply
             if not reply:
@@ -586,9 +606,34 @@ Instructions:
 - Sign off as "BinaApp AI"
 """
 
+        elif trigger_type == "owner_complaint":
+            return f"""A restaurant owner has sent a new message in a complaint against the BinaApp platform. Generate a support reply.
+
+Dispute #{dispute_number}
+Category: {category.replace('_', ' ').title()}
+Original complaint: {description}
+Current status: {status}
+
+Conversation history:
+{convo_context}
+
+Latest owner message: {customer_message or '(no message)'}
+
+Instructions:
+- You are BinaApp Support replying to a restaurant OWNER who has a complaint about the platform
+- Reply contextually based on what the owner is saying
+- Acknowledge their issue and provide helpful troubleshooting steps if applicable
+- If the issue is serious (payment, data loss), recommend escalation to admin
+- Reply in the SAME LANGUAGE the owner used in their latest message
+- Keep it short (2-4 sentences) and helpful
+- Sign off as "BinaApp Support"
+"""
+
         return f"Generate a helpful customer service reply for dispute #{dispute_number} about {category}."
 
-    async def _generate_reply_with_deepseek(self, prompt: str) -> Optional[str]:
+    async def _generate_reply_with_deepseek(
+        self, prompt: str, system_prompt: Optional[str] = None
+    ) -> Optional[str]:
         """Generate reply using DeepSeek API."""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -601,7 +646,7 @@ Instructions:
                     json={
                         "model": "deepseek-chat",
                         "messages": [
-                            {"role": "system", "content": self.AI_REPLY_SYSTEM_PROMPT},
+                            {"role": "system", "content": system_prompt or self.AI_REPLY_SYSTEM_PROMPT},
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": 0.6,
@@ -618,7 +663,9 @@ Instructions:
 
         return None
 
-    async def _generate_reply_with_anthropic(self, prompt: str) -> Optional[str]:
+    async def _generate_reply_with_anthropic(
+        self, prompt: str, system_prompt: Optional[str] = None
+    ) -> Optional[str]:
         """Generate reply using Anthropic Claude API as fallback."""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
@@ -635,7 +682,7 @@ Instructions:
                         "messages": [
                             {"role": "user", "content": prompt},
                         ],
-                        "system": self.AI_REPLY_SYSTEM_PROMPT,
+                        "system": system_prompt or self.AI_REPLY_SYSTEM_PROMPT,
                     },
                 )
 
@@ -709,6 +756,15 @@ Instructions:
                 f"Wakil kami akan menyemak kes anda dan menghubungi anda dalam masa 1-2 hari bekerja.\n\n"
                 f"Terima kasih atas kesabaran anda. Kami mengambil serius setiap aduan pelanggan.\n\n"
                 f"- BinaApp AI"
+            )
+
+        elif trigger_type == "owner_complaint":
+            return (
+                f"Terima kasih atas mesej anda mengenai aduan #{dispute_number}. "
+                f"Kami telah menerima maklum balas anda dan pasukan kami sedang menyemaknya. "
+                f"Kami akan memberikan penyelesaian secepat mungkin.\n\n"
+                f"Jika masalah ini mendesak, sila maklumkan kami untuk eskalasi kepada admin.\n\n"
+                f"- BinaApp Support"
             )
 
         return (

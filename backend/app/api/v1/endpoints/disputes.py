@@ -983,6 +983,20 @@ async def escalate_dispute(
         )
 
 
+# Owner complaint categories (filed via "Buat Aduan Baru" against BinaApp)
+# In these disputes the owner IS the complainant, so AI should reply as BinaApp support
+OWNER_COMPLAINT_CATEGORIES = {
+    "poor_design", "reka_bentuk_buruk",
+    "website_bug", "website_issue", "masalah_laman_web",
+    "service_outage", "service_disruption", "gangguan_perkhidmatan",
+    "payment_issue", "masalah_pembayaran",
+    "technical_problem", "technical_issue", "masalah_teknikal",
+    "order_system", "order_issue", "masalah_pesanan",
+    "chat_issue", "masalah_chat",
+    "other", "lain_lain",
+}
+
+
 @router.post("/owner/{dispute_id}/message")
 async def add_owner_message(
     dispute_id: str,
@@ -992,14 +1006,16 @@ async def add_owner_message(
     """
     Add a message from the business owner to the dispute.
     Supports internal notes visible only to the owner.
-    When owner sends a public (non-internal) message, AI auto-reply is paused.
+
+    For customer-to-owner disputes: owner public message disables AI (owner took over).
+    For owner-to-BinaApp complaints: AI continues replying as BinaApp support.
     """
     supabase = get_supabase_client()
     user_id = current_user.get("sub")
 
     try:
-        # Verify ownership
-        dispute = supabase.table("ai_disputes").select("website_id, status").eq(
+        # Verify ownership — also fetch category for dispute-type detection
+        dispute = supabase.table("ai_disputes").select("*").eq(
             "id", dispute_id
         ).execute()
 
@@ -1009,8 +1025,10 @@ async def add_owner_message(
                 detail="Dispute not found",
             )
 
+        dispute_data = dispute.data[0]
+
         website = supabase.table("websites").select("id").eq(
-            "id", dispute.data[0]["website_id"]
+            "id", dispute_data["website_id"]
         ).eq("user_id", user_id).execute()
 
         if not website.data:
@@ -1037,15 +1055,55 @@ async def add_owner_message(
                 detail="Failed to send message",
             )
 
-        # Pause AI auto-reply when owner sends a public message (takes over conversation)
+        # Only process AI logic for public (non-internal) messages
         if not message.is_internal:
-            supabase.table("ai_disputes").update({
-                "ai_auto_reply_disabled": True,
-            }).eq("id", dispute_id).execute()
+            category = dispute_data.get("category", "")
 
-            logger.info(
-                f"AI auto-reply disabled for dispute {dispute_id} - owner took over"
-            )
+            if category in OWNER_COMPLAINT_CATEGORIES:
+                # Owner complaint against BinaApp — AI should reply as BinaApp support
+                logger.info(
+                    f"Owner complaint against BinaApp (category={category}) - "
+                    f"AI will reply as support for dispute {dispute_id}"
+                )
+
+                try:
+                    # Fetch conversation history for context
+                    history = supabase.table("dispute_messages").select("*").eq(
+                        "dispute_id", dispute_id
+                    ).eq("is_internal", False).order("created_at").execute()
+
+                    ai_reply = await dispute_ai_service.generate_ai_reply(
+                        dispute_id=dispute_id,
+                        trigger_type="owner_complaint",
+                        dispute_data=dispute_data,
+                        conversation_history=history.data or [],
+                        customer_message=message.message,
+                    )
+
+                    if ai_reply:
+                        supabase.table("dispute_messages").insert({
+                            "dispute_id": dispute_id,
+                            "sender_type": "ai_system",
+                            "sender_name": "BinaApp Support",
+                            "message": ai_reply,
+                            "metadata": {
+                                "trigger_type": "owner_complaint",
+                            },
+                        }).execute()
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to generate AI support reply for owner complaint: {e}"
+                    )
+            else:
+                # Customer-to-owner dispute — owner took over, disable AI
+                supabase.table("ai_disputes").update({
+                    "ai_auto_reply_disabled": True,
+                }).eq("id", dispute_id).execute()
+
+                logger.info(
+                    f"AI auto-reply disabled for dispute {dispute_id} - "
+                    f"owner took over customer dispute"
+                )
 
         return DisputeMessageResponse(**result.data[0])
 
