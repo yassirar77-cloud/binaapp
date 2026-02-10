@@ -427,6 +427,119 @@ def get_templates_for_business(business_type: str) -> list:
     return recommended + others
 
 
+ANIMATED_TEMPLATES: Dict[str, dict] = {
+    "particle-globe": {
+        "id": "particle-globe",
+        "style_key": "particle-globe",
+        "name": "Particle Globe",
+        "name_ms": "Glob Zarah",
+        "categories": ["premium", "gelap"],
+        "tag": "Premium",
+        "is_premium": True,
+        "description": "3D rotating particle sphere with blue color scheme",
+        "description_ms": "Sfera zarah 3D berputar dengan skema warna biru",
+    },
+    "gradient-wave": {
+        "id": "gradient-wave",
+        "style_key": "gradient-wave",
+        "name": "Gradient Wave",
+        "name_ms": "Gelombang Gradien",
+        "categories": ["gelap", "ceria"],
+        "tag": "Vibrant",
+        "is_premium": False,
+        "description": "Purple/blue/pink gradient waves sliding horizontally",
+        "description_ms": "Gelombang gradien ungu/biru/merah jambu meluncur mendatar",
+    },
+    "floating-food": {
+        "id": "floating-food",
+        "style_key": "floating-food",
+        "name": "Floating Food",
+        "name_ms": "Makanan Terapung",
+        "categories": ["gelap", "ceria"],
+        "tag": "Vibrant",
+        "is_premium": False,
+        "description": "Floating food emoji items in glass-morphism cards",
+        "description_ms": "Item emoji makanan terapung dalam kad kaca",
+    },
+    "neon-grid": {
+        "id": "neon-grid",
+        "style_key": "neon-grid",
+        "name": "Neon Grid",
+        "name_ms": "Grid Neon",
+        "categories": ["gelap", "premium"],
+        "tag": "Dark",
+        "is_premium": True,
+        "description": "Perspective CSS grid with pulsing neon glow orbs",
+        "description_ms": "Grid CSS perspektif dengan bebola cahaya neon berdenyut",
+    },
+    "morphing-blob": {
+        "id": "morphing-blob",
+        "style_key": "morphing-blob",
+        "name": "Morphing Blob",
+        "name_ms": "Blob Berubah",
+        "categories": ["gelap", "minimal"],
+        "tag": "Minimal",
+        "is_premium": False,
+        "description": "Organic blob shape continuously morphing with gradient fill",
+        "description_ms": "Bentuk organik berubah secara berterusan dengan isian gradien",
+    },
+    "matrix-code": {
+        "id": "matrix-code",
+        "style_key": "matrix-code",
+        "name": "Matrix Code",
+        "name_ms": "Kod Matrix",
+        "categories": ["gelap"],
+        "tag": "Dark",
+        "is_premium": False,
+        "description": "Falling code rain with katakana and hex characters",
+        "description_ms": "Hujan kod jatuh dengan aksara katakana dan hex",
+    },
+    "aurora": {
+        "id": "aurora",
+        "style_key": "aurora",
+        "name": "Aurora Borealis",
+        "name_ms": "Aurora",
+        "categories": ["premium", "gelap", "ceria"],
+        "tag": "Premium",
+        "is_premium": True,
+        "description": "Aurora bands with twinkling stars on deep navy background",
+        "description_ms": "Jalur aurora dengan bintang berkelip di latar belakang biru gelap",
+    },
+    "spotlight": {
+        "id": "spotlight",
+        "style_key": "spotlight",
+        "name": "Spotlight",
+        "name_ms": "Sorotan",
+        "categories": ["gelap", "minimal"],
+        "tag": "Minimal",
+        "is_premium": False,
+        "description": "Moving orange spotlight with pulsing icon circles",
+        "description_ms": "Sorotan oren bergerak dengan bulatan ikon berdenyut",
+    },
+    "parallax-layers": {
+        "id": "parallax-layers",
+        "style_key": "parallax-layers",
+        "name": "Parallax Layers",
+        "name_ms": "Lapisan Paralaks",
+        "categories": ["premium", "ceria"],
+        "tag": "Premium",
+        "is_premium": True,
+        "description": "Floating circles with independent parallax animations",
+        "description_ms": "Bulatan terapung dengan animasi paralaks bebas",
+    },
+}
+
+
+def get_animated_templates() -> list:
+    """Get all animated template styles."""
+    return list(ANIMATED_TEMPLATES.values())
+
+
+def get_animated_template(style_key: str) -> Optional[dict]:
+    """Get a specific animated template by style key."""
+    return ANIMATED_TEMPLATES.get(style_key)
+
+
 def get_template_prompt_injection(template_id: str) -> str:
     """
     Get the design instructions to inject into the DeepSeek prompt.
