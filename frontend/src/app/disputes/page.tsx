@@ -39,6 +39,13 @@ const PRIORITY_COLORS: Record<string, string> = {
 }
 
 const RESOLUTION_LABELS: Record<string, string> = {
+  issue_resolved: 'Masalah Selesai',
+  self_resolved: 'Selesai Sendiri',
+  no_longer_needed: 'Tidak Perlu Lagi',
+  accepted_explanation: 'Terima Penjelasan',
+  still_unsatisfied: 'Masih Tidak Puas Hati',
+  withdraw_complaint: 'Tarik Balik Aduan',
+  // Legacy labels for backward compatibility
   full_refund: 'Full Refund',
   partial_refund: 'Partial Refund',
   replacement: 'Replacement Order',
@@ -75,9 +82,8 @@ export default function DisputesPage() {
   const [sendingReply, setSendingReply] = useState(false)
 
   // Resolve form state
-  const [resolveType, setResolveType] = useState<DisputeResolutionType>('partial_refund')
+  const [resolveType, setResolveType] = useState<DisputeResolutionType>('issue_resolved')
   const [resolveNotes, setResolveNotes] = useState('')
-  const [refundAmount, setRefundAmount] = useState('')
   const [resolving, setResolving] = useState(false)
 
   // Create subscriber dispute state
@@ -214,7 +220,6 @@ export default function DisputesPage() {
         body: JSON.stringify({
           resolution_type: resolveType,
           resolution_notes: resolveNotes,
-          refund_amount: refundAmount ? parseFloat(refundAmount) : null,
         }),
       })
 
@@ -702,7 +707,7 @@ export default function DisputesPage() {
                         onClick={() => setShowResolveModal(true)}
                         className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700"
                       >
-                        Resolve Dispute
+                        Selesaikan Aduan
                       </button>
                       <button
                         onClick={() => escalateDispute(selectedDispute.id)}
@@ -919,56 +924,34 @@ export default function DisputesPage() {
       {showResolveModal && selectedDispute && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-md p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Resolve Dispute</h3>
+            <h3 className="text-lg font-bold text-gray-900 mb-1">Selesaikan Aduan</h3>
             <p className="text-sm text-gray-500 mb-4">
-              #{selectedDispute.dispute_number} - {selectedDispute.customer_name}
+              #{selectedDispute.dispute_number} - {selectedDispute.description?.slice(0, 60)}{selectedDispute.description?.length > 60 ? '...' : ''}
             </p>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Resolution Type</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Jenis Penyelesaian</label>
                 <select
                   value={resolveType}
                   onChange={(e) => setResolveType(e.target.value as DisputeResolutionType)}
                   className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
                 >
-                  <option value="full_refund">Full Refund</option>
-                  <option value="partial_refund">Partial Refund</option>
-                  <option value="replacement">Replacement Order</option>
-                  <option value="credit">Store Credit</option>
-                  <option value="apology">Apology (No Compensation)</option>
-                  <option value="rejected">Reject Dispute</option>
+                  <option value="issue_resolved">✅ Masalah Selesai — BinaApp telah selesaikan masalah</option>
+                  <option value="self_resolved">🔧 Selesai Sendiri — Saya jumpa penyelesaian sendiri</option>
+                  <option value="no_longer_needed">🚫 Tidak Perlu Lagi — Masalah tidak lagi relevan</option>
+                  <option value="accepted_explanation">💬 Terima Penjelasan — Terima penjelasan BinaApp</option>
+                  <option value="still_unsatisfied">😐 Masih Tidak Puas Hati — Tutup tetapi masih tidak puas hati</option>
+                  <option value="withdraw_complaint">↩️ Tarik Balik Aduan — Batalkan aduan ini sepenuhnya</option>
                 </select>
               </div>
 
-              {(resolveType === 'full_refund' || resolveType === 'partial_refund' || resolveType === 'credit') && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Refund Amount (RM)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={refundAmount}
-                    onChange={(e) => setRefundAmount(e.target.value)}
-                    placeholder={`Max: ${selectedDispute.order_amount?.toFixed(2)}`}
-                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
-                  />
-                  {selectedDispute.ai_analysis?.recommended_refund_percentage !== undefined && (
-                    <p className="text-xs text-indigo-500 mt-1">
-                      AI suggests: {selectedDispute.ai_analysis.recommended_refund_percentage}% (RM
-                      {((selectedDispute.order_amount * selectedDispute.ai_analysis.recommended_refund_percentage) / 100).toFixed(2)})
-                    </p>
-                  )}
-                </div>
-              )}
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nota</label>
                 <textarea
                   value={resolveNotes}
                   onChange={(e) => setResolveNotes(e.target.value)}
-                  placeholder="Add resolution notes..."
+                  placeholder="Tambah nota penyelesaian..."
                   rows={3}
                   className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
                 />
@@ -980,14 +963,14 @@ export default function DisputesPage() {
                 onClick={() => setShowResolveModal(false)}
                 className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"
               >
-                Cancel
+                Batal
               </button>
               <button
                 onClick={resolveDispute}
                 disabled={resolving}
                 className="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
               >
-                {resolving ? 'Resolving...' : 'Confirm Resolution'}
+                {resolving ? 'Mengesahkan...' : 'Sahkan Penyelesaian'}
               </button>
             </div>
           </div>

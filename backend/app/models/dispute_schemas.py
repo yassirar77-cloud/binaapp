@@ -43,6 +43,14 @@ class DisputeStatus(str, Enum):
 
 
 class DisputeResolutionType(str, Enum):
+    # New owner complaint resolution types
+    ISSUE_RESOLVED = "issue_resolved"
+    SELF_RESOLVED = "self_resolved"
+    NO_LONGER_NEEDED = "no_longer_needed"
+    ACCEPTED_EXPLANATION = "accepted_explanation"
+    STILL_UNSATISFIED = "still_unsatisfied"
+    WITHDRAW_COMPLAINT = "withdraw_complaint"
+    # Legacy values for backward compatibility
     FULL_REFUND = "full_refund"
     PARTIAL_REFUND = "partial_refund"
     REPLACEMENT = "replacement"
