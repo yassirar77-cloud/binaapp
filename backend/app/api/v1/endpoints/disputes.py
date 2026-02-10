@@ -747,7 +747,7 @@ async def owner_respond_to_dispute(
 
         if response.accept_fault and response.proposed_resolution:
             update_data["resolution_type"] = response.proposed_resolution.value
-            update_data["resolved_by"] = "owner"
+            update_data["resolved_by"] = user_id
 
             if response.proposed_refund_amount is not None:
                 update_data["refund_amount"] = response.proposed_refund_amount
@@ -836,7 +836,7 @@ async def resolve_dispute(
             "status": "resolved",
             "resolution_type": resolution.resolution_type.value,
             "resolution_notes": resolution.resolution_notes,
-            "resolved_by": "owner",
+            "resolved_by": user_id,
             "resolved_at": datetime.utcnow().isoformat(),
         }
 
