@@ -848,13 +848,10 @@ async def resolve_dispute(
         ).execute()
 
         # Add resolution message
-        resolution_msg = (
-            f"Dispute resolved: {resolution.resolution_type.value.replace('_', ' ').title()}."
-        )
-        if resolution.refund_amount and resolution.refund_amount > 0:
-            resolution_msg += f" Refund amount: RM{resolution.refund_amount:.2f}."
+        resolution_label = resolution.resolution_type.value.replace('_', ' ').title()
+        resolution_msg = f"Aduan diselesaikan: {resolution_label}."
         if resolution.resolution_notes:
-            resolution_msg += f" Notes: {resolution.resolution_notes}"
+            resolution_msg += f" Nota: {resolution.resolution_notes}"
 
         supabase.table("dispute_messages").insert({
             "dispute_id": dispute_id,

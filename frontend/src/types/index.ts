@@ -122,6 +122,13 @@ export type DisputeStatus =
 export type DisputePriority = 'low' | 'medium' | 'high' | 'urgent'
 
 export type DisputeResolutionType =
+  | 'issue_resolved'
+  | 'self_resolved'
+  | 'no_longer_needed'
+  | 'accepted_explanation'
+  | 'still_unsatisfied'
+  | 'withdraw_complaint'
+  // Legacy values for backward compatibility
   | 'full_refund'
   | 'partial_refund'
   | 'replacement'
