@@ -58,6 +58,8 @@ class SimpleGenerateRequest(BaseModel):
         default="none",
         description="Image preference: 'none' (no images), 'upload' (user images only), 'ai' (generate AI images)"
     )
+    # Template gallery: animated template ID selected by user (e.g. 'matrix-code', 'floating-food')
+    template_id: Optional[str] = Field(default=None, description="Template ID from /create/templates gallery")
 
 
 class SimpleGenerateResponse(BaseModel):
@@ -892,6 +894,16 @@ async def generate_website(request: SimpleGenerateRequest):
                     user_data
                 )
 
+            # TEMPLATE ANIMATION: Add animated background for animated templates
+            if request.template_id:
+                from app.services.template_animation import is_animated_template, add_template_animation
+                if is_animated_template(request.template_id):
+                    logger.info(f"🎭 Adding animation for template '{request.template_id}'...")
+                    if qwen_html:
+                        qwen_html = await add_template_animation(qwen_html, request.template_id)
+                    if deepseek_html:
+                        deepseek_html = await add_template_animation(deepseek_html, request.template_id)
+
             logger.info(f"✓ Dual generation complete")
 
             return DualGenerateResponse(
@@ -942,6 +954,13 @@ async def generate_website(request: SimpleGenerateRequest):
                 features=features,
                 user_image_urls=user_image_urls
             )
+
+            # TEMPLATE ANIMATION: Add animated background for animated templates
+            if request.template_id:
+                from app.services.template_animation import is_animated_template, add_template_animation
+                if is_animated_template(request.template_id):
+                    logger.info(f"🎭 Adding animation for template '{request.template_id}'...")
+                    html_content = await add_template_animation(html_content, request.template_id)
 
             logger.info("✓ Best-of-both generation complete")
 
@@ -995,6 +1014,13 @@ async def generate_website(request: SimpleGenerateRequest):
                 features=features,
                 user_image_urls=user_image_urls
             )
+
+            # TEMPLATE ANIMATION: Add animated background for animated templates
+            if request.template_id:
+                from app.services.template_animation import is_animated_template, add_template_animation
+                if is_animated_template(request.template_id):
+                    logger.info(f"🎭 Adding animation for template '{request.template_id}'...")
+                    html_content = await add_template_animation(html_content, request.template_id)
 
             logger.info("✓ Strategic generation complete")
 
@@ -1050,6 +1076,13 @@ async def generate_website(request: SimpleGenerateRequest):
                     features=features,
                     user_image_urls=user_image_urls
                 )
+
+                # TEMPLATE ANIMATION: Add animated background for animated templates
+                if request.template_id:
+                    from app.services.template_animation import is_animated_template, add_template_animation
+                    if is_animated_template(request.template_id):
+                        logger.info(f"🎭 Adding animation for template '{request.template_id}' to {style} variant...")
+                        html_content = await add_template_animation(html_content, request.template_id)
 
                 variations.append({
                     "style": style,
@@ -1159,6 +1192,13 @@ async def generate_website(request: SimpleGenerateRequest):
                 features=features,
                 user_image_urls=user_image_urls
             )
+
+            # TEMPLATE ANIMATION: Add animated background for animated templates
+            if request.template_id:
+                from app.services.template_animation import is_animated_template, add_template_animation
+                if is_animated_template(request.template_id):
+                    logger.info(f"🎭 Adding animation for template '{request.template_id}'...")
+                    html_content = await add_template_animation(html_content, request.template_id)
 
             logger.info("Website generated successfully!")
 
@@ -1646,6 +1686,14 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
                     features=features,
                     user_image_urls=user_image_urls
                 )
+
+                # TEMPLATE ANIMATION: Add animated background for animated templates
+                # This runs AFTER the main generation flow, only for animated templates
+                if request.template_id:
+                    from app.services.template_animation import is_animated_template, add_template_animation
+                    if is_animated_template(request.template_id):
+                        logger.info(f"Job {job_id}: 🎭 Adding animation for template '{request.template_id}'...")
+                        html_content = await add_template_animation(html_content, request.template_id)
 
                 variant = {
                     "style": style,
