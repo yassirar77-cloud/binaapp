@@ -486,6 +486,7 @@ async def publish_website(
                 project_data = {
                     "id": project_id,
                     "user_id": request.user_id,
+                    "name": request.project_name,
                     "business_name": request.project_name,
                     "subdomain": request.subdomain,
                     "html_content": html_content,
@@ -506,6 +507,7 @@ async def publish_website(
                 # UPDATE existing record - this handles republishing AND claiming orphaned websites
                 update_data = {
                     "user_id": request.user_id,  # Update ownership (important for claiming)
+                    "name": request.project_name,
                     "business_name": request.project_name,
                     "html_content": html_content,
                     "status": "published",

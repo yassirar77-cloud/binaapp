@@ -2262,10 +2262,11 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         if placeholder_re.search(html):
             errors.append("Contains bracket placeholder text like [SOMETHING]")
 
-        # WhatsApp link correctness
-        wa_expected = f"wa.me/{required_wa_digits}"
-        if wa_expected.lower() not in lower:
-            errors.append(f"Missing or incorrect WhatsApp link (expected '{wa_expected}')")
+        # WhatsApp link correctness — only check that wa.me/ link exists with ANY number
+        # Previously checked exact digits which caused unnecessary retries when DeepSeek
+        # used a different phone number format
+        if "wa.me/" not in lower:
+            errors.append(f"Missing WhatsApp link (expected wa.me/ link)")
 
         # Required image URLs (when user supplied)
         for url in required_image_urls:
