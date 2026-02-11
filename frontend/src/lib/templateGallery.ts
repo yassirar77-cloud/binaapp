@@ -172,6 +172,47 @@ const TEMPLATE_DESIGNS: Record<string, TemplateDesign> = {
 - Buttons: bg-[#0891B2] text-white rounded-xl px-7 py-3
 - Typography: Source Serif 4 headings, Open Sans body`,
   },
+  word_explosion: {
+    name: 'Word Explosion',
+    fonts: {
+      heading: 'Playfair Display',
+      body: 'DM Sans',
+      cdn: 'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@400;500;700&display=swap',
+    },
+    colors: {
+      primary: '#E85D3A', secondary: '#D4A853', accent: '#FFF0E6',
+      background: '#FFF8F0', surface: '#FFFFFF', text: '#1A1A1A', text_muted: '#7A7A7A',
+    },
+    design_instructions: `DESIGN STYLE -- WORD EXPLOSION:
+- Background: #FFF8F0 (warm cream)
+- Cards: bg-white rounded-2xl shadow-md border border-[#E85D3A]/10
+- Orange accent: text-[#E85D3A], gold: text-[#D4A853]
+- Buttons: bg-[#E85D3A] text-white rounded-xl px-7 py-3
+- Typography: Playfair Display headings, DM Sans body
+- Wrap EVERY visible text word in <span class="fly-word">word</span>
+- Include flyIn CSS keyframe and JS randomizer for word tornado effect`,
+  },
+  ghost_restaurant: {
+    name: 'Ghost Restaurant',
+    fonts: {
+      heading: 'Cormorant Garamond',
+      body: 'Outfit',
+      cdn: 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Outfit:wght@400;500;600&display=swap',
+    },
+    colors: {
+      primary: '#00E5A0', secondary: '#00B8D4', accent: '#1A3D2E',
+      background: '#0D0D0D', surface: '#1E1E1E', text: '#EAEAEA', text_muted: '#8A8A8A',
+    },
+    design_instructions: `DESIGN STYLE -- GHOST RESTAURANT:
+- Background: #0D0D0D (deep black)
+- Cards: bg-[#1E1E1E]/80 backdrop-blur-xl border border-[#00E5A0]/15
+- Neon green accent: text-[#00E5A0], cyan: text-[#00B8D4]
+- Buttons: bg-[#00E5A0] text-[#0D0D0D] rounded-xl px-7 py-3
+- Typography: Cormorant Garamond headings, Outfit body
+- Wrap ALL content in <div id="ghost-wrapper">
+- Include ghost cycle engine: vanish after 3s, invisible 4s, reappear for 60s
+- Mystery/ghost themed restaurant naming`,
+  },
 }
 
 /**
@@ -189,6 +230,8 @@ const ANIMATED_TO_DESIGN_MAP: Record<string, string> = {
   'aurora': 'elegance_dark',
   'spotlight': 'elegance_dark',
   'parallax-layers': 'fresh_clean',
+  'word-explosion': 'word_explosion',
+  'ghost-restaurant': 'ghost_restaurant',
 }
 
 export function getTemplatePromptInjection(templateId: string): string {

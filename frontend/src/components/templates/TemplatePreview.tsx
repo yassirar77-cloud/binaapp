@@ -11,6 +11,8 @@ const MorphingBlob = dynamic(() => import('./animations/MorphingBlob'), { ssr: f
 const Aurora = dynamic(() => import('./animations/Aurora'), { ssr: false })
 const Spotlight = dynamic(() => import('./animations/Spotlight'), { ssr: false })
 const ParallaxLayers = dynamic(() => import('./animations/ParallaxLayers'), { ssr: false })
+const WordExplosion = dynamic(() => import('./animations/WordExplosion'), { ssr: false })
+const GhostRestaurant = dynamic(() => import('./animations/GhostRestaurant'), { ssr: false })
 
 interface TemplatePreviewProps {
   styleKey: string
@@ -41,6 +43,10 @@ export default function TemplatePreview({ styleKey, isVisible }: TemplatePreview
       return <Spotlight />
     case 'parallax-layers':
       return <ParallaxLayers />
+    case 'word-explosion':
+      return <WordExplosion />
+    case 'ghost-restaurant':
+      return <GhostRestaurant />
     default:
       return <div className="w-full h-full" style={{ background: '#0a0a0f' }} />
   }
