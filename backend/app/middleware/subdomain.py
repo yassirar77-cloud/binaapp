@@ -350,6 +350,7 @@ async def subdomain_middleware(request: Request, call_next):
                 recovery_data = {
                     "id": recovery_id,
                     "subdomain": subdomain,
+                    "name": subdomain.replace("-", " ").replace("_", " ").title(),
                     "business_name": subdomain.replace("-", " ").replace("_", " ").title(),
                     "status": "published",
                     "created_at": datetime.utcnow().isoformat(),

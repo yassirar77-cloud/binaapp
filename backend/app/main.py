@@ -2550,6 +2550,7 @@ async def publish_website(
                 supabase.table("websites").upsert({
                     "id": website_id,
                     "user_id": user_id,
+                    "name": project_name,
                     "business_name": project_name,
                     "subdomain": subdomain,
                     "status": "published",
