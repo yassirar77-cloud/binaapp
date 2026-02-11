@@ -174,8 +174,27 @@ const TEMPLATE_DESIGNS: Record<string, TemplateDesign> = {
   },
 }
 
+/**
+ * Mapping from animated template IDs (shown in gallery) to design template IDs.
+ * The gallery displays animated hero styles (e.g. 'aurora', 'gradient-wave'),
+ * but the AI prompt injection uses design templates (e.g. 'elegance_dark', 'neon_night').
+ */
+const ANIMATED_TO_DESIGN_MAP: Record<string, string> = {
+  'particle-globe': 'neon_night',
+  'gradient-wave': 'neon_night',
+  'floating-food': 'warm_cozy',
+  'neon-grid': 'neon_night',
+  'morphing-blob': 'elegance_dark',
+  'matrix-code': 'neon_night',
+  'aurora': 'elegance_dark',
+  'spotlight': 'elegance_dark',
+  'parallax-layers': 'fresh_clean',
+}
+
 export function getTemplatePromptInjection(templateId: string): string {
-  const template = TEMPLATE_DESIGNS[templateId]
+  // First try direct lookup (design template ID), then resolve via animated template mapping
+  const designKey = TEMPLATE_DESIGNS[templateId] ? templateId : ANIMATED_TO_DESIGN_MAP[templateId]
+  const template = designKey ? TEMPLATE_DESIGNS[designKey] : undefined
   if (!template) return ''
 
   return `
