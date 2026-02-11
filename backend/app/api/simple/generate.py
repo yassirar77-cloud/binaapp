@@ -5,7 +5,7 @@ POST /api/generate - Generate website from description
 
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from loguru import logger
 import asyncio
@@ -60,6 +60,15 @@ class SimpleGenerateRequest(BaseModel):
     )
     # Template gallery: animated template ID selected by user (e.g. 'matrix-code', 'floating-food')
     template_id: Optional[str] = Field(default=None, description="Template ID from /create/templates gallery")
+
+    @field_validator('template_id', mode='before')
+    @classmethod
+    def normalize_template_id(cls, v):
+        # Normalize template_id: frontend uses spaces, backend uses hyphens
+        if v:
+            v = v.strip().lower().replace(" ", "-")
+            logger.info(f"🎬 template_id received: '{v}'")
+        return v
 
 
 class SimpleGenerateResponse(BaseModel):
@@ -896,6 +905,8 @@ async def generate_website(request: SimpleGenerateRequest):
                 )
 
             # TEMPLATE ANIMATION: Add animated background for animated templates
+            from app.services.template_animation import ANIMATED_TEMPLATES
+            logger.info(f"🎬 Animation check: template_id='{request.template_id}', is_animated={request.template_id in ANIMATED_TEMPLATES}")
             if request.template_id:
                 from app.services.template_animation import is_animated_template, add_template_animation
                 if is_animated_template(request.template_id):
