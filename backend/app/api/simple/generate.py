@@ -784,7 +784,8 @@ async def generate_website(request: SimpleGenerateRequest):
             logo=request.logo,
             fonts=request.fonts if request.fonts else [],
             colors=request.colors,
-            theme=request.theme
+            theme=request.theme,
+            template_id=request.template_id,
         )
 
         # Log uploaded images
@@ -1471,6 +1472,7 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
     """Background task to generate 3 website variants"""
     try:
         logger.info(f"🚀 Starting background generation for job {job_id}")
+        logger.info(f"🎬 TEMPLATE_ID from request: '{request.template_id}' (type={type(request.template_id).__name__})")
         job_service.update_status(job_id, JobStatus.PROCESSING)
         job_service.update_progress(job_id, 0)
 
@@ -1557,7 +1559,8 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
             logo=request.logo,
             fonts=request.fonts if request.fonts else [],
             colors=request.colors,
-            theme=request.theme
+            theme=request.theme,
+            template_id=request.template_id,
         )
 
         # Detect business type FIRST - needed for categories and menu items
@@ -1689,11 +1692,13 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
 
                 # TEMPLATE ANIMATION: Add animated background for animated templates
                 # This runs AFTER the main generation flow, only for animated templates
-                if request.template_id:
-                    from app.services.template_animation import is_animated_template, add_template_animation
-                    if is_animated_template(request.template_id):
-                        logger.info(f"Job {job_id}: 🎭 Adding animation for template '{request.template_id}'...")
-                        html_content = await add_template_animation(html_content, request.template_id)
+                from app.services.template_animation import is_animated_template, add_template_animation
+                _tpl = request.template_id
+                logger.info(f"Job {job_id}: 🎬 ANIMATION CHECK: template_id='{_tpl}', is_animated={is_animated_template(_tpl)}")
+                if _tpl and is_animated_template(_tpl):
+                    logger.info(f"Job {job_id}: 🎭 Adding animation for template '{_tpl}'...")
+                    html_content = await add_template_animation(html_content, _tpl)
+                    logger.info(f"Job {job_id}: 🎭 Animation injection complete, html now {len(html_content)} chars")
 
                 variant = {
                     "style": style,
