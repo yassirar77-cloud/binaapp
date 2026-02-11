@@ -540,12 +540,33 @@ def get_animated_template(style_key: str) -> Optional[dict]:
     return ANIMATED_TEMPLATES.get(style_key)
 
 
+# Mapping from animated template IDs (shown in gallery) to design template IDs.
+# The gallery displays animated hero styles (e.g. 'aurora', 'gradient-wave'),
+# but the AI prompt injection uses design templates (e.g. 'elegance_dark', 'neon_night').
+ANIMATED_TO_DESIGN_MAP: Dict[str, str] = {
+    "particle-globe": "neon_night",
+    "gradient-wave": "neon_night",
+    "floating-food": "warm_cozy",
+    "neon-grid": "neon_night",
+    "morphing-blob": "elegance_dark",
+    "matrix-code": "neon_night",
+    "aurora": "elegance_dark",
+    "spotlight": "elegance_dark",
+    "parallax-layers": "fresh_clean",
+}
+
+
 def get_template_prompt_injection(template_id: str) -> str:
     """
     Get the design instructions to inject into the DeepSeek prompt.
     Returns empty string if no template selected (backward compatible).
+
+    Accepts both design template IDs (e.g. 'elegance_dark') and animated
+    template IDs (e.g. 'aurora') by resolving through ANIMATED_TO_DESIGN_MAP.
     """
-    template = TEMPLATES.get(template_id)
+    # First try direct lookup (design template ID), then resolve via animated template mapping
+    design_key = template_id if template_id in TEMPLATES else ANIMATED_TO_DESIGN_MAP.get(template_id)
+    template = TEMPLATES.get(design_key) if design_key else None
     if not template:
         return ""
 
