@@ -10,6 +10,7 @@ export interface AnimatedTemplate {
   nameMy: string
   categories: string[]
   tag: string
+  isNew?: boolean
 }
 
 interface TemplateCardProps {
@@ -79,6 +80,20 @@ export default function TemplateCard({
             {isMalay ? 'Guna Templat Ini' : 'Use This Template'}
           </span>
         </div>
+
+        {/* NEW badge */}
+        {template.isNew && (
+          <div
+            className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider z-20"
+            style={{
+              background: 'linear-gradient(135deg, #00E5A0, #00B8D4)',
+              color: '#0D0D0D',
+              boxShadow: '0 2px 8px rgba(0,229,160,0.4)',
+            }}
+          >
+            NEW
+          </div>
+        )}
 
         {/* Selected checkmark */}
         {isSelected && (

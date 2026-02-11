@@ -76,6 +76,24 @@ const ANIMATED_TEMPLATES: AnimatedTemplate[] = [
     categories: ['premium', 'ceria'],
     tag: 'Premium',
   },
+  {
+    id: 'word-explosion',
+    styleKey: 'word-explosion',
+    name: 'Word Explosion',
+    nameMy: 'Letupan Kata',
+    categories: ['ceria', 'premium'],
+    tag: 'New',
+    isNew: true,
+  },
+  {
+    id: 'ghost-restaurant',
+    styleKey: 'ghost-restaurant',
+    name: 'Ghost Restaurant',
+    nameMy: 'Restoran Hantu',
+    categories: ['gelap', 'premium'],
+    tag: 'New',
+    isNew: true,
+  },
 ]
 
 interface TemplateGalleryProps {

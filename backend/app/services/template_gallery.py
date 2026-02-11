@@ -375,6 +375,232 @@ DESIGN STYLE -- OCEAN BREEZE:
 - Professional spacing: py-20 md:py-32
 """,
     },
+    "word_explosion": {
+        "id": "word_explosion",
+        "name": "Word Explosion",
+        "name_ms": "Letupan Kata",
+        "description": "Every word flies in from multiple angles and forms the website. A spectacular word tornado effect.",
+        "description_ms": "Setiap perkataan terbang masuk dari pelbagai arah dan membentuk laman web. Kesan puting beliung kata yang hebat.",
+        "preview_image": "/templates/word_explosion.svg",
+        "category": "bold",
+        "best_for": ["restaurant", "cafe", "food", "general"],
+        "color_mode": "light",
+        "fonts": {
+            "heading": "Playfair Display",
+            "heading_weight": "700",
+            "body": "DM Sans",
+            "body_weight": "400",
+            "cdn": "https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@400;500;700&display=swap",
+        },
+        "colors": {
+            "primary": "#E85D3A",
+            "secondary": "#D4A853",
+            "accent": "#FFF0E6",
+            "background": "#FFF8F0",
+            "surface": "#FFFFFF",
+            "text": "#1A1A1A",
+            "text_muted": "#7A7A7A",
+        },
+        "layout": "standard",
+        "hero_style": "fullscreen_overlay",
+        "card_style": "warm_rounded",
+        "animation_style": "word_explosion",
+        "design_instructions": """
+DESIGN STYLE -- WORD EXPLOSION (LETUPAN KATA):
+- Background: #FFF8F0 (warm cream)
+- Cards: bg-white rounded-2xl shadow-md shadow-orange-900/5 border border-[#E85D3A]/10 p-8
+- Warm orange accent: text-[#E85D3A] for headings and highlights
+- Gold accent: text-[#D4A853] for secondary elements
+- Buttons: bg-[#E85D3A] text-white font-semibold hover:bg-[#C44A2A] rounded-xl px-7 py-3
+- Hero: Full-screen with warm gradient overlay
+- Typography: Playfair Display (elegant serif) for headings, DM Sans (modern) for body
+- Warm shadows: shadow-orange-900/10
+- Section spacing: py-20 md:py-28
+
+ANIMATION STYLE - WORD EXPLOSION:
+- Wrap EVERY visible text word in <span class="fly-word">word</span>
+- Each word must be a separate span, including punctuation attached to the word
+- Apply to ALL sections: header, hero, menu items, descriptions, footer
+- Include the .fly-word CSS keyframe animation and the JavaScript randomizer script at the bottom
+- Words fly from 14 different random angles with rotation (up to 720deg), blur, and scale effects
+- Stagger delay: each word starts 0.04s after the previous with random offset
+- This creates a "word tornado" that assembles into the website
+
+Include this CSS:
+<style>
+.fly-word {
+  display: inline-block;
+  opacity: 0;
+  animation: flyIn var(--duration, 1.2s) var(--delay, 0s) cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+@keyframes flyIn {
+  0% { opacity: 0; transform: translate(var(--start-x), var(--start-y)) rotate(var(--start-rot)) scale(var(--start-scale)); filter: blur(8px); }
+  60% { opacity: 1; filter: blur(0px); }
+  80% { transform: translate(0, 0) rotate(0deg) scale(1.05); }
+  100% { opacity: 1; transform: translate(0, 0) rotate(0deg) scale(1); filter: blur(0px); }
+}
+</style>
+
+Include this JavaScript before </body>:
+<script>
+(function(){
+  var words = document.querySelectorAll('.fly-word');
+  var angles = [
+    {x:'-120vw',y:'-80vh',rot:'-540deg',scale:0.1},
+    {x:'120vw',y:'-60vh',rot:'480deg',scale:0.2},
+    {x:'-100vw',y:'80vh',rot:'360deg',scale:0.1},
+    {x:'100vw',y:'60vh',rot:'-400deg',scale:0.15},
+    {x:'0px',y:'-100vh',rot:'720deg',scale:0.05},
+    {x:'0px',y:'100vh',rot:'-600deg',scale:0.1},
+    {x:'-130vw',y:'0px',rot:'500deg',scale:0.2},
+    {x:'130vw',y:'0px',rot:'-450deg',scale:0.1},
+    {x:'-80vw',y:'-120vh',rot:'300deg',scale:0.3},
+    {x:'90vw',y:'110vh',rot:'-350deg',scale:0.05},
+    {x:'-60vw',y:'130vh',rot:'800deg',scale:0.1},
+    {x:'70vw',y:'-130vh',rot:'-700deg',scale:0.15}
+  ];
+  words.forEach(function(word, index){
+    var angle = angles[Math.floor(Math.random()*angles.length)];
+    var delay = index*0.04 + Math.random()*0.15;
+    var duration = 0.8 + Math.random()*0.7;
+    word.style.setProperty('--start-x', angle.x);
+    word.style.setProperty('--start-y', angle.y);
+    word.style.setProperty('--start-rot', angle.rot);
+    word.style.setProperty('--start-scale', angle.scale);
+    word.style.setProperty('--delay', delay+'s');
+    word.style.setProperty('--duration', duration+'s');
+  });
+})();
+</script>
+""",
+    },
+    "ghost_restaurant": {
+        "id": "ghost_restaurant",
+        "name": "Ghost Restaurant",
+        "name_ms": "Restoran Hantu",
+        "description": "Website vanishes & reappears — a unique mystery restaurant with ghost cycle effect.",
+        "description_ms": "Laman web hilang & muncul semula — restoran misteri yang unik dengan kesan kitaran hantu.",
+        "preview_image": "/templates/ghost_restaurant.svg",
+        "category": "dark",
+        "best_for": ["restaurant", "food", "cafe", "general"],
+        "color_mode": "dark",
+        "fonts": {
+            "heading": "Cormorant Garamond",
+            "heading_weight": "600",
+            "body": "Outfit",
+            "body_weight": "400",
+            "cdn": "https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Outfit:wght@400;500;600&display=swap",
+        },
+        "colors": {
+            "primary": "#00E5A0",
+            "secondary": "#00B8D4",
+            "accent": "#1A3D2E",
+            "background": "#0D0D0D",
+            "surface": "#1E1E1E",
+            "text": "#EAEAEA",
+            "text_muted": "#8A8A8A",
+        },
+        "layout": "centered",
+        "hero_style": "fullscreen_overlay",
+        "card_style": "glassmorphism_dark",
+        "animation_style": "ghost_invisible",
+        "design_instructions": """
+DESIGN STYLE -- GHOST RESTAURANT (RESTORAN HANTU):
+- Background: #0D0D0D (deep black)
+- Cards: bg-[#1E1E1E]/80 backdrop-blur-xl border border-[#00E5A0]/15 rounded-2xl p-8
+- Neon green accent: text-[#00E5A0] for highlights, headings, and CTAs
+- Cyan secondary: text-[#00B8D4] for secondary elements
+- Buttons: bg-[#00E5A0] text-[#0D0D0D] font-semibold hover:bg-[#00CC8E] rounded-xl px-7 py-3
+- Hero: Dark mysterious overlay with subtle green glow
+- Typography: Cormorant Garamond (elegant mystery serif) for headings, Outfit (clean modern) for body
+- Glow effects: shadow-[#00E5A0]/20 on cards and buttons
+- Mystery theme: use ghost/mystery naming (e.g. "Dapur Rahsia", "Rendang Misteri")
+- Section spacing: py-24 md:py-36
+- Gradient text on hero heading: bg-gradient-to-r from-[#00E5A0] to-[#00B8D4] bg-clip-text text-transparent
+
+ANIMATION STYLE - GHOST RESTAURANT:
+- Wrap ALL site content inside <div id="ghost-wrapper">
+- Add fixed overlay elements OUTSIDE the wrapper: ghost message overlay, timer bar, countdown badge
+- The ghost message shows a ghost emoji with "Gone Invisible..." text centered on screen
+- Include the Ghost Cycle Engine JS: site vanishes after 3s, stays invisible 4s, reappears for 60s, repeats
+- The vanish effect uses blur(20px) + brightness(2) + opacity(0) + scale(0.97)
+- The appear effect uses a 2s animation from blur(30px) to clear
+- Timer bar at top shows remaining visibility as a glowing gradient bar
+- Countdown badge at bottom-right shows seconds remaining
+- Theme the restaurant with mystery/ghost naming
+- Use dark color scheme: #0D0D0D bg, #00E5A0 accent, #EAEAEA text
+
+Include these elements OUTSIDE the ghost-wrapper:
+<div id="ghost-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(13,13,13,0.95);flex-direction:column;align-items:center;justify-content:center;">
+  <div style="font-size:80px;margin-bottom:20px;animation:ghostFloat 2s ease-in-out infinite;">&#128123;</div>
+  <div style="font-size:24px;color:#00E5A0;font-family:'Cormorant Garamond',serif;">Gone Invisible...</div>
+  <div style="font-size:14px;color:#8A8A8A;margin-top:10px;">Reappearing soon</div>
+</div>
+<div id="ghost-timer-bar" style="position:fixed;top:0;left:0;height:3px;width:100%;background:linear-gradient(90deg,#00E5A0,#00B8D4);z-index:10000;box-shadow:0 0 15px rgba(0,229,160,0.5);"></div>
+<div id="countdown-display" style="position:fixed;bottom:20px;right:20px;background:rgba(0,0,0,0.8);backdrop-filter:blur(10px);border:1px solid rgba(0,229,160,0.2);border-radius:12px;padding:10px 18px;font-size:13px;color:#00E5A0;z-index:10001;font-family:'Outfit',sans-serif;"></div>
+
+Include this CSS:
+<style>
+#ghost-wrapper {
+  transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1), filter 1.5s cubic-bezier(0.4, 0, 0.2, 1), transform 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+#ghost-wrapper.vanishing { opacity: 0; filter: blur(20px) brightness(2); transform: scale(0.97); }
+#ghost-wrapper.appearing { animation: ghostAppear 2s cubic-bezier(0.23, 1, 0.32, 1) forwards; }
+@keyframes ghostAppear {
+  0% { opacity: 0; filter: blur(30px) brightness(3); transform: scale(1.05); }
+  30% { opacity: 0.3; filter: blur(15px) brightness(2); }
+  60% { opacity: 0.7; filter: blur(5px) brightness(1.3); }
+  100% { opacity: 1; filter: blur(0px) brightness(1); transform: scale(1); }
+}
+@keyframes ghostFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
+</style>
+
+Include this JavaScript before </body>:
+<script>
+(function(){
+  var wrapper=document.getElementById('ghost-wrapper');
+  var overlay=document.getElementById('ghost-overlay');
+  var timerBar=document.getElementById('ghost-timer-bar');
+  var countdownEl=document.getElementById('countdown-display');
+  var VISIBLE_DURATION=60,INVISIBLE_DELAY=3,INVISIBLE_DURATION=4;
+  function startGhostCycle(){
+    var countdown=INVISIBLE_DELAY;
+    countdownEl.textContent='Appearing in '+Math.ceil(countdown)+'s';
+    var timer=setInterval(function(){
+      countdown-=0.1;
+      timerBar.style.width=(countdown/INVISIBLE_DELAY*100)+'%';
+      countdownEl.textContent='Vanishing in '+Math.ceil(countdown)+'s';
+      if(countdown<=0){clearInterval(timer);vanishSite();}
+    },100);
+  }
+  function vanishSite(){
+    wrapper.classList.add('vanishing');
+    overlay.style.display='flex';
+    setTimeout(function(){appearSite();},INVISIBLE_DURATION*1000);
+  }
+  function appearSite(){
+    wrapper.classList.remove('vanishing');
+    wrapper.classList.add('appearing');
+    overlay.style.display='none';
+    setTimeout(function(){
+      wrapper.classList.remove('appearing');
+      startVisibleCountdown();
+    },2000);
+  }
+  function startVisibleCountdown(){
+    var remaining=VISIBLE_DURATION;
+    var timer=setInterval(function(){
+      remaining-=0.1;
+      timerBar.style.width=(remaining/VISIBLE_DURATION*100)+'%';
+      countdownEl.textContent=remaining>10?'Visible for '+Math.ceil(remaining)+'s':'Vanishing in '+Math.ceil(remaining)+'s!';
+      if(remaining<=0){clearInterval(timer);vanishSite();}
+    },100);
+  }
+  startGhostCycle();
+})();
+</script>
+""",
+    },
 }
 
 
@@ -527,6 +753,30 @@ ANIMATED_TEMPLATES: Dict[str, dict] = {
         "description": "Floating circles with independent parallax animations",
         "description_ms": "Bulatan terapung dengan animasi paralaks bebas",
     },
+    "word-explosion": {
+        "id": "word-explosion",
+        "style_key": "word-explosion",
+        "name": "Word Explosion",
+        "name_ms": "Letupan Kata",
+        "categories": ["ceria", "premium"],
+        "tag": "New",
+        "is_premium": True,
+        "is_new": True,
+        "description": "Every word flies in from multiple angles and forms the website",
+        "description_ms": "Setiap perkataan terbang masuk dari pelbagai arah dan membentuk laman web",
+    },
+    "ghost-restaurant": {
+        "id": "ghost-restaurant",
+        "style_key": "ghost-restaurant",
+        "name": "Ghost Restaurant",
+        "name_ms": "Restoran Hantu",
+        "categories": ["gelap", "premium"],
+        "tag": "New",
+        "is_premium": True,
+        "is_new": True,
+        "description": "Website vanishes & reappears — a unique mystery restaurant",
+        "description_ms": "Laman web hilang & muncul semula — restoran misteri yang unik",
+    },
 }
 
 
@@ -553,6 +803,8 @@ ANIMATED_TO_DESIGN_MAP: Dict[str, str] = {
     "aurora": "elegance_dark",
     "spotlight": "elegance_dark",
     "parallax-layers": "fresh_clean",
+    "word-explosion": "word_explosion",
+    "ghost-restaurant": "ghost_restaurant",
 }
 
 
