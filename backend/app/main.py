@@ -220,135 +220,15 @@ async def add_cors_headers(request: Request, call_next):
 # ============================================
 # SUBDOMAIN ROUTING MIDDLEWARE - CRITICAL
 # ============================================
-@app.middleware("http")
-async def subdomain_middleware(request: Request, call_next):
-    """
-    Catch subdomain requests and serve website from Supabase Storage
-
-    This middleware intercepts requests to subdomains like kitcat.binaapp.my
-    and serves the actual website HTML from Supabase Storage instead of
-    showing the API health check response.
-
-    CRITICAL: This now checks the database FIRST to ensure website audit tracking.
-    """
-
-    host = request.headers.get("host", "")
-
-    # Check if it's a subdomain request (not main domain or API)
-    # e.g., kitcat.binaapp.my, penangkandar.binaapp.my
-    if host and ".binaapp.my" in host and not host.startswith("www.") and not host.startswith("api."):
-        subdomain = host.split(".binaapp.my")[0].lower().strip()
-
-        # Skip if it's the main domain or known paths
-        if subdomain and subdomain not in ["binaapp", "www", "api"]:
-            logger.info(f"🌐 Subdomain request detected: {subdomain}.binaapp.my")
-
-            # Get Supabase URL and credentials
-            SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
-            SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY", "")
-
-            # CRITICAL FIX: Check database FIRST for proper website audit tracking
-            website_id = None
-            website_in_database = False
-
-            try:
-                db_url = f"{SUPABASE_URL}/rest/v1/websites"
-                db_params = {"subdomain": f"eq.{subdomain}", "select": "id,user_id,business_name,status"}
-                db_headers = {
-                    "apikey": SUPABASE_KEY,
-                    "Authorization": f"Bearer {SUPABASE_KEY}",
-                    "Content-Type": "application/json"
-                }
-
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    db_response = await client.get(db_url, params=db_params, headers=db_headers)
-
-                    if db_response.status_code == 200:
-                        records = db_response.json()
-                        if records and len(records) > 0:
-                            website_record = records[0]
-                            website_id = website_record.get("id")
-                            website_in_database = True
-                            logger.info(f"✅ Website '{subdomain}' found in DATABASE (id: {website_id}, user: {website_record.get('user_id')})")
-                        else:
-                            logger.warning(f"⚠️ Website '{subdomain}' NOT in database - will serve from storage but won't appear in dashboard!")
-            except Exception as db_error:
-                logger.error(f"❌ Database check failed for '{subdomain}': {db_error}")
-
-            # Fetch website from Supabase Storage
-            storage_url = f"{SUPABASE_URL}/storage/v1/object/public/websites/{subdomain}/index.html"
-
-            logger.info(f"📁 Fetching website from: {storage_url}")
-
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    response = await client.get(storage_url)
-
-                    if response.status_code == 200:
-                        html_content = response.text
-
-                        # If website is in database, inject correct website_id
-                        if website_id and website_in_database:
-                            logger.info(f"✅ Website '{subdomain}' found and served! (in audit: YES)")
-                            # Inject website_id for widgets
-                            widget_injection = f'''
-<!-- BinaApp - Website ID injected by middleware -->
-<script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>
-'''
-                            if "</head>" in html_content:
-                                html_content = html_content.replace("</head>", widget_injection + "</head>")
-                        else:
-                            logger.warning(f"⚠️ Website '{subdomain}' served but NOT IN AUDIT (orphaned)")
-
-                        return HTMLResponse(content=html_content, status_code=200)
-                    else:
-                        logger.warning(f"⚠️ Website '{subdomain}' not found (status: {response.status_code})")
-                        return HTMLResponse(
-                            content=f"""
-                            <!DOCTYPE html>
-                            <html>
-                            <head>
-                                <title>Website Not Found</title>
-                                <style>
-                                    body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
-                                    h1 {{ color: #e74c3c; }}
-                                    p {{ color: #7f8c8d; }}
-                                </style>
-                            </head>
-                            <body>
-                                <h1>Website '{subdomain}' not found</h1>
-                                <p>This website hasn't been published yet or the subdomain doesn't exist.</p>
-                                <p>Error code: {response.status_code}</p>
-                            </body>
-                            </html>
-                            """,
-                            status_code=404
-                        )
-            except Exception as e:
-                logger.error(f"❌ Error loading website '{subdomain}': {e}")
-                return HTMLResponse(
-                    content=f"""
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <title>Error Loading Website</title>
-                        <style>
-                            body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
-                            h1 {{ color: #e74c3c; }}
-                            p {{ color: #7f8c8d; }}
-                        </style>
-                    </head>
-                    <body>
-                        <h1>Error loading website</h1>
-                        <p>{str(e)}</p>
-                    </body>
-                    </html>
-                    """,
-                    status_code=500
-                )
-
-    # Continue to normal API routes
-    return await call_next(request)
+# Uses the improved middleware from app.middleware.subdomain which includes:
+# - Subscription lock checking (locked websites show "Website Tidak Aktif")
+# - Proper widget injection (removes old widgets, injects correct website_id)
+# - Auto-recovery for orphaned websites (exist in storage but not in DB)
+# - Outermost try/except to prevent 502 Gateway errors from unhandled exceptions
+# - Uses Supabase Python client with .limit(1) instead of .single() to avoid
+#   exceptions when website is not found in database
+from app.middleware.subdomain import subdomain_middleware as _subdomain_middleware
+app.middleware("http")(_subdomain_middleware)
 
 @app.on_event("startup")
 async def startup_event():
@@ -2670,10 +2550,10 @@ async def publish_website(
                 supabase.table("websites").upsert({
                     "id": website_id,
                     "user_id": user_id,
-                    "name": project_name,
+                    "business_name": project_name,
                     "subdomain": subdomain,
                     "status": "published",
-                    "published_url": published_url,
+                    "public_url": published_url,
                     "html_content": html_content,
                     "updated_at": datetime.now().isoformat()
                 }, on_conflict="id").execute()
