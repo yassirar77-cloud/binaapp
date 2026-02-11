@@ -1671,8 +1671,15 @@ Generate prompts now:"""
             "- ONLY improve the visible TEXT content (headings, paragraphs, descriptions, button labels).\n\n"
             f"{html}"
         )
-        improved = await self._call_qwen(prompt, temperature=0.7)
-        return improved if improved else html
+        try:
+            improved = await self._call_qwen(prompt, temperature=0.7)
+            if improved:
+                return improved
+            logger.warning("🟡 Qwen copywriting returned None — falling back to original HTML")
+            return html
+        except Exception as e:
+            logger.warning(f"🟡 Qwen copywriting failed ({e}) — falling back to original HTML")
+            return html
 
     def get_fallback_images(self, description: str) -> Dict:
         """Get fallback stock images using comprehensive image matching"""
@@ -2127,7 +2134,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         try:
             logger.info(f"🟡 Calling Qwen API... (prompt length: {len(prompt)} chars)")
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=240.0) as client:
                 r = await client.post(
                     f"{self.qwen_base_url}/chat/completions",
                     headers={
@@ -2158,7 +2165,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                         error_body = "(unable to read response)"
                     logger.error(f"🟡 Qwen ❌ Status {r.status_code}: {error_body}")
         except httpx.TimeoutException as e:
-            logger.error(f"🟡 Qwen ❌ Timeout after 120s: {e}")
+            logger.error(f"🟡 Qwen ❌ Timeout after 240s: {e}")
         except httpx.ConnectError as e:
             logger.error(f"🟡 Qwen ❌ Connection error: {e}")
         except Exception as e:
@@ -2765,6 +2772,20 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         if color_mode not in ('light', 'dark'):
             color_mode = 'light'
 
+        # CRITICAL: Override color_mode based on selected template's color_mode
+        # Without this, a dark template like "matrix-code" gets a light DesignSystem palette
+        _tpl_id = getattr(request, "template_id", None)
+        if _tpl_id:
+            try:
+                from app.services.template_gallery import TEMPLATES, ANIMATED_TO_DESIGN_MAP
+                _design_key = _tpl_id if _tpl_id in TEMPLATES else ANIMATED_TO_DESIGN_MAP.get(_tpl_id)
+                _tpl_def = TEMPLATES.get(_design_key) if _design_key else None
+                if _tpl_def and _tpl_def.get("color_mode"):
+                    color_mode = _tpl_def["color_mode"]
+                    logger.info(f"🎨 Template '{_tpl_id}' overrides color_mode to '{color_mode}'")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to read template color_mode: {e}")
+
         prompt = self._build_strict_prompt(
             request.business_name,
             request.description,
@@ -2839,14 +2860,17 @@ IMPORTANT INSTRUCTIONS:
             prompt += image_instructions
 
         # Template Gallery: inject design tokens if a template was selected
-        _tpl_id = getattr(request, "template_id", None)
+        # _tpl_id was already resolved above (before _build_strict_prompt)
         if _tpl_id:
             try:
                 from app.services.template_gallery import get_template_prompt_injection
                 _tpl_injection = get_template_prompt_injection(_tpl_id)
                 if _tpl_injection:
-                    prompt += "\n" + _tpl_injection
+                    prompt += "\n\nCRITICAL — OVERRIDE ALL DEFAULT DESIGN INSTRUCTIONS ABOVE.\nThe user selected a specific template. You MUST follow the template design system below.\nIGNORE any conflicting colors, fonts, or styles from earlier in this prompt.\n"
+                    prompt += _tpl_injection
                     logger.info(f"🎨 Template gallery: injected design for '{_tpl_id}'")
+                else:
+                    logger.warning(f"⚠️ Template '{_tpl_id}' returned empty injection")
             except Exception as _tpl_err:
                 logger.warning(f"⚠️ Template injection failed: {_tpl_err}")
 

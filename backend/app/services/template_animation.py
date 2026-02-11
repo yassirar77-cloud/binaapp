@@ -170,7 +170,7 @@ async def add_template_animation(html: str, template_id: str) -> str:
         return html
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=240.0) as client:
             response = await client.post(
                 f"{qwen_base_url}/chat/completions",
                 headers={
