@@ -2251,7 +2251,15 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             if s in lower:
                 errors.append(f"Contains forbidden placeholder/text: '{s}'")
 
-        if re.search(r"\[[^\]]+\]", html):
+        # Match placeholder-style brackets like [BUSINESS_NAME], [Your Tagline]
+        # but NOT Tailwind CSS bracket notation like bg-[#1A1A1A], text-[10px], w-[200%]
+        placeholder_re = re.compile(
+            r'(?<![:\-\w])'          # not preceded by css-like chars (e.g. bg- text- :)
+            r'\['
+            r'([A-Z][A-Za-z_ ]{2,})'  # starts uppercase, 3+ alpha/space/underscore chars
+            r'\]'
+        )
+        if placeholder_re.search(html):
             errors.append("Contains bracket placeholder text like [SOMETHING]")
 
         # WhatsApp link correctness
@@ -2897,7 +2905,7 @@ IMPORTANT INSTRUCTIONS:
                 required_wa_digits=wa_digits,
             )
             if errors:
-                logger.warning("⚠️ HTML validation failed; retrying once with stricter constraints")
+                logger.warning(f"⚠️ HTML validation failed; retrying once with stricter constraints — issues: {errors}")
                 retry_prompt = (
                     prompt
                     + "\n\n=== VALIDATION FAILURES (MUST FIX) ===\n"
