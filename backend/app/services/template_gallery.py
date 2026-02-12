@@ -284,6 +284,111 @@ DESIGN STYLE -- NEON NIGHT:
 - Grid pattern background: bg-[linear-gradient(rgba(139,92,246,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(139,92,246,0.03)_1px,transparent_1px)] bg-[size:50px_50px]
 """,
     },
+    "aurora": {
+        "id": "aurora",
+        "name": "Northern Aurora",
+        "name_ms": "Aurora Utara",
+        "description": "Deep-space aurora theme with flowing light bands and twinkling stars.",
+        "description_ms": "Tema aurora angkasa gelap dengan jalur cahaya mengalir dan bintang berkelip.",
+        "preview_image": "/templates/neon_night.svg",
+        "category": "dark",
+        "best_for": ["restaurant", "cafe", "salon", "services", "general"],
+        "color_mode": "dark",
+        "fonts": {
+            "heading": "Space Grotesk",
+            "heading_weight": "700",
+            "body": "Inter",
+            "body_weight": "400",
+            "cdn": "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600&display=swap",
+        },
+        "colors": {
+            "primary": "#34D399",
+            "secondary": "#4A9EFF",
+            "accent": "#A78BFA",
+            "background": "#050520",
+            "surface": "#0A0A2E",
+            "text": "#F0F0FF",
+            "text_muted": "#8888BB",
+        },
+        "layout": "clean_sections",
+        "hero_style": "fullscreen_overlay",
+        "card_style": "glassmorphism_neon",
+        "animation_style": "aurora_flow",
+        "design_instructions": """
+DESIGN STYLE -- NORTHERN AURORA:
+- CRITICAL: Use aurora color palette ONLY. Do NOT use gold, bronze, brown, or luxury styling.
+- Background: #050520 (deep space blue-purple, NOT #0A0A0A)
+- Surface/cards: #0A0A2E with subtle borders and blur
+- Primary accent: #34D399 (aurora green)
+- Secondary accents: #4A9EFF (blue), #A78BFA (purple), #F472B6 (pink)
+- Typography feel: modern, cosmic, luminous (Space Grotesk + Inter)
+- Buttons: gradient accents using aurora colors, not monochrome and not gold
+- Add a dark cosmic atmosphere with soft glows and transparent layers
+
+MANDATORY AURORA VISUAL ELEMENTS:
+- Hero section must include flowing aurora light bands and twinkling stars
+- Include a star overlay container with small animated dots
+- Include 3 aurora bands with blur and opacity layering
+- Add these classes and keyframes in a <style> block:
+
+<style>
+.aurora-hero {
+  position: relative;
+  overflow: hidden;
+  background: #050520;
+}
+.star-field {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.star {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  border-radius: 9999px;
+  background: rgba(240, 240, 255, 0.9);
+  box-shadow: 0 0 6px rgba(240, 240, 255, 0.7);
+  animation: twinkle 3s ease-in-out infinite;
+}
+.aurora-band {
+  position: absolute;
+  width: 200%;
+  height: 60%;
+  filter: blur(50px);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.aurora-1 {
+  top: 5%;
+  left: -50%;
+  background: linear-gradient(90deg, transparent, #34D399, #4A9EFF, transparent);
+  animation: auroraFlow 8s ease-in-out infinite;
+}
+.aurora-2 {
+  top: 20%;
+  left: -45%;
+  background: linear-gradient(90deg, transparent, #A78BFA, #F472B6, transparent);
+  animation: auroraFlow 12s ease-in-out infinite reverse;
+}
+.aurora-3 {
+  top: 35%;
+  left: -55%;
+  background: linear-gradient(90deg, transparent, #4A9EFF, #34D399, transparent);
+  animation: auroraFlow 10s ease-in-out infinite;
+}
+@keyframes auroraFlow {
+  0%, 100% { transform: translateX(-10%) skewY(-5deg) scaleY(1); }
+  33% { transform: translateX(10%) skewY(3deg) scaleY(1.3); }
+  66% { transform: translateX(-5%) skewY(-2deg) scaleY(0.8); }
+}
+@keyframes twinkle {
+  0%, 100% { opacity: 0.2; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+</style>
+""",
+    },
     "malay_heritage": {
         "id": "malay_heritage",
         "name": "Warisan Melayu",
@@ -800,7 +905,7 @@ ANIMATED_TO_DESIGN_MAP: Dict[str, str] = {
     "neon-grid": "neon_night",
     "morphing-blob": "elegance_dark",
     "matrix-code": "neon_night",
-    "aurora": "elegance_dark",
+    "aurora": "aurora",
     "spotlight": "elegance_dark",
     "parallax-layers": "fresh_clean",
     "word-explosion": "word_explosion",
