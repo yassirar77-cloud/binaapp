@@ -118,7 +118,7 @@ class AIChatResponder:
                 if delivery_resp.status_code == 200 and delivery_resp.json():
                     context["delivery_settings"] = delivery_resp.json()[0]
 
-                # Get website info
+                # Get website info (handle missing business_type column gracefully)
                 web_resp = await client.get(
                     f"{self.supabase_url}/rest/v1/websites",
                     headers=self.headers,
@@ -126,6 +126,15 @@ class AIChatResponder:
                 )
                 if web_resp.status_code == 200 and web_resp.json():
                     context["website_info"] = web_resp.json()[0]
+                elif web_resp.status_code != 200 and "business_type" in web_resp.text:
+                    # Retry without business_type if column doesn't exist
+                    web_resp = await client.get(
+                        f"{self.supabase_url}/rest/v1/websites",
+                        headers=self.headers,
+                        params={"id": f"eq.{website_id}", "select": "business_name,subdomain"}
+                    )
+                    if web_resp.status_code == 200 and web_resp.json():
+                        context["website_info"] = web_resp.json()[0]
 
         except Exception as e:
             logger.error(f"Error loading restaurant context: {e}")

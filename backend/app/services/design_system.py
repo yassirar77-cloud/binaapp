@@ -422,7 +422,7 @@ LAYOUT_TEMPLATES = {
 
 HERO_VARIANTS = {
     "food": """HERO SECTION DESIGN (Full-bleed with bottom text):
-<section id="home" class="relative h-screen min-h-[600px]" data-aos="fade-in">
+<section id="home" class="relative h-[70vh] min-h-[400px]" data-aos="fade-in">
   <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
   <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
   <div class="relative z-10 flex items-end h-full pb-16 md:pb-20 px-6 md:px-16">
@@ -439,7 +439,7 @@ HERO_VARIANTS = {
 </section>""",
 
     "cafe": """HERO SECTION DESIGN (Full-bleed atmospheric):
-<section id="home" class="relative h-screen min-h-[600px]" data-aos="fade-in">
+<section id="home" class="relative h-[70vh] min-h-[400px]" data-aos="fade-in">
   <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
   <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"></div>
   <div class="relative z-10 flex items-center justify-center h-full text-center px-6">
@@ -482,7 +482,7 @@ HERO_VARIANTS = {
 </section>""",
 
     "bakery": """HERO SECTION DESIGN (Warm full-bleed):
-<section id="home" class="relative h-screen min-h-[600px]" data-aos="fade-in">
+<section id="home" class="relative h-[70vh] min-h-[400px]" data-aos="fade-in">
   <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
   <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"></div>
   <div class="relative z-10 flex items-end h-full pb-16 md:pb-20 px-6 md:px-16">
@@ -513,7 +513,7 @@ HERO_VARIANTS = {
 </section>""",
 
     "gym": """HERO SECTION DESIGN (High-impact bold):
-<section id="home" class="relative h-screen min-h-[600px]" data-aos="fade-in">
+<section id="home" class="relative h-[70vh] min-h-[400px]" data-aos="fade-in">
   <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
   <div class="absolute inset-0 bg-gradient-to-r from-black/80 via-black/50 to-transparent"></div>
   <div class="relative z-10 flex items-center h-full px-6 md:px-16">
