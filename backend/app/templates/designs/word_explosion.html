@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{business_name}} | {{tagline}}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'primary': '#E85D3A',
+            'secondary': '#D4A853',
+            'accent': '#FFF0E6',
+            'surface': '#FFFFFF',
+            'background': '#FFF8F0',
+          },
+          fontFamily: {
+            'heading': ['Playfair Display', 'serif'],
+            'body': ['DM Sans', 'sans-serif'],
+          }
+        }
+      }
+    }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        html { scroll-behavior: smooth; }
+        body { background-color: #FFF8F0; color: #1A1A1A; font-family: 'DM Sans', sans-serif; overflow-x: hidden; }
+
+        .fly-word {
+            display: inline-block;
+            opacity: 0;
+            animation: flyIn var(--duration, 1.2s) var(--delay, 0s) cubic-bezier(0.23, 1, 0.32, 1) forwards;
+        }
+        @keyframes flyIn {
+            0% { opacity: 0; transform: translate(var(--start-x), var(--start-y)) rotate(var(--start-rot)) scale(var(--start-scale)); filter: blur(8px); }
+            60% { opacity: 1; filter: blur(0px); }
+            80% { transform: translate(0, 0) rotate(0deg) scale(1.05); }
+            100% { opacity: 1; transform: translate(0, 0) rotate(0deg) scale(1); filter: blur(0px); }
+        }
+
+        .menu-card { transition: all 0.3s ease; }
+        .menu-card:hover { transform: translateY(-4px); box-shadow: 0 15px 30px rgba(232,93,58,0.08); }
+    </style>
+</head>
+<body class="font-body">
+
+    <!-- Navigation -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-[#FFF8F0]/90 backdrop-blur-xl shadow-sm">
+        <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
+            <div class="flex justify-between items-center">
+                <a href="#" class="text-2xl font-heading font-bold text-[#E85D3A]"><span class="fly-word">{{business_name}}</span></a>
+                <div class="hidden md:flex space-x-10">
+                    <a href="#home" class="text-sm font-medium text-[#1A1A1A] hover:text-[#E85D3A] transition-colors"><span class="fly-word">Home</span></a>
+                    <a href="#menu" class="text-sm font-medium text-[#1A1A1A] hover:text-[#E85D3A] transition-colors"><span class="fly-word">Menu</span></a>
+                    <a href="#about" class="text-sm font-medium text-[#1A1A1A] hover:text-[#E85D3A] transition-colors"><span class="fly-word">About</span></a>
+                    <a href="#contact" class="text-sm font-medium text-[#1A1A1A] hover:text-[#E85D3A] transition-colors"><span class="fly-word">Contact</span></a>
+                </div>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#E85D3A] text-white font-semibold rounded-xl px-6 py-2 text-sm hover:bg-[#C44A2A] transition-colors">
+                    <span class="fly-word"><i class="fab fa-whatsapp mr-2"></i>Order Now</span>
+                </a>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Hero Section -->
+    <section id="home" class="pt-32 pb-20 md:py-40 min-h-screen flex items-center">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
+            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6 text-[#1A1A1A]">
+                {{hero_title_words}}
+            </h1>
+            <p class="text-lg md:text-xl text-[#7A7A7A] mb-10 max-w-2xl mx-auto leading-relaxed">
+                {{hero_description_words}}
+            </p>
+            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                <a href="#menu" class="bg-[#E85D3A] text-white font-semibold hover:bg-[#C44A2A] rounded-xl px-8 py-4 transition-colors">
+                    <span class="fly-word">{{cta_primary_text}}</span>
+                </a>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#E85D3A]/30 text-[#E85D3A] font-semibold hover:bg-[#E85D3A]/5 rounded-xl px-8 py-4 transition-colors">
+                    <span class="fly-word">{{cta_secondary_text}}</span>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Menu Section -->
+    <section id="menu" class="py-20 md:py-28">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 text-[#1A1A1A]">
+                    {{menu_section_title_words}}
+                </h2>
+                <p class="text-xl text-[#7A7A7A] max-w-3xl mx-auto">
+                    {{menu_section_description_words}}
+                </p>
+            </div>
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {{menu_items_html}}
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="py-20 md:py-28 bg-[#FFF0E6]">
+        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 text-[#1A1A1A]">
+                {{about_title_words}}
+            </h2>
+            <p class="text-xl text-[#7A7A7A] leading-relaxed">
+                {{about_description_words}}
+            </p>
+        </div>
+    </section>
+
+    <!-- Contact & Hours -->
+    <section id="contact" class="py-20 md:py-28">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="grid md:grid-cols-2 gap-12">
+                <div>
+                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 text-[#1A1A1A]">{{contact_title}}</h2>
+                    <div class="space-y-8">
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#E85D3A]">
+                                <i class="fas fa-map-marker-alt mr-3"></i>Location
+                            </h3>
+                            <p class="text-lg text-[#7A7A7A]">{{address}}</p>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#E85D3A]">
+                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
+                            </h3>
+                            <p class="text-lg">
+                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#E85D3A] hover:underline">{{phone_display}}</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-3xl font-heading font-bold mb-10 text-[#1A1A1A]">Operating Hours</h3>
+                    <div class="bg-white rounded-2xl shadow-md shadow-orange-900/5 border border-[#E85D3A]/10 p-8">
+                        <ul class="space-y-6">
+                            {{operating_hours_html}}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-16 bg-[#1A1A1A]">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl font-heading font-bold text-[#E85D3A] mb-4">{{business_name}}</h2>
+            <p class="text-[#7A7A7A] mb-6">{{footer_description}}</p>
+            <p class="text-[#7A7A7A]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Word Explosion Animation Engine
+        (function(){
+            var words = document.querySelectorAll('.fly-word');
+            var angles = [
+                {x:'-120vw',y:'-80vh',rot:'-540deg',scale:0.1},
+                {x:'120vw',y:'-60vh',rot:'480deg',scale:0.2},
+                {x:'-100vw',y:'80vh',rot:'360deg',scale:0.1},
+                {x:'100vw',y:'60vh',rot:'-400deg',scale:0.15},
+                {x:'0px',y:'-100vh',rot:'720deg',scale:0.05},
+                {x:'0px',y:'100vh',rot:'-600deg',scale:0.1},
+                {x:'-130vw',y:'0px',rot:'500deg',scale:0.2},
+                {x:'130vw',y:'0px',rot:'-450deg',scale:0.1},
+                {x:'-80vw',y:'-120vh',rot:'300deg',scale:0.3},
+                {x:'90vw',y:'110vh',rot:'-350deg',scale:0.05},
+                {x:'-60vw',y:'130vh',rot:'800deg',scale:0.1},
+                {x:'70vw',y:'-130vh',rot:'-700deg',scale:0.15}
+            ];
+            words.forEach(function(word, index){
+                var angle = angles[Math.floor(Math.random()*angles.length)];
+                var delay = index*0.04 + Math.random()*0.15;
+                var duration = 0.8 + Math.random()*0.7;
+                word.style.setProperty('--start-x', angle.x);
+                word.style.setProperty('--start-y', angle.y);
+                word.style.setProperty('--start-rot', angle.rot);
+                word.style.setProperty('--start-scale', angle.scale);
+                word.style.setProperty('--delay', delay+'s');
+                word.style.setProperty('--duration', duration+'s');
+            });
+        })();
+
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>

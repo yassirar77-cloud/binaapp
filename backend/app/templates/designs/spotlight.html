@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{business_name}} | {{tagline}}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'primary': '#D4AF37',
+            'secondary': '#8B7355',
+            'accent': '#2A1F0E',
+            'surface': '#1A1A1A',
+            'background': '#0A0A0A',
+          },
+          fontFamily: {
+            'heading': ['Playfair Display', 'serif'],
+            'body': ['DM Sans', 'sans-serif'],
+          }
+        }
+      }
+    }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        html { scroll-behavior: smooth; }
+        body { background-color: #0A0A0A; color: #F5F5F0; font-family: 'DM Sans', sans-serif; }
+
+        .spotlight-hero { position: relative; overflow: hidden; }
+        .spotlight-beam {
+            position: absolute; width: 400px; height: 400px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(212,175,55,0.3) 0%, rgba(212,175,55,0.1) 40%, transparent 70%);
+            pointer-events: none;
+            animation: spotlightMove 8s ease-in-out infinite;
+            z-index: 1;
+        }
+        .spotlight-beam-2 {
+            width: 300px; height: 300px;
+            background: radial-gradient(circle, rgba(139,115,85,0.25) 0%, rgba(139,115,85,0.05) 40%, transparent 70%);
+            animation: spotlightMove2 12s ease-in-out infinite;
+        }
+        @keyframes spotlightMove {
+            0%, 100% { top: 10%; left: 10%; }
+            25% { top: 20%; left: 60%; }
+            50% { top: 50%; left: 40%; }
+            75% { top: 15%; left: 25%; }
+        }
+        @keyframes spotlightMove2 {
+            0%, 100% { top: 50%; right: 10%; }
+            33% { top: 20%; right: 40%; }
+            66% { top: 60%; right: 20%; }
+        }
+        .pulse-circle {
+            position: absolute; border-radius: 50%;
+            border: 1px solid rgba(212,175,55,0.2);
+            animation: pulseGrow 4s ease-in-out infinite;
+        }
+        .pulse-1 { width: 200px; height: 200px; top: 20%; left: 15%; }
+        .pulse-2 { width: 150px; height: 150px; top: 40%; right: 20%; animation-delay: -1.5s; }
+        .pulse-3 { width: 180px; height: 180px; bottom: 25%; left: 45%; animation-delay: -3s; }
+        @keyframes pulseGrow {
+            0%, 100% { transform: scale(1); opacity: 0.3; }
+            50% { transform: scale(1.5); opacity: 0; }
+        }
+
+        .menu-card { transition: all 0.5s ease; }
+        .menu-card:hover { border-color: rgba(212, 175, 55, 0.3); box-shadow: 0 0 30px rgba(212, 175, 55, 0.1); transform: translateY(-4px); }
+    </style>
+</head>
+<body class="font-body">
+
+    <!-- Navigation -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-[#0A0A0A]/90 backdrop-blur-xl border-b border-white/10">
+        <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
+            <div class="flex justify-between items-center">
+                <a href="#" class="text-2xl font-heading font-bold text-[#D4AF37]">{{business_name}}</a>
+                <div class="hidden md:flex space-x-10">
+                    <a href="#home" class="text-sm font-medium hover:text-[#D4AF37] transition-colors">Home</a>
+                    <a href="#menu" class="text-sm font-medium hover:text-[#D4AF37] transition-colors">Menu</a>
+                    <a href="#about" class="text-sm font-medium hover:text-[#D4AF37] transition-colors">About</a>
+                    <a href="#contact" class="text-sm font-medium hover:text-[#D4AF37] transition-colors">Contact</a>
+                </div>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#D4AF37] text-black font-semibold rounded-full px-6 py-2 text-sm hover:bg-[#B8960C] transition-colors">
+                    <i class="fab fa-whatsapp mr-2"></i>Order Now
+                </a>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Hero Section with Spotlight -->
+    <section id="home" class="spotlight-hero pt-32 pb-20 md:py-40 min-h-screen flex items-center">
+        <div class="spotlight-beam"></div>
+        <div class="spotlight-beam spotlight-beam-2"></div>
+        <div class="pulse-circle pulse-1"></div>
+        <div class="pulse-circle pulse-2"></div>
+        <div class="pulse-circle pulse-3"></div>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
+            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6 text-[#D4AF37]">
+                {{hero_title}}
+            </h1>
+            <p class="text-lg md:text-xl text-[#A0998C] mb-10 max-w-2xl mx-auto leading-relaxed">
+                {{hero_description}}
+            </p>
+            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                <a href="#menu" class="bg-[#D4AF37] text-black font-semibold hover:bg-[#B8960C] rounded-full px-8 py-4 transition-colors">
+                    {{cta_primary_text}}
+                </a>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#D4AF37]/40 text-[#D4AF37] font-semibold hover:bg-[#D4AF37]/10 rounded-full px-8 py-4 transition-colors">
+                    {{cta_secondary_text}}
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Menu Section -->
+    <section id="menu" class="py-24 md:py-36 border-t border-[#D4AF37]/20">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 text-[#D4AF37]">{{menu_section_title}}</h2>
+                <p class="text-xl text-[#A0998C] max-w-3xl mx-auto">{{menu_section_description}}</p>
+            </div>
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {{menu_items_html}}
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="py-24 md:py-36 border-t border-[#D4AF37]/20">
+        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 text-[#D4AF37]">{{about_title}}</h2>
+            <p class="text-xl text-[#A0998C] leading-relaxed">{{about_description}}</p>
+        </div>
+    </section>
+
+    <!-- Contact & Hours -->
+    <section id="contact" class="py-24 md:py-36 border-t border-[#D4AF37]/20">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="grid md:grid-cols-2 gap-12">
+                <div>
+                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 text-[#D4AF37]">{{contact_title}}</h2>
+                    <div class="space-y-8">
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#D4AF37]">
+                                <i class="fas fa-map-marker-alt mr-3"></i>Location
+                            </h3>
+                            <p class="text-lg text-[#A0998C]">{{address}}</p>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#D4AF37]">
+                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
+                            </h3>
+                            <p class="text-lg">
+                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#D4AF37] hover:underline">{{phone_display}}</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-3xl font-heading font-bold mb-10 text-[#D4AF37]">Operating Hours</h3>
+                    <div class="bg-[#1A1A1A]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-8">
+                        <ul class="space-y-6">
+                            {{operating_hours_html}}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-16 border-t border-[#D4AF37]/20 bg-[#1A1A1A]">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl font-heading font-bold text-[#D4AF37] mb-4">{{business_name}}</h2>
+            <p class="text-[#A0998C] mb-6">{{footer_description}}</p>
+            <p class="text-[#A0998C]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>

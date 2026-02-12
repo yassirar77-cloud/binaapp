@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{business_name}} | {{tagline}}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'primary': '#8B5CF6',
+            'secondary': '#06B6D4',
+            'accent': '#1E1B4B',
+            'surface': '#111827',
+            'background': '#030712',
+          },
+          fontFamily: {
+            'heading': ['Space Grotesk', 'sans-serif'],
+            'body': ['Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        html { scroll-behavior: smooth; }
+        body { background-color: #030712; color: #F9FAFB; font-family: 'Inter', sans-serif; }
+
+        .neon-hero { position: relative; overflow: hidden; }
+        .neon-grid-bg {
+            position: absolute; inset: 0; z-index: 0;
+            background:
+                linear-gradient(rgba(139,92,246,0.06) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(139,92,246,0.06) 1px, transparent 1px);
+            background-size: 60px 60px;
+            perspective: 500px;
+        }
+        .neon-grid-perspective {
+            position: absolute; bottom: 0; left: -50%; width: 200%; height: 70%;
+            background:
+                linear-gradient(rgba(139,92,246,0.15) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(6,182,212,0.15) 1px, transparent 1px);
+            background-size: 80px 80px;
+            transform: perspective(400px) rotateX(60deg);
+            transform-origin: bottom center;
+            animation: gridPulse 4s ease-in-out infinite;
+        }
+        @keyframes gridPulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 0.9; }
+        }
+        .neon-orb {
+            position: absolute; border-radius: 50%; filter: blur(60px); pointer-events: none;
+            animation: orbFloat 6s ease-in-out infinite;
+        }
+        .orb-1 { width: 300px; height: 300px; background: rgba(139,92,246,0.3); top: 10%; left: 10%; }
+        .orb-2 { width: 250px; height: 250px; background: rgba(6,182,212,0.25); top: 30%; right: 15%; animation-delay: -2s; }
+        .orb-3 { width: 200px; height: 200px; background: rgba(244,114,182,0.2); bottom: 20%; left: 30%; animation-delay: -4s; }
+        @keyframes orbFloat {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(20px, -30px) scale(1.1); }
+            66% { transform: translate(-15px, 15px) scale(0.95); }
+        }
+
+        .glow-text {
+            background: linear-gradient(135deg, #8B5CF6, #06B6D4);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .menu-card { transition: all 0.5s ease; }
+        .menu-card:hover { border-color: rgba(139, 92, 246, 0.4); box-shadow: 0 0 30px rgba(139, 92, 246, 0.15); }
+    </style>
+</head>
+<body class="font-body">
+
+    <!-- Navigation -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-[#030712]/90 backdrop-blur-xl border-b border-[#8B5CF6]/20">
+        <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
+            <div class="flex justify-between items-center">
+                <a href="#" class="text-2xl font-heading font-bold glow-text">{{business_name}}</a>
+                <div class="hidden md:flex space-x-10">
+                    <a href="#home" class="text-sm font-medium hover:text-[#8B5CF6] transition-colors">Home</a>
+                    <a href="#menu" class="text-sm font-medium hover:text-[#8B5CF6] transition-colors">Menu</a>
+                    <a href="#about" class="text-sm font-medium hover:text-[#8B5CF6] transition-colors">About</a>
+                    <a href="#contact" class="text-sm font-medium hover:text-[#8B5CF6] transition-colors">Contact</a>
+                </div>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-gradient-to-r from-[#8B5CF6] to-[#06B6D4] text-white font-semibold rounded-xl px-6 py-2 text-sm hover:shadow-lg hover:shadow-[#8B5CF6]/25 transition-all">
+                    <i class="fab fa-whatsapp mr-2"></i>Order Now
+                </a>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Hero Section with Neon Grid -->
+    <section id="home" class="neon-hero pt-32 pb-20 md:py-40 min-h-screen flex items-center">
+        <div class="neon-grid-bg"></div>
+        <div class="neon-grid-perspective"></div>
+        <div class="neon-orb orb-1"></div>
+        <div class="neon-orb orb-2"></div>
+        <div class="neon-orb orb-3"></div>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
+            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6">
+                <span class="glow-text">{{hero_title}}</span>
+            </h1>
+            <p class="text-lg md:text-xl text-[#9CA3AF] mb-10 max-w-2xl mx-auto leading-relaxed">
+                {{hero_description}}
+            </p>
+            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                <a href="#menu" class="bg-gradient-to-r from-[#8B5CF6] to-[#06B6D4] text-white font-semibold rounded-xl px-8 py-4 hover:shadow-lg hover:shadow-[#8B5CF6]/25 transition-all">
+                    {{cta_primary_text}}
+                </a>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#8B5CF6]/40 text-[#8B5CF6] font-semibold hover:bg-[#8B5CF6]/10 rounded-xl px-8 py-4 transition-colors">
+                    {{cta_secondary_text}}
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Menu Section -->
+    <section id="menu" class="py-24 md:py-36 border-t border-[#8B5CF6]/20 relative">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 glow-text">{{menu_section_title}}</h2>
+                <p class="text-xl text-[#9CA3AF] max-w-3xl mx-auto">{{menu_section_description}}</p>
+            </div>
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {{menu_items_html}}
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="neon-hero py-24 md:py-36 border-t border-[#8B5CF6]/20">
+        <div class="neon-orb orb-1" style="opacity:0.3"></div>
+        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
+            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 glow-text">{{about_title}}</h2>
+            <p class="text-xl text-[#9CA3AF] leading-relaxed">{{about_description}}</p>
+        </div>
+    </section>
+
+    <!-- Contact & Hours -->
+    <section id="contact" class="py-24 md:py-36 border-t border-[#8B5CF6]/20">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="grid md:grid-cols-2 gap-12">
+                <div>
+                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 glow-text">{{contact_title}}</h2>
+                    <div class="space-y-8">
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#8B5CF6]">
+                                <i class="fas fa-map-marker-alt mr-3"></i>Location
+                            </h3>
+                            <p class="text-lg text-[#9CA3AF]">{{address}}</p>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#06B6D4]">
+                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
+                            </h3>
+                            <p class="text-lg">
+                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#06B6D4] hover:underline">{{phone_display}}</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-3xl font-heading font-bold mb-10">Operating Hours</h3>
+                    <div class="bg-[#111827]/80 backdrop-blur-xl border border-[#8B5CF6]/20 rounded-2xl p-8">
+                        <ul class="space-y-6">
+                            {{operating_hours_html}}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-16 border-t border-[#8B5CF6]/20 bg-[#111827]">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl font-heading font-bold glow-text mb-4">{{business_name}}</h2>
+            <p class="text-[#9CA3AF] mb-6">{{footer_description}}</p>
+            <p class="text-[#9CA3AF]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>

@@ -913,6 +913,57 @@ ANIMATED_TO_DESIGN_MAP: Dict[str, str] = {
 }
 
 
+# Mapping from animated template IDs to pre-built HTML template filenames.
+# These HTML files contain the complete design with {{placeholder}} syntax
+# so the AI only needs to generate text content, not HTML/CSS.
+ANIMATED_TO_HTML_FILE: Dict[str, str] = {
+    "particle-globe": "particle_globe.html",
+    "gradient-wave": "gradient_wave.html",
+    "floating-food": "floating_food.html",
+    "neon-grid": "neon_grid.html",
+    "morphing-blob": "morphing_blob.html",
+    "matrix-code": "matrix.html",
+    "aurora": "aurora.html",
+    "spotlight": "spotlight.html",
+    "parallax-layers": "parallax.html",
+    "word-explosion": "word_explosion.html",
+    "ghost-restaurant": "ghost.html",
+}
+
+# Mapping from design template IDs to pre-built HTML template filenames.
+DESIGN_TO_HTML_FILE: Dict[str, str] = {
+    "aurora": "aurora.html",
+    "neon_night": "neon_grid.html",
+    "elegance_dark": "morphing_blob.html",
+    "fresh_clean": "parallax.html",
+    "warm_cozy": "floating_food.html",
+    "word_explosion": "word_explosion.html",
+    "ghost_restaurant": "ghost.html",
+}
+
+
+def get_prebuilt_template_filename(template_id: str) -> Optional[str]:
+    """
+    Get the pre-built HTML template filename for a given template ID.
+
+    Accepts both animated template IDs (e.g. 'aurora', 'matrix-code') and
+    design template IDs (e.g. 'neon_night', 'elegance_dark').
+
+    Returns the filename (e.g. 'aurora.html') or None if no pre-built template exists.
+    """
+    # First check animated template mapping (most common from frontend)
+    filename = ANIMATED_TO_HTML_FILE.get(template_id)
+    if filename:
+        return filename
+
+    # Then check design template mapping
+    filename = DESIGN_TO_HTML_FILE.get(template_id)
+    if filename:
+        return filename
+
+    return None
+
+
 def get_template_prompt_injection(template_id: str) -> str:
     """
     Get the design instructions to inject into the DeepSeek prompt.

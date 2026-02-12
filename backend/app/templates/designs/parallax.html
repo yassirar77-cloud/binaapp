@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{business_name}} | {{tagline}}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'primary': '#16A34A',
+            'secondary': '#166534',
+            'accent': '#DCFCE7',
+            'surface': '#FFFFFF',
+            'background': '#FAFFFE',
+          },
+          fontFamily: {
+            'heading': ['Plus Jakarta Sans', 'sans-serif'],
+            'body': ['Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        html { scroll-behavior: smooth; }
+        body { background-color: #FAFFFE; color: #1A2E1A; font-family: 'Inter', sans-serif; }
+
+        .parallax-hero { position: relative; overflow: hidden; min-height: 100vh; }
+        .parallax-layer {
+            position: absolute; border-radius: 50%; pointer-events: none;
+        }
+        .p-circle-1 {
+            width: 400px; height: 400px; top: 5%; left: -5%;
+            background: linear-gradient(135deg, rgba(22,163,74,0.15), rgba(22,101,52,0.05));
+            animation: pFloat1 10s ease-in-out infinite;
+        }
+        .p-circle-2 {
+            width: 300px; height: 300px; top: 15%; right: -3%;
+            background: linear-gradient(135deg, rgba(220,252,231,0.8), rgba(22,163,74,0.1));
+            animation: pFloat2 14s ease-in-out infinite;
+        }
+        .p-circle-3 {
+            width: 250px; height: 250px; bottom: 10%; left: 20%;
+            background: linear-gradient(135deg, rgba(22,163,74,0.1), rgba(220,252,231,0.5));
+            animation: pFloat3 12s ease-in-out infinite;
+        }
+        .p-circle-4 {
+            width: 180px; height: 180px; top: 50%; right: 20%;
+            background: rgba(22,163,74,0.08);
+            animation: pFloat1 16s ease-in-out infinite reverse;
+        }
+        .p-circle-5 {
+            width: 120px; height: 120px; top: 35%; left: 40%;
+            background: rgba(220,252,231,0.6);
+            animation: pFloat2 18s ease-in-out infinite reverse;
+        }
+        @keyframes pFloat1 {
+            0%, 100% { transform: translateY(0) translateX(0); }
+            25% { transform: translateY(-30px) translateX(15px); }
+            50% { transform: translateY(10px) translateX(-20px); }
+            75% { transform: translateY(-15px) translateX(10px); }
+        }
+        @keyframes pFloat2 {
+            0%, 100% { transform: translateY(0) translateX(0); }
+            33% { transform: translateY(20px) translateX(-25px); }
+            66% { transform: translateY(-25px) translateX(15px); }
+        }
+        @keyframes pFloat3 {
+            0%, 100% { transform: translateY(0) translateX(0) scale(1); }
+            50% { transform: translateY(-20px) translateX(20px) scale(1.1); }
+        }
+
+        .menu-card { transition: all 0.3s ease; }
+        .menu-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(0,0,0,0.08); }
+    </style>
+</head>
+<body class="font-body">
+
+    <!-- Navigation -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-xl shadow-sm">
+        <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
+            <div class="flex justify-between items-center">
+                <a href="#" class="text-2xl font-heading font-bold text-[#16A34A]">{{business_name}}</a>
+                <div class="hidden md:flex space-x-10">
+                    <a href="#home" class="text-sm font-medium text-[#1A2E1A] hover:text-[#16A34A] transition-colors">Home</a>
+                    <a href="#menu" class="text-sm font-medium text-[#1A2E1A] hover:text-[#16A34A] transition-colors">Menu</a>
+                    <a href="#about" class="text-sm font-medium text-[#1A2E1A] hover:text-[#16A34A] transition-colors">About</a>
+                    <a href="#contact" class="text-sm font-medium text-[#1A2E1A] hover:text-[#16A34A] transition-colors">Contact</a>
+                </div>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#16A34A] text-white font-semibold rounded-xl px-6 py-2 text-sm hover:bg-[#15803D] transition-colors">
+                    <i class="fab fa-whatsapp mr-2"></i>Order Now
+                </a>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Hero Section with Parallax Layers -->
+    <section id="home" class="parallax-hero pt-32 pb-20 md:py-40 flex items-center">
+        <div class="parallax-layer p-circle-1"></div>
+        <div class="parallax-layer p-circle-2"></div>
+        <div class="parallax-layer p-circle-3"></div>
+        <div class="parallax-layer p-circle-4"></div>
+        <div class="parallax-layer p-circle-5"></div>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
+            <div class="bg-[#DCFCE7] text-[#16A34A] px-4 py-1.5 rounded-full text-sm font-medium inline-block mb-6">{{tagline}}</div>
+            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6 text-[#1A2E1A]">
+                {{hero_title}}
+            </h1>
+            <p class="text-lg md:text-xl text-[#6B8068] mb-10 max-w-2xl mx-auto leading-relaxed">
+                {{hero_description}}
+            </p>
+            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                <a href="#menu" class="bg-[#16A34A] text-white font-semibold hover:bg-[#15803D] rounded-xl px-8 py-4 transition-colors">
+                    {{cta_primary_text}}
+                </a>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#16A34A]/30 text-[#16A34A] font-semibold hover:bg-[#16A34A]/5 rounded-xl px-8 py-4 transition-colors">
+                    {{cta_secondary_text}}
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Menu Section -->
+    <section id="menu" class="py-20 md:py-32">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 text-[#1A2E1A]">{{menu_section_title}}</h2>
+                <p class="text-xl text-[#6B8068] max-w-3xl mx-auto">{{menu_section_description}}</p>
+            </div>
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {{menu_items_html}}
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="py-20 md:py-32 bg-[#16A34A]/5">
+        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 text-[#1A2E1A]">{{about_title}}</h2>
+            <p class="text-xl text-[#6B8068] leading-relaxed">{{about_description}}</p>
+        </div>
+    </section>
+
+    <!-- Contact & Hours -->
+    <section id="contact" class="py-20 md:py-32">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="grid md:grid-cols-2 gap-12">
+                <div>
+                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 text-[#1A2E1A]">{{contact_title}}</h2>
+                    <div class="space-y-8">
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#16A34A]">
+                                <i class="fas fa-map-marker-alt mr-3"></i>Location
+                            </h3>
+                            <p class="text-lg text-[#6B8068]">{{address}}</p>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#16A34A]">
+                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
+                            </h3>
+                            <p class="text-lg">
+                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#16A34A] hover:underline">{{phone_display}}</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-3xl font-heading font-bold mb-10 text-[#1A2E1A]">Operating Hours</h3>
+                    <div class="bg-white rounded-2xl shadow-lg shadow-black/5 border border-gray-100 p-8">
+                        <ul class="space-y-6">
+                            {{operating_hours_html}}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-16 bg-[#1A2E1A]">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl font-heading font-bold text-[#16A34A] mb-4">{{business_name}}</h2>
+            <p class="text-[#6B8068] mb-6">{{footer_description}}</p>
+            <p class="text-[#6B8068]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>

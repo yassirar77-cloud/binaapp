@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{business_name}} | {{tagline}}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'primary': '#00E5A0',
+            'secondary': '#00B8D4',
+            'accent': '#1A3D2E',
+            'surface': '#1E1E1E',
+            'background': '#0D0D0D',
+          },
+          fontFamily: {
+            'heading': ['Cormorant Garamond', 'serif'],
+            'body': ['Outfit', 'sans-serif'],
+          }
+        }
+      }
+    }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        html { scroll-behavior: smooth; }
+        body { background-color: #0D0D0D; color: #EAEAEA; font-family: 'Outfit', sans-serif; }
+
+        #ghost-wrapper {
+            transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1), filter 1.5s cubic-bezier(0.4, 0, 0.2, 1), transform 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        #ghost-wrapper.vanishing { opacity: 0; filter: blur(20px) brightness(2); transform: scale(0.97); }
+        #ghost-wrapper.appearing { animation: ghostAppear 2s cubic-bezier(0.23, 1, 0.32, 1) forwards; }
+        @keyframes ghostAppear {
+            0% { opacity: 0; filter: blur(30px) brightness(3); transform: scale(1.05); }
+            30% { opacity: 0.3; filter: blur(15px) brightness(2); }
+            60% { opacity: 0.7; filter: blur(5px) brightness(1.3); }
+            100% { opacity: 1; filter: blur(0px) brightness(1); transform: scale(1); }
+        }
+        @keyframes ghostFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
+
+        .glow-text {
+            background: linear-gradient(135deg, #00E5A0, #00B8D4);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .ghost-card {
+            background: rgba(30,30,30,0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(0,229,160,0.15);
+            transition: all 0.5s ease;
+        }
+        .ghost-card:hover {
+            border-color: rgba(0,229,160,0.4);
+            box-shadow: 0 0 30px rgba(0,229,160,0.1);
+            transform: translateY(-4px);
+        }
+    </style>
+</head>
+<body class="font-body">
+
+    <!-- Ghost Overlay (outside wrapper) -->
+    <div id="ghost-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(13,13,13,0.95);flex-direction:column;align-items:center;justify-content:center;">
+        <div style="font-size:80px;margin-bottom:20px;animation:ghostFloat 2s ease-in-out infinite;">&#128123;</div>
+        <div style="font-size:24px;color:#00E5A0;font-family:'Cormorant Garamond',serif;">Gone Invisible...</div>
+        <div style="font-size:14px;color:#8A8A8A;margin-top:10px;">Reappearing soon</div>
+    </div>
+    <div id="ghost-timer-bar" style="position:fixed;top:0;left:0;height:3px;width:100%;background:linear-gradient(90deg,#00E5A0,#00B8D4);z-index:10000;box-shadow:0 0 15px rgba(0,229,160,0.5);"></div>
+    <div id="countdown-display" style="position:fixed;bottom:20px;right:20px;background:rgba(0,0,0,0.8);backdrop-filter:blur(10px);border:1px solid rgba(0,229,160,0.2);border-radius:12px;padding:10px 18px;font-size:13px;color:#00E5A0;z-index:10001;font-family:'Outfit',sans-serif;"></div>
+
+    <div id="ghost-wrapper">
+
+    <!-- Navigation -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-[#0D0D0D]/90 backdrop-blur-xl border-b border-[#00E5A0]/20">
+        <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
+            <div class="flex justify-between items-center">
+                <a href="#" class="text-2xl font-heading font-bold glow-text">{{business_name}}</a>
+                <div class="hidden md:flex space-x-10">
+                    <a href="#home" class="text-sm font-medium hover:text-[#00E5A0] transition-colors">Home</a>
+                    <a href="#menu" class="text-sm font-medium hover:text-[#00E5A0] transition-colors">Menu</a>
+                    <a href="#about" class="text-sm font-medium hover:text-[#00E5A0] transition-colors">About</a>
+                    <a href="#contact" class="text-sm font-medium hover:text-[#00E5A0] transition-colors">Contact</a>
+                </div>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#00E5A0] text-[#0D0D0D] font-semibold rounded-xl px-6 py-2 text-sm hover:bg-[#00CC8E] transition-colors">
+                    <i class="fab fa-whatsapp mr-2"></i>Order Now
+                </a>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Hero Section -->
+    <section id="home" class="pt-32 pb-20 md:py-40 min-h-screen flex items-center relative overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-b from-[#00E5A0]/5 via-transparent to-transparent pointer-events-none"></div>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
+            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6">
+                <span class="glow-text">{{hero_title}}</span>
+            </h1>
+            <p class="text-lg md:text-xl text-[#8A8A8A] mb-10 max-w-2xl mx-auto leading-relaxed">
+                {{hero_description}}
+            </p>
+            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                <a href="#menu" class="bg-[#00E5A0] text-[#0D0D0D] font-semibold hover:bg-[#00CC8E] rounded-xl px-8 py-4 transition-colors">
+                    {{cta_primary_text}}
+                </a>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#00E5A0]/40 text-[#00E5A0] font-semibold hover:bg-[#00E5A0]/10 rounded-xl px-8 py-4 transition-colors">
+                    {{cta_secondary_text}}
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Menu Section -->
+    <section id="menu" class="py-24 md:py-36 border-t border-[#00E5A0]/20">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 glow-text">{{menu_section_title}}</h2>
+                <p class="text-xl text-[#8A8A8A] max-w-3xl mx-auto">{{menu_section_description}}</p>
+            </div>
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {{menu_items_html}}
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="py-24 md:py-36 border-t border-[#00E5A0]/20">
+        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 glow-text">{{about_title}}</h2>
+            <p class="text-xl text-[#8A8A8A] leading-relaxed">{{about_description}}</p>
+        </div>
+    </section>
+
+    <!-- Contact & Hours -->
+    <section id="contact" class="py-24 md:py-36 border-t border-[#00E5A0]/20">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="grid md:grid-cols-2 gap-12">
+                <div>
+                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 glow-text">{{contact_title}}</h2>
+                    <div class="space-y-8">
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#00E5A0]">
+                                <i class="fas fa-map-marker-alt mr-3"></i>Location
+                            </h3>
+                            <p class="text-lg text-[#8A8A8A]">{{address}}</p>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#00B8D4]">
+                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
+                            </h3>
+                            <p class="text-lg">
+                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#00E5A0] hover:underline">{{phone_display}}</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-3xl font-heading font-bold mb-10 text-[#00E5A0]">Operating Hours</h3>
+                    <div class="ghost-card rounded-2xl p-8">
+                        <ul class="space-y-6">
+                            {{operating_hours_html}}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-16 border-t border-[#00E5A0]/20 bg-[#1E1E1E]">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl font-heading font-bold glow-text mb-4">{{business_name}}</h2>
+            <p class="text-[#8A8A8A] mb-6">{{footer_description}}</p>
+            <p class="text-[#8A8A8A]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+        </div>
+    </footer>
+
+    </div><!-- end ghost-wrapper -->
+
+    <script>
+        // Ghost Cycle Engine
+        (function(){
+            var wrapper=document.getElementById('ghost-wrapper');
+            var overlay=document.getElementById('ghost-overlay');
+            var timerBar=document.getElementById('ghost-timer-bar');
+            var countdownEl=document.getElementById('countdown-display');
+            var VISIBLE_DURATION=60,INVISIBLE_DELAY=3,INVISIBLE_DURATION=4;
+            function startGhostCycle(){
+                var countdown=INVISIBLE_DELAY;
+                countdownEl.textContent='Appearing in '+Math.ceil(countdown)+'s';
+                var timer=setInterval(function(){
+                    countdown-=0.1;
+                    timerBar.style.width=(countdown/INVISIBLE_DELAY*100)+'%';
+                    countdownEl.textContent='Vanishing in '+Math.ceil(countdown)+'s';
+                    if(countdown<=0){clearInterval(timer);vanishSite();}
+                },100);
+            }
+            function vanishSite(){
+                wrapper.classList.add('vanishing');
+                overlay.style.display='flex';
+                setTimeout(function(){appearSite();},INVISIBLE_DURATION*1000);
+            }
+            function appearSite(){
+                wrapper.classList.remove('vanishing');
+                wrapper.classList.add('appearing');
+                overlay.style.display='none';
+                setTimeout(function(){
+                    wrapper.classList.remove('appearing');
+                    startVisibleCountdown();
+                },2000);
+            }
+            function startVisibleCountdown(){
+                var remaining=VISIBLE_DURATION;
+                var timer=setInterval(function(){
+                    remaining-=0.1;
+                    timerBar.style.width=(remaining/VISIBLE_DURATION*100)+'%';
+                    countdownEl.textContent=remaining>10?'Visible for '+Math.ceil(remaining)+'s':'Vanishing in '+Math.ceil(remaining)+'s!';
+                    if(remaining<=0){clearInterval(timer);vanishSite();}
+                },100);
+            }
+            startGhostCycle();
+        })();
+
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>
