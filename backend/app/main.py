@@ -1977,6 +1977,25 @@ async def run_generation_task(
         # Increment usage (founders bypass)
         increment_usage(user_id, user_email)
 
+        # REPLACE PLACEHOLDERS WITH ACTUAL USER DATA before final save
+        try:
+            _menu = menu_items
+        except NameError:
+            _menu = []
+        generation_data = {
+            "description": description,
+            "business_name": business_name or "",
+            "project_name": business_name or "",
+            "delivery": delivery or {},
+            "address": address or "",
+            "phone": (delivery or {}).get("phone", "") if isinstance(delivery, dict) else "",
+            "menu_items": _menu,
+            "payment": payment or {},
+            "fulfillment": features or {},
+        }
+        html = replace_template_placeholders(html, generation_data)
+        logger.info(f"📤 HTML after placeholder replacement: {len(html)} chars")
+
         # Step 5: MARK COMPLETED - THIS IS CRITICAL!
         logger.info(f"💾 Saving completed job to Supabase... (job_id={job_id})")
         logger.info(f"   HTML length: {len(html)} chars")
@@ -2446,6 +2465,162 @@ def fix_website_id_in_html(html: str, correct_website_id: str) -> str:
 
     return html
 
+
+def replace_template_placeholders(html: str, request_data: dict) -> str:
+    """
+    Replace {{placeholder}} strings in generated HTML with actual user data.
+    Must run BEFORE saving HTML to database/storage.
+    """
+    if not html or not request_data:
+        return html or ""
+
+    # === Detect primary color from template (used for menu + hours) ===
+    primary_color = '#3B82F6'
+    color_patterns = [
+        ('#34d399', r'text-\[#34d399\]'),
+        ('#D4AF37', r'text-\[#D4AF37\]'),
+        ('#C084FC', r'text-\[#C084FC\]'),
+        ('#00FFFF', r'text-\[#00FFFF\]'),
+        ('#3B82F6', r'text-\[#3B82F6\]'),
+        ('#ff6b35', r'text-\[#ff6b35\]'),
+    ]
+    for color, pattern in color_patterns:
+        if re.search(pattern, html):
+            primary_color = color
+            break
+
+    # === WhatsApp Number ===
+    phone = ''
+    delivery = request_data.get('delivery', {}) or {}
+    if isinstance(delivery, dict):
+        phone = delivery.get('whatsapp', '') or delivery.get('phone', '') or ''
+    if not phone:
+        phone = request_data.get('phone', '') or request_data.get('whatsapp', '') or ''
+
+    if not phone:
+        desc = request_data.get('description', '') or ''
+        phone_match = re.search(r'(\+?6?0\d[\d\s-]{7,12})', desc)
+        if phone_match:
+            phone = phone_match.group(1).strip()
+
+    if phone:
+        wa_number = re.sub(r'[^0-9]', '', phone)
+        if wa_number.startswith('0'):
+            wa_number = '60' + wa_number[1:]
+        elif not wa_number.startswith('60'):
+            wa_number = '60' + wa_number
+        html = re.sub(r'wa\.me/\d+', f'wa.me/{wa_number}', html)
+        html = html.replace('+60123456789', phone)
+        html = html.replace('60123456789', phone)
+
+    # === Address ===
+    address = ''
+    if isinstance(delivery, dict):
+        address = delivery.get('address', '') or delivery.get('location', '') or ''
+    if not address:
+        address = request_data.get('address', '') or request_data.get('location', '') or ''
+    if not address:
+        desc = request_data.get('description', '') or ''
+        loc_match = re.search(r'(?:[Bb]ased in|[Ll]ocated in|[Dd]i|[Ll]okasi)\s+([^,.!]+)', desc)
+        if loc_match:
+            address = loc_match.group(1).strip()
+
+    html = html.replace('{{address}}', address or 'Hubungi kami untuk alamat')
+
+    # === Menu Items ===
+    menu_items = request_data.get('menu_items', []) or []
+
+    if '{{menu_items_html}}' in html:
+        if menu_items and len(menu_items) > 0:
+            cards = []
+            for item in menu_items:
+                if isinstance(item, dict):
+                    name = item.get('name', '') or item.get('title', '') or 'Item'
+                    price = item.get('price', '')
+                    desc = item.get('description', '') or ''
+                    image = item.get('image', '') or item.get('image_url', '') or ''
+                elif isinstance(item, str):
+                    name = item
+                    price = ''
+                    desc = ''
+                    image = ''
+                else:
+                    continue
+
+                img_html = ''
+                if image:
+                    img_html = f'<div class="aspect-video overflow-hidden rounded-t-2xl"><img src="{image}" alt="{name}" class="w-full h-full object-cover" loading="lazy"></div>'
+
+                price_str = str(price) if price else ''
+                price_display = ''
+                if price_str:
+                    if not price_str.startswith('RM'):
+                        price_str = f'RM{price_str}'
+                    price_display = f'<span class="text-lg font-bold" style="color:{primary_color}">{price_str}</span>'
+
+                card = f'''<div class="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden hover:border-white/20 transition-all duration-500">
+                    {img_html}
+                    <div class="p-6">
+                        <div class="flex justify-between items-start mb-3">
+                            <h3 class="text-xl font-bold">{name}</h3>
+                            {price_display}
+                        </div>
+                        {f'<p class="text-gray-400 text-sm">{desc}</p>' if desc else ''}
+                    </div>
+                </div>'''
+                cards.append(card)
+
+            html = html.replace('{{menu_items_html}}', '\n'.join(cards))
+        else:
+            html = html.replace('{{menu_items_html}}',
+                '<div class="col-span-full text-center py-8"><p class="text-gray-500">Menu akan dikemaskini tidak lama lagi.</p></div>')
+
+    # === Operating Hours ===
+    hours = request_data.get('operating_hours', []) or request_data.get('hours', []) or []
+    fulfillment = request_data.get('fulfillment', {}) or {}
+    if not hours and isinstance(fulfillment, dict):
+        hours = fulfillment.get('operating_hours', []) or fulfillment.get('hours', []) or []
+
+    if '{{operating_hours_html}}' in html:
+        if hours and len(hours) > 0:
+            items = []
+            for h in hours:
+                if isinstance(h, dict):
+                    days = h.get('days', '') or h.get('day', '') or h.get('label', '')
+                    time_val = h.get('hours', '') or h.get('time', '') or h.get('open', '')
+                    if not time_val:
+                        open_time = h.get('open_time', '') or h.get('from', '')
+                        close_time = h.get('close_time', '') or h.get('to', '')
+                        if open_time and close_time:
+                            time_val = f'{open_time} - {close_time}'
+                elif isinstance(h, str):
+                    days = h
+                    time_val = ''
+                else:
+                    continue
+
+                items.append(f'''<li class="flex justify-between items-center pb-4 border-b border-white/10">
+                    <span class="text-lg">{days}</span>
+                    <span class="font-bold" style="color:{primary_color}">{time_val}</span>
+                </li>''')
+
+            html = html.replace('{{operating_hours_html}}', '\n'.join(items))
+        else:
+            html = html.replace('{{operating_hours_html}}',
+                '<li class="text-gray-500">Sila hubungi kami untuk waktu operasi</li>')
+
+    # === Other common placeholders ===
+    business_name = request_data.get('project_name', '') or request_data.get('business_name', '') or ''
+    html = html.replace('{{business_name}}', business_name)
+    html = html.replace('{{tagline}}', request_data.get('tagline', '') or '')
+    html = html.replace('{{email}}', request_data.get('email', '') or '')
+
+    # === SAFETY NET: Remove ANY remaining {{placeholders}} ===
+    html = re.sub(r'\{\{[a-zA-Z_]+\}\}', '', html)
+
+    return html
+
+
 @app.post("/api/publish")
 async def publish_website(
     request: Request,
@@ -2537,6 +2712,10 @@ async def publish_website(
 
         # Ensure HTML uses the database record website_id
         html_content = fix_website_id_in_html(html_content, website_id)
+
+        # REPLACE PLACEHOLDERS WITH ACTUAL USER DATA
+        html_content = replace_template_placeholders(html_content, body)
+        logger.info(f"📤 HTML after placeholder replacement: {len(html_content)} chars")
 
         delivery_enabled = bool(features.get("deliverySystem")) or bool(delivery)
 
