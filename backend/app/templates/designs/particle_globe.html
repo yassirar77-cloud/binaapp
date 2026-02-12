@@ -30,46 +30,140 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         html { scroll-behavior: smooth; }
-        body { background-color: #030712; color: #F9FAFB; font-family: 'Inter', sans-serif; }
+        body { background-color: #030712; color: #F9FAFB; font-family: 'Inter', sans-serif; overflow-x: hidden; }
+
+        /* Gradient mesh background */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background:
+                radial-gradient(ellipse at 20% 50%, rgba(59,130,246,0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(96,165,250,0.05) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 80%, rgba(30,58,95,0.1) 0%, transparent 50%);
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* Subtle noise texture */
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 9999;
+            opacity: 0.4;
+        }
 
         .globe-hero { position: relative; overflow: hidden; }
         #globeCanvas {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 0; opacity: 0.6;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 0; opacity: 0.7;
         }
         .glow-text {
-            background: linear-gradient(135deg, #3B82F6, #60A5FA);
+            background: linear-gradient(135deg, #3B82F6, #60A5FA, #93C5FD);
             -webkit-background-clip: text; -webkit-text-fill-color: transparent;
             background-clip: text;
         }
+
+        /* Animated gradient border on cards */
         .menu-card {
-            background: rgba(17,24,39,0.8);
-            backdrop-filter: blur(12px);
+            position: relative;
+            background: rgba(17,24,39,0.6);
+            backdrop-filter: blur(20px);
             border: 1px solid rgba(59,130,246,0.15);
+            border-radius: 1rem;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .menu-card::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            background: linear-gradient(135deg, rgba(59,130,246,0.2), transparent 60%, rgba(96,165,250,0.1));
+            z-index: -1;
             transition: all 0.5s ease;
         }
         .menu-card:hover {
             border-color: rgba(59,130,246,0.4);
-            box-shadow: 0 0 30px rgba(59,130,246,0.1);
-            transform: translateY(-4px);
+            box-shadow: 0 0 40px rgba(59,130,246,0.15), 0 20px 60px rgba(0,0,0,0.3);
+            transform: translateY(-6px);
+        }
+        .menu-card:hover::before {
+            background: linear-gradient(135deg, rgba(59,130,246,0.4), transparent 60%, rgba(96,165,250,0.3));
+        }
+
+        /* Premium button hover shimmer */
+        .btn-primary {
+            position: relative;
+            overflow: hidden;
+        }
+        .btn-primary::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.6s ease;
+        }
+        .btn-primary:hover::after {
+            transform: translateX(100%);
+        }
+
+        /* Smooth reveal animation */
+        @keyframes fadeSlideUp {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-reveal {
+            opacity: 0;
+            animation: fadeSlideUp 0.8s ease-out forwards;
+        }
+        .animate-reveal-d1 { animation-delay: 0.1s; }
+        .animate-reveal-d2 { animation-delay: 0.2s; }
+        .animate-reveal-d3 { animation-delay: 0.3s; }
+        .animate-reveal-d4 { animation-delay: 0.4s; }
+
+        /* Glow pulse on hero title */
+        @keyframes glowPulse {
+            0%, 100% { filter: drop-shadow(0 0 20px rgba(59,130,246,0.3)); }
+            50% { filter: drop-shadow(0 0 40px rgba(59,130,246,0.6)); }
+        }
+        .hero-title { animation: glowPulse 4s ease-in-out infinite; }
+
+        /* Section divider */
+        .section-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(59,130,246,0.3), transparent);
+        }
+
+        /* Scroll-based reveal */
+        .scroll-reveal {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.6s ease, transform 0.6s ease;
+        }
+        .scroll-reveal.visible {
+            opacity: 1;
+            transform: translateY(0);
         }
     </style>
 </head>
 <body class="font-body">
 
     <!-- Navigation -->
-    <header class="fixed top-0 left-0 right-0 z-50 bg-[#030712]/90 backdrop-blur-xl border-b border-[#3B82F6]/20">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-[#030712]/80 backdrop-blur-xl border-b border-[#3B82F6]/10">
         <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
             <div class="flex justify-between items-center">
                 <a href="#" class="text-2xl font-heading font-bold glow-text">{{business_name}}</a>
                 <div class="hidden md:flex space-x-10">
-                    <a href="#home" class="text-sm font-medium hover:text-[#3B82F6] transition-colors">Home</a>
-                    <a href="#menu" class="text-sm font-medium hover:text-[#3B82F6] transition-colors">Menu</a>
-                    <a href="#about" class="text-sm font-medium hover:text-[#3B82F6] transition-colors">About</a>
-                    <a href="#contact" class="text-sm font-medium hover:text-[#3B82F6] transition-colors">Contact</a>
+                    <a href="#home" class="text-sm font-medium text-gray-400 hover:text-[#3B82F6] transition-colors duration-300">Home</a>
+                    <a href="#menu" class="text-sm font-medium text-gray-400 hover:text-[#3B82F6] transition-colors duration-300">Menu</a>
+                    <a href="#about" class="text-sm font-medium text-gray-400 hover:text-[#3B82F6] transition-colors duration-300">About</a>
+                    <a href="#contact" class="text-sm font-medium text-gray-400 hover:text-[#3B82F6] transition-colors duration-300">Contact</a>
                 </div>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#3B82F6] text-white font-semibold rounded-xl px-6 py-2 text-sm hover:bg-[#2563EB] transition-colors">
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="btn-primary bg-[#3B82F6] text-white font-semibold rounded-xl px-6 py-2.5 text-sm hover:bg-[#2563EB] transition-colors">
                     <i class="fab fa-whatsapp mr-2"></i>Order Now
                 </a>
             </div>
@@ -78,20 +172,20 @@
 
     <!-- Hero Section with Particle Globe -->
     <section id="home" class="globe-hero pt-32 pb-20 md:py-40 min-h-screen flex items-center">
-        <canvas id="globeCanvas" width="600" height="600"></canvas>
+        <canvas id="globeCanvas"></canvas>
 
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
-            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6">
+            <h1 class="hero-title text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6 animate-reveal">
                 <span class="glow-text">{{hero_title}}</span>
             </h1>
-            <p class="text-lg md:text-xl text-[#9CA3AF] mb-10 max-w-2xl mx-auto leading-relaxed">
+            <p class="text-lg md:text-xl text-[#9CA3AF] mb-10 max-w-2xl mx-auto leading-relaxed animate-reveal animate-reveal-d1">
                 {{hero_description}}
             </p>
-            <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                <a href="#menu" class="bg-[#3B82F6] text-white font-semibold hover:bg-[#2563EB] rounded-xl px-8 py-4 transition-colors">
+            <div class="flex flex-col sm:flex-row gap-4 justify-center animate-reveal animate-reveal-d2">
+                <a href="#menu" class="btn-primary bg-[#3B82F6] text-white font-semibold hover:bg-[#2563EB] rounded-xl px-8 py-4 transition-colors">
                     {{cta_primary_text}}
                 </a>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#3B82F6]/40 text-[#3B82F6] font-semibold hover:bg-[#3B82F6]/10 rounded-xl px-8 py-4 transition-colors">
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#3B82F6]/30 text-[#3B82F6] font-semibold hover:bg-[#3B82F6]/10 rounded-xl px-8 py-4 transition-colors">
                     {{cta_secondary_text}}
                 </a>
             </div>
@@ -99,9 +193,10 @@
     </section>
 
     <!-- Menu Section -->
-    <section id="menu" class="py-24 md:py-36 border-t border-[#3B82F6]/20">
+    <section id="menu" class="py-24 md:py-36">
+        <div class="section-divider mb-24"></div>
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
-            <div class="text-center mb-16">
+            <div class="text-center mb-16 scroll-reveal">
                 <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 glow-text">{{menu_section_title}}</h2>
                 <p class="text-xl text-[#9CA3AF] max-w-3xl mx-auto">{{menu_section_description}}</p>
             </div>
@@ -112,18 +207,20 @@
     </section>
 
     <!-- About Section -->
-    <section id="about" class="py-24 md:py-36 border-t border-[#3B82F6]/20">
-        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+    <section id="about" class="py-24 md:py-36">
+        <div class="section-divider mb-24"></div>
+        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center scroll-reveal">
             <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 glow-text">{{about_title}}</h2>
             <p class="text-xl text-[#9CA3AF] leading-relaxed">{{about_description}}</p>
         </div>
     </section>
 
     <!-- Contact & Hours -->
-    <section id="contact" class="py-24 md:py-36 border-t border-[#3B82F6]/20">
+    <section id="contact" class="py-24 md:py-36">
+        <div class="section-divider mb-24"></div>
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
             <div class="grid md:grid-cols-2 gap-12">
-                <div>
+                <div class="scroll-reveal">
                     <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 glow-text">{{contact_title}}</h2>
                     <div class="space-y-8">
                         <div>
@@ -142,7 +239,7 @@
                         </div>
                     </div>
                 </div>
-                <div>
+                <div class="scroll-reveal">
                     <h3 class="text-3xl font-heading font-bold mb-10">Operating Hours</h3>
                     <div class="menu-card rounded-2xl p-8">
                         <ul class="space-y-6">
@@ -155,59 +252,173 @@
     </section>
 
     <!-- Footer -->
-    <footer class="py-16 border-t border-[#3B82F6]/20 bg-[#111827]">
+    <footer class="py-16 bg-[#111827]/80">
+        <div class="section-divider mb-16"></div>
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
             <h2 class="text-3xl font-heading font-bold glow-text mb-4">{{business_name}}</h2>
             <p class="text-[#9CA3AF] mb-6">{{footer_description}}</p>
-            <p class="text-[#9CA3AF]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+            <p class="text-[#6B7280]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
         </div>
     </footer>
 
     <script>
-        // 3D Particle Globe
+        // Premium Particle Globe with connections, multi-color, mouse interaction
         (function() {
             var canvas = document.getElementById('globeCanvas');
             if (!canvas) return;
             var ctx = canvas.getContext('2d');
-            var w = canvas.width, h = canvas.height;
-            var cx = w / 2, cy = h / 2, r = 200;
+
+            function resize() {
+                canvas.width = canvas.parentElement.offsetWidth;
+                canvas.height = canvas.parentElement.offsetHeight;
+            }
+            resize();
+            window.addEventListener('resize', resize);
+
+            var mouseX = canvas.width / 2, mouseY = canvas.height / 2;
+            canvas.addEventListener('mousemove', function(e) {
+                var rect = canvas.getBoundingClientRect();
+                mouseX = e.clientX - rect.left;
+                mouseY = e.clientY - rect.top;
+            });
+
+            var numParticles = 1000;
             var particles = [];
-            var numParticles = 300;
-            var angle = 0;
+            var colors = [
+                [59, 130, 246],
+                [96, 165, 250],
+                [147, 197, 253],
+                [59, 200, 246]
+            ];
 
             for (var i = 0; i < numParticles; i++) {
                 var theta = Math.random() * Math.PI * 2;
                 var phi = Math.acos(2 * Math.random() - 1);
-                particles.push({ theta: theta, phi: phi, speed: 0.002 + Math.random() * 0.004 });
+                particles.push({
+                    theta: theta,
+                    phi: phi,
+                    speed: 0.001 + Math.random() * 0.003,
+                    size: 0.5 + Math.random() * 2,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    pulse: Math.random() * Math.PI * 2
+                });
             }
 
+            // Ambient floating particles
+            var ambient = [];
+            for (var i = 0; i < 40; i++) {
+                ambient.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    vx: (Math.random() - 0.5) * 0.3,
+                    vy: (Math.random() - 0.5) * 0.3,
+                    size: 1 + Math.random() * 2,
+                    alpha: 0.1 + Math.random() * 0.3
+                });
+            }
+
+            var angle = 0;
+            var time = 0;
+
             function draw() {
-                ctx.clearRect(0, 0, w, h);
-                angle += 0.005;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                angle += 0.003;
+                time += 0.01;
+
+                var cxv = canvas.width / 2;
+                var cyv = canvas.height / 2;
+                var r = Math.min(canvas.width, canvas.height) * 0.28;
+
+                var mouseInfluenceX = (mouseX - cxv) * 0.00003;
+                var mouseInfluenceY = (mouseY - cyv) * 0.00003;
+
+                var projected = [];
 
                 for (var i = 0; i < particles.length; i++) {
                     var p = particles[i];
-                    p.theta += p.speed;
+                    p.theta += p.speed + mouseInfluenceX;
+                    p.pulse += 0.02;
 
                     var x3d = r * Math.sin(p.phi) * Math.cos(p.theta + angle);
                     var y3d = r * Math.cos(p.phi);
                     var z3d = r * Math.sin(p.phi) * Math.sin(p.theta + angle);
 
                     var scale = (z3d + r) / (2 * r);
-                    var x2d = cx + x3d;
-                    var y2d = cy + y3d;
-                    var size = 1 + scale * 2;
-                    var alpha = 0.2 + scale * 0.6;
+                    var x2d = cxv + x3d;
+                    var y2d = cyv + y3d + mouseInfluenceY * r * 10;
+                    var size = p.size * (0.3 + scale * 0.7);
+                    var pulseAlpha = 0.5 + Math.sin(p.pulse) * 0.2;
+                    var alpha = (0.1 + scale * 0.7) * pulseAlpha;
 
+                    // Glow effect for front particles
+                    if (scale > 0.6) {
+                        ctx.beginPath();
+                        ctx.arc(x2d, y2d, size * 4, 0, Math.PI * 2);
+                        var glow = ctx.createRadialGradient(x2d, y2d, 0, x2d, y2d, size * 4);
+                        glow.addColorStop(0, 'rgba(' + p.color[0] + ',' + p.color[1] + ',' + p.color[2] + ',' + (alpha * 0.25) + ')');
+                        glow.addColorStop(1, 'rgba(0,0,0,0)');
+                        ctx.fillStyle = glow;
+                        ctx.fill();
+                    }
+
+                    // Main particle
                     ctx.beginPath();
                     ctx.arc(x2d, y2d, size, 0, Math.PI * 2);
-                    ctx.fillStyle = 'rgba(59, 130, 246, ' + alpha + ')';
+                    ctx.fillStyle = 'rgba(' + p.color[0] + ',' + p.color[1] + ',' + p.color[2] + ',' + alpha + ')';
+                    ctx.fill();
+
+                    if (scale > 0.5) {
+                        projected.push({ x: x2d, y: y2d, alpha: alpha * 0.3 });
+                    }
+                }
+
+                // Connection lines between nearby front particles
+                for (var i = 0; i < projected.length; i++) {
+                    for (var j = i + 1; j < projected.length; j++) {
+                        var dx = projected[i].x - projected[j].x;
+                        var dy = projected[i].y - projected[j].y;
+                        var dist = dx * dx + dy * dy;
+                        if (dist < 1600) { // 40px squared
+                            ctx.beginPath();
+                            ctx.moveTo(projected[i].x, projected[i].y);
+                            ctx.lineTo(projected[j].x, projected[j].y);
+                            var lineAlpha = (1 - Math.sqrt(dist) / 40) * Math.min(projected[i].alpha, projected[j].alpha);
+                            ctx.strokeStyle = 'rgba(59,130,246,' + lineAlpha + ')';
+                            ctx.lineWidth = 0.5;
+                            ctx.stroke();
+                        }
+                    }
+                }
+
+                // Ambient particles
+                for (var i = 0; i < ambient.length; i++) {
+                    var ap = ambient[i];
+                    ap.x += ap.vx;
+                    ap.y += ap.vy;
+                    if (ap.x < 0 || ap.x > canvas.width) ap.vx *= -1;
+                    if (ap.y < 0 || ap.y > canvas.height) ap.vy *= -1;
+                    ctx.beginPath();
+                    ctx.arc(ap.x, ap.y, ap.size, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(59,130,246,' + (ap.alpha * (0.5 + Math.sin(time + ap.x * 0.01) * 0.5)) + ')';
                     ctx.fill();
                 }
 
                 requestAnimationFrame(draw);
             }
             draw();
+        })();
+
+        // Scroll-based reveal
+        (function() {
+            var els = document.querySelectorAll('.scroll-reveal');
+            var observer = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                    }
+                });
+            }, { threshold: 0.15 });
+            els.forEach(function(el) { observer.observe(el); });
         })();
 
         document.getElementById('currentYear').textContent = new Date().getFullYear();

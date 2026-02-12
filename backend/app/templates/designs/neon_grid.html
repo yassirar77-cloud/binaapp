@@ -1,23 +1,24 @@
 <!DOCTYPE html>
-<html lang="ms">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{business_name}} | {{tagline}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
     tailwind.config = {
       theme: {
         extend: {
           colors: {
-            'primary': '#8B5CF6',
-            'secondary': '#06B6D4',
-            'accent': '#1E1B4B',
-            'surface': '#111827',
-            'background': '#030712',
+            'neon-cyan': '#00FFFF',
+            'neon-pink': '#FF00FF',
+            'neon-blue': '#0088FF',
+            'dark': '#0a0a0f',
+            'dark-surface': '#12121a',
+            'dark-card': '#16162a',
           },
           fontFamily: {
             'heading': ['Space Grotesk', 'sans-serif'],
@@ -29,149 +30,668 @@
     </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        /* ========================================
+           BASE STYLES
+           ======================================== */
         html { scroll-behavior: smooth; }
-        body { background-color: #030712; color: #F9FAFB; font-family: 'Inter', sans-serif; }
-
-        .neon-hero { position: relative; overflow: hidden; }
-        .neon-grid-bg {
-            position: absolute; inset: 0; z-index: 0;
-            background:
-                linear-gradient(rgba(139,92,246,0.06) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(139,92,246,0.06) 1px, transparent 1px);
-            background-size: 60px 60px;
-            perspective: 500px;
-        }
-        .neon-grid-perspective {
-            position: absolute; bottom: 0; left: -50%; width: 200%; height: 70%;
-            background:
-                linear-gradient(rgba(139,92,246,0.15) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(6,182,212,0.15) 1px, transparent 1px);
-            background-size: 80px 80px;
-            transform: perspective(400px) rotateX(60deg);
-            transform-origin: bottom center;
-            animation: gridPulse 4s ease-in-out infinite;
-        }
-        @keyframes gridPulse {
-            0%, 100% { opacity: 0.5; }
-            50% { opacity: 0.9; }
-        }
-        .neon-orb {
-            position: absolute; border-radius: 50%; filter: blur(60px); pointer-events: none;
-            animation: orbFloat 6s ease-in-out infinite;
-        }
-        .orb-1 { width: 300px; height: 300px; background: rgba(139,92,246,0.3); top: 10%; left: 10%; }
-        .orb-2 { width: 250px; height: 250px; background: rgba(6,182,212,0.25); top: 30%; right: 15%; animation-delay: -2s; }
-        .orb-3 { width: 200px; height: 200px; background: rgba(244,114,182,0.2); bottom: 20%; left: 30%; animation-delay: -4s; }
-        @keyframes orbFloat {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(20px, -30px) scale(1.1); }
-            66% { transform: translate(-15px, 15px) scale(0.95); }
+        body {
+            background-color: #0a0a0f;
+            color: #e4e4e7;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
         }
 
-        .glow-text {
-            background: linear-gradient(135deg, #8B5CF6, #06B6D4);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        /* ========================================
+           NEON TEXT GLOW EFFECTS
+           ======================================== */
+        .neon-text-cyan {
+            color: #00FFFF;
+            text-shadow:
+                0 0 7px #00FFFF,
+                0 0 20px #00FFFF,
+                0 0 42px #00FFFF88,
+                0 0 82px #00FFFF44;
+        }
+        .neon-text-pink {
+            color: #FF00FF;
+            text-shadow:
+                0 0 7px #FF00FF,
+                0 0 20px #FF00FF,
+                0 0 42px #FF00FF88,
+                0 0 82px #FF00FF44;
+        }
+        .neon-text-gradient {
+            background: linear-gradient(135deg, #00FFFF 0%, #FF00FF 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
             background-clip: text;
+            filter: drop-shadow(0 0 12px #00FFFF66) drop-shadow(0 0 24px #FF00FF44);
         }
-        .menu-card { transition: all 0.5s ease; }
-        .menu-card:hover { border-color: rgba(139, 92, 246, 0.4); box-shadow: 0 0 30px rgba(139, 92, 246, 0.15); }
+        .neon-text-white {
+            color: #ffffff;
+            text-shadow:
+                0 0 10px #00FFFF55,
+                0 0 40px #00FFFF22;
+        }
+
+        /* ========================================
+           PERSPECTIVE GRID FLOOR (HERO)
+           ======================================== */
+        .hero-section {
+            position: relative;
+            overflow: hidden;
+            min-height: 100vh;
+            background: radial-gradient(ellipse at 50% 0%, #1a0a2e 0%, #0a0a0f 60%);
+        }
+
+        .grid-floor-container {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 55%;
+            perspective: 300px;
+            overflow: hidden;
+        }
+
+        .grid-floor {
+            position: absolute;
+            bottom: 0;
+            left: -100%;
+            width: 400%;
+            height: 200%;
+            transform: rotateX(65deg);
+            transform-origin: bottom center;
+            background:
+                repeating-linear-gradient(
+                    0deg,
+                    transparent,
+                    transparent 58px,
+                    #00FFFF22 58px,
+                    #00FFFF22 60px
+                ),
+                repeating-linear-gradient(
+                    90deg,
+                    transparent,
+                    transparent 58px,
+                    #FF00FF22 58px,
+                    #FF00FF22 60px
+                );
+            background-size: 60px 60px;
+            animation: gridScroll 3s linear infinite;
+        }
+
+        /* Neon glow pulses traveling along grid lines */
+        .grid-pulse-horizontal {
+            position: absolute;
+            bottom: 0;
+            left: -100%;
+            width: 400%;
+            height: 200%;
+            transform: rotateX(65deg);
+            transform-origin: bottom center;
+            background:
+                repeating-linear-gradient(
+                    0deg,
+                    transparent,
+                    transparent 56px,
+                    #00FFFF00 56px,
+                    #00FFFFaa 59px,
+                    #00FFFF00 62px,
+                    transparent 62px
+                );
+            background-size: 60px 60px;
+            animation: gridScroll 3s linear infinite, gridGlowPulse 2s ease-in-out infinite;
+        }
+
+        .grid-pulse-vertical {
+            position: absolute;
+            bottom: 0;
+            left: -100%;
+            width: 400%;
+            height: 200%;
+            transform: rotateX(65deg);
+            transform-origin: bottom center;
+            background:
+                repeating-linear-gradient(
+                    90deg,
+                    transparent,
+                    transparent 56px,
+                    #FF00FF00 56px,
+                    #FF00FFaa 59px,
+                    #FF00FF00 62px,
+                    transparent 62px
+                );
+            background-size: 60px 60px;
+            animation: gridScroll 3s linear infinite, gridGlowPulse 2.5s ease-in-out infinite 0.5s;
+        }
+
+        @keyframes gridScroll {
+            0% { background-position: 0 0; }
+            100% { background-position: 0 60px; }
+        }
+
+        @keyframes gridGlowPulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        /* Horizon gradient mask */
+        .grid-floor-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 50%;
+            background: linear-gradient(to bottom, #0a0a0f, transparent);
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        /* Horizontal scan line traveling along the grid */
+        .grid-scanline {
+            position: absolute;
+            bottom: 0;
+            left: -100%;
+            width: 400%;
+            height: 200%;
+            transform: rotateX(65deg);
+            transform-origin: bottom center;
+            background: linear-gradient(
+                0deg,
+                transparent 0%,
+                transparent 45%,
+                #00FFFF55 49%,
+                #00FFFFcc 50%,
+                #00FFFF55 51%,
+                transparent 55%,
+                transparent 100%
+            );
+            animation: scanlineMove 4s ease-in-out infinite;
+        }
+
+        @keyframes scanlineMove {
+            0% { background-position: 0 0; }
+            100% { background-position: 0 600px; }
+        }
+
+        /* Flat grid overlay on the hero background */
+        .hero-flat-grid {
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(rgba(0,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,0,255,0.03) 1px, transparent 1px);
+            background-size: 80px 80px;
+            pointer-events: none;
+        }
+
+        /* ========================================
+           GLASSMORPHISM CARDS
+           ======================================== */
+        .glass-card {
+            background: rgba(22, 22, 42, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 255, 255, 0.12);
+            border-radius: 1rem;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .glass-card:hover {
+            border-color: rgba(0, 255, 255, 0.35);
+            box-shadow:
+                0 0 20px rgba(0, 255, 255, 0.08),
+                0 0 60px rgba(255, 0, 255, 0.05),
+                inset 0 0 20px rgba(0, 255, 255, 0.03);
+            transform: translateY(-4px);
+        }
+
+        .glass-card-pink {
+            background: rgba(22, 22, 42, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 0, 255, 0.12);
+            border-radius: 1rem;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .glass-card-pink:hover {
+            border-color: rgba(255, 0, 255, 0.35);
+            box-shadow:
+                0 0 20px rgba(255, 0, 255, 0.08),
+                0 0 60px rgba(0, 255, 255, 0.05),
+                inset 0 0 20px rgba(255, 0, 255, 0.03);
+            transform: translateY(-4px);
+        }
+
+        /* ========================================
+           BUTTON SHIMMER EFFECT
+           ======================================== */
+        .btn-neon {
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(135deg, #00FFFF, #FF00FF);
+            color: #0a0a0f;
+            font-weight: 600;
+            border-radius: 0.75rem;
+            padding: 1rem 2rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.25), 0 0 40px rgba(255, 0, 255, 0.15);
+        }
+        .btn-neon::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.4),
+                transparent
+            );
+            transition: left 0.5s ease;
+        }
+        .btn-neon:hover::before {
+            left: 100%;
+        }
+        .btn-neon:hover {
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.4), 0 0 60px rgba(255, 0, 255, 0.25);
+            transform: translateY(-2px);
+        }
+
+        .btn-outline-neon {
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(0, 255, 255, 0.5);
+            color: #00FFFF;
+            font-weight: 600;
+            border-radius: 0.75rem;
+            padding: 1rem 2rem;
+            transition: all 0.3s ease;
+            background: transparent;
+        }
+        .btn-outline-neon::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(0, 255, 255, 0.15),
+                transparent
+            );
+            transition: left 0.5s ease;
+        }
+        .btn-outline-neon:hover::before {
+            left: 100%;
+        }
+        .btn-outline-neon:hover {
+            border-color: #00FFFF;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.2), inset 0 0 20px rgba(0, 255, 255, 0.05);
+            background: rgba(0, 255, 255, 0.05);
+            transform: translateY(-2px);
+        }
+
+        /* ========================================
+           SCROLL REVEAL ANIMATIONS
+           ======================================== */
+        .reveal {
+            opacity: 0;
+            transform: translateY(40px);
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .reveal-delay-1 { transition-delay: 0.1s; }
+        .reveal-delay-2 { transition-delay: 0.2s; }
+        .reveal-delay-3 { transition-delay: 0.3s; }
+        .reveal-delay-4 { transition-delay: 0.4s; }
+
+        /* ========================================
+           SECTION DIVIDER - NEON LINE
+           ======================================== */
+        .neon-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #00FFFF44, #FF00FF44, transparent);
+            position: relative;
+        }
+        .neon-divider::after {
+            content: '';
+            position: absolute;
+            top: -1px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, #00FFFF22, #FF00FF22, transparent);
+            filter: blur(4px);
+        }
+
+        /* ========================================
+           MENU CARD STYLING
+           ======================================== */
+        .menu-card {
+            background: rgba(22, 22, 42, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 255, 255, 0.1);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .menu-card:hover {
+            border-color: rgba(0, 255, 255, 0.3);
+            box-shadow:
+                0 0 25px rgba(0, 255, 255, 0.08),
+                0 0 50px rgba(255, 0, 255, 0.04),
+                inset 0 0 25px rgba(0, 255, 255, 0.02);
+            transform: translateY(-6px) scale(1.01);
+        }
+        .menu-card img {
+            border-radius: 0.75rem;
+            border: 1px solid rgba(0, 255, 255, 0.08);
+        }
+
+        /* ========================================
+           NAVIGATION
+           ======================================== */
+        .nav-glass {
+            background: rgba(10, 10, 15, 0.85);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border-bottom: 1px solid rgba(0, 255, 255, 0.1);
+        }
+        .nav-link {
+            position: relative;
+            color: #a1a1aa;
+            transition: color 0.3s ease;
+        }
+        .nav-link:hover {
+            color: #00FFFF;
+        }
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #00FFFF, #FF00FF);
+            transition: width 0.3s ease;
+            box-shadow: 0 0 8px #00FFFF66;
+        }
+        .nav-link:hover::after {
+            width: 100%;
+        }
+
+        /* ========================================
+           AMBIENT GLOW ORBS
+           ======================================== */
+        .ambient-orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            pointer-events: none;
+            animation: orbDrift 8s ease-in-out infinite;
+        }
+        @keyframes orbDrift {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(30px, -20px) scale(1.1); }
+            50% { transform: translate(-20px, 30px) scale(0.9); }
+            75% { transform: translate(15px, 15px) scale(1.05); }
+        }
+
+        /* ========================================
+           MOBILE MENU
+           ======================================== */
+        .mobile-menu {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(10, 10, 15, 0.97);
+            backdrop-filter: blur(24px);
+            z-index: 100;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2rem;
+        }
+        .mobile-menu.open {
+            display: flex;
+        }
+        .mobile-menu a {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #e4e4e7;
+            transition: color 0.3s;
+        }
+        .mobile-menu a:hover {
+            color: #00FFFF;
+        }
+
+        /* ========================================
+           SCROLLBAR
+           ======================================== */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0a0a0f; }
+        ::-webkit-scrollbar-thumb { background: linear-gradient(#00FFFF44, #FF00FF44); border-radius: 3px; }
+
+        /* ========================================
+           CONTACT ICON GLOW
+           ======================================== */
+        .contact-icon-cyan {
+            color: #00FFFF;
+            filter: drop-shadow(0 0 6px #00FFFF88);
+        }
+        .contact-icon-pink {
+            color: #FF00FF;
+            filter: drop-shadow(0 0 6px #FF00FF88);
+        }
     </style>
 </head>
 <body class="font-body">
 
-    <!-- Navigation -->
-    <header class="fixed top-0 left-0 right-0 z-50 bg-[#030712]/90 backdrop-blur-xl border-b border-[#8B5CF6]/20">
+    <!-- ========================================
+         NAVIGATION
+         ======================================== -->
+    <header class="fixed top-0 left-0 right-0 z-50 nav-glass">
         <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
             <div class="flex justify-between items-center">
-                <a href="#" class="text-2xl font-heading font-bold glow-text">{{business_name}}</a>
-                <div class="hidden md:flex space-x-10">
-                    <a href="#home" class="text-sm font-medium hover:text-[#8B5CF6] transition-colors">Home</a>
-                    <a href="#menu" class="text-sm font-medium hover:text-[#8B5CF6] transition-colors">Menu</a>
-                    <a href="#about" class="text-sm font-medium hover:text-[#8B5CF6] transition-colors">About</a>
-                    <a href="#contact" class="text-sm font-medium hover:text-[#8B5CF6] transition-colors">Contact</a>
+                <a href="#home" class="text-2xl font-heading font-bold neon-text-gradient">{{business_name}}</a>
+
+                <!-- Desktop Navigation -->
+                <div class="hidden md:flex items-center space-x-10">
+                    <a href="#home" class="nav-link text-sm font-medium">Home</a>
+                    <a href="#menu" class="nav-link text-sm font-medium">Menu</a>
+                    <a href="#about" class="nav-link text-sm font-medium">About</a>
+                    <a href="#contact" class="nav-link text-sm font-medium">Contact</a>
                 </div>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-gradient-to-r from-[#8B5CF6] to-[#06B6D4] text-white font-semibold rounded-xl px-6 py-2 text-sm hover:shadow-lg hover:shadow-[#8B5CF6]/25 transition-all">
-                    <i class="fab fa-whatsapp mr-2"></i>Order Now
+
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="hidden md:inline-flex items-center btn-neon text-sm px-5 py-2.5">
+                    <i class="fab fa-whatsapp mr-2 text-base"></i>WhatsApp
                 </a>
+
+                <!-- Mobile Hamburger -->
+                <button id="mobileMenuBtn" class="md:hidden text-2xl text-[#00FFFF] focus:outline-none" aria-label="Open menu">
+                    <i class="fas fa-bars"></i>
+                </button>
             </div>
         </nav>
     </header>
 
-    <!-- Hero Section with Neon Grid -->
-    <section id="home" class="neon-hero pt-32 pb-20 md:py-40 min-h-screen flex items-center">
-        <div class="neon-grid-bg"></div>
-        <div class="neon-grid-perspective"></div>
-        <div class="neon-orb orb-1"></div>
-        <div class="neon-orb orb-2"></div>
-        <div class="neon-orb orb-3"></div>
+    <!-- Mobile Menu Overlay -->
+    <div id="mobileMenu" class="mobile-menu">
+        <button id="mobileMenuClose" class="absolute top-6 right-6 text-3xl text-[#00FFFF] focus:outline-none" aria-label="Close menu">
+            <i class="fas fa-times"></i>
+        </button>
+        <a href="#home" class="mobile-nav-link">Home</a>
+        <a href="#menu" class="mobile-nav-link">Menu</a>
+        <a href="#about" class="mobile-nav-link">About</a>
+        <a href="#contact" class="mobile-nav-link">Contact</a>
+        <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="btn-neon mt-4 text-base px-8 py-3 inline-flex items-center">
+            <i class="fab fa-whatsapp mr-2"></i>WhatsApp
+        </a>
+    </div>
 
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
-            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6">
-                <span class="glow-text">{{hero_title}}</span>
+    <!-- ========================================
+         HERO SECTION WITH PERSPECTIVE GRID
+         ======================================== -->
+    <section id="home" class="hero-section flex items-center justify-center">
+        <!-- Flat grid overlay -->
+        <div class="hero-flat-grid"></div>
+
+        <!-- Perspective Grid Floor -->
+        <div class="grid-floor-container">
+            <div class="grid-floor"></div>
+            <div class="grid-pulse-horizontal"></div>
+            <div class="grid-pulse-vertical"></div>
+            <div class="grid-scanline"></div>
+        </div>
+
+        <!-- Ambient Glow Orbs -->
+        <div class="ambient-orb" style="width:400px;height:400px;background:rgba(0,255,255,0.12);top:5%;left:5%;"></div>
+        <div class="ambient-orb" style="width:350px;height:350px;background:rgba(255,0,255,0.10);top:15%;right:10%;animation-delay:-3s;"></div>
+        <div class="ambient-orb" style="width:250px;height:250px;background:rgba(0,255,255,0.08);bottom:30%;left:40%;animation-delay:-5s;"></div>
+
+        <!-- Hero Content -->
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center pt-24 pb-32 md:pt-0 md:pb-0">
+            <p class="text-sm md:text-base font-heading font-medium tracking-[0.25em] uppercase mb-6 text-[#00FFFF] opacity-80 reveal">
+                {{tagline}}
+            </p>
+            <h1 class="text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-heading font-bold leading-[1.1] mb-8 reveal reveal-delay-1">
+                <span class="neon-text-white">{{hero_title}}</span>
             </h1>
-            <p class="text-lg md:text-xl text-[#9CA3AF] mb-10 max-w-2xl mx-auto leading-relaxed">
+            <p class="text-base md:text-lg lg:text-xl text-[#a1a1aa] mb-12 max-w-2xl mx-auto leading-relaxed reveal reveal-delay-2">
                 {{hero_description}}
             </p>
-            <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                <a href="#menu" class="bg-gradient-to-r from-[#8B5CF6] to-[#06B6D4] text-white font-semibold rounded-xl px-8 py-4 hover:shadow-lg hover:shadow-[#8B5CF6]/25 transition-all">
+            <div class="flex flex-col sm:flex-row gap-4 justify-center reveal reveal-delay-3">
+                <a href="#menu" class="btn-neon text-base px-8 py-4 inline-flex items-center justify-center">
                     {{cta_primary_text}}
                 </a>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#8B5CF6]/40 text-[#8B5CF6] font-semibold hover:bg-[#8B5CF6]/10 rounded-xl px-8 py-4 transition-colors">
-                    {{cta_secondary_text}}
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="btn-outline-neon text-base px-8 py-4 inline-flex items-center justify-center">
+                    <i class="fab fa-whatsapp mr-2"></i>{{cta_secondary_text}}
                 </a>
             </div>
         </div>
+
+        <!-- Bottom fade into next section -->
+        <div class="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#0a0a0f] to-transparent z-20 pointer-events-none"></div>
     </section>
 
-    <!-- Menu Section -->
-    <section id="menu" class="py-24 md:py-36 border-t border-[#8B5CF6]/20 relative">
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
-            <div class="text-center mb-16">
-                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 glow-text">{{menu_section_title}}</h2>
-                <p class="text-xl text-[#9CA3AF] max-w-3xl mx-auto">{{menu_section_description}}</p>
+    <!-- ========================================
+         MENU SECTION
+         ======================================== -->
+    <section id="menu" class="py-24 md:py-36 relative overflow-hidden">
+        <!-- Background ambient -->
+        <div class="ambient-orb" style="width:300px;height:300px;background:rgba(255,0,255,0.06);top:10%;right:5%;animation-delay:-2s;"></div>
+        <div class="ambient-orb" style="width:250px;height:250px;background:rgba(0,255,255,0.05);bottom:10%;left:5%;animation-delay:-4s;"></div>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10">
+            <div class="text-center mb-16 reveal">
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 neon-text-gradient">
+                    {{menu_section_title}}
+                </h2>
+                <p class="text-lg text-[#a1a1aa] max-w-3xl mx-auto leading-relaxed">
+                    {{menu_section_description}}
+                </p>
             </div>
-            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
                 {{menu_items_html}}
             </div>
         </div>
     </section>
 
-    <!-- About Section -->
-    <section id="about" class="neon-hero py-24 md:py-36 border-t border-[#8B5CF6]/20">
-        <div class="neon-orb orb-1" style="opacity:0.3"></div>
-        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
-            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 glow-text">{{about_title}}</h2>
-            <p class="text-xl text-[#9CA3AF] leading-relaxed">{{about_description}}</p>
+    <div class="neon-divider max-w-4xl mx-auto"></div>
+
+    <!-- ========================================
+         ABOUT SECTION
+         ======================================== -->
+    <section id="about" class="py-24 md:py-36 relative overflow-hidden">
+        <!-- Background ambient -->
+        <div class="ambient-orb" style="width:350px;height:350px;background:rgba(0,255,255,0.07);top:20%;left:10%;animation-delay:-1s;"></div>
+        <div class="ambient-orb" style="width:280px;height:280px;background:rgba(255,0,255,0.06);bottom:15%;right:15%;animation-delay:-3s;"></div>
+
+        <div class="max-w-5xl mx-auto px-6 md:px-8 lg:px-16 relative z-10">
+            <div class="glass-card p-10 md:p-16 text-center reveal">
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 neon-text-gradient">
+                    {{about_title}}
+                </h2>
+                <p class="text-lg md:text-xl text-[#a1a1aa] leading-relaxed max-w-3xl mx-auto">
+                    {{about_description}}
+                </p>
+            </div>
         </div>
     </section>
 
-    <!-- Contact & Hours -->
-    <section id="contact" class="py-24 md:py-36 border-t border-[#8B5CF6]/20">
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
-            <div class="grid md:grid-cols-2 gap-12">
-                <div>
-                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 glow-text">{{contact_title}}</h2>
-                    <div class="space-y-8">
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#8B5CF6]">
-                                <i class="fas fa-map-marker-alt mr-3"></i>Location
-                            </h3>
-                            <p class="text-lg text-[#9CA3AF]">{{address}}</p>
+    <div class="neon-divider max-w-4xl mx-auto"></div>
+
+    <!-- ========================================
+         CONTACT SECTION
+         ======================================== -->
+    <section id="contact" class="py-24 md:py-36 relative overflow-hidden">
+        <!-- Background ambient -->
+        <div class="ambient-orb" style="width:300px;height:300px;background:rgba(255,0,255,0.06);top:5%;left:20%;animation-delay:-2s;"></div>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10">
+            <div class="text-center mb-16 reveal">
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold neon-text-gradient">
+                    {{contact_title}}
+                </h2>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-8 md:gap-12">
+                <!-- Contact Details -->
+                <div class="space-y-8 reveal reveal-delay-1">
+                    <!-- WhatsApp -->
+                    <div class="glass-card p-8 flex items-start gap-5">
+                        <div class="flex-shrink-0 w-12 h-12 rounded-xl bg-[#00FFFF10] flex items-center justify-center">
+                            <i class="fab fa-whatsapp text-xl contact-icon-cyan"></i>
                         </div>
                         <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#06B6D4]">
-                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
-                            </h3>
-                            <p class="text-lg">
-                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#06B6D4] hover:underline">{{phone_display}}</a>
-                            </p>
+                            <h3 class="text-lg font-heading font-semibold text-white mb-2">WhatsApp</h3>
+                            <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="text-[#00FFFF] hover:underline text-base transition-colors">
+                                {{phone_display}}
+                            </a>
                         </div>
                     </div>
+
+                    <!-- Location -->
+                    <div class="glass-card-pink p-8 flex items-start gap-5">
+                        <div class="flex-shrink-0 w-12 h-12 rounded-xl bg-[#FF00FF10] flex items-center justify-center">
+                            <i class="fas fa-map-marker-alt text-xl contact-icon-pink"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-heading font-semibold text-white mb-2">Location</h3>
+                            <p class="text-[#a1a1aa] text-base leading-relaxed">{{address}}</p>
+                        </div>
+                    </div>
+
+                    <!-- Quick WhatsApp CTA -->
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="btn-neon w-full text-center text-base py-4 inline-flex items-center justify-center">
+                        <i class="fab fa-whatsapp mr-3 text-lg"></i>Chat With Us on WhatsApp
+                    </a>
                 </div>
-                <div>
-                    <h3 class="text-3xl font-heading font-bold mb-10">Operating Hours</h3>
-                    <div class="bg-[#111827]/80 backdrop-blur-xl border border-[#8B5CF6]/20 rounded-2xl p-8">
-                        <ul class="space-y-6">
+
+                <!-- Operating Hours -->
+                <div class="reveal reveal-delay-2">
+                    <div class="glass-card p-8 md:p-10 h-full">
+                        <div class="flex items-center gap-3 mb-8">
+                            <div class="flex-shrink-0 w-10 h-10 rounded-lg bg-[#FF00FF10] flex items-center justify-center">
+                                <i class="fas fa-clock text-base contact-icon-pink"></i>
+                            </div>
+                            <h3 class="text-xl font-heading font-bold text-white">Operating Hours</h3>
+                        </div>
+                        <ul class="space-y-5">
                             {{operating_hours_html}}
                         </ul>
                     </div>
@@ -180,17 +700,93 @@
         </div>
     </section>
 
-    <!-- Footer -->
-    <footer class="py-16 border-t border-[#8B5CF6]/20 bg-[#111827]">
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
-            <h2 class="text-3xl font-heading font-bold glow-text mb-4">{{business_name}}</h2>
-            <p class="text-[#9CA3AF] mb-6">{{footer_description}}</p>
-            <p class="text-[#9CA3AF]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+    <!-- ========================================
+         FOOTER
+         ======================================== -->
+    <footer class="relative overflow-hidden border-t border-[#00FFFF10]" style="background: linear-gradient(to bottom, #0a0a0f, #0d0d18);">
+        <!-- Subtle grid in footer -->
+        <div class="absolute inset-0 opacity-30" style="background: linear-gradient(rgba(0,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,0,255,0.02) 1px, transparent 1px); background-size: 60px 60px;"></div>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-16 relative z-10">
+            <div class="text-center">
+                <h2 class="text-3xl font-heading font-bold neon-text-gradient mb-4">{{business_name}}</h2>
+                <p class="text-[#a1a1aa] mb-8 max-w-xl mx-auto leading-relaxed">{{footer_description}}</p>
+
+                <!-- Social / WhatsApp -->
+                <div class="flex justify-center gap-4 mb-10">
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="w-11 h-11 rounded-xl border border-[#00FFFF22] bg-[#00FFFF08] flex items-center justify-center text-[#00FFFF] hover:bg-[#00FFFF15] hover:border-[#00FFFF44] transition-all hover:shadow-[0_0_15px_#00FFFF22]">
+                        <i class="fab fa-whatsapp text-lg"></i>
+                    </a>
+                </div>
+
+                <div class="neon-divider mb-8"></div>
+
+                <p class="text-sm text-[#71717a]">
+                    &copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.
+                </p>
+            </div>
         </div>
     </footer>
 
+    <!-- ========================================
+         JAVASCRIPT
+         ======================================== -->
     <script>
+        // Dynamic year
         document.getElementById('currentYear').textContent = new Date().getFullYear();
+
+        // Mobile menu toggle
+        const mobileMenuBtn = document.getElementById('mobileMenuBtn');
+        const mobileMenuClose = document.getElementById('mobileMenuClose');
+        const mobileMenu = document.getElementById('mobileMenu');
+
+        if (mobileMenuBtn && mobileMenu) {
+            mobileMenuBtn.addEventListener('click', () => {
+                mobileMenu.classList.add('open');
+                document.body.style.overflow = 'hidden';
+            });
+        }
+        if (mobileMenuClose && mobileMenu) {
+            mobileMenuClose.addEventListener('click', () => {
+                mobileMenu.classList.remove('open');
+                document.body.style.overflow = '';
+            });
+        }
+        // Close mobile menu on link click
+        document.querySelectorAll('.mobile-nav-link').forEach(link => {
+            link.addEventListener('click', () => {
+                if (mobileMenu) {
+                    mobileMenu.classList.remove('open');
+                    document.body.style.overflow = '';
+                }
+            });
+        });
+
+        // Scroll-reveal with IntersectionObserver
+        const revealElements = document.querySelectorAll('.reveal');
+        const revealObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('active');
+                    revealObserver.unobserve(entry.target);
+                }
+            });
+        }, {
+            threshold: 0.15,
+            rootMargin: '0px 0px -50px 0px'
+        });
+
+        revealElements.forEach(el => revealObserver.observe(el));
+
+        // Navbar background opacity on scroll
+        const header = document.querySelector('header');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 60) {
+                header.style.borderBottomColor = 'rgba(0, 255, 255, 0.2)';
+            } else {
+                header.style.borderBottomColor = 'rgba(0, 255, 255, 0.1)';
+            }
+        });
     </script>
 </body>
 </html>

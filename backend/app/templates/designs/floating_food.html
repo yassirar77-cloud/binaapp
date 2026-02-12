@@ -6,7 +6,7 @@
     <title>{{business_name}} | {{tagline}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Nunito:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
     tailwind.config = {
@@ -14,14 +14,14 @@
         extend: {
           colors: {
             'primary': '#EA580C',
-            'secondary': '#92400E',
+            'secondary': '#9A3412',
             'accent': '#FED7AA',
             'surface': '#FFFFFF',
-            'background': '#FFFBF5',
+            'background': '#FFF7ED',
           },
           fontFamily: {
-            'heading': ['Lora', 'serif'],
-            'body': ['Nunito', 'sans-serif'],
+            'heading': ['Space Grotesk', 'sans-serif'],
+            'body': ['Inter', 'sans-serif'],
           }
         }
       }
@@ -30,76 +30,227 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         html { scroll-behavior: smooth; }
-        body { background-color: #FFFBF5; color: #1C1917; font-family: 'Nunito', sans-serif; }
+        body { background-color: #FFF7ED; color: #1C1917; font-family: 'Inter', sans-serif; overflow-x: hidden; }
 
-        .food-hero { position: relative; overflow: hidden; min-height: 100vh; }
-        .floating-emoji {
-            position: absolute; font-size: 48px; pointer-events: none;
-            animation: floatFood var(--dur) ease-in-out infinite;
+        /* ── Hero with floating food ── */
+        .food-hero {
+            position: relative;
+            overflow: hidden;
+            min-height: 100vh;
+            background: linear-gradient(180deg, #FFF7ED 0%, #FFEDD5 40%, #FFF7ED 100%);
+        }
+
+        /* ── Floating emoji items ── */
+        .floating-food {
+            position: absolute;
+            pointer-events: none;
+            opacity: 0;
+            animation: floatUp var(--dur) linear infinite;
             animation-delay: var(--delay);
-            opacity: 0.7;
-        }
-        @keyframes floatFood {
-            0%, 100% { transform: translateY(0) rotate(0deg); }
-            25% { transform: translateY(-30px) rotate(10deg); }
-            50% { transform: translateY(-10px) rotate(-5deg); }
-            75% { transform: translateY(-25px) rotate(5deg); }
+            z-index: 1;
+            will-change: transform, opacity;
         }
 
+        @keyframes floatUp {
+            0% {
+                opacity: 0;
+                transform: translateY(0) translateX(0) rotate(0deg) scale(0.6);
+            }
+            8% {
+                opacity: 0.7;
+                transform: translateY(-8vh) translateX(5px) rotate(8deg) scale(1);
+            }
+            25% {
+                opacity: 0.6;
+                transform: translateY(-25vh) translateX(-10px) rotate(-6deg) scale(1);
+            }
+            50% {
+                opacity: 0.5;
+                transform: translateY(-50vh) translateX(12px) rotate(12deg) scale(0.95);
+            }
+            75% {
+                opacity: 0.35;
+                transform: translateY(-75vh) translateX(-8px) rotate(-4deg) scale(0.9);
+            }
+            100% {
+                opacity: 0;
+                transform: translateY(-105vh) translateX(6px) rotate(15deg) scale(0.8);
+            }
+        }
+
+        /* ── Glass morphism cards ── */
         .glass-card {
-            background: rgba(255,255,255,0.8);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(234,88,12,0.1);
+            background: rgba(255, 255, 255, 0.55);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(234, 88, 12, 0.12);
             border-radius: 1.5rem;
-            transition: all 0.3s ease;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .glass-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 20px 40px rgba(234,88,12,0.1);
-            border-color: rgba(234,88,12,0.2);
+            background: rgba(255, 255, 255, 0.75);
+            transform: translateY(-6px);
+            box-shadow: 0 24px 48px rgba(234, 88, 12, 0.1), 0 8px 16px rgba(234, 88, 12, 0.06);
+            border-color: rgba(234, 88, 12, 0.25);
         }
 
-        .menu-card { transition: all 0.3s ease; }
-        .menu-card:hover { transform: translateY(-4px); box-shadow: 0 15px 30px rgba(234,88,12,0.08); }
+        /* ── Menu cards ── */
+        .menu-card {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(234, 88, 12, 0.1);
+            border-radius: 1.25rem;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .menu-card::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            background: linear-gradient(135deg, rgba(234, 88, 12, 0.12), transparent 60%, rgba(251, 146, 60, 0.08));
+            z-index: -1;
+            transition: all 0.4s ease;
+        }
+        .menu-card:hover {
+            transform: translateY(-6px);
+            border-color: rgba(234, 88, 12, 0.3);
+            box-shadow: 0 20px 50px rgba(234, 88, 12, 0.1), 0 8px 24px rgba(0, 0, 0, 0.04);
+        }
+        .menu-card:hover::before {
+            background: linear-gradient(135deg, rgba(234, 88, 12, 0.2), transparent 60%, rgba(251, 146, 60, 0.15));
+        }
+
+        /* ── Primary button shimmer ── */
+        .btn-primary { position: relative; overflow: hidden; }
+        .btn-primary::after {
+            content: '';
+            position: absolute; inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.6s ease;
+        }
+        .btn-primary:hover::after { transform: translateX(100%); }
+
+        /* ── Scroll reveal ── */
+        .scroll-reveal {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.7s ease, transform 0.7s ease;
+        }
+        .scroll-reveal.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ── Hero text entrance ── */
+        @keyframes fadeSlideUp {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-reveal { opacity: 0; animation: fadeSlideUp 0.8s ease-out forwards; }
+        .animate-reveal-d1 { animation-delay: 0.15s; }
+        .animate-reveal-d2 { animation-delay: 0.3s; }
+        .animate-reveal-d3 { animation-delay: 0.45s; }
+
+        /* ── Warm gradient text ── */
+        .warm-gradient-text {
+            background: linear-gradient(135deg, #EA580C, #F97316, #FB923C);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* ── Section divider ── */
+        .section-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(234, 88, 12, 0.25), transparent);
+        }
+
+        /* ── Mobile hamburger ── */
+        .mobile-menu { display: none; }
+        .mobile-menu.active { display: flex; }
     </style>
 </head>
 <body class="font-body">
 
     <!-- Navigation -->
-    <header class="fixed top-0 left-0 right-0 z-50 bg-[#FFFBF5]/90 backdrop-blur-xl shadow-sm">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-[#FFF7ED]/85 backdrop-blur-xl border-b border-[#EA580C]/5">
         <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
             <div class="flex justify-between items-center">
                 <a href="#" class="text-2xl font-heading font-bold text-[#EA580C]">{{business_name}}</a>
+
+                <!-- Desktop nav -->
                 <div class="hidden md:flex space-x-10">
-                    <a href="#home" class="text-sm font-medium text-[#1C1917] hover:text-[#EA580C] transition-colors">Home</a>
-                    <a href="#menu" class="text-sm font-medium text-[#1C1917] hover:text-[#EA580C] transition-colors">Menu</a>
-                    <a href="#about" class="text-sm font-medium text-[#1C1917] hover:text-[#EA580C] transition-colors">About</a>
-                    <a href="#contact" class="text-sm font-medium text-[#1C1917] hover:text-[#EA580C] transition-colors">Contact</a>
+                    <a href="#home" class="text-sm font-medium text-[#57534E] hover:text-[#EA580C] transition-colors duration-300">Home</a>
+                    <a href="#menu" class="text-sm font-medium text-[#57534E] hover:text-[#EA580C] transition-colors duration-300">Menu</a>
+                    <a href="#about" class="text-sm font-medium text-[#57534E] hover:text-[#EA580C] transition-colors duration-300">About</a>
+                    <a href="#contact" class="text-sm font-medium text-[#57534E] hover:text-[#EA580C] transition-colors duration-300">Contact</a>
                 </div>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#EA580C] text-white font-semibold rounded-2xl px-6 py-2 text-sm hover:bg-[#C2410C] transition-colors">
-                    <i class="fab fa-whatsapp mr-2"></i>Order Now
-                </a>
+
+                <div class="flex items-center gap-3">
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="btn-primary bg-[#EA580C] text-white font-semibold rounded-full px-6 py-2.5 text-sm hover:bg-[#C2410C] transition-colors">
+                        <i class="fab fa-whatsapp mr-2"></i>Order Now
+                    </a>
+
+                    <!-- Mobile hamburger -->
+                    <button id="mobileMenuBtn" class="md:hidden text-[#EA580C] text-xl p-2" aria-label="Toggle menu">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Mobile menu -->
+            <div id="mobileMenu" class="mobile-menu flex-col gap-4 pt-4 pb-2 md:hidden">
+                <a href="#home" class="text-sm font-medium text-[#57534E] hover:text-[#EA580C] transition-colors py-2">Home</a>
+                <a href="#menu" class="text-sm font-medium text-[#57534E] hover:text-[#EA580C] transition-colors py-2">Menu</a>
+                <a href="#about" class="text-sm font-medium text-[#57534E] hover:text-[#EA580C] transition-colors py-2">About</a>
+                <a href="#contact" class="text-sm font-medium text-[#57534E] hover:text-[#EA580C] transition-colors py-2">Contact</a>
             </div>
         </nav>
     </header>
 
-    <!-- Hero Section with Floating Food Emojis -->
-    <section id="home" class="food-hero pt-32 pb-20 md:py-40 flex items-center">
-        <div id="foodEmojis"></div>
+    <!-- Hero Section with Floating Food -->
+    <section id="home" class="food-hero pt-32 pb-20 md:py-0 flex items-center">
 
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
-            <div class="bg-[#FED7AA] text-[#92400E] px-4 py-1.5 rounded-full text-sm font-semibold inline-block mb-6">{{tagline}}</div>
-            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6 text-[#1C1917]">
-                {{hero_title}}
+        <!-- Floating food emoji elements (positioned absolutely, animated) -->
+        <div class="floating-food" style="left:3%;bottom:-10%;font-size:42px;--dur:12s;--delay:0s;">&#127829;</div>
+        <div class="floating-food" style="left:12%;bottom:-15%;font-size:36px;--dur:14s;--delay:1.2s;">&#127828;</div>
+        <div class="floating-food" style="left:22%;bottom:-8%;font-size:48px;--dur:11s;--delay:3s;">&#127836;</div>
+        <div class="floating-food" style="left:32%;bottom:-20%;font-size:38px;--dur:15s;--delay:0.5s;">&#127843;</div>
+        <div class="floating-food" style="left:42%;bottom:-12%;font-size:44px;--dur:13s;--delay:2.3s;">&#129473;</div>
+        <div class="floating-food" style="left:52%;bottom:-18%;font-size:40px;--dur:16s;--delay:4s;">&#127856;</div>
+        <div class="floating-food" style="left:62%;bottom:-6%;font-size:46px;--dur:10s;--delay:1.8s;">&#127790;</div>
+        <div class="floating-food" style="left:72%;bottom:-14%;font-size:35px;--dur:14.5s;--delay:0.8s;">&#127857;</div>
+        <div class="floating-food" style="left:82%;bottom:-22%;font-size:50px;--dur:12.5s;--delay:3.5s;">&#129367;</div>
+        <div class="floating-food" style="left:91%;bottom:-10%;font-size:38px;--dur:11.5s;--delay:2s;">&#127858;</div>
+        <div class="floating-food" style="left:7%;bottom:-25%;font-size:42px;--dur:17s;--delay:5s;">&#129365;</div>
+        <div class="floating-food" style="left:18%;bottom:-18%;font-size:34px;--dur:13.5s;--delay:6.2s;">&#129368;</div>
+        <div class="floating-food" style="left:37%;bottom:-30%;font-size:46px;--dur:18s;--delay:7s;">&#127837;</div>
+        <div class="floating-food" style="left:55%;bottom:-16%;font-size:40px;--dur:15.5s;--delay:4.5s;">&#127849;</div>
+        <div class="floating-food" style="left:68%;bottom:-28%;font-size:44px;--dur:16.5s;--delay:8s;">&#129478;</div>
+        <div class="floating-food" style="left:78%;bottom:-20%;font-size:36px;--dur:14s;--delay:5.5s;">&#129369;</div>
+        <div class="floating-food" style="left:88%;bottom:-12%;font-size:48px;--dur:13s;--delay:2.8s;">&#127835;</div>
+        <div class="floating-food" style="left:47%;bottom:-24%;font-size:38px;--dur:19s;--delay:9s;">&#127844;</div>
+
+        <!-- Hero content -->
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center w-full">
+            <div class="inline-block mb-6 animate-reveal">
+                <span class="bg-[#FED7AA] text-[#9A3412] px-5 py-2 rounded-full text-sm font-semibold tracking-wide">{{tagline}}</span>
+            </div>
+            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6 animate-reveal animate-reveal-d1">
+                <span class="warm-gradient-text">{{hero_title}}</span>
             </h1>
-            <p class="text-lg md:text-xl text-[#78716C] mb-10 max-w-2xl mx-auto leading-relaxed">
+            <p class="text-lg md:text-xl text-[#78716C] mb-10 max-w-2xl mx-auto leading-relaxed animate-reveal animate-reveal-d2">
                 {{hero_description}}
             </p>
-            <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                <a href="#menu" class="bg-[#EA580C] text-white font-semibold hover:bg-[#C2410C] rounded-2xl px-8 py-4 transition-colors">
+            <div class="flex flex-col sm:flex-row gap-4 justify-center animate-reveal animate-reveal-d3">
+                <a href="#menu" class="btn-primary bg-[#EA580C] text-white font-semibold hover:bg-[#C2410C] rounded-full px-8 py-4 text-base transition-colors shadow-lg shadow-[#EA580C]/20">
                     {{cta_primary_text}}
                 </a>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#EA580C]/30 text-[#EA580C] font-semibold hover:bg-[#EA580C]/5 rounded-2xl px-8 py-4 transition-colors">
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border-2 border-[#EA580C]/25 text-[#EA580C] font-semibold hover:bg-[#EA580C]/5 hover:border-[#EA580C]/40 rounded-full px-8 py-4 text-base transition-all">
                     {{cta_secondary_text}}
                 </a>
             </div>
@@ -107,11 +258,13 @@
     </section>
 
     <!-- Menu Section -->
-    <section id="menu" class="py-20 md:py-28">
+    <section id="menu" class="py-24 md:py-36 relative">
+        <div class="section-divider mb-24"></div>
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
-            <div class="text-center mb-16">
-                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 text-[#1C1917]">{{menu_section_title}}</h2>
-                <p class="text-xl text-[#78716C] max-w-3xl mx-auto">{{menu_section_description}}</p>
+            <div class="text-center mb-16 scroll-reveal">
+                <span class="inline-block bg-[#FED7AA]/60 text-[#9A3412] text-xs font-semibold uppercase tracking-widest px-4 py-1.5 rounded-full mb-4">Our Menu</span>
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 warm-gradient-text">{{menu_section_title}}</h2>
+                <p class="text-lg md:text-xl text-[#78716C] max-w-3xl mx-auto leading-relaxed">{{menu_section_description}}</p>
             </div>
             <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {{menu_items_html}}
@@ -120,40 +273,73 @@
     </section>
 
     <!-- About Section -->
-    <section id="about" class="py-20 md:py-28 bg-[#FED7AA]/20">
-        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center">
-            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 text-[#1C1917]">{{about_title}}</h2>
-            <p class="text-xl text-[#78716C] leading-relaxed">{{about_description}}</p>
+    <section id="about" class="py-24 md:py-36 relative overflow-hidden">
+        <div class="section-divider mb-24"></div>
+
+        <!-- Subtle background decoration -->
+        <div class="absolute inset-0 pointer-events-none" style="background: radial-gradient(ellipse at 20% 50%, rgba(234,88,12,0.04) 0%, transparent 60%), radial-gradient(ellipse at 80% 50%, rgba(251,146,60,0.04) 0%, transparent 60%);"></div>
+
+        <div class="max-w-5xl mx-auto px-6 md:px-8 lg:px-16 relative z-10">
+            <div class="glass-card p-10 md:p-16 text-center scroll-reveal">
+                <span class="inline-block bg-[#FED7AA]/60 text-[#9A3412] text-xs font-semibold uppercase tracking-widest px-4 py-1.5 rounded-full mb-4">About Us</span>
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 warm-gradient-text">{{about_title}}</h2>
+                <p class="text-lg md:text-xl text-[#78716C] leading-relaxed max-w-3xl mx-auto">{{about_description}}</p>
+            </div>
         </div>
     </section>
 
     <!-- Contact & Hours -->
-    <section id="contact" class="py-20 md:py-28">
+    <section id="contact" class="py-24 md:py-36">
+        <div class="section-divider mb-24"></div>
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="text-center mb-16 scroll-reveal">
+                <span class="inline-block bg-[#FED7AA]/60 text-[#9A3412] text-xs font-semibold uppercase tracking-widest px-4 py-1.5 rounded-full mb-4">Get In Touch</span>
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold warm-gradient-text">{{contact_title}}</h2>
+            </div>
+
             <div class="grid md:grid-cols-2 gap-12">
-                <div>
-                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 text-[#1C1917]">{{contact_title}}</h2>
-                    <div class="space-y-8">
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#EA580C]">
-                                <i class="fas fa-map-marker-alt mr-3"></i>Location
-                            </h3>
-                            <p class="text-lg text-[#78716C]">{{address}}</p>
+                <!-- Contact Info -->
+                <div class="scroll-reveal">
+                    <div class="glass-card p-8 md:p-10 h-full">
+                        <h3 class="text-2xl font-heading font-bold mb-8 text-[#1C1917]">Contact Information</h3>
+                        <div class="space-y-8">
+                            <div class="flex items-start gap-4">
+                                <div class="w-12 h-12 bg-[#EA580C]/10 rounded-2xl flex items-center justify-center flex-shrink-0">
+                                    <i class="fas fa-map-marker-alt text-[#EA580C] text-lg"></i>
+                                </div>
+                                <div>
+                                    <h4 class="text-sm font-semibold uppercase tracking-wider text-[#9A3412] mb-1">Location</h4>
+                                    <p class="text-[#57534E] leading-relaxed">{{address}}</p>
+                                </div>
+                            </div>
+                            <div class="flex items-start gap-4">
+                                <div class="w-12 h-12 bg-[#EA580C]/10 rounded-2xl flex items-center justify-center flex-shrink-0">
+                                    <i class="fab fa-whatsapp text-[#EA580C] text-lg"></i>
+                                </div>
+                                <div>
+                                    <h4 class="text-sm font-semibold uppercase tracking-wider text-[#9A3412] mb-1">WhatsApp</h4>
+                                    <a href="https://wa.me/{{whatsapp_number}}" class="text-[#EA580C] hover:text-[#C2410C] font-medium transition-colors text-lg">{{phone_display}}</a>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#EA580C]">
-                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
-                            </h3>
-                            <p class="text-lg">
-                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#EA580C] hover:underline">{{phone_display}}</a>
-                            </p>
+
+                        <!-- Quick CTA -->
+                        <div class="mt-10 pt-8 border-t border-[#EA580C]/10">
+                            <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="btn-primary inline-flex items-center gap-2 bg-[#EA580C] text-white font-semibold rounded-full px-6 py-3 text-sm hover:bg-[#C2410C] transition-colors shadow-lg shadow-[#EA580C]/15">
+                                <i class="fab fa-whatsapp text-lg"></i>
+                                Chat With Us
+                            </a>
                         </div>
                     </div>
                 </div>
-                <div>
-                    <h3 class="text-3xl font-heading font-bold mb-10 text-[#1C1917]">Operating Hours</h3>
-                    <div class="bg-white rounded-3xl shadow-md shadow-orange-900/5 border border-orange-100/50 p-8">
-                        <ul class="space-y-6">
+
+                <!-- Operating Hours -->
+                <div class="scroll-reveal">
+                    <div class="glass-card p-8 md:p-10 h-full">
+                        <h3 class="text-2xl font-heading font-bold mb-8 text-[#1C1917]">
+                            <i class="fas fa-clock text-[#EA580C] mr-3"></i>Operating Hours
+                        </h3>
+                        <ul class="space-y-5">
                             {{operating_hours_html}}
                         </ul>
                     </div>
@@ -163,40 +349,81 @@
     </section>
 
     <!-- Footer -->
-    <footer class="py-16 bg-[#1C1917]">
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
-            <h2 class="text-3xl font-heading font-bold text-[#EA580C] mb-4">{{business_name}}</h2>
-            <p class="text-[#78716C] mb-6">{{footer_description}}</p>
-            <p class="text-[#78716C]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+    <footer class="py-16 bg-[#1C1917] relative overflow-hidden">
+        <!-- Subtle warm glow -->
+        <div class="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-32 bg-[#EA580C]/8 blur-3xl rounded-full pointer-events-none"></div>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10">
+            <div class="text-center">
+                <h2 class="text-3xl font-heading font-bold text-[#EA580C] mb-4">{{business_name}}</h2>
+                <p class="text-[#A8A29E] mb-8 max-w-lg mx-auto leading-relaxed">{{footer_description}}</p>
+
+                <!-- Social / CTA -->
+                <div class="flex justify-center gap-4 mb-8">
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="w-11 h-11 bg-white/10 hover:bg-[#EA580C] rounded-full flex items-center justify-center text-[#A8A29E] hover:text-white transition-all duration-300">
+                        <i class="fab fa-whatsapp text-lg"></i>
+                    </a>
+                </div>
+
+                <div class="border-t border-white/10 pt-8">
+                    <p class="text-[#78716C] text-sm">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+                </div>
+            </div>
         </div>
     </footer>
 
     <script>
-        // Floating food emojis
+        // ── Mobile menu toggle ──
         (function() {
-            var container = document.getElementById('foodEmojis');
-            if (!container) return;
-            var emojis = ['\uD83C\uDF5C','\uD83C\uDF5B','\uD83C\uDF72','\uD83C\uDF54','\uD83C\uDF55','\uD83C\uDF5D','\uD83E\uDD5F','\uD83C\uDF63','\uD83C\uDF69','\uD83C\uDF70','\u2615','\uD83C\uDF75','\uD83E\uDD57','\uD83C\uDF5E'];
-            var positions = [
-                {top:'8%',left:'5%'},{top:'15%',left:'85%'},{top:'25%',left:'12%'},
-                {top:'35%',left:'78%'},{top:'45%',left:'3%'},{top:'55%',left:'90%'},
-                {top:'65%',left:'8%'},{top:'75%',left:'82%'},{top:'20%',left:'45%'},
-                {top:'60%',left:'55%'},{top:'40%',left:'25%'},{top:'70%',left:'65%'},
-                {top:'10%',left:'60%'},{top:'80%',left:'35%'}
-            ];
-            for (var i = 0; i < positions.length; i++) {
-                var el = document.createElement('div');
-                el.className = 'floating-emoji';
-                el.textContent = emojis[i % emojis.length];
-                el.style.top = positions[i].top;
-                el.style.left = positions[i].left;
-                el.style.setProperty('--dur', (4 + Math.random() * 4) + 's');
-                el.style.setProperty('--delay', Math.random() * 3 + 's');
-                el.style.fontSize = (32 + Math.random() * 24) + 'px';
-                container.appendChild(el);
-            }
+            var btn = document.getElementById('mobileMenuBtn');
+            var menu = document.getElementById('mobileMenu');
+            if (!btn || !menu) return;
+            btn.addEventListener('click', function() {
+                menu.classList.toggle('active');
+                var icon = btn.querySelector('i');
+                if (menu.classList.contains('active')) {
+                    icon.className = 'fas fa-times';
+                } else {
+                    icon.className = 'fas fa-bars';
+                }
+            });
+            // Close on link click
+            menu.querySelectorAll('a').forEach(function(link) {
+                link.addEventListener('click', function() {
+                    menu.classList.remove('active');
+                    btn.querySelector('i').className = 'fas fa-bars';
+                });
+            });
         })();
 
+        // ── Scroll reveal with IntersectionObserver ──
+        (function() {
+            var els = document.querySelectorAll('.scroll-reveal');
+            if (!els.length) return;
+            var observer = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                    }
+                });
+            }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+            els.forEach(function(el) { observer.observe(el); });
+        })();
+
+        // ── Navbar background on scroll ──
+        (function() {
+            var header = document.querySelector('header');
+            if (!header) return;
+            window.addEventListener('scroll', function() {
+                if (window.scrollY > 60) {
+                    header.style.boxShadow = '0 4px 30px rgba(234,88,12,0.06)';
+                } else {
+                    header.style.boxShadow = 'none';
+                }
+            });
+        })();
+
+        // ── Dynamic year ──
         document.getElementById('currentYear').textContent = new Date().getFullYear();
     </script>
 </body>

@@ -6,7 +6,7 @@
     <title>{{business_name}} | {{tagline}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
     tailwind.config = {
@@ -14,13 +14,13 @@
         extend: {
           colors: {
             'primary': '#00FF41',
-            'secondary': '#008F11',
+            'secondary': '#34d399',
             'accent': '#003B00',
-            'surface': '#0a0f0a',
-            'background': '#000000',
+            'surface': '#0a1a0a',
+            'background': '#020c02',
           },
           fontFamily: {
-            'heading': ['Space Grotesk', 'sans-serif'],
+            'heading': ['Space Mono', 'monospace'],
             'body': ['Inter', 'sans-serif'],
           }
         }
@@ -30,64 +30,246 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         html { scroll-behavior: smooth; }
-        body { background-color: #000000; color: #e0ffe0; font-family: 'Inter', sans-serif; }
+        body {
+            background-color: #020c02;
+            color: #d0f0d0;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
 
-        .matrix-hero { position: relative; overflow: hidden; }
+        /* ── Hero & Canvas ── */
+        .matrix-hero {
+            position: relative;
+            overflow: hidden;
+            background: radial-gradient(ellipse at 50% 40%, rgba(0,255,65,0.06) 0%, transparent 60%),
+                        radial-gradient(ellipse at 80% 20%, rgba(52,211,153,0.04) 0%, transparent 50%),
+                        #020c02;
+        }
         #matrixCanvas {
-            position: absolute; inset: 0; z-index: 0; opacity: 0.4;
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            opacity: 0.5;
         }
+        /* Fade overlays on canvas top & bottom */
+        .matrix-hero::before,
+        .matrix-hero::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 180px;
+            z-index: 1;
+            pointer-events: none;
+        }
+        .matrix-hero::before {
+            top: 0;
+            background: linear-gradient(to bottom, #020c02 0%, transparent 100%);
+        }
+        .matrix-hero::after {
+            bottom: 0;
+            background: linear-gradient(to top, #020c02 0%, transparent 100%);
+        }
+
+        /* ── Glow Text ── */
         .matrix-glow {
-            text-shadow: 0 0 10px rgba(0,255,65,0.5), 0 0 30px rgba(0,255,65,0.2);
+            text-shadow:
+                0 0 8px rgba(0,255,65,0.6),
+                0 0 24px rgba(0,255,65,0.3),
+                0 0 48px rgba(0,255,65,0.15);
         }
+        .matrix-glow-soft {
+            text-shadow:
+                0 0 6px rgba(52,211,153,0.5),
+                0 0 20px rgba(52,211,153,0.2);
+        }
+
+        /* ── Glass Cards ── */
         .matrix-card {
-            background: rgba(10,15,10,0.85);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(0,255,65,0.15);
+            position: relative;
+            background: rgba(2,12,2,0.8);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(0,255,65,0.12);
+            border-radius: 1rem;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+        }
+        .matrix-card::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            background: linear-gradient(160deg, rgba(0,255,65,0.15) 0%, transparent 40%, rgba(52,211,153,0.08) 100%);
+            z-index: -1;
             transition: all 0.5s ease;
         }
         .matrix-card:hover {
-            border-color: rgba(0,255,65,0.4);
-            box-shadow: 0 0 30px rgba(0,255,65,0.1);
-            transform: translateY(-4px);
+            border-color: rgba(0,255,65,0.35);
+            transform: translateY(-6px);
+            box-shadow:
+                0 0 40px rgba(0,255,65,0.08),
+                0 20px 60px rgba(0,0,0,0.4),
+                inset 0 1px 0 rgba(0,255,65,0.1);
         }
+        .matrix-card:hover::before {
+            background: linear-gradient(160deg, rgba(0,255,65,0.25) 0%, transparent 40%, rgba(52,211,153,0.15) 100%);
+        }
+
+        /* ── Buttons ── */
+        .btn-matrix {
+            position: relative;
+            overflow: hidden;
+            z-index: 1;
+        }
+        .btn-matrix::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
+            transition: left 0.6s ease;
+            z-index: -1;
+        }
+        .btn-matrix:hover::after {
+            left: 100%;
+        }
+
+        .btn-outline-matrix {
+            position: relative;
+            overflow: hidden;
+        }
+        .btn-outline-matrix::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0,255,65,0.08), transparent);
+            transition: left 0.6s ease;
+        }
+        .btn-outline-matrix:hover::after {
+            left: 100%;
+        }
+
+        /* ── Section Divider ── */
+        .section-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(0,255,65,0.25), rgba(52,211,153,0.15), transparent);
+        }
+
+        /* ── Scroll Reveal ── */
+        .scroll-reveal {
+            opacity: 0;
+            transform: translateY(32px);
+            transition: opacity 0.7s ease-out, transform 0.7s ease-out;
+        }
+        .scroll-reveal.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .scroll-reveal.visible:nth-child(2) { transition-delay: 0.1s; }
+        .scroll-reveal.visible:nth-child(3) { transition-delay: 0.2s; }
+        .scroll-reveal.visible:nth-child(4) { transition-delay: 0.15s; }
+
+        /* ── Hero entrance animations ── */
+        @keyframes fadeSlideUp {
+            from { opacity: 0; transform: translateY(40px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-reveal { opacity: 0; animation: fadeSlideUp 0.9s ease-out forwards; }
+        .animate-reveal-d1 { animation-delay: 0.2s; }
+        .animate-reveal-d2 { animation-delay: 0.4s; }
+
+        /* ── Scanline overlay ── */
+        .scanline-overlay {
+            position: absolute;
+            inset: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 2px,
+                rgba(0,255,65,0.015) 2px,
+                rgba(0,255,65,0.015) 4px
+            );
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #020c02; }
+        ::-webkit-scrollbar-thumb { background: rgba(0,255,65,0.25); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(0,255,65,0.4); }
+
+        /* ── Mobile nav toggle ── */
+        .mobile-menu { display: none; }
+        .mobile-menu.active { display: flex; }
     </style>
 </head>
 <body class="font-body">
 
     <!-- Navigation -->
-    <header class="fixed top-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-xl border-b border-[#00FF41]/20">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-[#020c02]/90 backdrop-blur-xl border-b border-[#00FF41]/15">
         <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
             <div class="flex justify-between items-center">
-                <a href="#" class="text-2xl font-heading font-bold text-[#00FF41] matrix-glow">{{business_name}}</a>
-                <div class="hidden md:flex space-x-10">
-                    <a href="#home" class="text-sm font-medium text-[#00FF41]/70 hover:text-[#00FF41] transition-colors">Home</a>
-                    <a href="#menu" class="text-sm font-medium text-[#00FF41]/70 hover:text-[#00FF41] transition-colors">Menu</a>
-                    <a href="#about" class="text-sm font-medium text-[#00FF41]/70 hover:text-[#00FF41] transition-colors">About</a>
-                    <a href="#contact" class="text-sm font-medium text-[#00FF41]/70 hover:text-[#00FF41] transition-colors">Contact</a>
+                <a href="#" class="text-xl md:text-2xl font-heading font-bold text-[#00FF41] matrix-glow tracking-tight">{{business_name}}</a>
+
+                <!-- Desktop Nav -->
+                <div class="hidden md:flex items-center space-x-10">
+                    <a href="#home" class="text-sm font-medium text-[#34d399]/70 hover:text-[#00FF41] transition-colors duration-300 font-heading tracking-wide">Home</a>
+                    <a href="#menu" class="text-sm font-medium text-[#34d399]/70 hover:text-[#00FF41] transition-colors duration-300 font-heading tracking-wide">Menu</a>
+                    <a href="#about" class="text-sm font-medium text-[#34d399]/70 hover:text-[#00FF41] transition-colors duration-300 font-heading tracking-wide">About</a>
+                    <a href="#contact" class="text-sm font-medium text-[#34d399]/70 hover:text-[#00FF41] transition-colors duration-300 font-heading tracking-wide">Contact</a>
                 </div>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#00FF41] text-black font-semibold rounded-xl px-6 py-2 text-sm hover:bg-[#00CC34] transition-colors">
-                    <i class="fab fa-whatsapp mr-2"></i>Order Now
-                </a>
+
+                <div class="flex items-center gap-3">
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="btn-matrix bg-[#00FF41] text-[#020c02] font-bold rounded-xl px-5 md:px-6 py-2.5 text-sm hover:bg-[#34d399] transition-colors font-heading">
+                        <i class="fab fa-whatsapp mr-2"></i>Order Now
+                    </a>
+                    <!-- Mobile Hamburger -->
+                    <button id="mobileToggle" class="md:hidden text-[#00FF41] text-xl p-2" aria-label="Toggle menu">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Mobile Menu -->
+            <div id="mobileMenu" class="mobile-menu flex-col gap-4 pt-6 pb-2 md:hidden">
+                <a href="#home" class="text-sm font-heading font-medium text-[#34d399]/70 hover:text-[#00FF41] transition-colors py-2">Home</a>
+                <a href="#menu" class="text-sm font-heading font-medium text-[#34d399]/70 hover:text-[#00FF41] transition-colors py-2">Menu</a>
+                <a href="#about" class="text-sm font-heading font-medium text-[#34d399]/70 hover:text-[#00FF41] transition-colors py-2">About</a>
+                <a href="#contact" class="text-sm font-heading font-medium text-[#34d399]/70 hover:text-[#00FF41] transition-colors py-2">Contact</a>
             </div>
         </nav>
     </header>
 
-    <!-- Hero Section with Matrix Rain -->
+    <!-- Hero Section with Matrix Code Rain -->
     <section id="home" class="matrix-hero pt-32 pb-20 md:py-40 min-h-screen flex items-center">
         <canvas id="matrixCanvas"></canvas>
+        <div class="scanline-overlay"></div>
+
+        <!-- Radial depth overlay -->
+        <div class="absolute inset-0 z-[1] pointer-events-none" style="background: radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(2,12,2,0.7) 80%);"></div>
 
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
-            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6 text-[#00FF41] matrix-glow">
-                {{hero_title}}
+            <div class="inline-block mb-6 animate-reveal">
+                <span class="font-heading text-xs md:text-sm tracking-[0.3em] uppercase text-[#34d399]/60 border border-[#00FF41]/20 rounded-full px-5 py-2">{{tagline}}</span>
+            </div>
+            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6 animate-reveal animate-reveal-d1">
+                <span class="text-[#00FF41] matrix-glow">{{hero_title}}</span>
             </h1>
-            <p class="text-lg md:text-xl text-[#00FF41]/60 mb-10 max-w-2xl mx-auto leading-relaxed">
+            <p class="text-base md:text-xl text-[#34d399]/60 mb-10 max-w-2xl mx-auto leading-relaxed animate-reveal animate-reveal-d1">
                 {{hero_description}}
             </p>
-            <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                <a href="#menu" class="bg-[#00FF41] text-black font-semibold rounded-xl px-8 py-4 hover:bg-[#00CC34] transition-colors">
+            <div class="flex flex-col sm:flex-row gap-4 justify-center animate-reveal animate-reveal-d2">
+                <a href="#menu" class="btn-matrix bg-[#00FF41] text-[#020c02] font-bold font-heading rounded-xl px-8 py-4 text-sm md:text-base hover:bg-[#34d399] transition-colors">
                     {{cta_primary_text}}
                 </a>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#00FF41]/40 text-[#00FF41] font-semibold hover:bg-[#00FF41]/10 rounded-xl px-8 py-4 transition-colors">
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="btn-outline-matrix border border-[#00FF41]/30 text-[#00FF41] font-bold font-heading hover:bg-[#00FF41]/10 rounded-xl px-8 py-4 text-sm md:text-base transition-colors">
                     {{cta_secondary_text}}
                 </a>
             </div>
@@ -95,11 +277,14 @@
     </section>
 
     <!-- Menu Section -->
-    <section id="menu" class="py-24 md:py-36 border-t border-[#00FF41]/20">
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
-            <div class="text-center mb-16">
-                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 text-[#00FF41] matrix-glow">{{menu_section_title}}</h2>
-                <p class="text-xl text-[#00FF41]/60 max-w-3xl mx-auto">{{menu_section_description}}</p>
+    <section id="menu" class="py-24 md:py-36 relative">
+        <div class="section-divider"></div>
+        <!-- Subtle background radial -->
+        <div class="absolute inset-0 pointer-events-none" style="background: radial-gradient(ellipse at 30% 50%, rgba(0,255,65,0.03) 0%, transparent 60%);"></div>
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 pt-24">
+            <div class="text-center mb-16 scroll-reveal">
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 text-[#00FF41] matrix-glow-soft">{{menu_section_title}}</h2>
+                <p class="text-lg md:text-xl text-[#34d399]/50 max-w-3xl mx-auto">{{menu_section_description}}</p>
             </div>
             <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {{menu_items_html}}
@@ -108,40 +293,49 @@
     </section>
 
     <!-- About Section -->
-    <section id="about" class="py-24 md:py-36 border-t border-[#00FF41]/20">
-        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center">
-            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 text-[#00FF41] matrix-glow">{{about_title}}</h2>
-            <p class="text-xl text-[#00FF41]/60 leading-relaxed">{{about_description}}</p>
+    <section id="about" class="py-24 md:py-36 relative">
+        <div class="section-divider"></div>
+        <div class="absolute inset-0 pointer-events-none" style="background: radial-gradient(ellipse at 70% 40%, rgba(52,211,153,0.04) 0%, transparent 55%);"></div>
+        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center pt-24 scroll-reveal">
+            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 text-[#00FF41] matrix-glow-soft">{{about_title}}</h2>
+            <div class="matrix-card p-8 md:p-12">
+                <p class="text-lg md:text-xl text-[#34d399]/60 leading-relaxed">{{about_description}}</p>
+            </div>
         </div>
     </section>
 
     <!-- Contact & Hours -->
-    <section id="contact" class="py-24 md:py-36 border-t border-[#00FF41]/20">
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
-            <div class="grid md:grid-cols-2 gap-12">
-                <div>
-                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 text-[#00FF41] matrix-glow">{{contact_title}}</h2>
+    <section id="contact" class="py-24 md:py-36 relative">
+        <div class="section-divider"></div>
+        <div class="absolute inset-0 pointer-events-none" style="background: radial-gradient(ellipse at 20% 60%, rgba(0,255,65,0.03) 0%, transparent 50%);"></div>
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 pt-24">
+            <div class="grid md:grid-cols-2 gap-12 lg:gap-16">
+                <!-- Contact Info -->
+                <div class="scroll-reveal">
+                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 text-[#00FF41] matrix-glow-soft">{{contact_title}}</h2>
                     <div class="space-y-8">
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#00FF41]">
-                                <i class="fas fa-map-marker-alt mr-3"></i>Location
+                        <div class="matrix-card p-6">
+                            <h3 class="text-lg font-heading font-bold mb-3 text-[#00FF41]">
+                                <i class="fas fa-map-marker-alt mr-3 text-[#34d399]"></i>Location
                             </h3>
-                            <p class="text-lg text-[#00FF41]/60">{{address}}</p>
+                            <p class="text-[#34d399]/60 leading-relaxed">{{address}}</p>
                         </div>
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#00FF41]">
-                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
+                        <div class="matrix-card p-6">
+                            <h3 class="text-lg font-heading font-bold mb-3 text-[#00FF41]">
+                                <i class="fab fa-whatsapp mr-3 text-[#34d399]"></i>WhatsApp
                             </h3>
-                            <p class="text-lg">
-                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#00FF41] hover:underline">{{phone_display}}</a>
+                            <p>
+                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#34d399] hover:text-[#00FF41] transition-colors font-heading">{{phone_display}}</a>
                             </p>
                         </div>
                     </div>
                 </div>
-                <div>
-                    <h3 class="text-3xl font-heading font-bold mb-10 text-[#00FF41]">Operating Hours</h3>
+
+                <!-- Operating Hours -->
+                <div class="scroll-reveal">
+                    <h3 class="text-3xl font-heading font-bold mb-10 text-[#00FF41] matrix-glow-soft">Operating Hours</h3>
                     <div class="matrix-card rounded-2xl p-8">
-                        <ul class="space-y-6">
+                        <ul class="space-y-5">
                             {{operating_hours_html}}
                         </ul>
                     </div>
@@ -151,57 +345,158 @@
     </section>
 
     <!-- Footer -->
-    <footer class="py-16 border-t border-[#00FF41]/20 bg-[#0a0f0a]">
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
-            <h2 class="text-3xl font-heading font-bold text-[#00FF41] matrix-glow mb-4">{{business_name}}</h2>
-            <p class="text-[#00FF41]/60 mb-6">{{footer_description}}</p>
-            <p class="text-[#00FF41]/40">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+    <footer class="py-16 relative bg-[#010801]">
+        <div class="section-divider"></div>
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center pt-16">
+            <h2 class="text-2xl md:text-3xl font-heading font-bold text-[#00FF41] matrix-glow mb-4">{{business_name}}</h2>
+            <p class="text-[#34d399]/50 mb-8 max-w-lg mx-auto">{{footer_description}}</p>
+            <div class="flex justify-center gap-6 mb-8">
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="w-10 h-10 rounded-full border border-[#00FF41]/20 flex items-center justify-center text-[#34d399]/60 hover:text-[#00FF41] hover:border-[#00FF41]/40 transition-all">
+                    <i class="fab fa-whatsapp"></i>
+                </a>
+            </div>
+            <p class="text-[#34d399]/30 text-sm font-heading">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
         </div>
     </footer>
 
     <script>
-        // Matrix Code Rain
+        /* ── Matrix Code Rain (Canvas) ── */
         (function() {
             var canvas = document.getElementById('matrixCanvas');
             if (!canvas) return;
             var ctx = canvas.getContext('2d');
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
 
-            var chars = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEF';
-            var fontSize = 14;
+            function resize() {
+                canvas.width = canvas.parentElement.offsetWidth;
+                canvas.height = canvas.parentElement.offsetHeight;
+            }
+            resize();
+
+            /* Katakana + Latin + digits + symbols */
+            var katakana = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
+            var latin = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            var digits = '0123456789';
+            var symbols = '+-*/<>{}[]|=~^';
+            var chars = katakana + latin + digits + symbols;
+
+            var fontSize = 15;
             var columns = Math.floor(canvas.width / fontSize);
             var drops = [];
+            var speeds = [];
+            var brightness = [];
+
             for (var i = 0; i < columns; i++) {
-                drops[i] = Math.random() * -100;
+                drops[i] = Math.random() * -80;
+                speeds[i] = 0.4 + Math.random() * 0.8;
+                brightness[i] = 0.3 + Math.random() * 0.7;
             }
 
             function draw() {
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+                /* Fade trail */
+                ctx.fillStyle = 'rgba(2, 12, 2, 0.06)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.fillStyle = '#00FF41';
-                ctx.font = fontSize + 'px monospace';
+
+                ctx.font = fontSize + 'px "Space Mono", monospace';
 
                 for (var i = 0; i < drops.length; i++) {
-                    var text = chars[Math.floor(Math.random() * chars.length)];
-                    ctx.globalAlpha = 0.3 + Math.random() * 0.5;
-                    ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+                    var char = chars[Math.floor(Math.random() * chars.length)];
+                    var y = drops[i] * fontSize;
 
-                    if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+                    /* Head character (brightest) */
+                    var headAlpha = brightness[i];
+                    ctx.fillStyle = 'rgba(180, 255, 180, ' + (headAlpha * 0.9) + ')';
+                    ctx.fillText(char, i * fontSize, y);
+
+                    /* Body character (green) */
+                    var bodyChar = chars[Math.floor(Math.random() * chars.length)];
+                    ctx.fillStyle = 'rgba(0, 255, 65, ' + (headAlpha * 0.5) + ')';
+                    ctx.fillText(bodyChar, i * fontSize, y - fontSize);
+
+                    /* Dim trailing character */
+                    var trailChar = chars[Math.floor(Math.random() * chars.length)];
+                    ctx.fillStyle = 'rgba(0, 180, 40, ' + (headAlpha * 0.15) + ')';
+                    ctx.fillText(trailChar, i * fontSize, y - fontSize * 3);
+
+                    if (y > canvas.height && Math.random() > 0.975) {
                         drops[i] = 0;
+                        speeds[i] = 0.4 + Math.random() * 0.8;
+                        brightness[i] = 0.3 + Math.random() * 0.7;
                     }
-                    drops[i]++;
+                    drops[i] += speeds[i];
                 }
-                ctx.globalAlpha = 1;
             }
-            setInterval(draw, 50);
 
+            var interval = setInterval(draw, 45);
+
+            /* Debounced resize */
+            var resizeTimer;
             window.addEventListener('resize', function() {
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(function() {
+                    resize();
+                    columns = Math.floor(canvas.width / fontSize);
+                    var newDrops = [];
+                    var newSpeeds = [];
+                    var newBrightness = [];
+                    for (var i = 0; i < columns; i++) {
+                        newDrops[i] = drops[i] !== undefined ? drops[i] : Math.random() * -80;
+                        newSpeeds[i] = speeds[i] !== undefined ? speeds[i] : 0.4 + Math.random() * 0.8;
+                        newBrightness[i] = brightness[i] !== undefined ? brightness[i] : 0.3 + Math.random() * 0.7;
+                    }
+                    drops = newDrops;
+                    speeds = newSpeeds;
+                    brightness = newBrightness;
+                }, 150);
+            });
+
+            /* Pause when not visible */
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden) {
+                    clearInterval(interval);
+                } else {
+                    interval = setInterval(draw, 45);
+                }
             });
         })();
 
+        /* ── Scroll Reveal (IntersectionObserver) ── */
+        (function() {
+            var els = document.querySelectorAll('.scroll-reveal');
+            if (!els.length) return;
+            var observer = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('visible');
+                    }
+                });
+            }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+            els.forEach(function(el) { observer.observe(el); });
+        })();
+
+        /* ── Mobile Menu Toggle ── */
+        (function() {
+            var toggle = document.getElementById('mobileToggle');
+            var menu = document.getElementById('mobileMenu');
+            if (!toggle || !menu) return;
+            toggle.addEventListener('click', function() {
+                menu.classList.toggle('active');
+                var icon = toggle.querySelector('i');
+                if (menu.classList.contains('active')) {
+                    icon.className = 'fas fa-times';
+                } else {
+                    icon.className = 'fas fa-bars';
+                }
+            });
+            /* Close on link click */
+            menu.querySelectorAll('a').forEach(function(link) {
+                link.addEventListener('click', function() {
+                    menu.classList.remove('active');
+                    toggle.querySelector('i').className = 'fas fa-bars';
+                });
+            });
+        })();
+
+        /* ── Current Year ── */
         document.getElementById('currentYear').textContent = new Date().getFullYear();
     </script>
 </body>

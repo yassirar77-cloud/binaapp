@@ -6,7 +6,7 @@
     <title>{{business_name}} | {{tagline}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
     tailwind.config = {
@@ -14,14 +14,14 @@
         extend: {
           colors: {
             'primary': '#00E5A0',
-            'secondary': '#00B8D4',
-            'accent': '#1A3D2E',
-            'surface': '#1E1E1E',
-            'background': '#0D0D0D',
+            'secondary': '#00CC8E',
+            'accent': '#0D2E1F',
+            'surface': '#141414',
+            'background': '#0a0a0a',
           },
           fontFamily: {
-            'heading': ['Cormorant Garamond', 'serif'],
-            'body': ['Outfit', 'sans-serif'],
+            'heading': ['Space Grotesk', 'sans-serif'],
+            'body': ['Inter', 'sans-serif'],
           }
         }
       }
@@ -30,64 +30,203 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         html { scroll-behavior: smooth; }
-        body { background-color: #0D0D0D; color: #EAEAEA; font-family: 'Outfit', sans-serif; }
-
-        #ghost-wrapper {
-            transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1), filter 1.5s cubic-bezier(0.4, 0, 0.2, 1), transform 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+        body {
+            background-color: #0a0a0a;
+            color: #E8E8E8;
+            font-family: 'Inter', sans-serif;
+            opacity: 0;
+            transition: opacity 1.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
         }
-        #ghost-wrapper.vanishing { opacity: 0; filter: blur(20px) brightness(2); transform: scale(0.97); }
-        #ghost-wrapper.appearing { animation: ghostAppear 2s cubic-bezier(0.23, 1, 0.32, 1) forwards; }
-        @keyframes ghostAppear {
-            0% { opacity: 0; filter: blur(30px) brightness(3); transform: scale(1.05); }
-            30% { opacity: 0.3; filter: blur(15px) brightness(2); }
-            60% { opacity: 0.7; filter: blur(5px) brightness(1.3); }
-            100% { opacity: 1; filter: blur(0px) brightness(1); transform: scale(1); }
+        body.ghost-visible {
+            opacity: 1;
         }
-        @keyframes ghostFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
+        body.ghost-faded {
+            opacity: 0.10;
+            transition: opacity 2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        body.ghost-hover-restore {
+            opacity: 1;
+            transition: opacity 0.15s ease-out;
+        }
 
+        /* Pulsing glow hint visible during invisible phase */
+        #ghost-glow-hint {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0,229,160,0.12) 0%, rgba(0,229,160,0.03) 50%, transparent 70%);
+            pointer-events: none;
+            z-index: 10000;
+            animation: ghostGlowPulse 2.5s ease-in-out infinite;
+            opacity: 1;
+            transition: opacity 0.5s ease;
+        }
+        #ghost-glow-hint.hidden {
+            opacity: 0;
+        }
+        @keyframes ghostGlowPulse {
+            0%, 100% {
+                transform: translate(-50%, -50%) scale(0.8);
+                opacity: 0.4;
+            }
+            50% {
+                transform: translate(-50%, -50%) scale(1.3);
+                opacity: 1;
+            }
+        }
+
+        /* Gradient text */
         .glow-text {
-            background: linear-gradient(135deg, #00E5A0, #00B8D4);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background: linear-gradient(135deg, #00E5A0, #00CC8E, #00E5A0);
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
             background-clip: text;
+            animation: gradientShift 6s ease-in-out infinite;
         }
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        /* Glassmorphism ghost cards */
         .ghost-card {
-            background: rgba(30,30,30,0.8);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(0,229,160,0.15);
-            transition: all 0.5s ease;
+            background: rgba(20, 20, 20, 0.7);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(0, 229, 160, 0.12);
+            border-radius: 1rem;
+            transition: all 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
         }
         .ghost-card:hover {
-            border-color: rgba(0,229,160,0.4);
-            box-shadow: 0 0 30px rgba(0,229,160,0.1);
-            transform: translateY(-4px);
+            border-color: rgba(0, 229, 160, 0.45);
+            box-shadow: 0 0 40px rgba(0, 229, 160, 0.08), 0 8px 32px rgba(0, 0, 0, 0.4);
+            transform: translateY(-6px);
+        }
+
+        /* Button shimmer effect */
+        .btn-shimmer {
+            position: relative;
+            overflow: hidden;
+        }
+        .btn-shimmer::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: none;
+        }
+        .btn-shimmer:hover::before {
+            animation: shimmer 0.75s ease forwards;
+        }
+        @keyframes shimmer {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        /* Scroll reveal animations */
+        .reveal-element {
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94), transform 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+        .reveal-element.revealed {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .reveal-element:nth-child(2) { transition-delay: 0.1s; }
+        .reveal-element:nth-child(3) { transition-delay: 0.2s; }
+        .reveal-element:nth-child(4) { transition-delay: 0.3s; }
+        .reveal-element:nth-child(5) { transition-delay: 0.4s; }
+        .reveal-element:nth-child(6) { transition-delay: 0.5s; }
+
+        /* Floating spirit particles */
+        .spirit-particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: rgba(0, 229, 160, 0.3);
+            pointer-events: none;
+            animation: spiritFloat 8s ease-in-out infinite;
+        }
+        @keyframes spiritFloat {
+            0%, 100% { transform: translateY(0) translateX(0) scale(1); opacity: 0; }
+            10% { opacity: 0.6; }
+            50% { transform: translateY(-120px) translateX(30px) scale(1.5); opacity: 0.3; }
+            90% { opacity: 0; }
+        }
+
+        /* Nav link underline animation */
+        .nav-link {
+            position: relative;
+        }
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: #00E5A0;
+            transition: width 0.3s ease;
+        }
+        .nav-link:hover::after {
+            width: 100%;
+        }
+
+        /* Section divider glow */
+        .section-divider {
+            border-top: 1px solid rgba(0, 229, 160, 0.15);
+            position: relative;
+        }
+        .section-divider::before {
+            content: '';
+            position: absolute;
+            top: -1px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 120px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #00E5A0, transparent);
+        }
+
+        /* Hero background mesh */
+        .hero-mesh {
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(ellipse at 20% 50%, rgba(0, 229, 160, 0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(0, 229, 160, 0.04) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 80%, rgba(0, 204, 142, 0.03) 0%, transparent 50%);
+            pointer-events: none;
         }
     </style>
 </head>
 <body class="font-body">
 
-    <!-- Ghost Overlay (outside wrapper) -->
-    <div id="ghost-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(13,13,13,0.95);flex-direction:column;align-items:center;justify-content:center;">
-        <div style="font-size:80px;margin-bottom:20px;animation:ghostFloat 2s ease-in-out infinite;">&#128123;</div>
-        <div style="font-size:24px;color:#00E5A0;font-family:'Cormorant Garamond',serif;">Gone Invisible...</div>
-        <div style="font-size:14px;color:#8A8A8A;margin-top:10px;">Reappearing soon</div>
-    </div>
-    <div id="ghost-timer-bar" style="position:fixed;top:0;left:0;height:3px;width:100%;background:linear-gradient(90deg,#00E5A0,#00B8D4);z-index:10000;box-shadow:0 0 15px rgba(0,229,160,0.5);"></div>
-    <div id="countdown-display" style="position:fixed;bottom:20px;right:20px;background:rgba(0,0,0,0.8);backdrop-filter:blur(10px);border:1px solid rgba(0,229,160,0.2);border-radius:12px;padding:10px 18px;font-size:13px;color:#00E5A0;z-index:10001;font-family:'Outfit',sans-serif;"></div>
-
-    <div id="ghost-wrapper">
+    <!-- Ghost Glow Hint - visible during invisible phase -->
+    <div id="ghost-glow-hint"></div>
 
     <!-- Navigation -->
-    <header class="fixed top-0 left-0 right-0 z-50 bg-[#0D0D0D]/90 backdrop-blur-xl border-b border-[#00E5A0]/20">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-[#0a0a0a]/85 backdrop-blur-2xl border-b border-[#00E5A0]/10">
         <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
             <div class="flex justify-between items-center">
-                <a href="#" class="text-2xl font-heading font-bold glow-text">{{business_name}}</a>
-                <div class="hidden md:flex space-x-10">
-                    <a href="#home" class="text-sm font-medium hover:text-[#00E5A0] transition-colors">Home</a>
-                    <a href="#menu" class="text-sm font-medium hover:text-[#00E5A0] transition-colors">Menu</a>
-                    <a href="#about" class="text-sm font-medium hover:text-[#00E5A0] transition-colors">About</a>
-                    <a href="#contact" class="text-sm font-medium hover:text-[#00E5A0] transition-colors">Contact</a>
+                <a href="#" class="text-2xl font-heading font-bold glow-text tracking-tight">{{business_name}}</a>
+                <div class="hidden md:flex items-center space-x-10">
+                    <a href="#home" class="nav-link text-sm font-medium text-[#B0B0B0] hover:text-[#00E5A0] transition-colors">Home</a>
+                    <a href="#menu" class="nav-link text-sm font-medium text-[#B0B0B0] hover:text-[#00E5A0] transition-colors">Menu</a>
+                    <a href="#about" class="nav-link text-sm font-medium text-[#B0B0B0] hover:text-[#00E5A0] transition-colors">About</a>
+                    <a href="#contact" class="nav-link text-sm font-medium text-[#B0B0B0] hover:text-[#00E5A0] transition-colors">Contact</a>
                 </div>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#00E5A0] text-[#0D0D0D] font-semibold rounded-xl px-6 py-2 text-sm hover:bg-[#00CC8E] transition-colors">
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="btn-shimmer bg-[#00E5A0] text-[#0a0a0a] font-semibold rounded-xl px-6 py-2.5 text-sm hover:bg-[#00CC8E] hover:shadow-lg hover:shadow-[#00E5A0]/20 transition-all">
                     <i class="fab fa-whatsapp mr-2"></i>Order Now
                 </a>
             </div>
@@ -95,21 +234,36 @@
     </header>
 
     <!-- Hero Section -->
-    <section id="home" class="pt-32 pb-20 md:py-40 min-h-screen flex items-center relative overflow-hidden">
-        <div class="absolute inset-0 bg-gradient-to-b from-[#00E5A0]/5 via-transparent to-transparent pointer-events-none"></div>
+    <section id="home" class="relative pt-32 pb-20 md:py-40 min-h-screen flex items-center overflow-hidden">
+        <div class="hero-mesh"></div>
+
+        <!-- Spirit particles -->
+        <div class="spirit-particle" style="top:20%;left:15%;animation-delay:0s;"></div>
+        <div class="spirit-particle" style="top:40%;left:75%;animation-delay:-2s;"></div>
+        <div class="spirit-particle" style="top:60%;left:35%;animation-delay:-4s;"></div>
+        <div class="spirit-particle" style="top:30%;left:55%;animation-delay:-1s;"></div>
+        <div class="spirit-particle" style="top:70%;left:85%;animation-delay:-3s;"></div>
+        <div class="spirit-particle" style="top:50%;left:25%;animation-delay:-5s;"></div>
 
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
-            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6">
-                <span class="glow-text">{{hero_title}}</span>
-            </h1>
-            <p class="text-lg md:text-xl text-[#8A8A8A] mb-10 max-w-2xl mx-auto leading-relaxed">
-                {{hero_description}}
-            </p>
-            <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                <a href="#menu" class="bg-[#00E5A0] text-[#0D0D0D] font-semibold hover:bg-[#00CC8E] rounded-xl px-8 py-4 transition-colors">
+            <div class="reveal-element">
+                <p class="text-sm font-heading font-semibold tracking-[0.3em] uppercase text-[#00E5A0]/70 mb-6">{{tagline}}</p>
+            </div>
+            <div class="reveal-element">
+                <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6">
+                    <span class="glow-text">{{hero_title}}</span>
+                </h1>
+            </div>
+            <div class="reveal-element">
+                <p class="text-lg md:text-xl text-[#8A8A8A] mb-12 max-w-2xl mx-auto leading-relaxed">
+                    {{hero_description}}
+                </p>
+            </div>
+            <div class="reveal-element flex flex-col sm:flex-row gap-4 justify-center">
+                <a href="#menu" class="btn-shimmer bg-[#00E5A0] text-[#0a0a0a] font-semibold hover:bg-[#00CC8E] hover:shadow-xl hover:shadow-[#00E5A0]/15 rounded-xl px-8 py-4 text-base transition-all">
                     {{cta_primary_text}}
                 </a>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#00E5A0]/40 text-[#00E5A0] font-semibold hover:bg-[#00E5A0]/10 rounded-xl px-8 py-4 transition-colors">
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="btn-shimmer border border-[#00E5A0]/30 text-[#00E5A0] font-semibold hover:bg-[#00E5A0]/10 hover:border-[#00E5A0]/50 rounded-xl px-8 py-4 text-base transition-all">
                     {{cta_secondary_text}}
                 </a>
             </div>
@@ -117,11 +271,15 @@
     </section>
 
     <!-- Menu Section -->
-    <section id="menu" class="py-24 md:py-36 border-t border-[#00E5A0]/20">
+    <section id="menu" class="py-24 md:py-36 section-divider">
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
             <div class="text-center mb-16">
-                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 glow-text">{{menu_section_title}}</h2>
-                <p class="text-xl text-[#8A8A8A] max-w-3xl mx-auto">{{menu_section_description}}</p>
+                <div class="reveal-element">
+                    <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 glow-text">{{menu_section_title}}</h2>
+                </div>
+                <div class="reveal-element">
+                    <p class="text-xl text-[#8A8A8A] max-w-3xl mx-auto">{{menu_section_description}}</p>
+                </div>
             </div>
             <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {{menu_items_html}}
@@ -130,42 +288,59 @@
     </section>
 
     <!-- About Section -->
-    <section id="about" class="py-24 md:py-36 border-t border-[#00E5A0]/20">
-        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center">
-            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 glow-text">{{about_title}}</h2>
-            <p class="text-xl text-[#8A8A8A] leading-relaxed">{{about_description}}</p>
+    <section id="about" class="py-24 md:py-36 section-divider relative overflow-hidden">
+        <div class="absolute inset-0 bg-gradient-to-b from-transparent via-[#00E5A0]/[0.02] to-transparent pointer-events-none"></div>
+        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
+            <div class="reveal-element">
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 glow-text">{{about_title}}</h2>
+            </div>
+            <div class="reveal-element">
+                <div class="ghost-card p-10 md:p-14">
+                    <p class="text-lg md:text-xl text-[#8A8A8A] leading-relaxed">{{about_description}}</p>
+                </div>
+            </div>
         </div>
     </section>
 
     <!-- Contact & Hours -->
-    <section id="contact" class="py-24 md:py-36 border-t border-[#00E5A0]/20">
+    <section id="contact" class="py-24 md:py-36 section-divider">
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
-            <div class="grid md:grid-cols-2 gap-12">
+            <div class="grid md:grid-cols-2 gap-12 lg:gap-16">
                 <div>
-                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 glow-text">{{contact_title}}</h2>
+                    <div class="reveal-element">
+                        <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 glow-text">{{contact_title}}</h2>
+                    </div>
                     <div class="space-y-8">
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#00E5A0]">
-                                <i class="fas fa-map-marker-alt mr-3"></i>Location
-                            </h3>
-                            <p class="text-lg text-[#8A8A8A]">{{address}}</p>
+                        <div class="reveal-element">
+                            <div class="ghost-card p-6">
+                                <h3 class="text-lg font-heading font-bold mb-3 text-[#00E5A0]">
+                                    <i class="fas fa-map-marker-alt mr-3 text-[#00E5A0]/70"></i>Location
+                                </h3>
+                                <p class="text-[#8A8A8A] pl-8">{{address}}</p>
+                            </div>
                         </div>
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#00B8D4]">
-                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
-                            </h3>
-                            <p class="text-lg">
-                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#00E5A0] hover:underline">{{phone_display}}</a>
-                            </p>
+                        <div class="reveal-element">
+                            <div class="ghost-card p-6">
+                                <h3 class="text-lg font-heading font-bold mb-3 text-[#00E5A0]">
+                                    <i class="fab fa-whatsapp mr-3 text-[#00E5A0]/70"></i>WhatsApp
+                                </h3>
+                                <p class="pl-8">
+                                    <a href="https://wa.me/{{whatsapp_number}}" class="text-[#00E5A0] hover:text-[#00CC8E] hover:underline transition-colors">{{phone_display}}</a>
+                                </p>
+                            </div>
                         </div>
                     </div>
                 </div>
                 <div>
-                    <h3 class="text-3xl font-heading font-bold mb-10 text-[#00E5A0]">Operating Hours</h3>
-                    <div class="ghost-card rounded-2xl p-8">
-                        <ul class="space-y-6">
-                            {{operating_hours_html}}
-                        </ul>
+                    <div class="reveal-element">
+                        <h3 class="text-3xl font-heading font-bold mb-10 text-[#00E5A0]">Operating Hours</h3>
+                    </div>
+                    <div class="reveal-element">
+                        <div class="ghost-card p-8">
+                            <ul class="space-y-5">
+                                {{operating_hours_html}}
+                            </ul>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -173,61 +348,128 @@
     </section>
 
     <!-- Footer -->
-    <footer class="py-16 border-t border-[#00E5A0]/20 bg-[#1E1E1E]">
+    <footer class="py-16 section-divider bg-[#0f0f0f]">
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
-            <h2 class="text-3xl font-heading font-bold glow-text mb-4">{{business_name}}</h2>
-            <p class="text-[#8A8A8A] mb-6">{{footer_description}}</p>
-            <p class="text-[#8A8A8A]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+            <div class="reveal-element">
+                <h2 class="text-3xl font-heading font-bold glow-text mb-4">{{business_name}}</h2>
+            </div>
+            <div class="reveal-element">
+                <p class="text-[#8A8A8A] mb-4 max-w-lg mx-auto">{{footer_description}}</p>
+            </div>
+            <div class="reveal-element">
+                <div class="flex justify-center space-x-6 mb-6">
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="text-[#8A8A8A] hover:text-[#00E5A0] transition-colors text-xl">
+                        <i class="fab fa-whatsapp"></i>
+                    </a>
+                </div>
+            </div>
+            <div class="reveal-element">
+                <p class="text-[#555] text-sm">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+            </div>
         </div>
     </footer>
 
-    </div><!-- end ghost-wrapper -->
-
     <script>
-        // Ghost Cycle Engine
-        (function(){
-            var wrapper=document.getElementById('ghost-wrapper');
-            var overlay=document.getElementById('ghost-overlay');
-            var timerBar=document.getElementById('ghost-timer-bar');
-            var countdownEl=document.getElementById('countdown-display');
-            var VISIBLE_DURATION=60,INVISIBLE_DELAY=3,INVISIBLE_DURATION=4;
-            function startGhostCycle(){
-                var countdown=INVISIBLE_DELAY;
-                countdownEl.textContent='Appearing in '+Math.ceil(countdown)+'s';
-                var timer=setInterval(function(){
-                    countdown-=0.1;
-                    timerBar.style.width=(countdown/INVISIBLE_DELAY*100)+'%';
-                    countdownEl.textContent='Vanishing in '+Math.ceil(countdown)+'s';
-                    if(countdown<=0){clearInterval(timer);vanishSite();}
-                },100);
-            }
-            function vanishSite(){
-                wrapper.classList.add('vanishing');
-                overlay.style.display='flex';
-                setTimeout(function(){appearSite();},INVISIBLE_DURATION*1000);
-            }
-            function appearSite(){
-                wrapper.classList.remove('vanishing');
-                wrapper.classList.add('appearing');
-                overlay.style.display='none';
-                setTimeout(function(){
-                    wrapper.classList.remove('appearing');
-                    startVisibleCountdown();
-                },2000);
-            }
-            function startVisibleCountdown(){
-                var remaining=VISIBLE_DURATION;
-                var timer=setInterval(function(){
-                    remaining-=0.1;
-                    timerBar.style.width=(remaining/VISIBLE_DURATION*100)+'%';
-                    countdownEl.textContent=remaining>10?'Visible for '+Math.ceil(remaining)+'s':'Vanishing in '+Math.ceil(remaining)+'s!';
-                    if(remaining<=0){clearInterval(timer);vanishSite();}
-                },100);
-            }
-            startGhostCycle();
-        })();
+    (function() {
+        'use strict';
 
-        document.getElementById('currentYear').textContent = new Date().getFullYear();
+        // ========================================
+        // Ghost Fade Effect - Body opacity control
+        // ========================================
+        var body = document.body;
+        var glowHint = document.getElementById('ghost-glow-hint');
+        var ghostFadeTimer = null;
+        var isGhosted = false;
+        var isRevealed = false;
+
+        // Phase 1: Body starts at opacity 0 (set via CSS).
+        // Show the glow hint during invisible phase.
+        glowHint.classList.remove('hidden');
+
+        // Phase 2: After 2 seconds, fade the site in over 1.5s.
+        setTimeout(function() {
+            glowHint.classList.add('hidden');
+            body.classList.add('ghost-visible');
+            isRevealed = true;
+
+            // Phase 3: After being visible for 60 seconds, fade to 10% opacity over 2s.
+            ghostFadeTimer = setTimeout(function() {
+                body.classList.remove('ghost-visible');
+                body.classList.remove('ghost-hover-restore');
+                body.classList.add('ghost-faded');
+                isGhosted = true;
+            }, 60000);
+        }, 2000);
+
+        // Phase 4: Hovering the page restores full opacity instantly.
+        document.addEventListener('mouseover', function() {
+            if (isGhosted) {
+                body.classList.remove('ghost-faded');
+                body.classList.add('ghost-hover-restore');
+            }
+        });
+
+        document.addEventListener('mouseout', function(e) {
+            // Only re-fade if the mouse truly leaves the document
+            if (isGhosted && !e.relatedTarget && !e.toElement) {
+                body.classList.remove('ghost-hover-restore');
+                body.classList.add('ghost-faded');
+            }
+        });
+
+        // Also handle touch for mobile
+        document.addEventListener('touchstart', function() {
+            if (isGhosted) {
+                body.classList.remove('ghost-faded');
+                body.classList.add('ghost-hover-restore');
+                // On mobile, restore faded state after 5 seconds of no interaction
+                clearTimeout(body._touchTimer);
+                body._touchTimer = setTimeout(function() {
+                    if (isGhosted) {
+                        body.classList.remove('ghost-hover-restore');
+                        body.classList.add('ghost-faded');
+                    }
+                }, 5000);
+            }
+        }, { passive: true });
+
+        // ========================================
+        // Scroll Reveal with IntersectionObserver
+        // ========================================
+        function initScrollReveal() {
+            var revealElements = document.querySelectorAll('.reveal-element');
+            if (!revealElements.length) return;
+
+            var observer = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('revealed');
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, {
+                threshold: 0.15,
+                rootMargin: '0px 0px -40px 0px'
+            });
+
+            revealElements.forEach(function(el) {
+                observer.observe(el);
+            });
+        }
+
+        // Initialize scroll reveal after the initial site fade-in completes (2s delay + 1.5s fade = 3.5s)
+        setTimeout(function() {
+            initScrollReveal();
+        }, 3500);
+
+        // ========================================
+        // Dynamic Year
+        // ========================================
+        var yearEl = document.getElementById('currentYear');
+        if (yearEl) {
+            yearEl.textContent = new Date().getFullYear();
+        }
+    })();
     </script>
 </body>
 </html>

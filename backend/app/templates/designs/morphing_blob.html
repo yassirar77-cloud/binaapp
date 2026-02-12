@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="ms">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{business_name}} | {{tagline}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
     tailwind.config = {
@@ -14,14 +14,17 @@
         extend: {
           colors: {
             'primary': '#D4AF37',
+            'primary-light': '#E8CC6E',
+            'primary-dark': '#B8960C',
             'secondary': '#8B7355',
             'accent': '#2A1F0E',
-            'surface': '#1A1A1A',
-            'background': '#0A0A0A',
+            'surface': '#1a1a1a',
+            'surface-light': '#222222',
+            'background': '#0f0f0f',
           },
           fontFamily: {
-            'heading': ['Playfair Display', 'serif'],
-            'body': ['DM Sans', 'sans-serif'],
+            'heading': ['Space Grotesk', 'sans-serif'],
+            'body': ['Inter', 'sans-serif'],
           }
         }
       }
@@ -30,142 +33,398 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         html { scroll-behavior: smooth; }
-        body { background-color: #0A0A0A; color: #F5F5F0; font-family: 'DM Sans', sans-serif; }
+        body { background-color: #0f0f0f; color: #e8e8e8; font-family: 'Inter', sans-serif; }
 
-        .blob-hero { position: relative; overflow: hidden; }
+        /* ===================== */
+        /* MORPHING BLOB STYLES  */
+        /* ===================== */
+        .blob-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            max-width: 520px;
+            aspect-ratio: 1 / 1;
+            margin: 0 auto;
+        }
+
         .morphing-blob {
-            position: absolute; width: 500px; height: 500px;
-            border-radius: 50%; filter: blur(60px); opacity: 0.5;
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, #D4AF37 0%, #B8960C 30%, #E8CC6E 55%, #8B7355 80%, #D4AF37 100%);
+            background-size: 300% 300%;
+            animation: blobMorph 12s ease-in-out infinite, gradientShift 8s ease-in-out infinite;
+            filter: drop-shadow(0 0 60px rgba(212, 175, 55, 0.35)) drop-shadow(0 0 120px rgba(212, 175, 55, 0.15));
+        }
+
+        @keyframes blobMorph {
+            0% {
+                border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+            }
+            10% {
+                border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%;
+            }
+            20% {
+                border-radius: 50% 40% 60% 50% / 35% 55% 45% 65%;
+            }
+            30% {
+                border-radius: 40% 60% 45% 55% / 60% 40% 55% 45%;
+            }
+            40% {
+                border-radius: 65% 35% 50% 50% / 45% 65% 35% 55%;
+            }
+            50% {
+                border-radius: 35% 65% 55% 45% / 55% 35% 65% 45%;
+            }
+            60% {
+                border-radius: 55% 45% 35% 65% / 40% 60% 50% 50%;
+            }
+            70% {
+                border-radius: 45% 55% 65% 35% / 65% 45% 40% 60%;
+            }
+            80% {
+                border-radius: 50% 50% 40% 60% / 50% 50% 60% 40%;
+            }
+            90% {
+                border-radius: 40% 60% 50% 50% / 55% 45% 50% 50%;
+            }
+            100% {
+                border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+            }
+        }
+
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            25% { background-position: 100% 25%; }
+            50% { background-position: 50% 100%; }
+            75% { background-position: 25% 0%; }
+        }
+
+        .blob-glow {
+            position: absolute;
+            inset: -40px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(212, 175, 55, 0.12) 0%, transparent 70%);
+            animation: glowPulse 6s ease-in-out infinite;
             pointer-events: none;
         }
-        .blob-1 {
-            background: linear-gradient(135deg, #D4AF37, #8B7355);
-            top: 10%; left: 20%;
-            animation: blobMorph1 8s ease-in-out infinite;
-        }
-        .blob-2 {
-            background: linear-gradient(135deg, #8B7355, #D4AF37);
-            top: 30%; right: 10%; width: 400px; height: 400px;
-            animation: blobMorph2 10s ease-in-out infinite;
-        }
-        .blob-3 {
-            background: linear-gradient(135deg, #D4AF37, #2A1F0E);
-            bottom: 10%; left: 40%; width: 350px; height: 350px;
-            animation: blobMorph3 12s ease-in-out infinite;
-        }
-        @keyframes blobMorph1 {
-            0%, 100% { border-radius: 50% 30% 60% 40%; transform: translate(0, 0) scale(1); }
-            25% { border-radius: 40% 60% 30% 50%; transform: translate(30px, -20px) scale(1.1); }
-            50% { border-radius: 60% 40% 50% 30%; transform: translate(-20px, 30px) scale(0.95); }
-            75% { border-radius: 30% 50% 40% 60%; transform: translate(10px, -10px) scale(1.05); }
-        }
-        @keyframes blobMorph2 {
-            0%, 100% { border-radius: 40% 60% 50% 30%; transform: translate(0, 0) scale(1); }
-            33% { border-radius: 50% 30% 40% 60%; transform: translate(-25px, 20px) scale(1.08); }
-            66% { border-radius: 30% 50% 60% 40%; transform: translate(20px, -15px) scale(0.92); }
-        }
-        @keyframes blobMorph3 {
-            0%, 100% { border-radius: 60% 40% 30% 50%; transform: translate(0, 0) scale(1); }
-            50% { border-radius: 40% 50% 60% 30%; transform: translate(15px, 25px) scale(1.1); }
+
+        @keyframes glowPulse {
+            0%, 100% { opacity: 0.6; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.08); }
         }
 
-        .menu-card { transition: all 0.5s ease; }
-        .menu-card:hover { border-color: rgba(212, 175, 55, 0.3); box-shadow: 0 0 30px rgba(212, 175, 55, 0.1); transform: translateY(-4px); }
+        /* ===================== */
+        /* SCROLL REVEAL         */
+        /* ===================== */
+        .reveal {
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .reveal-delay-1 { transition-delay: 0.1s; }
+        .reveal-delay-2 { transition-delay: 0.2s; }
+        .reveal-delay-3 { transition-delay: 0.3s; }
+        .reveal-delay-4 { transition-delay: 0.4s; }
+
+        /* ===================== */
+        /* BUTTON SHIMMER        */
+        /* ===================== */
+        .btn-shimmer {
+            position: relative;
+            overflow: hidden;
+            z-index: 1;
+        }
+        .btn-shimmer::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+            transition: none;
+            z-index: -1;
+        }
+        .btn-shimmer:hover::before {
+            animation: shimmer 0.6s ease forwards;
+        }
+        @keyframes shimmer {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        /* ===================== */
+        /* CARDS                 */
+        /* ===================== */
+        .menu-card {
+            background: linear-gradient(145deg, #1a1a1a 0%, #141414 100%);
+            border: 1px solid rgba(212, 175, 55, 0.1);
+            border-radius: 1rem;
+            padding: 2rem;
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .menu-card:hover {
+            border-color: rgba(212, 175, 55, 0.35);
+            box-shadow: 0 8px 40px rgba(212, 175, 55, 0.1), 0 0 0 1px rgba(212, 175, 55, 0.05);
+            transform: translateY(-6px);
+        }
+
+        .premium-card {
+            background: linear-gradient(145deg, #1a1a1a 0%, #141414 100%);
+            border: 1px solid rgba(212, 175, 55, 0.1);
+            border-radius: 1rem;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .premium-card:hover {
+            border-color: rgba(212, 175, 55, 0.25);
+            box-shadow: 0 4px 30px rgba(212, 175, 55, 0.08);
+        }
+
+        /* ===================== */
+        /* NAVIGATION            */
+        /* ===================== */
+        .nav-link {
+            position: relative;
+            padding-bottom: 2px;
+        }
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 0;
+            height: 1px;
+            background: #D4AF37;
+            transition: width 0.3s ease;
+        }
+        .nav-link:hover::after {
+            width: 100%;
+        }
+
+        /* Mobile menu */
+        .mobile-menu {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .mobile-menu.open {
+            max-height: 300px;
+        }
+
+        /* ===================== */
+        /* SECTION DIVIDER       */
+        /* ===================== */
+        .gold-divider {
+            width: 60px;
+            height: 2px;
+            background: linear-gradient(90deg, #D4AF37, #E8CC6E);
+            margin: 0 auto;
+            border-radius: 1px;
+        }
+
+        /* ===================== */
+        /* SCROLLBAR             */
+        /* ===================== */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0f0f0f; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #D4AF37; }
     </style>
 </head>
-<body class="font-body">
+<body class="font-body antialiased">
 
-    <!-- Navigation -->
-    <header class="fixed top-0 left-0 right-0 z-50 bg-[#0A0A0A]/90 backdrop-blur-xl border-b border-white/10">
+    <!-- ==================== -->
+    <!-- NAVIGATION           -->
+    <!-- ==================== -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-[#0f0f0f]/80 backdrop-blur-xl border-b border-white/[0.06]">
         <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
             <div class="flex justify-between items-center">
-                <a href="#" class="text-2xl font-heading font-bold text-[#D4AF37]">{{business_name}}</a>
-                <div class="hidden md:flex space-x-10">
-                    <a href="#home" class="text-sm font-medium hover:text-[#D4AF37] transition-colors">Home</a>
-                    <a href="#menu" class="text-sm font-medium hover:text-[#D4AF37] transition-colors">Menu</a>
-                    <a href="#about" class="text-sm font-medium hover:text-[#D4AF37] transition-colors">About</a>
-                    <a href="#contact" class="text-sm font-medium hover:text-[#D4AF37] transition-colors">Contact</a>
+                <a href="#home" class="text-2xl font-heading font-bold text-primary tracking-tight">{{business_name}}</a>
+
+                <!-- Desktop Nav -->
+                <div class="hidden md:flex items-center space-x-10">
+                    <a href="#home" class="nav-link text-sm font-medium text-white/70 hover:text-primary transition-colors">Home</a>
+                    <a href="#menu" class="nav-link text-sm font-medium text-white/70 hover:text-primary transition-colors">Menu</a>
+                    <a href="#about" class="nav-link text-sm font-medium text-white/70 hover:text-primary transition-colors">About</a>
+                    <a href="#contact" class="nav-link text-sm font-medium text-white/70 hover:text-primary transition-colors">Contact</a>
                 </div>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#D4AF37] text-black font-semibold rounded-full px-6 py-2 text-sm hover:bg-[#B8960C] transition-colors">
-                    <i class="fab fa-whatsapp mr-2"></i>Order Now
-                </a>
+
+                <div class="flex items-center gap-4">
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank"
+                       class="btn-shimmer bg-primary text-[#0f0f0f] font-semibold rounded-full px-6 py-2.5 text-sm hover:bg-primary-light transition-colors hidden sm:inline-flex items-center gap-2">
+                        <i class="fab fa-whatsapp text-base"></i>
+                        <span>Order Now</span>
+                    </a>
+
+                    <!-- Mobile Hamburger -->
+                    <button id="mobileToggle" class="md:hidden text-white/70 hover:text-primary transition-colors p-2" aria-label="Toggle menu">
+                        <i class="fas fa-bars text-xl"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Mobile Menu -->
+            <div id="mobileMenu" class="mobile-menu md:hidden">
+                <div class="flex flex-col py-4 space-y-4 border-t border-white/[0.06] mt-4">
+                    <a href="#home" class="text-sm font-medium text-white/70 hover:text-primary transition-colors">Home</a>
+                    <a href="#menu" class="text-sm font-medium text-white/70 hover:text-primary transition-colors">Menu</a>
+                    <a href="#about" class="text-sm font-medium text-white/70 hover:text-primary transition-colors">About</a>
+                    <a href="#contact" class="text-sm font-medium text-white/70 hover:text-primary transition-colors">Contact</a>
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank"
+                       class="btn-shimmer bg-primary text-[#0f0f0f] font-semibold rounded-full px-6 py-2.5 text-sm text-center hover:bg-primary-light transition-colors inline-flex items-center justify-center gap-2 sm:hidden">
+                        <i class="fab fa-whatsapp text-base"></i>
+                        <span>Order Now</span>
+                    </a>
+                </div>
             </div>
         </nav>
     </header>
 
-    <!-- Hero Section with Morphing Blobs -->
-    <section id="home" class="blob-hero pt-32 pb-20 md:py-40 min-h-screen flex items-center">
-        <div class="morphing-blob blob-1"></div>
-        <div class="morphing-blob blob-2"></div>
-        <div class="morphing-blob blob-3"></div>
+    <!-- ==================== -->
+    <!-- HERO SECTION         -->
+    <!-- ==================== -->
+    <section id="home" class="relative min-h-screen flex items-center overflow-hidden pt-20">
+        <!-- Background subtle noise texture -->
+        <div class="absolute inset-0 opacity-[0.03]" style="background-image: url('data:image/svg+xml,%3Csvg viewBox=%220 0 256 256%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.9%22 numOctaves=%224%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22 opacity=%221%22/%3E%3C/svg%3E');"></div>
 
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
-            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6 text-[#D4AF37]">
-                {{hero_title}}
-            </h1>
-            <p class="text-lg md:text-xl text-[#A0998C] mb-10 max-w-2xl mx-auto leading-relaxed">
-                {{hero_description}}
-            </p>
-            <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                <a href="#menu" class="bg-[#D4AF37] text-black font-semibold hover:bg-[#B8960C] rounded-full px-8 py-4 transition-colors">
-                    {{cta_primary_text}}
-                </a>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#D4AF37]/40 text-[#D4AF37] font-semibold hover:bg-[#D4AF37]/10 rounded-full px-8 py-4 transition-colors">
-                    {{cta_secondary_text}}
-                </a>
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 w-full relative z-10">
+            <div class="grid lg:grid-cols-2 gap-12 lg:gap-8 items-center">
+                <!-- Left: Text Content -->
+                <div class="text-center lg:text-left order-2 lg:order-1">
+                    <p class="reveal text-primary font-heading font-medium text-sm tracking-[0.2em] uppercase mb-4">{{tagline}}</p>
+                    <h1 class="reveal reveal-delay-1 text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-heading font-bold leading-[1.1] mb-6 text-white">
+                        {{hero_title}}
+                    </h1>
+                    <p class="reveal reveal-delay-2 text-base md:text-lg text-white/50 mb-10 max-w-xl mx-auto lg:mx-0 leading-relaxed font-light">
+                        {{hero_description}}
+                    </p>
+                    <div class="reveal reveal-delay-3 flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+                        <a href="#menu"
+                           class="btn-shimmer bg-primary text-[#0f0f0f] font-semibold hover:bg-primary-light rounded-full px-8 py-4 text-sm tracking-wide transition-colors inline-flex items-center justify-center gap-2">
+                            {{cta_primary_text}}
+                            <i class="fas fa-arrow-right text-xs"></i>
+                        </a>
+                        <a href="https://wa.me/{{whatsapp_number}}" target="_blank"
+                           class="btn-shimmer border border-primary/30 text-primary font-semibold hover:bg-primary/10 rounded-full px-8 py-4 text-sm tracking-wide transition-all inline-flex items-center justify-center gap-2">
+                            <i class="fab fa-whatsapp text-base"></i>
+                            {{cta_secondary_text}}
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Right: Morphing Blob -->
+                <div class="order-1 lg:order-2 flex justify-center">
+                    <div class="blob-container w-[280px] h-[280px] sm:w-[360px] sm:h-[360px] md:w-[420px] md:h-[420px] lg:w-[480px] lg:h-[480px] xl:w-[520px] xl:h-[520px]">
+                        <div class="blob-glow"></div>
+                        <div class="morphing-blob"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </section>
 
-    <!-- Menu Section -->
-    <section id="menu" class="py-24 md:py-36 border-t border-[#D4AF37]/20">
+    <!-- ==================== -->
+    <!-- MENU SECTION         -->
+    <!-- ==================== -->
+    <section id="menu" class="py-24 md:py-32 relative">
+        <div class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent"></div>
+
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
             <div class="text-center mb-16">
-                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 text-[#D4AF37]">{{menu_section_title}}</h2>
-                <p class="text-xl text-[#A0998C] max-w-3xl mx-auto">{{menu_section_description}}</p>
+                <h2 class="reveal text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-4 text-white">{{menu_section_title}}</h2>
+                <div class="reveal reveal-delay-1 gold-divider mb-6"></div>
+                <p class="reveal reveal-delay-2 text-lg text-white/40 max-w-2xl mx-auto font-light">{{menu_section_description}}</p>
             </div>
-            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
                 {{menu_items_html}}
             </div>
         </div>
     </section>
 
-    <!-- About Section -->
-    <section id="about" class="blob-hero py-24 md:py-36 border-t border-[#D4AF37]/20">
-        <div class="morphing-blob blob-1" style="opacity:0.2; width:300px; height:300px;"></div>
-        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
-            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 text-[#D4AF37]">{{about_title}}</h2>
-            <p class="text-xl text-[#A0998C] leading-relaxed">{{about_description}}</p>
+    <!-- ==================== -->
+    <!-- ABOUT SECTION        -->
+    <!-- ==================== -->
+    <section id="about" class="py-24 md:py-32 relative overflow-hidden">
+        <div class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent"></div>
+
+        <!-- Decorative mini blob -->
+        <div class="absolute -right-32 top-1/2 -translate-y-1/2 w-[300px] h-[300px] opacity-[0.06]">
+            <div class="morphing-blob w-full h-full" style="animation-duration: 18s;"></div>
+        </div>
+
+        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 relative z-10">
+            <div class="text-center">
+                <h2 class="reveal text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-4 text-white">{{about_title}}</h2>
+                <div class="reveal reveal-delay-1 gold-divider mb-10"></div>
+                <p class="reveal reveal-delay-2 text-lg md:text-xl text-white/45 leading-relaxed font-light max-w-3xl mx-auto">
+                    {{about_description}}
+                </p>
+            </div>
         </div>
     </section>
 
-    <!-- Contact & Hours -->
-    <section id="contact" class="py-24 md:py-36 border-t border-[#D4AF37]/20">
+    <!-- ==================== -->
+    <!-- CONTACT SECTION      -->
+    <!-- ==================== -->
+    <section id="contact" class="py-24 md:py-32 relative">
+        <div class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent"></div>
+
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
-            <div class="grid md:grid-cols-2 gap-12">
-                <div>
-                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 text-[#D4AF37]">{{contact_title}}</h2>
-                    <div class="space-y-8">
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#D4AF37]">
-                                <i class="fas fa-map-marker-alt mr-3"></i>Location
-                            </h3>
-                            <p class="text-lg text-[#A0998C]">{{address}}</p>
+            <div class="text-center mb-16">
+                <h2 class="reveal text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-4 text-white">{{contact_title}}</h2>
+                <div class="reveal reveal-delay-1 gold-divider"></div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-8 lg:gap-12">
+                <!-- Contact Info -->
+                <div class="reveal reveal-delay-1 space-y-6">
+                    <!-- WhatsApp Card -->
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="premium-card p-6 flex items-start gap-5 group block">
+                        <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/20 transition-colors">
+                            <i class="fab fa-whatsapp text-primary text-xl"></i>
                         </div>
                         <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#D4AF37]">
-                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
-                            </h3>
-                            <p class="text-lg">
-                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#D4AF37] hover:underline">{{phone_display}}</a>
-                            </p>
+                            <h3 class="font-heading font-semibold text-white mb-1">WhatsApp</h3>
+                            <p class="text-white/40 text-sm font-light">{{phone_display}}</p>
+                            <p class="text-primary text-xs mt-2 font-medium group-hover:underline">Tap to chat <i class="fas fa-arrow-right text-[10px] ml-1"></i></p>
+                        </div>
+                    </a>
+
+                    <!-- Address Card -->
+                    <div class="premium-card p-6 flex items-start gap-5">
+                        <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-map-marker-alt text-primary text-xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-heading font-semibold text-white mb-1">Location</h3>
+                            <p class="text-white/40 text-sm font-light leading-relaxed">{{address}}</p>
                         </div>
                     </div>
+
+                    <!-- CTA Button -->
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank"
+                       class="btn-shimmer bg-primary text-[#0f0f0f] font-semibold hover:bg-primary-light rounded-xl px-8 py-4 text-sm tracking-wide transition-colors w-full inline-flex items-center justify-center gap-3">
+                        <i class="fab fa-whatsapp text-lg"></i>
+                        Chat With Us Now
+                    </a>
                 </div>
-                <div>
-                    <h3 class="text-3xl font-heading font-bold mb-10 text-[#D4AF37]">Operating Hours</h3>
-                    <div class="bg-[#1A1A1A]/80 backdrop-blur-xl border border-white/10 rounded-2xl p-8">
-                        <ul class="space-y-6">
+
+                <!-- Operating Hours -->
+                <div class="reveal reveal-delay-2">
+                    <div class="premium-card p-8">
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                                <i class="fas fa-clock text-primary"></i>
+                            </div>
+                            <h3 class="font-heading font-semibold text-white text-lg">Operating Hours</h3>
+                        </div>
+                        <ul class="space-y-4">
                             {{operating_hours_html}}
                         </ul>
                     </div>
@@ -174,17 +433,84 @@
         </div>
     </section>
 
-    <!-- Footer -->
-    <footer class="py-16 border-t border-[#D4AF37]/20 bg-[#1A1A1A]">
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
-            <h2 class="text-3xl font-heading font-bold text-[#D4AF37] mb-4">{{business_name}}</h2>
-            <p class="text-[#A0998C] mb-6">{{footer_description}}</p>
-            <p class="text-[#A0998C]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+    <!-- ==================== -->
+    <!-- FOOTER               -->
+    <!-- ==================== -->
+    <footer class="py-16 relative bg-[#0a0a0a]">
+        <div class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent"></div>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="text-center">
+                <a href="#home" class="text-3xl font-heading font-bold text-primary tracking-tight inline-block mb-4">{{business_name}}</a>
+                <p class="text-white/30 text-sm font-light max-w-md mx-auto mb-8 leading-relaxed">{{footer_description}}</p>
+
+                <div class="flex justify-center gap-6 mb-8">
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank"
+                       class="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white/30 hover:text-primary hover:border-primary/30 transition-all">
+                        <i class="fab fa-whatsapp"></i>
+                    </a>
+                </div>
+
+                <div class="h-px bg-white/[0.06] mb-8"></div>
+                <p class="text-white/20 text-xs font-light">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+            </div>
         </div>
     </footer>
 
+    <!-- ==================== -->
+    <!-- SCRIPTS              -->
+    <!-- ==================== -->
     <script>
+        // Dynamic year
         document.getElementById('currentYear').textContent = new Date().getFullYear();
+
+        // Mobile menu toggle
+        const mobileToggle = document.getElementById('mobileToggle');
+        const mobileMenu = document.getElementById('mobileMenu');
+        if (mobileToggle && mobileMenu) {
+            mobileToggle.addEventListener('click', () => {
+                mobileMenu.classList.toggle('open');
+                const icon = mobileToggle.querySelector('i');
+                icon.classList.toggle('fa-bars');
+                icon.classList.toggle('fa-times');
+            });
+            // Close menu when a link is clicked
+            mobileMenu.querySelectorAll('a').forEach(link => {
+                link.addEventListener('click', () => {
+                    mobileMenu.classList.remove('open');
+                    const icon = mobileToggle.querySelector('i');
+                    icon.classList.add('fa-bars');
+                    icon.classList.remove('fa-times');
+                });
+            });
+        }
+
+        // Scroll reveal with IntersectionObserver
+        const revealElements = document.querySelectorAll('.reveal');
+        const revealObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('active');
+                    revealObserver.unobserve(entry.target);
+                }
+            });
+        }, {
+            threshold: 0.15,
+            rootMargin: '0px 0px -40px 0px'
+        });
+        revealElements.forEach(el => revealObserver.observe(el));
+
+        // Navbar background on scroll
+        const header = document.querySelector('header');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 50) {
+                header.classList.add('border-white/[0.08]');
+                header.style.backgroundColor = 'rgba(15, 15, 15, 0.95)';
+            } else {
+                header.classList.remove('border-white/[0.08]');
+                header.style.backgroundColor = '';
+            }
+        }, { passive: true });
     </script>
 </body>
 </html>

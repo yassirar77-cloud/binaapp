@@ -2774,24 +2774,70 @@ IMPORTANT RULES:
     def _fill_template(self, template_html: str, content: dict) -> str:
         """
         Replace {{placeholder}} tokens in template HTML with content values.
-        Handles simple string fields only (not loops).
+        Replaces ALL keys present in content dict, including generated HTML blocks.
         """
         result = template_html
 
-        simple_fields = [
-            'business_name', 'tagline', 'hero_title', 'hero_description',
-            'cta_primary_text', 'cta_secondary_text', 'menu_section_title',
-            'menu_section_description', 'about_title', 'about_description',
-            'contact_title', 'whatsapp_number', 'phone_display', 'address',
-            'footer_description',
-        ]
-
-        for field in simple_fields:
-            value = content.get(field, '')
-            if value:
-                result = result.replace('{{' + field + '}}', str(value))
+        # Replace every key in content dict — this covers simple text fields,
+        # generated HTML blocks (menu_items_html, operating_hours_html),
+        # and word-explosion variants.
+        for field, value in content.items():
+            placeholder = '{{' + field + '}}'
+            if placeholder in result:
+                result = result.replace(placeholder, str(value) if value else '')
 
         return result
+
+    def _post_process_html(self, html: str, request) -> str:
+        """
+        Safety-net post-processing that runs AFTER template filling or AI generation.
+        1. Fixes WhatsApp numbers to match user input.
+        2. Replaces any remaining {{placeholder}} tokens with user data or blanks.
+        """
+        if not html:
+            return html
+
+        # --- 1. Fix WhatsApp number in ALL wa.me links ---
+        wa_raw = getattr(request, 'whatsapp_number', None) or ''
+        if wa_raw:
+            wa_digits = re.sub(r'\D', '', str(wa_raw))
+            if wa_digits.startswith('0'):
+                wa_digits = '60' + wa_digits[1:]
+            elif wa_digits.startswith('1'):
+                wa_digits = '60' + wa_digits
+            elif not wa_digits.startswith('60'):
+                wa_digits = '60' + wa_digits
+            if wa_digits:
+                html = re.sub(r'wa\.me/\d+', f'wa.me/{wa_digits}', html)
+
+        # --- 2. Replace known placeholders from request data ---
+        address = getattr(request, 'location_address', None) or ''
+        email = getattr(request, 'contact_email', None) or ''
+        biz_name = getattr(request, 'business_name', None) or ''
+
+        replacements = {
+            '{{address}}': address,
+            '{{business_name}}': biz_name,
+            '{{email}}': email,
+            '{{phone_display}}': wa_raw,
+            '{{whatsapp_number}}': wa_digits if wa_raw else '',
+        }
+        for placeholder, value in replacements.items():
+            if placeholder in html:
+                html = html.replace(placeholder, value)
+
+        # --- 3. Replace remaining menu/hours placeholders with fallback ---
+        if '{{menu_items_html}}' in html:
+            html = html.replace('{{menu_items_html}}',
+                '<p class="text-center text-gray-400 col-span-full">Coming soon</p>')
+        if '{{operating_hours_html}}' in html:
+            html = html.replace('{{operating_hours_html}}',
+                '<li class="text-gray-400">Contact us for availability</li>')
+
+        # --- 4. Strip any remaining unfilled {{…}} placeholders ---
+        html = re.sub(r'\{\{[a-zA-Z_]+\}\}', '', html)
+
+        return html
 
     def _render_menu_card_html(self, item: dict, template_id: str, image_url: str = "") -> str:
         """Render a single menu item card HTML snippet matching the template's design."""
@@ -3074,6 +3120,9 @@ IMPORTANT RULES:
 
         # Step 8: Fill template with content
         final_html = self._fill_template(template_html, content)
+
+        # Step 9: Post-process — fix WhatsApp numbers, catch remaining placeholders
+        final_html = self._post_process_html(final_html, request)
 
         await update_progress(80, "Finalizing website")
 
@@ -3485,6 +3534,9 @@ IMPORTANT INSTRUCTIONS:
         # FINAL SAFETY NET: Fix any remaining broken/empty image URLs
         # This ensures no images are left blank or with invalid URLs
         html = self._fix_broken_image_urls(html, request.description)
+
+        # Post-process: fix WhatsApp numbers, catch remaining {{placeholders}}
+        html = self._post_process_html(html, request)
 
         total_time = time.time() - start_time
         logger.info("✅ ALL STEPS COMPLETE")

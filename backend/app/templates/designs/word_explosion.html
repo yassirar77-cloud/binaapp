@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="ms">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{business_name}} | {{tagline}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
     tailwind.config = {
@@ -14,14 +14,17 @@
         extend: {
           colors: {
             'primary': '#E85D3A',
-            'secondary': '#D4A853',
+            'primary-dark': '#C44A2A',
+            'primary-light': '#FF7F5C',
             'accent': '#FFF0E6',
             'surface': '#FFFFFF',
-            'background': '#FFF8F0',
+            'background': '#FFFBF5',
+            'dark': '#1A1A1A',
+            'muted': '#6B7280',
           },
           fontFamily: {
-            'heading': ['Playfair Display', 'serif'],
-            'body': ['DM Sans', 'sans-serif'],
+            'heading': ['Space Grotesk', 'sans-serif'],
+            'body': ['Inter', 'sans-serif'],
           }
         }
       }
@@ -30,122 +33,428 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         html { scroll-behavior: smooth; }
-        body { background-color: #FFF8F0; color: #1A1A1A; font-family: 'DM Sans', sans-serif; overflow-x: hidden; }
+        body {
+            background-color: #FFFBF5;
+            color: #1A1A1A;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
 
+        /* ===== Word Explosion Animation ===== */
         .fly-word {
             display: inline-block;
             opacity: 0;
-            animation: flyIn var(--duration, 1.2s) var(--delay, 0s) cubic-bezier(0.23, 1, 0.32, 1) forwards;
-        }
-        @keyframes flyIn {
-            0% { opacity: 0; transform: translate(var(--start-x), var(--start-y)) rotate(var(--start-rot)) scale(var(--start-scale)); filter: blur(8px); }
-            60% { opacity: 1; filter: blur(0px); }
-            80% { transform: translate(0, 0) rotate(0deg) scale(1.05); }
-            100% { opacity: 1; transform: translate(0, 0) rotate(0deg) scale(1); filter: blur(0px); }
+            will-change: transform, opacity, filter;
+            animation: flyIn var(--fly-duration, 1.4s) var(--fly-delay, 0s) cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
 
-        .menu-card { transition: all 0.3s ease; }
-        .menu-card:hover { transform: translateY(-4px); box-shadow: 0 15px 30px rgba(232,93,58,0.08); }
+        @keyframes flyIn {
+            0% {
+                opacity: 0;
+                transform: translate(var(--fly-x, 0px), var(--fly-y, -600px)) rotate(var(--fly-rot, 0deg)) scale(var(--fly-scale, 0.1));
+                filter: blur(12px);
+            }
+            50% {
+                opacity: 0.8;
+                filter: blur(2px);
+            }
+            75% {
+                opacity: 1;
+                filter: blur(0px);
+                transform: translate(0, 0) rotate(0deg) scale(1.06);
+            }
+            100% {
+                opacity: 1;
+                transform: translate(0, 0) rotate(0deg) scale(1);
+                filter: blur(0px);
+            }
+        }
+
+        /* ===== Scroll Reveal ===== */
+        .scroll-reveal {
+            opacity: 0;
+            transform: translateY(60px);
+            transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1), transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .scroll-reveal.revealed {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ===== Menu Card ===== */
+        .menu-card {
+            background: #FFFFFF;
+            border: 1px solid rgba(232, 93, 58, 0.1);
+            border-radius: 1.25rem;
+            padding: 2rem;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        .menu-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #E85D3A, #FF7F5C);
+            transform: scaleX(0);
+            transform-origin: left;
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .menu-card:hover::before {
+            transform: scaleX(1);
+        }
+        .menu-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 60px rgba(232, 93, 58, 0.12), 0 8px 24px rgba(232, 93, 58, 0.06);
+            border-color: rgba(232, 93, 58, 0.2);
+        }
+
+        /* ===== Buttons ===== */
+        .btn-primary {
+            background: linear-gradient(135deg, #E85D3A, #C44A2A);
+            color: #FFFFFF;
+            font-weight: 600;
+            border-radius: 0.875rem;
+            padding: 1rem 2.25rem;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+        .btn-primary::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, #FF7F5C, #E85D3A);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(232, 93, 58, 0.35);
+        }
+        .btn-primary:hover::after {
+            opacity: 1;
+        }
+        .btn-primary span {
+            position: relative;
+            z-index: 1;
+        }
+
+        .btn-secondary {
+            border: 2px solid rgba(232, 93, 58, 0.3);
+            color: #E85D3A;
+            font-weight: 600;
+            border-radius: 0.875rem;
+            padding: 0.9375rem 2.25rem;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            display: inline-block;
+        }
+        .btn-secondary:hover {
+            background-color: rgba(232, 93, 58, 0.06);
+            border-color: #E85D3A;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(232, 93, 58, 0.1);
+        }
+
+        /* ===== Nav Link Hover ===== */
+        .nav-link {
+            position: relative;
+            transition: color 0.3s ease;
+        }
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: #E85D3A;
+            transition: width 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .nav-link:hover::after {
+            width: 100%;
+        }
+
+        /* ===== Coral Divider ===== */
+        .coral-divider {
+            width: 60px;
+            height: 4px;
+            background: linear-gradient(90deg, #E85D3A, #FF7F5C);
+            border-radius: 2px;
+        }
+
+        /* ===== Contact Icon Box ===== */
+        .contact-icon-box {
+            width: 52px;
+            height: 52px;
+            background: linear-gradient(135deg, rgba(232, 93, 58, 0.1), rgba(232, 93, 58, 0.05));
+            border-radius: 0.875rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        /* ===== Hours Table ===== */
+        .hours-row {
+            transition: background-color 0.2s ease;
+        }
+        .hours-row:hover {
+            background-color: rgba(232, 93, 58, 0.03);
+        }
+
+        /* ===== Mobile Menu ===== */
+        .mobile-menu {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .mobile-menu.open {
+            max-height: 400px;
+        }
+
+        /* ===== Floating Particles ===== */
+        .particle {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(232, 93, 58, 0.15);
+            pointer-events: none;
+            animation: floatParticle 6s ease-in-out infinite;
+        }
+        @keyframes floatParticle {
+            0%, 100% { transform: translateY(0px) rotate(0deg); opacity: 0.3; }
+            50% { transform: translateY(-30px) rotate(180deg); opacity: 0.7; }
+        }
     </style>
 </head>
 <body class="font-body">
 
     <!-- Navigation -->
-    <header class="fixed top-0 left-0 right-0 z-50 bg-[#FFF8F0]/90 backdrop-blur-xl shadow-sm">
+    <header id="navbar" class="fixed top-0 left-0 right-0 z-50 bg-background/85 backdrop-blur-xl border-b border-primary/5 transition-all duration-300">
         <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
             <div class="flex justify-between items-center">
-                <a href="#" class="text-2xl font-heading font-bold text-[#E85D3A]"><span class="fly-word">{{business_name}}</span></a>
-                <div class="hidden md:flex space-x-10">
-                    <a href="#home" class="text-sm font-medium text-[#1A1A1A] hover:text-[#E85D3A] transition-colors"><span class="fly-word">Home</span></a>
-                    <a href="#menu" class="text-sm font-medium text-[#1A1A1A] hover:text-[#E85D3A] transition-colors"><span class="fly-word">Menu</span></a>
-                    <a href="#about" class="text-sm font-medium text-[#1A1A1A] hover:text-[#E85D3A] transition-colors"><span class="fly-word">About</span></a>
-                    <a href="#contact" class="text-sm font-medium text-[#1A1A1A] hover:text-[#E85D3A] transition-colors"><span class="fly-word">Contact</span></a>
-                </div>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#E85D3A] text-white font-semibold rounded-xl px-6 py-2 text-sm hover:bg-[#C44A2A] transition-colors">
-                    <span class="fly-word"><i class="fab fa-whatsapp mr-2"></i>Order Now</span>
+                <a href="#home" class="text-2xl font-heading font-bold text-primary tracking-tight">
+                    <span class="fly-word">{{business_name}}</span>
                 </a>
+
+                <!-- Desktop Nav -->
+                <div class="hidden md:flex items-center space-x-10">
+                    <a href="#home" class="nav-link text-sm font-medium text-dark hover:text-primary">
+                        <span class="fly-word">Home</span>
+                    </a>
+                    <a href="#menu" class="nav-link text-sm font-medium text-dark hover:text-primary">
+                        <span class="fly-word">Menu</span>
+                    </a>
+                    <a href="#about" class="nav-link text-sm font-medium text-dark hover:text-primary">
+                        <span class="fly-word">About</span>
+                    </a>
+                    <a href="#contact" class="nav-link text-sm font-medium text-dark hover:text-primary">
+                        <span class="fly-word">Contact</span>
+                    </a>
+                </div>
+
+                <!-- CTA Button Desktop -->
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="hidden md:inline-flex items-center bg-primary text-white font-semibold rounded-xl px-6 py-2.5 text-sm hover:bg-primary-dark transition-all duration-300 hover:shadow-lg hover:shadow-primary/20">
+                    <span class="fly-word"><i class="fab fa-whatsapp mr-2 text-base"></i>WhatsApp Us</span>
+                </a>
+
+                <!-- Mobile Hamburger -->
+                <button id="mobileMenuBtn" class="md:hidden flex flex-col justify-center items-center w-10 h-10 space-y-1.5 rounded-lg hover:bg-primary/5 transition-colors" aria-label="Toggle menu">
+                    <span class="block w-6 h-0.5 bg-dark transition-all duration-300" id="bar1"></span>
+                    <span class="block w-6 h-0.5 bg-dark transition-all duration-300" id="bar2"></span>
+                    <span class="block w-4 h-0.5 bg-dark transition-all duration-300 ml-auto" id="bar3"></span>
+                </button>
+            </div>
+
+            <!-- Mobile Menu -->
+            <div id="mobileMenu" class="mobile-menu md:hidden">
+                <div class="pt-4 pb-2 space-y-1">
+                    <a href="#home" class="block px-4 py-3 text-sm font-medium text-dark hover:text-primary hover:bg-primary/5 rounded-xl transition-colors">Home</a>
+                    <a href="#menu" class="block px-4 py-3 text-sm font-medium text-dark hover:text-primary hover:bg-primary/5 rounded-xl transition-colors">Menu</a>
+                    <a href="#about" class="block px-4 py-3 text-sm font-medium text-dark hover:text-primary hover:bg-primary/5 rounded-xl transition-colors">About</a>
+                    <a href="#contact" class="block px-4 py-3 text-sm font-medium text-dark hover:text-primary hover:bg-primary/5 rounded-xl transition-colors">Contact</a>
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="block px-4 py-3 text-sm font-semibold text-primary hover:bg-primary/5 rounded-xl transition-colors">
+                        <i class="fab fa-whatsapp mr-2"></i>WhatsApp Us
+                    </a>
+                </div>
             </div>
         </nav>
     </header>
 
     <!-- Hero Section -->
-    <section id="home" class="pt-32 pb-20 md:py-40 min-h-screen flex items-center">
+    <section id="home" class="relative pt-32 pb-20 md:pt-40 md:pb-32 min-h-screen flex items-center">
+        <!-- Background Particles -->
+        <div class="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+            <div class="particle" style="top: 15%; left: 10%; animation-delay: 0s; width: 10px; height: 10px;"></div>
+            <div class="particle" style="top: 25%; right: 15%; animation-delay: 1.2s; width: 6px; height: 6px;"></div>
+            <div class="particle" style="bottom: 30%; left: 20%; animation-delay: 2.4s; width: 12px; height: 12px; background: rgba(232, 93, 58, 0.1);"></div>
+            <div class="particle" style="top: 60%; right: 10%; animation-delay: 0.8s; width: 8px; height: 8px;"></div>
+            <div class="particle" style="bottom: 20%; right: 25%; animation-delay: 3s; width: 5px; height: 5px;"></div>
+            <div class="particle" style="top: 40%; left: 5%; animation-delay: 1.8s; width: 7px; height: 7px; background: rgba(232, 93, 58, 0.08);"></div>
+        </div>
+
+        <!-- Decorative Gradient Orbs -->
+        <div class="absolute top-20 right-0 w-[500px] h-[500px] bg-gradient-to-br from-primary/5 to-transparent rounded-full blur-3xl pointer-events-none" aria-hidden="true"></div>
+        <div class="absolute bottom-0 left-0 w-[400px] h-[400px] bg-gradient-to-tr from-primary/3 to-transparent rounded-full blur-3xl pointer-events-none" aria-hidden="true"></div>
+
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
-            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6 text-[#1A1A1A]">
+            <!-- Tagline Badge -->
+            <div class="inline-flex items-center gap-2 bg-white/80 backdrop-blur-sm border border-primary/10 rounded-full px-5 py-2 mb-8 shadow-sm">
+                <span class="w-2 h-2 bg-primary rounded-full animate-pulse"></span>
+                <span class="fly-word text-sm font-medium text-muted">{{tagline}}</span>
+            </div>
+
+            <h1 class="text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-heading font-bold leading-[1.1] mb-8 text-dark">
                 {{hero_title_words}}
             </h1>
-            <p class="text-lg md:text-xl text-[#7A7A7A] mb-10 max-w-2xl mx-auto leading-relaxed">
+
+            <p class="text-lg md:text-xl text-muted mb-12 max-w-2xl mx-auto leading-relaxed">
                 {{hero_description_words}}
             </p>
-            <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                <a href="#menu" class="bg-[#E85D3A] text-white font-semibold hover:bg-[#C44A2A] rounded-xl px-8 py-4 transition-colors">
+
+            <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                <a href="#menu" class="btn-primary text-base">
                     <span class="fly-word">{{cta_primary_text}}</span>
                 </a>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#E85D3A]/30 text-[#E85D3A] font-semibold hover:bg-[#E85D3A]/5 rounded-xl px-8 py-4 transition-colors">
-                    <span class="fly-word">{{cta_secondary_text}}</span>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="btn-secondary text-base">
+                    <span class="fly-word"><i class="fab fa-whatsapp mr-2"></i>{{cta_secondary_text}}</span>
+                </a>
+            </div>
+
+            <!-- Scroll Indicator -->
+            <div class="mt-20 animate-bounce hidden md:block">
+                <a href="#menu" class="text-primary/40 hover:text-primary/60 transition-colors">
+                    <i class="fas fa-chevron-down text-xl"></i>
                 </a>
             </div>
         </div>
     </section>
 
     <!-- Menu Section -->
-    <section id="menu" class="py-20 md:py-28">
+    <section id="menu" class="py-20 md:py-32 bg-white">
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
-            <div class="text-center mb-16">
-                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 text-[#1A1A1A]">
+            <div class="text-center mb-16 scroll-reveal">
+                <div class="coral-divider mx-auto mb-6"></div>
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 text-dark">
                     {{menu_section_title_words}}
                 </h2>
-                <p class="text-xl text-[#7A7A7A] max-w-3xl mx-auto">
+                <p class="text-lg text-muted max-w-3xl mx-auto leading-relaxed">
                     {{menu_section_description_words}}
                 </p>
             </div>
-            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-8 scroll-reveal">
                 {{menu_items_html}}
             </div>
         </div>
     </section>
 
     <!-- About Section -->
-    <section id="about" class="py-20 md:py-28 bg-[#FFF0E6]">
-        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center">
-            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 text-[#1A1A1A]">
-                {{about_title_words}}
-            </h2>
-            <p class="text-xl text-[#7A7A7A] leading-relaxed">
-                {{about_description_words}}
-            </p>
+    <section id="about" class="py-20 md:py-32 relative overflow-hidden">
+        <!-- Background Accent -->
+        <div class="absolute inset-0 bg-gradient-to-br from-accent via-background to-background pointer-events-none" aria-hidden="true"></div>
+        <div class="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-bl from-primary/5 to-transparent rounded-full blur-3xl pointer-events-none" aria-hidden="true"></div>
+
+        <div class="max-w-5xl mx-auto px-6 md:px-8 lg:px-16 relative z-10">
+            <div class="text-center scroll-reveal">
+                <div class="coral-divider mx-auto mb-6"></div>
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-10 text-dark">
+                    {{about_title_words}}
+                </h2>
+                <div class="bg-white/70 backdrop-blur-sm rounded-3xl p-8 md:p-12 border border-primary/5 shadow-sm">
+                    <p class="text-lg md:text-xl text-muted leading-relaxed">
+                        {{about_description_words}}
+                    </p>
+                </div>
+            </div>
+
+            <!-- Stats / Trust Row -->
+            <div class="grid grid-cols-3 gap-6 mt-12 scroll-reveal">
+                <div class="text-center p-6 bg-white/60 backdrop-blur-sm rounded-2xl border border-primary/5">
+                    <div class="text-3xl font-heading font-bold text-primary mb-1"><i class="fas fa-heart text-2xl"></i></div>
+                    <p class="text-sm text-muted font-medium">Made with Love</p>
+                </div>
+                <div class="text-center p-6 bg-white/60 backdrop-blur-sm rounded-2xl border border-primary/5">
+                    <div class="text-3xl font-heading font-bold text-primary mb-1"><i class="fas fa-star text-2xl"></i></div>
+                    <p class="text-sm text-muted font-medium">Premium Quality</p>
+                </div>
+                <div class="text-center p-6 bg-white/60 backdrop-blur-sm rounded-2xl border border-primary/5">
+                    <div class="text-3xl font-heading font-bold text-primary mb-1"><i class="fas fa-bolt text-2xl"></i></div>
+                    <p class="text-sm text-muted font-medium">Fast Service</p>
+                </div>
+            </div>
         </div>
     </section>
 
-    <!-- Contact & Hours -->
-    <section id="contact" class="py-20 md:py-28">
+    <!-- Contact & Hours Section -->
+    <section id="contact" class="py-20 md:py-32 bg-white">
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
-            <div class="grid md:grid-cols-2 gap-12">
-                <div>
-                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 text-[#1A1A1A]">{{contact_title}}</h2>
+            <div class="text-center mb-16 scroll-reveal">
+                <div class="coral-divider mx-auto mb-6"></div>
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold text-dark">{{contact_title}}</h2>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-12 lg:gap-16">
+                <!-- Contact Info -->
+                <div class="scroll-reveal">
                     <div class="space-y-8">
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#E85D3A]">
-                                <i class="fas fa-map-marker-alt mr-3"></i>Location
-                            </h3>
-                            <p class="text-lg text-[#7A7A7A]">{{address}}</p>
+                        <!-- WhatsApp -->
+                        <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="flex items-start gap-5 p-6 bg-background rounded-2xl border border-primary/5 hover:border-primary/20 hover:shadow-md hover:shadow-primary/5 transition-all duration-300 group">
+                            <div class="contact-icon-box">
+                                <i class="fab fa-whatsapp text-xl text-primary"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-heading font-bold text-dark mb-1 group-hover:text-primary transition-colors">WhatsApp</h3>
+                                <p class="text-muted">{{phone_display}}</p>
+                            </div>
+                        </a>
+
+                        <!-- Location -->
+                        <div class="flex items-start gap-5 p-6 bg-background rounded-2xl border border-primary/5">
+                            <div class="contact-icon-box">
+                                <i class="fas fa-map-marker-alt text-xl text-primary"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-heading font-bold text-dark mb-1">Location</h3>
+                                <p class="text-muted">{{address}}</p>
+                            </div>
                         </div>
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#E85D3A]">
-                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
-                            </h3>
-                            <p class="text-lg">
-                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#E85D3A] hover:underline">{{phone_display}}</a>
-                            </p>
+
+                        <!-- Phone -->
+                        <div class="flex items-start gap-5 p-6 bg-background rounded-2xl border border-primary/5">
+                            <div class="contact-icon-box">
+                                <i class="fas fa-phone text-xl text-primary"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-heading font-bold text-dark mb-1">Phone</h3>
+                                <p class="text-muted">{{phone_display}}</p>
+                            </div>
                         </div>
                     </div>
+
+                    <!-- WhatsApp CTA -->
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="btn-primary mt-8 w-full text-center block">
+                        <span><i class="fab fa-whatsapp mr-2 text-lg"></i>Chat on WhatsApp</span>
+                    </a>
                 </div>
-                <div>
-                    <h3 class="text-3xl font-heading font-bold mb-10 text-[#1A1A1A]">Operating Hours</h3>
-                    <div class="bg-white rounded-2xl shadow-md shadow-orange-900/5 border border-[#E85D3A]/10 p-8">
-                        <ul class="space-y-6">
+
+                <!-- Operating Hours -->
+                <div class="scroll-reveal">
+                    <div class="bg-background rounded-3xl border border-primary/5 p-8 md:p-10">
+                        <div class="flex items-center gap-3 mb-8">
+                            <div class="contact-icon-box">
+                                <i class="fas fa-clock text-xl text-primary"></i>
+                            </div>
+                            <h3 class="text-xl font-heading font-bold text-dark">Operating Hours</h3>
+                        </div>
+                        <div class="space-y-0">
                             {{operating_hours_html}}
-                        </ul>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -153,46 +462,211 @@
     </section>
 
     <!-- Footer -->
-    <footer class="py-16 bg-[#1A1A1A]">
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
-            <h2 class="text-3xl font-heading font-bold text-[#E85D3A] mb-4">{{business_name}}</h2>
-            <p class="text-[#7A7A7A] mb-6">{{footer_description}}</p>
-            <p class="text-[#7A7A7A]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+    <footer class="pt-16 pb-8 bg-dark relative overflow-hidden">
+        <!-- Footer Accent -->
+        <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-primary-light to-primary"></div>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="text-center mb-12">
+                <h2 class="text-3xl font-heading font-bold text-primary mb-4">{{business_name}}</h2>
+                <p class="text-gray-400 max-w-lg mx-auto leading-relaxed">{{footer_description}}</p>
+            </div>
+
+            <!-- Footer Nav -->
+            <div class="flex flex-wrap justify-center gap-8 mb-12">
+                <a href="#home" class="text-sm text-gray-400 hover:text-primary transition-colors">Home</a>
+                <a href="#menu" class="text-sm text-gray-400 hover:text-primary transition-colors">Menu</a>
+                <a href="#about" class="text-sm text-gray-400 hover:text-primary transition-colors">About</a>
+                <a href="#contact" class="text-sm text-gray-400 hover:text-primary transition-colors">Contact</a>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="text-sm text-gray-400 hover:text-primary transition-colors">
+                    <i class="fab fa-whatsapp mr-1"></i>WhatsApp
+                </a>
+            </div>
+
+            <!-- Divider -->
+            <div class="border-t border-gray-800 pt-8">
+                <p class="text-center text-sm text-gray-500">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+            </div>
         </div>
     </footer>
 
+    <!-- ===== JavaScript ===== -->
     <script>
-        // Word Explosion Animation Engine
-        (function(){
-            var words = document.querySelectorAll('.fly-word');
-            var angles = [
-                {x:'-120vw',y:'-80vh',rot:'-540deg',scale:0.1},
-                {x:'120vw',y:'-60vh',rot:'480deg',scale:0.2},
-                {x:'-100vw',y:'80vh',rot:'360deg',scale:0.1},
-                {x:'100vw',y:'60vh',rot:'-400deg',scale:0.15},
-                {x:'0px',y:'-100vh',rot:'720deg',scale:0.05},
-                {x:'0px',y:'100vh',rot:'-600deg',scale:0.1},
-                {x:'-130vw',y:'0px',rot:'500deg',scale:0.2},
-                {x:'130vw',y:'0px',rot:'-450deg',scale:0.1},
-                {x:'-80vw',y:'-120vh',rot:'300deg',scale:0.3},
-                {x:'90vw',y:'110vh',rot:'-350deg',scale:0.05},
-                {x:'-60vw',y:'130vh',rot:'800deg',scale:0.1},
-                {x:'70vw',y:'-130vh',rot:'-700deg',scale:0.15}
-            ];
-            words.forEach(function(word, index){
-                var angle = angles[Math.floor(Math.random()*angles.length)];
-                var delay = index*0.04 + Math.random()*0.15;
-                var duration = 0.8 + Math.random()*0.7;
-                word.style.setProperty('--start-x', angle.x);
-                word.style.setProperty('--start-y', angle.y);
-                word.style.setProperty('--start-rot', angle.rot);
-                word.style.setProperty('--start-scale', angle.scale);
-                word.style.setProperty('--delay', delay+'s');
-                word.style.setProperty('--duration', duration+'s');
-            });
-        })();
+    (function() {
+        'use strict';
 
-        document.getElementById('currentYear').textContent = new Date().getFullYear();
+        // =============================================
+        // Word Explosion Animation Engine
+        // =============================================
+        function initWordExplosion() {
+            var words = document.querySelectorAll('.fly-word');
+            var totalWords = words.length;
+
+            words.forEach(function(word, index) {
+                // Random starting position from -800 to 800 for both axes
+                var startX = (Math.random() * 1600 - 800);
+                var startY = (Math.random() * 1600 - 800);
+
+                // Ensure the word comes from far enough away (at least 300px on one axis)
+                if (Math.abs(startX) < 300 && Math.abs(startY) < 300) {
+                    if (Math.random() > 0.5) {
+                        startX = startX > 0 ? startX + 400 : startX - 400;
+                    } else {
+                        startY = startY > 0 ? startY + 400 : startY - 400;
+                    }
+                }
+
+                // Random rotation between -540 and 540 degrees
+                var rotation = (Math.random() * 1080 - 540);
+
+                // Random scale from 0.05 to 0.3
+                var startScale = (Math.random() * 0.25 + 0.05);
+
+                // Staggered delay: base stagger + random jitter for cinematic feel
+                var baseDelay = index * 0.035;
+                var jitter = Math.random() * 0.2;
+                var delay = baseDelay + jitter;
+
+                // Duration variation for organic feel
+                var duration = 1.0 + Math.random() * 0.6;
+
+                // Apply CSS custom properties
+                word.style.setProperty('--fly-x', startX + 'px');
+                word.style.setProperty('--fly-y', startY + 'px');
+                word.style.setProperty('--fly-rot', rotation + 'deg');
+                word.style.setProperty('--fly-scale', startScale);
+                word.style.setProperty('--fly-delay', delay + 's');
+                word.style.setProperty('--fly-duration', duration + 's');
+            });
+        }
+
+        // =============================================
+        // Scroll Reveal Observer
+        // =============================================
+        function initScrollReveal() {
+            var revealElements = document.querySelectorAll('.scroll-reveal');
+
+            if ('IntersectionObserver' in window) {
+                var observer = new IntersectionObserver(function(entries) {
+                    entries.forEach(function(entry) {
+                        if (entry.isIntersecting) {
+                            // Add staggered delay to children if they are in a grid
+                            var children = entry.target.querySelectorAll('.menu-card');
+                            children.forEach(function(child, i) {
+                                child.style.opacity = '0';
+                                child.style.transform = 'translateY(40px)';
+                                child.style.transition = 'opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1) ' + (i * 0.1) + 's, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1) ' + (i * 0.1) + 's';
+                                requestAnimationFrame(function() {
+                                    child.style.opacity = '1';
+                                    child.style.transform = 'translateY(0)';
+                                });
+                            });
+
+                            entry.target.classList.add('revealed');
+                            observer.unobserve(entry.target);
+                        }
+                    });
+                }, {
+                    threshold: 0.1,
+                    rootMargin: '0px 0px -60px 0px'
+                });
+
+                revealElements.forEach(function(el) {
+                    observer.observe(el);
+                });
+            } else {
+                // Fallback: reveal all immediately
+                revealElements.forEach(function(el) {
+                    el.classList.add('revealed');
+                });
+            }
+        }
+
+        // =============================================
+        // Navbar Scroll Behavior
+        // =============================================
+        function initNavbar() {
+            var navbar = document.getElementById('navbar');
+            var lastScroll = 0;
+
+            window.addEventListener('scroll', function() {
+                var currentScroll = window.pageYOffset;
+
+                if (currentScroll > 80) {
+                    navbar.style.boxShadow = '0 4px 24px rgba(0,0,0,0.06)';
+                } else {
+                    navbar.style.boxShadow = 'none';
+                }
+
+                lastScroll = currentScroll;
+            }, { passive: true });
+        }
+
+        // =============================================
+        // Mobile Menu Toggle
+        // =============================================
+        function initMobileMenu() {
+            var btn = document.getElementById('mobileMenuBtn');
+            var menu = document.getElementById('mobileMenu');
+            var bar1 = document.getElementById('bar1');
+            var bar2 = document.getElementById('bar2');
+            var bar3 = document.getElementById('bar3');
+            var isOpen = false;
+
+            if (!btn || !menu) return;
+
+            btn.addEventListener('click', function() {
+                isOpen = !isOpen;
+                menu.classList.toggle('open', isOpen);
+
+                if (isOpen) {
+                    bar1.style.transform = 'translateY(8px) rotate(45deg)';
+                    bar2.style.opacity = '0';
+                    bar3.style.transform = 'translateY(-8px) rotate(-45deg)';
+                    bar3.style.width = '1.5rem';
+                } else {
+                    bar1.style.transform = 'none';
+                    bar2.style.opacity = '1';
+                    bar3.style.transform = 'none';
+                    bar3.style.width = '1rem';
+                }
+            });
+
+            // Close mobile menu on link click
+            menu.querySelectorAll('a').forEach(function(link) {
+                link.addEventListener('click', function() {
+                    isOpen = false;
+                    menu.classList.remove('open');
+                    bar1.style.transform = 'none';
+                    bar2.style.opacity = '1';
+                    bar3.style.transform = 'none';
+                    bar3.style.width = '1rem';
+                });
+            });
+        }
+
+        // =============================================
+        // Dynamic Year
+        // =============================================
+        function initCurrentYear() {
+            var yearEl = document.getElementById('currentYear');
+            if (yearEl) {
+                yearEl.textContent = new Date().getFullYear();
+            }
+        }
+
+        // =============================================
+        // Initialize Everything
+        // =============================================
+        document.addEventListener('DOMContentLoaded', function() {
+            initWordExplosion();
+            initScrollReveal();
+            initNavbar();
+            initMobileMenu();
+            initCurrentYear();
+        });
+
+    })();
     </script>
 </body>
 </html>

@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="ms">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{business_name}} | {{tagline}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
     tailwind.config = {
@@ -14,13 +14,15 @@
         extend: {
           colors: {
             'primary': '#16A34A',
-            'secondary': '#166534',
+            'primary-dark': '#15803D',
             'accent': '#DCFCE7',
             'surface': '#FFFFFF',
-            'background': '#FAFFFE',
+            'background': '#f8fafc',
+            'text-dark': '#0f172a',
+            'text-muted': '#64748b',
           },
           fontFamily: {
-            'heading': ['Plus Jakarta Sans', 'sans-serif'],
+            'heading': ['Space Grotesk', 'sans-serif'],
             'body': ['Inter', 'sans-serif'],
           }
         }
@@ -30,152 +32,471 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         html { scroll-behavior: smooth; }
-        body { background-color: #FAFFFE; color: #1A2E1A; font-family: 'Inter', sans-serif; }
-
-        .parallax-hero { position: relative; overflow: hidden; min-height: 100vh; }
-        .parallax-layer {
-            position: absolute; border-radius: 50%; pointer-events: none;
+        body {
+            background-color: #f8fafc;
+            color: #0f172a;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
         }
-        .p-circle-1 {
-            width: 400px; height: 400px; top: 5%; left: -5%;
-            background: linear-gradient(135deg, rgba(22,163,74,0.15), rgba(22,101,52,0.05));
-            animation: pFloat1 10s ease-in-out infinite;
-        }
-        .p-circle-2 {
-            width: 300px; height: 300px; top: 15%; right: -3%;
-            background: linear-gradient(135deg, rgba(220,252,231,0.8), rgba(22,163,74,0.1));
-            animation: pFloat2 14s ease-in-out infinite;
-        }
-        .p-circle-3 {
-            width: 250px; height: 250px; bottom: 10%; left: 20%;
-            background: linear-gradient(135deg, rgba(22,163,74,0.1), rgba(220,252,231,0.5));
-            animation: pFloat3 12s ease-in-out infinite;
-        }
-        .p-circle-4 {
-            width: 180px; height: 180px; top: 50%; right: 20%;
-            background: rgba(22,163,74,0.08);
-            animation: pFloat1 16s ease-in-out infinite reverse;
-        }
-        .p-circle-5 {
-            width: 120px; height: 120px; top: 35%; left: 40%;
-            background: rgba(220,252,231,0.6);
-            animation: pFloat2 18s ease-in-out infinite reverse;
-        }
-        @keyframes pFloat1 {
-            0%, 100% { transform: translateY(0) translateX(0); }
-            25% { transform: translateY(-30px) translateX(15px); }
-            50% { transform: translateY(10px) translateX(-20px); }
-            75% { transform: translateY(-15px) translateX(10px); }
-        }
-        @keyframes pFloat2 {
-            0%, 100% { transform: translateY(0) translateX(0); }
-            33% { transform: translateY(20px) translateX(-25px); }
-            66% { transform: translateY(-25px) translateX(15px); }
-        }
-        @keyframes pFloat3 {
-            0%, 100% { transform: translateY(0) translateX(0) scale(1); }
-            50% { transform: translateY(-20px) translateX(20px) scale(1.1); }
+        h1, h2, h3, h4, h5, h6 {
+            font-family: 'Space Grotesk', sans-serif;
         }
 
-        .menu-card { transition: all 0.3s ease; }
-        .menu-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(0,0,0,0.08); }
+        /* ===== Parallax Hero ===== */
+        .parallax-hero {
+            position: relative;
+            overflow: hidden;
+            min-height: 100vh;
+            background: linear-gradient(180deg, #f8fafc 0%, #f0fdf4 50%, #f8fafc 100%);
+        }
+
+        /* Parallax depth layers container */
+        .parallax-depth-layer {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            will-change: transform;
+        }
+
+        /* Layer 0: Farthest back - most blurred, slowest (0.1x) */
+        .parallax-depth-layer[data-speed="0.1"] {
+            z-index: 1;
+            filter: blur(6px);
+            opacity: 0.35;
+        }
+
+        /* Layer 1: Mid-far - moderate blur (0.3x) */
+        .parallax-depth-layer[data-speed="0.3"] {
+            z-index: 2;
+            filter: blur(3px);
+            opacity: 0.5;
+        }
+
+        /* Layer 2: Mid-near - slight blur (0.5x) */
+        .parallax-depth-layer[data-speed="0.5"] {
+            z-index: 3;
+            filter: blur(1px);
+            opacity: 0.65;
+        }
+
+        /* Layer 3: Foreground content - sharp (1x, no parallax offset) */
+        .parallax-content-layer {
+            position: relative;
+            z-index: 10;
+        }
+
+        /* ===== Geometric Shapes ===== */
+        .geo-circle {
+            position: absolute;
+            border-radius: 50%;
+        }
+        .geo-ring {
+            position: absolute;
+            border-radius: 50%;
+            background: transparent;
+        }
+        .geo-line {
+            position: absolute;
+            border-radius: 2px;
+        }
+        .geo-dot {
+            position: absolute;
+            border-radius: 50%;
+        }
+        .geo-cross {
+            position: absolute;
+        }
+        .geo-cross::before,
+        .geo-cross::after {
+            content: '';
+            position: absolute;
+            background: rgba(22, 163, 74, 0.2);
+            border-radius: 2px;
+        }
+        .geo-cross::before {
+            width: 2px;
+            height: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .geo-cross::after {
+            width: 100%;
+            height: 2px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        /* ===== Menu Cards ===== */
+        .menu-card {
+            background: #FFFFFF;
+            border-radius: 1rem;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            transition: all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+        .menu-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 20px 50px rgba(22, 163, 74, 0.1), 0 8px 20px rgba(0,0,0,0.06);
+            border-color: rgba(22, 163, 74, 0.2);
+        }
+
+        /* ===== Scroll Reveal ===== */
+        .scroll-reveal {
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .scroll-reveal.revealed {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .scroll-reveal-left {
+            opacity: 0;
+            transform: translateX(-40px);
+            transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .scroll-reveal-left.revealed {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        .scroll-reveal-right {
+            opacity: 0;
+            transform: translateX(40px);
+            transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .scroll-reveal-right.revealed {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        .reveal-delay-1 { transition-delay: 0.1s; }
+        .reveal-delay-2 { transition-delay: 0.2s; }
+        .reveal-delay-3 { transition-delay: 0.3s; }
+        .reveal-delay-4 { transition-delay: 0.4s; }
+
+        /* ===== Button Hover Effects ===== */
+        .btn-primary {
+            position: relative;
+            overflow: hidden;
+            background: #16A34A;
+            color: #fff;
+            transition: all 0.3s ease;
+        }
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, transparent 50%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .btn-primary:hover {
+            background: #15803D;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(22, 163, 74, 0.35);
+        }
+        .btn-primary:hover::before {
+            opacity: 1;
+        }
+        .btn-secondary {
+            position: relative;
+            border: 1.5px solid rgba(22, 163, 74, 0.3);
+            color: #16A34A;
+            transition: all 0.3s ease;
+        }
+        .btn-secondary:hover {
+            background: rgba(22, 163, 74, 0.06);
+            border-color: #16A34A;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(22, 163, 74, 0.12);
+        }
+
+        /* ===== Navbar scroll effect ===== */
+        .nav-scrolled {
+            background: rgba(255, 255, 255, 0.95) !important;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06) !important;
+        }
+
+        /* ===== Decorative section divider ===== */
+        .section-accent {
+            width: 48px;
+            height: 4px;
+            background: #16A34A;
+            border-radius: 2px;
+        }
+
+        /* ===== Mobile menu ===== */
+        .mobile-menu {
+            transform: translateX(100%);
+            transition: transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+        .mobile-menu.open {
+            transform: translateX(0);
+        }
+
+        /* ===== Contact card icon ===== */
+        .contact-icon-ring {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f0fdf4;
+            color: #16A34A;
+            flex-shrink: 0;
+        }
     </style>
 </head>
 <body class="font-body">
 
-    <!-- Navigation -->
-    <header class="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-xl shadow-sm">
+    <!-- ========== Navigation ========== -->
+    <header id="navbar" class="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-transparent transition-all duration-300">
         <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
             <div class="flex justify-between items-center">
-                <a href="#" class="text-2xl font-heading font-bold text-[#16A34A]">{{business_name}}</a>
-                <div class="hidden md:flex space-x-10">
-                    <a href="#home" class="text-sm font-medium text-[#1A2E1A] hover:text-[#16A34A] transition-colors">Home</a>
-                    <a href="#menu" class="text-sm font-medium text-[#1A2E1A] hover:text-[#16A34A] transition-colors">Menu</a>
-                    <a href="#about" class="text-sm font-medium text-[#1A2E1A] hover:text-[#16A34A] transition-colors">About</a>
-                    <a href="#contact" class="text-sm font-medium text-[#1A2E1A] hover:text-[#16A34A] transition-colors">Contact</a>
+                <a href="#" class="text-2xl font-heading font-bold text-primary">{{business_name}}</a>
+
+                <!-- Desktop Nav -->
+                <div class="hidden md:flex items-center space-x-10">
+                    <a href="#home" class="text-sm font-medium text-text-dark hover:text-primary transition-colors duration-200">Home</a>
+                    <a href="#menu" class="text-sm font-medium text-text-dark hover:text-primary transition-colors duration-200">Menu</a>
+                    <a href="#about" class="text-sm font-medium text-text-dark hover:text-primary transition-colors duration-200">About</a>
+                    <a href="#contact" class="text-sm font-medium text-text-dark hover:text-primary transition-colors duration-200">Contact</a>
                 </div>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#16A34A] text-white font-semibold rounded-xl px-6 py-2 text-sm hover:bg-[#15803D] transition-colors">
-                    <i class="fab fa-whatsapp mr-2"></i>Order Now
-                </a>
+
+                <div class="flex items-center gap-4">
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank" rel="noopener noreferrer"
+                       class="btn-primary font-heading font-semibold rounded-xl px-6 py-2.5 text-sm inline-flex items-center gap-2">
+                        <i class="fab fa-whatsapp text-base"></i>
+                        <span class="hidden sm:inline">Order Now</span>
+                    </a>
+
+                    <!-- Mobile Hamburger -->
+                    <button id="mobileMenuBtn" class="md:hidden w-10 h-10 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors" aria-label="Toggle menu">
+                        <i class="fas fa-bars text-lg text-text-dark"></i>
+                    </button>
+                </div>
             </div>
         </nav>
     </header>
 
-    <!-- Hero Section with Parallax Layers -->
-    <section id="home" class="parallax-hero pt-32 pb-20 md:py-40 flex items-center">
-        <div class="parallax-layer p-circle-1"></div>
-        <div class="parallax-layer p-circle-2"></div>
-        <div class="parallax-layer p-circle-3"></div>
-        <div class="parallax-layer p-circle-4"></div>
-        <div class="parallax-layer p-circle-5"></div>
+    <!-- Mobile Menu Drawer -->
+    <div id="mobileMenuOverlay" class="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 hidden" aria-hidden="true"></div>
+    <div id="mobileMenu" class="mobile-menu fixed top-0 right-0 h-full w-72 bg-white z-50 shadow-2xl">
+        <div class="flex justify-between items-center px-6 py-5 border-b border-gray-100">
+            <span class="font-heading font-bold text-primary text-lg">Menu</span>
+            <button id="mobileMenuClose" class="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors" aria-label="Close menu">
+                <i class="fas fa-times text-lg text-text-dark"></i>
+            </button>
+        </div>
+        <div class="px-6 py-6 flex flex-col gap-2">
+            <a href="#home" class="mobile-nav-link py-3 px-4 rounded-xl text-text-dark font-medium hover:bg-accent hover:text-primary transition-colors">Home</a>
+            <a href="#menu" class="mobile-nav-link py-3 px-4 rounded-xl text-text-dark font-medium hover:bg-accent hover:text-primary transition-colors">Menu</a>
+            <a href="#about" class="mobile-nav-link py-3 px-4 rounded-xl text-text-dark font-medium hover:bg-accent hover:text-primary transition-colors">About</a>
+            <a href="#contact" class="mobile-nav-link py-3 px-4 rounded-xl text-text-dark font-medium hover:bg-accent hover:text-primary transition-colors">Contact</a>
+            <hr class="my-3 border-gray-100">
+            <a href="https://wa.me/{{whatsapp_number}}" target="_blank" rel="noopener noreferrer"
+               class="btn-primary font-heading font-semibold rounded-xl px-6 py-3 text-sm text-center inline-flex items-center justify-center gap-2">
+                <i class="fab fa-whatsapp text-base"></i> Order via WhatsApp
+            </a>
+        </div>
+    </div>
 
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
-            <div class="bg-[#DCFCE7] text-[#16A34A] px-4 py-1.5 rounded-full text-sm font-medium inline-block mb-6">{{tagline}}</div>
-            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6 text-[#1A2E1A]">
-                {{hero_title}}
-            </h1>
-            <p class="text-lg md:text-xl text-[#6B8068] mb-10 max-w-2xl mx-auto leading-relaxed">
-                {{hero_description}}
-            </p>
-            <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                <a href="#menu" class="bg-[#16A34A] text-white font-semibold hover:bg-[#15803D] rounded-xl px-8 py-4 transition-colors">
-                    {{cta_primary_text}}
-                </a>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#16A34A]/30 text-[#16A34A] font-semibold hover:bg-[#16A34A]/5 rounded-xl px-8 py-4 transition-colors">
-                    {{cta_secondary_text}}
-                </a>
+    <!-- ========== Hero Section with Parallax Depth Layers ========== -->
+    <section id="home" class="parallax-hero flex items-center">
+
+        <!-- Depth Layer 0: Farthest (0.1x speed, most blurred) -->
+        <div class="parallax-depth-layer" data-speed="0.1">
+            <!-- Large soft circle top-left -->
+            <div class="geo-circle" style="width:420px;height:420px;top:2%;left:-8%;background:radial-gradient(circle,rgba(22,163,74,0.18),transparent 70%);"></div>
+            <!-- Large soft circle bottom-right -->
+            <div class="geo-circle" style="width:500px;height:500px;bottom:-10%;right:-12%;background:radial-gradient(circle,rgba(22,163,74,0.12),transparent 70%);"></div>
+            <!-- Giant ring -->
+            <div class="geo-ring" style="width:600px;height:600px;top:10%;right:-15%;border:2px solid rgba(22,163,74,0.08);"></div>
+            <!-- Dots cluster far -->
+            <div class="geo-dot" style="width:8px;height:8px;top:70%;left:15%;background:rgba(22,163,74,0.15);"></div>
+            <div class="geo-dot" style="width:6px;height:6px;top:73%;left:18%;background:rgba(22,163,74,0.12);"></div>
+            <div class="geo-dot" style="width:10px;height:10px;top:68%;left:12%;background:rgba(22,163,74,0.1);"></div>
+        </div>
+
+        <!-- Depth Layer 1: Mid-far (0.3x speed, moderate blur) -->
+        <div class="parallax-depth-layer" data-speed="0.3">
+            <!-- Circle mid -->
+            <div class="geo-circle" style="width:200px;height:200px;top:18%;right:8%;background:radial-gradient(circle,rgba(22,163,74,0.2),transparent 70%);"></div>
+            <!-- Ring mid -->
+            <div class="geo-ring" style="width:180px;height:180px;top:55%;left:5%;border:2px solid rgba(22,163,74,0.15);"></div>
+            <!-- Diagonal line -->
+            <div class="geo-line" style="width:120px;height:2px;top:40%;left:70%;background:rgba(22,163,74,0.15);transform:rotate(-35deg);"></div>
+            <!-- Short line -->
+            <div class="geo-line" style="width:80px;height:2px;top:75%;right:25%;background:rgba(22,163,74,0.12);transform:rotate(20deg);"></div>
+            <!-- Dots -->
+            <div class="geo-dot" style="width:6px;height:6px;top:30%;left:25%;background:rgba(22,163,74,0.25);"></div>
+            <div class="geo-dot" style="width:5px;height:5px;top:60%;right:35%;background:rgba(22,163,74,0.2);"></div>
+            <div class="geo-dot" style="width:7px;height:7px;top:45%;left:55%;background:rgba(22,163,74,0.18);"></div>
+            <!-- Cross -->
+            <div class="geo-cross" style="width:20px;height:20px;top:25%;right:30%;"></div>
+        </div>
+
+        <!-- Depth Layer 2: Mid-near (0.5x speed, slight blur) -->
+        <div class="parallax-depth-layer" data-speed="0.5">
+            <!-- Small circle -->
+            <div class="geo-circle" style="width:90px;height:90px;top:22%;left:12%;background:radial-gradient(circle,rgba(22,163,74,0.25),transparent 70%);"></div>
+            <!-- Small ring -->
+            <div class="geo-ring" style="width:70px;height:70px;top:65%;right:10%;border:2px solid rgba(22,163,74,0.2);"></div>
+            <!-- Accent circle -->
+            <div class="geo-circle" style="width:50px;height:50px;bottom:20%;left:35%;background:rgba(220,252,231,0.8);"></div>
+            <!-- Lines -->
+            <div class="geo-line" style="width:60px;height:2px;top:35%;right:15%;background:rgba(22,163,74,0.2);transform:rotate(45deg);"></div>
+            <div class="geo-line" style="width:40px;height:2px;top:50%;left:8%;background:rgba(22,163,74,0.18);transform:rotate(-15deg);"></div>
+            <!-- Dots -->
+            <div class="geo-dot" style="width:5px;height:5px;top:15%;right:20%;background:rgba(22,163,74,0.3);"></div>
+            <div class="geo-dot" style="width:4px;height:4px;bottom:30%;left:22%;background:rgba(22,163,74,0.25);"></div>
+            <div class="geo-dot" style="width:6px;height:6px;top:78%;left:68%;background:rgba(22,163,74,0.22);"></div>
+            <!-- Cross -->
+            <div class="geo-cross" style="width:16px;height:16px;bottom:25%;right:20%;"></div>
+        </div>
+
+        <!-- Foreground Content Layer -->
+        <div class="parallax-content-layer w-full pt-32 pb-24 md:py-0 md:min-h-screen flex items-center">
+            <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center w-full">
+                <div class="scroll-reveal">
+                    <div class="inline-flex items-center gap-2 bg-accent text-primary px-5 py-2 rounded-full text-sm font-semibold mb-8">
+                        <span class="w-2 h-2 bg-primary rounded-full"></span>
+                        {{tagline}}
+                    </div>
+                </div>
+                <h1 class="scroll-reveal reveal-delay-1 text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-[1.1] mb-7 text-text-dark">
+                    {{hero_title}}
+                </h1>
+                <p class="scroll-reveal reveal-delay-2 text-lg md:text-xl text-text-muted mb-12 max-w-2xl mx-auto leading-relaxed">
+                    {{hero_description}}
+                </p>
+                <div class="scroll-reveal reveal-delay-3 flex flex-col sm:flex-row gap-4 justify-center">
+                    <a href="#menu" class="btn-primary font-heading font-semibold rounded-xl px-10 py-4 text-base inline-flex items-center justify-center gap-2">
+                        {{cta_primary_text}}
+                        <i class="fas fa-arrow-right text-sm"></i>
+                    </a>
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank" rel="noopener noreferrer"
+                       class="btn-secondary font-heading font-semibold rounded-xl px-10 py-4 text-base inline-flex items-center justify-center gap-2">
+                        <i class="fab fa-whatsapp text-lg"></i>
+                        {{cta_secondary_text}}
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scroll indicator -->
+        <div class="absolute bottom-8 left-1/2 -translate-x-1/2 z-10 hidden md:flex flex-col items-center gap-2 text-text-muted">
+            <span class="text-xs font-medium tracking-widest uppercase">Scroll</span>
+            <div class="w-5 h-9 border-2 border-text-muted/30 rounded-full flex justify-center pt-1.5">
+                <div class="w-1 h-2.5 bg-primary rounded-full animate-bounce"></div>
             </div>
         </div>
     </section>
 
-    <!-- Menu Section -->
-    <section id="menu" class="py-20 md:py-32">
+    <!-- ========== Menu Section ========== -->
+    <section id="menu" class="py-24 md:py-32 bg-white relative">
+        <!-- Subtle top accent -->
+        <div class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent"></div>
+
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
             <div class="text-center mb-16">
-                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 text-[#1A2E1A]">{{menu_section_title}}</h2>
-                <p class="text-xl text-[#6B8068] max-w-3xl mx-auto">{{menu_section_description}}</p>
+                <div class="scroll-reveal flex justify-center mb-5">
+                    <div class="section-accent"></div>
+                </div>
+                <h2 class="scroll-reveal reveal-delay-1 text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-5 text-text-dark">
+                    {{menu_section_title}}
+                </h2>
+                <p class="scroll-reveal reveal-delay-2 text-lg text-text-muted max-w-2xl mx-auto leading-relaxed">
+                    {{menu_section_description}}
+                </p>
             </div>
-            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-7">
                 {{menu_items_html}}
             </div>
         </div>
     </section>
 
-    <!-- About Section -->
-    <section id="about" class="py-20 md:py-32 bg-[#16A34A]/5">
-        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center">
-            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 text-[#1A2E1A]">{{about_title}}</h2>
-            <p class="text-xl text-[#6B8068] leading-relaxed">{{about_description}}</p>
+    <!-- ========== About Section ========== -->
+    <section id="about" class="py-24 md:py-32 bg-background relative overflow-hidden">
+        <!-- Decorative shapes in about section -->
+        <div class="absolute top-10 left-10 w-32 h-32 border-2 border-primary/10 rounded-full pointer-events-none"></div>
+        <div class="absolute bottom-10 right-10 w-48 h-48 border-2 border-primary/5 rounded-full pointer-events-none"></div>
+        <div class="absolute top-1/2 right-0 w-24 h-24 bg-accent/30 rounded-full pointer-events-none translate-x-1/2"></div>
+
+        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center relative z-10">
+            <div class="scroll-reveal flex justify-center mb-5">
+                <div class="section-accent"></div>
+            </div>
+            <h2 class="scroll-reveal reveal-delay-1 text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 text-text-dark">
+                {{about_title}}
+            </h2>
+            <p class="scroll-reveal reveal-delay-2 text-lg md:text-xl text-text-muted leading-relaxed max-w-3xl mx-auto">
+                {{about_description}}
+            </p>
         </div>
     </section>
 
-    <!-- Contact & Hours -->
-    <section id="contact" class="py-20 md:py-32">
+    <!-- ========== Contact & Hours Section ========== -->
+    <section id="contact" class="py-24 md:py-32 bg-white">
         <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
-            <div class="grid md:grid-cols-2 gap-12">
-                <div>
-                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 text-[#1A2E1A]">{{contact_title}}</h2>
-                    <div class="space-y-8">
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#16A34A]">
-                                <i class="fas fa-map-marker-alt mr-3"></i>Location
-                            </h3>
-                            <p class="text-lg text-[#6B8068]">{{address}}</p>
+            <div class="text-center mb-16">
+                <div class="scroll-reveal flex justify-center mb-5">
+                    <div class="section-accent"></div>
+                </div>
+                <h2 class="scroll-reveal reveal-delay-1 text-3xl md:text-4xl lg:text-5xl font-heading font-bold text-text-dark">
+                    {{contact_title}}
+                </h2>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-10 lg:gap-16">
+                <!-- Contact Info -->
+                <div class="scroll-reveal-left">
+                    <div class="space-y-6">
+                        <!-- WhatsApp Card -->
+                        <a href="https://wa.me/{{whatsapp_number}}" target="_blank" rel="noopener noreferrer"
+                           class="group flex items-start gap-5 p-6 bg-background rounded-2xl border border-gray-100 hover:border-primary/20 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300">
+                            <div class="contact-icon-ring group-hover:bg-primary group-hover:text-white transition-colors duration-300">
+                                <i class="fab fa-whatsapp text-xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-heading font-semibold text-text-dark mb-1">WhatsApp</h3>
+                                <p class="text-primary font-medium">{{phone_display}}</p>
+                            </div>
+                        </a>
+
+                        <!-- Location Card -->
+                        <div class="flex items-start gap-5 p-6 bg-background rounded-2xl border border-gray-100">
+                            <div class="contact-icon-ring">
+                                <i class="fas fa-map-marker-alt text-lg"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-heading font-semibold text-text-dark mb-1">Location</h3>
+                                <p class="text-text-muted leading-relaxed">{{address}}</p>
+                            </div>
                         </div>
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#16A34A]">
-                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
-                            </h3>
-                            <p class="text-lg">
-                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#16A34A] hover:underline">{{phone_display}}</a>
-                            </p>
-                        </div>
+
+                        <!-- Quick WhatsApp CTA -->
+                        <a href="https://wa.me/{{whatsapp_number}}" target="_blank" rel="noopener noreferrer"
+                           class="btn-primary font-heading font-semibold rounded-xl px-8 py-4 text-base w-full inline-flex items-center justify-center gap-3 mt-4">
+                            <i class="fab fa-whatsapp text-xl"></i>
+                            Chat with us on WhatsApp
+                        </a>
                     </div>
                 </div>
-                <div>
-                    <h3 class="text-3xl font-heading font-bold mb-10 text-[#1A2E1A]">Operating Hours</h3>
-                    <div class="bg-white rounded-2xl shadow-lg shadow-black/5 border border-gray-100 p-8">
-                        <ul class="space-y-6">
+
+                <!-- Operating Hours -->
+                <div class="scroll-reveal-right">
+                    <div class="bg-background rounded-2xl border border-gray-100 p-8">
+                        <div class="flex items-center gap-3 mb-7">
+                            <div class="contact-icon-ring">
+                                <i class="fas fa-clock text-lg"></i>
+                            </div>
+                            <h3 class="font-heading font-bold text-xl text-text-dark">Operating Hours</h3>
+                        </div>
+                        <ul class="space-y-4">
                             {{operating_hours_html}}
                         </ul>
                     </div>
@@ -184,17 +505,163 @@
         </div>
     </section>
 
-    <!-- Footer -->
-    <footer class="py-16 bg-[#1A2E1A]">
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
-            <h2 class="text-3xl font-heading font-bold text-[#16A34A] mb-4">{{business_name}}</h2>
-            <p class="text-[#6B8068] mb-6">{{footer_description}}</p>
-            <p class="text-[#6B8068]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+    <!-- ========== Footer ========== -->
+    <footer class="py-16 bg-[#0f172a]">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="text-center">
+                <h2 class="text-2xl md:text-3xl font-heading font-bold text-primary mb-4">{{business_name}}</h2>
+                <p class="text-slate-400 mb-8 max-w-lg mx-auto leading-relaxed">{{footer_description}}</p>
+
+                <div class="flex justify-center gap-6 mb-8">
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank" rel="noopener noreferrer"
+                       class="w-11 h-11 rounded-full bg-white/10 flex items-center justify-center text-slate-300 hover:bg-primary hover:text-white transition-all duration-300">
+                        <i class="fab fa-whatsapp text-lg"></i>
+                    </a>
+                </div>
+
+                <div class="h-px bg-white/10 mb-8"></div>
+                <p class="text-slate-500 text-sm">
+                    &copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.
+                </p>
+            </div>
         </div>
     </footer>
 
+    <!-- ========== JavaScript ========== -->
     <script>
+    (function() {
+        'use strict';
+
+        // -- Dynamic Year --
         document.getElementById('currentYear').textContent = new Date().getFullYear();
+
+        // -- Parallax Scroll Engine --
+        const parallaxLayers = document.querySelectorAll('.parallax-depth-layer');
+        const heroSection = document.getElementById('home');
+        let ticking = false;
+        let lastScrollY = 0;
+
+        function updateParallax() {
+            const scrollY = lastScrollY;
+            const heroBottom = heroSection.offsetTop + heroSection.offsetHeight;
+
+            // Only apply parallax when hero is in view
+            if (scrollY < heroBottom) {
+                parallaxLayers.forEach(function(layer) {
+                    const speed = parseFloat(layer.getAttribute('data-speed')) || 0;
+                    const yOffset = scrollY * speed;
+                    layer.style.transform = 'translateY(' + yOffset + 'px)';
+                });
+            }
+            ticking = false;
+        }
+
+        function onScroll() {
+            lastScrollY = window.scrollY;
+            if (!ticking) {
+                window.requestAnimationFrame(updateParallax);
+                ticking = true;
+            }
+        }
+
+        window.addEventListener('scroll', onScroll, { passive: true });
+
+        // -- Navbar Scroll Effect --
+        var navbar = document.getElementById('navbar');
+        function updateNavbar() {
+            if (window.scrollY > 60) {
+                navbar.classList.add('nav-scrolled');
+            } else {
+                navbar.classList.remove('nav-scrolled');
+            }
+        }
+        window.addEventListener('scroll', updateNavbar, { passive: true });
+        updateNavbar();
+
+        // -- Scroll Reveal with IntersectionObserver --
+        var revealSelectors = '.scroll-reveal, .scroll-reveal-left, .scroll-reveal-right';
+        var revealElements = document.querySelectorAll(revealSelectors);
+
+        if ('IntersectionObserver' in window) {
+            var observer = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('revealed');
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, {
+                threshold: 0.1,
+                rootMargin: '0px 0px -40px 0px'
+            });
+
+            revealElements.forEach(function(el) {
+                observer.observe(el);
+            });
+        } else {
+            // Fallback: show everything immediately
+            revealElements.forEach(function(el) {
+                el.classList.add('revealed');
+            });
+        }
+
+        // -- Mobile Menu --
+        var mobileMenuBtn = document.getElementById('mobileMenuBtn');
+        var mobileMenuClose = document.getElementById('mobileMenuClose');
+        var mobileMenu = document.getElementById('mobileMenu');
+        var mobileMenuOverlay = document.getElementById('mobileMenuOverlay');
+        var mobileNavLinks = document.querySelectorAll('.mobile-nav-link');
+
+        function openMobileMenu() {
+            mobileMenu.classList.add('open');
+            mobileMenuOverlay.classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+        function closeMobileMenu() {
+            mobileMenu.classList.remove('open');
+            mobileMenuOverlay.classList.add('hidden');
+            document.body.style.overflow = '';
+        }
+
+        mobileMenuBtn.addEventListener('click', openMobileMenu);
+        mobileMenuClose.addEventListener('click', closeMobileMenu);
+        mobileMenuOverlay.addEventListener('click', closeMobileMenu);
+        mobileNavLinks.forEach(function(link) {
+            link.addEventListener('click', closeMobileMenu);
+        });
+
+        // -- Menu Card stagger animation --
+        var menuCards = document.querySelectorAll('.menu-card');
+        if ('IntersectionObserver' in window && menuCards.length > 0) {
+            var cardObserver = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    if (entry.isIntersecting) {
+                        var card = entry.target;
+                        var index = Array.prototype.indexOf.call(menuCards, card);
+                        card.style.transitionDelay = (index % 3) * 0.1 + 's';
+                        card.classList.add('revealed');
+                        cardObserver.unobserve(card);
+                    }
+                });
+            }, {
+                threshold: 0.05,
+                rootMargin: '0px 0px -20px 0px'
+            });
+
+            menuCards.forEach(function(card) {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(30px)';
+                card.style.transition = 'opacity 0.6s cubic-bezier(0.16,1,0.3,1), transform 0.6s cubic-bezier(0.16,1,0.3,1)';
+                cardObserver.observe(card);
+            });
+        }
+
+        // Override the revealed class for cards
+        var style = document.createElement('style');
+        style.textContent = '.menu-card.revealed { opacity: 1 !important; transform: translateY(0) !important; }';
+        document.head.appendChild(style);
+
+    })();
     </script>
 </body>
 </html>

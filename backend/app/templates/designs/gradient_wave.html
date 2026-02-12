@@ -6,22 +6,22 @@
     <title>{{business_name}} | {{tagline}}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Italiana&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
     tailwind.config = {
       theme: {
         extend: {
           colors: {
-            'primary': '#8B5CF6',
-            'secondary': '#06B6D4',
-            'accent': '#1E1B4B',
-            'surface': '#111827',
-            'background': '#030712',
+            'primary': '#C084FC',
+            'secondary': '#E9D5FF',
+            'accent': '#A855F7',
+            'surface': '#1A1333',
+            'background': '#0E0B1A',
           },
           fontFamily: {
-            'heading': ['Space Grotesk', 'sans-serif'],
-            'body': ['Inter', 'sans-serif'],
+            'heading': ['Italiana', 'serif'],
+            'body': ['Poppins', 'sans-serif'],
           }
         }
       }
@@ -30,143 +30,444 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         html { scroll-behavior: smooth; }
-        body { background-color: #030712; color: #F9FAFB; font-family: 'Inter', sans-serif; }
-
-        .wave-hero { position: relative; overflow: hidden; }
-        .wave-bg {
-            position: absolute; inset: 0; z-index: 0;
-        }
-        .wave-layer {
-            position: absolute; width: 300%; height: 100%; left: -100%;
-            opacity: 0.4; filter: blur(40px);
-        }
-        .wave-1 {
-            background: linear-gradient(90deg, transparent 0%, #8B5CF6 20%, #06B6D4 40%, #F472B6 60%, #8B5CF6 80%, transparent 100%);
-            animation: waveSlide 10s linear infinite;
-            top: 10%;
-        }
-        .wave-2 {
-            background: linear-gradient(90deg, transparent 0%, #06B6D4 25%, #8B5CF6 50%, transparent 75%);
-            animation: waveSlide 14s linear infinite reverse;
-            top: 40%; opacity: 0.3;
-        }
-        .wave-3 {
-            background: linear-gradient(90deg, transparent 0%, #F472B6 30%, #8B5CF6 60%, #06B6D4 90%, transparent 100%);
-            animation: waveSlide 18s linear infinite;
-            top: 65%; opacity: 0.25;
-        }
-        @keyframes waveSlide {
-            0% { transform: translateX(0%) skewY(-3deg); }
-            100% { transform: translateX(33.33%) skewY(-3deg); }
+        body {
+            background-color: #0E0B1A;
+            color: #F3E8FF;
+            font-family: 'Poppins', sans-serif;
+            overflow-x: hidden;
         }
 
+        /* ── Animated Gradient Hero ── */
+        .gradient-hero {
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(135deg, #0E0B1A 0%, #1A1333 50%, #0E0B1A 100%);
+        }
+        .gradient-hero::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(
+                120deg,
+                rgba(192, 132, 252, 0.25) 0%,
+                rgba(168, 85, 247, 0.18) 25%,
+                rgba(233, 213, 255, 0.12) 50%,
+                rgba(192, 132, 252, 0.20) 75%,
+                rgba(139, 92, 246, 0.15) 100%
+            );
+            background-size: 400% 400%;
+            animation: gradientShift 12s ease-in-out infinite;
+            z-index: 0;
+        }
+        @keyframes gradientShift {
+            0%   { background-position: 0% 50%; }
+            25%  { background-position: 100% 25%; }
+            50%  { background-position: 100% 50%; }
+            75%  { background-position: 0% 75%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* ── Flowing Wave Layers ── */
+        .wave-canvas {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+        }
+        .wave-ribbon {
+            position: absolute;
+            width: 300%;
+            height: 120%;
+            left: -100%;
+            filter: blur(50px);
+            pointer-events: none;
+        }
+        .wave-ribbon-1 {
+            background: linear-gradient(90deg,
+                transparent 0%, #C084FC 15%, #A855F7 30%, #E9D5FF 50%, #C084FC 70%, transparent 100%);
+            animation: waveFlow 14s linear infinite;
+            top: 5%; opacity: 0.30;
+        }
+        .wave-ribbon-2 {
+            background: linear-gradient(90deg,
+                transparent 0%, #E9D5FF 20%, #C084FC 45%, #7C3AED 70%, transparent 100%);
+            animation: waveFlow 20s linear infinite reverse;
+            top: 35%; opacity: 0.20;
+        }
+        .wave-ribbon-3 {
+            background: linear-gradient(90deg,
+                transparent 0%, #A855F7 25%, #E9D5FF 55%, #C084FC 85%, transparent 100%);
+            animation: waveFlow 18s linear infinite;
+            top: 60%; opacity: 0.22;
+        }
+        @keyframes waveFlow {
+            0%   { transform: translateX(0%) skewY(-2deg); }
+            100% { transform: translateX(33.33%) skewY(-2deg); }
+        }
+
+        /* ── Hue Shifting Overlay ── */
+        .hue-shift-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(160deg, rgba(192,132,252,0.08), rgba(233,213,255,0.04));
+            animation: hueRotate 20s linear infinite;
+            z-index: 1;
+            pointer-events: none;
+        }
+        @keyframes hueRotate {
+            0%   { filter: hue-rotate(0deg); }
+            100% { filter: hue-rotate(360deg); }
+        }
+
+        /* ── Gradient Text ── */
         .glow-text {
-            background: linear-gradient(135deg, #8B5CF6, #06B6D4);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background: linear-gradient(135deg, #C084FC, #E9D5FF);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
             background-clip: text;
         }
-        .menu-card { transition: all 0.5s ease; }
-        .menu-card:hover { border-color: rgba(139, 92, 246, 0.4); box-shadow: 0 0 30px rgba(139, 92, 246, 0.15); transform: translateY(-4px); }
+        .glow-text-accent {
+            background: linear-gradient(135deg, #E9D5FF, #C084FC, #A855F7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* ── Glassmorphism Cards ── */
+        .glass-card {
+            background: rgba(26, 19, 51, 0.60);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(192, 132, 252, 0.18);
+            border-radius: 1.25rem;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        .glass-card::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            background: linear-gradient(135deg, rgba(192,132,252,0.06), transparent 60%);
+            pointer-events: none;
+        }
+        .glass-card:hover {
+            border-color: rgba(192, 132, 252, 0.45);
+            box-shadow:
+                0 0 40px rgba(192, 132, 252, 0.12),
+                0 8px 32px rgba(0, 0, 0, 0.3);
+            transform: translateY(-6px);
+        }
+
+        /* ── Button Shimmer ── */
+        .btn-shimmer {
+            position: relative;
+            overflow: hidden;
+            z-index: 1;
+        }
+        .btn-shimmer::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -75%;
+            width: 50%;
+            height: 200%;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.25),
+                transparent
+            );
+            transform: skewX(-20deg);
+            transition: none;
+            z-index: 2;
+            pointer-events: none;
+        }
+        .btn-shimmer:hover::after {
+            animation: shimmerSlide 0.7s ease forwards;
+        }
+        @keyframes shimmerSlide {
+            0%   { left: -75%; }
+            100% { left: 125%; }
+        }
+
+        /* ── SVG Wave Dividers ── */
+        .wave-divider {
+            position: relative;
+            width: 100%;
+            overflow: hidden;
+            line-height: 0;
+        }
+        .wave-divider svg {
+            display: block;
+            width: 100%;
+            height: 80px;
+        }
+        .wave-divider-flip svg {
+            transform: scaleY(-1);
+        }
+
+        /* ── Section Gradient Divider Line ── */
+        .section-divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent 0%, #C084FC 30%, #E9D5FF 50%, #C084FC 70%, transparent 100%);
+            opacity: 0.35;
+        }
+
+        /* ── Scroll Reveal ── */
+        .reveal {
+            opacity: 0;
+            transform: translateY(40px);
+            transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1),
+                        transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .reveal.revealed {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .reveal-delay-1 { transition-delay: 0.1s; }
+        .reveal-delay-2 { transition-delay: 0.2s; }
+        .reveal-delay-3 { transition-delay: 0.3s; }
+        .reveal-delay-4 { transition-delay: 0.4s; }
+
+        /* ── Mobile Menu ── */
+        .mobile-menu {
+            transform: translateX(100%);
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .mobile-menu.open {
+            transform: translateX(0);
+        }
+
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0E0B1A; }
+        ::-webkit-scrollbar-thumb { background: #C084FC; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #A855F7; }
     </style>
 </head>
 <body class="font-body">
 
-    <!-- Navigation -->
-    <header class="fixed top-0 left-0 right-0 z-50 bg-[#030712]/90 backdrop-blur-xl border-b border-white/10">
+    <!-- ═══════════════ Navigation ═══════════════ -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-[#0E0B1A]/85 backdrop-blur-2xl border-b border-[#C084FC]/10">
         <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
             <div class="flex justify-between items-center">
-                <a href="#" class="text-2xl font-heading font-bold glow-text">{{business_name}}</a>
-                <div class="hidden md:flex space-x-10">
-                    <a href="#home" class="text-sm font-medium hover:text-[#8B5CF6] transition-colors">Home</a>
-                    <a href="#menu" class="text-sm font-medium hover:text-[#8B5CF6] transition-colors">Menu</a>
-                    <a href="#about" class="text-sm font-medium hover:text-[#8B5CF6] transition-colors">About</a>
-                    <a href="#contact" class="text-sm font-medium hover:text-[#8B5CF6] transition-colors">Contact</a>
+                <a href="#" class="text-2xl font-heading font-normal tracking-widest glow-text uppercase">{{business_name}}</a>
+
+                <!-- Desktop Nav -->
+                <div class="hidden md:flex items-center space-x-10">
+                    <a href="#home" class="text-sm font-medium text-[#E9D5FF]/70 hover:text-[#C084FC] transition-colors duration-300">Home</a>
+                    <a href="#menu" class="text-sm font-medium text-[#E9D5FF]/70 hover:text-[#C084FC] transition-colors duration-300">Menu</a>
+                    <a href="#about" class="text-sm font-medium text-[#E9D5FF]/70 hover:text-[#C084FC] transition-colors duration-300">About</a>
+                    <a href="#contact" class="text-sm font-medium text-[#E9D5FF]/70 hover:text-[#C084FC] transition-colors duration-300">Contact</a>
                 </div>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-gradient-to-r from-[#8B5CF6] to-[#06B6D4] text-white font-semibold rounded-xl px-6 py-2 text-sm hover:shadow-lg hover:shadow-[#8B5CF6]/25 transition-all">
-                    <i class="fab fa-whatsapp mr-2"></i>Order Now
+
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank"
+                   class="hidden md:inline-flex items-center btn-shimmer bg-gradient-to-r from-[#C084FC] to-[#A855F7] text-white font-semibold rounded-full px-7 py-2.5 text-sm hover:shadow-lg hover:shadow-[#C084FC]/30 transition-all duration-300">
+                    <i class="fab fa-whatsapp mr-2 text-base"></i>Order Now
                 </a>
+
+                <!-- Mobile Hamburger -->
+                <button id="menuToggle" class="md:hidden text-[#C084FC] text-2xl focus:outline-none" aria-label="Toggle menu">
+                    <i class="fas fa-bars"></i>
+                </button>
             </div>
         </nav>
+
+        <!-- Mobile Menu Panel -->
+        <div id="mobileMenu" class="mobile-menu fixed top-0 right-0 w-72 h-full bg-[#0E0B1A]/95 backdrop-blur-2xl border-l border-[#C084FC]/15 z-50 flex flex-col pt-20 px-8 md:hidden">
+            <button id="menuClose" class="absolute top-6 right-6 text-[#C084FC] text-2xl focus:outline-none" aria-label="Close menu">
+                <i class="fas fa-times"></i>
+            </button>
+            <a href="#home" class="mobile-link text-lg font-medium text-[#E9D5FF]/80 hover:text-[#C084FC] py-3 border-b border-[#C084FC]/10 transition-colors">Home</a>
+            <a href="#menu" class="mobile-link text-lg font-medium text-[#E9D5FF]/80 hover:text-[#C084FC] py-3 border-b border-[#C084FC]/10 transition-colors">Menu</a>
+            <a href="#about" class="mobile-link text-lg font-medium text-[#E9D5FF]/80 hover:text-[#C084FC] py-3 border-b border-[#C084FC]/10 transition-colors">About</a>
+            <a href="#contact" class="mobile-link text-lg font-medium text-[#E9D5FF]/80 hover:text-[#C084FC] py-3 border-b border-[#C084FC]/10 transition-colors">Contact</a>
+            <a href="https://wa.me/{{whatsapp_number}}" target="_blank"
+               class="mt-6 btn-shimmer bg-gradient-to-r from-[#C084FC] to-[#A855F7] text-white font-semibold rounded-full px-6 py-3 text-center text-sm hover:shadow-lg hover:shadow-[#C084FC]/30 transition-all">
+                <i class="fab fa-whatsapp mr-2"></i>Order Now
+            </a>
+        </div>
     </header>
 
-    <!-- Hero Section with Gradient Waves -->
-    <section id="home" class="wave-hero pt-32 pb-20 md:py-40 min-h-screen flex items-center">
-        <div class="wave-bg">
-            <div class="wave-layer wave-1"></div>
-            <div class="wave-layer wave-2"></div>
-            <div class="wave-layer wave-3"></div>
+    <!-- ═══════════════ Hero Section ═══════════════ -->
+    <section id="home" class="gradient-hero min-h-screen flex items-center pt-24 pb-16 md:pt-0 md:pb-0 relative">
+        <!-- Animated Wave Ribbons -->
+        <div class="wave-canvas">
+            <div class="wave-ribbon wave-ribbon-1"></div>
+            <div class="wave-ribbon wave-ribbon-2"></div>
+            <div class="wave-ribbon wave-ribbon-3"></div>
         </div>
 
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
-            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6">
+        <!-- Hue Shift Overlay -->
+        <div class="hue-shift-overlay"></div>
+
+        <!-- Hero Content -->
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center w-full">
+            <p class="reveal text-[#C084FC] text-sm md:text-base tracking-[0.3em] uppercase font-medium mb-6">
+                {{tagline}}
+            </p>
+            <h1 class="reveal reveal-delay-1 text-5xl md:text-7xl lg:text-8xl font-heading font-normal leading-[1.1] mb-8 tracking-wide">
                 <span class="glow-text">{{hero_title}}</span>
             </h1>
-            <p class="text-lg md:text-xl text-[#9CA3AF] mb-10 max-w-2xl mx-auto leading-relaxed">
+            <p class="reveal reveal-delay-2 text-base md:text-lg text-[#E9D5FF]/60 mb-12 max-w-2xl mx-auto leading-relaxed font-light">
                 {{hero_description}}
             </p>
-            <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                <a href="#menu" class="bg-gradient-to-r from-[#8B5CF6] to-[#06B6D4] text-white font-semibold rounded-xl px-8 py-4 hover:shadow-lg hover:shadow-[#8B5CF6]/25 transition-all">
+            <div class="reveal reveal-delay-3 flex flex-col sm:flex-row gap-4 justify-center">
+                <a href="#menu"
+                   class="btn-shimmer bg-gradient-to-r from-[#C084FC] to-[#A855F7] text-white font-semibold rounded-full px-10 py-4 text-base hover:shadow-xl hover:shadow-[#C084FC]/25 transition-all duration-300 hover:scale-[1.03]">
                     {{cta_primary_text}}
                 </a>
-                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#8B5CF6]/40 text-[#8B5CF6] font-semibold hover:bg-[#8B5CF6]/10 rounded-xl px-8 py-4 transition-colors">
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank"
+                   class="border border-[#C084FC]/35 text-[#C084FC] font-semibold hover:bg-[#C084FC]/10 hover:border-[#C084FC]/60 rounded-full px-10 py-4 text-base transition-all duration-300">
                     {{cta_secondary_text}}
                 </a>
             </div>
         </div>
+
+        <!-- Bottom SVG Wave Divider -->
+        <div class="absolute bottom-0 left-0 w-full wave-divider z-10">
+            <svg viewBox="0 0 1440 80" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="waveGrad1" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#C084FC" stop-opacity="0.15"/>
+                        <stop offset="50%" stop-color="#E9D5FF" stop-opacity="0.08"/>
+                        <stop offset="100%" stop-color="#C084FC" stop-opacity="0.15"/>
+                    </linearGradient>
+                </defs>
+                <path d="M0,40 C240,80 480,0 720,40 C960,80 1200,0 1440,40 L1440,80 L0,80 Z" fill="url(#waveGrad1)"/>
+                <path d="M0,55 C360,20 720,75 1080,35 C1260,15 1380,50 1440,55 L1440,80 L0,80 Z" fill="#0E0B1A"/>
+            </svg>
+        </div>
     </section>
 
-    <!-- Menu Section -->
-    <section id="menu" class="py-24 md:py-36 border-t border-[#8B5CF6]/20">
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
-            <div class="text-center mb-16">
-                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 glow-text">{{menu_section_title}}</h2>
-                <p class="text-xl text-[#9CA3AF] max-w-3xl mx-auto">{{menu_section_description}}</p>
+    <!-- ═══════════════ Menu Section ═══════════════ -->
+    <section id="menu" class="py-24 md:py-36 relative">
+        <!-- Top SVG Wave -->
+        <div class="absolute top-0 left-0 w-full wave-divider wave-divider-flip z-0">
+            <svg viewBox="0 0 1440 60" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M0,30 C360,60 720,0 1080,30 C1260,50 1380,15 1440,30 L1440,60 L0,60 Z" fill="rgba(192,132,252,0.04)"/>
+            </svg>
+        </div>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10">
+            <div class="text-center mb-20">
+                <h2 class="reveal text-4xl md:text-5xl lg:text-6xl font-heading font-normal mb-6 tracking-wide glow-text">{{menu_section_title}}</h2>
+                <p class="reveal reveal-delay-1 text-lg text-[#E9D5FF]/50 max-w-3xl mx-auto font-light">{{menu_section_description}}</p>
+                <div class="reveal reveal-delay-2 w-24 h-[1px] bg-gradient-to-r from-transparent via-[#C084FC] to-transparent mx-auto mt-8"></div>
             </div>
             <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                 {{menu_items_html}}
             </div>
         </div>
+
+        <!-- Bottom SVG Wave -->
+        <div class="absolute bottom-0 left-0 w-full wave-divider z-0">
+            <svg viewBox="0 0 1440 60" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M0,20 C480,60 960,0 1440,35 L1440,60 L0,60 Z" fill="rgba(192,132,252,0.04)"/>
+            </svg>
+        </div>
     </section>
 
-    <!-- About Section -->
-    <section id="about" class="wave-hero py-24 md:py-36 border-t border-[#8B5CF6]/20">
-        <div class="wave-bg">
-            <div class="wave-layer wave-1" style="opacity:0.2"></div>
-            <div class="wave-layer wave-2" style="opacity:0.15"></div>
-        </div>
+    <!-- ═══════════════ Gradient Divider ═══════════════ -->
+    <div class="section-divider"></div>
+
+    <!-- ═══════════════ About Section ═══════════════ -->
+    <section id="about" class="py-24 md:py-36 relative overflow-hidden">
+        <!-- Subtle Background Glow -->
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-[#C084FC]/[0.04] blur-[120px] pointer-events-none"></div>
+
         <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
-            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 glow-text">{{about_title}}</h2>
-            <p class="text-xl text-[#9CA3AF] leading-relaxed">{{about_description}}</p>
+            <h2 class="reveal text-4xl md:text-5xl lg:text-6xl font-heading font-normal mb-10 tracking-wide glow-text">{{about_title}}</h2>
+            <div class="reveal reveal-delay-1 w-16 h-[1px] bg-gradient-to-r from-transparent via-[#C084FC] to-transparent mx-auto mb-10"></div>
+            <div class="reveal reveal-delay-2 glass-card p-10 md:p-14">
+                <p class="text-lg md:text-xl text-[#E9D5FF]/60 leading-relaxed font-light">{{about_description}}</p>
+            </div>
+        </div>
+
+        <!-- Bottom SVG Wave -->
+        <div class="absolute bottom-0 left-0 w-full wave-divider z-0">
+            <svg viewBox="0 0 1440 70" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <linearGradient id="waveGrad2" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#C084FC" stop-opacity="0.08"/>
+                        <stop offset="50%" stop-color="#E9D5FF" stop-opacity="0.05"/>
+                        <stop offset="100%" stop-color="#A855F7" stop-opacity="0.08"/>
+                    </linearGradient>
+                </defs>
+                <path d="M0,35 C200,60 400,10 600,35 C800,60 1000,15 1200,35 C1320,48 1400,25 1440,35 L1440,70 L0,70 Z" fill="url(#waveGrad2)"/>
+                <path d="M0,50 C360,25 720,60 1080,35 C1260,22 1380,45 1440,50 L1440,70 L0,70 Z" fill="#0E0B1A"/>
+            </svg>
         </div>
     </section>
 
-    <!-- Contact & Hours -->
-    <section id="contact" class="py-24 md:py-36 border-t border-[#8B5CF6]/20">
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
-            <div class="grid md:grid-cols-2 gap-12">
-                <div>
-                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 glow-text">{{contact_title}}</h2>
-                    <div class="space-y-8">
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#8B5CF6]">
-                                <i class="fas fa-map-marker-alt mr-3"></i>Location
-                            </h3>
-                            <p class="text-lg text-[#9CA3AF]">{{address}}</p>
-                        </div>
-                        <div>
-                            <h3 class="text-xl font-heading font-bold mb-4 text-[#06B6D4]">
-                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
-                            </h3>
-                            <p class="text-lg">
-                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#06B6D4] hover:underline">{{phone_display}}</a>
-                            </p>
+    <!-- ═══════════════ Gradient Divider ═══════════════ -->
+    <div class="section-divider"></div>
+
+    <!-- ═══════════════ Contact Section ═══════════════ -->
+    <section id="contact" class="py-24 md:py-36 relative">
+        <!-- Top SVG Wave -->
+        <div class="absolute top-0 left-0 w-full wave-divider wave-divider-flip z-0">
+            <svg viewBox="0 0 1440 60" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M0,25 C240,55 720,5 1080,35 C1260,50 1380,20 1440,30 L1440,60 L0,60 Z" fill="rgba(192,132,252,0.04)"/>
+            </svg>
+        </div>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10">
+            <div class="text-center mb-16">
+                <h2 class="reveal text-4xl md:text-5xl lg:text-6xl font-heading font-normal tracking-wide glow-text">{{contact_title}}</h2>
+                <div class="reveal reveal-delay-1 w-24 h-[1px] bg-gradient-to-r from-transparent via-[#C084FC] to-transparent mx-auto mt-8"></div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-10 lg:gap-14">
+                <!-- Contact Info -->
+                <div class="reveal reveal-delay-1 space-y-8">
+                    <!-- WhatsApp -->
+                    <div class="glass-card p-8 group">
+                        <div class="flex items-start space-x-5">
+                            <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#C084FC]/20 to-[#A855F7]/10 flex items-center justify-center flex-shrink-0 group-hover:from-[#C084FC]/30 group-hover:to-[#A855F7]/20 transition-all duration-300">
+                                <i class="fab fa-whatsapp text-[#C084FC] text-2xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-heading font-normal tracking-wider text-[#E9D5FF] mb-2 uppercase">WhatsApp</h3>
+                                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="text-[#C084FC] hover:text-[#E9D5FF] transition-colors duration-300 text-base font-light">
+                                    {{phone_display}}
+                                </a>
+                            </div>
                         </div>
                     </div>
+
+                    <!-- Address -->
+                    <div class="glass-card p-8 group">
+                        <div class="flex items-start space-x-5">
+                            <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#C084FC]/20 to-[#A855F7]/10 flex items-center justify-center flex-shrink-0 group-hover:from-[#C084FC]/30 group-hover:to-[#A855F7]/20 transition-all duration-300">
+                                <i class="fas fa-map-marker-alt text-[#C084FC] text-xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-heading font-normal tracking-wider text-[#E9D5FF] mb-2 uppercase">Location</h3>
+                                <p class="text-[#E9D5FF]/55 font-light text-base leading-relaxed">{{address}}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- CTA Button -->
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank"
+                       class="block btn-shimmer bg-gradient-to-r from-[#C084FC] to-[#A855F7] text-white font-semibold rounded-full px-8 py-4 text-center text-base hover:shadow-xl hover:shadow-[#C084FC]/25 transition-all duration-300 hover:scale-[1.02]">
+                        <i class="fab fa-whatsapp mr-2 text-lg"></i>Chat With Us
+                    </a>
                 </div>
-                <div>
-                    <h3 class="text-3xl font-heading font-bold mb-10">Operating Hours</h3>
-                    <div class="bg-[#111827]/80 backdrop-blur-xl border border-[#8B5CF6]/20 rounded-2xl p-8">
-                        <ul class="space-y-6">
+
+                <!-- Operating Hours -->
+                <div class="reveal reveal-delay-2">
+                    <div class="glass-card p-8 md:p-10 h-full">
+                        <div class="flex items-center space-x-4 mb-8">
+                            <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#C084FC]/20 to-[#A855F7]/10 flex items-center justify-center">
+                                <i class="fas fa-clock text-[#C084FC] text-lg"></i>
+                            </div>
+                            <h3 class="text-xl font-heading font-normal tracking-wider text-[#E9D5FF] uppercase">Operating Hours</h3>
+                        </div>
+                        <ul class="space-y-5">
                             {{operating_hours_html}}
                         </ul>
                     </div>
@@ -175,17 +476,105 @@
         </div>
     </section>
 
-    <!-- Footer -->
-    <footer class="py-16 border-t border-[#8B5CF6]/20 bg-[#111827]">
-        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
-            <h2 class="text-3xl font-heading font-bold glow-text mb-4">{{business_name}}</h2>
-            <p class="text-[#9CA3AF] mb-6">{{footer_description}}</p>
-            <p class="text-[#9CA3AF]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+    <!-- ═══════════════ Footer Wave Divider ═══════════════ -->
+    <div class="wave-divider">
+        <svg viewBox="0 0 1440 80" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="waveGradFooter" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#C084FC" stop-opacity="0.10"/>
+                    <stop offset="50%" stop-color="#E9D5FF" stop-opacity="0.06"/>
+                    <stop offset="100%" stop-color="#C084FC" stop-opacity="0.10"/>
+                </linearGradient>
+            </defs>
+            <path d="M0,25 C360,65 720,5 1080,40 C1260,55 1380,20 1440,30 L1440,80 L0,80 Z" fill="url(#waveGradFooter)"/>
+            <path d="M0,50 C480,20 960,60 1440,35 L1440,80 L0,80 Z" fill="#110E22"/>
+        </svg>
+    </div>
+
+    <!-- ═══════════════ Footer ═══════════════ -->
+    <footer class="bg-[#110E22] py-16 relative">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="text-center">
+                <h2 class="reveal text-3xl md:text-4xl font-heading font-normal tracking-widest glow-text mb-5 uppercase">{{business_name}}</h2>
+                <p class="reveal reveal-delay-1 text-[#E9D5FF]/40 mb-8 max-w-lg mx-auto font-light leading-relaxed">{{footer_description}}</p>
+
+                <!-- Social / WhatsApp -->
+                <div class="reveal reveal-delay-2 flex justify-center space-x-5 mb-10">
+                    <a href="https://wa.me/{{whatsapp_number}}" target="_blank"
+                       class="w-12 h-12 rounded-full border border-[#C084FC]/20 flex items-center justify-center text-[#C084FC]/60 hover:text-[#C084FC] hover:border-[#C084FC]/50 hover:bg-[#C084FC]/10 transition-all duration-300">
+                        <i class="fab fa-whatsapp text-lg"></i>
+                    </a>
+                </div>
+
+                <div class="section-divider mb-8"></div>
+
+                <p class="text-[#E9D5FF]/30 text-sm font-light">
+                    &copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.
+                </p>
+            </div>
         </div>
     </footer>
 
+    <!-- ═══════════════ Scripts ═══════════════ -->
     <script>
+        // Dynamic Year
         document.getElementById('currentYear').textContent = new Date().getFullYear();
+
+        // Mobile Menu Toggle
+        const menuToggle = document.getElementById('menuToggle');
+        const menuClose = document.getElementById('menuClose');
+        const mobileMenu = document.getElementById('mobileMenu');
+
+        menuToggle.addEventListener('click', () => mobileMenu.classList.add('open'));
+        menuClose.addEventListener('click', () => mobileMenu.classList.remove('open'));
+
+        document.querySelectorAll('.mobile-link').forEach(link => {
+            link.addEventListener('click', () => mobileMenu.classList.remove('open'));
+        });
+
+        // Close on outside click
+        document.addEventListener('click', (e) => {
+            if (mobileMenu.classList.contains('open') &&
+                !mobileMenu.contains(e.target) &&
+                !menuToggle.contains(e.target)) {
+                mobileMenu.classList.remove('open');
+            }
+        });
+
+        // Scroll Reveal with IntersectionObserver
+        const revealElements = document.querySelectorAll('.reveal');
+
+        const revealObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('revealed');
+                    revealObserver.unobserve(entry.target);
+                }
+            });
+        }, {
+            threshold: 0.12,
+            rootMargin: '0px 0px -40px 0px'
+        });
+
+        revealElements.forEach(el => revealObserver.observe(el));
+
+        // Navbar Background on Scroll
+        const header = document.querySelector('header');
+        let lastScroll = 0;
+
+        window.addEventListener('scroll', () => {
+            const scrollY = window.scrollY;
+
+            if (scrollY > 80) {
+                header.style.borderBottomColor = 'rgba(192, 132, 252, 0.2)';
+                header.style.backgroundColor = 'rgba(14, 11, 26, 0.95)';
+            } else {
+                header.style.borderBottomColor = 'rgba(192, 132, 252, 0.1)';
+                header.style.backgroundColor = 'rgba(14, 11, 26, 0.85)';
+            }
+
+            lastScroll = scrollY;
+        }, { passive: true });
     </script>
 </body>
 </html>
