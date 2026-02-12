@@ -160,17 +160,17 @@ _extra_origins = os.getenv("CORS_EXTRA_ORIGINS", "")
 if _extra_origins:
     ALLOWED_ORIGINS.extend([o.strip() for o in _extra_origins.split(",") if o.strip()])
 
-# Regex to match Vercel preview/production deployments
-ALLOWED_ORIGIN_REGEX = r"^https://[\w-]+\.vercel\.app$"
+# Regex to match binaapp.my subdomains and Vercel preview/production deployments
+ALLOWED_ORIGIN_REGEX = r"^https://([\w-]+\.binaapp\.my|binaapp\.my|[\w-]+\.vercel\.app)$"
 
-_vercel_origin_pattern = re.compile(ALLOWED_ORIGIN_REGEX)
+_allowed_origin_pattern = re.compile(ALLOWED_ORIGIN_REGEX)
 
 
 def is_allowed_origin(origin: str) -> bool:
-    """Check if an origin is allowed (explicit list or Vercel pattern)"""
+    """Check if an origin is allowed (explicit list, binaapp.my subdomains, or Vercel pattern)"""
     if origin in ALLOWED_ORIGINS:
         return True
-    if _vercel_origin_pattern.match(origin):
+    if _allowed_origin_pattern.match(origin):
         return True
     return False
 
