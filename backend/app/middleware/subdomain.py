@@ -291,36 +291,19 @@ async def subdomain_middleware(request: Request, call_next):
 
         if supabase:
             try:
-                # Use limit(1) instead of .single() to avoid exception on 0 rows
-                # Try with business_type first; fall back without it if column missing
-                select_columns = "id, business_type, language, user_id"
-                try:
-                    website_result = (
-                        supabase.table("websites")
-                        .select(select_columns)
-                        .eq("subdomain", subdomain)
-                        .limit(1)
-                        .execute()
-                    )
-                except Exception as col_error:
-                    col_err_msg = str(col_error)
-                    if "business_type" in col_err_msg and "does not exist" in col_err_msg:
-                        logger.warning("[Subdomain] business_type column missing, retrying without it")
-                        website_result = (
-                            supabase.table("websites")
-                            .select("id, business_name, language, user_id")
-                            .eq("subdomain", subdomain)
-                            .limit(1)
-                            .execute()
-                        )
-                    else:
-                        raise
+                # Only select columns that actually exist in the websites table.
+                # business_type and language do NOT exist as columns.
+                website_result = (
+                    supabase.table("websites")
+                    .select("id, user_id")
+                    .eq("subdomain", subdomain)
+                    .limit(1)
+                    .execute()
+                )
 
                 if website_result.data and len(website_result.data) > 0:
                     website_data = website_result.data[0]
                     website_id = str(website_data["id"])
-                    business_type = website_data.get("business_type") or "food"
-                    language = website_data.get("language") or "ms"
                     logger.info(f"[Subdomain] Found website_id {website_id} for {subdomain}")
 
                     # SUBSCRIPTION LOCK CHECK
@@ -367,7 +350,6 @@ async def subdomain_middleware(request: Request, call_next):
                     "id": recovery_id,
                     "subdomain": subdomain,
                     "name": subdomain.replace("-", " ").replace("_", " ").title(),
-                    "business_name": subdomain.replace("-", " ").replace("_", " ").title(),
                     "status": "published",
                     "created_at": datetime.utcnow().isoformat(),
                     "updated_at": datetime.utcnow().isoformat()

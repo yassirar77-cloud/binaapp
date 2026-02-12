@@ -1808,20 +1808,10 @@ async def get_widget_config(
     )
 
     try:
-        # 1. Get website info (handle missing business_type column gracefully)
-        try:
-            website_response = supabase.table("websites").select(
-                "id, name, business_type, whatsapp_number, description, language, location_address"
-            ).eq("id", website_id).execute()
-        except Exception as col_err:
-            col_err_msg = str(col_err)
-            if "business_type" in col_err_msg and "does not exist" in col_err_msg:
-                logger.warning("[Widget Config] business_type column missing, retrying without it")
-                website_response = supabase.table("websites").select(
-                    "id, name, whatsapp_number, description, language, location_address"
-                ).eq("id", website_id).execute()
-            else:
-                raise
+        # 1. Get website info (only select columns that exist in the table)
+        website_response = supabase.table("websites").select(
+            "id, name, whatsapp_number, description, location_address"
+        ).eq("id", website_id).execute()
 
         website = None
         if website_response.data:
