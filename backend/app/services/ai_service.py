@@ -2617,6 +2617,473 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         return html
 
+    # ===================================================================
+    # PRE-BUILT TEMPLATE SYSTEM
+    # Instead of asking AI to generate HTML/CSS from scratch, we load
+    # pre-built HTML templates and only use AI to generate text content.
+    # ===================================================================
+
+    def _load_template_html(self, template_filename: str) -> Optional[str]:
+        """Load a pre-built HTML template file from app/templates/designs/."""
+        template_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "templates", "designs"
+        )
+        template_path = os.path.join(template_dir, template_filename)
+        try:
+            with open(template_path, "r", encoding="utf-8") as f:
+                html = f.read()
+            logger.info(f"📄 Loaded pre-built template: {template_filename} ({len(html)} chars)")
+            return html
+        except FileNotFoundError:
+            logger.warning(f"⚠️ Pre-built template not found: {template_path}")
+            return None
+        except Exception as e:
+            logger.error(f"❌ Failed to load template {template_filename}: {e}")
+            return None
+
+    async def _generate_content_only(
+        self,
+        business_name: str,
+        description: str,
+        phone: str,
+        address: str,
+        operating_hours: list,
+        language: str = "ms",
+        menu_items: list = None,
+    ) -> Optional[dict]:
+        """
+        Ask AI to generate ONLY text content for the website, returned as JSON.
+        The AI does NOT generate any HTML, CSS, or design — only copywriting.
+        """
+        lang_name = "Bahasa Malaysia" if language == "ms" else "English"
+
+        # Build menu items context
+        menu_context = ""
+        if menu_items and len(menu_items) > 0:
+            menu_lines = []
+            for i, item in enumerate(menu_items):
+                if isinstance(item, dict):
+                    name = item.get("name", item.get("item_name", f"Item {i+1}"))
+                    price = item.get("price", item.get("item_price", ""))
+                    menu_lines.append(f"  - {name}: RM{price}")
+                elif isinstance(item, str):
+                    menu_lines.append(f"  - {item}")
+            menu_context = "Menu items provided:\n" + "\n".join(menu_lines)
+        else:
+            menu_context = "No menu items provided. Generate 4-6 sample menu items appropriate for this business type."
+
+        hours_context = ""
+        if operating_hours and len(operating_hours) > 0:
+            hours_lines = []
+            for h in operating_hours:
+                if isinstance(h, dict):
+                    days = h.get("days", h.get("day", ""))
+                    hrs = h.get("hours", h.get("time", ""))
+                    hours_lines.append(f"  - {days}: {hrs}")
+                elif isinstance(h, str):
+                    hours_lines.append(f"  - {h}")
+            hours_context = "Operating hours:\n" + "\n".join(hours_lines)
+        else:
+            hours_context = "No operating hours provided. Generate reasonable operating hours for this business type."
+
+        prompt = f"""You are a professional copywriter. Generate website text content for this business.
+Return ONLY valid JSON, no markdown code fences, no explanation.
+
+Business Name: {business_name}
+Business Description: {description}
+Language: {lang_name}
+Phone: {phone}
+Address: {address}
+{menu_context}
+{hours_context}
+
+Return this EXACT JSON structure:
+{{
+    "hero_title": "A catchy headline for the hero section (include business name)",
+    "hero_description": "2-3 sentence engaging description for hero section",
+    "tagline": "Short tagline for browser tab title (3-5 words)",
+    "cta_primary_text": "Primary button text (e.g., Lihat Menu / View Menu)",
+    "cta_secondary_text": "Secondary button text (e.g., Hubungi Kami / Contact Us)",
+    "menu_section_title": "Menu section heading",
+    "menu_section_description": "Short description for menu section",
+    "menu_items": [
+        {{
+            "item_name": "Menu item name",
+            "item_price": "price without RM prefix",
+            "item_description": "Short appetizing description (1 sentence)"
+        }}
+    ],
+    "about_title": "About section heading",
+    "about_description": "2-3 paragraphs about the business, engaging and warm",
+    "contact_title": "Contact section heading",
+    "footer_description": "Short footer tagline",
+    "operating_hours": [
+        {{
+            "days": "Day range (e.g., Isnin - Jumaat)",
+            "hours": "Time range (e.g., 10:00 AM - 10:00 PM)"
+        }}
+    ]
+}}
+
+IMPORTANT RULES:
+- Write ALL text in {lang_name}
+- Be creative, professional, and appetizing
+- Menu item descriptions should be short and enticing
+- Use the EXACT business name provided: {business_name}
+- If menu items were provided, use their exact names and prices
+- Generate 4-6 menu items if none were provided
+- Generate 2-3 operating hours entries if none were provided
+"""
+
+        # Try DeepSeek first, then Qwen as fallback
+        response = await self._call_deepseek(prompt, temperature=0.3)
+        if not response:
+            logger.warning("⚠️ DeepSeek failed for content generation, trying Qwen...")
+            response = await self._call_qwen(prompt, temperature=0.3)
+
+        if not response:
+            logger.error("❌ Both AIs failed to generate content")
+            return None
+
+        # Parse JSON from response
+        try:
+            # Clean response: remove markdown fences if present
+            cleaned = response.strip()
+            if cleaned.startswith("```"):
+                # Remove first line with ```json and last line with ```
+                lines = cleaned.split("\n")
+                cleaned = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+            content = json.loads(cleaned)
+            logger.info(f"✅ AI content generated: {len(content)} fields")
+            return content
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ Failed to parse AI content JSON: {e}")
+            logger.error(f"   Response preview: {response[:300]}")
+            # Try to extract JSON from the response
+            json_match = re.search(r'\{[\s\S]*\}', response)
+            if json_match:
+                try:
+                    content = json.loads(json_match.group())
+                    logger.info(f"✅ Extracted JSON from response: {len(content)} fields")
+                    return content
+                except json.JSONDecodeError:
+                    pass
+            return None
+
+    def _fill_template(self, template_html: str, content: dict) -> str:
+        """
+        Replace {{placeholder}} tokens in template HTML with content values.
+        Handles simple string fields only (not loops).
+        """
+        result = template_html
+
+        simple_fields = [
+            'business_name', 'tagline', 'hero_title', 'hero_description',
+            'cta_primary_text', 'cta_secondary_text', 'menu_section_title',
+            'menu_section_description', 'about_title', 'about_description',
+            'contact_title', 'whatsapp_number', 'phone_display', 'address',
+            'footer_description',
+        ]
+
+        for field in simple_fields:
+            value = content.get(field, '')
+            if value:
+                result = result.replace('{{' + field + '}}', str(value))
+
+        return result
+
+    def _render_menu_card_html(self, item: dict, template_id: str, image_url: str = "") -> str:
+        """Render a single menu item card HTML snippet matching the template's design."""
+        name = item.get("item_name", item.get("name", ""))
+        price = item.get("item_price", item.get("price", ""))
+        desc = item.get("item_description", item.get("description", ""))
+
+        # Determine card CSS classes based on template type
+        # Dark templates
+        dark_templates = [
+            "aurora", "gradient-wave", "gradient_wave", "neon-grid", "neon_grid",
+            "matrix-code", "matrix", "morphing-blob", "morphing_blob",
+            "spotlight", "particle-globe", "particle_globe",
+            "ghost-restaurant", "ghost", "neon_night", "elegance_dark",
+            "ghost_restaurant",
+        ]
+
+        is_dark = any(t in (template_id or "").lower().replace(" ", "_").replace("-", "_")
+                       for t in [x.replace("-", "_") for x in dark_templates])
+
+        if is_dark:
+            # Get color scheme from template
+            if "aurora" in (template_id or ""):
+                card_cls = "menu-card bg-[#0a0a2e]/80 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden"
+                price_cls = "text-[#34d399]"
+                desc_cls = "text-[#8888bb]"
+            elif "ghost" in (template_id or ""):
+                card_cls = "ghost-card rounded-2xl overflow-hidden"
+                price_cls = "text-[#00E5A0]"
+                desc_cls = "text-[#8A8A8A]"
+            elif "matrix" in (template_id or ""):
+                card_cls = "matrix-card rounded-2xl overflow-hidden"
+                price_cls = "text-[#00FF41]"
+                desc_cls = "text-[#00FF41]/60"
+            elif "morphing" in (template_id or "") or "spotlight" in (template_id or ""):
+                card_cls = "menu-card bg-[#1A1A1A]/80 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden"
+                price_cls = "text-[#D4AF37]"
+                desc_cls = "text-[#A0998C]"
+            elif "particle" in (template_id or ""):
+                card_cls = "menu-card rounded-2xl overflow-hidden"
+                price_cls = "text-[#3B82F6]"
+                desc_cls = "text-[#9CA3AF]"
+            else:
+                # neon_grid, gradient_wave, neon_night
+                card_cls = "menu-card bg-[#111827]/80 backdrop-blur-xl border border-[#8B5CF6]/20 rounded-2xl overflow-hidden"
+                price_cls = "text-[#8B5CF6]"
+                desc_cls = "text-[#9CA3AF]"
+        else:
+            # Light templates
+            if "floating" in (template_id or "") or "warm" in (template_id or ""):
+                card_cls = "menu-card bg-white rounded-3xl shadow-md shadow-orange-900/5 border border-orange-100/50 overflow-hidden"
+                price_cls = "text-[#EA580C]"
+                desc_cls = "text-[#78716C]"
+            elif "word" in (template_id or ""):
+                card_cls = "menu-card bg-white rounded-2xl shadow-md shadow-orange-900/5 border border-[#E85D3A]/10 overflow-hidden"
+                price_cls = "text-[#E85D3A]"
+                desc_cls = "text-[#7A7A7A]"
+            elif "parallax" in (template_id or "") or "fresh" in (template_id or ""):
+                card_cls = "menu-card bg-white rounded-2xl shadow-lg shadow-black/5 border border-gray-100 overflow-hidden"
+                price_cls = "text-[#16A34A]"
+                desc_cls = "text-[#6B8068]"
+            else:
+                # default
+                card_cls = "menu-card bg-white rounded-2xl shadow-lg shadow-black/5 border border-gray-100 overflow-hidden"
+                price_cls = "text-[#3B82F6]"
+                desc_cls = "text-[#64748B]"
+
+        # Build image HTML if we have an image URL
+        image_html = ""
+        if image_url:
+            image_html = f'''<div class="aspect-video overflow-hidden">
+                        <img src="{image_url}" alt="{name}" class="w-full h-full object-cover">
+                    </div>'''
+
+        return f'''<div class="{card_cls}">
+                    {image_html}
+                    <div class="p-6">
+                        <div class="flex justify-between items-start mb-3">
+                            <h3 class="text-xl font-heading font-bold">{name}</h3>
+                            <span class="{price_cls} font-bold text-lg">RM{price}</span>
+                        </div>
+                        <p class="{desc_cls}">{desc}</p>
+                    </div>
+                </div>'''
+
+    def _render_operating_hours_html(self, hours: list, template_id: str) -> str:
+        """Render operating hours list items matching the template's design."""
+        if not hours:
+            return ""
+
+        dark_templates = [
+            "aurora", "gradient-wave", "gradient_wave", "neon-grid", "neon_grid",
+            "matrix-code", "matrix", "morphing-blob", "morphing_blob",
+            "spotlight", "particle-globe", "particle_globe",
+            "ghost-restaurant", "ghost", "neon_night", "elegance_dark",
+            "ghost_restaurant",
+        ]
+
+        is_dark = any(t in (template_id or "").lower().replace(" ", "_").replace("-", "_")
+                       for t in [x.replace("-", "_") for x in dark_templates])
+
+        items_html = []
+        for h in hours:
+            if isinstance(h, dict):
+                days = h.get("days", h.get("day", ""))
+                hrs = h.get("hours", h.get("time", ""))
+            elif isinstance(h, str):
+                days = h
+                hrs = ""
+            else:
+                continue
+
+            if is_dark:
+                if "aurora" in (template_id or ""):
+                    accent = "text-[#34d399]"
+                elif "ghost" in (template_id or ""):
+                    accent = "text-[#00E5A0]"
+                elif "matrix" in (template_id or ""):
+                    accent = "text-[#00FF41]"
+                elif "morphing" in (template_id or "") or "spotlight" in (template_id or ""):
+                    accent = "text-[#D4AF37]"
+                elif "particle" in (template_id or ""):
+                    accent = "text-[#3B82F6]"
+                else:
+                    accent = "text-[#8B5CF6]"
+                border = "border-white/10"
+            else:
+                if "floating" in (template_id or "") or "warm" in (template_id or ""):
+                    accent = "text-[#EA580C]"
+                elif "word" in (template_id or ""):
+                    accent = "text-[#E85D3A]"
+                elif "parallax" in (template_id or "") or "fresh" in (template_id or ""):
+                    accent = "text-[#16A34A]"
+                else:
+                    accent = "text-[#3B82F6]"
+                border = "border-gray-200"
+
+            items_html.append(
+                f'<li class="flex justify-between items-center pb-4 border-b {border}">'
+                f'<span class="text-lg">{days}</span>'
+                f'<span class="{accent} font-bold">{hrs}</span>'
+                f'</li>'
+            )
+
+        return "\n                            ".join(items_html)
+
+    def _wrap_words_fly(self, text: str) -> str:
+        """Wrap each word in <span class='fly-word'> for the word explosion template."""
+        if not text:
+            return ""
+        words = text.split()
+        return " ".join(f'<span class="fly-word">{w}</span>' for w in words)
+
+    async def _generate_website_from_template(
+        self,
+        request: WebsiteGenerationRequest,
+        template_id: str,
+        template_filename: str,
+        image_choice: str = "upload",
+        progress_callback: Optional[Callable[[int, str], Awaitable[None]]] = None,
+    ) -> Optional[str]:
+        """
+        Generate a website by filling a pre-built HTML template with AI-generated content.
+        The AI only generates text content (copywriting), NOT HTML/CSS/design.
+        """
+        import time
+        start_time = time.time()
+
+        async def update_progress(percent: int, message: str):
+            if progress_callback:
+                try:
+                    await progress_callback(percent, message)
+                except Exception as e:
+                    logger.warning(f"Progress callback failed: {e}")
+
+        logger.info("=" * 80)
+        logger.info("📄 PRE-BUILT TEMPLATE GENERATION PIPELINE")
+        logger.info(f"   Template: {template_id} -> {template_filename}")
+        logger.info(f"   Business: {request.business_name}")
+        logger.info("=" * 80)
+
+        # Step 1: Load the pre-built template HTML
+        await update_progress(30, "Loading template design")
+        template_html = self._load_template_html(template_filename)
+        if not template_html:
+            logger.warning(f"⚠️ Could not load template {template_filename}, falling back to AI generation")
+            return None
+
+        # Step 2: Generate content-only with AI
+        await update_progress(40, "AI generating text content")
+        language = request.language.value if hasattr(request, 'language') and request.language else "ms"
+
+        # Extract phone number
+        wa_raw = request.whatsapp_number or "60123456789"
+        wa_digits = re.sub(r"\D", "", str(wa_raw))
+        if wa_digits.startswith("0"):
+            wa_digits = "6" + wa_digits
+        elif wa_digits.startswith("1"):
+            wa_digits = "60" + wa_digits
+        if not wa_digits:
+            wa_digits = "60123456789"
+
+        # Build menu items from uploaded images if available
+        menu_items_input = []
+        if request.uploaded_images:
+            for img in request.uploaded_images:
+                if isinstance(img, dict):
+                    name = img.get("name", "")
+                    if name and name.lower() != "hero image" and "hero" not in name.lower():
+                        menu_items_input.append({"name": name, "price": ""})
+
+        content = await self._generate_content_only(
+            business_name=request.business_name,
+            description=request.description,
+            phone=wa_raw,
+            address=request.location_address or "",
+            operating_hours=[],
+            language=language,
+            menu_items=menu_items_input if menu_items_input else None,
+        )
+
+        if not content:
+            logger.warning("⚠️ AI content generation failed, falling back to AI HTML generation")
+            return None
+
+        await update_progress(60, "Filling template with content")
+
+        # Step 3: Add non-AI fields to content
+        content['business_name'] = request.business_name
+        content['whatsapp_number'] = wa_digits
+        content['phone_display'] = wa_raw
+        content['address'] = request.location_address or content.get('address', '')
+
+        # Step 4: Build image URLs
+        image_urls = {}
+        if image_choice != "none" and request.uploaded_images and len(request.uploaded_images) > 0:
+            def get_image_url(img):
+                if isinstance(img, dict):
+                    return img.get('url', img.get('URL', ''))
+                return str(img)
+
+            def get_image_name(img):
+                if isinstance(img, dict):
+                    return img.get('name', '')
+                return ''
+
+            gallery_start_index = 0
+            first_name = (get_image_name(request.uploaded_images[0]) or "").strip().lower()
+            if first_name == "hero image" or "hero" in first_name:
+                image_urls["hero"] = get_image_url(request.uploaded_images[0])
+                gallery_start_index = 1
+
+            for i in range(1, 5):
+                idx = gallery_start_index + (i - 1)
+                if idx < len(request.uploaded_images):
+                    image_urls[f"gallery{i}"] = get_image_url(request.uploaded_images[idx])
+
+        # Step 5: Render menu items HTML
+        menu_items = content.get('menu_items', [])
+        menu_cards = []
+        for i, item in enumerate(menu_items):
+            img_url = image_urls.get(f"gallery{i+1}", "")
+            card_html = self._render_menu_card_html(item, template_id, img_url)
+            menu_cards.append(card_html)
+
+        content['menu_items_html'] = "\n                ".join(menu_cards)
+
+        # Step 6: Render operating hours HTML
+        op_hours = content.get('operating_hours', [])
+        content['operating_hours_html'] = self._render_operating_hours_html(op_hours, template_id)
+
+        # Step 7: Handle word explosion special placeholders
+        if "word" in (template_id or "").lower() or "word_explosion" in (template_filename or "").lower():
+            content['hero_title_words'] = self._wrap_words_fly(content.get('hero_title', ''))
+            content['hero_description_words'] = self._wrap_words_fly(content.get('hero_description', ''))
+            content['menu_section_title_words'] = self._wrap_words_fly(content.get('menu_section_title', ''))
+            content['menu_section_description_words'] = self._wrap_words_fly(content.get('menu_section_description', ''))
+            content['about_title_words'] = self._wrap_words_fly(content.get('about_title', ''))
+            content['about_description_words'] = self._wrap_words_fly(content.get('about_description', ''))
+
+        # Step 8: Fill template with content
+        final_html = self._fill_template(template_html, content)
+
+        await update_progress(80, "Finalizing website")
+
+        total_time = time.time() - start_time
+        logger.info(f"✅ Template generation complete")
+        logger.info(f"   Final size: {len(final_html)} characters")
+        logger.info(f"   ⏱️  Total time: {total_time:.1f}s")
+
+        return final_html
+
     async def generate_website(
         self,
         request: WebsiteGenerationRequest,
@@ -2761,6 +3228,60 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.info(f"   Total URLs: {len(image_urls)} images ready for HTML generation")
             await update_progress(45, "AI images generated")
 
+        # ===================================================================
+        # PRE-BUILT TEMPLATE PATH: If user selected a template that has a
+        # pre-built HTML file, use the template injection pipeline instead
+        # of asking the AI to generate HTML/CSS from scratch.
+        # ===================================================================
+        _tpl_id = getattr(request, "template_id", None)
+        if _tpl_id:
+            try:
+                from app.services.template_gallery import get_prebuilt_template_filename
+                _prebuilt_file = get_prebuilt_template_filename(_tpl_id)
+                if _prebuilt_file:
+                    logger.info(f"📄 Pre-built template found for '{_tpl_id}': {_prebuilt_file}")
+                    template_html = await self._generate_website_from_template(
+                        request=request,
+                        template_id=_tpl_id,
+                        template_filename=_prebuilt_file,
+                        image_choice=image_choice,
+                        progress_callback=progress_callback,
+                    )
+                    if template_html:
+                        # Post-processing: inject images if needed
+                        if not (request.uploaded_images and len(request.uploaded_images) > 0):
+                            template_html = await self._generate_ai_food_images(template_html)
+                        template_html = self._fix_broken_image_urls(template_html, request.description)
+
+                        total_time = time.time() - start_time
+                        logger.info(f"✅ PRE-BUILT TEMPLATE PIPELINE COMPLETE in {total_time:.1f}s")
+
+                        await update_progress(90, "Finalizing website")
+
+                        if request.include_ecommerce:
+                            integrations = ["Delivery System (to be injected)", "WhatsApp Contact", "Mobile Responsive", "Cloudinary Images"]
+                        else:
+                            integrations = ["WhatsApp", "Contact Form", "Mobile Responsive", "Cloudinary Images"]
+
+                        return AIGenerationResponse(
+                            html_content=template_html,
+                            css_content=None,
+                            js_content=None,
+                            meta_title=request.business_name,
+                            meta_description=f"{request.business_name} - {request.description[:150]}",
+                            sections=["Header", "Hero", "About", "Services", "Gallery", "Contact", "Footer"],
+                            integrations_included=integrations,
+                        )
+                    else:
+                        logger.warning(f"⚠️ Pre-built template pipeline failed for '{_tpl_id}', falling back to AI generation")
+            except Exception as e:
+                logger.warning(f"⚠️ Pre-built template check failed: {e}, falling back to AI generation")
+
+        # ===================================================================
+        # FALLBACK: Original AI generation pipeline (when no pre-built template
+        # is available or the template pipeline failed)
+        # ===================================================================
+
         # Build prompt WITH image URLs (or NO images if image_choice='none')
         await update_progress(50, "Generating website HTML")
         logger.info(f"🔷 STEP 2: DeepSeek generating HTML... [{time.time() - start_time:.1f}s elapsed]")
@@ -2774,7 +3295,6 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         # CRITICAL: Override color_mode based on selected template's color_mode
         # Without this, a dark template like "matrix-code" gets a light DesignSystem palette
-        _tpl_id = getattr(request, "template_id", None)
         if _tpl_id:
             try:
                 from app.services.template_gallery import TEMPLATES, ANIMATED_TO_DESIGN_MAP

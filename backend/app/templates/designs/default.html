@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{business_name}} | {{tagline}}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'primary': '#3B82F6',
+            'secondary': '#1E40AF',
+            'accent': '#DBEAFE',
+            'surface': '#FFFFFF',
+            'background': '#F8FAFC',
+          },
+          fontFamily: {
+            'heading': ['Plus Jakarta Sans', 'sans-serif'],
+            'body': ['Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://unpkg.com/aos@2.3.4/dist/aos.css" rel="stylesheet">
+    <style>
+        html { scroll-behavior: smooth; }
+        body { background-color: #F8FAFC; color: #0F172A; font-family: 'Inter', sans-serif; }
+
+        .menu-card { transition: all 0.3s ease; }
+        .menu-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(0,0,0,0.08); }
+    </style>
+</head>
+<body class="font-body">
+
+    <!-- Navigation -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-xl shadow-sm">
+        <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
+            <div class="flex justify-between items-center">
+                <a href="#" class="text-2xl font-heading font-bold text-[#3B82F6]">{{business_name}}</a>
+                <div class="hidden md:flex space-x-10">
+                    <a href="#home" class="text-sm font-medium text-[#0F172A] hover:text-[#3B82F6] transition-colors">Home</a>
+                    <a href="#menu" class="text-sm font-medium text-[#0F172A] hover:text-[#3B82F6] transition-colors">Menu</a>
+                    <a href="#about" class="text-sm font-medium text-[#0F172A] hover:text-[#3B82F6] transition-colors">About</a>
+                    <a href="#contact" class="text-sm font-medium text-[#0F172A] hover:text-[#3B82F6] transition-colors">Contact</a>
+                </div>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#3B82F6] text-white font-semibold rounded-xl px-6 py-2 text-sm hover:bg-[#2563EB] transition-colors">
+                    <i class="fab fa-whatsapp mr-2"></i>Order Now
+                </a>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Hero Section -->
+    <section id="home" class="pt-32 pb-20 md:py-40 min-h-screen flex items-center bg-gradient-to-br from-[#F8FAFC] to-[#DBEAFE]">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center" data-aos="fade-up">
+            <div class="bg-[#DBEAFE] text-[#3B82F6] px-4 py-1.5 rounded-full text-sm font-medium inline-block mb-6">{{tagline}}</div>
+            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6 text-[#0F172A]">
+                {{hero_title}}
+            </h1>
+            <p class="text-lg md:text-xl text-[#64748B] mb-10 max-w-2xl mx-auto leading-relaxed">
+                {{hero_description}}
+            </p>
+            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                <a href="#menu" class="bg-[#3B82F6] text-white font-semibold hover:bg-[#2563EB] rounded-xl px-8 py-4 transition-colors">
+                    {{cta_primary_text}}
+                </a>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#3B82F6]/30 text-[#3B82F6] font-semibold hover:bg-[#3B82F6]/5 rounded-xl px-8 py-4 transition-colors">
+                    {{cta_secondary_text}}
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Menu Section -->
+    <section id="menu" class="py-20 md:py-32">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="text-center mb-16" data-aos="fade-up">
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 text-[#0F172A]">{{menu_section_title}}</h2>
+                <p class="text-xl text-[#64748B] max-w-3xl mx-auto">{{menu_section_description}}</p>
+            </div>
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {{menu_items_html}}
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="py-20 md:py-32 bg-white">
+        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center" data-aos="fade-up">
+            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 text-[#0F172A]">{{about_title}}</h2>
+            <p class="text-xl text-[#64748B] leading-relaxed">{{about_description}}</p>
+        </div>
+    </section>
+
+    <!-- Contact & Hours -->
+    <section id="contact" class="py-20 md:py-32">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="grid md:grid-cols-2 gap-12">
+                <div data-aos="fade-right">
+                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 text-[#0F172A]">{{contact_title}}</h2>
+                    <div class="space-y-8">
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#3B82F6]">
+                                <i class="fas fa-map-marker-alt mr-3"></i>Location
+                            </h3>
+                            <p class="text-lg text-[#64748B]">{{address}}</p>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#3B82F6]">
+                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
+                            </h3>
+                            <p class="text-lg">
+                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#3B82F6] hover:underline">{{phone_display}}</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div data-aos="fade-left">
+                    <h3 class="text-3xl font-heading font-bold mb-10 text-[#0F172A]">Operating Hours</h3>
+                    <div class="bg-white rounded-2xl shadow-lg shadow-black/5 border border-gray-100 p-8">
+                        <ul class="space-y-6">
+                            {{operating_hours_html}}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-16 bg-[#0F172A]">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl font-heading font-bold text-[#3B82F6] mb-4">{{business_name}}</h2>
+            <p class="text-[#64748B] mb-6">{{footer_description}}</p>
+            <p class="text-[#64748B]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>
+    <script>
+        AOS.init({ duration: 800, once: true, offset: 100 });
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>

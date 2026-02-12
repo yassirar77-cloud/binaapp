@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{business_name}} | {{tagline}}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'primary': '#3B82F6',
+            'secondary': '#1D4ED8',
+            'accent': '#1E3A5F',
+            'surface': '#111827',
+            'background': '#030712',
+          },
+          fontFamily: {
+            'heading': ['Space Grotesk', 'sans-serif'],
+            'body': ['Inter', 'sans-serif'],
+          }
+        }
+      }
+    }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        html { scroll-behavior: smooth; }
+        body { background-color: #030712; color: #F9FAFB; font-family: 'Inter', sans-serif; }
+
+        .globe-hero { position: relative; overflow: hidden; }
+        #globeCanvas {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 0; opacity: 0.6;
+        }
+        .glow-text {
+            background: linear-gradient(135deg, #3B82F6, #60A5FA);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .menu-card {
+            background: rgba(17,24,39,0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(59,130,246,0.15);
+            transition: all 0.5s ease;
+        }
+        .menu-card:hover {
+            border-color: rgba(59,130,246,0.4);
+            box-shadow: 0 0 30px rgba(59,130,246,0.1);
+            transform: translateY(-4px);
+        }
+    </style>
+</head>
+<body class="font-body">
+
+    <!-- Navigation -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-[#030712]/90 backdrop-blur-xl border-b border-[#3B82F6]/20">
+        <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
+            <div class="flex justify-between items-center">
+                <a href="#" class="text-2xl font-heading font-bold glow-text">{{business_name}}</a>
+                <div class="hidden md:flex space-x-10">
+                    <a href="#home" class="text-sm font-medium hover:text-[#3B82F6] transition-colors">Home</a>
+                    <a href="#menu" class="text-sm font-medium hover:text-[#3B82F6] transition-colors">Menu</a>
+                    <a href="#about" class="text-sm font-medium hover:text-[#3B82F6] transition-colors">About</a>
+                    <a href="#contact" class="text-sm font-medium hover:text-[#3B82F6] transition-colors">Contact</a>
+                </div>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#3B82F6] text-white font-semibold rounded-xl px-6 py-2 text-sm hover:bg-[#2563EB] transition-colors">
+                    <i class="fab fa-whatsapp mr-2"></i>Order Now
+                </a>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Hero Section with Particle Globe -->
+    <section id="home" class="globe-hero pt-32 pb-20 md:py-40 min-h-screen flex items-center">
+        <canvas id="globeCanvas" width="600" height="600"></canvas>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
+            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6">
+                <span class="glow-text">{{hero_title}}</span>
+            </h1>
+            <p class="text-lg md:text-xl text-[#9CA3AF] mb-10 max-w-2xl mx-auto leading-relaxed">
+                {{hero_description}}
+            </p>
+            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                <a href="#menu" class="bg-[#3B82F6] text-white font-semibold hover:bg-[#2563EB] rounded-xl px-8 py-4 transition-colors">
+                    {{cta_primary_text}}
+                </a>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#3B82F6]/40 text-[#3B82F6] font-semibold hover:bg-[#3B82F6]/10 rounded-xl px-8 py-4 transition-colors">
+                    {{cta_secondary_text}}
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Menu Section -->
+    <section id="menu" class="py-24 md:py-36 border-t border-[#3B82F6]/20">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 glow-text">{{menu_section_title}}</h2>
+                <p class="text-xl text-[#9CA3AF] max-w-3xl mx-auto">{{menu_section_description}}</p>
+            </div>
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {{menu_items_html}}
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="py-24 md:py-36 border-t border-[#3B82F6]/20">
+        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 glow-text">{{about_title}}</h2>
+            <p class="text-xl text-[#9CA3AF] leading-relaxed">{{about_description}}</p>
+        </div>
+    </section>
+
+    <!-- Contact & Hours -->
+    <section id="contact" class="py-24 md:py-36 border-t border-[#3B82F6]/20">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="grid md:grid-cols-2 gap-12">
+                <div>
+                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 glow-text">{{contact_title}}</h2>
+                    <div class="space-y-8">
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#3B82F6]">
+                                <i class="fas fa-map-marker-alt mr-3"></i>Location
+                            </h3>
+                            <p class="text-lg text-[#9CA3AF]">{{address}}</p>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#3B82F6]">
+                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
+                            </h3>
+                            <p class="text-lg">
+                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#3B82F6] hover:underline">{{phone_display}}</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-3xl font-heading font-bold mb-10">Operating Hours</h3>
+                    <div class="menu-card rounded-2xl p-8">
+                        <ul class="space-y-6">
+                            {{operating_hours_html}}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-16 border-t border-[#3B82F6]/20 bg-[#111827]">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl font-heading font-bold glow-text mb-4">{{business_name}}</h2>
+            <p class="text-[#9CA3AF] mb-6">{{footer_description}}</p>
+            <p class="text-[#9CA3AF]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        // 3D Particle Globe
+        (function() {
+            var canvas = document.getElementById('globeCanvas');
+            if (!canvas) return;
+            var ctx = canvas.getContext('2d');
+            var w = canvas.width, h = canvas.height;
+            var cx = w / 2, cy = h / 2, r = 200;
+            var particles = [];
+            var numParticles = 300;
+            var angle = 0;
+
+            for (var i = 0; i < numParticles; i++) {
+                var theta = Math.random() * Math.PI * 2;
+                var phi = Math.acos(2 * Math.random() - 1);
+                particles.push({ theta: theta, phi: phi, speed: 0.002 + Math.random() * 0.004 });
+            }
+
+            function draw() {
+                ctx.clearRect(0, 0, w, h);
+                angle += 0.005;
+
+                for (var i = 0; i < particles.length; i++) {
+                    var p = particles[i];
+                    p.theta += p.speed;
+
+                    var x3d = r * Math.sin(p.phi) * Math.cos(p.theta + angle);
+                    var y3d = r * Math.cos(p.phi);
+                    var z3d = r * Math.sin(p.phi) * Math.sin(p.theta + angle);
+
+                    var scale = (z3d + r) / (2 * r);
+                    var x2d = cx + x3d;
+                    var y2d = cy + y3d;
+                    var size = 1 + scale * 2;
+                    var alpha = 0.2 + scale * 0.6;
+
+                    ctx.beginPath();
+                    ctx.arc(x2d, y2d, size, 0, Math.PI * 2);
+                    ctx.fillStyle = 'rgba(59, 130, 246, ' + alpha + ')';
+                    ctx.fill();
+                }
+
+                requestAnimationFrame(draw);
+            }
+            draw();
+        })();
+
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>

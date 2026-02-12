@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{business_name}} | {{tagline}}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Nunito:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'primary': '#EA580C',
+            'secondary': '#92400E',
+            'accent': '#FED7AA',
+            'surface': '#FFFFFF',
+            'background': '#FFFBF5',
+          },
+          fontFamily: {
+            'heading': ['Lora', 'serif'],
+            'body': ['Nunito', 'sans-serif'],
+          }
+        }
+      }
+    }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        html { scroll-behavior: smooth; }
+        body { background-color: #FFFBF5; color: #1C1917; font-family: 'Nunito', sans-serif; }
+
+        .food-hero { position: relative; overflow: hidden; min-height: 100vh; }
+        .floating-emoji {
+            position: absolute; font-size: 48px; pointer-events: none;
+            animation: floatFood var(--dur) ease-in-out infinite;
+            animation-delay: var(--delay);
+            opacity: 0.7;
+        }
+        @keyframes floatFood {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            25% { transform: translateY(-30px) rotate(10deg); }
+            50% { transform: translateY(-10px) rotate(-5deg); }
+            75% { transform: translateY(-25px) rotate(5deg); }
+        }
+
+        .glass-card {
+            background: rgba(255,255,255,0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(234,88,12,0.1);
+            border-radius: 1.5rem;
+            transition: all 0.3s ease;
+        }
+        .glass-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 40px rgba(234,88,12,0.1);
+            border-color: rgba(234,88,12,0.2);
+        }
+
+        .menu-card { transition: all 0.3s ease; }
+        .menu-card:hover { transform: translateY(-4px); box-shadow: 0 15px 30px rgba(234,88,12,0.08); }
+    </style>
+</head>
+<body class="font-body">
+
+    <!-- Navigation -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-[#FFFBF5]/90 backdrop-blur-xl shadow-sm">
+        <nav class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 py-4">
+            <div class="flex justify-between items-center">
+                <a href="#" class="text-2xl font-heading font-bold text-[#EA580C]">{{business_name}}</a>
+                <div class="hidden md:flex space-x-10">
+                    <a href="#home" class="text-sm font-medium text-[#1C1917] hover:text-[#EA580C] transition-colors">Home</a>
+                    <a href="#menu" class="text-sm font-medium text-[#1C1917] hover:text-[#EA580C] transition-colors">Menu</a>
+                    <a href="#about" class="text-sm font-medium text-[#1C1917] hover:text-[#EA580C] transition-colors">About</a>
+                    <a href="#contact" class="text-sm font-medium text-[#1C1917] hover:text-[#EA580C] transition-colors">Contact</a>
+                </div>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="bg-[#EA580C] text-white font-semibold rounded-2xl px-6 py-2 text-sm hover:bg-[#C2410C] transition-colors">
+                    <i class="fab fa-whatsapp mr-2"></i>Order Now
+                </a>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Hero Section with Floating Food Emojis -->
+    <section id="home" class="food-hero pt-32 pb-20 md:py-40 flex items-center">
+        <div id="foodEmojis"></div>
+
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 relative z-10 text-center">
+            <div class="bg-[#FED7AA] text-[#92400E] px-4 py-1.5 rounded-full text-sm font-semibold inline-block mb-6">{{tagline}}</div>
+            <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold leading-tight mb-6 text-[#1C1917]">
+                {{hero_title}}
+            </h1>
+            <p class="text-lg md:text-xl text-[#78716C] mb-10 max-w-2xl mx-auto leading-relaxed">
+                {{hero_description}}
+            </p>
+            <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                <a href="#menu" class="bg-[#EA580C] text-white font-semibold hover:bg-[#C2410C] rounded-2xl px-8 py-4 transition-colors">
+                    {{cta_primary_text}}
+                </a>
+                <a href="https://wa.me/{{whatsapp_number}}" target="_blank" class="border border-[#EA580C]/30 text-[#EA580C] font-semibold hover:bg-[#EA580C]/5 rounded-2xl px-8 py-4 transition-colors">
+                    {{cta_secondary_text}}
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Menu Section -->
+    <section id="menu" class="py-20 md:py-28">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-6 text-[#1C1917]">{{menu_section_title}}</h2>
+                <p class="text-xl text-[#78716C] max-w-3xl mx-auto">{{menu_section_description}}</p>
+            </div>
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                {{menu_items_html}}
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="py-20 md:py-28 bg-[#FED7AA]/20">
+        <div class="max-w-4xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl md:text-4xl lg:text-5xl font-heading font-bold mb-8 text-[#1C1917]">{{about_title}}</h2>
+            <p class="text-xl text-[#78716C] leading-relaxed">{{about_description}}</p>
+        </div>
+    </section>
+
+    <!-- Contact & Hours -->
+    <section id="contact" class="py-20 md:py-28">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16">
+            <div class="grid md:grid-cols-2 gap-12">
+                <div>
+                    <h2 class="text-3xl md:text-4xl font-heading font-bold mb-10 text-[#1C1917]">{{contact_title}}</h2>
+                    <div class="space-y-8">
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#EA580C]">
+                                <i class="fas fa-map-marker-alt mr-3"></i>Location
+                            </h3>
+                            <p class="text-lg text-[#78716C]">{{address}}</p>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-heading font-bold mb-4 text-[#EA580C]">
+                                <i class="fab fa-whatsapp mr-3"></i>WhatsApp
+                            </h3>
+                            <p class="text-lg">
+                                <a href="https://wa.me/{{whatsapp_number}}" class="text-[#EA580C] hover:underline">{{phone_display}}</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-3xl font-heading font-bold mb-10 text-[#1C1917]">Operating Hours</h3>
+                    <div class="bg-white rounded-3xl shadow-md shadow-orange-900/5 border border-orange-100/50 p-8">
+                        <ul class="space-y-6">
+                            {{operating_hours_html}}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-16 bg-[#1C1917]">
+        <div class="max-w-7xl mx-auto px-6 md:px-8 lg:px-16 text-center">
+            <h2 class="text-3xl font-heading font-bold text-[#EA580C] mb-4">{{business_name}}</h2>
+            <p class="text-[#78716C] mb-6">{{footer_description}}</p>
+            <p class="text-[#78716C]">&copy; <span id="currentYear"></span> {{business_name}}. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Floating food emojis
+        (function() {
+            var container = document.getElementById('foodEmojis');
+            if (!container) return;
+            var emojis = ['\uD83C\uDF5C','\uD83C\uDF5B','\uD83C\uDF72','\uD83C\uDF54','\uD83C\uDF55','\uD83C\uDF5D','\uD83E\uDD5F','\uD83C\uDF63','\uD83C\uDF69','\uD83C\uDF70','\u2615','\uD83C\uDF75','\uD83E\uDD57','\uD83C\uDF5E'];
+            var positions = [
+                {top:'8%',left:'5%'},{top:'15%',left:'85%'},{top:'25%',left:'12%'},
+                {top:'35%',left:'78%'},{top:'45%',left:'3%'},{top:'55%',left:'90%'},
+                {top:'65%',left:'8%'},{top:'75%',left:'82%'},{top:'20%',left:'45%'},
+                {top:'60%',left:'55%'},{top:'40%',left:'25%'},{top:'70%',left:'65%'},
+                {top:'10%',left:'60%'},{top:'80%',left:'35%'}
+            ];
+            for (var i = 0; i < positions.length; i++) {
+                var el = document.createElement('div');
+                el.className = 'floating-emoji';
+                el.textContent = emojis[i % emojis.length];
+                el.style.top = positions[i].top;
+                el.style.left = positions[i].left;
+                el.style.setProperty('--dur', (4 + Math.random() * 4) + 's');
+                el.style.setProperty('--delay', Math.random() * 3 + 's');
+                el.style.fontSize = (32 + Math.random() * 24) + 'px';
+                container.appendChild(el);
+            }
+        })();
+
+        document.getElementById('currentYear').textContent = new Date().getFullYear();
+    </script>
+</body>
+</html>
