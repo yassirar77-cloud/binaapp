@@ -213,7 +213,7 @@ class AIWebsiteDoctor:
         try:
             # 1. Fetch website HTML
             website_result = supabase.table("websites").select(
-                "id, html_content, subdomain, business_name, business_type"
+                "id, html_content, subdomain, business_name"
             ).eq("id", website_id).eq("user_id", user_id).execute()
 
             if not website_result.data:
