@@ -501,8 +501,8 @@
                 #binaapp-widget {
                     position: fixed;
                     bottom: 20px;
-                    right: 20px;
-                    z-index: 99999;
+                    left: 20px;
+                    z-index: 9998;
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 }
 
@@ -867,6 +867,11 @@
 
         // Create widget DOM
         createWidget: function() {
+            // Prevent duplicate buttons
+            if (document.getElementById('binaapp-widget')) {
+                return;
+            }
+
             const config = this.getConfig();
             const lang = this.config.language;
 

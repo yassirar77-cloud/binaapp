@@ -2979,10 +2979,14 @@ function handleContactSubmit(e) {{
         Returns:
             HTML with delivery widget injected
         """
+        # Skip if delivery widget already present (avoid duplicate buttons)
+        if "delivery-widget.js" in html or "binaapp-widget" in html:
+            return html
+
         # Auto-detect business type if not provided
         if not business_type:
             business_type = detect_business_type(description)
-        
+
         # Get dynamic button label
         button_label = get_delivery_button_label(business_type, language)
         

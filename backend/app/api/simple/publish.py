@@ -633,8 +633,12 @@ def fix_website_id_in_html(html: str, correct_website_id: str) -> str:
 
 
 def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: str, description: str = "", language: str = "ms") -> str:
-    """ALWAYS inject delivery widget script - auto-initializes with data attributes"""
+    """Inject delivery widget script if not already present - auto-initializes with data attributes"""
     from app.services.business_types import detect_business_type
+
+    # Skip if delivery widget already present (avoid duplicate buttons)
+    if "delivery-widget.js" in html or "binaapp-widget" in html:
+        return html
 
     # Detect business type from description or business name
     business_type = detect_business_type(description or business_name)
