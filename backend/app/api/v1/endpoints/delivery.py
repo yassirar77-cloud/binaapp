@@ -1808,9 +1808,9 @@ async def get_widget_config(
     )
 
     try:
-        # 1. Get website info (only select columns that exist in the table)
+        # 1. Get website info (only select columns guaranteed to exist)
         website_response = supabase.table("websites").select(
-            "id, name, whatsapp_number, description, location_address"
+            "id, name, description"
         ).eq("id", website_id).execute()
 
         website = None
@@ -1851,8 +1851,6 @@ async def get_widget_config(
             "business_name": website.get("name", "Kedai") if website else "Kedai",
             "whatsapp_number": (
                 settings.get("whatsapp_number") if settings else None
-            ) or (
-                website.get("whatsapp_number") if website else None
             ) or "",
             "language": website.get("language", "ms") if website else "ms",
             "primary_color": biz_config.get("primary_color", "#ea580c"),
@@ -1875,8 +1873,8 @@ async def get_widget_config(
                 ),
                 "delivery_area": first_zone.get("zone_name", "") if first_zone else "",
                 "pickup": settings.get("pickup_enabled", True) if settings else True,
-                "pickup_address": settings.get("pickup_address") or (
-                    website.get("location_address") if website else ""
+                "pickup_address": (
+                    settings.get("pickup_address") if settings else None
                 ) or ""
             },
 

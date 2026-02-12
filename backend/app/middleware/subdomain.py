@@ -233,7 +233,7 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
     chat_widget_script = "" if has_inline_chat else f'''
 <script src="https://binaapp-backend.onrender.com/static/widgets/chat-widget.js"
         data-website-id="{website_id}"
-        data-api-url="https://binaapp-backend.onrender.com/api/v1"></script>'''
+        data-api-url="https://binaapp-backend.onrender.com"></script>'''
 
     widget_injection = f'''
 <!-- BinaApp Widgets - Auto-injected with correct website_id -->

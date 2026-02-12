@@ -86,7 +86,11 @@ class WebsiteLockChecker:
                 response = await client.get(url, headers=self.headers, params=params)
 
             if response.status_code != 200:
-                logger.warning(f"Failed to check website_lock_status: {response.status_code}")
+                # 404 means table doesn't exist yet - not an error, just skip
+                if response.status_code == 404:
+                    logger.debug(f"website_lock_status table not found (404), skipping")
+                else:
+                    logger.warning(f"Failed to check website_lock_status: {response.status_code}")
                 return None
 
             records = response.json()
@@ -151,6 +155,13 @@ class WebsiteLockChecker:
 
             async with httpx.AsyncClient(timeout=5.0) as client:
                 sub_response = await client.get(sub_url, headers=self.headers, params=sub_params)
+
+            # If query fails (e.g. columns don't exist), retry with just status
+            if sub_response.status_code == 400:
+                logger.debug("Subscription query failed (400), retrying with minimal columns")
+                sub_params["select"] = "status"
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    sub_response = await client.get(sub_url, headers=self.headers, params=sub_params)
 
             if sub_response.status_code != 200:
                 return None
