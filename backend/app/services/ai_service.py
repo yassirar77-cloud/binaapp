@@ -2784,12 +2784,22 @@ IMPORTANT RULES:
             'menu_section_description', 'about_title', 'about_description',
             'contact_title', 'whatsapp_number', 'phone_display', 'address',
             'footer_description',
+            # Rendered HTML blocks (menu cards, operating hours)
+            'menu_items_html', 'operating_hours_html',
+            # Word explosion template variants
+            'hero_title_words', 'hero_description_words',
+            'menu_section_title_words', 'menu_section_description_words',
+            'about_title_words', 'about_description_words',
         ]
 
         for field in simple_fields:
             value = content.get(field, '')
             if value:
                 result = result.replace('{{' + field + '}}', str(value))
+
+        # Safety net: remove any remaining {{placeholder}} tokens so they
+        # never appear on the published site.
+        result = re.sub(r'\{\{[a-zA-Z_]+\}\}', '', result)
 
         return result
 
@@ -3485,6 +3495,10 @@ IMPORTANT INSTRUCTIONS:
         # FINAL SAFETY NET: Fix any remaining broken/empty image URLs
         # This ensures no images are left blank or with invalid URLs
         html = self._fix_broken_image_urls(html, request.description)
+
+        # Safety net: remove any remaining {{placeholder}} tokens so they
+        # never appear on the published site (AI sometimes outputs these).
+        html = re.sub(r'\{\{[a-zA-Z_]+\}\}', '', html)
 
         total_time = time.time() - start_time
         logger.info("✅ ALL STEPS COMPLETE")
