@@ -1,21 +1,14 @@
-const CACHE_NAME = 'binaapp-cache-v1';
-const urlsToCache = [
-  '/',
-  '/profile',
-  '/create',
-  '/login',
-  '/offline.html'
-];
+const CACHE_NAME = 'binaapp-cache-v2';
 
-// Install event
+// Install event - skip waiting immediately to ensure SW activates
+// Do NOT use cache.addAll with app routes here; if any route returns non-200
+// (e.g. auth redirect), the entire install fails and SW never activates,
+// which prevents mobile Chrome from firing beforeinstallprompt.
 self.addEventListener('install', (event) => {
   console.log('[BinaApp SW] Installing...');
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('[BinaApp SW] Caching app shell');
-        return cache.addAll(urlsToCache);
-      })
+      .then((cache) => cache.addAll(['/offline.html']))
       .then(() => self.skipWaiting())
   );
 });
