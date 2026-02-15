@@ -26,6 +26,11 @@ from app.core.config import settings
 from app.services.ai_email_support import ai_email_support
 from app.services.supabase_client import get_supabase_client
 
+# Timeout for IMAP operations (seconds)
+IMAP_TIMEOUT = 30
+# Maximum time for a single poll cycle (seconds)
+POLL_TIMEOUT = 180
+
 
 class EmailPollingService:
     """Service for polling IMAP inbox and processing emails with AI"""
@@ -145,70 +150,184 @@ class EmailPollingService:
                 await asyncio.sleep(wait_time)
         self._last_email_sent_time = datetime.utcnow()
 
-    async def process_email(self, msg: Any, mailbox: Any) -> Dict[str, Any]:
+    def _fetch_unseen_emails_sync(self) -> List[Dict[str, Any]]:
         """
-        Process a single email message
+        Synchronous IMAP fetch - runs in thread pool to avoid blocking event loop.
+        Connects to IMAP, fetches unseen emails, extracts data, and disconnects.
+
+        Returns:
+            List of dicts with extracted email data
+        """
+        fetched = []
+        mailbox = None
+        try:
+            logger.info(f"[IMAP] Connecting to {self.imap_server}:{self.imap_port} (timeout={IMAP_TIMEOUT}s)")
+            self.imap_connection_status = "connecting"
+
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"[IMAP] Connection attempt {attempt + 1}/{max_retries}")
+                    mailbox = MailBox(self.imap_server, self.imap_port, timeout=IMAP_TIMEOUT)
+                    mailbox.login(self.email, self.password)
+                    logger.info("[IMAP] LOGIN SUCCESSFUL!")
+                    self.imap_connection_status = "connected"
+                    break
+                except Exception as conn_error:
+                    logger.error(f"[IMAP] Connection attempt {attempt + 1} FAILED: {conn_error}")
+                    self.imap_connection_status = "failed"
+                    if mailbox:
+                        try:
+                            mailbox.logout()
+                        except Exception:
+                            pass
+                        mailbox = None
+                    if attempt < max_retries - 1:
+                        import time
+                        wait_time = 2 ** (attempt + 1)
+                        logger.warning(f"[IMAP] Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        raise conn_error
+
+            mailbox.folder.set("INBOX")
+            logger.info("[IMAP] Fetching unread emails (limit: 20)...")
+            messages = list(mailbox.fetch(AND(seen=False), limit=20, reverse=True))
+            logger.info(f"[IMAP] Found {len(messages)} unread emails")
+
+            for msg in messages:
+                # Extract all data from IMAP message while connection is open
+                email_hash = self._generate_email_hash(msg)
+                sender_name, sender_email = self._extract_sender_name(msg.from_)
+                body_text = self._extract_plain_text(msg)
+                html_body = msg.html if msg.html else None
+
+                fetched.append({
+                    "uid": msg.uid,
+                    "subject": msg.subject or "(No Subject)",
+                    "from": msg.from_,
+                    "sender_name": sender_name,
+                    "sender_email": sender_email,
+                    "body_text": body_text,
+                    "html_body": html_body,
+                    "email_hash": email_hash,
+                    "date": str(msg.date) if msg.date else None,
+                })
+
+        finally:
+            if mailbox:
+                try:
+                    mailbox.logout()
+                    self.imap_connection_status = "disconnected"
+                except Exception as e:
+                    logger.warning(f"[IMAP] Error closing fetch connection: {e}")
+
+        return fetched
+
+    def _mark_emails_in_imap_sync(self, uid_actions: List[Dict[str, Any]]):
+        """
+        Synchronous IMAP flag update - runs in thread pool.
+        Reconnects to IMAP and applies flags for processed emails.
+        """
+        if not uid_actions:
+            return
+
+        mailbox = None
+        try:
+            mailbox = MailBox(self.imap_server, self.imap_port, timeout=IMAP_TIMEOUT)
+            mailbox.login(self.email, self.password)
+            mailbox.folder.set("INBOX")
+
+            for action in uid_actions:
+                uid = action["uid"]
+                escalated = action.get("escalated", False)
+                try:
+                    if escalated:
+                        # Keep unread for admin, try custom flag
+                        mailbox.flag(uid, ['\\Seen'], False)
+                        try:
+                            mailbox.flag(uid, [self.FLAG_ESCALATED], True)
+                        except Exception:
+                            pass
+                    else:
+                        mailbox.flag(uid, ['\\Seen'], True)
+                        try:
+                            mailbox.flag(uid, [self.FLAG_PROCESSED_BY_AI], True)
+                        except Exception:
+                            pass
+                except Exception as flag_err:
+                    logger.warning(f"[IMAP] Could not flag UID {uid}: {flag_err}")
+
+        except Exception as e:
+            logger.warning(f"[IMAP] Failed to update flags: {e}")
+        finally:
+            if mailbox:
+                try:
+                    mailbox.logout()
+                except Exception:
+                    pass
+
+    async def process_email_data(self, email_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process a single email from extracted data (async-safe, no IMAP calls).
 
         Args:
-            msg: IMAP email message object
-            mailbox: IMAP mailbox connection for flag operations
+            email_data: Dict with extracted email fields from _fetch_unseen_emails_sync
 
         Returns:
             Dict with processing results
         """
         result = {
             "success": False,
-            "uid": msg.uid,
-            "subject": msg.subject,
-            "from": msg.from_,
+            "uid": email_data["uid"],
+            "subject": email_data["subject"],
+            "from": email_data["from"],
             "processed": False,
             "escalated": False,
             "error": None
         }
 
         try:
-            # Check for duplicate processing
-            email_hash = self._generate_email_hash(msg)
+            email_hash = email_data["email_hash"]
             if email_hash in self._processed_uids:
-                logger.info(f"Skipping already processed email: {msg.subject}")
+                logger.info(f"Skipping already processed email: {email_data['subject']}")
                 result["success"] = True
                 result["processed"] = True
                 return result
 
-            # Extract sender info
-            sender_name, sender_email = self._extract_sender_name(msg.from_)
+            sender_name = email_data["sender_name"]
+            sender_email = email_data["sender_email"]
 
-            # Skip emails from our own support address (to prevent loops)
+            # Skip self-emails to prevent loops
             if sender_email.lower() == self.email.lower():
-                logger.debug(f"Skipping email from self: {msg.subject}")
+                logger.debug(f"Skipping email from self: {email_data['subject']}")
                 result["success"] = True
                 return result
 
-            # Skip emails from noreply addresses
+            # Skip noreply addresses
             if "noreply" in sender_email.lower() or "no-reply" in sender_email.lower():
-                logger.debug(f"Skipping noreply email: {msg.subject}")
+                logger.debug(f"Skipping noreply email: {email_data['subject']}")
                 result["success"] = True
                 return result
 
-            # Extract email content
-            body_text = self._extract_plain_text(msg)
-            html_body = msg.html if msg.html else None
+            body_text = email_data["body_text"]
+            html_body = email_data["html_body"]
 
             if not body_text and not html_body:
-                logger.warning(f"Empty email body: {msg.subject}")
+                logger.warning(f"Empty email body: {email_data['subject']}")
                 result["error"] = "Empty email body"
                 return result
 
-            logger.info(f"Processing email from {sender_email}: {msg.subject}")
+            logger.info(f"Processing email from {sender_email}: {email_data['subject']}")
 
-            # Apply rate limiting before processing
+            # Apply rate limiting
             await self._rate_limit_check()
 
-            # Process with AI email support
+            # Process with AI email support (fully async)
             ai_result = await ai_email_support.process_incoming_email(
                 sender_email=sender_email,
                 sender_name=sender_name,
-                subject=msg.subject or "(No Subject)",
+                subject=email_data["subject"],
                 body=body_text,
                 html_body=html_body
             )
@@ -217,33 +336,8 @@ class EmailPollingService:
             result["ai_response_sent"] = ai_result.get("ai_response_sent", False)
             result["escalated"] = ai_result.get("escalated", False)
 
-            # Mark as processed in IMAP
-            try:
-                # Mark as read (SEEN)
-                mailbox.flag(msg.uid, ['\\Seen'], True)
-
-                # Add custom flag based on result
-                if ai_result.get("escalated"):
-                    # Keep as unseen for admin to see, but add escalated flag
-                    mailbox.flag(msg.uid, ['\\Seen'], False)  # Mark as unread
-                    # Note: Custom flags may not work on all IMAP servers
-                    try:
-                        mailbox.flag(msg.uid, [self.FLAG_ESCALATED], True)
-                    except Exception:
-                        pass  # Custom flags not supported
-                else:
-                    try:
-                        mailbox.flag(msg.uid, [self.FLAG_PROCESSED_BY_AI], True)
-                    except Exception:
-                        pass  # Custom flags not supported
-
-            except Exception as flag_error:
-                logger.warning(f"Could not update IMAP flags: {flag_error}")
-
             # Track processed UID
             self._processed_uids.add(email_hash)
-
-            # Limit the size of processed UIDs set (keep last 1000)
             if len(self._processed_uids) > 1000:
                 self._processed_uids = set(list(self._processed_uids)[-500:])
 
@@ -252,21 +346,20 @@ class EmailPollingService:
             self.emails_processed_today += 1
 
             logger.info(
-                f"Email processed successfully: {msg.subject} | "
+                f"Email processed successfully: {email_data['subject']} | "
                 f"AI Response: {result['ai_response_sent']} | "
                 f"Escalated: {result['escalated']}"
             )
 
         except Exception as e:
-            logger.error(f"Error processing email {msg.uid}: {e}")
+            logger.error(f"Error processing email {email_data['uid']}: {e}")
             result["error"] = str(e)
             self.errors_today.append({
                 "time": datetime.utcnow().isoformat(),
-                "uid": msg.uid,
-                "subject": msg.subject,
+                "uid": email_data["uid"],
+                "subject": email_data["subject"],
                 "error": str(e)
             })
-            # Keep only last 50 errors
             if len(self.errors_today) > 50:
                 self.errors_today = self.errors_today[-50:]
 
@@ -274,7 +367,8 @@ class EmailPollingService:
 
     async def poll_inbox(self) -> Dict[str, Any]:
         """
-        Poll the IMAP inbox for new unread emails and process them
+        Poll the IMAP inbox for new unread emails and process them.
+        IMAP operations run in a thread pool to avoid blocking the event loop.
 
         Returns:
             Dict with polling results
@@ -304,71 +398,50 @@ class EmailPollingService:
         logger.info("=" * 60)
         logger.info(f"Poll started at: {self.last_poll_time.isoformat()}")
 
-        mailbox = None
         try:
-            logger.info(f"[IMAP] Attempting connection to {self.imap_server}:{self.imap_port}")
-            logger.info(f"[IMAP] Using account: {self.email}")
-            self.imap_connection_status = "connecting"
+            # Step 1: Fetch emails via thread pool (non-blocking)
+            logger.info("[POLL] Fetching emails from IMAP (in thread pool)...")
+            fetched_emails = await asyncio.to_thread(self._fetch_unseen_emails_sync)
+            poll_result["emails_found"] = len(fetched_emails)
 
-            # Connect to IMAP with retry logic
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    logger.info(f"[IMAP] Connection attempt {attempt + 1}/{max_retries}")
-                    mailbox = MailBox(self.imap_server, self.imap_port)
-                    logger.info(f"[IMAP] MailBox object created, attempting login...")
-                    mailbox.login(self.email, self.password)
-                    logger.info("[IMAP] LOGIN SUCCESSFUL!")
-                    self.imap_connection_status = "connected"
-                    break
-                except Exception as conn_error:
-                    logger.error(f"[IMAP] Connection attempt {attempt + 1} FAILED: {conn_error}")
-                    self.imap_connection_status = "failed"
-                    if attempt < max_retries - 1:
-                        wait_time = 2 ** (attempt + 1)  # Exponential backoff
-                        logger.warning(f"[IMAP] Retrying in {wait_time}s...")
-                        await asyncio.sleep(wait_time)
-                    else:
-                        logger.error(f"[IMAP] All {max_retries} connection attempts FAILED")
-                        raise conn_error
-
-            # Select INBOX
-            logger.info("[IMAP] Selecting INBOX folder...")
-            mailbox.folder.set("INBOX")
-            logger.info("[IMAP] INBOX selected successfully")
-
-            # Fetch unread emails
-            # Search for UNSEEN emails that don't have our processed flag
-            logger.info("[IMAP] Fetching unread emails (limit: 20)...")
-            messages = list(mailbox.fetch(AND(seen=False), limit=20, reverse=True))
-            poll_result["emails_found"] = len(messages)
-
-            logger.info(f"[EMAIL] Found {len(messages)} unread emails in inbox")
-            if len(messages) == 0:
+            if not fetched_emails:
                 logger.info("[EMAIL] No unread emails to process")
             else:
-                logger.info("[EMAIL] Starting email processing...")
+                logger.info(f"[EMAIL] Found {len(fetched_emails)} emails, starting processing...")
 
-            # Process each email
-            for idx, msg in enumerate(messages, 1):
-                logger.info(f"[EMAIL {idx}/{len(messages)}] Processing: {msg.subject} | From: {msg.from_}")
+            # Step 2: Process each email asynchronously (AI + DB, no IMAP blocking)
+            uid_actions = []
+            for idx, email_data in enumerate(fetched_emails, 1):
+                logger.info(f"[EMAIL {idx}/{len(fetched_emails)}] Processing: {email_data['subject']} | From: {email_data['from']}")
                 try:
-                    email_result = await self.process_email(msg, mailbox)
+                    email_result = await self.process_email_data(email_data)
                     if email_result.get("processed"):
                         poll_result["emails_processed"] += 1
+                        uid_actions.append({
+                            "uid": email_data["uid"],
+                            "escalated": email_result.get("escalated", False)
+                        })
                     if email_result.get("escalated"):
                         poll_result["emails_escalated"] += 1
                     if email_result.get("error"):
                         poll_result["errors"].append({
-                            "uid": msg.uid,
+                            "uid": email_data["uid"],
                             "error": email_result["error"]
                         })
                 except Exception as email_error:
-                    logger.error(f"Failed to process email {msg.uid}: {email_error}")
+                    logger.error(f"Failed to process email {email_data['uid']}: {email_error}")
                     poll_result["errors"].append({
-                        "uid": msg.uid,
+                        "uid": email_data["uid"],
                         "error": str(email_error)
                     })
+
+            # Step 3: Mark processed emails in IMAP via thread pool (non-blocking)
+            if uid_actions:
+                logger.info(f"[IMAP] Marking {len(uid_actions)} emails as processed...")
+                try:
+                    await asyncio.to_thread(self._mark_emails_in_imap_sync, uid_actions)
+                except Exception as flag_err:
+                    logger.warning(f"[IMAP] Flag update failed (non-critical): {flag_err}")
 
             poll_result["success"] = True
             self.last_poll_status = "success"
@@ -389,17 +462,6 @@ class EmailPollingService:
                 "time": datetime.utcnow().isoformat(),
                 "error": f"Polling error: {str(e)}"
             })
-
-        finally:
-            # Always close the connection
-            if mailbox:
-                try:
-                    logger.info("[IMAP] Closing connection...")
-                    mailbox.logout()
-                    logger.info("[IMAP] Connection closed successfully")
-                    self.imap_connection_status = "disconnected"
-                except Exception as logout_error:
-                    logger.warning(f"[IMAP] Error closing connection: {logout_error}")
 
         poll_result["completed_at"] = datetime.utcnow().isoformat()
 
@@ -435,8 +497,8 @@ class EmailPollingService:
             "email_account": self.email
         }
 
-    async def test_connection(self) -> Dict[str, Any]:
-        """Test IMAP connection without processing emails"""
+    def _test_connection_sync(self) -> Dict[str, Any]:
+        """Synchronous IMAP connection test - runs in thread pool."""
         result = {
             "success": False,
             "message": "",
@@ -445,20 +507,11 @@ class EmailPollingService:
             "email": self.email
         }
 
-        if not IMAP_TOOLS_AVAILABLE:
-            result["message"] = "imap-tools package not installed"
-            return result
-
-        if not self.email or not self.password:
-            result["message"] = "Email credentials not configured"
-            return result
-
         mailbox = None
         try:
-            mailbox = MailBox(self.imap_server, self.imap_port)
+            mailbox = MailBox(self.imap_server, self.imap_port, timeout=IMAP_TIMEOUT)
             mailbox.login(self.email, self.password)
 
-            # Get inbox status
             folder_status = mailbox.folder.status("INBOX")
             result["inbox_messages"] = folder_status.get("MESSAGES", 0)
             result["inbox_unseen"] = folder_status.get("UNSEEN", 0)
@@ -477,6 +530,25 @@ class EmailPollingService:
                     pass
 
         return result
+
+    async def test_connection(self) -> Dict[str, Any]:
+        """Test IMAP connection without processing emails (non-blocking)."""
+        if not IMAP_TOOLS_AVAILABLE:
+            return {"success": False, "message": "imap-tools package not installed",
+                    "server": self.imap_server, "port": self.imap_port, "email": self.email}
+
+        if not self.email or not self.password:
+            return {"success": False, "message": "Email credentials not configured",
+                    "server": self.imap_server, "port": self.imap_port, "email": self.email}
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._test_connection_sync),
+                timeout=IMAP_TIMEOUT + 10
+            )
+        except asyncio.TimeoutError:
+            return {"success": False, "message": f"Connection timed out after {IMAP_TIMEOUT + 10}s",
+                    "server": self.imap_server, "port": self.imap_port, "email": self.email}
 
 
 # Create singleton instance

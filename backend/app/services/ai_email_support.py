@@ -76,12 +76,12 @@ class AIEmailSupportService:
             "Content-Type": "application/json"
         }
 
-        # Initialize Claude client if available
+        # Initialize Claude async client if available
         api_key = getattr(settings, 'ANTHROPIC_API_KEY', None)
         if ANTHROPIC_AVAILABLE and api_key:
             try:
-                self.client = anthropic.Anthropic(api_key=api_key)
-                logger.info("Claude AI client initialized successfully")
+                self.client = anthropic.AsyncAnthropic(api_key=api_key)
+                logger.info("Claude AI async client initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize Claude client: {e}")
                 self.client = None
@@ -215,7 +215,7 @@ Email Content:
 
 Respond ONLY with valid JSON, no other text."""
 
-            response = self.client.messages.create(
+            response = await self.client.messages.create(
                 model=self.model,
                 max_tokens=500,
                 messages=[{"role": "user", "content": analysis_prompt}]
@@ -373,7 +373,7 @@ Customer's message:
 Write a helpful, professional response in the same language the customer used (English or Bahasa Malaysia). If they mixed languages, you may also mix languages naturally."""
 
         try:
-            response = self.client.messages.create(
+            response = await self.client.messages.create(
                 model=self.model,
                 max_tokens=1500,
                 system=system_prompt,
