@@ -15,7 +15,10 @@ class SubscriptionService:
     """Service for managing subscriptions, usage tracking, and limits"""
 
     # Subscription tier pricing (RM)
+    # "free" is legacy tier name (renamed to "starter" in migration 005)
+    # but some subscriptions may still reference it
     TIER_PRICES = {
+        "free": 0.00,
         "starter": 5.00,
         "basic": 29.00,
         "pro": 49.00

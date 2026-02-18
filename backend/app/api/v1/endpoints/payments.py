@@ -965,6 +965,183 @@ async def verify_toyyibpay_payment(bill_code: str):
         )
 
 
+@router.post("/recover-pending")
+async def recover_pending_transactions(current_user: dict = Depends(get_current_user)):
+    """
+    Recovery endpoint: checks all pending transactions for the current user
+    against ToyyibPay API and processes any that were actually paid.
+
+    This fixes transactions that got stuck in 'pending' due to the previous
+    callback/verify-payment bugs (wrong column names causing silent failures).
+    Also handles free plan renewals (amount = 0) by auto-confirming them.
+    """
+    import httpx
+    from datetime import datetime
+
+    user_id = current_user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    logger.info(f"🔄 Starting pending transaction recovery for user {user_id}")
+
+    headers = {
+        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    # Step 1: Get all pending transactions for this user
+    url = f"{settings.SUPABASE_URL}/rest/v1/transactions"
+    params = {
+        "user_id": f"eq.{user_id}",
+        "payment_status": "eq.pending",
+        "select": "*",
+        "order": "created_at.asc"
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers, params=params)
+
+    if response.status_code != 200:
+        logger.error(f"Failed to query pending transactions: {response.status_code}")
+        raise HTTPException(status_code=500, detail="Failed to query transactions")
+
+    pending_txns = response.json()
+    logger.info(f"Found {len(pending_txns)} pending transactions for user {user_id}")
+
+    recovered = []
+    failed = []
+    still_pending = []
+
+    for txn in pending_txns:
+        txn_id = txn.get("transaction_id")
+        bill_code = txn.get("toyyibpay_bill_code")
+        amount = float(txn.get("amount", 0))
+        txn_type = txn.get("transaction_type")
+        description = txn.get("item_description", "")
+        metadata = txn.get("metadata", {})
+
+        logger.info(f"  Checking transaction {txn_id}: {description} (bill_code={bill_code}, amount={amount})")
+
+        # Case 1: Free plan renewal (amount = 0) — auto-confirm
+        if amount == 0:
+            logger.info(f"  → Free transaction (RM 0.00), auto-confirming...")
+            try:
+                async with httpx.AsyncClient() as client:
+                    patch_resp = await client.patch(
+                        url,
+                        headers={**headers, "Prefer": "return=minimal"},
+                        params={"transaction_id": f"eq.{txn_id}"},
+                        json={
+                            "payment_status": "success",
+                            "payment_date": datetime.utcnow().isoformat()
+                        }
+                    )
+
+                if patch_resp.status_code in [200, 204]:
+                    # Apply benefits
+                    if txn_type == "renewal":
+                        plan = metadata.get("plan", "starter")
+                        from app.services.subscription_service import subscription_service
+                        await subscription_service.renew_subscription(user_id)
+                        logger.info(f"  ✅ Auto-confirmed free renewal for plan: {plan}")
+                    elif txn_type == "subscription":
+                        plan = metadata.get("plan", "starter")
+                        from app.services.subscription_service import subscription_service
+                        await subscription_service.create_subscription(user_id, plan)
+                        logger.info(f"  ✅ Auto-confirmed free subscription: {plan}")
+
+                    recovered.append({
+                        "transaction_id": txn_id,
+                        "description": description,
+                        "amount": amount,
+                        "method": "auto_confirm_free"
+                    })
+                else:
+                    logger.error(f"  ❌ Failed to update free transaction: {patch_resp.status_code}")
+                    failed.append({"transaction_id": txn_id, "description": description, "error": "DB update failed"})
+            except Exception as e:
+                logger.error(f"  ❌ Error auto-confirming free transaction: {e}")
+                failed.append({"transaction_id": txn_id, "description": description, "error": str(e)})
+            continue
+
+        # Case 2: No bill_code — can't verify with ToyyibPay
+        if not bill_code:
+            logger.warning(f"  → No bill_code, skipping")
+            still_pending.append({"transaction_id": txn_id, "description": description, "reason": "no_bill_code"})
+            continue
+
+        # Case 3: Has bill_code — check ToyyibPay API
+        try:
+            tp_result = toyyibpay_service.get_bill_transactions(bill_code)
+
+            if not tp_result.get("success"):
+                logger.warning(f"  → ToyyibPay API failed for {bill_code}")
+                still_pending.append({"transaction_id": txn_id, "description": description, "reason": "toyyibpay_api_failed"})
+                continue
+
+            tp_transactions = tp_result.get("transactions", [])
+            payment_found = False
+
+            for tp_txn in (tp_transactions if isinstance(tp_transactions, list) else []):
+                if tp_txn.get("billpaymentStatus") == "1":
+                    payment_found = True
+                    logger.info(f"  → ToyyibPay confirms PAID for {bill_code}")
+
+                    # Process this payment using the existing flow
+                    tp_transaction_id = tp_txn.get("billpaymentInvoiceNo", "")
+                    await _process_successful_payment(bill_code, tp_transaction_id)
+
+                    recovered.append({
+                        "transaction_id": txn_id,
+                        "description": description,
+                        "amount": amount,
+                        "bill_code": bill_code,
+                        "method": "toyyibpay_verified"
+                    })
+                    break
+
+            if not payment_found:
+                # Check if ToyyibPay says failed
+                is_failed = any(
+                    tp_txn.get("billpaymentStatus") == "3"
+                    for tp_txn in (tp_transactions if isinstance(tp_transactions, list) else [])
+                )
+                if is_failed:
+                    logger.info(f"  → ToyyibPay confirms FAILED for {bill_code}")
+                    async with httpx.AsyncClient() as client:
+                        await client.patch(
+                            url,
+                            headers={**headers, "Prefer": "return=minimal"},
+                            params={"transaction_id": f"eq.{txn_id}"},
+                            json={"payment_status": "failed"}
+                        )
+                    failed.append({"transaction_id": txn_id, "description": description, "reason": "payment_failed"})
+                else:
+                    still_pending.append({"transaction_id": txn_id, "description": description, "reason": "still_pending_on_toyyibpay"})
+
+        except Exception as e:
+            logger.error(f"  ❌ Error checking ToyyibPay for {bill_code}: {e}")
+            still_pending.append({"transaction_id": txn_id, "description": description, "reason": str(e)})
+
+    summary = {
+        "total_pending": len(pending_txns),
+        "recovered": len(recovered),
+        "failed": len(failed),
+        "still_pending": len(still_pending)
+    }
+
+    logger.info(f"🔄 Recovery complete: {summary}")
+
+    return {
+        "success": True,
+        "summary": summary,
+        "recovered": recovered,
+        "failed": failed,
+        "still_pending": still_pending
+    }
+
+
 # ============================================
 # Subscription & Addon Purchase Endpoints
 # ============================================

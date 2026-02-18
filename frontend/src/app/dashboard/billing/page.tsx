@@ -187,7 +187,12 @@ export default function BillingPage() {
 
       const data = await response.json();
 
-      if (data.success && data.payment_url) {
+      if (data.success && data.auto_confirmed) {
+        // Free plan renewal — auto-confirmed, no payment needed
+        setPaymentMessage(data.message || 'Pembaharuan percuma berjaya!');
+        fetchData(); // Refresh subscription status
+        setTimeout(() => setPaymentMessage(null), 5000);
+      } else if (data.success && data.payment_url) {
         localStorage.setItem('pending_renewal', 'true');
         localStorage.setItem('pending_bill_code', data.bill_code);
         // Backup auth state before external redirect
