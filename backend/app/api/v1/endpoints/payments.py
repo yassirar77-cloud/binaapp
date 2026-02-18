@@ -459,14 +459,17 @@ async def _process_successful_payment(bill_code: str, tp_transaction_id: str = N
                 logger.warning(f"Could not generate invoice number: {inv_err}")
 
         async with httpx.AsyncClient() as client:
-            await client.patch(
+            patch_resp = await client.patch(
                 url,
                 headers={**headers, "Prefer": "return=minimal"},
                 params={"transaction_id": f"eq.{transaction_id}"},
                 json=patch_data
             )
 
-        logger.info(f"✅ Transaction {transaction_id} marked as success")
+        if patch_resp.status_code not in [200, 204]:
+            logger.error(f"❌ Failed to update transaction {transaction_id}: {patch_resp.status_code} {patch_resp.text}")
+        else:
+            logger.info(f"✅ Transaction {transaction_id} marked as success")
 
         # Process based on transaction type
         if transaction_type in ["subscription", "renewal"]:
@@ -610,9 +613,9 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
 async def _process_addon_payment(user_id: str, transaction_id: str, metadata: dict, bill_code: str = None):
     """Process an addon purchase payment.
 
-    Schema (actual table):
-    id, user_id, addon_type, quantity, price_per_unit, total_price,
-    status, used (boolean), used_at, expires_at, toyyibpay_bill_code, created_at
+    Schema (actual table - migration 005):
+    addon_id, user_id, transaction_id (UUID ref), addon_type, quantity,
+    quantity_used, unit_price, total_price, status, expires_at, created_at
 
     Status values: 'active', 'depleted', 'expired'
     """
@@ -634,28 +637,33 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
             "Content-Type": "application/json"
         }
 
+        insert_data = {
+            "user_id": user_id,
+            "addon_type": addon_type,
+            "quantity": int(quantity),
+            "quantity_used": 0,
+            "unit_price": float(unit_price),
+            "total_price": float(total_price),
+            "status": "active",
+            "expires_at": expires_at
+        }
+
+        # Link to transaction record if we have a valid UUID transaction_id
+        if transaction_id:
+            insert_data["transaction_id"] = transaction_id
+
         import httpx
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 url,
                 headers={**headers, "Prefer": "return=representation"},
-                json={
-                    "user_id": user_id,
-                    "addon_type": addon_type,
-                    "quantity": int(quantity),
-                    "price_per_unit": float(unit_price),
-                    "total_price": float(total_price),
-                    "status": "active",
-                    "used": False,
-                    "expires_at": expires_at,
-                    "toyyibpay_bill_code": bill_code
-                }
+                json=insert_data
             )
 
         if response.status_code in [200, 201]:
             addon_record = response.json()
             logger.info(f"✅ Addon credits added for user {user_id}: {addon_type} x{quantity}")
-            logger.info(f"   Addon ID: {addon_record[0].get('id') if addon_record else 'N/A'}")
+            logger.info(f"   Addon ID: {addon_record[0].get('addon_id') if addon_record else 'N/A'}")
         else:
             logger.error(f"❌ Failed to create addon purchase: {response.status_code}")
             logger.error(f"   Response: {response.text}")

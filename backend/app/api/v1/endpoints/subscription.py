@@ -797,16 +797,21 @@ async def verify_payment(
             update_params = {"transaction_id": f"eq.{transaction_id}"}
             update_data = {
                 "payment_status": "success",
-                "updated_at": datetime.utcnow().isoformat()
+                "payment_date": datetime.utcnow().isoformat()
             }
 
             async with httpx.AsyncClient() as client:
-                await client.patch(
+                patch_resp = await client.patch(
                     update_url,
                     headers={**headers, "Prefer": "return=minimal"},
                     params=update_params,
                     json=update_data
                 )
+
+            if patch_resp.status_code not in [200, 204]:
+                logger.error(f"Failed to update transaction {transaction_id}: {patch_resp.status_code} {patch_resp.text}")
+            else:
+                logger.info(f"Transaction {transaction_id} marked as success")
 
             # Step 4: Apply subscription upgrade or addon credits
             transaction_type = transaction.get("transaction_type")
@@ -884,30 +889,36 @@ async def _apply_subscription_upgrade(user_id: str, plan: str, headers: dict):
 
         if response.status_code == 200 and response.json():
             # Update existing subscription
-            await client.patch(
+            resp = await client.patch(
                 url,
                 headers={**headers, "Prefer": "return=minimal"},
                 params=params,
                 json={
-                    "plan_name": plan,
+                    "tier": plan,
                     "status": "active",
+                    "start_date": datetime.utcnow().isoformat(),
                     "end_date": end_date,
-                    "updated_at": datetime.utcnow().isoformat()
+                    "auto_renew": True
                 }
             )
+            if resp.status_code not in [200, 204]:
+                logger.error(f"Failed to update subscription for {user_id}: {resp.status_code} {resp.text}")
         else:
             # Create new subscription
-            await client.post(
+            resp = await client.post(
                 url,
                 headers={**headers, "Prefer": "return=minimal"},
                 json={
                     "user_id": user_id,
-                    "plan_name": plan,
+                    "tier": plan,
                     "status": "active",
                     "start_date": datetime.utcnow().isoformat(),
-                    "end_date": end_date
+                    "end_date": end_date,
+                    "auto_renew": True
                 }
             )
+            if resp.status_code not in [200, 201, 204]:
+                logger.error(f"Failed to create subscription for {user_id}: {resp.status_code} {resp.text}")
 
 
 async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
@@ -938,29 +949,34 @@ async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
                 except:
                     pass
 
-            await client.patch(
+            resp = await client.patch(
                 url,
                 headers={**headers, "Prefer": "return=minimal"},
                 params=params,
                 json={
                     "status": "active",
                     "end_date": end_date,
-                    "updated_at": datetime.utcnow().isoformat()
+                    "auto_renew": True
                 }
             )
+            if resp.status_code not in [200, 204]:
+                logger.error(f"Failed to renew subscription for {user_id}: {resp.status_code} {resp.text}")
         else:
             # Create new subscription if doesn't exist
-            await client.post(
+            resp = await client.post(
                 url,
                 headers={**headers, "Prefer": "return=minimal"},
                 json={
                     "user_id": user_id,
-                    "plan_name": plan,
+                    "tier": plan,
                     "status": "active",
                     "start_date": datetime.utcnow().isoformat(),
-                    "end_date": end_date
+                    "end_date": end_date,
+                    "auto_renew": True
                 }
             )
+            if resp.status_code not in [200, 201, 204]:
+                logger.error(f"Failed to create subscription for {user_id}: {resp.status_code} {resp.text}")
 
 
 async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, headers: dict, transaction_id: str = None, bill_code: str = None):
@@ -968,9 +984,9 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
     Apply addon credits for user.
     Creates a record in addon_purchases table with status 'active'.
 
-    Schema (actual table):
-    id, user_id, addon_type, quantity, price_per_unit, total_price,
-    status, used (boolean), used_at, expires_at, toyyibpay_bill_code, created_at
+    Schema (actual table - migration 005):
+    addon_id, user_id, transaction_id (UUID ref), addon_type, quantity,
+    quantity_used, unit_price, total_price, status, expires_at, created_at
 
     Status values: 'active', 'depleted', 'expired'
     """
@@ -1000,16 +1016,16 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
             "user_id": user_id,
             "addon_type": addon_type,
             "quantity": quantity,
-            "price_per_unit": float(unit_price),
+            "quantity_used": 0,
+            "unit_price": float(unit_price),
             "total_price": float(total_price),
             "status": "active",
-            "used": False,
             "expires_at": expires_at
         }
 
-        # Include toyyibpay_bill_code if provided
-        if bill_code:
-            insert_data["toyyibpay_bill_code"] = bill_code
+        # Link to transaction record if we have a valid UUID transaction_id
+        if transaction_id:
+            insert_data["transaction_id"] = transaction_id
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -1020,7 +1036,7 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
 
         if response.status_code in [200, 201]:
             result = response.json()
-            addon_id = result[0].get("id") if result else "N/A"
+            addon_id = result[0].get("addon_id") if result else "N/A"
             logger.info(f"✅ Addon credits applied successfully for user {user_id}")
             logger.info(f"   Addon ID: {addon_id}, Type: {addon_type}, Qty: {quantity}")
             return True
