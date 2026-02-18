@@ -377,15 +377,6 @@ class SubscriptionService:
         usage = await self.get_or_create_usage_tracking(user_id)
         addons = await self.get_available_addon_credits(user_id)
 
-        # Self-healing: recover any addon_purchases records that should exist
-        # (successful transactions without corresponding addon_purchases).
-        # This is cheap: 2 queries that return quickly when nothing is missing.
-        recovered = await self.recover_missing_addon_purchases(user_id)
-        if recovered > 0:
-            # Re-fetch addon credits after recovery
-            addons = await self.get_available_addon_credits(user_id)
-            logger.info(f"🔧 Dashboard reload: recovered {recovered} addon records, new credits: {addons}")
-
         def calc_usage(used: int, limit: Optional[int], addon_credits: int = 0) -> Dict[str, Any]:
             if limit is None:
                 return {"used": used, "limit": None, "percentage": 0, "unlimited": True, "addon_credits": addon_credits}
@@ -502,13 +493,6 @@ class SubscriptionService:
         if addon_type:
             addon_credits = await self.get_available_addon_credits(user_id, addon_type)
             addon_count = addon_credits.get(addon_type, 0)
-
-            # Self-healing: if no addon credits found, try recovering missing records
-            if addon_count == 0:
-                recovered = await self.recover_missing_addon_purchases(user_id)
-                if recovered > 0:
-                    addon_credits = await self.get_available_addon_credits(user_id, addon_type)
-                    addon_count = addon_credits.get(addon_type, 0)
 
             if addon_count > 0:
                 return {
@@ -650,7 +634,7 @@ class SubscriptionService:
         """Get available addon credits for a user.
 
         Schema (production table - migration 015 + 024):
-        id, user_id, bill_code, addon_type, quantity, amount, status,
+        id, user_id, bill_code, addon_type, quantity, status,
         transaction_id, reference_no, created_at, updated_at,
         quantity_used, unit_price, total_price, expires_at
 
@@ -699,122 +683,6 @@ class SubscriptionService:
         except Exception as e:
             logger.error(f"Error getting addon credits: {e}")
             return {}
-
-    async def recover_missing_addon_purchases(self, user_id: str) -> int:
-        """Self-healing: recover addon_purchases records from successful transactions.
-
-        Checks for transactions with transaction_type='addon' and payment_status='success'
-        that don't have corresponding addon_purchases records, and creates the missing records.
-
-        This fixes the case where the payment callback marked a transaction as 'success'
-        but failed to create the addon_purchases record (e.g. due to a timing/callback bug).
-
-        Returns the number of recovered records.
-        """
-        try:
-            headers = {
-                "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
-                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
-                "Content-Type": "application/json"
-            }
-
-            # Step 1: Get all successful addon transactions for this user
-            txn_url = f"{self.url}/rest/v1/transactions"
-            txn_params = {
-                "user_id": f"eq.{user_id}",
-                "transaction_type": "eq.addon",
-                "payment_status": "eq.success",
-                "select": "transaction_id,metadata,toyyibpay_bill_code,amount"
-            }
-
-            async with httpx.AsyncClient() as client:
-                txn_resp = await client.get(txn_url, headers=headers, params=txn_params)
-
-            if txn_resp.status_code != 200 or not txn_resp.json():
-                return 0
-
-            success_txns = txn_resp.json()
-
-            # Step 2: Get all existing addon_purchases transaction_ids for this user
-            addon_url = f"{self.url}/rest/v1/addon_purchases"
-            addon_params = {
-                "user_id": f"eq.{user_id}",
-                "select": "transaction_id"
-            }
-
-            async with httpx.AsyncClient() as client:
-                addon_resp = await client.get(addon_url, headers=headers, params=addon_params)
-
-            existing_txn_ids = set()
-            if addon_resp.status_code == 200:
-                for record in addon_resp.json():
-                    tid = record.get("transaction_id")
-                    if tid:
-                        existing_txn_ids.add(tid)
-
-            # Step 3: Find transactions missing addon_purchases records
-            recovered = 0
-            for txn in success_txns:
-                txn_id = txn.get("transaction_id")
-                if not txn_id or txn_id in existing_txn_ids:
-                    continue
-
-                metadata = txn.get("metadata") or {}
-                addon_type = metadata.get("addon_type")
-                quantity = metadata.get("quantity", 1)
-                unit_price = metadata.get("unit_price", self.ADDON_PRICES.get(addon_type, 0))
-                bill_code = txn.get("toyyibpay_bill_code")
-
-                if not addon_type:
-                    logger.warning(f"⚠️ Skipping transaction {txn_id}: no addon_type in metadata")
-                    continue
-
-                # Create the missing addon_purchases record
-                total_price = float(unit_price) * int(quantity)
-                expires_at = (datetime.utcnow() + timedelta(days=365)).isoformat()
-
-                insert_data = {
-                    "user_id": user_id,
-                    "addon_type": addon_type,
-                    "quantity": int(quantity),
-                    "quantity_used": 0,
-                    "unit_price": float(unit_price),
-                    "total_price": total_price,
-                    "amount": total_price,
-                    "status": "active",
-                    "expires_at": expires_at,
-                    "transaction_id": txn_id
-                }
-                if bill_code:
-                    insert_data["bill_code"] = bill_code
-
-                async with httpx.AsyncClient() as client:
-                    ins_resp = await client.post(
-                        addon_url,
-                        headers={**headers, "Prefer": "return=representation"},
-                        json=insert_data
-                    )
-
-                if ins_resp.status_code in [200, 201]:
-                    recovered += 1
-                    logger.info(
-                        f"🔧 Recovered missing addon_purchases for transaction {txn_id}: "
-                        f"{addon_type} x{quantity}"
-                    )
-                else:
-                    logger.error(
-                        f"❌ Failed to recover addon for transaction {txn_id}: "
-                        f"{ins_resp.status_code} {ins_resp.text[:200]}"
-                    )
-
-            if recovered > 0:
-                logger.info(f"🔧 Self-healing: recovered {recovered} missing addon_purchases for user {user_id[:8]}...")
-
-            return recovered
-
-        except Exception as e:
-            logger.error(f"Error in recover_missing_addon_purchases: {e}")
-            return 0
 
     async def use_addon_credit(self, user_id: str, addon_type: str) -> bool:
         """Use one addon credit.
