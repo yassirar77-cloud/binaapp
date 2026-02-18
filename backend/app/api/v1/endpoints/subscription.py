@@ -1046,9 +1046,10 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
     Apply addon credits for user.
     Creates a record in addon_purchases table with status 'active'.
 
-    Schema (actual table - migration 005):
-    addon_id, user_id, transaction_id (UUID ref), addon_type, quantity,
-    quantity_used, unit_price, total_price, status, expires_at, created_at
+    Schema (production table - migration 015 + 024):
+    id (PK), user_id, bill_code, addon_type, quantity, amount, status,
+    transaction_id, reference_no, created_at, updated_at,
+    quantity_used, unit_price, total_price, expires_at
 
     Status values: 'active', 'depleted', 'expired'
     """
@@ -1083,7 +1084,7 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
                     headers=headers,
                     params={
                         "transaction_id": f"eq.{transaction_id}",
-                        "select": "addon_id"
+                        "select": "id"
                     }
                 )
             if check_resp.status_code == 200 and check_resp.json():
@@ -1097,6 +1098,7 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
             "quantity_used": 0,
             "unit_price": float(unit_price),
             "total_price": float(total_price),
+            "amount": float(total_price),  # migration 015 column
             "status": "active",
             "expires_at": expires_at
         }
@@ -1104,6 +1106,9 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
         # Link to transaction record if we have a valid UUID transaction_id
         if transaction_id:
             insert_data["transaction_id"] = transaction_id
+        # Include bill_code if available (migration 015 column)
+        if bill_code:
+            insert_data["bill_code"] = bill_code
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -1114,9 +1119,9 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
 
         if response.status_code in [200, 201]:
             result = response.json()
-            addon_id = result[0].get("addon_id") if result else "N/A"
+            record_id = result[0].get("id") if result else "N/A"
             logger.info(f"✅ Addon credits applied successfully for user {user_id}")
-            logger.info(f"   Addon ID: {addon_id}, Type: {addon_type}, Qty: {quantity}")
+            logger.info(f"   Record ID: {record_id}, Type: {addon_type}, Qty: {quantity}")
             return True
         else:
             logger.error(f"❌ Failed to apply addon credits for user {user_id}")
@@ -1144,7 +1149,7 @@ async def _check_addon_purchases_exist(user_id: str, transaction_id: str, header
     params = {
         "user_id": f"eq.{user_id}",
         "transaction_id": f"eq.{transaction_id}",
-        "select": "addon_id"
+        "select": "id"
     }
 
     try:

@@ -613,9 +613,10 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
 async def _process_addon_payment(user_id: str, transaction_id: str, metadata: dict, bill_code: str = None):
     """Process an addon purchase payment.
 
-    Schema (actual table - migration 005):
-    addon_id, user_id, transaction_id (UUID ref), addon_type, quantity,
-    quantity_used, unit_price, total_price, status, expires_at, created_at
+    Schema (production table - migration 015 + 024):
+    id (PK), user_id, bill_code, addon_type, quantity, amount, status,
+    transaction_id, reference_no, created_at, updated_at,
+    quantity_used, unit_price, total_price, expires_at
 
     Status values: 'active', 'depleted', 'expired'
 
@@ -651,7 +652,7 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
                     headers=headers,
                     params={
                         "transaction_id": f"eq.{transaction_id}",
-                        "select": "addon_id"
+                        "select": "id"
                     }
                 )
             if check_resp.status_code == 200 and check_resp.json():
@@ -665,6 +666,7 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
             "quantity_used": 0,
             "unit_price": float(unit_price),
             "total_price": float(total_price),
+            "amount": float(total_price),  # migration 015 column
             "status": "active",
             "expires_at": expires_at
         }
@@ -672,6 +674,9 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
         # Link to transaction record if we have a valid UUID transaction_id
         if transaction_id:
             insert_data["transaction_id"] = transaction_id
+        # Include bill_code if available (migration 015 column)
+        if bill_code:
+            insert_data["bill_code"] = bill_code
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -682,8 +687,9 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
 
         if response.status_code in [200, 201]:
             addon_record = response.json()
+            record_id = addon_record[0].get("id") if addon_record else "N/A"
             logger.info(f"✅ Addon credits added for user {user_id}: {addon_type} x{quantity}")
-            logger.info(f"   Addon ID: {addon_record[0].get('addon_id') if addon_record else 'N/A'}")
+            logger.info(f"   Record ID: {record_id}")
         else:
             logger.error(f"❌ Failed to create addon purchase: {response.status_code}")
             logger.error(f"   Response: {response.text}")

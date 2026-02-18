@@ -633,9 +633,10 @@ class SubscriptionService:
     async def get_available_addon_credits(self, user_id: str, addon_type: Optional[str] = None) -> Dict[str, int]:
         """Get available addon credits for a user.
 
-        Schema (actual table - migration 005):
-        addon_id, user_id, transaction_id, addon_type, quantity,
-        quantity_used, unit_price, total_price, status, expires_at, created_at
+        Schema (production table - migration 015 + 024):
+        id, user_id, bill_code, addon_type, quantity, amount, status,
+        transaction_id, reference_no, created_at, updated_at,
+        quantity_used, unit_price, total_price, expires_at
 
         Status 'active' means credits are available.
         Available credits = quantity - quantity_used WHERE status='active'
@@ -676,7 +677,7 @@ class SubscriptionService:
                 logger.info(f"✅ Addon credits for user {user_id[:8]}...: {credits}")
                 return credits
 
-            logger.warning(f"⚠️ Failed to query addon_purchases: {response.status_code}")
+            logger.warning(f"⚠️ Failed to query addon_purchases: {response.status_code} {response.text[:200]}")
             return {}
 
         except Exception as e:
@@ -686,9 +687,8 @@ class SubscriptionService:
     async def use_addon_credit(self, user_id: str, addon_type: str) -> bool:
         """Use one addon credit.
 
-        Schema (actual table - migration 005):
-        addon_id, user_id, transaction_id, addon_type, quantity,
-        quantity_used, unit_price, total_price, status, expires_at, created_at
+        Schema (production table - migration 015 + 024):
+        id (PK), user_id, addon_type, quantity, quantity_used, status, ...
 
         Increments quantity_used by 1. Sets status to 'depleted' when fully consumed.
         """
@@ -713,7 +713,8 @@ class SubscriptionService:
                 return False
 
             addon = records[0]
-            addon_id = addon.get("addon_id")
+            # Production table PK is "id" (migration 015), not "addon_id" (migration 005)
+            record_id = addon.get("id") or addon.get("addon_id")
             qty = addon.get("quantity", 1)
             qty_used = addon.get("quantity_used", 0)
 
@@ -729,7 +730,7 @@ class SubscriptionService:
                 response = await client.patch(
                     update_url,
                     headers={**self.headers, "Prefer": "return=minimal"},
-                    params={"addon_id": f"eq.{addon_id}"},
+                    params={"id": f"eq.{record_id}"},
                     json={
                         "quantity_used": new_qty_used,
                         "status": new_status
