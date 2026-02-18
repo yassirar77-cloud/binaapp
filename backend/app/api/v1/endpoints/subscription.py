@@ -1047,7 +1047,7 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
     Creates a record in addon_purchases table with status 'active'.
 
     Schema (production table - migration 015 + 024):
-    id (PK), user_id, bill_code, addon_type, quantity, amount, status,
+    id (PK), user_id, bill_code, addon_type, quantity, status,
     transaction_id, reference_no, created_at, updated_at,
     quantity_used, unit_price, total_price, expires_at
 
@@ -1098,7 +1098,6 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
             "quantity_used": 0,
             "unit_price": float(unit_price),
             "total_price": float(total_price),
-            "amount": float(total_price),  # migration 015 column
             "status": "active",
             "expires_at": expires_at
         }
