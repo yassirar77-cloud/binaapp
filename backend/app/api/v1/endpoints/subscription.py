@@ -886,7 +886,31 @@ async def verify_payment(
             }
 
         elif payment_status == "paid":
-            # Already processed
+            # Transaction already marked as success — but addon credits may
+            # not have been applied if the callback marked the transaction as
+            # success before _process_addon_payment ran (race condition).
+            # Verify addon_purchases actually exist; create them if missing.
+            transaction_type = transaction.get("transaction_type")
+            if transaction_type == "addon":
+                metadata = transaction.get("metadata", {})
+                addon_type = metadata.get("addon_type")
+                quantity = metadata.get("quantity", 1)
+                transaction_id = transaction.get("transaction_id")
+
+                if addon_type:
+                    # Check if addon_purchases record exists for this transaction
+                    existing = await _check_addon_purchases_exist(
+                        user_id, transaction_id, headers
+                    )
+                    if not existing:
+                        logger.warning(
+                            f"⚠️ Transaction {transaction_id} is 'success' but no addon_purchases found. "
+                            f"Applying addon credits now (race condition recovery)."
+                        )
+                        await _apply_addon_credits(
+                            user_id, addon_type, quantity, headers, transaction_id, bill_code
+                        )
+
             return {
                 "success": True,
                 "payment_status": "paid",
@@ -1050,6 +1074,22 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
     logger.info(f"   Unit price: RM{unit_price}, Total: RM{total_price}")
 
     try:
+        # Idempotency check: skip if addon_purchases record already exists
+        # for this transaction to prevent duplicates from callback + verify-payment race
+        if transaction_id:
+            async with httpx.AsyncClient() as client:
+                check_resp = await client.get(
+                    url,
+                    headers=headers,
+                    params={
+                        "transaction_id": f"eq.{transaction_id}",
+                        "select": "addon_id"
+                    }
+                )
+            if check_resp.status_code == 200 and check_resp.json():
+                logger.info(f"⏭️ Addon purchase already exists for transaction {transaction_id}, skipping duplicate creation")
+                return True
+
         insert_data = {
             "user_id": user_id,
             "addon_type": addon_type,
@@ -1086,4 +1126,36 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
 
     except Exception as e:
         logger.error(f"❌ Error applying addon credits for user {user_id}: {e}", exc_info=True)
+        return False
+
+
+async def _check_addon_purchases_exist(user_id: str, transaction_id: str, headers: dict) -> bool:
+    """
+    Check if addon_purchases record(s) exist for a given transaction.
+    Used to detect the race condition where the callback marked a transaction
+    as 'success' but failed to create the addon_purchases record.
+    """
+    import httpx
+
+    if not transaction_id:
+        return False
+
+    url = f"{settings.SUPABASE_URL}/rest/v1/addon_purchases"
+    params = {
+        "user_id": f"eq.{user_id}",
+        "transaction_id": f"eq.{transaction_id}",
+        "select": "addon_id"
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, params=params)
+
+        if response.status_code == 200:
+            records = response.json()
+            return len(records) > 0
+
+        return False
+    except Exception as e:
+        logger.error(f"Error checking addon_purchases: {e}")
         return False

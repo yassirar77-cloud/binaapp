@@ -618,6 +618,9 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
     quantity_used, unit_price, total_price, status, expires_at, created_at
 
     Status values: 'active', 'depleted', 'expired'
+
+    This function is idempotent: if an addon_purchases record already exists
+    for the given transaction_id, it will skip creation to prevent duplicates.
     """
     from datetime import datetime, timedelta
 
@@ -637,6 +640,24 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
             "Content-Type": "application/json"
         }
 
+        import httpx
+
+        # Idempotency check: skip if addon_purchases record already exists
+        # for this transaction to prevent duplicates from callback + verify-payment race
+        if transaction_id:
+            async with httpx.AsyncClient() as client:
+                check_resp = await client.get(
+                    url,
+                    headers=headers,
+                    params={
+                        "transaction_id": f"eq.{transaction_id}",
+                        "select": "addon_id"
+                    }
+                )
+            if check_resp.status_code == 200 and check_resp.json():
+                logger.info(f"⏭️ Addon purchase already exists for transaction {transaction_id}, skipping duplicate creation")
+                return
+
         insert_data = {
             "user_id": user_id,
             "addon_type": addon_type,
@@ -652,7 +673,6 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
         if transaction_id:
             insert_data["transaction_id"] = transaction_id
 
-        import httpx
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 url,
@@ -1154,12 +1174,13 @@ TIER_PRICES = {
 }
 
 # Addon pricing (RM)
+# MUST match subscription_service.ADDON_PRICES keys
 ADDON_PRICES = {
     "ai_image": 1.00,
     "ai_hero": 2.00,
-    "extra_website": 5.00,
-    "extra_rider": 3.00,
-    "extra_zone": 2.00
+    "website": 5.00,
+    "rider": 3.00,
+    "zone": 2.00
 }
 
 
