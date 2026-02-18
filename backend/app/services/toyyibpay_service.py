@@ -27,11 +27,27 @@ class ToyyibPayService:
 
         # Set callback and return URLs with proper defaults
         # These MUST be set for payment flow to work correctly
+        # IMPORTANT: Use BACKEND_URL (production public URL) for callback, NOT API_URL
+        # which may be localhost. ToyyibPay must be able to reach this URL externally.
         base_frontend_url = settings.FRONTEND_URL or "https://binaapp.my"
-        base_api_url = settings.API_URL or "https://binaapp-backend.onrender.com"
+        base_api_url = settings.BACKEND_URL or settings.API_URL or "https://binaapp-backend.onrender.com"
 
         self.callback_url = settings.TOYYIBPAY_CALLBACK_URL or f"{base_api_url}/api/v1/payments/toyyibpay/callback"
         self.return_url = settings.TOYYIBPAY_RETURN_URL or f"{base_frontend_url}/payment/success"
+
+        # Validate callback URL: must include /v1/ in path to match actual route
+        if self.callback_url and "/api/payments/" in self.callback_url and "/api/v1/payments/" not in self.callback_url:
+            corrected = self.callback_url.replace("/api/payments/", "/api/v1/payments/")
+            logger.warning(f"⚠️ ToyyibPay callback URL is missing /v1/ prefix!")
+            logger.warning(f"   Configured: {self.callback_url}")
+            logger.warning(f"   Corrected:  {corrected}")
+            logger.warning(f"   Fix TOYYIBPAY_CALLBACK_URL in your .env to include /api/v1/payments/...")
+            self.callback_url = corrected
+
+        # Validate callback URL is not pointing to localhost in non-debug mode
+        if self.callback_url and ("localhost" in self.callback_url or "127.0.0.1" in self.callback_url):
+            logger.error(f"🚨 ToyyibPay callback URL points to localhost: {self.callback_url}")
+            logger.error(f"   ToyyibPay cannot reach localhost! Set TOYYIBPAY_CALLBACK_URL or BACKEND_URL to your public URL.")
 
         logger.info(f"ToyyibPay URLs configured:")
         logger.info(f"  - Callback URL: {self.callback_url}")
