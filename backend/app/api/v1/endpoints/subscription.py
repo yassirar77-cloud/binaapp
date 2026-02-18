@@ -268,8 +268,9 @@ async def upgrade_subscription(
 @router.post("/renew")
 async def renew_subscription(current_user: dict = Depends(get_current_user)):
     """
-    Create payment for subscription renewal
-    Returns ToyyibPay payment URL
+    Create payment for subscription renewal.
+    Returns ToyyibPay payment URL for paid plans.
+    Auto-confirms immediately for free plans (RM 0.00).
     """
     try:
         user_id = current_user.get("sub")
@@ -280,6 +281,43 @@ async def renew_subscription(current_user: dict = Depends(get_current_user)):
         plan_name = sub_status.get("plan_name", "starter")
         price = subscription_service.TIER_PRICES.get(plan_name, 5.00)
 
+        # Normalize legacy "free" tier to "starter" for display,
+        # but keep price as 0.00 for auto-confirmation
+        display_plan = plan_name if plan_name != "free" else "starter"
+
+        # FREE plan renewal: auto-confirm without ToyyibPay
+        if price <= 0:
+            logger.info(f"Free plan renewal for user {user_id}, auto-confirming...")
+
+            # Renew subscription directly
+            renewal_result = await subscription_service.renew_subscription(user_id)
+
+            # Record the transaction as immediately successful
+            try:
+                invoice_number = await subscription_service.generate_invoice_number()
+                await supabase_service.insert_record("transactions", {
+                    "user_id": user_id,
+                    "transaction_type": "renewal",
+                    "item_description": f"{display_plan.upper()} Plan Renewal (Percuma)",
+                    "amount": 0,
+                    "payment_status": "success",
+                    "payment_date": datetime.utcnow().isoformat(),
+                    "invoice_number": invoice_number,
+                    "metadata": {"plan": plan_name, "auto_confirmed": True}
+                })
+            except Exception as db_error:
+                logger.warning(f"Could not store free renewal transaction: {db_error}")
+
+            return {
+                "success": True,
+                "payment_url": None,
+                "auto_confirmed": True,
+                "amount": 0,
+                "plan": display_plan,
+                "message": "Pembaharuan percuma berjaya!"
+            }
+
+        # PAID plan renewal: create ToyyibPay bill
         # Get user details
         user_data = await supabase_service.get_user_by_id(user_id)
         user_phone = user_data.get("phone", "0123456789") if user_data else "0123456789"
@@ -289,8 +327,8 @@ async def renew_subscription(current_user: dict = Depends(get_current_user)):
         external_ref = f"RENEW_{plan_name}_{user_id[:16]}"
 
         result = toyyibpay_service.create_bill(
-            bill_name=f"BinaApp {plan_name.upper()} Plan Renewal",
-            bill_description=f"Perbaharui langganan {plan_name.upper()}",
+            bill_name=f"BinaApp {display_plan.upper()} Renewal",
+            bill_description=f"Perbaharui langganan {display_plan.upper()}",
             bill_amount=price,
             bill_email=email,
             bill_phone=user_phone,
@@ -307,7 +345,7 @@ async def renew_subscription(current_user: dict = Depends(get_current_user)):
                 await supabase_service.insert_record("transactions", {
                     "user_id": user_id,
                     "transaction_type": "renewal",
-                    "item_description": f"{plan_name.upper()} Plan Renewal",
+                    "item_description": f"{display_plan.upper()} Plan Renewal",
                     "amount": price,
                     "toyyibpay_bill_code": bill_code,
                     "payment_status": "pending",
@@ -322,7 +360,7 @@ async def renew_subscription(current_user: dict = Depends(get_current_user)):
                 "payment_url": result.get("payment_url"),
                 "bill_code": bill_code,
                 "amount": price,
-                "plan": plan_name
+                "plan": display_plan
             }
         else:
             raise HTTPException(
