@@ -659,6 +659,22 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
                 logger.info(f"⏭️ Addon purchase already exists for transaction {transaction_id}, skipping duplicate creation")
                 return
 
+        # Also check by bill_code to catch race conditions where both callback
+        # and verify-payment fire simultaneously with the same bill
+        if bill_code:
+            async with httpx.AsyncClient() as client:
+                check_resp = await client.get(
+                    url,
+                    headers=headers,
+                    params={
+                        "bill_code": f"eq.{bill_code}",
+                        "select": "id"
+                    }
+                )
+            if check_resp.status_code == 200 and check_resp.json():
+                logger.info(f"⏭️ Addon purchase already exists for bill_code {bill_code}, skipping duplicate creation")
+                return
+
         insert_data = {
             "user_id": user_id,
             "addon_type": addon_type,
