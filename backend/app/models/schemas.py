@@ -144,6 +144,7 @@ class AIGenerationResponse(BaseModel):
     meta_description: str
     sections: List[str]
     integrations_included: List[str]
+    ai_images_count: int = 0
 
 
 # Publishing Schemas

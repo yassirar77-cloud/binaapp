@@ -227,10 +227,8 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
         html_content, flags=re.DOTALL
     )
 
-    # Only inject chat-widget if inline chat button doesn't exist (avoid duplicates)
-    has_inline_chat = "binaapp-inline-chat-btn" in html_content
-
-    chat_widget_script = "" if has_inline_chat else f'''
+    # Always inject chat-widget.js - chat is available for ALL tiers
+    chat_widget_script = f'''
 <script src="https://binaapp-backend.onrender.com/static/widgets/chat-widget.js"
         data-website-id="{website_id}"
         data-api-url="https://binaapp-backend.onrender.com/api/v1"></script>'''
