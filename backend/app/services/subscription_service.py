@@ -634,7 +634,7 @@ class SubscriptionService:
         """Get available addon credits for a user.
 
         Schema (production table - migration 015 + 024):
-        id, user_id, bill_code, addon_type, quantity, status,
+        id, user_id, toyyibpay_bill_code, addon_type, quantity, status,
         transaction_id, reference_no, created_at, updated_at,
         quantity_used, unit_price, total_price, expires_at
 

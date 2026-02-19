@@ -1047,7 +1047,7 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
     Creates a record in addon_purchases table with status 'active'.
 
     Schema (production table - migration 015 + 024):
-    id (PK), user_id, bill_code, addon_type, quantity, status,
+    id (PK), user_id, toyyibpay_bill_code, addon_type, quantity, status,
     transaction_id, reference_no, created_at, updated_at,
     quantity_used, unit_price, total_price, expires_at
 
@@ -1105,9 +1105,9 @@ async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, hea
         # Link to transaction record if we have a valid UUID transaction_id
         if transaction_id:
             insert_data["transaction_id"] = transaction_id
-        # Include bill_code if available (migration 015 column)
+        # Include toyyibpay_bill_code if available (migration 015 column)
         if bill_code:
-            insert_data["bill_code"] = bill_code
+            insert_data["toyyibpay_bill_code"] = bill_code
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
