@@ -944,6 +944,55 @@
                 // Load menu
                 const menuRes = await fetch(`${this.config.apiUrl}/delivery/menu/${this.config.websiteId}`);
                 const menuData = await menuRes.json();
+
+                // Build dynamic categories from menu_categories table
+                const apiCategories = menuData.categories || [];
+                if (apiCategories.length > 0) {
+                    // Build a map from category UUID to slug for resolving item categories
+                    const categoryIdToSlug = {};
+                    apiCategories.forEach(cat => {
+                        categoryIdToSlug[cat.id] = cat.slug || cat.name.toLowerCase().replace(/\s+/g, '-');
+                    });
+
+                    // Resolve each item's category field from category_id
+                    if (menuData.items) {
+                        menuData.items.forEach(item => {
+                            if (item.category_id && categoryIdToSlug[item.category_id]) {
+                                item.category = categoryIdToSlug[item.category_id];
+                            }
+                        });
+                    }
+
+                    // Build category tabs from API data, with "Semua" always first
+                    this.businessConfig.categories = [
+                        { id: 'all', name: 'Semua', icon: '📋' },
+                        ...apiCategories.map(cat => ({
+                            id: cat.slug || cat.name.toLowerCase().replace(/\s+/g, '-'),
+                            name: cat.name,
+                            icon: cat.icon || '📦'
+                        }))
+                    ];
+                    console.log('[BinaApp] Using dynamic categories from menu_categories:', this.businessConfig.categories);
+                } else if (menuData.items && menuData.items.length > 0) {
+                    // Fallback: extract distinct category values from menu items
+                    const seen = new Set();
+                    const fallbackCategories = [];
+                    menuData.items.forEach(item => {
+                        const cat = item.category;
+                        if (cat && cat !== 'all' && !seen.has(cat)) {
+                            seen.add(cat);
+                            fallbackCategories.push({ id: cat, name: cat.charAt(0).toUpperCase() + cat.slice(1), icon: '📦' });
+                        }
+                    });
+                    if (fallbackCategories.length > 0) {
+                        this.businessConfig.categories = [
+                            { id: 'all', name: 'Semua', icon: '📋' },
+                            ...fallbackCategories
+                        ];
+                        console.log('[BinaApp] Using fallback categories from menu items:', this.businessConfig.categories);
+                    }
+                }
+
                 this.state.menu = menuData;
 
                 // Load website config for payment/fulfillment settings if not already set
@@ -953,19 +1002,26 @@
                         const websiteConfig = await configRes.json();
 
                         // Apply business type from API if not already set
+                        const alreadyHasDynamicCategories = apiCategories && apiCategories.length > 0;
                         if (websiteConfig.business_type && !this.config.businessType) {
+                            // Preserve dynamic categories before reassigning businessConfig
+                            const savedCategories = alreadyHasDynamicCategories ? this.businessConfig.categories : null;
                             this.config.businessType = websiteConfig.business_type;
                             this.businessConfig = BUSINESS_CONFIGS[websiteConfig.business_type] || BUSINESS_CONFIGS.general;
+                            if (savedCategories) {
+                                this.businessConfig.categories = savedCategories;
+                            }
                         }
 
-                        // Apply custom categories from API if provided
-                        if (websiteConfig.categories && websiteConfig.categories.length > 0) {
+                        // Apply config categories only if we didn't already load
+                        // dynamic categories from the menu_categories table above
+                        if (!alreadyHasDynamicCategories && websiteConfig.categories && websiteConfig.categories.length > 0) {
                             // Merge API categories with the 'all' category
                             this.businessConfig.categories = [
                                 { id: 'all', name: 'Semua', icon: '📋' },
                                 ...websiteConfig.categories
                             ];
-                            console.log('[BinaApp] Using API categories:', this.businessConfig.categories);
+                            console.log('[BinaApp] Using config API categories:', this.businessConfig.categories);
                         }
 
                         // Apply payment config from API if not overridden
