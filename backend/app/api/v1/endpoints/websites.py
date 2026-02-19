@@ -59,6 +59,33 @@ async def generate_website(
             )
         logger.info(f"[GENERATE] ✅ Profile check passed for user: {user_id}")
 
+        # Check AI hero limit before generation (AI always generates hero content)
+        hero_check = await subscription_service.check_limit(user_id, "generate_ai_hero")
+        if not hero_check.get("allowed"):
+            logger.warning(f"[GENERATE] AI hero limit reached for user {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "LIMIT_REACHED",
+                    "message": hero_check.get("message", "Had AI hero tercapai."),
+                    "upgrade_options": hero_check.get("can_buy_addon", False)
+                }
+            )
+
+        # Check AI image limit if user has no uploaded images (AI will generate images)
+        if not request.uploaded_images or len(request.uploaded_images) == 0:
+            image_check = await subscription_service.check_limit(user_id, "generate_ai_image")
+            if not image_check.get("allowed"):
+                logger.warning(f"[GENERATE] AI image limit reached for user {user_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "LIMIT_REACHED",
+                        "message": image_check.get("message", "Had AI image tercapai."),
+                        "upgrade_options": image_check.get("can_buy_addon", False)
+                    }
+                )
+
         # Check subdomain availability
         subdomain_available = await supabase_service.check_subdomain_available(request.subdomain)
         if not subdomain_available:
@@ -111,11 +138,12 @@ async def generate_website(
             # Don't block website creation if usage tracking fails, but log loudly
             logger.warning(f"⚠️ Usage tracking failed for user {user_id}: {usage_err}")
 
-        # Generate website in background
+        # Generate website in background (pass user_id for AI usage tracking)
         background_tasks.add_task(
             generate_website_content,
             website_id,
-            request
+            request,
+            user_id
         )
 
         logger.info(f"Website generation started: {website_id}")
@@ -144,7 +172,7 @@ async def generate_website(
         )
 
 
-async def generate_website_content(website_id: str, request: WebsiteGenerationRequest):
+async def generate_website_content(website_id: str, request: WebsiteGenerationRequest, user_id: str = None):
     """
     Background task to generate website content using AI
     """
@@ -168,6 +196,22 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
             error_msg = "AI generation timed out after 180 seconds. Please try again with a shorter description or fewer features."
             logger.error(f"❌ {error_msg}")
             raise Exception(error_msg)
+
+        # Track AI usage after successful generation
+        if user_id:
+            try:
+                # AI always generates hero content
+                await subscription_service.increment_usage(user_id, "generate_ai_hero")
+                logger.info(f"📊 Incremented ai_hero_used for user {user_id}")
+
+                # Track AI-generated images if any were produced
+                if ai_response.ai_images_count > 0:
+                    await subscription_service.increment_usage(
+                        user_id, "generate_ai_image", count=ai_response.ai_images_count
+                    )
+                    logger.info(f"📊 Incremented ai_images_used by {ai_response.ai_images_count} for user {user_id}")
+            except Exception as usage_err:
+                logger.warning(f"⚠️ AI usage tracking failed for user {user_id}: {usage_err}")
 
         html_content = ai_response.html_content
         integrations = ai_response.integrations_included

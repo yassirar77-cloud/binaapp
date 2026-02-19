@@ -3131,6 +3131,7 @@ IMPORTANT RULES:
 
         # Check image_choice - skip ALL image generation if "none"
         image_urls = {}
+        ai_images_generated = 0  # Track how many AI images were successfully generated
 
         if image_choice == "none":
             logger.info("🚫 Image choice='none' - SKIPPING ALL image generation")
@@ -3231,6 +3232,7 @@ IMPORTANT RULES:
             # Log results
             successful = sum(1 for r in results if r and not isinstance(r, Exception))
             failed = len(results) - successful
+            ai_images_generated = successful  # Track for usage billing
             logger.info(f"☁️ Parallel generation complete in {elapsed:.1f}s")
             logger.info(f"   ✅ Successful: {successful}/5 images")
             if failed > 0:
@@ -3281,6 +3283,7 @@ IMPORTANT RULES:
                             meta_description=f"{request.business_name} - {request.description[:150]}",
                             sections=["Header", "Hero", "About", "Services", "Gallery", "Contact", "Footer"],
                             integrations_included=integrations,
+                            ai_images_count=ai_images_generated,
                         )
                     else:
                         logger.warning(f"⚠️ Pre-built template pipeline failed for '{_tpl_id}', falling back to AI generation")
@@ -3520,7 +3523,8 @@ IMPORTANT INSTRUCTIONS:
             meta_title=request.business_name,
             meta_description=f"{request.business_name} - {request.description[:150]}",
             sections=["Header", "Hero", "About", "Services", "Gallery", "Contact", "Footer"],
-            integrations_included=integrations
+            integrations_included=integrations,
+            ai_images_count=ai_images_generated
         )
 
     async def generate_multi_style(

@@ -660,12 +660,10 @@ def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: 
 
 
 def inject_chat_widget_if_needed(html: str, website_id: str, api_url: str = "https://binaapp-backend.onrender.com") -> str:
-    """Inject chat widget script if missing to enable customer chat."""
-    # Skip if inline chat button already exists (avoid duplicate chat widgets)
-    # The inline chat button is added by inject_delivery_ui and has full chat functionality
-    if "binaapp-inline-chat-btn" in html:
-        return html
-    if "chat-widget.js" in html or "binaapp-chat-widget" in html:
+    """Inject chat widget script if missing to enable customer chat.
+    Always inject chat-widget.js - chat is available for ALL tiers."""
+    # Skip only if chat-widget.js is already present (avoid duplicate script loads)
+    if "chat-widget.js" in html:
         return html
 
     chat_widget = f'''

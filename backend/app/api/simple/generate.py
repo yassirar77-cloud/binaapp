@@ -20,6 +20,7 @@ from app.services.menu_validator import validate_and_extract_menu_items, log_men
 from app.services.menu_service import get_menu_items, create_default_delivery_zones
 from app.models.schemas import WebsiteGenerationRequest, Language
 from app.utils.content_moderation import is_content_allowed, log_blocked_attempt
+from app.services.subscription_service import subscription_service
 import re
 
 router = APIRouter()
@@ -877,6 +878,14 @@ async def generate_website(request: SimpleGenerateRequest):
 
             dual_results = await ai_service.generate_website_dual(ai_request)
 
+            # Track AI usage for authenticated users
+            if request.user_id and request.user_id not in ("demo-user", "anonymous", "guest"):
+                try:
+                    await subscription_service.increment_usage(request.user_id, "generate_ai_hero")
+                    logger.info(f"📊 Incremented ai_hero_used for user {request.user_id}")
+                except Exception as usage_err:
+                    logger.warning(f"⚠️ AI usage tracking failed: {usage_err}")
+
             # CRITICAL FIX: Do NOT extract menu items from AI-generated HTML!
             # This was causing hallucinated items like "WhatsApp", "SAYA" to appear as menu items.
             # Only use user's uploaded menu items from the form.
@@ -935,6 +944,14 @@ async def generate_website(request: SimpleGenerateRequest):
 
             html_content = await ai_service.generate_website_best(ai_request)
 
+            # Track AI usage for authenticated users
+            if request.user_id and request.user_id not in ("demo-user", "anonymous", "guest"):
+                try:
+                    await subscription_service.increment_usage(request.user_id, "generate_ai_hero")
+                    logger.info(f"📊 Incremented ai_hero_used for user {request.user_id}")
+                except Exception as usage_err:
+                    logger.warning(f"⚠️ AI usage tracking failed: {usage_err}")
+
             # CRITICAL FIX: Do NOT extract menu items from AI-generated HTML!
             # This was causing hallucinated items like "WhatsApp", "SAYA" to appear as menu items.
             # Only use user's uploaded menu items from the form.
@@ -991,6 +1008,19 @@ async def generate_website(request: SimpleGenerateRequest):
             logger.info("=" * 80)
 
             ai_response = await ai_service.generate_website_strategic(ai_request)
+
+            # Track AI usage for authenticated users
+            if request.user_id and request.user_id not in ("demo-user", "anonymous", "guest"):
+                try:
+                    await subscription_service.increment_usage(request.user_id, "generate_ai_hero")
+                    logger.info(f"📊 Incremented ai_hero_used for user {request.user_id}")
+                    if hasattr(ai_response, 'ai_images_count') and ai_response.ai_images_count > 0:
+                        await subscription_service.increment_usage(
+                            request.user_id, "generate_ai_image", count=ai_response.ai_images_count
+                        )
+                        logger.info(f"📊 Incremented ai_images_used by {ai_response.ai_images_count} for user {request.user_id}")
+                except Exception as usage_err:
+                    logger.warning(f"⚠️ AI usage tracking failed: {usage_err}")
 
             # Get the generated HTML
             html_content = ai_response.html_content
@@ -1139,6 +1169,19 @@ async def generate_website(request: SimpleGenerateRequest):
             logger.info("=" * 80)
             ai_response = await ai_service.generate_website(ai_request, image_choice=image_choice)
             logger.info("✓ Received response from AI service")
+
+            # Track AI usage for authenticated users
+            if request.user_id and request.user_id not in ("demo-user", "anonymous", "guest"):
+                try:
+                    await subscription_service.increment_usage(request.user_id, "generate_ai_hero")
+                    logger.info(f"📊 Incremented ai_hero_used for user {request.user_id}")
+                    if ai_response.ai_images_count > 0:
+                        await subscription_service.increment_usage(
+                            request.user_id, "generate_ai_image", count=ai_response.ai_images_count
+                        )
+                        logger.info(f"📊 Incremented ai_images_used by {ai_response.ai_images_count} for user {request.user_id}")
+                except Exception as usage_err:
+                    logger.warning(f"⚠️ AI usage tracking failed: {usage_err}")
 
             # Get the generated HTML
             html_content = ai_response.html_content
@@ -1656,6 +1699,14 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
         job_service.update_progress(job_id, 30)
         logger.info(f"Job {job_id}: Received {len(variations_dict)} variations from AI")
 
+        # Track AI usage for authenticated users
+        if request.user_id and request.user_id not in ("demo-user", "anonymous", "guest"):
+            try:
+                await subscription_service.increment_usage(request.user_id, "generate_ai_hero")
+                logger.info(f"📊 Job {job_id}: Incremented ai_hero_used for user {request.user_id}")
+            except Exception as usage_err:
+                logger.warning(f"⚠️ Job {job_id}: AI usage tracking failed: {usage_err}")
+
         # Process each variation
         for idx, (style, ai_response) in enumerate(variations_dict.items()):
             try:
@@ -2130,6 +2181,18 @@ async def generate_stream(request: SimpleGenerateRequest):
                 ai_response = await ai_service.generate_website(ai_request, image_choice=image_choice)
                 html_content = ai_response.html_content
 
+                # Track AI usage for authenticated users
+                if request.user_id and request.user_id not in ("demo-user", "anonymous", "guest"):
+                    try:
+                        await subscription_service.increment_usage(request.user_id, "generate_ai_hero")
+                        if ai_response.ai_images_count > 0:
+                            await subscription_service.increment_usage(
+                                request.user_id, "generate_ai_image", count=ai_response.ai_images_count
+                            )
+                        logger.info(f"📊 SSE: Tracked AI usage for user {request.user_id}")
+                    except Exception as usage_err:
+                        logger.warning(f"⚠️ SSE: AI usage tracking failed: {usage_err}")
+
                 # Use the shared website_id (already in user_data)
                 # website_id was generated earlier for consistency
 
@@ -2338,6 +2401,18 @@ async def generate_website_simple(request: SimpleGenerateRequest):
         logger.info("🔷 Generating HTML with AI...")
         ai_response = await ai_service.generate_website(ai_request, image_choice=image_choice)
         html_content = ai_response.html_content
+
+        # Track AI usage for authenticated users
+        if request.user_id and request.user_id not in ("demo-user", "anonymous", "guest"):
+            try:
+                await subscription_service.increment_usage(request.user_id, "generate_ai_hero")
+                if ai_response.ai_images_count > 0:
+                    await subscription_service.increment_usage(
+                        request.user_id, "generate_ai_image", count=ai_response.ai_images_count
+                    )
+                logger.info(f"📊 Simple JSON: Tracked AI usage for user {request.user_id}")
+            except Exception as usage_err:
+                logger.warning(f"⚠️ Simple JSON: AI usage tracking failed: {usage_err}")
 
         # Inject integrations
         html_content = template_service.inject_integrations(
