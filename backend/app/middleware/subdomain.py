@@ -211,7 +211,25 @@ async def _fetch_html_from_storage(subdomain: str) -> Optional[str]:
 def _inject_widgets(html_content: str, website_id: str, business_type: str = "food", language: str = "ms") -> str:
     """
     Remove old widget scripts and inject correct ones with the proper website_id.
+    Only re-injects delivery widget if delivery was enabled during generation.
+    Always injects chat widget (available for ALL tiers).
     """
+    # Detect if delivery was enabled BEFORE stripping widget scripts.
+    # These markers come from inject_ordering_system / inject_delivery_section
+    # and survive the script stripping below.
+    delivery_markers = [
+        "binaapp-delivery-btn",   # Inline delivery button
+        "showDeliveryPage",       # Delivery page JS function
+        "deliveryMenuData",       # Inline ordering system JS variable
+        "deliveryCart",           # Inline ordering system JS variable
+        "Delivery Button - BinaApp",  # HTML comment from injection
+    ]
+    # Also check for delivery-widget.js before we strip it
+    has_delivery = (
+        "delivery-widget.js" in html_content
+        or any(marker in html_content for marker in delivery_markers)
+    )
+
     # Remove any existing widget scripts (they might have wrong website_id)
     html_content = re.sub(
         r'<script[^>]*delivery-widget\.js[^>]*>.*?</script>', '', html_content, flags=re.DOTALL
@@ -233,16 +251,21 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
         data-website-id="{website_id}"
         data-api-url="https://binaapp-backend.onrender.com/api/v1"></script>'''
 
-    widget_injection = f'''
-<!-- BinaApp Widgets - Auto-injected with correct website_id -->
-<div id="binaapp-widget-container" data-website-id="{website_id}"></div>
-<script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>
+    # Only inject delivery widget if delivery was enabled
+    delivery_widget_script = ""
+    if has_delivery:
+        delivery_widget_script = f'''
 <script src="https://binaapp-backend.onrender.com/static/widgets/delivery-widget.js"
         data-website-id="{website_id}"
         data-api-url="https://binaapp-backend.onrender.com/api/v1"
         data-primary-color="#ea580c"
         data-business-type="{business_type}"
-        data-language="{language}"></script>{chat_widget_script}
+        data-language="{language}"></script>'''
+
+    widget_injection = f'''
+<!-- BinaApp Widgets - Auto-injected with correct website_id -->
+<div id="binaapp-widget-container" data-website-id="{website_id}"></div>
+<script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>{delivery_widget_script}{chat_widget_script}
 '''
 
     # Inject before </body> or at end

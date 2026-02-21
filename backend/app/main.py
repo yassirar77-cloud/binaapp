@@ -1789,7 +1789,7 @@ async def run_generation_task(
             }).eq("job_id", job_id).execute()
             logger.info(f"📊 Progress 92% update: {len(result_92.data) if result_92.data else 0} rows affected")
 
-        # OPTIONAL: Inject delivery/ordering system if user requested it via /api/generate/start payload.
+        # Inject all selected integrations (delivery, WhatsApp, maps, contact, chat widget).
         try:
             delivery_cfg = delivery or None
 
@@ -1959,11 +1959,14 @@ async def run_generation_task(
                 user_data["payment"] = payment
                 logger.info(f"💳 Payment config: COD={payment.get('cod')}, QR={payment.get('qr')}, QR Image={'Yes' if payment.get('qr_image') else 'No'}")
 
-            if "delivery_system" in features_list or delivery_cfg:
-                html = template_service.inject_integrations(html, features_list, user_data)
-                logger.info("✅ Injected delivery/ordering system into generated HTML")
+            # Always call inject_integrations so ALL selected features are injected
+            # (WhatsApp, Google Maps, Contact Form, Chat Widget, and Delivery if enabled).
+            # Previously this was gated on delivery only, which caused the chat widget
+            # and other integrations to be missing when delivery was not selected.
+            html = template_service.inject_integrations(html, features_list, user_data)
+            logger.info("✅ Injected integrations into generated HTML")
         except Exception as inject_err:
-            logger.warning(f"⚠️ Delivery injection skipped due to error: {inject_err}")
+            logger.warning(f"⚠️ Integration injection skipped due to error: {inject_err}")
 
         # Step 4: Update progress to 95% - delivery system injected
         logger.info(f"📊 Updating progress to 95% - delivery system processed")
