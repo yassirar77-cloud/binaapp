@@ -203,6 +203,18 @@ class AIService:
         # Fix malformed Unsplash URL (was breaking image loads)
         "restoran": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600&q=80",
 
+        # ===== PHOTOGRAPHY & GALLERY =====
+        "photography": "https://images.unsplash.com/photo-1542038784456-1ea8e935640e?w=600&q=80",
+        "fotografi": "https://images.unsplash.com/photo-1542038784456-1ea8e935640e?w=600&q=80",
+        "photographer": "https://images.unsplash.com/photo-1542038784456-1ea8e935640e?w=600&q=80",
+        "jurugambar": "https://images.unsplash.com/photo-1542038784456-1ea8e935640e?w=600&q=80",
+
+        "gallery": "https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=600&q=80",  # Art gallery
+        "galeri": "https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=600&q=80",
+        "portfolio": "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600&q=80",
+
+        "studio": "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?w=600&q=80",
+
         # Generic fallback
         "business": "https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&q=80",
         "perniagaan": "https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&q=80",
@@ -392,7 +404,7 @@ class AIService:
 
         return self.FOOD_IMAGES["default"]
 
-    def get_matching_image(self, text: str, category: str = "all") -> str:
+    def get_matching_image(self, text: str, category: str = "all", business_type: str = "") -> str:
         """
         Get matching image URL for any Malaysian business product/service
 
@@ -402,6 +414,7 @@ class AIService:
         Args:
             text: Product/service name or description (e.g., "Baju Kurung", "Tudung", "Haircut")
             category: Optional category hint ("fashion", "salon", "beauty", "food", "auto", "all")
+            business_type: Optional business description for context-aware fallback
 
         Returns:
             Best matching image URL
@@ -518,6 +531,38 @@ class AIService:
         if any(word in text_lower for word in ['restaurant', 'restoran']):
             return self.BUSINESS_IMAGES.get("restaurant", self.BUSINESS_IMAGES["default"])
 
+        # Photography, Gallery & Portfolio
+        if any(word in text_lower for word in ['galeri', 'gallery', 'portfolio', 'imej', 'foto', 'photo', 'gambar', 'image']):
+            return self.BUSINESS_IMAGES.get("gallery", self.BUSINESS_IMAGES["default"])
+        if any(word in text_lower for word in ['photography', 'fotografi', 'photographer', 'jurugambar', 'camera', 'kamera']):
+            return self.BUSINESS_IMAGES.get("photography", self.BUSINESS_IMAGES["default"])
+        if any(word in text_lower for word in ['studio']):
+            return self.BUSINESS_IMAGES.get("studio", self.BUSINESS_IMAGES["default"])
+
+        # Context-aware final fallback using business_type
+        if business_type:
+            biz_lower = business_type.lower()
+            # Photography/creative businesses should not get food images
+            if any(word in biz_lower for word in ['photo', 'foto', 'gambar', 'jurugambar', 'photographer', 'fotografi', 'studio', 'gallery', 'galeri']):
+                logger.info(f"⚠️ No specific match for '{text}', using photography fallback (business: {business_type})")
+                return self.BUSINESS_IMAGES.get("photography", self.BUSINESS_IMAGES["business"])
+            if any(word in biz_lower for word in ['salon', 'rambut', 'hair', 'beauty', 'kecantikan', 'spa']):
+                logger.info(f"⚠️ No specific match for '{text}', using salon fallback (business: {business_type})")
+                return self.BUSINESS_IMAGES.get("salon", self.BUSINESS_IMAGES["business"])
+            if any(word in biz_lower for word in ['fashion', 'fesyen', 'pakaian', 'clothing', 'boutique', 'baju', 'tudung']):
+                logger.info(f"⚠️ No specific match for '{text}', using fashion fallback (business: {business_type})")
+                return self.BUSINESS_IMAGES.get("clothing", self.BUSINESS_IMAGES["business"])
+            if any(word in biz_lower for word in ['kereta', 'car', 'auto', 'bengkel', 'workshop', 'mechanic']):
+                logger.info(f"⚠️ No specific match for '{text}', using automotive fallback (business: {business_type})")
+                return self.BUSINESS_IMAGES.get("car", self.BUSINESS_IMAGES["business"])
+            if any(word in biz_lower for word in ['pet', 'haiwan', 'kucing', 'anjing']):
+                logger.info(f"⚠️ No specific match for '{text}', using pet shop fallback (business: {business_type})")
+                return self.BUSINESS_IMAGES.get("pet shop", self.BUSINESS_IMAGES["business"])
+            # Non-food business detected but no specific category match - use generic business image
+            if not any(word in biz_lower for word in ['makan', 'food', 'restoran', 'restaurant', 'nasi', 'cafe', 'warung']):
+                logger.info(f"⚠️ No specific match for '{text}', using business fallback (business: {business_type})")
+                return self.BUSINESS_IMAGES.get("business", self.BUSINESS_IMAGES["default"])
+
         # Final fallback
         logger.info(f"⚠️ No specific match for '{text}', using default")
         return self.BUSINESS_IMAGES["default"]
@@ -575,7 +620,7 @@ class AIService:
 
         # Fallback to stock Unsplash image
         logger.info(f"📸 Using stock image for: {item_name}")
-        return self.get_matching_image(item_name, "all")
+        return self.get_matching_image(item_name, "all", business_type=business_type)
 
     def get_smart_image_prompt(self, text: str) -> Tuple[str, float]:
         """
@@ -1686,7 +1731,7 @@ Generate prompts now:"""
         d = description.lower()
 
         # Use get_matching_image for smart image selection
-        hero_img = self.get_matching_image(description)
+        hero_img = self.get_matching_image(description, business_type=description)
 
         # Generate gallery images based on description keywords
         gallery_images = []
@@ -1702,7 +1747,7 @@ Generate prompts now:"""
             for j in range(min(i + 3, len(words)), i, -1):  # Check up to 3-word phrases
                 phrase = " ".join(words[i:j])
                 if len(phrase) >= 3:  # Skip very short words
-                    img = self.get_matching_image(phrase)
+                    img = self.get_matching_image(phrase, business_type=description)
                     if img not in gallery_images and img != self.BUSINESS_IMAGES["default"]:
                         gallery_images.append(img)
                         break
@@ -1805,6 +1850,15 @@ Generate prompts now:"""
                 "https://images.unsplash.com/photo-1525507119028-ed4c629a60a3?w=800&q=80"
             ]
         },
+        "photography": {
+            "hero": "https://images.unsplash.com/photo-1542038784456-1ea8e935640e?w=1920&q=80",
+            "gallery": [
+                "https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=800&q=80",
+                "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=800&q=80",
+                "https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?w=800&q=80",
+                "https://images.unsplash.com/photo-1554048612-b6a482bc67e5?w=800&q=80"
+            ]
+        },
         "default": {
             "hero": "https://images.unsplash.com/photo-1497366216548-37526070297c?w=1920&q=80",
             "gallery": [
@@ -1827,6 +1881,8 @@ Generate prompts now:"""
             return "restaurant"
         if any(w in d for w in ['pakaian', 'clothing', 'fashion', 'baju', 'boutique', 'fesyen', 'tudung', 'hijab']):
             return "clothing"
+        if any(w in d for w in ['photo', 'foto', 'fotografi', 'photography', 'jurugambar', 'photographer', 'studio', 'gallery', 'galeri']):
+            return "photography"
         return "default"
 
     def _build_strict_prompt(
@@ -2282,13 +2338,17 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         return errors
 
-    def _fix_menu_item_images(self, html: str) -> str:
+    def _fix_menu_item_images(self, html: str, business_description: str = "") -> str:
         """
         Fix duplicate product/service images - ensure each item has a unique image
 
         This function finds product/service items with duplicate images and replaces them
         with unique images based on the product/service name.
         Works for food, fashion, salon services, and all Malaysian business products.
+
+        Args:
+            html: The HTML content to fix
+            business_description: Business description for context-aware image selection
         """
         if not html:
             return html
@@ -2362,7 +2422,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                         continue  # Keep first usage
 
                     # Get unique image for this item using comprehensive matching
-                    new_url = self.get_matching_image(item)
+                    new_url = self.get_matching_image(item, business_type=business_description)
                     logger.info(f"   🔄 Replacing image for '{item}': {new_url}")
 
             # Simpler approach: Scan for common product/service item patterns and fix images
@@ -2387,7 +2447,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 # If we've seen this URL before and we have an item name, replace it
                 if img_url in seen_urls and item_name:
                     # Use comprehensive image matching for all product types
-                    new_url = self.get_matching_image(item_name)
+                    new_url = self.get_matching_image(item_name, business_type=business_description)
                     logger.info(f"   🔄 '{item_name}': {img_url[:50]}... → {new_url[:50]}...")
                     return full_match.replace(img_url, new_url)
                 else:
@@ -2587,7 +2647,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
                     if context_match:
                         item_name = re.sub(r'<[^>]+>', '', context_match.group(1)).strip()
-                        fallback_url = self.get_matching_image(item_name)
+                        fallback_url = self.get_matching_image(item_name, business_type=business_description)
                     else:
                         # Use gallery images in rotation
                         gallery_imgs = fallback_imgs.get("gallery", [default_fallback])
@@ -3487,7 +3547,7 @@ IMPORTANT INSTRUCTIONS:
 
         # Fix any remaining issues
         html = self._fix_placeholders(html, request.business_name, request.description)
-        html = self._fix_menu_item_images(html)
+        html = self._fix_menu_item_images(html, request.description)
 
         # CRITICAL FIX: Generate AI images for Malaysian food items
         # This replaces Unsplash URLs with Cloudinary URLs from Stability AI.
@@ -3628,7 +3688,7 @@ IMPORTANT INSTRUCTIONS:
                             html = retry_html
 
                 html = self._fix_placeholders(html, request.business_name, request.description)
-                html = self._fix_menu_item_images(html)
+                html = self._fix_menu_item_images(html, request.description)
 
                 # CRITICAL FIX: Generate AI images for Malaysian food items
                 # This replaces Unsplash URLs with Cloudinary URLs from Stability AI
