@@ -633,11 +633,31 @@ def fix_website_id_in_html(html: str, correct_website_id: str) -> str:
 
 
 def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: str, description: str = "", language: str = "ms") -> str:
-    """Inject delivery widget script if not already present - auto-initializes with data attributes"""
+    """Inject delivery widget script only if delivery was enabled during generation.
+
+    Only injects delivery-widget.js when the HTML already contains delivery-related
+    content (inline ordering system or delivery button), indicating the user explicitly
+    enabled Delivery Sendiri during website creation.
+    """
     from app.services.business_types import detect_business_type
 
     # Skip if delivery widget already present (avoid duplicate buttons)
     if "delivery-widget.js" in html or "binaapp-widget" in html:
+        return html
+
+    # Only inject if HTML has delivery content from generation step.
+    # These markers are added by inject_ordering_system / inject_delivery_section
+    # when the user explicitly enabled "Delivery Sendiri".
+    delivery_markers = [
+        "binaapp-delivery-btn",   # Inline delivery button
+        "showDeliveryPage",       # Delivery page JS function
+        "deliveryMenuData",       # Inline ordering system JS variable
+        "deliveryCart",           # Inline ordering system JS variable
+        "Delivery Button - BinaApp",  # HTML comment from injection
+    ]
+    has_delivery_content = any(marker in html for marker in delivery_markers)
+
+    if not has_delivery_content:
         return html
 
     # Detect business type from description or business name
