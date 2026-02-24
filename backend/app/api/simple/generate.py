@@ -1704,6 +1704,17 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
             try:
                 await subscription_service.increment_usage(request.user_id, "generate_ai_hero")
                 logger.info(f"📊 Job {job_id}: Incremented ai_hero_used for user {request.user_id}")
+
+                # Track AI-generated images across all variants
+                total_ai_images = sum(
+                    getattr(v, 'ai_images_count', 0)
+                    for v in variations_dict.values()
+                )
+                if total_ai_images > 0:
+                    await subscription_service.increment_usage(
+                        request.user_id, "generate_ai_image", count=total_ai_images
+                    )
+                    logger.info(f"📊 Job {job_id}: Incremented ai_images_used by {total_ai_images} for user {request.user_id}")
             except Exception as usage_err:
                 logger.warning(f"⚠️ Job {job_id}: AI usage tracking failed: {usage_err}")
 

@@ -532,6 +532,8 @@ class SubscriptionService:
         """Increment usage counter for a specific action"""
         billing_period = self.get_current_billing_period()
 
+        logger.info(f"[INCREMENT] action={action}, user={user_id}, period={billing_period}, count={count}")
+
         # Ensure usage record exists
         await self.get_or_create_usage_tracking(user_id)
 
@@ -547,6 +549,7 @@ class SubscriptionService:
 
         field = field_mapping.get(action)
         if not field:
+            logger.warning(f"[INCREMENT] Unknown action: {action}")
             return False
 
         try:
@@ -562,25 +565,47 @@ class SubscriptionService:
                 response = await client.get(url, headers=self.headers, params=params)
                 if response.status_code == 200:
                     records = response.json()
-                    current_value = records[0].get(field, 0) if records else 0
+                    if records:
+                        current_value = records[0].get(field, 0)
+                    else:
+                        logger.warning(f"[INCREMENT] No usage_tracking row found for user={user_id}, period={billing_period}")
+                        current_value = 0
                 else:
+                    logger.warning(f"[INCREMENT] GET failed: status={response.status_code}, body={response.text[:200]}")
                     current_value = 0
 
             # Update with incremented value
-            update_data = {field: current_value + count}
+            new_value = current_value + count
+            update_data = {field: new_value}
 
             async with httpx.AsyncClient() as client:
                 response = await client.patch(
                     url,
-                    headers={**self.headers, "Prefer": "return=minimal"},
+                    headers={**self.headers, "Prefer": "return=representation"},
                     params={"user_id": f"eq.{user_id}", "billing_period": f"eq.{billing_period}"},
                     json=update_data
                 )
 
-            return response.status_code in [200, 204]
+            if response.status_code in [200, 204]:
+                # Verify the update actually affected a row
+                updated_rows = response.json() if response.status_code == 200 else []
+                if response.status_code == 200 and updated_rows:
+                    logger.info(f"[INCREMENT] SUCCESS: {field} updated {current_value} -> {new_value} for user {user_id}")
+                    return True
+                elif response.status_code == 204:
+                    # 204 with return=representation shouldn't happen, but treat as success
+                    logger.info(f"[INCREMENT] OK (204): {field} set to {new_value} for user {user_id}")
+                    return True
+                else:
+                    # 200 but empty body = 0 rows matched the filter
+                    logger.error(f"[INCREMENT] PATCH returned 200 but updated 0 rows! Row may not exist for user={user_id}, period={billing_period}")
+                    return False
+            else:
+                logger.error(f"[INCREMENT] PATCH failed: status={response.status_code}, body={response.text[:200]}")
+                return False
 
         except Exception as e:
-            logger.error(f"Error incrementing usage: {e}")
+            logger.error(f"[INCREMENT] Error incrementing usage for {action}: {e}")
             return False
 
     async def decrement_usage(self, user_id: str, action: str, count: int = 1) -> bool:

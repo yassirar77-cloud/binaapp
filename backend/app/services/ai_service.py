@@ -2463,20 +2463,19 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         logger.info("✅ No duplicate product/service images found")
         return html
 
-    async def _generate_ai_food_images(self, html: str) -> str:
+    async def _generate_ai_food_images(self, html: str) -> tuple:
         """
-        NEW METHOD: Replace Unsplash food images with AI-generated images
+        Replace Unsplash food images with AI-generated images
 
-        This is the CRITICAL FIX for Problem #2:
         - Scans HTML for Malaysian food items
         - Generates AI images using DeepSeek/Qwen → Stability AI → Cloudinary pipeline
         - Replaces Unsplash URLs with Cloudinary URLs
 
-        Returns HTML with AI-generated images for food items
+        Returns tuple of (html_with_ai_images, count_of_images_generated)
         """
         if not html or not self.stability_api_key:
             logger.info("   ⚠️ Skipping AI image generation (no Stability API key)")
-            return html
+            return html, 0
 
         import re
 
@@ -2521,7 +2520,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         if not food_items_found:
             logger.info("   ℹ️ No Malaysian food items found that need AI generation")
-            return html
+            return html, 0
 
         logger.info(f"   🍽️ Found {len(food_items_found)} food items to generate:")
         for name, _ in food_items_found:
@@ -2555,15 +2554,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     pass  # If even fallback fails, keep original
 
         # Apply replacements
+        ai_food_images_count = len(replacements)
         if replacements:
-            logger.info(f"   🔄 Replacing {len(replacements)} Unsplash URLs with AI-generated images...")
+            logger.info(f"   🔄 Replacing {ai_food_images_count} Unsplash URLs with AI-generated images...")
             for old_url, new_url in replacements.items():
                 html = html.replace(old_url, new_url)
-            logger.info("   ✅ AI image generation complete!")
+            logger.info(f"   ✅ AI image generation complete! ({ai_food_images_count} images)")
         else:
             logger.warning("   ⚠️ No AI images were generated")
 
-        return html
+        return html, ai_food_images_count
 
     def _fix_placeholders(self, html: str, name: str, desc: str) -> str:
         """Fix any remaining placeholders as a safety net"""
@@ -3322,7 +3322,8 @@ IMPORTANT RULES:
                     if template_html:
                         # Post-processing: inject images if needed
                         if not (request.uploaded_images and len(request.uploaded_images) > 0):
-                            template_html = await self._generate_ai_food_images(template_html)
+                            template_html, food_images_count = await self._generate_ai_food_images(template_html)
+                            ai_images_generated += food_images_count
                         template_html = self._fix_broken_image_urls(template_html, request.description)
 
                         total_time = time.time() - start_time
@@ -3553,7 +3554,8 @@ IMPORTANT INSTRUCTIONS:
         # This replaces Unsplash URLs with Cloudinary URLs from Stability AI.
         # Never override user-provided images.
         if not (request.uploaded_images and len(request.uploaded_images) > 0):
-            html = await self._generate_ai_food_images(html)
+            html, food_images_count = await self._generate_ai_food_images(html)
+            ai_images_generated += food_images_count
 
         # FINAL SAFETY NET: Fix any remaining broken/empty image URLs
         # This ensures no images are left blank or with invalid URLs
@@ -3692,8 +3694,9 @@ IMPORTANT INSTRUCTIONS:
 
                 # CRITICAL FIX: Generate AI images for Malaysian food items
                 # This replaces Unsplash URLs with Cloudinary URLs from Stability AI
+                style_ai_images = 0
                 if not (request.uploaded_images and len(request.uploaded_images) > 0):
-                    html = await self._generate_ai_food_images(html)
+                    html, style_ai_images = await self._generate_ai_food_images(html)
 
                 # FINAL SAFETY NET: Fix any remaining broken/empty image URLs
                 html = self._fix_broken_image_urls(html, request.description)
@@ -3705,7 +3708,8 @@ IMPORTANT INSTRUCTIONS:
                     meta_title=f"{request.business_name} - {style.title()}",
                     meta_description=f"{request.business_name} - {request.description[:150]}",
                     sections=["Header", "Hero", "About", "Services", "Gallery", "Contact", "Footer"],
-                    integrations_included=["WhatsApp", "Contact Form", "Mobile Responsive"]
+                    integrations_included=["WhatsApp", "Contact Form", "Mobile Responsive"],
+                    ai_images_count=style_ai_images,
                 )
                 logger.info(f"✅ {style} style complete")
             else:

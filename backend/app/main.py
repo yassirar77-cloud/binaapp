@@ -40,6 +40,7 @@ from app.core.security import get_current_user
 # Subscription lock system
 from app.middleware.subscription_guard import subscription_check_middleware
 from app.api.v1.endpoints import subscription_status
+from app.services.subscription_service import subscription_service as sub_service
 
 # Email polling system
 from app.api.v1.endpoints.email_polling import router as email_polling_router
@@ -1977,8 +1978,29 @@ async def run_generation_task(
             }).eq("job_id", job_id).execute()
             logger.info(f"📊 Progress 95% update: {len(result_95.data) if result_95.data else 0} rows affected")
 
-        # Increment usage (founders bypass)
+        # Increment usage (founders bypass - rate limiter)
         increment_usage(user_id, user_email)
+
+        # CRITICAL: Track subscription usage in usage_tracking table
+        # This updates the "Penggunaan Anda" counters on the billing dashboard
+        if user_id and user_id not in ("demo-user", "anonymous", "guest"):
+            try:
+                # AI always generates hero content
+                hero_result = await sub_service.increment_usage(user_id, "generate_ai_hero")
+                logger.info(f"📊 Incremented ai_hero_used for user {user_id} (success={hero_result})")
+
+                # Track AI-generated images if any were produced
+                ai_img_count = getattr(ai_response, 'ai_images_count', 0)
+                if ai_img_count > 0:
+                    img_result = await sub_service.increment_usage(
+                        user_id, "generate_ai_image", count=ai_img_count
+                    )
+                    logger.info(f"📊 Incremented ai_images_used by {ai_img_count} for user {user_id} (success={img_result})")
+                else:
+                    logger.info(f"📊 No AI images to track for user {user_id} (ai_images_count=0)")
+            except Exception as usage_err:
+                # Don't block generation if usage tracking fails
+                logger.warning(f"⚠️ Subscription usage tracking failed for user {user_id}: {usage_err}")
 
         # REPLACE PLACEHOLDERS WITH ACTUAL USER DATA before final save
         try:
