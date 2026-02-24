@@ -272,7 +272,7 @@ export default function BillingPage() {
   return (
     <div className="billing-page">
       <div className="billing-header">
-        <button className="back-btn" onClick={() => router.back()}>
+        <button className="back-btn" onClick={() => router.push('/dashboard')}>
           &larr; Kembali
         </button>
         <h1>Pengurusan Langganan</h1>

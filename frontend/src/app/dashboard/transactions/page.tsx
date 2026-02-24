@@ -142,7 +142,7 @@ export default function TransactionsPage() {
     <div className="transactions-page">
       <div className="transactions-header">
         <div className="header-left">
-          <button className="back-btn" onClick={() => router.back()}>
+          <button className="back-btn" onClick={() => router.push('/dashboard')}>
             &larr; Kembali
           </button>
           <h1>Sejarah Transaksi</h1>
