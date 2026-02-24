@@ -572,23 +572,25 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
                     }
                 )
 
-                if response.status_code == 200 and not response.json():
-                    # Create new usage tracking for this period
-                    await client.post(
-                        usage_url,
-                        headers={**headers, "Prefer": "return=minimal"},
-                        json={
-                            "user_id": user_id,
-                            "billing_period": billing_period,
-                            "websites_count": 0,
-                            "menu_items_count": 0,
-                            "ai_hero_used": 0,
-                            "ai_images_used": 0,
-                            "delivery_zones_count": 0,
-                            "riders_count": 0
-                        }
-                    )
-                    logger.info(f"✅ Created new usage tracking for billing period {billing_period}")
+                # Upsert usage tracking for this period (avoids 400 on duplicate)
+                await client.post(
+                    f"{usage_url}?on_conflict=user_id,billing_period",
+                    headers={
+                        **headers,
+                        "Prefer": "return=minimal,resolution=merge-duplicates"
+                    },
+                    json={
+                        "user_id": user_id,
+                        "billing_period": billing_period,
+                        "websites_count": 0,
+                        "menu_items_count": 0,
+                        "ai_hero_used": 0,
+                        "ai_images_used": 0,
+                        "delivery_zones_count": 0,
+                        "riders_count": 0
+                    }
+                )
+                logger.info(f"✅ Upserted usage tracking for billing period {billing_period}")
 
             # Re-enable suspended websites if any
             websites_url = f"{settings.SUPABASE_URL}/rest/v1/websites"
