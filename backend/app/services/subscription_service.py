@@ -331,8 +331,11 @@ class SubscriptionService:
 
             async with httpx.AsyncClient() as client:
                 response = await client.post(
-                    url,
-                    headers={**self.headers, "Prefer": "return=representation"},
+                    f"{url}?on_conflict=user_id,billing_period",
+                    headers={
+                        **self.headers,
+                        "Prefer": "return=representation,resolution=merge-duplicates"
+                    },
                     json=usage_data
                 )
 
@@ -340,6 +343,7 @@ class SubscriptionService:
                 records = response.json()
                 result = records[0] if records else usage_data
             else:
+                logger.warning(f"Usage tracking upsert failed: {response.status_code} {response.text[:200]}")
                 result = usage_data
 
             # Add computed counts that aren't in the DB table but are needed by callers
