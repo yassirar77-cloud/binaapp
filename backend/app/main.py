@@ -2742,6 +2742,20 @@ async def publish_website(
         html_content = replace_template_placeholders(html_content, body)
         logger.info(f"📤 HTML after placeholder replacement: {len(html_content)} chars")
 
+        # CRITICAL: Inject chat widget script for customer-owner communication
+        # The chat widget button must be visible on ALL published websites
+        if "chat-widget.js" not in html_content:
+            chat_widget_tag = f'''
+<!-- BinaApp Chat Widget - Customer to Owner Chat -->
+<script src="https://binaapp-backend.onrender.com/static/widgets/chat-widget.js"
+        data-website-id="{website_id}"
+        data-api-url="https://binaapp-backend.onrender.com"></script>'''
+            if "</body>" in html_content:
+                html_content = html_content.replace("</body>", chat_widget_tag + "\n</body>")
+            else:
+                html_content += chat_widget_tag
+            logger.info(f"✅ Chat widget injected for website {website_id}")
+
         delivery_enabled = bool(features.get("deliverySystem")) or bool(delivery)
 
         # CRITICAL FIX: ALWAYS create database record BEFORE storage upload
@@ -2934,6 +2948,119 @@ async def publish_website(
                 "success": False,
                 "error": f"Publishing failed: {str(e)}"
             }
+        )
+
+
+@app.post("/api/v1/admin/republish-websites")
+async def admin_republish_websites(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Republish all existing websites to inject the chat widget script tag.
+
+    Fetches all published websites, injects chat-widget.js if missing,
+    and re-uploads the HTML to Supabase Storage.
+    """
+    if not supabase:
+        return JSONResponse(status_code=500, content={"success": False, "error": "Database not configured"})
+
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+    SUPABASE_KEY = (
+        os.getenv("SUPABASE_SERVICE_KEY") or
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or
+        os.getenv("SUPABASE_KEY") or
+        os.getenv("SUPABASE_ANON_KEY") or
+        ""
+    )
+
+    results = {"total": 0, "updated": 0, "skipped": 0, "errors": []}
+
+    try:
+        # Fetch all published websites
+        response = supabase.table("websites").select(
+            "id, user_id, subdomain, html_content, business_name, name, status"
+        ).eq("status", "published").execute()
+
+        websites = response.data or []
+        results["total"] = len(websites)
+
+        if not websites:
+            return {"success": True, "message": "No published websites found", **results}
+
+        api_url = "https://binaapp-backend.onrender.com"
+
+        for website in websites:
+            website_id = website.get("id")
+            subdomain_name = website.get("subdomain")
+            html_content = website.get("html_content", "")
+
+            if not all([website_id, subdomain_name, html_content]):
+                results["skipped"] += 1
+                continue
+
+            # Skip if chat widget already present
+            if "chat-widget.js" in html_content:
+                results["skipped"] += 1
+                continue
+
+            try:
+                # Inject chat widget
+                chat_widget_tag = f'''
+<!-- BinaApp Chat Widget - Customer to Owner Chat -->
+<script src="{api_url}/static/widgets/chat-widget.js"
+        data-website-id="{website_id}"
+        data-api-url="{api_url}"></script>'''
+
+                if "</body>" in html_content:
+                    updated_html = html_content.replace("</body>", chat_widget_tag + "\n</body>")
+                else:
+                    updated_html = html_content + chat_widget_tag
+
+                # Update HTML in database
+                supabase.table("websites").update({
+                    "html_content": updated_html,
+                    "updated_at": datetime.now().isoformat()
+                }).eq("id", website_id).execute()
+
+                # Re-upload to Supabase Storage
+                storage_url = f"{SUPABASE_URL}/storage/v1/object/websites/{subdomain_name}/index.html"
+                storage_headers = {
+                    "apikey": SUPABASE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_KEY}",
+                    "Content-Type": "text/html; charset=utf-8",
+                    "x-upsert": "true"
+                }
+
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    upload_resp = await client.post(
+                        storage_url,
+                        headers=storage_headers,
+                        content=updated_html.encode('utf-8')
+                    )
+
+                if upload_resp.status_code in [200, 201]:
+                    results["updated"] += 1
+                    logger.info(f"✅ Republished {subdomain_name}.binaapp.my with chat widget")
+                else:
+                    results["errors"].append(f"{subdomain_name}: storage upload failed ({upload_resp.status_code})")
+
+            except Exception as e:
+                results["errors"].append(f"{subdomain_name}: {str(e)}")
+                logger.error(f"❌ Failed to republish {subdomain_name}: {e}")
+
+        logger.info(f"📊 Republish complete: {results['updated']}/{results['total']} updated")
+
+        return {
+            "success": True,
+            "message": f"Republish complete: {results['updated']} updated, {results['skipped']} already had widget",
+            **results
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Republish all failed: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": f"Failed to republish websites: {str(e)}"}
         )
 
 
