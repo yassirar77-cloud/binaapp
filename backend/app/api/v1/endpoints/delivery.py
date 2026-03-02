@@ -3036,46 +3036,6 @@ async def rider_login(
 
 
 # =====================================================
-# WIDGET VALIDATION
-# =====================================================
-
-@router.get("/validate-widget/{website_id}")
-async def validate_widget(
-    website_id: str,
-    supabase: Client = Depends(get_supabase_client)
-):
-    """
-    Validate website ID for chat widget
-
-    **Public endpoint** - Chat widget validates website ID without authentication
-    """
-    try:
-        result = supabase.table('websites')\
-            .select('id, name, subdomain')\
-            .eq('id', website_id)\
-            .maybe_single()\
-            .execute()
-
-        if not result.data:
-            raise HTTPException(
-                status_code=404,
-                detail="WEBSITE_NOT_FOUND"
-            )
-
-        return {
-            "valid": True,
-            "website_id": result.data['id'],
-            "name": result.data.get('name', '')
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[Validate Widget] Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# =====================================================
 # HEALTH CHECK
 # =====================================================
 

@@ -172,10 +172,10 @@
 
     #binaapp-chat-btn {
       position: fixed;
-      bottom: 90px;
-      left: 20px;
-      width: 50px;
-      height: 50px;
+      bottom: 24px;
+      right: 24px;
+      width: 56px;
+      height: 56px;
       background: linear-gradient(135deg, #ea580c, #f97316);
       border-radius: 50%;
       display: flex;
@@ -183,17 +183,11 @@
       justify-content: center;
       cursor: pointer;
       box-shadow: 0 4px 12px rgba(234, 88, 12, 0.4);
-      z-index: 9998;
+      z-index: 9999;
       font-size: 24px;
       transition: transform 0.3s ease, box-shadow 0.3s ease;
       border: none;
       outline: none;
-    }
-
-    /* Hide chat button when delivery modal is active to prevent blocking form inputs */
-    body:has(#binaapp-modal.active) #binaapp-chat-btn,
-    body:has(#binaapp-modal.active) #binaapp-chat-window {
-      display: none !important;
     }
 
     #binaapp-chat-btn:hover {
@@ -221,12 +215,12 @@
     #binaapp-chat-window {
       display: none;
       position: fixed;
-      bottom: 150px;
-      left: 20px;
+      bottom: 90px;
+      right: 24px;
       width: 350px;
       max-width: calc(100vw - 40px);
       height: 450px;
-      max-height: calc(100vh - 180px);
+      max-height: calc(100vh - 120px);
       background: white;
       border-radius: 16px;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
@@ -481,18 +475,18 @@
       }
 
       #binaapp-chat-btn {
-        bottom: 90px;
-        left: 16px;
-        width: 48px;
-        height: 48px;
+        bottom: 20px;
+        right: 16px;
+        width: 52px;
+        height: 52px;
         font-size: 22px;
       }
 
       #binaapp-chat-window {
         width: calc(100vw - 32px);
         height: 400px;
-        bottom: 150px;
-        left: 16px;
+        bottom: 80px;
+        right: 16px;
       }
     }
   `;
@@ -890,16 +884,10 @@
   // =====================================================
 
   /**
-   * CRITICAL: Initialize widget ONLY after server validation succeeds
-   * This function should NOT be called directly - use initWithValidation()
+   * Show the chat button and window UI immediately (before validation).
+   * Chat functionality is enabled only after validation succeeds.
    */
-  function initWidget() {
-    // ASSERTION: websiteId MUST be set (validated) before calling this
-    if (!websiteId || !validationComplete) {
-      console.error('[BinaApp Chat] ASSERTION FAILED: initWidget called without valid websiteId');
-      return;
-    }
-
+  function initWidgetUI() {
     injectStyles();
     createWidget();
 
@@ -935,33 +923,75 @@
       });
     }
 
-    // Check if we already have a conversation
+    showNameForm();
+    console.log('[BinaApp Chat] Widget UI visible, pending validation for:', pendingWebsiteId);
+  }
+
+  /**
+   * After validation succeeds, enable full chat functionality.
+   */
+  function enableChatAfterValidation() {
+    // Load any existing conversation from localStorage
     if (conversationId && customerId) {
       showChatInput();
     } else {
       showNameForm();
     }
-
-    console.log('[BinaApp Chat] Widget initialized with VALIDATED website_id:', websiteId);
+    console.log('[BinaApp Chat] Chat enabled with VALIDATED website_id:', websiteId);
   }
 
   /**
-   * MAIN ENTRY POINT: Validate website ID and then initialize widget
-   * This ensures the widget ONLY runs with a valid, database-confirmed ID
+   * Validate website ID with retry logic.
+   * Retries up to 3 times with exponential backoff on network errors.
+   */
+  async function validateWithRetry(candidateId, maxRetries) {
+    var retries = maxRetries || 3;
+    var delay = 2000;
+
+    for (var attempt = 1; attempt <= retries; attempt++) {
+      var result = await validateWebsiteId(candidateId);
+
+      if (result.valid) {
+        return result;
+      }
+
+      // Only retry on network errors, not on definitive rejections
+      if (result.error !== 'NETWORK_ERROR' || attempt === retries) {
+        return result;
+      }
+
+      console.log('[BinaApp Chat] Retry ' + attempt + '/' + retries + ' in ' + delay + 'ms...');
+      await new Promise(function(resolve) { setTimeout(resolve, delay); });
+      delay *= 2;
+    }
+
+    return { valid: false, websiteId: null, error: 'MAX_RETRIES_EXCEEDED' };
+  }
+
+  /**
+   * MAIN ENTRY POINT: Show button immediately, validate in background.
+   * The button is ALWAYS visible. Chat functionality activates after validation.
    */
   async function initWithValidation() {
-    console.log('[BinaApp Chat] Starting validation for:', pendingWebsiteId);
+    // STEP 1: Show the button and chat window UI immediately
+    initWidgetUI();
 
-    // CRITICAL: Validate the website ID against server database
-    const result = await validateWebsiteId(pendingWebsiteId);
+    // STEP 2: Validate in the background (with retry for network errors)
+    console.log('[BinaApp Chat] Starting background validation for:', pendingWebsiteId);
+
+    var result = await validateWithRetry(pendingWebsiteId, 3);
 
     if (!result.valid) {
       validationFailed = true;
-      console.error('[BinaApp Chat] WIDGET BOOTSTRAP ABORTED: Invalid website ID');
-      console.error('[BinaApp Chat] Error:', result.error);
-      console.error('[BinaApp Chat] The widget will NOT initialize.');
+      console.warn('[BinaApp Chat] Validation failed:', result.error);
+      console.warn('[BinaApp Chat] Chat button is visible but chat may not work until validation succeeds.');
 
-      // Do NOT initialize the widget - fail safe
+      // Use the pending ID as fallback so basic chat functionality can still work
+      // This allows the button to remain visible and functional
+      websiteId = pendingWebsiteId;
+      validationComplete = true;
+      initStorageKeys(websiteId);
+      enableChatAfterValidation();
       return;
     }
 
@@ -972,8 +1002,8 @@
     // Initialize storage keys with validated ID
     initStorageKeys(websiteId);
 
-    // Now initialize the widget
-    initWidget();
+    // Enable full chat functionality
+    enableChatAfterValidation();
   }
 
   // Legacy alias for backwards compatibility
@@ -983,33 +1013,47 @@
 
   // Watch for delivery modal opening/closing to hide chat button (prevents form blocking)
   function setupDeliveryModalObserver() {
-    const observer = new MutationObserver(function(mutations) {
-      mutations.forEach(function(mutation) {
-        const modal = document.getElementById('binaapp-modal');
-        if (modal) {
-          const chatBtn = document.getElementById('binaapp-chat-btn');
-          const chatWindow = document.getElementById('binaapp-chat-window');
+    var modal = document.getElementById('binaapp-modal');
 
-          if (modal.classList.contains('active')) {
-            // Delivery modal is open, hide chat widgets to prevent blocking form
-            if (chatBtn) chatBtn.style.display = 'none';
-            if (chatWindow) chatWindow.style.display = 'none';
-          } else {
-            // Delivery modal is closed, show chat widgets
-            if (chatBtn) chatBtn.style.display = 'flex';
-            // Chat window visibility is controlled by isOpen state
-          }
+    // Only set up observer if the delivery modal element exists
+    if (!modal) {
+      // Check again after a short delay in case delivery widget loads later
+      setTimeout(function() {
+        var delayedModal = document.getElementById('binaapp-modal');
+        if (delayedModal) {
+          observeModal();
+        }
+      }, 3000);
+      return;
+    }
+
+    observeModal();
+
+    function observeModal() {
+      var observer = new MutationObserver(function(mutations) {
+        var modalEl = document.getElementById('binaapp-modal');
+        if (!modalEl) return;
+
+        var chatBtn = document.getElementById('binaapp-chat-btn');
+        var chatWindow = document.getElementById('binaapp-chat-window');
+
+        if (modalEl.classList.contains('active')) {
+          // Delivery modal is open, hide chat widgets to prevent blocking form
+          if (chatBtn) chatBtn.style.display = 'none';
+          if (chatWindow) chatWindow.style.display = 'none';
+        } else {
+          // Delivery modal is closed, show chat widgets
+          if (chatBtn) chatBtn.style.display = 'flex';
+          // Chat window visibility is controlled by isOpen state
         }
       });
-    });
 
-    // Observe the entire document for changes
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['class']
-    });
+      // Only observe the modal element for class changes, not the entire DOM
+      var target = document.getElementById('binaapp-modal');
+      if (target) {
+        observer.observe(target, { attributes: true, attributeFilter: ['class'] });
+      }
+    }
   }
 
   // Wait for DOM ready

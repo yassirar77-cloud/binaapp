@@ -707,3 +707,106 @@ def validate_subdomain(subdomain: str) -> bool:
     # Cannot start or end with hyphen
     pattern = r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'
     return bool(re.match(pattern, subdomain))
+
+
+# =====================================================
+# ADMIN: REPUBLISH ALL WEBSITES WITH CHAT WIDGET
+# =====================================================
+
+@router.post("/admin/republish-websites")
+async def republish_all_websites(
+    current_user: dict = Depends(get_optional_current_user)
+):
+    """
+    Republish all existing websites to inject the chat widget script tag.
+
+    This endpoint fetches all published websites from the database,
+    ensures each one has the chat widget script injected, and
+    re-uploads the HTML to Supabase Storage.
+
+    Requires authentication.
+    """
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required for admin operations"
+        )
+
+    results = {"total": 0, "updated": 0, "skipped": 0, "errors": []}
+
+    try:
+        # Fetch all published websites from database via Supabase REST API
+        import httpx
+        url = f"{supabase_service.url}/rest/v1/websites"
+        params = {
+            "select": "id,user_id,subdomain,html_content,business_name,name,status",
+            "status": "eq.published"
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=supabase_service.headers, params=params)
+            if response.status_code == 200:
+                all_websites = response.json()
+            else:
+                raise Exception(f"Failed to fetch websites: {response.status_code}")
+
+        if not all_websites:
+            return {"message": "No published websites found", **results}
+
+        results["total"] = len(all_websites)
+        api_url = "https://binaapp-backend.onrender.com"
+
+        for website in all_websites:
+            website_id = website.get("id")
+            subdomain = website.get("subdomain")
+            user_id = website.get("user_id")
+            html_content = website.get("html_content", "")
+
+            if not all([website_id, subdomain, user_id, html_content]):
+                results["skipped"] += 1
+                continue
+
+            try:
+                # Check if chat widget is already injected
+                if "chat-widget.js" in html_content:
+                    results["skipped"] += 1
+                    continue
+
+                # Inject chat widget
+                updated_html = inject_chat_widget_if_needed(
+                    html_content, website_id, api_url=api_url
+                )
+
+                # Upload updated HTML to storage
+                public_url = await storage_service.upload_website(
+                    user_id=user_id,
+                    subdomain=subdomain,
+                    html_content=updated_html
+                )
+
+                # Update HTML content in database
+                await supabase_service.update_website(website_id, {
+                    "html_content": updated_html,
+                    "updated_at": datetime.utcnow().isoformat()
+                })
+
+                results["updated"] += 1
+                logger.info(f"✅ Republished {subdomain}.binaapp.my with chat widget")
+
+            except Exception as e:
+                error_msg = f"Failed to republish {subdomain}: {str(e)}"
+                results["errors"].append(error_msg)
+                logger.error(f"❌ {error_msg}")
+
+        logger.info(f"📊 Republish complete: {results['updated']}/{results['total']} updated, {results['skipped']} skipped, {len(results['errors'])} errors")
+
+        return {
+            "message": f"Republish complete: {results['updated']} updated, {results['skipped']} already had widget",
+            **results
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Republish all failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to republish websites: {str(e)}"
+        )
