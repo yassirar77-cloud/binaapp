@@ -351,7 +351,7 @@ export default function CreatePage() {
         return true
       }
 
-      const response = await fetch(`${DIRECT_BACKEND_URL}/api/v1/subscription/check-limit`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/subscription/check-limit`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -386,8 +386,9 @@ export default function CreatePage() {
       return true
     } catch (error) {
       console.error('[Create] Limit check error:', error)
-      // Allow on error (backend will enforce anyway)
-      return true
+      // FAIL CLOSED: Block action when limit check fails
+      setError('Gagal menyemak had penggunaan. Sila cuba lagi.')
+      return false
     }
   }
 
@@ -399,7 +400,7 @@ export default function CreatePage() {
       const token = getStoredToken()
       if (!token) return true
 
-      const response = await fetch(`${DIRECT_BACKEND_URL}/api/v1/subscription/check-limit`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/subscription/check-limit`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -425,7 +426,9 @@ export default function CreatePage() {
       return true
     } catch (error) {
       console.error('[Create] AI image limit check error:', error)
-      return true
+      // FAIL CLOSED: Block action when limit check fails
+      setError('Gagal menyemak had penggunaan imej AI. Sila cuba lagi.')
+      return false
     }
   }
 
@@ -584,6 +587,21 @@ export default function CreatePage() {
 
       if (!startResponse.ok) {
         const errorData = await startResponse.json();
+
+        // Handle subscription limit reached from backend
+        if (startResponse.status === 403 && errorData.error === 'subscription_limit_reached') {
+          setLimitModalData({
+            resourceType: 'website',
+            currentUsage: errorData.current_usage || 0,
+            limit: errorData.limit || 1,
+            canBuyAddon: errorData.can_buy_addon || false,
+            addonPrice: errorData.addon_price
+          })
+          setShowLimitModal(true)
+          setLoading(false)
+          return
+        }
+
         // Check if content was blocked
         if (errorData.blocked || errorData.detail?.includes('tidak dibenarkan') || errorData.detail?.includes('mencurigakan')) {
           throw new Error(errorData.detail || '⚠️ Maaf, kandungan ini tidak dibenarkan. Sorry, this content is not allowed.');
