@@ -2724,7 +2724,8 @@ async def publish_website(
         if not website_id:
             website_id = str(uuid.uuid4())
 
-        # Prevent ID collisions across users
+        # Prevent ID collisions across users and determine if this is a NEW website
+        is_new_website = True
         if supabase:
             existing = supabase.table("websites").select("id, user_id").eq("id", website_id).limit(1).execute()
             if existing.data:
@@ -2734,6 +2735,38 @@ async def publish_website(
                         status_code=403,
                         content={"success": False, "error": "Website ID belongs to another user"}
                     )
+                is_new_website = False  # Existing website being updated
+
+        # CRITICAL: Enforce subscription limit for NEW websites
+        if is_new_website and supabase:
+            try:
+                limit_result = await sub_service.check_limit(user_id, "create_website")
+                logger.info(f"📊 Limit check for user {user_id}: {limit_result}")
+
+                if not limit_result.get("allowed"):
+                    logger.warning(f"🚫 Website limit reached for user {user_id}: {limit_result.get('message')}")
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "success": False,
+                            "error": "subscription_limit_reached",
+                            "message": limit_result.get("message", "Had website dicapai. Upgrade plan atau beli addon."),
+                            "current_usage": limit_result.get("current_usage"),
+                            "limit": limit_result.get("limit"),
+                            "can_buy_addon": limit_result.get("can_buy_addon", False),
+                            "addon_type": limit_result.get("addon_type"),
+                            "addon_price": limit_result.get("addon_price"),
+                            "upgrade_url": "/dashboard/billing"
+                        }
+                    )
+
+                # If using addon credit, consume it
+                if limit_result.get("using_addon"):
+                    await sub_service.use_addon_credit(user_id, "website")
+                    logger.info(f"🧾 Consumed website addon credit for user {user_id}")
+            except Exception as limit_err:
+                # Log but don't block on limit check failure - fail open with warning
+                logger.error(f"⚠️ Limit check failed for user {user_id}: {limit_err}")
 
         # Ensure HTML uses the database record website_id
         html_content = fix_website_id_in_html(html_content, website_id)
@@ -2777,6 +2810,14 @@ async def publish_website(
                     "updated_at": datetime.now().isoformat()
                 }, on_conflict="id").execute()
                 logger.info(f"✅ Database record created/updated: {website_id}")
+
+                # CRITICAL: Sync usage_tracking after new website creation
+                if is_new_website:
+                    try:
+                        await sub_service.increment_usage(user_id, "create_website")
+                        logger.info(f"📊 Incremented websites_count for user {user_id}")
+                    except Exception as usage_err:
+                        logger.warning(f"⚠️ Usage tracking increment failed for user {user_id}: {usage_err}")
             except Exception as db_err:
                 logger.error(f"❌ CRITICAL: Database insert failed: {db_err}")
                 # Don't continue - if DB fails, the website will be orphaned

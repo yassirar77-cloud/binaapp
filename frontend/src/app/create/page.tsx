@@ -872,7 +872,22 @@ export default function CreatePage() {
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(errorData.detail || 'Gagal menerbitkan website')
+
+        // Handle subscription limit reached from backend enforcement
+        if (response.status === 403 && (errorData.error === 'subscription_limit_reached' || errorData.error === 'limit_reached')) {
+          setLimitModalData({
+            resourceType: 'website',
+            currentUsage: errorData.current_usage || 0,
+            limit: errorData.limit || 1,
+            canBuyAddon: errorData.can_buy_addon || false,
+            addonPrice: errorData.addon_price
+          })
+          setShowLimitModal(true)
+          setShowPublishModal(false)
+          return
+        }
+
+        throw new Error(errorData.detail || errorData.message || 'Gagal menerbitkan website')
       }
 
       const data = await response.json()
