@@ -135,6 +135,69 @@ export default function DashboardPage() {
     }
   }
 
+  const handleCreateWebsiteClick = async () => {
+    if (!supabase || !user) {
+      router.push('/create')
+      return
+    }
+
+    try {
+      // Count actual websites (source of truth)
+      const { count: actualCount } = await supabase
+        .from('websites')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+
+      // Get plan limit
+      const { data: subData } = await supabase
+        .from('subscriptions')
+        .select('subscription_plans(websites_limit)')
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+
+      const limit = subData?.subscription_plans?.websites_limit ?? 1
+
+      // Unlimited plan
+      if (limit === null) {
+        router.push('/create')
+        return
+      }
+
+      // Get addon credits
+      const { data: addons } = await supabase
+        .from('addon_purchases')
+        .select('quantity_remaining')
+        .eq('user_id', user.id)
+        .eq('addon_type', 'website')
+        .eq('status', 'active')
+        .gt('quantity_remaining', 0)
+
+      const addonCredits = (addons || []).reduce((sum: number, a: any) => sum + a.quantity_remaining, 0)
+      const totalAllowed = limit + addonCredits
+
+      if ((actualCount ?? 0) >= totalAllowed) {
+        setLimitModalData({
+          resourceType: 'website',
+          currentUsage: actualCount ?? 0,
+          limit: limit,
+          canBuyAddon: true,
+          addonPrice: 5
+        })
+        setShowLimitModal(true)
+        return // DO NOT navigate to /create
+      }
+
+      // Safe to proceed
+      router.push('/create')
+    } catch (err) {
+      console.error('Limit check failed:', err)
+      router.push('/create') // Fail open (backend will still block)
+    }
+  }
+
   const formatDate = (dateString: string) => {
     try {
       const date = new Date(dateString)
@@ -189,10 +252,10 @@ export default function DashboardPage() {
             <Link href="/profile" className="text-sm text-gray-600 hover:text-gray-900">
               Profile
             </Link>
-            <Link href="/create" className="btn btn-primary btn-sm">
+            <button onClick={handleCreateWebsiteClick} className="btn btn-primary btn-sm">
               <Plus className="w-4 h-4 mr-2" />
               Create New Website
-            </Link>
+            </button>
             <button
               onClick={handleLogout}
               className="text-sm text-red-500 hover:text-red-600"
@@ -253,10 +316,10 @@ export default function DashboardPage() {
             <div className="text-6xl mb-4">📄</div>
             <h2 className="text-2xl font-bold mb-2">No websites yet</h2>
             <p className="text-gray-600 mb-6">Create your first AI-powered website now!</p>
-            <Link href="/create" className="btn btn-primary">
+            <button onClick={handleCreateWebsiteClick} className="btn btn-primary">
               <Plus className="w-4 h-4 mr-2" />
               Create Your First Website
-            </Link>
+            </button>
           </div>
         ) : (
           /* Projects Grid */

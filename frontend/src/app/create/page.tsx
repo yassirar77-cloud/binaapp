@@ -171,6 +171,7 @@ export default function CreatePage() {
   const [limitWarning, setLimitWarning] = useState<string | null>(null)
   const [hasActiveSubscription, setHasActiveSubscription] = useState<boolean | null>(null)
   const [subscriptionLoading, setSubscriptionLoading] = useState(true)
+  const [isAtLimit, setIsAtLimit] = useState(false)
 
   // Feature selector states
   const [selectedFeatures, setSelectedFeatures] = useState({
@@ -241,6 +242,63 @@ export default function CreatePage() {
 
   useEffect(() => {
     checkUser()
+  }, [])
+
+  // Check website limit on page load using direct Supabase count (source of truth)
+  useEffect(() => {
+    const checkLimit = async () => {
+      if (!supabase) return
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser()
+        if (!authUser) return
+
+        const { count } = await supabase
+          .from('websites')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', authUser.id)
+
+        const { data: subData } = await supabase
+          .from('subscriptions')
+          .select('subscription_plans(websites_limit)')
+          .eq('user_id', authUser.id)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        const limit = subData?.subscription_plans?.websites_limit ?? 1
+
+        // Unlimited plan
+        if (limit === null) return
+
+        // Get addon credits
+        const { data: addons } = await supabase
+          .from('addon_purchases')
+          .select('quantity_remaining')
+          .eq('user_id', authUser.id)
+          .eq('addon_type', 'website')
+          .eq('status', 'active')
+          .gt('quantity_remaining', 0)
+
+        const addonCredits = (addons || []).reduce((sum: number, a: any) => sum + a.quantity_remaining, 0)
+        const totalAllowed = limit + addonCredits
+
+        if ((count ?? 0) >= totalAllowed) {
+          setIsAtLimit(true)
+          setLimitModalData({
+            resourceType: 'website',
+            currentUsage: count ?? 0,
+            limit: limit,
+            canBuyAddon: true,
+            addonPrice: 5
+          })
+          setShowLimitModal(true)
+        }
+      } catch (err) {
+        console.error('[Create] Direct limit check failed:', err)
+      }
+    }
+    checkLimit()
   }, [])
 
   // CRITICAL: Cleanup polling interval on unmount to prevent memory leaks
@@ -460,6 +518,12 @@ export default function CreatePage() {
 
   const handleGenerate = async () => {
     if (!description.trim()) return;
+
+    // Hard block if already at limit (checked on page load)
+    if (isAtLimit) {
+      setShowLimitModal(true)
+      return
+    }
 
     // Check if user is logged in
     if (!user) {
@@ -973,6 +1037,12 @@ export default function CreatePage() {
       </header>
 
       <div className="container mx-auto px-4 py-8">
+        {isAtLimit && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
+            Had website dicapai. Sila upgrade plan atau beli addon untuk mencipta website baru.
+            <Link href="/dashboard/billing" className="ml-2 underline font-semibold">Upgrade Sekarang</Link>
+          </div>
+        )}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold mb-3">
             ✨ Create Your Website with AI
@@ -1633,7 +1703,7 @@ export default function CreatePage() {
 
             <button
               onClick={handleGenerate}
-              disabled={loading || description.length < 10}
+              disabled={loading || description.length < 10 || isAtLimit}
               className="w-full btn btn-primary text-lg py-4 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (

@@ -48,6 +48,124 @@ async def generate_website(
 
         logger.info(f"[GENERATE] Starting website generation for user={user_id}, subdomain={request.subdomain}")
 
+        # ============================================================
+        # HARD LIMIT ENFORCEMENT — DO NOT MOVE, DO NOT SKIP
+        # Uses COUNT from source-of-truth (websites table), not cached counter
+        # ============================================================
+        import httpx as _httpx
+
+        _base_url = settings.SUPABASE_URL
+        _svc_headers = supabase_service.headers
+
+        # 1. Count actual websites owned by this user (source of truth)
+        async with _httpx.AsyncClient() as _client:
+            _count_resp = await _client.get(
+                f"{_base_url}/rest/v1/websites",
+                headers={**_svc_headers, "Prefer": "count=exact"},
+                params={"user_id": f"eq.{user_id}", "select": "id"}
+            )
+        actual_count = 0
+        if _count_resp.status_code == 200:
+            _cr = _count_resp.headers.get("content-range", "")
+            if "/" in _cr:
+                try:
+                    actual_count = int(_cr.split("/")[1])
+                except (ValueError, IndexError):
+                    actual_count = len(_count_resp.json())
+            else:
+                actual_count = len(_count_resp.json())
+
+        # 2. Get plan limit from active subscription
+        async with _httpx.AsyncClient() as _client:
+            _sub_resp = await _client.get(
+                f"{_base_url}/rest/v1/subscriptions",
+                headers=_svc_headers,
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "status": "eq.active",
+                    "select": "plan_id,subscription_plans(websites_limit,plan_name)",
+                    "order": "created_at.desc",
+                    "limit": "1"
+                }
+            )
+
+        if _sub_resp.status_code != 200 or not _sub_resp.json():
+            raise HTTPException(
+                status_code=403,
+                detail={"error": "no_active_subscription", "message": "Tiada langganan aktif. Sila subscribe dahulu."}
+            )
+
+        _sub_data = _sub_resp.json()[0]
+        websites_limit = _sub_data["subscription_plans"]["websites_limit"]
+        plan_name = _sub_data["subscription_plans"]["plan_name"]
+
+        # Handle unlimited plans (websites_limit = None)
+        if websites_limit is not None:
+            # 3. Check addon credits
+            async with _httpx.AsyncClient() as _client:
+                _addon_resp = await _client.get(
+                    f"{_base_url}/rest/v1/addon_purchases",
+                    headers=_svc_headers,
+                    params={
+                        "user_id": f"eq.{user_id}",
+                        "addon_type": "eq.website",
+                        "status": "eq.active",
+                        "quantity_remaining": "gt.0",
+                        "select": "id,quantity_remaining"
+                    }
+                )
+            _addon_data = _addon_resp.json() if _addon_resp.status_code == 200 else []
+            addon_credits = sum(a["quantity_remaining"] for a in _addon_data)
+
+            total_allowed = websites_limit + addon_credits
+
+            logger.info(f"[LIMIT CHECK] user={user_id} actual={actual_count} plan_limit={websites_limit} addon_credits={addon_credits} total_allowed={total_allowed}")
+
+            # 4. BLOCK if at or over limit
+            if actual_count >= total_allowed:
+                logger.warning(f"[LIMIT BLOCKED] user={user_id} tried to create website ({actual_count}/{total_allowed})")
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "subscription_limit_reached",
+                        "message": f"Had website dicapai ({actual_count}/{total_allowed}). Upgrade plan atau beli addon tambahan.",
+                        "current_usage": actual_count,
+                        "limit": websites_limit,
+                        "addon_credits": addon_credits,
+                        "total_allowed": total_allowed,
+                        "plan": plan_name
+                    }
+                )
+
+            # 5. If using addon credit, deduct one immediately (before generation starts)
+            if actual_count >= websites_limit and addon_credits > 0:
+                _addon_to_use = _addon_data[0]
+                async with _httpx.AsyncClient() as _client:
+                    await _client.patch(
+                        f"{_base_url}/rest/v1/addon_purchases",
+                        headers={**_svc_headers, "Prefer": "return=minimal"},
+                        params={"id": f"eq.{_addon_to_use['id']}"},
+                        json={"quantity_remaining": _addon_to_use["quantity_remaining"] - 1}
+                    )
+                logger.info(f"[ADDON USED] user={user_id} addon_id={_addon_to_use['id']}")
+
+        # ============================================================
+        # END LIMIT ENFORCEMENT
+        # ============================================================
+
+        # Sync usage_tracking counter with actual count (keeps dashboard accurate)
+        try:
+            async with _httpx.AsyncClient() as _client:
+                await _client.patch(
+                    f"{_base_url}/rest/v1/usage_tracking",
+                    headers={**_svc_headers, "Prefer": "return=minimal"},
+                    params={"user_id": f"eq.{user_id}"},
+                    json={"websites_count": actual_count, "updated_at": datetime.utcnow().isoformat()}
+                )
+        except Exception as sync_err:
+            logger.warning(f"[USAGE SYNC] Failed to sync counter: {sync_err}")
+            # Non-fatal — don't block creation for this
+
         # CRITICAL: Ensure profile exists BEFORE creating website
         # The websites table has FK to profiles, not auth.users
         profile_exists = await supabase_service.ensure_profile_exists(user_id, user_email)
