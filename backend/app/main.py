@@ -2193,6 +2193,30 @@ MANDATORY REQUIREMENTS:
             }
         )
 
+    # Check subscription website limit before spending AI resources
+    if user_id and user_id != "anonymous":
+        try:
+            gen_limit = await sub_service.check_limit(user_id, "create_website")
+            if not gen_limit.get("allowed"):
+                logger.warning(f"🚫 Website limit reached at generate/start for user {user_id}")
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "success": False,
+                        "error": "subscription_limit_reached",
+                        "message": gen_limit.get("message", "Had website dicapai. Upgrade plan atau beli addon."),
+                        "current_usage": gen_limit.get("current_usage"),
+                        "limit": gen_limit.get("limit"),
+                        "can_buy_addon": gen_limit.get("can_buy_addon", False),
+                        "addon_type": gen_limit.get("addon_type"),
+                        "addon_price": gen_limit.get("addon_price"),
+                        "upgrade_url": "/dashboard/billing"
+                    }
+                )
+        except Exception as e:
+            logger.warning(f"⚠️ Subscription limit check at generate/start failed: {e}")
+            # Don't block generation on check failure - publish endpoint will enforce
+
     # Generate job ID
     job_id = str(uuid.uuid4())
 
@@ -2737,8 +2761,27 @@ async def publish_website(
                     )
                 is_new_website = False  # Existing website being updated
 
+        # Also detect republish by subdomain ownership (frontend sends new UUID each time)
+        if is_new_website and supabase and subdomain:
+            try:
+                sub_check = supabase.table("websites").select("id, user_id").eq("subdomain", subdomain).limit(1).execute()
+                if sub_check.data:
+                    existing_sub_owner = sub_check.data[0].get("user_id")
+                    if existing_sub_owner == user_id:
+                        is_new_website = False
+                        website_id = sub_check.data[0]["id"]  # Reuse existing website ID
+                        logger.info(f"📝 Republish detected via subdomain match: {subdomain}")
+                    elif existing_sub_owner and existing_sub_owner != user_id:
+                        return JSONResponse(
+                            status_code=400,
+                            content={"success": False, "error": f"Subdomain '{subdomain}' sudah digunakan oleh pengguna lain."}
+                        )
+            except Exception as sub_err:
+                logger.warning(f"⚠️ Subdomain ownership check failed: {sub_err}")
+
         # CRITICAL: Enforce subscription limit for NEW websites
-        if is_new_website and supabase:
+        # Uses sub_service which has its own httpx client (independent of global supabase)
+        if is_new_website:
             try:
                 limit_result = await sub_service.check_limit(user_id, "create_website")
                 logger.info(f"📊 Limit check for user {user_id}: {limit_result}")
@@ -2765,8 +2808,16 @@ async def publish_website(
                     await sub_service.use_addon_credit(user_id, "website")
                     logger.info(f"🧾 Consumed website addon credit for user {user_id}")
             except Exception as limit_err:
-                # Log but don't block on limit check failure - fail open with warning
-                logger.error(f"⚠️ Limit check failed for user {user_id}: {limit_err}")
+                # FAIL CLOSED: If we can't verify the limit, block the creation
+                logger.error(f"❌ Limit check failed for user {user_id}: {limit_err}")
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "success": False,
+                        "error": "limit_check_failed",
+                        "message": "Gagal menyemak had penggunaan. Sila cuba lagi."
+                    }
+                )
 
         # Ensure HTML uses the database record website_id
         html_content = fix_website_id_in_html(html_content, website_id)
