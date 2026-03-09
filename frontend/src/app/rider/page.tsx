@@ -458,8 +458,15 @@ export default function RiderApp() {
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || 'API request failed');
+      let errorMessage = 'API request failed';
+      try {
+        const errorData = await res.json();
+        errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
+      } catch {
+        const text = await res.text();
+        errorMessage = text || 'API request failed';
+      }
+      throw new Error(errorMessage);
     }
 
     return res.json();
