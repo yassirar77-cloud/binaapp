@@ -139,26 +139,28 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify password against bcrypt hash.
 
-    SECURITY: Plain text password support has been REMOVED.
-    All passwords must be properly hashed with bcrypt.
+    Supports bcrypt hashes and plain text passwords (with auto-rehash migration).
     """
     try:
+        if not hashed_password:
+            return False
+
         # Check if stored password is a bcrypt hash (starts with $2a$, $2b$, or $2y$)
-        if hashed_password and hashed_password.startswith(('$2a$', '$2b$', '$2y$')):
+        if hashed_password.startswith(('$2a$', '$2b$', '$2y$')):
             # It's a bcrypt hash - verify normally
             return bcrypt.checkpw(
                 plain_password.encode('utf-8'),
                 hashed_password.encode('utf-8')
             )
         else:
-            # SECURITY FIX: Plain text passwords are NO LONGER SUPPORTED
-            # If you see this error, the rider password needs to be rehashed
-            logger.critical(
-                f"SECURITY: Plain text password detected in database! "
-                f"This rider account is BLOCKED until password is rehashed. "
-                f"Run: UPDATE riders SET password_hash = bcrypt_hash(password_hash) WHERE ..."
-            )
-            # Return False - do not allow login with plain text passwords
+            # Plain text password - compare directly
+            # This handles riders created before bcrypt was enforced
+            if plain_password == hashed_password:
+                logger.warning(
+                    "Plain text password matched - will be auto-rehashed on next update. "
+                    "Consider running a migration to hash all plain text passwords."
+                )
+                return True
             return False
     except Exception as e:
         logger.error(f"Password verification error: {e}")
@@ -3006,13 +3008,22 @@ async def rider_login(
                 detail="Akaun rider tidak aktif. Sila hubungi pentadbir."
             )
 
-        # Verify password using bcrypt (SECURITY FIX)
+        # Verify password
         stored_password = rider.get("password_hash", "")
         if not verify_password(credentials.password, stored_password):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Nombor telefon atau kata laluan salah"
             )
+
+        # Auto-rehash plain text passwords to bcrypt for security
+        if stored_password and not stored_password.startswith(('$2a$', '$2b$', '$2y$')):
+            try:
+                new_hash = hash_password(credentials.password)
+                supabase.table("riders").update({"password_hash": new_hash}).eq("id", rider["id"]).execute()
+                logger.info(f"✅ Auto-rehashed plain text password for rider {rider['id']}")
+            except Exception as rehash_err:
+                logger.error(f"Failed to auto-rehash password for rider {rider['id']}: {rehash_err}")
 
         # Remove password from response
         rider.pop("password_hash", None)
