@@ -102,7 +102,7 @@ export async function middleware(req: NextRequest) {
   console.log('[Middleware] Path:', pathname, 'Founder:', hasFounderAccess, 'BinaApp token:', !!binaappToken, 'Token expired:', isTokenExpired, 'Supabase session:', !!supabaseSession)
 
   // Protected routes that require authentication
-  const protectedPaths = ['/profile', '/my-projects', '/create']
+  const protectedPaths = ['/profile', '/my-projects', '/create', '/dashboard']
   const isProtectedPath = protectedPaths.some(path =>
     pathname.startsWith(path)
   )
