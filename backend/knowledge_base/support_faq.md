@@ -1,6 +1,6 @@
 # BinaApp Support Knowledge Base
 
-BinaApp is a comprehensive digital restaurant platform for Malaysian food businesses. This knowledge base covers common questions and solutions for restaurant owners using BinaApp.
+BinaApp is a comprehensive AI-powered digital platform for Malaysian food businesses and restaurants. It provides website building, order management, delivery system, payment integration, and real-time chat. This knowledge base covers common questions and solutions for business owners using BinaApp.
 
 ---
 
@@ -38,14 +38,17 @@ Email admin@binaapp.my with your deletion request. Please note:
 
 ### How do I set up my restaurant website?
 1. Log in to your BinaApp dashboard
-2. Go to "Laman Web" (Website) section
-3. Choose a template or use AI to generate your design
-4. Add your restaurant details:
+2. Go to "Cipta Website" (Create Website)
+3. Describe your business in Bahasa Malaysia or English
+4. AI will generate a complete website with:
    - Business name and logo
    - Description
-   - Operating hours
+   - Menu layout
+   - WhatsApp ordering button
+   - Shopping cart
+   - Google Maps location
    - Contact information
-   - Address with GPS coordinates
+5. Customize as needed and publish
 
 ### How do I customize my website design?
 In the website editor, you can:
@@ -62,15 +65,12 @@ BinaApp provides free subdomains in the format: yourname.binaapp.my
 3. Click "Simpan" (Save)
 4. Your site will be live at yourname.binaapp.my
 
-### Can I use my own custom domain?
-Custom domains are available on PRO and BUSINESS plans.
-1. Purchase your domain from a domain registrar
-2. Go to Settings → Custom Domain in BinaApp
-3. Enter your domain name
-4. Configure DNS settings as instructed:
-   - Add A record pointing to our IP
-   - Add CNAME record for www subdomain
-5. Wait for DNS propagation (up to 48 hours)
+### Can I use a custom subdomain?
+Custom subdomains are available on Basic and Pro plans.
+1. Go to Settings → Domain
+2. Enter your preferred custom subdomain name
+3. Click "Simpan" (Save)
+4. Your site will be live at your chosen subdomain
 
 ---
 
@@ -146,48 +146,64 @@ Go to Orders → History to view:
 
 ### What subscription plans are available?
 
-**FREE Plan - RM0/month**
-- Basic website
+**Starter Plan - RM5/month**
+- 1 website
+- Free subdomain (.binaapp.my)
 - Up to 20 menu items
-- Basic order management
-- BinaApp branding on website
-- Community support
+- 1 AI hero generation/month
+- 5 AI images/month
+- 1 delivery zone
+- All basic integrations (WhatsApp, shopping cart, Google Maps)
+- Email support
 
-**PRO Plan - RM29/month**
-- Everything in FREE
-- Unlimited menu items
+**Basic Plan - RM29/month**
+- 5 websites
 - Custom subdomain
-- Remove BinaApp branding
+- Unlimited menu items
+- 10 AI hero generations/month
+- 30 AI images/month
+- 5 delivery zones
+- Priority AI generation
+- Analytics dashboard
 - Priority support
-- Basic analytics
-- SMS notifications
+- QR payment integration
+- Contact form
 
-**BUSINESS Plan - RM49/month**
-- Everything in PRO
-- Custom domain support
-- Advanced analytics
-- Multi-branch support
-- API access
-- Dedicated support
-- BinaChat real-time messaging
-- Delivery management system
+**Pro Plan - RM49/month**
+- Unlimited websites
+- Unlimited menu items
+- Unlimited AI generations (hero + images)
+- Unlimited delivery zones
+- 10 riders with GPS tracking
+- Advanced AI features
+- Priority support
+- All Basic features included
+
+### What are addon credits?
+When you reach your plan's limits, you can buy extra addon credits:
+- AI Image: RM1.00/credit
+- AI Hero: RM2.00/credit
+- Website: RM5.00/credit
+- Rider: RM3.00/credit
+- Delivery Zone: RM2.00/credit
+
+Addon credits are auto-deducted when used. Purchase from Dashboard → Billing → Addons.
 
 ### How do I upgrade my plan?
-1. Go to Settings → Subscription
-2. Click "Naik Taraf" (Upgrade)
-3. Select your new plan
-4. Complete payment via ToyyibPay
-5. New features activate immediately
+1. Go to Dashboard → Billing
+2. Click "Naik Taraf" (Upgrade) on the desired plan
+3. Complete payment via ToyyibPay
+4. New features activate immediately
 
-### How do I downgrade or cancel my subscription?
-1. Go to Settings → Subscription
-2. Click "Tukar Pelan" (Change Plan)
-3. Select the new plan or "Batal Langganan" (Cancel)
-4. Your current plan remains active until the end of billing period
+### How do I renew my subscription?
+1. Go to Dashboard → Billing
+2. Click "Perbaharui Sekarang" (Renew Now)
+3. Complete payment via ToyyibPay
+4. You will receive email reminders at 7, 3, and 1 day before expiry
 
 ### My subscription payment failed. What do I do?
 1. Check your payment method has sufficient funds
-2. Go to Settings → Subscription → Payment History
+2. Go to Dashboard → Billing → Payment History
 3. Click "Cuba Lagi" (Try Again) on the failed payment
 4. If problems persist, contact support.team@binaapp.my
 
@@ -267,6 +283,14 @@ BinaChat enables real-time messaging between:
 - Restaurant and Riders
 - Support communication
 
+Features include:
+- Text, image, and voice messages
+- Location sharing
+- Payment proof sharing
+- Typing indicators
+- Read receipts
+- Rider GPS location tracking on map
+
 ### How do I use BinaChat?
 1. Go to Chat section in dashboard
 2. View active conversations
@@ -279,6 +303,39 @@ Customers can:
 - Click "Chat" button on your website
 - Message through order tracking page
 - Send inquiries about menu items
+
+### What is AI Auto-Respond?
+When you're offline, AI can auto-respond to customer messages:
+1. Go to AI Chat Settings
+2. Enable auto-response
+3. Set custom greeting message
+4. Choose personality (friendly, professional, casual)
+5. Set response delay
+6. AI will respond using your restaurant context (menu, delivery settings, website info)
+
+## 8b. AI Support (BinaBot)
+
+### What is BinaBot?
+BinaBot is BinaApp's AI support assistant available 24/7. It can:
+- Answer questions about your account and orders
+- Check order status and payment verification
+- Diagnose website issues and run health scans
+- Award BinaCredit for minor issues (up to RM10)
+- Create formal disputes for major issues
+- Analyze images you upload (food complaints, screenshots)
+- Escalate to human admin when needed
+
+### How do I access AI Support?
+1. Click the chat icon (bottom-right on any page)
+2. Or go to AI Support from the dashboard
+3. Describe your issue in Bahasa Malaysia or English
+4. You can upload images for visual issues
+
+### What is BinaCredit?
+BinaCredit is wallet credit awarded for resolved issues:
+- BinaBot can award up to RM10 for minor issues
+- Credits appear in your wallet balance
+- Can be used for future purchases
 
 ---
 
@@ -370,5 +427,5 @@ Support is available:
 
 ---
 
-*Last updated: January 2026*
-*BinaApp - Platform Restoran Digital Malaysia*
+*Last updated: March 2026*
+*BinaApp - Platform Digital AI untuk Perniagaan Makanan Malaysia*
