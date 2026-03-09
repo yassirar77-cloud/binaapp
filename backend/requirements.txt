@@ -58,3 +58,4 @@ user-agents==2.2.0
 # Testing (CI only)
 pytest
 pytest-cov
+pytest-asyncio

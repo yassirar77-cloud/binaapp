@@ -8,13 +8,17 @@ Usage: python backend/test_imap_connection.py
 
 import imaplib
 import ssl
+import os
 from datetime import datetime
 
-# IMAP Configuration
-IMAP_SERVER = "imap.zoho.com"
-IMAP_PORT = 993
-EMAIL = "support.team@binaapp.my"
-PASSWORD = "d1JNkVH7yQRk"
+from dotenv import load_dotenv
+load_dotenv()
+
+# IMAP Configuration — loaded from environment variables
+IMAP_SERVER = os.getenv("IMAP_SERVER", "imap.zoho.com")
+IMAP_PORT = int(os.getenv("IMAP_PORT", "993"))
+EMAIL = os.getenv("SUPPORT_EMAIL", "support.team@binaapp.my")
+PASSWORD = os.getenv("SUPPORT_EMAIL_PASSWORD", "")
 
 
 def test_imap_connection():
