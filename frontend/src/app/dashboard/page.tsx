@@ -9,7 +9,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Sparkles, Plus, Eye, Edit2, Trash2, ExternalLink, Calendar, Globe, CreditCard } from 'lucide-react'
 import { API_BASE_URL } from '@/lib/env'
-import { supabase } from '@/lib/supabase'
+import { supabase, getStoredToken, getCurrentUser } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import { SubscriptionExpiredBanner } from '@/components/SubscriptionExpiredBanner'
 import { UsageWidget } from '@/components/UsageWidget'
@@ -56,21 +56,36 @@ export default function DashboardPage() {
     setError('')
 
     try {
-      // Get authenticated user
-      const { data: { user } } = await supabase.auth.getUser()
+      // Check custom backend token first, then fall back to Supabase session
+      const storedToken = getStoredToken()
+      let currentUser: User | null = null
 
-      if (!user) {
+      if (storedToken) {
+        // User logged in via custom backend auth - get user from stored data
+        const stored = await getCurrentUser()
+        if (stored) {
+          currentUser = stored as User
+        }
+      }
+
+      // Fall back to Supabase session if no custom token user
+      if (!currentUser) {
+        const { data: { user: supaUser } } = await supabase.auth.getUser()
+        currentUser = supaUser
+      }
+
+      if (!currentUser) {
         router.push('/login')
         return
       }
 
-      setUser(user)
+      setUser(currentUser)
 
       // Fetch projects directly from Supabase
       const { data, error: supabaseError } = await supabase
         .from('websites')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', currentUser.id)
         .order('created_at', { ascending: false })
 
       if (supabaseError) {
