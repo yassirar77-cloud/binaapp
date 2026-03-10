@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase, getCurrentUser, getStoredToken } from '@/lib/supabase';
 import AIEditor from './AIEditor';
+import InlineEditor from './InlineEditor';
+
+type EditorMode = 'simple' | 'advanced';
 
 // Backend API URL
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
@@ -26,6 +29,7 @@ export default function EditorPage() {
   const [website, setWebsite] = useState<Website | null>(null);
   const [html, setHtml] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [editorMode, setEditorMode] = useState<EditorMode>('simple');
 
   useEffect(() => {
     loadWebsite();
@@ -218,6 +222,30 @@ export default function EditorPage() {
               <p className="text-sm text-gray-500">{website.subdomain}.binaapp.my</p>
             )}
           </div>
+          {/* Mode Toggle */}
+          <div className="flex items-center bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={() => setEditorMode('simple')}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                editorMode === 'simple'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              Mudah
+            </button>
+            <button
+              onClick={() => setEditorMode('advanced')}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                editorMode === 'advanced'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-800'
+              }`}
+            >
+              Lanjutan (HTML)
+            </button>
+          </div>
+
           <div className="flex gap-2">
             <button
               onClick={() => router.push('/my-projects')}
@@ -237,47 +265,71 @@ export default function EditorPage() {
       </div>
 
       {/* Editor Container */}
-      <div className="flex-1 flex flex-col p-4 gap-4 overflow-y-auto">
-        {/* AI Editor Section */}
-        <div className="w-full">
-          <AIEditor
-            html={html}
-            onHtmlChange={(newHtml) => setHtml(newHtml)}
-          />
-        </div>
-
-        {/* Code Editor and Preview Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1">
-          {/* Code Editor */}
-          <div className="flex flex-col border rounded-xl overflow-hidden shadow-sm bg-white">
-            <div className="bg-gray-100 px-4 py-2 border-b border-gray-200">
-              <h2 className="text-sm font-semibold text-gray-700">📝 HTML Editor</h2>
+      {editorMode === 'simple' ? (
+        /* Simple Mode: Full-width click-to-edit preview + AI chat */
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex flex-col lg:flex-row">
+            {/* Inline Editor - full width on mobile, 2/3 on desktop */}
+            <div className="flex-1 lg:w-2/3 flex flex-col min-h-0">
+              <InlineEditor
+                html={html}
+                onHtmlChange={(newHtml) => setHtml(newHtml)}
+              />
             </div>
-            <textarea
-              value={html}
-              onChange={(e) => setHtml(e.target.value)}
-              className="flex-1 w-full p-4 font-mono text-sm border-0 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-              placeholder="Masukkan kod HTML anda di sini..."
-              spellCheck={false}
-            />
-          </div>
 
-          {/* Preview */}
-          <div className="flex flex-col border rounded-xl overflow-hidden shadow-sm bg-white">
-            <div className="bg-gray-100 px-4 py-2 border-b border-gray-200">
-              <h2 className="text-sm font-semibold text-gray-700">👁 Preview</h2>
-            </div>
-            <div className="flex-1 overflow-auto">
-              <iframe
-                srcDoc={html}
-                className="w-full h-full border-0"
-                title="Website Preview"
-                sandbox="allow-scripts allow-same-origin allow-forms"
+            {/* AI Editor sidebar */}
+            <div className="lg:w-1/3 border-t lg:border-t-0 lg:border-l overflow-y-auto p-4 bg-gray-50">
+              <AIEditor
+                html={html}
+                onHtmlChange={(newHtml) => setHtml(newHtml)}
               />
             </div>
           </div>
         </div>
-      </div>
+      ) : (
+        /* Advanced Mode: HTML code editor + preview (original layout) */
+        <div className="flex-1 flex flex-col p-4 gap-4 overflow-y-auto">
+          {/* AI Editor Section */}
+          <div className="w-full">
+            <AIEditor
+              html={html}
+              onHtmlChange={(newHtml) => setHtml(newHtml)}
+            />
+          </div>
+
+          {/* Code Editor and Preview Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1">
+            {/* Code Editor */}
+            <div className="flex flex-col border rounded-xl overflow-hidden shadow-sm bg-white">
+              <div className="bg-gray-100 px-4 py-2 border-b border-gray-200">
+                <h2 className="text-sm font-semibold text-gray-700">HTML Editor</h2>
+              </div>
+              <textarea
+                value={html}
+                onChange={(e) => setHtml(e.target.value)}
+                className="flex-1 w-full p-4 font-mono text-sm border-0 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                placeholder="Masukkan kod HTML anda di sini..."
+                spellCheck={false}
+              />
+            </div>
+
+            {/* Preview */}
+            <div className="flex flex-col border rounded-xl overflow-hidden shadow-sm bg-white">
+              <div className="bg-gray-100 px-4 py-2 border-b border-gray-200">
+                <h2 className="text-sm font-semibold text-gray-700">Preview</h2>
+              </div>
+              <div className="flex-1 overflow-auto">
+                <iframe
+                  srcDoc={html}
+                  className="w-full h-full border-0"
+                  title="Website Preview"
+                  sandbox="allow-scripts allow-same-origin allow-forms"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile Notice */}
       <div className="lg:hidden bg-yellow-50 border-t border-yellow-200 p-3 text-center">
