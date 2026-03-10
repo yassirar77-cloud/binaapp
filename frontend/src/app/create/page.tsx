@@ -438,13 +438,14 @@ export default function CreatePage() {
       console.log('[Create] Limit check result:', data)
 
       if (!response.ok || !data.allowed) {
-        // Show limit reached modal
+        // Show limit reached modal and block further creation attempts
+        setIsAtLimit(true)
         setLimitModalData({
           resourceType: 'website',
           currentUsage: data.current_usage || 0,
           limit: data.limit || 1,
           canBuyAddon: data.can_buy_addon || false,
-          addonPrice: data.addon_price
+          addonPrice: data.addon_price || 5
         })
         setShowLimitModal(true)
         return false
@@ -719,13 +720,16 @@ export default function CreatePage() {
         const errorData = await startResponse.json();
 
         // Handle subscription limit reached from backend
-        if (startResponse.status === 403 && errorData.error === 'subscription_limit_reached') {
+        // FastAPI wraps HTTPException detail as {detail: {...}}, so check both formats
+        const limitError = errorData.detail || errorData
+        if (startResponse.status === 403 && (limitError.error === 'subscription_limit_reached' || limitError.error === 'limit_reached')) {
+          setIsAtLimit(true)
           setLimitModalData({
             resourceType: 'website',
-            currentUsage: errorData.current_usage || 0,
-            limit: errorData.limit || 1,
-            canBuyAddon: errorData.can_buy_addon || false,
-            addonPrice: errorData.addon_price
+            currentUsage: limitError.current_usage || 0,
+            limit: limitError.limit || 1,
+            canBuyAddon: limitError.can_buy_addon || false,
+            addonPrice: limitError.addon_price || 5
           })
           setShowLimitModal(true)
           setLoading(false)
@@ -1022,13 +1026,16 @@ export default function CreatePage() {
         const errorData = await response.json()
 
         // Handle subscription limit reached from backend enforcement
-        if (response.status === 403 && (errorData.error === 'subscription_limit_reached' || errorData.error === 'limit_reached')) {
+        // FastAPI wraps HTTPException detail as {detail: {...}}, so check both formats
+        const publishLimitError = errorData.detail || errorData
+        if (response.status === 403 && (publishLimitError.error === 'subscription_limit_reached' || publishLimitError.error === 'limit_reached')) {
+          setIsAtLimit(true)
           setLimitModalData({
             resourceType: 'website',
-            currentUsage: errorData.current_usage || 0,
-            limit: errorData.limit || 1,
-            canBuyAddon: errorData.can_buy_addon || false,
-            addonPrice: errorData.addon_price
+            currentUsage: publishLimitError.current_usage || 0,
+            limit: publishLimitError.limit || 1,
+            canBuyAddon: publishLimitError.can_buy_addon || false,
+            addonPrice: publishLimitError.addon_price || 5
           })
           setShowLimitModal(true)
           setShowPublishModal(false)
