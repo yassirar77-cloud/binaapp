@@ -1263,7 +1263,7 @@ export default function ProfilePage() {
           {/* Tabs Navigation */}
           <div className="bg-white rounded-xl shadow-lg p-4 md:p-8">
             {/* Mobile-friendly scrollable tabs */}
-            <div className="flex gap-2 mb-6 border-b overflow-x-auto scrollbar-hide -mx-4 px-4 md:mx-0 md:px-0">
+            <div className="flex gap-2 mb-6 border-b overflow-x-auto -mx-4 px-4 md:mx-0 md:px-0">
               <button
                 onClick={() => setActiveTab('websites')}
                 className={`px-4 md:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm md:text-base min-h-[44px] ${
@@ -1318,7 +1318,7 @@ export default function ProfilePage() {
                 href="/disputes"
                 className="px-4 md:px-6 py-3 font-medium transition-colors whitespace-nowrap text-sm md:text-base min-h-[44px] text-gray-500 hover:text-gray-700 flex items-center"
               >
-                ⚖️ <span className="hidden sm:inline ml-1">Disputes</span>
+                ⚖️ <span className="ml-1">Disputes</span>
               </a>
             </div>
 

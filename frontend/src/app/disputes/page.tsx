@@ -528,7 +528,7 @@ export default function DisputesPage() {
           {/* Dispute Detail */}
           <div className="lg:col-span-2">
             {selectedDispute ? (
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="bg-white rounded-xl border border-gray-200 overflow-y-auto">
                 {/* Detail Header */}
                 <div className="p-6 border-b border-gray-100">
                   <div className="flex items-start justify-between mb-4">
