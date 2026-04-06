@@ -55,8 +55,8 @@ class PaymentService:
         },
         SubscriptionTier.PRO: {
             "name": "Pro",
-            "price_monthly": 79.00,
-            "price_yearly": 790.00,
+            "price_monthly": 49.00,
+            "price_yearly": 490.00,
             "features": [
                 "Unlimited websites",
                 "Premium templates",

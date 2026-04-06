@@ -42,6 +42,7 @@ async def generate_website(
     SUBSCRIPTION CHECK: Verifies user hasn't reached website limit before creation.
     PROFILE CHECK: Ensures user profile exists before creating website (FK constraint).
     """
+    _addon_deducted = None  # initialize here so except blocks can always reference it
     try:
         user_id = current_user.get("sub")
         user_email = current_user.get("email")
@@ -147,6 +148,7 @@ async def generate_website(
                         params={"id": f"eq.{_addon_to_use['id']}"},
                         json={"quantity_remaining": _addon_to_use["quantity_remaining"] - 1}
                     )
+                _addon_deducted = {"id": _addon_to_use["id"], "quantity_remaining": _addon_to_use["quantity_remaining"]}
                 logger.info(f"[ADDON USED] user={user_id} addon_id={_addon_to_use['id']}")
 
         # ============================================================
@@ -281,9 +283,41 @@ async def generate_website(
         )
 
     except HTTPException:
+        # Rollback addon credit if it was deducted before the error
+        if _addon_deducted:
+            try:
+                import httpx as _httpx_rollback
+                _base_url = settings.SUPABASE_URL
+                _svc_headers = supabase_service.headers
+                async with _httpx_rollback.AsyncClient() as _client:
+                    await _client.patch(
+                        f"{_base_url}/rest/v1/addon_purchases",
+                        headers={**_svc_headers, "Prefer": "return=minimal"},
+                        params={"id": f"eq.{_addon_deducted['id']}"},
+                        json={"quantity_remaining": _addon_deducted["quantity_remaining"]}
+                    )
+                logger.info(f"[ADDON ROLLBACK] Restored addon credit {_addon_deducted['id']} for user {user_id}")
+            except Exception as rollback_err:
+                logger.error(f"[ADDON ROLLBACK] Failed to restore addon credit: {rollback_err}")
         raise
     except Exception as e:
         logger.error(f"Error generating website: {e}")
+        # Rollback addon credit if it was deducted before the error
+        if _addon_deducted:
+            try:
+                import httpx as _httpx_rollback
+                _base_url = settings.SUPABASE_URL
+                _svc_headers = supabase_service.headers
+                async with _httpx_rollback.AsyncClient() as _client:
+                    await _client.patch(
+                        f"{_base_url}/rest/v1/addon_purchases",
+                        headers={**_svc_headers, "Prefer": "return=minimal"},
+                        params={"id": f"eq.{_addon_deducted['id']}"},
+                        json={"quantity_remaining": _addon_deducted["quantity_remaining"]}
+                    )
+                logger.info(f"[ADDON ROLLBACK] Restored addon credit {_addon_deducted['id']} for user {user_id}")
+            except Exception as rollback_err:
+                logger.error(f"[ADDON ROLLBACK] Failed to restore addon credit: {rollback_err}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to generate website"

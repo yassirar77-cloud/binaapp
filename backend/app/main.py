@@ -36,6 +36,7 @@ from app.api.v1.router import api_router as v1_router
 from app.api.chatbot import router as chatbot_router
 from app.services.templates import template_service
 from app.core.security import get_current_user
+from app.core.config import settings
 
 # Subscription lock system
 from app.middleware.subscription_guard import subscription_check_middleware
@@ -300,11 +301,8 @@ else:
 user_usage = defaultdict(lambda: {"count": 0, "reset_time": datetime.now()})
 FREE_LIMIT = 3  # 3 generations per day
 
-# Founder/Admin emails with unlimited access
-UNLIMITED_ACCESS_EMAILS = [
-    "yassirarafat33@yahoo.com",
-    # Add more admin emails here if needed
-]
+# Founder/Admin emails with unlimited access — set via UNLIMITED_ACCESS_EMAILS env var
+UNLIMITED_ACCESS_EMAILS = settings.UNLIMITED_ACCESS_EMAILS
 
 # Store generation progress
 generation_progress = {}

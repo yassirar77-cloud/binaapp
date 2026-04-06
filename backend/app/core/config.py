@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "BinaApp"
     ENVIRONMENT: str = Field(default="development", env="APP_ENV")
-    DEBUG: bool = Field(default=True, env="APP_DEBUG")
+    DEBUG: bool = Field(default=False, env="APP_DEBUG")
     API_VERSION: str = "v1"
     
     # URLs
@@ -138,6 +138,13 @@ class Settings(BaseSettings):
     SUPPORT_EMAIL: str = Field(default="support.team@binaapp.my", env="SUPPORT_EMAIL")
     ADMIN_EMAIL: str = Field(default="admin@binaapp.my", env="ADMIN_EMAIL")
     NOREPLY_EMAIL: str = Field(default="info@binaapp.my", env="NOREPLY_EMAIL")
+    UNLIMITED_ACCESS_EMAILS: List[str] = Field(default=[], env="UNLIMITED_ACCESS_EMAILS")
+
+    @validator("UNLIMITED_ACCESS_EMAILS", pre=True)
+    def parse_unlimited_access_emails(cls, v):
+        if isinstance(v, str):
+            return [e.strip() for e in v.split(",") if e.strip()]
+        return v
 
     # Email Polling (IMAP) - for support.team@binaapp.my
     SUPPORT_EMAIL_PASSWORD: Optional[str] = Field(None, env="SUPPORT_EMAIL_PASSWORD")
