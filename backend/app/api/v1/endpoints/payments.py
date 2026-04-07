@@ -361,6 +361,17 @@ async def toyyibpay_callback(request: Request):
 
         result = toyyibpay_service.verify_callback(data)
 
+        # Reject callbacks that failed signature verification
+        if result.get("reject"):
+            logger.warning(
+                f"ToyyibPay callback rejected (signature): {result.get('error')} — "
+                f"remote={request.client.host if request.client else 'unknown'}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Invalid callback signature"),
+            )
+
         if result.get("success") and result.get("status") == "paid":
             bill_code = result.get("bill_code")
             tp_transaction_id = result.get("transaction_id")

@@ -99,6 +99,7 @@ class Settings(BaseSettings):
 
     # ToyyibPay
     TOYYIBPAY_SECRET_KEY: str = Field(default="", env="TOYYIBPAY_SECRET_KEY")
+    TOYYIBPAY_USER_SECRET_KEY: str = Field(default="", env="TOYYIBPAY_USER_SECRET_KEY")
     TOYYIBPAY_CATEGORY_CODE: str = Field(default="", env="TOYYIBPAY_CATEGORY_CODE")
     TOYYIBPAY_SANDBOX: bool = Field(default=False, env="TOYYIBPAY_SANDBOX")
     TOYYIBPAY_CALLBACK_URL: str = Field(default="", env="TOYYIBPAY_CALLBACK_URL")

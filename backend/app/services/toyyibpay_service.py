@@ -3,6 +3,8 @@ ToyyibPay Service - Malaysian Payment Gateway Integration
 Handles bill creation and payment processing
 """
 
+import hashlib
+import hmac
 import json
 import requests
 from typing import Dict, Optional
@@ -16,6 +18,7 @@ class ToyyibPayService:
 
     def __init__(self):
         self.secret_key = settings.TOYYIBPAY_SECRET_KEY
+        self.user_secret_key = settings.TOYYIBPAY_USER_SECRET_KEY
         self.category_code = settings.TOYYIBPAY_CATEGORY_CODE
         self.sandbox = settings.TOYYIBPAY_SANDBOX
 
@@ -299,9 +302,23 @@ class ToyyibPayService:
                 'error': f'Unexpected error: {str(e)}'
             }
 
+    def _compute_callback_signature(self, status: str, order_id: str, ref_no: str) -> str:
+        """
+        Compute MD5 callback signature per ToyyibPay docs.
+
+        Formula: md5(userSecretKey + status + order_id + refno + "ok")
+        Reference: https://toyyibpay.com/apireference/ — "Hash Validation"
+        """
+        raw = f"{self.user_secret_key}{status}{order_id}{ref_no}ok"
+        return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
     def verify_callback(self, data: Dict) -> Dict:
         """
-        Verify and process callback from ToyyibPay
+        Verify and process callback from ToyyibPay.
+
+        Performs MD5 signature verification (ToyyibPay spec) before processing.
+        Returns ``reject=True`` when signature is absent or invalid so the
+        caller can respond with HTTP 400.
 
         Args:
             data: Callback data from ToyyibPay
@@ -311,11 +328,29 @@ class ToyyibPayService:
         """
         try:
             bill_code = data.get('billcode')
-            status = data.get('status')
-            order_id = data.get('order_id')
+            status = data.get('status', '')
+            order_id = data.get('order_id', '')
             amount = data.get('amount')
             transaction_id = data.get('transaction_id')
-            ref_no = data.get('refno')
+            ref_no = data.get('refno', '')
+
+            # --- Signature verification (ToyyibPay MD5 hash) ---
+            provided_hash = data.get('hash', '')
+            if not provided_hash:
+                logger.warning(
+                    f"ToyyibPay callback rejected — missing hash. "
+                    f"bill={bill_code}, order_id={order_id}, keys={list(data.keys())}"
+                )
+                return {'success': False, 'reject': True, 'error': 'Missing callback signature'}
+
+            expected_hash = self._compute_callback_signature(status, order_id, ref_no)
+            if not hmac.compare_digest(provided_hash.lower(), expected_hash.lower()):
+                logger.warning(
+                    f"ToyyibPay callback rejected — hash mismatch. "
+                    f"bill={bill_code}, order_id={order_id}"
+                )
+                return {'success': False, 'reject': True, 'error': 'Invalid callback signature'}
+            # --- End signature verification ---
 
             logger.info(f"ToyyibPay callback: bill={bill_code}, status={status}, ref={ref_no}")
 
