@@ -505,7 +505,7 @@ export default function BinaChat({
             );
         }
 
-        const senderIcon = msg.sender_type === 'rider' ? '&#128757;' : msg.sender_type === 'owner' ? '&#127978;' : '&#128100;';
+        const senderIcon = msg.sender_type === 'rider' ? '\u{1F6F5}' : msg.sender_type === 'owner' ? '\u{1F3EA}' : '\u{1F464}';
 
         const messageText = getMessageText(msg);
         return (
@@ -513,7 +513,7 @@ export default function BinaChat({
                 <div className={`max-w-[80%] ${isOwn ? 'order-2' : ''}`}>
                     {!isOwn && (
                         <div className="text-xs text-gray-500 mb-1 ml-2 flex items-center gap-1">
-                            <span dangerouslySetInnerHTML={{ __html: senderIcon }} />
+                            <span>{senderIcon}</span>
                             {msg.sender_name}
                         </div>
                     )}

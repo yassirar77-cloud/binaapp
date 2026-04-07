@@ -165,14 +165,16 @@ async def get_project(project_id: str):
         "updated_at": row['updated_at']
     }
 
+ALLOWED_PROJECT_COLUMNS = {"name", "description", "html_content", "status", "published_url", "updated_at"}
+
 @router.put("/projects/{project_id}")
 async def update_project(project_id: str, update: ProjectUpdate):
     conn = get_db()
     c = conn.cursor()
-    
+
     updates = []
     values = []
-    
+
     if update.name:
         updates.append("name = ?")
         values.append(update.name)
@@ -189,12 +191,18 @@ async def update_project(project_id: str, update: ProjectUpdate):
             published_url = f"https://preview.binaapp.my/{project_id}"
             updates.append("published_url = ?")
             values.append(published_url)
-    
+
     updates.append("updated_at = ?")
     values.append(datetime.now().isoformat())
-    
+
+    # Validate all column names against the whitelist before building the query
+    for clause in updates:
+        col = clause.split(" = ")[0].strip()
+        if col not in ALLOWED_PROJECT_COLUMNS:
+            raise HTTPException(status_code=400, detail=f"Invalid column: {col}")
+
     values.append(project_id)
-    
+
     query = f"UPDATE projects SET {', '.join(updates)} WHERE id = ?"
     c.execute(query, values)
     

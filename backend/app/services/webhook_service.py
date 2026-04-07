@@ -5,13 +5,54 @@ HMAC-SHA256 signed webhook delivery with retry logic.
 import httpx
 import hmac
 import hashlib
+import ipaddress
 import json
 import secrets
+import socket
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
+from urllib.parse import urlparse
 from loguru import logger
 
 from app.core.config import settings
+
+# Private/reserved IP ranges that must not be reachable via webhooks (SSRF protection)
+_SSRF_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),      # Loopback
+    ipaddress.ip_network("10.0.0.0/8"),        # RFC-1918 private
+    ipaddress.ip_network("172.16.0.0/12"),     # RFC-1918 private
+    ipaddress.ip_network("192.168.0.0/16"),    # RFC-1918 private
+    ipaddress.ip_network("169.254.0.0/16"),    # Link-local / cloud metadata (AWS/GCP/Azure)
+    ipaddress.ip_network("0.0.0.0/8"),         # "This" network
+    ipaddress.ip_network("::1/128"),           # IPv6 loopback
+    ipaddress.ip_network("fc00::/7"),          # IPv6 unique local
+    ipaddress.ip_network("fe80::/10"),         # IPv6 link-local
+]
+
+
+def _validate_ssrf_safe_url(url: str) -> None:
+    """Resolve the URL hostname and raise ValueError if it maps to a private IP range."""
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            raise ValueError("URL tidak sah: tiada hostname")
+
+        try:
+            ip_str = socket.gethostbyname(hostname)
+        except socket.gaierror:
+            raise ValueError("URL tidak sah: hostname tidak dapat diselesaikan")
+
+        ip = ipaddress.ip_address(ip_str)
+        for network in _SSRF_BLOCKED_NETWORKS:
+            if ip in network:
+                raise ValueError(
+                    "URL tidak dibenarkan: webhook tidak boleh menggunakan alamat IP peribadi atau loopback"
+                )
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"Pengesahan URL gagal: {exc}") from exc
 
 
 # Supported webhook events
@@ -59,6 +100,12 @@ class WebhookService:
             if invalid:
                 return {"success": False, "error": f"Event tidak sah: {', '.join(invalid)}"}
 
+            # SSRF protection: block private/loopback IPs
+            try:
+                _validate_ssrf_safe_url(url)
+            except ValueError as ssrf_err:
+                return {"success": False, "error": str(ssrf_err)}
+
             secret = self.generate_secret()
 
             async with httpx.AsyncClient() as client:
@@ -87,6 +134,13 @@ class WebhookService:
     async def update_endpoint(self, endpoint_id: str, user_id: str, update_data: Dict) -> Dict:
         """Update a webhook endpoint."""
         try:
+            # SSRF protection: validate new URL if provided
+            if "url" in update_data:
+                try:
+                    _validate_ssrf_safe_url(update_data["url"])
+                except ValueError as ssrf_err:
+                    return {"success": False, "error": str(ssrf_err)}
+
             if "events" in update_data and isinstance(update_data["events"], list):
                 update_data["events"] = json.dumps(update_data["events"])
 
@@ -208,6 +262,13 @@ class WebhookService:
             secret = endpoint.get("secret", "")
             url = endpoint.get("url", "")
             endpoint_id = endpoint["id"]
+
+            # SSRF protection: re-validate URL at delivery time
+            try:
+                _validate_ssrf_safe_url(url)
+            except ValueError as ssrf_err:
+                logger.warning(f"Webhook delivery blocked (SSRF): endpoint={endpoint_id} url={url} reason={ssrf_err}")
+                return
 
             full_payload = {
                 "event": event_type,
