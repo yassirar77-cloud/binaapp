@@ -18,7 +18,6 @@ class ToyyibPayService:
 
     def __init__(self):
         self.secret_key = settings.TOYYIBPAY_SECRET_KEY
-        self.user_secret_key = settings.TOYYIBPAY_USER_SECRET_KEY
         self.category_code = settings.TOYYIBPAY_CATEGORY_CODE
         self.sandbox = settings.TOYYIBPAY_SANDBOX
 
@@ -309,7 +308,7 @@ class ToyyibPayService:
         Formula: md5(userSecretKey + status + order_id + refno + "ok")
         Reference: https://toyyibpay.com/apireference/ — "Hash Validation"
         """
-        raw = f"{self.user_secret_key}{status}{order_id}{ref_no}ok"
+        raw = f"{self.secret_key}{status}{order_id}{ref_no}ok"
         return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
     def verify_callback(self, data: Dict) -> Dict:
