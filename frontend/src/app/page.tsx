@@ -121,20 +121,20 @@ function LandingPageContent() {
       {/* Hero Section */}
       <section className="pt-32 pb-20 bg-gradient-to-b from-primary-50 to-white">
         <div className="container mx-auto px-4 text-center">
-          <h1 className="text-5xl md:text-6xl font-bold text-gray-900 mb-6 animate-fade-in">
-            Cipta Website Perniagaan<br />
-            <span className="text-primary-600">Dalam Masa Minit</span>
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-6 animate-fade-in">
+            Website Restoran Anda,<br />
+            <span className="text-primary-600">Siap Dalam 5 Minit</span>
           </h1>
-          <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto animate-slide-up">
-            Hanya beritahu kami tentang perniagaan anda dalam Bahasa Malaysia atau English.
-            AI kami akan jana website lengkap dengan WhatsApp, shopping cart, dan banyak lagi!
+          <p className="text-lg sm:text-xl text-gray-600 mb-8 max-w-2xl mx-auto animate-slide-up">
+            Ceritakan tentang restoran anda — AI kami bina website lengkap
+            dengan menu, WhatsApp ordering, dan delivery tracking. Tiada coding diperlukan.
           </p>
-          <div className="flex gap-4 justify-center animate-slide-up">
+          <div className="flex flex-col sm:flex-row gap-4 justify-center animate-slide-up">
             <button
               onClick={() => handleSelectPlan('starter')}
-              className="btn btn-primary text-lg px-8 py-3"
+              className="btn btn-primary text-lg px-8 py-3 shadow-lg hover:shadow-xl transition-shadow"
             >
-              Mula Sekarang - RM5/bulan
+              Bina Website Saya — RM5/bulan
             </button>
             {user && (
               <Link href="/my-projects" className="btn btn-outline text-lg px-8 py-3">
@@ -142,6 +142,9 @@ function LandingPageContent() {
               </Link>
             )}
           </div>
+          <p className="mt-6 text-sm text-gray-500 animate-slide-up">
+            Dipercayai pemilik restoran seluruh Malaysia — setup percuma, batal bila-bila masa
+          </p>
         </div>
       </section>
 
@@ -536,7 +539,7 @@ function LandingPageContent() {
               Contact
             </a>
           </div>
-          <p className="text-sm">&copy; 2025 BinaApp. All rights reserved.</p>
+          <p className="text-sm">&copy; 2026 BinaApp. All rights reserved.</p>
         </div>
       </footer>
 
