@@ -647,6 +647,34 @@ async def generate_website(request: SimpleGenerateRequest):
         logger.info(f"Image Choice: {request.image_choice}")  # STRICT IMAGE CONTROL
         logger.info("=" * 80)
 
+        # ==================== SUBSCRIPTION LIMIT CHECK ====================
+        # Block website generation if user has reached their plan limit
+        _user_id = request.user_id
+        if _user_id and _user_id != "demo-user" and _user_id != "anonymous":
+            try:
+                import re as _re
+                _uuid_pattern = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.IGNORECASE)
+                if _uuid_pattern.match(_user_id):
+                    limit_result = await subscription_service.check_limit(_user_id, "create_website")
+                    logger.info(f"🔒 Subscription limit check: user={_user_id}, allowed={limit_result.get('allowed')}")
+                    if not limit_result.get("allowed"):
+                        logger.warning(f"❌ LIMIT BLOCKED: user={_user_id} ({limit_result.get('current_usage')}/{limit_result.get('limit')})")
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail={
+                                "error": "subscription_limit_reached",
+                                "message": limit_result.get("message", "Had website tercapai. Sila naik taraf pelan anda."),
+                                "current_usage": limit_result.get("current_usage", 0),
+                                "limit": limit_result.get("limit", 1),
+                                "can_buy_addon": limit_result.get("can_buy_addon", False),
+                                "addon_price": limit_result.get("addon_price"),
+                            }
+                        )
+            except HTTPException:
+                raise
+            except Exception as limit_err:
+                logger.error(f"⚠️ Subscription limit check failed: {limit_err}")
+
         # ============= STRICT IMAGE CONTROL =============
         # Determine image settings based on user's explicit choice
         image_choice = request.image_choice or "none"
@@ -1264,6 +1292,8 @@ async def generate_website(request: SimpleGenerateRequest):
                 success=True
             )
 
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         logger.error("=" * 80)
@@ -1840,6 +1870,43 @@ async def start_async_generation(request: SimpleGenerateRequest, background_task
             )
         logger.info("✅ Content moderation check passed")
 
+        # ==================== SUBSCRIPTION LIMIT CHECK ====================
+        # Block website generation if user has reached their plan limit
+        # This prevents wasting AI resources on websites that can't be published
+        user_id = request.user_id
+        if user_id and user_id != "demo-user" and user_id != "anonymous":
+            try:
+                import re as _re
+                # Only check for valid UUID user IDs (real authenticated users)
+                _uuid_pattern = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.IGNORECASE)
+                if _uuid_pattern.match(user_id):
+                    limit_result = await subscription_service.check_limit(user_id, "create_website")
+                    logger.info(f"🔒 Subscription limit check: user={user_id}, result={limit_result}")
+
+                    if not limit_result.get("allowed"):
+                        logger.warning(f"❌ LIMIT BLOCKED at generation: user={user_id} "
+                                       f"({limit_result.get('current_usage')}/{limit_result.get('limit')})")
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail={
+                                "error": "subscription_limit_reached",
+                                "message": limit_result.get("message", "Had website tercapai. Sila naik taraf pelan anda."),
+                                "current_usage": limit_result.get("current_usage", 0),
+                                "limit": limit_result.get("limit", 1),
+                                "can_buy_addon": limit_result.get("can_buy_addon", False),
+                                "addon_price": limit_result.get("addon_price"),
+                                "upgrade_url": "/dashboard/billing"
+                            }
+                        )
+                    logger.info(f"✅ Subscription limit check passed: "
+                                f"{limit_result.get('current_usage')}/{limit_result.get('limit')} websites used")
+            except HTTPException:
+                raise
+            except Exception as limit_err:
+                # FAIL OPEN for generation (backend publish will enforce as final gate)
+                # But log loudly so we can investigate
+                logger.error(f"⚠️ Subscription limit check failed for user {user_id}: {limit_err}")
+
         # Create job
         request_data = request.dict()
         job_id = job_service.create_job(
@@ -1859,6 +1926,8 @@ async def start_async_generation(request: SimpleGenerateRequest, background_task
             message="Generation started. Poll /generate/status/{job_id} for updates."
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         logger.error(f"Failed to start async generation: {e}")
@@ -1978,6 +2047,21 @@ async def generate_stream(request: SimpleGenerateRequest):
             logger.info(f"Description: {request.description[:100]}...")
             logger.info(f"Multi-style: {request.multi_style}")
             logger.info("=" * 80)
+
+            # ==================== SUBSCRIPTION LIMIT CHECK ====================
+            _user_id = request.user_id
+            if _user_id and _user_id != "demo-user" and _user_id != "anonymous":
+                try:
+                    import re as _re
+                    _uuid_pattern = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.IGNORECASE)
+                    if _uuid_pattern.match(_user_id):
+                        limit_result = await subscription_service.check_limit(_user_id, "create_website")
+                        if not limit_result.get("allowed"):
+                            logger.warning(f"❌ LIMIT BLOCKED (stream): user={_user_id}")
+                            yield f"data: {json.dumps({'progress': 0, 'status': 'failed', 'error': 'subscription_limit_reached', 'message': limit_result.get('message', 'Had website tercapai. Sila naik taraf pelan anda.'), 'current_usage': limit_result.get('current_usage', 0), 'limit': limit_result.get('limit', 1)})}\n\n"
+                            return
+                except Exception as limit_err:
+                    logger.error(f"⚠️ Stream limit check failed: {limit_err}")
 
             # ==================== CONTENT MODERATION ====================
             # Check for illegal/harmful content BEFORE generation
@@ -2282,6 +2366,32 @@ async def generate_website_simple(request: SimpleGenerateRequest):
         logger.info(f"Description: {request.description[:100]}...")
         logger.info("=" * 80)
 
+        # ==================== SUBSCRIPTION LIMIT CHECK ====================
+        _user_id = request.user_id
+        if _user_id and _user_id != "demo-user" and _user_id != "anonymous":
+            try:
+                import re as _re
+                _uuid_pattern = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.IGNORECASE)
+                if _uuid_pattern.match(_user_id):
+                    limit_result = await subscription_service.check_limit(_user_id, "create_website")
+                    if not limit_result.get("allowed"):
+                        logger.warning(f"❌ LIMIT BLOCKED (simple): user={_user_id}")
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail={
+                                "error": "subscription_limit_reached",
+                                "message": limit_result.get("message", "Had website tercapai. Sila naik taraf pelan anda."),
+                                "current_usage": limit_result.get("current_usage", 0),
+                                "limit": limit_result.get("limit", 1),
+                                "can_buy_addon": limit_result.get("can_buy_addon", False),
+                                "addon_price": limit_result.get("addon_price"),
+                            }
+                        )
+            except HTTPException:
+                raise
+            except Exception as limit_err:
+                logger.error(f"⚠️ Simple JSON limit check failed: {limit_err}")
+
         # ==================== CONTENT MODERATION ====================
         # Check for illegal/harmful content BEFORE generation
         is_allowed, block_reason = is_content_allowed(request.description)
@@ -2469,6 +2579,8 @@ async def generate_website_simple(request: SimpleGenerateRequest):
             "template_used": website_type
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         logger.error("=" * 80)

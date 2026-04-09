@@ -2223,8 +2223,18 @@ MANDATORY REQUIREMENTS:
                     }
                 )
         except Exception as e:
-            logger.warning(f"⚠️ Subscription limit check at generate/start failed: {e}")
-            # Don't block generation on check failure - publish endpoint will enforce
+            logger.error(f"❌ Subscription limit check at generate/start failed: {e}")
+            # FAIL CLOSED: Block generation if we can't verify the limit
+            # This prevents wasting AI resources on websites that will be blocked at publish
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "success": False,
+                    "error": "limit_check_failed",
+                    "message": "Gagal menyemak had penggunaan. Sila cuba lagi.",
+                    "message_en": "Failed to verify usage limit. Please try again."
+                }
+            )
 
     # Generate job ID
     job_id = str(uuid.uuid4())

@@ -405,9 +405,9 @@ async def publish_website(
             project_id = str(uuid.uuid4())
         logger.info(f"✓ Project ID: {project_id} ({'existing' if is_republish else 'new'})")
 
-        # CRITICAL: Check subscription limit for authenticated users ONLY for NEW websites
+        # CRITICAL: Check subscription limit for ALL users creating NEW websites
         # Republishing existing websites should always be allowed (user already owns them)
-        if current_user and not is_republish:
+        if not is_republish:
             logger.info("")
             logger.info("🔒 SUBSCRIPTION CHECK: Verifying website limit for NEW website...")
             limit_result = await subscription_service.check_limit(user_id, "create_website")
@@ -418,11 +418,12 @@ async def publish_website(
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail={
-                        "error": "limit_reached",
+                        "error": "subscription_limit_reached",
                         "message": limit_result.get("message", "Had website tercapai. Sila naik taraf pelan anda."),
                         "current_usage": limit_result.get("current_usage"),
                         "limit": limit_result.get("limit"),
                         "can_buy_addon": limit_result.get("can_buy_addon", False),
+                        "addon_price": subscription_service.ADDON_PRICES.get("website"),
                         "upgrade_url": "/dashboard/billing"
                     }
                 )
@@ -534,9 +535,9 @@ async def publish_website(
             db_result = await retry_with_backoff(save_metadata, max_retries=3, initial_delay=1.0)
             logger.info(f"✅ Database record saved successfully: {project_id}")
 
-            # CRITICAL: Track usage for authenticated users ONLY for NEW websites
+            # CRITICAL: Track usage for ALL users creating NEW websites
             # Republishing should NOT increment usage (user is updating, not creating)
-            if current_user and not is_republish:
+            if not is_republish:
                 try:
                     if limit_result and limit_result.get("using_addon"):
                         await subscription_service.use_addon_credit(user_id, "website")

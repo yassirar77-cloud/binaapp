@@ -172,6 +172,7 @@ export default function CreatePage() {
   const [hasActiveSubscription, setHasActiveSubscription] = useState<boolean | null>(null)
   const [subscriptionLoading, setSubscriptionLoading] = useState(true)
   const [isAtLimit, setIsAtLimit] = useState(false)
+  const [limitCheckLoading, setLimitCheckLoading] = useState(true)
 
   // Feature selector states
   const [selectedFeatures, setSelectedFeatures] = useState({
@@ -247,10 +248,17 @@ export default function CreatePage() {
   // Check website limit on page load using direct Supabase count (source of truth)
   useEffect(() => {
     const checkLimit = async () => {
-      if (!supabase) return
+      setLimitCheckLoading(true)
+      if (!supabase) {
+        setLimitCheckLoading(false)
+        return
+      }
       try {
         const { data: { user: authUser } } = await supabase.auth.getUser()
-        if (!authUser) return
+        if (!authUser) {
+          setLimitCheckLoading(false)
+          return
+        }
 
         const { count } = await supabase
           .from('websites')
@@ -269,7 +277,10 @@ export default function CreatePage() {
         const limit = subData?.subscription_plans?.websites_limit ?? 1
 
         // Unlimited plan
-        if (limit === null) return
+        if (limit === null) {
+          setLimitCheckLoading(false)
+          return
+        }
 
         // Get addon credits
         const { data: addons } = await supabase
@@ -296,6 +307,11 @@ export default function CreatePage() {
         }
       } catch (err) {
         console.error('[Create] Direct limit check failed:', err)
+        // FAIL CLOSED: If we can't verify the limit, block creation
+        setIsAtLimit(true)
+        setLimitWarning('Gagal menyemak had penggunaan. Sila muat semula halaman atau kembali ke dashboard.')
+      } finally {
+        setLimitCheckLoading(false)
       }
     }
     checkLimit()
@@ -422,13 +438,14 @@ export default function CreatePage() {
       console.log('[Create] Limit check result:', data)
 
       if (!response.ok || !data.allowed) {
-        // Show limit reached modal
+        // Show limit reached modal and block further creation attempts
+        setIsAtLimit(true)
         setLimitModalData({
           resourceType: 'website',
           currentUsage: data.current_usage || 0,
           limit: data.limit || 1,
           canBuyAddon: data.can_buy_addon || false,
-          addonPrice: data.addon_price
+          addonPrice: data.addon_price || 5
         })
         setShowLimitModal(true)
         return false
@@ -529,6 +546,56 @@ export default function CreatePage() {
     if (!user) {
       setError('Sila log masuk untuk mencipta website')
       return
+    }
+
+    // SAFETY NET: Re-check limit in real-time before spending AI resources
+    if (supabase) {
+      try {
+        const { count: currentCount } = await supabase
+          .from('websites')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+
+        const { data: subData } = await supabase
+          .from('subscriptions')
+          .select('subscription_plans(websites_limit)')
+          .eq('user_id', user.id)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        const planLimit = subData?.subscription_plans?.websites_limit ?? 1
+
+        if (planLimit !== null) {
+          const { data: addons } = await supabase
+            .from('addon_purchases')
+            .select('quantity_remaining')
+            .eq('user_id', user.id)
+            .eq('addon_type', 'website')
+            .eq('status', 'active')
+            .gt('quantity_remaining', 0)
+
+          const addonCredits = (addons || []).reduce((sum: number, a: any) => sum + a.quantity_remaining, 0)
+          const totalAllowed = planLimit + addonCredits
+
+          if ((currentCount ?? 0) >= totalAllowed) {
+            setIsAtLimit(true)
+            setLimitModalData({
+              resourceType: 'website',
+              currentUsage: currentCount ?? 0,
+              limit: planLimit,
+              canBuyAddon: true,
+              addonPrice: 5
+            })
+            setShowLimitModal(true)
+            return
+          }
+        }
+      } catch (err) {
+        console.error('[Create] Real-time limit re-check failed:', err)
+        // Don't block on re-check failure - backend will enforce
+      }
     }
 
     // Check if user has active subscription
@@ -653,13 +720,16 @@ export default function CreatePage() {
         const errorData = await startResponse.json();
 
         // Handle subscription limit reached from backend
-        if (startResponse.status === 403 && errorData.error === 'subscription_limit_reached') {
+        // FastAPI wraps HTTPException detail as {detail: {...}}, so check both formats
+        const limitError = errorData.detail || errorData
+        if (startResponse.status === 403 && (limitError.error === 'subscription_limit_reached' || limitError.error === 'limit_reached')) {
+          setIsAtLimit(true)
           setLimitModalData({
             resourceType: 'website',
-            currentUsage: errorData.current_usage || 0,
-            limit: errorData.limit || 1,
-            canBuyAddon: errorData.can_buy_addon || false,
-            addonPrice: errorData.addon_price
+            currentUsage: limitError.current_usage || 0,
+            limit: limitError.limit || 1,
+            canBuyAddon: limitError.can_buy_addon || false,
+            addonPrice: limitError.addon_price || 5
           })
           setShowLimitModal(true)
           setLoading(false)
@@ -956,13 +1026,16 @@ export default function CreatePage() {
         const errorData = await response.json()
 
         // Handle subscription limit reached from backend enforcement
-        if (response.status === 403 && (errorData.error === 'subscription_limit_reached' || errorData.error === 'limit_reached')) {
+        // FastAPI wraps HTTPException detail as {detail: {...}}, so check both formats
+        const publishLimitError = errorData.detail || errorData
+        if (response.status === 403 && (publishLimitError.error === 'subscription_limit_reached' || publishLimitError.error === 'limit_reached')) {
+          setIsAtLimit(true)
           setLimitModalData({
             resourceType: 'website',
-            currentUsage: errorData.current_usage || 0,
-            limit: errorData.limit || 1,
-            canBuyAddon: errorData.can_buy_addon || false,
-            addonPrice: errorData.addon_price
+            currentUsage: publishLimitError.current_usage || 0,
+            limit: publishLimitError.limit || 1,
+            canBuyAddon: publishLimitError.can_buy_addon || false,
+            addonPrice: publishLimitError.addon_price || 5
           })
           setShowLimitModal(true)
           setShowPublishModal(false)
@@ -1039,7 +1112,7 @@ export default function CreatePage() {
       <div className="container mx-auto px-4 py-8">
         {isAtLimit && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
-            Had website dicapai. Sila upgrade plan atau beli addon untuk mencipta website baru.
+            {limitWarning || 'Had website dicapai. Sila upgrade plan atau beli addon untuk mencipta website baru.'}
             <Link href="/dashboard/billing" className="ml-2 underline font-semibold">Upgrade Sekarang</Link>
           </div>
         )}
@@ -1703,7 +1776,7 @@ export default function CreatePage() {
 
             <button
               onClick={handleGenerate}
-              disabled={loading || description.length < 10 || isAtLimit}
+              disabled={loading || description.length < 10 || isAtLimit || limitCheckLoading}
               className="w-full btn btn-primary text-lg py-4 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
