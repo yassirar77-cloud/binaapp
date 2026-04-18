@@ -11,6 +11,7 @@ import asyncio
 import time
 import json
 import re
+from contextlib import contextmanager
 from loguru import logger
 from typing import Optional, List, Dict, Tuple, Callable, Awaitable
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
@@ -19,6 +20,26 @@ from app.services.design_system import DesignSystem
 from difflib import SequenceMatcher
 import cloudinary
 import cloudinary.uploader
+
+
+@contextmanager
+def _timed_step(step_name: str, timings: Dict[str, float]):
+    """
+    Measure wall-clock duration of a block and record it on `timings`.
+
+    Works around `await` calls because only the enter/exit points read the
+    clock — the event loop can suspend inside the block and the measurement
+    remains accurate.
+    """
+    start = time.time()
+    try:
+        yield
+    finally:
+        elapsed = time.time() - start
+        # If the same step runs multiple times (e.g. two extract passes),
+        # sum the durations rather than overwriting.
+        timings[step_name] = round(timings.get(step_name, 0.0) + elapsed, 3)
+        logger.info(f"⏱️  {step_name}: {elapsed:.2f}s")
 
 # Import Stability AI service
 try:
@@ -2639,6 +2660,23 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         return text
 
+    def _log_timing_breakdown(self, step_timings: Dict[str, float], total_time: float) -> None:
+        """
+        Log a human-readable timing breakdown sorted by duration (largest first).
+        Used by generate_website to highlight which pipeline step dominated total
+        wall-clock time — diagnostic only (see Bug 3).
+        """
+        if not step_timings:
+            logger.info("⏱️  Step timings: (none recorded)")
+            return
+        measured = sum(step_timings.values())
+        logger.info(
+            f"⏱️  TIMING BREAKDOWN (measured: {measured:.2f}s, total including overhead: {total_time:.2f}s):"
+        )
+        for step, duration in sorted(step_timings.items(), key=lambda kv: -kv[1]):
+            pct = (duration / total_time * 100) if total_time > 0 else 0
+            logger.info(f"    {step}: {duration:.2f}s ({pct:.1f}% of total)")
+
     async def _call_qwen_with_truncation_retry(
         self,
         prompt: str,
@@ -3593,6 +3631,10 @@ IMPORTANT RULES:
         import time
         start_time = time.time()
 
+        # Step-by-step timing breakdown — instrumented to identify the bottleneck
+        # behind the 651s generations seen in production (see Bug 3).
+        step_timings: Dict[str, float] = {}
+
         # Helper to safely call progress callback
         async def update_progress(percent: int, message: str):
             if progress_callback:
@@ -3659,39 +3701,40 @@ IMPORTANT RULES:
             # No user images - generate with Stability AI
             logger.info("🎨 No user images - generating with Stability AI...")
 
-            # STEP 0: Use AI to generate smart image prompts
-            logger.info(f"🧠 STEP 0: AI analyzing business type and generating smart prompts... [{time.time() - start_time:.1f}s elapsed]")
-            smart_prompts = await self.generate_smart_image_prompts(request.description)
+            with _timed_step("stability_images", step_timings):
+                # STEP 0: Use AI to generate smart image prompts
+                logger.info(f"🧠 STEP 0: AI analyzing business type and generating smart prompts... [{time.time() - start_time:.1f}s elapsed]")
+                smart_prompts = await self.generate_smart_image_prompts(request.description)
 
-            hero_prompt = smart_prompts.get("hero", "")
-            product_prompt_1 = smart_prompts.get("image1", "")
-            product_prompt_2 = smart_prompts.get("image2", "")
-            product_prompt_3 = smart_prompts.get("image3", "")
-            product_prompt_4 = smart_prompts.get("image4", "")
+                hero_prompt = smart_prompts.get("hero", "")
+                product_prompt_1 = smart_prompts.get("image1", "")
+                product_prompt_2 = smart_prompts.get("image2", "")
+                product_prompt_3 = smart_prompts.get("image3", "")
+                product_prompt_4 = smart_prompts.get("image4", "")
 
-            # STEP 1: Generate images with Stability AI
-            logger.info(f"🎨 STEP 1: Generating images with Stability AI using smart prompts... [{time.time() - start_time:.1f}s elapsed]")
-            logger.info(f"   Hero prompt: {hero_prompt[:60]}...")
-            logger.info(f"   Product 1: {product_prompt_1[:60]}...")
+                # STEP 1: Generate images with Stability AI
+                logger.info(f"🎨 STEP 1: Generating images with Stability AI using smart prompts... [{time.time() - start_time:.1f}s elapsed]")
+                logger.info(f"   Hero prompt: {hero_prompt[:60]}...")
+                logger.info(f"   Product 1: {product_prompt_1[:60]}...")
 
-            # ===================================================================
-            # PARALLEL IMAGE GENERATION - Generate ALL images at the same time
-            # ===================================================================
-            logger.info(f"🎨 Generating ALL images in PARALLEL (hero + 4 products)...")
+                # ===================================================================
+                # PARALLEL IMAGE GENERATION - Generate ALL images at the same time
+                # ===================================================================
+                logger.info(f"🎨 Generating ALL images in PARALLEL (hero + 4 products)...")
 
-            # Create tasks for parallel execution using AI-generated prompts
-            image_tasks = [
-                self._generate_stability_image(hero_prompt),  # Task 0: Hero
-                self._generate_stability_image(product_prompt_1),  # Task 1: Product 1
-                self._generate_stability_image(product_prompt_2),  # Task 2: Product 2
-                self._generate_stability_image(product_prompt_3),  # Task 3: Product 3
-                self._generate_stability_image(product_prompt_4),  # Task 4: Product 4
-            ]
+                # Create tasks for parallel execution using AI-generated prompts
+                image_tasks = [
+                    self._generate_stability_image(hero_prompt),  # Task 0: Hero
+                    self._generate_stability_image(product_prompt_1),  # Task 1: Product 1
+                    self._generate_stability_image(product_prompt_2),  # Task 2: Product 2
+                    self._generate_stability_image(product_prompt_3),  # Task 3: Product 3
+                    self._generate_stability_image(product_prompt_4),  # Task 4: Product 4
+                ]
 
-            # Run ALL tasks in parallel (much faster than sequential)
-            start_time = time.time()
-            results = await asyncio.gather(*image_tasks, return_exceptions=True)
-            elapsed = time.time() - start_time
+                # Run ALL tasks in parallel (much faster than sequential)
+                parallel_start = time.time()
+                results = await asyncio.gather(*image_tasks, return_exceptions=True)
+                elapsed = time.time() - parallel_start
 
             # Extract results with error handling
             hero_image = results[0] if results[0] and not isinstance(results[0], Exception) else None
@@ -3735,22 +3778,26 @@ IMPORTANT RULES:
                 _prebuilt_file = get_prebuilt_template_filename(_tpl_id)
                 if _prebuilt_file:
                     logger.info(f"📄 Pre-built template found for '{_tpl_id}': {_prebuilt_file}")
-                    template_html = await self._generate_website_from_template(
-                        request=request,
-                        template_id=_tpl_id,
-                        template_filename=_prebuilt_file,
-                        image_choice=image_choice,
-                        progress_callback=progress_callback,
-                    )
+                    with _timed_step("template_pipeline", step_timings):
+                        template_html = await self._generate_website_from_template(
+                            request=request,
+                            template_id=_tpl_id,
+                            template_filename=_prebuilt_file,
+                            image_choice=image_choice,
+                            progress_callback=progress_callback,
+                        )
                     if template_html:
                         # Post-processing: inject images if needed
                         if not (request.uploaded_images and len(request.uploaded_images) > 0):
-                            template_html, food_images_count = await self._generate_ai_food_images(template_html)
-                            ai_images_generated += food_images_count
-                        template_html = self._fix_broken_image_urls(template_html, request.description)
+                            with _timed_step("ai_food_images", step_timings):
+                                template_html, food_images_count = await self._generate_ai_food_images(template_html)
+                                ai_images_generated += food_images_count
+                        with _timed_step("final_cleanup", step_timings):
+                            template_html = self._fix_broken_image_urls(template_html, request.description)
 
                         total_time = time.time() - start_time
                         logger.info(f"✅ PRE-BUILT TEMPLATE PIPELINE COMPLETE in {total_time:.1f}s")
+                        self._log_timing_breakdown(step_timings, total_time)
 
                         await update_progress(90, "Finalizing website")
 
@@ -3768,6 +3815,7 @@ IMPORTANT RULES:
                             sections=["Header", "Hero", "About", "Services", "Gallery", "Contact", "Footer"],
                             integrations_included=integrations,
                             ai_images_count=ai_images_generated,
+                            step_timings=step_timings,
                         )
                     else:
                         logger.warning(f"⚠️ Pre-built template pipeline failed for '{_tpl_id}', falling back to AI generation")
@@ -3782,6 +3830,7 @@ IMPORTANT RULES:
         # Build prompt WITH image URLs (or NO images if image_choice='none')
         await update_progress(50, "Generating website HTML")
         logger.info(f"🔷 STEP 2: DeepSeek generating HTML... [{time.time() - start_time:.1f}s elapsed]")
+        _prompt_build_started = time.time()
         # Get language from request (default to "ms" for Bahasa Malaysia)
         language = request.language.value if hasattr(request, 'language') and request.language else "ms"
         logger.info(f"   Language: {language}")
@@ -3891,6 +3940,9 @@ IMPORTANT INSTRUCTIONS:
             except Exception as _tpl_err:
                 logger.warning(f"⚠️ Template injection failed: {_tpl_err}")
 
+        step_timings["prompt_build"] = round(time.time() - _prompt_build_started, 3)
+        logger.info(f"⏱️  prompt_build: {step_timings['prompt_build']:.2f}s")
+
         await update_progress(55, "Calling AI to generate HTML")
         # Track truncation flags across the main AI call so they can be persisted
         # on generation_jobs (see Bug 1 fix).
@@ -3901,33 +3953,34 @@ IMPORTANT INSTRUCTIONS:
             "unclosed_tags": [],
         }
 
-        html_raw = await self._call_deepseek(prompt)
-        used_qwen_retry = False
+        with _timed_step("ai_html_generation", step_timings):
+            html_raw = await self._call_deepseek(prompt)
+            used_qwen_retry = False
 
-        if not html_raw:
-            logger.warning("⚠️ DeepSeek failed, trying Qwen...")
-            await update_progress(60, "Trying backup AI model")
-            # Use the retry-on-truncation wrapper for Qwen — Qwen is where the
-            # 31997-char truncation originated in production. This wrapper
-            # already calls _extract_html internally, so html is final.
-            html, qwen_flags = await self._call_qwen_with_truncation_retry(prompt)
-            truncation_flags.update(qwen_flags)
-            used_qwen_retry = True
-        else:
-            html = html_raw
+            if not html_raw:
+                logger.warning("⚠️ DeepSeek failed, trying Qwen...")
+                await update_progress(60, "Trying backup AI model")
+                # Use the retry-on-truncation wrapper for Qwen — Qwen is where the
+                # 31997-char truncation originated in production. This wrapper
+                # already calls _extract_html internally, so html is final.
+                html, qwen_flags = await self._call_qwen_with_truncation_retry(prompt)
+                truncation_flags.update(qwen_flags)
+                used_qwen_retry = True
+            else:
+                html = html_raw
 
-        if not html:
-            logger.error("❌ Both AIs failed to generate")
-            raise Exception("Failed to generate website")
+            if not html:
+                logger.error("❌ Both AIs failed to generate")
+                raise Exception("Failed to generate website")
 
-        await update_progress(75, "Processing generated HTML")
+            await update_progress(75, "Processing generated HTML")
 
-        # DeepSeek path still needs extraction + truncation detection
-        if not used_qwen_retry:
-            html = self._extract_html(html)
-            if self._last_extract_info.get("was_truncated"):
-                truncation_flags["was_truncated"] = True
-                truncation_flags["unclosed_tags"] = self._last_extract_info.get("unclosed_tags", [])
+            # DeepSeek path still needs extraction + truncation detection
+            if not used_qwen_retry:
+                html = self._extract_html(html)
+                if self._last_extract_info.get("was_truncated"):
+                    truncation_flags["was_truncated"] = True
+                    truncation_flags["unclosed_tags"] = self._last_extract_info.get("unclosed_tags", [])
 
         # Validate and retry once if the model ignored hard constraints
         if html:
@@ -3969,50 +4022,55 @@ IMPORTANT INSTRUCTIONS:
             )
             if errors:
                 logger.warning(f"⚠️ HTML validation failed; retrying once with stricter constraints — issues: {errors}")
-                retry_prompt = (
-                    prompt
-                    + "\n\n=== VALIDATION FAILURES (MUST FIX) ===\n"
-                    + "\n".join(f"- {e}" for e in errors)
-                    + "\nRegenerate the FULL HTML from scratch. Output ONLY HTML."
-                )
-                retry = await self._call_deepseek(retry_prompt, temperature=0.1)
-                if not retry:
-                    retry = await self._call_qwen(retry_prompt, temperature=0.1)
-                retry_html = self._extract_html(retry) if retry else None
-                if retry_html:
-                    html = retry_html
+                with _timed_step("validation_retry", step_timings):
+                    retry_prompt = (
+                        prompt
+                        + "\n\n=== VALIDATION FAILURES (MUST FIX) ===\n"
+                        + "\n".join(f"- {e}" for e in errors)
+                        + "\nRegenerate the FULL HTML from scratch. Output ONLY HTML."
+                    )
+                    retry = await self._call_deepseek(retry_prompt, temperature=0.1)
+                    if not retry:
+                        retry = await self._call_qwen(retry_prompt, temperature=0.1)
+                    retry_html = self._extract_html(retry) if retry else None
+                    if retry_html:
+                        html = retry_html
 
         # STEP 3: Improve content with Qwen
         if html:
             logger.info(f"🟡 STEP 3: Qwen improving content... [{time.time() - start_time:.1f}s elapsed]")
-            html = await self._improve_with_qwen(html, request.description)
-            # Extract HTML again to remove Qwen's explanation text
-            if html:
-                html = self._extract_html(html)
+            with _timed_step("qwen_improve", step_timings):
+                html = await self._improve_with_qwen(html, request.description)
+                # Extract HTML again to remove Qwen's explanation text
+                if html:
+                    html = self._extract_html(html)
 
         # Fix any remaining issues
-        html = self._fix_placeholders(html, request.business_name, request.description)
-        html = self._fix_menu_item_images(html, request.description)
+        with _timed_step("image_matching", step_timings):
+            html = self._fix_placeholders(html, request.business_name, request.description)
+            html = self._fix_menu_item_images(html, request.description)
 
         # CRITICAL FIX: Generate AI images for Malaysian food items
         # This replaces Unsplash URLs with Cloudinary URLs from Stability AI.
         # Never override user-provided images.
         if not (request.uploaded_images and len(request.uploaded_images) > 0):
-            html, food_images_count = await self._generate_ai_food_images(html)
-            ai_images_generated += food_images_count
+            with _timed_step("ai_food_images", step_timings):
+                html, food_images_count = await self._generate_ai_food_images(html)
+                ai_images_generated += food_images_count
 
         # FINAL SAFETY NET: Fix any remaining broken/empty image URLs
         # This ensures no images are left blank or with invalid URLs
-        html = self._fix_broken_image_urls(html, request.description)
-
-        # Safety net: remove any remaining {{placeholder}} tokens so they
-        # never appear on the published site (AI sometimes outputs these).
-        html = re.sub(r'\{\{[a-zA-Z_]+\}\}', '', html)
+        with _timed_step("final_cleanup", step_timings):
+            html = self._fix_broken_image_urls(html, request.description)
+            # Safety net: remove any remaining {{placeholder}} tokens so they
+            # never appear on the published site (AI sometimes outputs these).
+            html = re.sub(r'\{\{[a-zA-Z_]+\}\}', '', html)
 
         total_time = time.time() - start_time
         logger.info("✅ ALL STEPS COMPLETE")
         logger.info(f"   Final size: {len(html)} characters")
         logger.info(f"   ⏱️  Total generation time: {total_time:.1f}s")
+        self._log_timing_breakdown(step_timings, total_time)
 
         await update_progress(90, "Finalizing website")
 
@@ -4034,6 +4092,7 @@ IMPORTANT INSTRUCTIONS:
             was_truncated=truncation_flags.get("was_truncated", False),
             truncation_retries=truncation_flags.get("truncation_retries", 0),
             needs_manual_review=truncation_flags.get("needs_manual_review", False),
+            step_timings=step_timings,
         )
 
     async def generate_multi_style(
