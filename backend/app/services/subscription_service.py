@@ -316,18 +316,33 @@ class SubscriptionService:
                 existing_record["riders_count"] = actual_counts["riders_count"]
                 return existing_record
 
-            # Create new record with actual counts
-            # Note: usage_tracking table only has: usage_id, user_id, billing_period,
-            # websites_count, menu_items_count, ai_hero_used, ai_images_used
-            # delivery_zones_count and riders_count are NOT columns in this table
+            # Create new record with actual counts + explicit defaults for
+            # every NOT NULL column. In production we've seen the addon_* DEFAULTs
+            # drop off the schema (migration 005 set DEFAULT 0 but prod drifted),
+            # causing 23502 errors on upsert. Sending 0 explicitly makes the upsert
+            # resilient to schema drift — see supabase_migration_usage_tracking_defaults.sql
+            # for the defensive ALTER TABLE that restores the DEFAULTs.
             usage_data = {
                 "user_id": user_id,
                 "billing_period": billing_period,
                 "websites_count": actual_counts["websites_count"],
                 "menu_items_count": actual_counts["menu_items_count"],
+                "delivery_zones_count": actual_counts["delivery_zones_count"],
+                "riders_count": actual_counts["riders_count"],
                 "ai_hero_used": 0,
-                "ai_images_used": 0
+                "ai_images_used": 0,
+                # Addon counters — these were the NULLs behind the prod 23502
+                "addon_websites_used": 0,
+                "addon_ai_hero_used": 0,
+                "addon_ai_images_used": 0,
+                "addon_riders_used": 0,
+                "addon_zones_used": 0,
             }
+
+            logger.info(
+                f"[USAGE_UPSERT] user={user_id} period={billing_period} "
+                f"payload_keys={list(usage_data.keys())}"
+            )
 
             async with httpx.AsyncClient() as client:
                 response = await client.post(
