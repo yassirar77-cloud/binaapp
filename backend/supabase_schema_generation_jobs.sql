@@ -55,6 +55,18 @@ CREATE INDEX IF NOT EXISTS idx_generation_jobs_needs_review
     ON generation_jobs(needs_manual_review)
     WHERE needs_manual_review = TRUE;
 
+-- Step-by-step timing instrumentation (Bug 3 diagnostic) --
+-- JSONB map of step_name → seconds (e.g.
+--   {"ai_html_generation": 41.3, "qwen_improve": 9.8, "ai_food_images": 512.7, ...})
+-- so we can query which pipeline step dominates slow generations, e.g.:
+--   SELECT AVG((step_timings->>'qwen_html_generation')::float)
+--   FROM generation_jobs
+--   WHERE created_at > NOW() - INTERVAL '24 hours';
+ALTER TABLE generation_jobs
+    ADD COLUMN IF NOT EXISTS step_timings JSONB DEFAULT '{}'::jsonb;
+
+COMMENT ON COLUMN generation_jobs.step_timings IS 'Wall-clock seconds per pipeline step (stability_images, prompt_build, ai_html_generation, qwen_improve, image_matching, ai_food_images, final_cleanup, template_pipeline, validation_retry)';
+
 -- Auto-delete old jobs after 24 hours (optional cleanup)
 -- You can set up a pg_cron job or run this periodically
 -- DELETE FROM generation_jobs WHERE created_at < NOW() - INTERVAL '24 hours';

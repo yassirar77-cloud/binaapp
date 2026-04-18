@@ -150,6 +150,9 @@ class AIGenerationResponse(BaseModel):
     was_truncated: bool = False
     truncation_retries: int = 0
     needs_manual_review: bool = False
+    # Step-by-step timing breakdown for the generation pipeline — used to
+    # identify bottlenecks in production (see Bug 3 diagnostic instrumentation).
+    step_timings: Dict[str, float] = {}
 
 
 # Publishing Schemas
