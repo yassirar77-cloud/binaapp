@@ -221,6 +221,159 @@ class AIService:
         "default": "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80"
     }
 
+    # ROTATING FALLBACK POOLS - when no specific keyword matches, pick deterministically
+    # from a pool so different items get different images instead of all sharing one fallback.
+    # Each pool has 5-6 distinct, high-quality Unsplash photos for its category.
+    FALLBACK_IMAGE_POOLS = {
+        "photography": [
+            "https://images.unsplash.com/photo-1542038784456-1ea8e935640e?w=600&q=80",
+            "https://images.unsplash.com/photo-1452587925148-ce544e77e70d?w=600&q=80",
+            "https://images.unsplash.com/photo-1554048612-b6a482bc67e5?w=600&q=80",
+            "https://images.unsplash.com/photo-1500051638674-ff996a0ec29e?w=600&q=80",
+            "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=600&q=80",
+            "https://images.unsplash.com/photo-1502920917128-1aa500764cbd?w=600&q=80",
+        ],
+        "events": [
+            "https://images.unsplash.com/photo-1519167758481-83f550bb49b3?w=600&q=80",
+            "https://images.unsplash.com/photo-1464366400600-7168b8af9bc3?w=600&q=80",
+            "https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=600&q=80",
+            "https://images.unsplash.com/photo-1478146896981-b80fe463b330?w=600&q=80",
+            "https://images.unsplash.com/photo-1530023367847-a683933f4172?w=600&q=80",
+            "https://images.unsplash.com/photo-1505373877841-8d25f7d46678?w=600&q=80",
+        ],
+        "wedding": [
+            "https://images.unsplash.com/photo-1519741497674-611481863552?w=600&q=80",
+            "https://images.unsplash.com/photo-1465495976277-4387d4b0e4a6?w=600&q=80",
+            "https://images.unsplash.com/photo-1511795409834-ef04bbd61622?w=600&q=80",
+            "https://images.unsplash.com/photo-1520854221256-17451cc331bf?w=600&q=80",
+            "https://images.unsplash.com/photo-1606216794074-735e91aa2c92?w=600&q=80",
+            "https://images.unsplash.com/photo-1519225421980-715cb0215aed?w=600&q=80",
+        ],
+        "corporate": [
+            "https://images.unsplash.com/photo-1515187029135-18ee286d815b?w=600&q=80",
+            "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=600&q=80",
+            "https://images.unsplash.com/photo-1560439514-4e9645039924?w=600&q=80",
+            "https://images.unsplash.com/photo-1511578314322-379afb476865?w=600&q=80",
+            "https://images.unsplash.com/photo-1556761175-5973dc0f32e7?w=600&q=80",
+            "https://images.unsplash.com/photo-1552664730-d307ca884978?w=600&q=80",
+        ],
+        "food": [
+            "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=80",
+            "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&q=80",
+            "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&q=80",
+            "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=600&q=80",
+            "https://images.unsplash.com/photo-1540189549336-e6e99c3679fe?w=600&q=80",
+            "https://images.unsplash.com/photo-1432139509613-5c4255815697?w=600&q=80",
+        ],
+        "services": [
+            "https://images.unsplash.com/photo-1497366216548-37526070297c?w=600&q=80",
+            "https://images.unsplash.com/photo-1521791136064-7986c2920216?w=600&q=80",
+            "https://images.unsplash.com/photo-1556761175-b413da4baf72?w=600&q=80",
+            "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?w=600&q=80",
+            "https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=600&q=80",
+            "https://images.unsplash.com/photo-1551836022-deb4988cc6c0?w=600&q=80",
+        ],
+        "retail": [
+            "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=600&q=80",
+            "https://images.unsplash.com/photo-1555529669-e69e7aa0ba9a?w=600&q=80",
+            "https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=600&q=80",
+            "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=600&q=80",
+            "https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=600&q=80",
+            "https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?w=600&q=80",
+        ],
+        "beauty": [
+            "https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=600&q=80",
+            "https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=600&q=80",
+            "https://images.unsplash.com/photo-1487412947147-5cebf100ffc2?w=600&q=80",
+            "https://images.unsplash.com/photo-1560066984-138dadb4c035?w=600&q=80",
+            "https://images.unsplash.com/photo-1516975080664-ed2fc6a32937?w=600&q=80",
+            "https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=600&q=80",
+        ],
+        "fashion": [
+            "https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?w=600&q=80",
+            "https://images.unsplash.com/photo-1441984904996-e0b6ba687e04?w=600&q=80",
+            "https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=600&q=80",
+            "https://images.unsplash.com/photo-1483985988355-763728e1935b?w=600&q=80",
+            "https://images.unsplash.com/photo-1445205170230-053b83016050?w=600&q=80",
+            "https://images.unsplash.com/photo-1525507119028-ed4c629a60a3?w=600&q=80",
+        ],
+        "automotive": [
+            "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=600&q=80",
+            "https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?w=600&q=80",
+            "https://images.unsplash.com/photo-1601362840469-51e4d8d58785?w=600&q=80",
+            "https://images.unsplash.com/photo-1625047509168-a7026f36de04?w=600&q=80",
+            "https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=600&q=80",
+            "https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?w=600&q=80",
+        ],
+    }
+
+    # MALAY KEYWORD DICTIONARY - maps Malay/BM terms to fallback pool categories.
+    # Covers terms that kept slipping through the English-only matcher in production
+    # (e.g. "upacara", "majlis", "jaringan", "korporat", "perkahwinan").
+    MALAY_KEYWORD_TO_POOL = {
+        # Events, ceremonies, gatherings
+        "upacara": "events",          # ceremony
+        "majlis": "events",           # formal gathering/ceremony
+        "acara": "events",            # event
+        "sambutan": "events",         # celebration
+        "perayaan": "events",         # festival/celebration
+        "keraian": "events",          # festivity
+        "perhimpunan": "events",      # assembly
+        "perjumpaan": "events",       # meeting/gathering
+        "jamuan": "events",           # banquet/feast
+        "pertemuan": "events",        # meeting
+
+        # Wedding specific
+        "perkahwinan": "wedding",     # wedding
+        "kahwin": "wedding",          # marry
+        "pengantin": "wedding",       # bride/groom
+        "nikah": "wedding",           # nuptials
+        "resepsi": "wedding",         # reception
+        "bertunang": "wedding",       # engagement
+        "pertunangan": "wedding",     # engagement
+
+        # Corporate / business
+        "korporat": "corporate",      # corporate
+        "jaringan": "corporate",      # networking
+        "syarikat": "corporate",      # company
+        "perniagaan": "corporate",    # business
+        "persidangan": "corporate",   # conference
+        "mesyuarat": "corporate",     # meeting
+        "seminar": "corporate",
+        "bengkel korporat": "corporate",
+
+        # Photography / media (Malay phrasing)
+        "gambar": "photography",      # picture
+        "foto": "photography",        # photo
+        "jurufoto": "photography",    # photographer
+        "jurugambar": "photography",  # photographer
+        "rakaman": "photography",     # recording/shoot
+        "penggambaran": "photography",# filming/shooting session
+
+        # Modifiers / context (not category-specific; resolved via business_type)
+        "intim": None,                # intimate - context-dependent
+        "butiran": None,              # details
+        "detail": None,
+
+        # Food & beverage (Malay)
+        "makanan": "food",
+        "minuman": "food",
+        "hidangan": "food",           # dish/serving
+        "menu": "food",
+        "masakan": "food",            # cuisine
+        "juadah": "food",             # meal/feast food
+
+        # Fashion
+        "baju": "fashion",
+        "pakaian": "fashion",
+        "fesyen": "fashion",
+        "butik": "fashion",
+
+        # Services
+        "perkhidmatan": "services",
+        "servis": "services",
+    }
+
     # MALAYSIAN FOOD PROMPTS - 60+ Authentic Malaysian Dishes
     MALAYSIAN_FOOD_PROMPTS = {
         # Rice Dishes
@@ -404,7 +557,40 @@ class AIService:
 
         return self.FOOD_IMAGES["default"]
 
-    def get_matching_image(self, text: str, category: str = "all", business_type: str = "") -> str:
+    def _pool_pick(self, pool_name: str, item_name: str, used_urls: Optional[set] = None) -> Optional[str]:
+        """
+        Deterministically pick one image from a fallback pool using the item name.
+
+        Different items map to different images in the pool (zlib.crc32 is stable
+        across processes, unlike Python's randomized hash()). Same item always
+        returns the same image — important for regeneration idempotency.
+
+        If `used_urls` is provided, walk forward from the deterministic start to
+        find a slot that hasn't been used yet — gives the dedup pass truly unique
+        images when CRC32 would otherwise collide.
+        """
+        pool = self.FALLBACK_IMAGE_POOLS.get(pool_name)
+        if not pool:
+            return None
+        import zlib
+        key = (item_name or "").strip().lower().encode("utf-8")
+        start = zlib.crc32(key) % len(pool)
+        if not used_urls:
+            return pool[start]
+        for offset in range(len(pool)):
+            candidate = pool[(start + offset) % len(pool)]
+            if candidate not in used_urls:
+                return candidate
+        return pool[start]
+
+    def _malay_pool_for(self, text_lower: str) -> Optional[str]:
+        """Check if the text contains any Malay keyword and return its pool category."""
+        for keyword, pool in self.MALAY_KEYWORD_TO_POOL.items():
+            if keyword in text_lower:
+                return pool
+        return None
+
+    def get_matching_image(self, text: str, category: str = "all", business_type: str = "", used_urls: Optional[set] = None) -> str:
         """
         Get matching image URL for any Malaysian business product/service
 
@@ -415,6 +601,8 @@ class AIService:
             text: Product/service name or description (e.g., "Baju Kurung", "Tudung", "Haircut")
             category: Optional category hint ("fashion", "salon", "beauty", "food", "auto", "all")
             business_type: Optional business description for context-aware fallback
+            used_urls: Optional set of already-assigned URLs to avoid when rotating
+                through fallback pools (used by the dedup pass in _fix_menu_item_images).
 
         Returns:
             Best matching image URL
@@ -459,6 +647,15 @@ class AIService:
         if best_url and best_score >= 0.3:
             logger.info(f"🎯 Fuzzy match for '{text}' → '{best_match}' (score: {best_score:.2f})")
             return best_url
+
+        # Malay keyword → rotating pool (runs before English keyword fallbacks so
+        # terms like "upacara", "perkahwinan", "jaringan" don't slip through).
+        malay_pool = self._malay_pool_for(text_lower)
+        if malay_pool:
+            pool_img = self._pool_pick(malay_pool, text, used_urls=used_urls)
+            if pool_img:
+                logger.info(f"🎯 Malay keyword match for '{text}' → {malay_pool} pool: {pool_img[:60]}...")
+                return pool_img
 
         # Keyword-based fallback for common categories
         # Fashion & Clothing
@@ -539,32 +736,43 @@ class AIService:
         if any(word in text_lower for word in ['studio']):
             return self.BUSINESS_IMAGES.get("studio", self.BUSINESS_IMAGES["default"])
 
-        # Context-aware final fallback using business_type
+        # Context-aware final fallback using business_type — rotate through pools
+        # so different items get different images (hash(item_name) % pool_length)
+        # instead of all unmatched items sharing a single fallback photo.
         if business_type:
             biz_lower = business_type.lower()
-            # Photography/creative businesses should not get food images
-            if any(word in biz_lower for word in ['photo', 'foto', 'gambar', 'jurugambar', 'photographer', 'fotografi', 'studio', 'gallery', 'galeri']):
-                logger.info(f"⚠️ No specific match for '{text}', using photography fallback (business: {business_type})")
-                return self.BUSINESS_IMAGES.get("photography", self.BUSINESS_IMAGES["business"])
-            if any(word in biz_lower for word in ['salon', 'rambut', 'hair', 'beauty', 'kecantikan', 'spa']):
-                logger.info(f"⚠️ No specific match for '{text}', using salon fallback (business: {business_type})")
-                return self.BUSINESS_IMAGES.get("salon", self.BUSINESS_IMAGES["business"])
-            if any(word in biz_lower for word in ['fashion', 'fesyen', 'pakaian', 'clothing', 'boutique', 'baju', 'tudung']):
-                logger.info(f"⚠️ No specific match for '{text}', using fashion fallback (business: {business_type})")
-                return self.BUSINESS_IMAGES.get("clothing", self.BUSINESS_IMAGES["business"])
-            if any(word in biz_lower for word in ['kereta', 'car', 'auto', 'bengkel', 'workshop', 'mechanic']):
-                logger.info(f"⚠️ No specific match for '{text}', using automotive fallback (business: {business_type})")
-                return self.BUSINESS_IMAGES.get("car", self.BUSINESS_IMAGES["business"])
-            if any(word in biz_lower for word in ['pet', 'haiwan', 'kucing', 'anjing']):
-                logger.info(f"⚠️ No specific match for '{text}', using pet shop fallback (business: {business_type})")
-                return self.BUSINESS_IMAGES.get("pet shop", self.BUSINESS_IMAGES["business"])
-            # Non-food business detected but no specific category match - use generic business image
-            if not any(word in biz_lower for word in ['makan', 'food', 'restoran', 'restaurant', 'nasi', 'cafe', 'warung']):
-                logger.info(f"⚠️ No specific match for '{text}', using business fallback (business: {business_type})")
-                return self.BUSINESS_IMAGES.get("business", self.BUSINESS_IMAGES["default"])
 
-        # Final fallback
-        logger.info(f"⚠️ No specific match for '{text}', using default")
+            pool_name: Optional[str] = None
+            if any(word in biz_lower for word in ['photo', 'foto', 'gambar', 'jurugambar', 'photographer', 'fotografi', 'studio', 'gallery', 'galeri']):
+                pool_name = "photography"
+            elif any(word in biz_lower for word in ['kahwin', 'perkahwinan', 'wedding', 'pengantin', 'nikah']):
+                pool_name = "wedding"
+            elif any(word in biz_lower for word in ['event', 'acara', 'majlis', 'upacara', 'sambutan']):
+                pool_name = "events"
+            elif any(word in biz_lower for word in ['korporat', 'corporate', 'syarikat', 'company', 'business event']):
+                pool_name = "corporate"
+            elif any(word in biz_lower for word in ['salon', 'rambut', 'hair', 'beauty', 'kecantikan', 'spa']):
+                pool_name = "beauty"
+            elif any(word in biz_lower for word in ['fashion', 'fesyen', 'pakaian', 'clothing', 'boutique', 'baju', 'tudung']):
+                pool_name = "fashion"
+            elif any(word in biz_lower for word in ['kereta', 'car', 'auto', 'bengkel', 'workshop', 'mechanic']):
+                pool_name = "automotive"
+            elif any(word in biz_lower for word in ['makan', 'food', 'restoran', 'restaurant', 'nasi', 'cafe', 'warung']):
+                pool_name = "food"
+            elif not any(word in biz_lower for word in ['makan', 'food', 'restoran', 'restaurant', 'nasi', 'cafe', 'warung']):
+                pool_name = "services"
+
+            if pool_name:
+                pool_img = self._pool_pick(pool_name, text, used_urls=used_urls)
+                if pool_img:
+                    logger.info(f"🎨 No specific match for '{text}', rotating {pool_name} pool → {pool_img[:60]}... (business: {business_type})")
+                    return pool_img
+
+        # Final fallback — still rotate rather than returning the same default every time
+        default_pool_img = self._pool_pick("services", text, used_urls=used_urls)
+        if default_pool_img:
+            logger.info(f"⚠️ No specific match for '{text}', rotating services pool → {default_pool_img[:60]}...")
+            return default_pool_img
         return self.BUSINESS_IMAGES["default"]
 
     async def get_product_image(
@@ -2444,11 +2652,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 if heading_match:
                     item_name = re.sub(r'<[^>]+>', '', heading_match.group(1)).strip()
 
-                # If we've seen this URL before and we have an item name, replace it
+                # If we've seen this URL before and we have an item name, replace it.
+                # Pass seen_urls so pool rotation skips any URL already on the page.
                 if img_url in seen_urls and item_name:
-                    # Use comprehensive image matching for all product types
-                    new_url = self.get_matching_image(item_name, business_type=business_description)
+                    new_url = self.get_matching_image(
+                        item_name,
+                        business_type=business_description,
+                        used_urls=seen_urls,
+                    )
                     logger.info(f"   🔄 '{item_name}': {img_url[:50]}... → {new_url[:50]}...")
+                    seen_urls.add(new_url)
                     return full_match.replace(img_url, new_url)
                 else:
                     seen_urls.add(img_url)
