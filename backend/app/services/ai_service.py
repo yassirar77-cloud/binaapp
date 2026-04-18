@@ -3751,12 +3751,29 @@ IMPORTANT RULES:
                 results = await asyncio.gather(*image_tasks, return_exceptions=True)
                 elapsed = time.time() - parallel_start
 
-            # Extract results with error handling
-            hero_image = results[0] if results[0] and not isinstance(results[0], Exception) else None
-            product1_image = results[1] if results[1] and not isinstance(results[1], Exception) else None
-            product2_image = results[2] if results[2] and not isinstance(results[2], Exception) else None
-            product3_image = results[3] if results[3] and not isinstance(results[3], Exception) else None
-            product4_image = results[4] if results[4] and not isinstance(results[4], Exception) else None
+            # Extract results with error handling + Bug-2 pool fallback so a
+            # Stability failure (rate limit, 500, etc) doesn't leave the slot
+            # empty. Without this, the HTML prompt silently omits the URL and
+            # the hero/product cards render blank.
+            def _slot_image(result, prompt_text: str) -> Optional[str]:
+                if result and not isinstance(result, Exception):
+                    return result
+                if not prompt_text:
+                    return None
+                try:
+                    fallback = self.get_matching_image(prompt_text, business_type=request.description)
+                    logger.info(f"   🔄 Stability failed for slot — Bug-2 pool fallback: {fallback[:60]}...")
+                    return fallback
+                except Exception as fb_err:
+                    logger.warning(f"   ⚠️ Bug-2 pool fallback also failed: {fb_err}")
+                    return None
+
+            slot_prompts = [hero_prompt, product_prompt_1, product_prompt_2, product_prompt_3, product_prompt_4]
+            hero_image     = _slot_image(results[0], slot_prompts[0])
+            product1_image = _slot_image(results[1], slot_prompts[1])
+            product2_image = _slot_image(results[2], slot_prompts[2])
+            product3_image = _slot_image(results[3], slot_prompts[3])
+            product4_image = _slot_image(results[4], slot_prompts[4])
 
             # Build image_urls dict
             if hero_image:
@@ -3770,14 +3787,15 @@ IMPORTANT RULES:
             if product4_image:
                 image_urls["gallery4"] = product4_image
 
-            # Log results
+            # Log results — Stability success count, not slot-filled count
+            # (fallback-filled slots don't count toward the AI usage billing).
             successful = sum(1 for r in results if r and not isinstance(r, Exception))
             failed = len(results) - successful
             ai_images_generated = successful  # Track for usage billing
             logger.info(f"☁️ Parallel generation complete in {elapsed:.1f}s")
-            logger.info(f"   ✅ Successful: {successful}/5 images")
+            logger.info(f"   ✅ Stability successful: {successful}/5 images")
             if failed > 0:
-                logger.warning(f"   ⚠️ Failed: {failed}/5 images")
+                logger.warning(f"   ⚠️ Stability failed: {failed}/5 images (Bug-2 pool fallback applied)")
             logger.info(f"   Total URLs: {len(image_urls)} images ready for HTML generation")
             await update_progress(45, "AI images generated")
 
