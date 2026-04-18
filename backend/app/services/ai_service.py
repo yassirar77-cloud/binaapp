@@ -22,6 +22,13 @@ import cloudinary
 import cloudinary.uploader
 
 
+# Feature flag for the Qwen copywriting-improvement pass (see generate_website).
+# Defaults to False: the call was measured at ~110s/gen in production with no
+# measurable user-facing benefit (diagnosis/optimization-audit, 2026-04-18).
+# Set ENABLE_QWEN_IMPROVE=true in Render env to re-enable without a redeploy.
+ENABLE_QWEN_IMPROVE = os.getenv("ENABLE_QWEN_IMPROVE", "false").lower() == "true"
+
+
 @contextmanager
 def _timed_step(step_name: str, timings: Dict[str, float]):
     """
@@ -4036,8 +4043,12 @@ IMPORTANT INSTRUCTIONS:
                     if retry_html:
                         html = retry_html
 
-        # STEP 3: Improve content with Qwen
-        if html:
+        # STEP 3: Improve content with Qwen.
+        # _improve_with_qwen call gated behind ENABLE_QWEN_IMPROVE flag 2026-04-18
+        # — measured 110s/gen cost with no measurable user-facing benefit.
+        # Function preserved in _improve_with_qwen in case we want to re-enable
+        # behind the flag. See audit on branch diagnosis/optimization-audit.
+        if ENABLE_QWEN_IMPROVE and html:
             logger.info(f"🟡 STEP 3: Qwen improving content... [{time.time() - start_time:.1f}s elapsed]")
             with _timed_step("qwen_improve", step_timings):
                 html = await self._improve_with_qwen(html, request.description)
