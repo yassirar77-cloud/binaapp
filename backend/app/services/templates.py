@@ -1183,7 +1183,10 @@ function handleContactSubmit(e) {{
     </div>
 
     <!-- Floating Cart Button (Mobile) -->
-    <div id="delivery-floating-cart-btn" style="display:none;position:fixed;bottom:24px;right:24px;z-index:50;">
+    <!-- bottom:100px keeps it stacked above the chat-widget.js floating button
+         (which sits at bottom:24px right:24px). Without this offset both
+         buttons collapse onto the same coordinates and visually overlap. -->
+    <div id="delivery-floating-cart-btn" style="display:none;position:fixed;bottom:100px;right:24px;z-index:50;">
         <button onclick="toggleDeliveryMobileCart()" style="background:linear-gradient(to right,#f97316,#ea580c);color:white;padding:16px 20px;border-radius:9999px;box-shadow:0 8px 24px rgba(234,88,12,0.4);display:flex;align-items:center;gap:12px;border:none;cursor:pointer;">
             🛒
             <span style="font-weight:bold;">RM<span id="floating-total">0</span></span>
