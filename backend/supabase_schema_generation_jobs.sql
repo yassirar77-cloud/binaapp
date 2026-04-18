@@ -39,6 +39,22 @@ COMMENT ON COLUMN generation_jobs.html IS 'Generated HTML content (for single st
 COMMENT ON COLUMN generation_jobs.styles IS 'JSON array of style variations with html';
 COMMENT ON COLUMN generation_jobs.error IS 'Error message if status is failed';
 
+-- Truncation diagnostics (Bug 1 fix) --
+-- Safe to run multiple times; uses IF NOT EXISTS.
+ALTER TABLE generation_jobs
+    ADD COLUMN IF NOT EXISTS was_truncated BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS needs_manual_review BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS truncation_retries INTEGER DEFAULT 0;
+
+COMMENT ON COLUMN generation_jobs.was_truncated IS 'Set when Qwen/DeepSeek hit the output token cap mid-generation';
+COMMENT ON COLUMN generation_jobs.needs_manual_review IS 'Set when both the initial call AND the retry truncated — page likely incomplete';
+COMMENT ON COLUMN generation_jobs.truncation_retries IS 'Number of truncation-triggered retries performed during generation';
+
+-- Index for ops dashboards that need to list flagged jobs quickly
+CREATE INDEX IF NOT EXISTS idx_generation_jobs_needs_review
+    ON generation_jobs(needs_manual_review)
+    WHERE needs_manual_review = TRUE;
+
 -- Auto-delete old jobs after 24 hours (optional cleanup)
 -- You can set up a pg_cron job or run this periodically
 -- DELETE FROM generation_jobs WHERE created_at < NOW() - INTERVAL '24 hours';

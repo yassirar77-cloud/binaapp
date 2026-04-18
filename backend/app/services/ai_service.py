@@ -2390,14 +2390,45 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"🔷 DeepSeek ❌ Exception: {e}")
         return None
 
-    async def _call_qwen(self, prompt: str, temperature: float = 0.2) -> Optional[str]:
-        """Call Qwen API"""
+    # Default Qwen config for HTML generation.
+    # qwen-plus-latest is used for HTML because it has a higher output-token cap
+    # than qwen-max (qwen-max tops out at ~8K output on DashScope compatible mode,
+    # which is where the 31997-char truncation came from). 12000 tokens ≈ 40-48K
+    # chars of HTML, enough for 15+ menu cards plus template structure.
+    QWEN_HTML_MODEL = "qwen-plus-latest"
+    QWEN_HTML_MAX_TOKENS = 12000
+    # Finish reason that DashScope returns when it hit max_tokens (vs. natural stop)
+    _QWEN_TRUNCATED_FINISH_REASONS = {"length", "max_tokens"}
+
+    async def _call_qwen(
+        self,
+        prompt: str,
+        temperature: float = 0.2,
+        model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+    ) -> Optional[str]:
+        """Call Qwen API.
+
+        Args:
+            prompt: user message
+            temperature: sampling temperature
+            model: override model (defaults to QWEN_HTML_MODEL for HTML generation)
+            max_tokens: override output cap (defaults to QWEN_HTML_MAX_TOKENS)
+
+        Also logs DashScope's `finish_reason` on truncation so upstream can react.
+        """
         if not self.qwen_api_key:
             logger.warning("❌ QWEN_API_KEY not configured")
             return None
 
+        model_id = model or self.QWEN_HTML_MODEL
+        mt = max_tokens or self.QWEN_HTML_MAX_TOKENS
+
         try:
-            logger.info(f"🟡 Calling Qwen API... (prompt length: {len(prompt)} chars)")
+            logger.info(
+                f"🟡 Calling Qwen API... model={model_id} max_tokens={mt} "
+                f"prompt_chars={len(prompt)}"
+            )
             async with httpx.AsyncClient(timeout=240.0) as client:
                 r = await client.post(
                     f"{self.qwen_base_url}/chat/completions",
@@ -2406,7 +2437,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "qwen-max",
+                        "model": model_id,
                         "messages": [
                             {
                                 "role": "system",
@@ -2415,12 +2446,25 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": temperature,
-                        "max_tokens": 8000,
+                        "max_tokens": mt,
                     }
                 )
                 if r.status_code == 200:
-                    content = r.json()["choices"][0]["message"]["content"]
-                    logger.info(f"🟡 Qwen ✅ Generated {len(content)} characters")
+                    payload = r.json()
+                    choice = (payload.get("choices") or [{}])[0]
+                    content = (choice.get("message") or {}).get("content", "")
+                    finish_reason = choice.get("finish_reason") or "unknown"
+                    usage = payload.get("usage") or {}
+                    completion_tokens = usage.get("completion_tokens")
+                    logger.info(
+                        f"🟡 Qwen ✅ Generated {len(content)} chars "
+                        f"(finish_reason={finish_reason}, completion_tokens={completion_tokens})"
+                    )
+                    if finish_reason in self._QWEN_TRUNCATED_FINISH_REASONS:
+                        logger.error(
+                            f"🚨 Qwen hit output cap (finish_reason={finish_reason}, "
+                            f"max_tokens={mt}). Response was truncated at generation time."
+                        )
                     return content
                 else:
                     try:
@@ -2436,9 +2480,104 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"🟡 Qwen ❌ Exception: {e}")
         return None
 
+    # HTML tags that are self-closing / void in HTML5 — these never get stacked.
+    _VOID_HTML_TAGS = frozenset({
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr",
+    })
+
+    def _find_unclosed_tags(self, html: str) -> List[str]:
+        """
+        Return the list of tag names still open at the end of the string.
+
+        Lightweight regex-based scan — not a full HTML parser, but good enough
+        to tell us which tags didn't get closed when the model got cut off.
+        Skips void tags and `<!-- ... -->` comments.
+        """
+        if not html:
+            return []
+        # Strip comments and doctype first so they don't confuse the scan
+        cleaned = re.sub(r"<!--.*?-->", "", html, flags=re.DOTALL)
+        cleaned = re.sub(r"<!DOCTYPE[^>]*>", "", cleaned, flags=re.IGNORECASE)
+        stack: List[str] = []
+        for m in re.finditer(r"<\s*(/?)\s*([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?(/?)>", cleaned):
+            is_close = m.group(1) == "/"
+            name = m.group(2).lower()
+            self_closing = m.group(3) == "/"
+            if name in self._VOID_HTML_TAGS or self_closing:
+                continue
+            if is_close:
+                # Pop matching tag if present (handle mild nesting errors gracefully)
+                if name in stack:
+                    while stack and stack.pop() != name:
+                        pass
+            else:
+                stack.append(name)
+        return stack
+
+    def _compress_prompt(self, prompt: str) -> str:
+        """
+        Produce a shorter version of an HTML-generation prompt for retry after
+        truncation. Strips example sections and bulky instruction preambles while
+        preserving the business context, menu items, image URLs, and phone/address.
+
+        Heuristics:
+          - Drop lines that are pure headings for EXAMPLE/OUTPUT FORMAT sections
+            and the blocks beneath them until the next all-caps heading.
+          - Collapse runs of blank lines.
+          - Truncate any remaining content past 12K chars (the important details
+            for a Malaysian SMB site fit comfortably in that budget).
+        """
+        if not prompt:
+            return prompt
+
+        lines = prompt.split("\n")
+        out: List[str] = []
+        drop_section = False
+        drop_headers = re.compile(
+            r"^\s*(#+\s*)?(EXAMPLE|EXAMPLES|SAMPLE OUTPUT|OUTPUT FORMAT|"
+            r"REFERENCE|INSPIRATION|FULL EXAMPLE)[:\s]*$",
+            re.IGNORECASE,
+        )
+        section_header = re.compile(r"^\s*={2,}|^\s*#{1,6}\s+\S|^\s*[A-Z][A-Z _\-]{3,}:?\s*$")
+        for line in lines:
+            if drop_headers.match(line):
+                drop_section = True
+                continue
+            if drop_section:
+                # End the drop when we hit a new section header
+                if section_header.match(line):
+                    drop_section = False
+                else:
+                    continue
+            out.append(line)
+
+        compressed = "\n".join(out)
+        # Collapse 3+ blank lines to just 1 blank line
+        compressed = re.sub(r"\n\s*\n\s*\n+", "\n\n", compressed)
+        # Hard ceiling — keep the tail (business-specific fields are usually last)
+        if len(compressed) > 12000:
+            head = compressed[:2000]
+            tail = compressed[-9000:]
+            compressed = head + "\n\n[...examples trimmed for retry...]\n\n" + tail
+        logger.info(
+            f"📉 Compressed prompt: {len(prompt)} → {len(compressed)} chars "
+            f"(dropped {len(prompt) - len(compressed)} chars)"
+        )
+        return compressed
+
     def _extract_html(self, text: str) -> Optional[str]:
-        """Extract only HTML from AI response, remove explanations"""
+        """Extract only HTML from AI response, remove explanations.
+
+        If the output is truncated (no closing </html>), this still auto-closes
+        so the page is renderable, but logs loudly and records diagnostic info
+        (last 200 chars + list of unclosed tags) on `self._last_extract_info`
+        so callers can decide to retry.
+        """
         import re
+
+        # Reset per-call diagnostic state (single call site at a time per request)
+        self._last_extract_info: Dict = {"was_truncated": False, "unclosed_tags": [], "tail": ""}
 
         if not text:
             return None
@@ -2476,16 +2615,87 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         for pattern in patterns_to_remove:
             text = re.sub(pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
 
-        # Safety: auto-close truncated HTML
         text = text.strip()
+
+        # Detect truncation (missing closing </html>) and record diagnostic info.
+        # We still auto-close so the caller gets a renderable page, but we shout
+        # about it so downstream can trigger a retry and flag the job.
         if text and not text.rstrip().endswith('</html>'):
-            logger.warning("⚠️ HTML output appears truncated, auto-closing tags")
+            unclosed = self._find_unclosed_tags(text)
+            tail = text[-200:]
+            self._last_extract_info = {
+                "was_truncated": True,
+                "unclosed_tags": unclosed,
+                "tail": tail,
+            }
+            logger.error(f"🚨 HTML TRUNCATED at {len(text)} chars")
+            logger.error(f"   Last 200 chars: {tail!r}")
+            logger.error(f"   Unclosed tags ({len(unclosed)}): {unclosed}")
+
             if '</body>' not in text:
                 text += '\n</body>\n</html>'
             else:
                 text += '\n</html>'
 
         return text
+
+    async def _call_qwen_with_truncation_retry(
+        self,
+        prompt: str,
+        temperature: float = 0.2,
+    ) -> Tuple[Optional[str], Dict]:
+        """
+        Call Qwen → extract → if truncated, retry ONCE with a compressed prompt.
+
+        Returns (html, flags) where flags is a dict suitable for persisting on
+        the generation_jobs row:
+            { "was_truncated": bool, "truncation_retries": int,
+              "needs_manual_review": bool, "unclosed_tags": [...] }
+
+        "needs_manual_review" is true only if BOTH attempts truncated.
+        """
+        flags: Dict = {
+            "was_truncated": False,
+            "truncation_retries": 0,
+            "needs_manual_review": False,
+            "unclosed_tags": [],
+        }
+
+        raw = await self._call_qwen(prompt, temperature=temperature)
+        html = self._extract_html(raw) if raw else None
+        first_info = dict(self._last_extract_info) if raw else {"was_truncated": False, "unclosed_tags": [], "tail": ""}
+
+        if not first_info.get("was_truncated"):
+            return html, flags
+
+        # First attempt truncated — retry once with a compressed prompt
+        flags["was_truncated"] = True
+        flags["truncation_retries"] = 1
+        flags["unclosed_tags"] = first_info.get("unclosed_tags", [])
+        logger.warning(
+            f"🟠 HTML truncated on first attempt — retrying once with compressed prompt "
+            f"(unclosed={flags['unclosed_tags']})"
+        )
+        compressed = self._compress_prompt(prompt)
+        retry_raw = await self._call_qwen(compressed, temperature=temperature)
+        retry_html = self._extract_html(retry_raw) if retry_raw else None
+        retry_info = dict(self._last_extract_info) if retry_raw else {"was_truncated": True, "unclosed_tags": [], "tail": ""}
+
+        if retry_html and not retry_info.get("was_truncated"):
+            logger.info("✅ Retry succeeded with complete HTML")
+            return retry_html, flags
+
+        # Both attempts truncated — flag for review, fall back to whichever we have
+        flags["needs_manual_review"] = True
+        logger.error(
+            f"🔴 DOUBLE TRUNCATION - flagging for review. "
+            f"first_unclosed={first_info.get('unclosed_tags')}, "
+            f"retry_unclosed={retry_info.get('unclosed_tags')}"
+        )
+        # Prefer the retry result if it has more content, else the first
+        if retry_html and (not html or len(retry_html) > len(html)):
+            return retry_html, flags
+        return html, flags
 
     def _validate_generated_html(
         self,
@@ -3682,12 +3892,29 @@ IMPORTANT INSTRUCTIONS:
                 logger.warning(f"⚠️ Template injection failed: {_tpl_err}")
 
         await update_progress(55, "Calling AI to generate HTML")
-        html = await self._call_deepseek(prompt)
+        # Track truncation flags across the main AI call so they can be persisted
+        # on generation_jobs (see Bug 1 fix).
+        truncation_flags: Dict = {
+            "was_truncated": False,
+            "truncation_retries": 0,
+            "needs_manual_review": False,
+            "unclosed_tags": [],
+        }
 
-        if not html:
+        html_raw = await self._call_deepseek(prompt)
+        used_qwen_retry = False
+
+        if not html_raw:
             logger.warning("⚠️ DeepSeek failed, trying Qwen...")
             await update_progress(60, "Trying backup AI model")
-            html = await self._call_qwen(prompt)
+            # Use the retry-on-truncation wrapper for Qwen — Qwen is where the
+            # 31997-char truncation originated in production. This wrapper
+            # already calls _extract_html internally, so html is final.
+            html, qwen_flags = await self._call_qwen_with_truncation_retry(prompt)
+            truncation_flags.update(qwen_flags)
+            used_qwen_retry = True
+        else:
+            html = html_raw
 
         if not html:
             logger.error("❌ Both AIs failed to generate")
@@ -3695,8 +3922,12 @@ IMPORTANT INSTRUCTIONS:
 
         await update_progress(75, "Processing generated HTML")
 
-        # Extract HTML
-        html = self._extract_html(html)
+        # DeepSeek path still needs extraction + truncation detection
+        if not used_qwen_retry:
+            html = self._extract_html(html)
+            if self._last_extract_info.get("was_truncated"):
+                truncation_flags["was_truncated"] = True
+                truncation_flags["unclosed_tags"] = self._last_extract_info.get("unclosed_tags", [])
 
         # Validate and retry once if the model ignored hard constraints
         if html:
@@ -3799,7 +4030,10 @@ IMPORTANT INSTRUCTIONS:
             meta_description=f"{request.business_name} - {request.description[:150]}",
             sections=["Header", "Hero", "About", "Services", "Gallery", "Contact", "Footer"],
             integrations_included=integrations,
-            ai_images_count=ai_images_generated
+            ai_images_count=ai_images_generated,
+            was_truncated=truncation_flags.get("was_truncated", False),
+            truncation_retries=truncation_flags.get("truncation_retries", 0),
+            needs_manual_review=truncation_flags.get("needs_manual_review", False),
         )
 
     async def generate_multi_style(
