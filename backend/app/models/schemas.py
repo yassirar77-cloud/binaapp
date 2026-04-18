@@ -145,6 +145,11 @@ class AIGenerationResponse(BaseModel):
     sections: List[str]
     integrations_included: List[str]
     ai_images_count: int = 0
+    # Truncation diagnostics surfaced from ai_service so callers can persist
+    # them on generation_jobs (see Bug 1 fix).
+    was_truncated: bool = False
+    truncation_retries: int = 0
+    needs_manual_review: bool = False
 
 
 # Publishing Schemas

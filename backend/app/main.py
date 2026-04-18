@@ -1754,6 +1754,23 @@ async def run_generation_task(
 
         logger.info(f"✅ Got HTML: {len(html)} chars")
 
+        # Persist truncation diagnostics on generation_jobs so broken pages can
+        # be surfaced for manual review (see Bug 1 fix).
+        if supabase and (ai_response.was_truncated or ai_response.needs_manual_review):
+            try:
+                supabase.table("generation_jobs").update({
+                    "was_truncated": ai_response.was_truncated,
+                    "truncation_retries": ai_response.truncation_retries,
+                    "needs_manual_review": ai_response.needs_manual_review,
+                    "updated_at": datetime.now().isoformat(),
+                }).eq("job_id", job_id).execute()
+                if ai_response.needs_manual_review:
+                    logger.error(
+                        f"🔴 Job {job_id[:8]} flagged for manual review (double truncation)"
+                    )
+            except Exception as trunc_err:
+                logger.warning(f"⚠️ Could not persist truncation flags: {trunc_err}")
+
         # ==================== SAFETY NET (ENFORCE USER CHOICES) ====================
         # Remove unwanted images (even if AI ignores prompt)
         try:
