@@ -2749,50 +2749,24 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         required_wa_digits: str,
     ) -> List[str]:
         """
-        Validate AI output and detect common hallucination/constraint violations.
-        Returns list of human-readable errors (empty list means OK).
+        Validate AI output and detect hallucinations we CAN'T fix deterministically.
+
+        Most rules that used to live here have been moved to _fix_placeholders
+        (2026-04-18 optimization audit):
+          - R1 (<html> wrapper)   → redundant; _extract_html auto-closes.
+          - R2 (Tailwind CDN)     → fixed by _fix_placeholders if missing.
+          - R3 (forbidden hosts)  → fixed by _fix_placeholders (via/example/…).
+          - R5 (bracket regex)    → too high false-positive rate, dropped.
+          - R6 (wa.me link)       → fixed by _fix_placeholders if missing + digits known.
+
+        What remains is required_image_urls (R7) — the only signal we can't
+        deterministically patch because we don't know which gallery slot to
+        inject into without knowing the HTML structure the AI produced. If this
+        fires, it's almost always a genuine AI miss worth regenerating.
         """
         errors: List[str] = []
         if not html or not isinstance(html, str):
             return ["Empty HTML output"]
-
-        lower = html.lower()
-
-        # Basic structure
-        if "<html" not in lower or "</html>" not in lower:
-            errors.append("Missing <html> wrapper")
-        if "cdn.tailwindcss.com" not in lower:
-            errors.append("Missing Tailwind CDN script (cdn.tailwindcss.com)")
-
-        # Forbidden placeholder patterns
-        forbidden_substrings = [
-            "via.placeholder.com",
-            "placeholder.com",
-            "example.com",
-            "[business_tagline]",
-            "[about_text]",
-            "[service_",
-        ]
-        for s in forbidden_substrings:
-            if s in lower:
-                errors.append(f"Contains forbidden placeholder/text: '{s}'")
-
-        # Match placeholder-style brackets like [BUSINESS_NAME], [Your Tagline]
-        # but NOT Tailwind CSS bracket notation like bg-[#1A1A1A], text-[10px], w-[200%]
-        placeholder_re = re.compile(
-            r'(?<![:\-\w])'          # not preceded by css-like chars (e.g. bg- text- :)
-            r'\['
-            r'([A-Z][A-Za-z_ ]{2,})'  # starts uppercase, 3+ alpha/space/underscore chars
-            r'\]'
-        )
-        if placeholder_re.search(html):
-            errors.append("Contains bracket placeholder text like [SOMETHING]")
-
-        # WhatsApp link correctness — only check that wa.me/ link exists with ANY number
-        # Previously checked exact digits which caused unnecessary retries when DeepSeek
-        # used a different phone number format
-        if "wa.me/" not in lower:
-            errors.append(f"Missing WhatsApp link (expected wa.me/ link)")
 
         # Required image URLs (when user supplied)
         for url in required_image_urls:
@@ -3041,8 +3015,13 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         return html, ai_food_images_count
 
-    def _fix_placeholders(self, html: str, name: str, desc: str) -> str:
-        """Fix any remaining placeholders as a safety net"""
+    def _fix_placeholders(self, html: str, name: str, desc: str, wa_digits: str = "") -> str:
+        """Fix any remaining placeholders as a safety net.
+
+        Also absorbs the deterministic fixes that used to live in
+        _validate_generated_html (R2/R3/R6). This makes the validation step
+        redundant for those rules, eliminating a ~100s Qwen retry.
+        """
         if not html:
             return html
 
@@ -3056,6 +3035,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         html = html.replace("https://via.placeholder.com", imgs["gallery"][0].split("?")[0])
         html = html.replace("placeholder.com", "images.unsplash.com")
 
+        # R3 extension: example.com in image src attributes → real stock image.
+        # Only rewrite src="…example.com…" so we don't trample genuine anchor
+        # refs or legal boilerplate that happens to mention example.com.
+        html = re.sub(
+            r'src="[^"]*example\.com[^"]*"',
+            f'src="{imgs["gallery"][0]}"',
+            html,
+            flags=re.IGNORECASE,
+        )
+
         # Fix text placeholders
         html = html.replace("[BUSINESS_TAGLINE]", f"Selamat Datang ke {name}!")
         html = html.replace("[ABOUT_TEXT]", f"{name} adalah destinasi utama untuk semua keperluan anda. Kami menyediakan perkhidmatan berkualiti tinggi dengan harga berpatutan.")
@@ -3066,6 +3055,33 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         html = html.replace("[SERVICE_3_NAME]", "Sokongan Pelanggan")
         html = html.replace("[SERVICE_3_DESC]", "Pasukan kami sentiasa bersedia membantu anda.")
         html = html.replace("[CONTACT_TEXT]", "Hubungi kami untuk sebarang pertanyaan. Kami sentiasa bersedia membantu!")
+
+        # R2 (moved from _validate_generated_html): ensure Tailwind CDN is loaded.
+        # The strict prompt includes the script tag, but models occasionally
+        # rewrite or strip it. Insert right before </head> if absent.
+        if "cdn.tailwindcss.com" not in html.lower() and "</head>" in html:
+            html = html.replace(
+                "</head>",
+                '<script src="https://cdn.tailwindcss.com"></script>\n</head>',
+                1,
+            )
+            logger.info("   🔧 Injected missing Tailwind CDN script")
+
+        # R6 (moved from _validate_generated_html): ensure a wa.me/ link exists.
+        # If caller provided wa_digits and no wa.me link is in the HTML,
+        # append a minimal floating WhatsApp button right before </body>.
+        if wa_digits and "wa.me/" not in html.lower() and "</body>" in html:
+            wa_button = (
+                f'<a href="https://wa.me/{wa_digits}" target="_blank" rel="noopener" '
+                f'aria-label="WhatsApp" '
+                f'style="position:fixed;bottom:20px;right:20px;background:#25D366;color:white;'
+                f'padding:14px;border-radius:50%;font-size:24px;text-decoration:none;'
+                f'box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:9997;display:flex;'
+                f'align-items:center;justify-content:center;width:56px;height:56px;">'
+                f'<span>💬</span></a>'
+            )
+            html = html.replace("</body>", f"{wa_button}\n</body>", 1)
+            logger.info(f"   🔧 Injected missing WhatsApp link (wa.me/{wa_digits})")
 
         return html
 
@@ -4016,6 +4032,17 @@ IMPORTANT INSTRUCTIONS:
                     truncation_flags["unclosed_tags"] = self._last_extract_info.get("unclosed_tags", [])
 
         # Validate and retry once if the model ignored hard constraints
+        # Compute wa_digits up-front — used by both validation (R7 image check)
+        # and _fix_placeholders (R6 WhatsApp link injection).
+        wa_raw = request.whatsapp_number or "60123456789"
+        wa_digits = re.sub(r"\D", "", str(wa_raw))
+        if wa_digits.startswith("0"):
+            wa_digits = "6" + wa_digits
+        elif wa_digits.startswith("1"):
+            wa_digits = "60" + wa_digits
+        if not wa_digits:
+            wa_digits = "60123456789"
+
         if html:
             required_urls: List[str] = []
             if request.uploaded_images and len(request.uploaded_images) > 0:
@@ -4038,15 +4065,6 @@ IMPORTANT INSTRUCTIONS:
                     idx = gallery_start_index + i
                     if idx < len(request.uploaded_images):
                         required_urls.append(_url(request.uploaded_images[idx]))
-
-            wa_raw = request.whatsapp_number or "60123456789"
-            wa_digits = re.sub(r"\D", "", str(wa_raw))
-            if wa_digits.startswith("0"):
-                wa_digits = "6" + wa_digits
-            elif wa_digits.startswith("1"):
-                wa_digits = "60" + wa_digits
-            if not wa_digits:
-                wa_digits = "60123456789"
 
             errors = self._validate_generated_html(
                 html,
@@ -4084,7 +4102,7 @@ IMPORTANT INSTRUCTIONS:
 
         # Fix any remaining issues
         with _timed_step("image_matching", step_timings):
-            html = self._fix_placeholders(html, request.business_name, request.description)
+            html = self._fix_placeholders(html, request.business_name, request.description, wa_digits=wa_digits)
             html = self._fix_menu_item_images(html, request.description)
 
         # CRITICAL FIX: Generate AI images for Malaysian food items
@@ -4232,7 +4250,7 @@ IMPORTANT INSTRUCTIONS:
                         if retry_html:
                             html = retry_html
 
-                html = self._fix_placeholders(html, request.business_name, request.description)
+                html = self._fix_placeholders(html, request.business_name, request.description, wa_digits=wa_digits)
                 html = self._fix_menu_item_images(html, request.description)
 
                 # CRITICAL FIX: Generate AI images for Malaysian food items
