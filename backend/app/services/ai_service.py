@@ -2994,32 +2994,40 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         for name, _ in food_items_found:
             logger.info(f"      - {name}")
 
-        # Generate AI images for each food item
-        for item_name, old_url in food_items_found:
-            try:
-                logger.info(f"   🎨 Generating AI image for: {item_name}")
-                ai_url = await self.generate_food_image(item_name)
+        # Generate AI images for each food item in parallel, bounded by a
+        # semaphore so we don't burst Stability AI's per-second rate limit.
+        # Start at 4 concurrent calls; lower to 2 if rate limits appear.
+        food_image_semaphore = asyncio.Semaphore(4)
 
-                if ai_url and 'cloudinary' in ai_url.lower():
-                    replacements[old_url] = ai_url
-                    logger.info(f"   ✅ Generated: {ai_url[:60]}...")
-                else:
-                    # FALLBACK: Use stock image when AI generation fails
+        async def _bounded_food_image(item_name: str, old_url: str):
+            """Return (old_url, item_name, new_url_or_None) — never raises."""
+            async with food_image_semaphore:
+                try:
+                    logger.info(f"   🎨 Generating AI image for: {item_name}")
+                    ai_url = await self.generate_food_image(item_name)
+                    if ai_url and 'cloudinary' in ai_url.lower():
+                        logger.info(f"   ✅ Generated: {ai_url[:60]}...")
+                        return (old_url, item_name, ai_url)
                     logger.warning(f"   ⚠️ AI generation failed for: {item_name}, using fallback image")
-                    fallback_url = self.get_matching_image(item_name)
-                    if fallback_url and old_url != fallback_url:
-                        replacements[old_url] = fallback_url
-                        logger.info(f"   🔄 Fallback image: {fallback_url[:60]}...")
-            except Exception as e:
-                logger.error(f"   ❌ Error generating image for {item_name}: {e}")
-                # FALLBACK: Use stock image when exception occurs
+                except Exception as e:
+                    logger.error(f"   ❌ Error generating image for {item_name}: {e}")
+                # Fall through to Bug-2 pool fallback on either failure path
                 try:
                     fallback_url = self.get_matching_image(item_name)
                     if fallback_url and old_url != fallback_url:
-                        replacements[old_url] = fallback_url
-                        logger.info(f"   🔄 Using fallback after error: {fallback_url[:60]}...")
+                        logger.info(f"   🔄 Fallback image: {fallback_url[:60]}...")
+                        return (old_url, item_name, fallback_url)
                 except Exception:
-                    pass  # If even fallback fails, keep original
+                    pass
+                return (old_url, item_name, None)
+
+        results = await asyncio.gather(
+            *[_bounded_food_image(name, url) for name, url in food_items_found],
+            return_exceptions=False,
+        )
+        for old_url, _item, new_url in results:
+            if new_url:
+                replacements[old_url] = new_url
 
         # Apply replacements
         ai_food_images_count = len(replacements)
