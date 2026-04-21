@@ -449,6 +449,12 @@ async def _process_successful_payment(bill_code: str, tp_transaction_id: str = N
         metadata = transaction.get("metadata", {})
         amount = transaction.get("amount")
         invoice_number = transaction.get("invoice_number")
+        existing_status = transaction.get("payment_status")
+
+        # Idempotency check: skip if already successfully processed
+        if existing_status == "success":
+            logger.info(f"⏭️ Duplicate callback — transaction {transaction_id} already processed (bill_code={bill_code}, tp_tx={tp_transaction_id}). Skipping.")
+            return
 
         logger.info(f"📝 Found transaction: {transaction_id}")
         logger.info(f"   User: {user_id}")
