@@ -1,0 +1,16 @@
+<svg width="480" height="120" viewBox="0 0 480 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="wm-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F3DFF"></stop>
+      <stop offset="100%" stop-color="#2A1FB8"></stop>
+    </linearGradient>
+    <linearGradient id="wm-spark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"></stop>
+      <stop offset="100%" stop-color="#C7FF3D"></stop>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="104" height="104" rx="24" fill="url(#wm-bg)"></rect>
+  <path d="M60 22 L66.5 56 L100 62.5 L66.5 69 L60 103 L53.5 69 L20 62.5 L53.5 56 Z" fill="url(#wm-spark)"></path>
+  <circle cx="94" cy="28" r="5" fill="#C7FF3D"></circle>
+  <text x="132" y="78" font-family="Geist, Inter, -apple-system, sans-serif" font-weight="700" font-size="60" letter-spacing="-3" fill="#0A0A0F">bina<tspan fill="#4F3DFF">app</tspan></text>
+</svg>
