@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bmark-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F3DFF"></stop>
+      <stop offset="100%" stop-color="#2A1FB8"></stop>
+    </linearGradient>
+    <linearGradient id="bmark-spark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"></stop>
+      <stop offset="100%" stop-color="#C7FF3D"></stop>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bmark-bg)"></rect>
+  
+  <path d="M256 72 L282 214 L424 240 L282 266 L256 408 L230 266 L88 240 L230 214 Z" fill="url(#bmark-spark)"></path>
+  
+  <circle cx="388" cy="124" r="18" fill="#C7FF3D"></circle>
+</svg>
