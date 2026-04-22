@@ -9,7 +9,9 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { signUp } from '@/lib/supabase'
 import toast from 'react-hot-toast'
-import { Sparkles } from 'lucide-react'
+import AuthLayout from '@/components/auth/AuthLayout'
+import AuthLogo from '@/components/auth/AuthLogo'
+import AuthInput from '@/components/auth/AuthInput'
 
 function RegisterPageContent() {
   const router = useRouter()
@@ -72,113 +74,126 @@ function RegisterPageContent() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-white px-4 py-12">
-      <div className="max-w-md w-full">
-        <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2 text-2xl font-bold">
-            <Sparkles className="w-7 h-7 text-primary-600" />
-            <span>BinaApp</span>
-          </Link>
-          <h1 className="text-3xl font-bold mt-6 mb-2">
-            Cipta Akaun Percuma
-          </h1>
-          <p className="text-gray-600">
-            Mula bina website anda sekarang
-          </p>
-        </div>
-
-        <div className="card">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <input
-              name="fullName"
-              placeholder="Nama Penuh"
-              className="input"
-              onChange={handleChange}
-              autoComplete="name"
-              required
-            />
-            <input
-              name="email"
-              type="email"
-              placeholder="Email"
-              className="input"
-              onChange={handleChange}
-              autoComplete="email"
-              required
-            />
-            <input
-              name="password"
-              type="password"
-              placeholder="Kata Laluan"
-              className="input"
-              onChange={handleChange}
-              autoComplete="new-password"
-              required
-            />
-            <input
-              name="confirmPassword"
-              type="password"
-              placeholder="Sahkan Kata Laluan"
-              className="input"
-              onChange={handleChange}
-              autoComplete="new-password"
-              required
-            />
-
-            {/* Privacy & Terms Consent */}
-            <div className="space-y-2">
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={agreedToTerms}
-                  onChange={(e) => setAgreedToTerms(e.target.checked)}
-                  required
-                  className="mt-1 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                />
-                <span className="text-sm text-gray-700">
-                  I have read and agree to the{' '}
-                  <a
-                    href="/privacy-policy"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline"
-                  >
-                    Privacy Policy
-                  </a>
-                  {' '}and{' '}
-                  <a
-                    href="/terms-of-service"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline"
-                  >
-                    Terms of Service
-                  </a>
-                </span>
-              </label>
-              <p className="text-xs text-gray-500 pl-7">
-                By signing up, you consent to our data collection practices as described in our Privacy Policy
-              </p>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="btn btn-primary w-full"
-            >
-              {loading ? 'Memuatkan...' : 'Daftar Sekarang'}
-            </button>
-          </form>
-
-          <p className="text-sm text-center mt-6">
-            Sudah ada akaun?{' '}
-            <Link href="/login" className="text-primary-600 font-medium">
-              Log masuk
-            </Link>
-          </p>
-        </div>
+    <AuthLayout>
+      {/* Logo */}
+      <div className="text-center mb-8">
+        <AuthLogo />
       </div>
-    </div>
+
+      {/* Headline */}
+      <h1 className="font-geist font-extrabold text-4xl sm:text-5xl text-white tracking-[-0.045em] text-center mb-3">
+        Mula Bina Sekarang.
+      </h1>
+      <p className="font-geist text-base text-ink-300 text-center mb-8">
+        Cipta akaun — percuma untuk bermula
+      </p>
+
+      {/* Form card */}
+      <div className="bg-ink-800 border border-white/[.08] rounded-2xl p-6 sm:p-8">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <AuthInput
+            label="Nama Penuh"
+            id="fullName"
+            name="fullName"
+            placeholder="cth. Ahmad bin Ismail"
+            onChange={handleChange}
+            autoComplete="name"
+            required
+          />
+
+          <AuthInput
+            label="E-mel"
+            id="email"
+            name="email"
+            type="email"
+            placeholder="nama@email.com"
+            onChange={handleChange}
+            autoComplete="email"
+            required
+          />
+
+          <AuthInput
+            label="Kata Laluan"
+            id="password"
+            name="password"
+            type="password"
+            placeholder="Minimum 8 aksara"
+            onChange={handleChange}
+            autoComplete="new-password"
+            required
+            helperText="Sekurang-kurangnya 8 aksara"
+          />
+
+          <AuthInput
+            label="Sahkan Kata Laluan"
+            id="confirmPassword"
+            name="confirmPassword"
+            type="password"
+            placeholder="Taip semula kata laluan"
+            onChange={handleChange}
+            autoComplete="new-password"
+            required
+          />
+
+          {/* Privacy & Terms Consent */}
+          <div className="space-y-2">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={agreedToTerms}
+                onChange={(e) => setAgreedToTerms(e.target.checked)}
+                required
+                className="mt-1 w-4 h-4 accent-volt-400 rounded border-white/20 bg-ink-700"
+              />
+              <span className="font-geist text-sm text-ink-300">
+                Saya telah membaca dan bersetuju dengan{' '}
+                <a
+                  href="/privacy-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand-300 hover:text-brand-200 transition-colors"
+                >
+                  Polisi Privasi
+                </a>
+                {' '}dan{' '}
+                <a
+                  href="/terms-of-service"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand-300 hover:text-brand-200 transition-colors"
+                >
+                  Terma Perkhidmatan
+                </a>
+              </span>
+            </label>
+            <p className="font-geist text-xs text-ink-400 pl-7">
+              Dengan mendaftar, anda bersetuju dengan amalan pengumpulan data kami seperti yang diterangkan dalam Polisi Privasi
+            </p>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full font-geist font-bold text-sm text-ink-950 bg-volt-400 px-5 py-3.5 rounded-xl shadow-[0_0_0_1px_theme(colors.volt.500),0_8px_20px_rgba(199,255,61,.4)] hover:bg-volt-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors tracking-tight"
+          >
+            {loading ? 'Memuatkan...' : 'Daftar Sekarang'}
+          </button>
+        </form>
+
+        <p className="font-geist text-sm text-ink-400 text-center mt-6">
+          Sudah ada akaun?{' '}
+          <Link href="/login" className="text-brand-300 hover:text-brand-200 font-medium transition-colors">
+            Log masuk
+          </Link>
+        </p>
+      </div>
+
+      {/* Trust line */}
+      <div className="flex justify-center gap-6 mt-7 font-geist-mono text-[11px] text-ink-400 tracking-[.06em]">
+        <span>✓ PERCUMA UNTUK BERMULA</span>
+        <span>✓ TANPA KAD KREDIT</span>
+      </div>
+    </AuthLayout>
   )
 }
 

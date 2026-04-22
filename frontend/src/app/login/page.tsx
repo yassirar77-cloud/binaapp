@@ -9,7 +9,9 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { signIn } from '@/lib/supabase'
 import toast from 'react-hot-toast'
-import { Sparkles } from 'lucide-react'
+import AuthLayout from '@/components/auth/AuthLayout'
+import AuthLogo from '@/components/auth/AuthLogo'
+import AuthInput from '@/components/auth/AuthInput'
 
 function LoginPageContent() {
   const router = useRouter()
@@ -40,71 +42,68 @@ function LoginPageContent() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-white px-4">
-      <div className="max-w-md w-full">
-        <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2 text-2xl font-bold">
-            <Sparkles className="w-7 h-7 text-primary-600" />
-            <span>BinaApp</span>
-          </Link>
-          <h1 className="text-3xl font-bold mt-6 mb-2">Selamat Kembali</h1>
-          <p className="text-gray-600">Log masuk ke akaun anda</p>
-        </div>
-
-        <div className="card">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium mb-2">
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="input"
-                placeholder="nama@email.com"
-                autoComplete="email"
-                required
-              />
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium mb-2">
-                Kata Laluan
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="input"
-                placeholder="••••••••"
-                autoComplete="current-password"
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="btn btn-primary w-full"
-            >
-              {loading ? 'Memuatkan...' : 'Log Masuk'}
-            </button>
-          </form>
-
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
-              Belum ada akaun?{' '}
-              <Link href="/register" className="text-primary-600 hover:underline font-medium">
-                Daftar sekarang
-              </Link>
-            </p>
-          </div>
-        </div>
+    <AuthLayout>
+      {/* Logo */}
+      <div className="text-center mb-8">
+        <AuthLogo />
       </div>
-    </div>
+
+      {/* Headline */}
+      <h1 className="font-geist font-extrabold text-4xl sm:text-5xl text-white tracking-[-0.045em] text-center mb-3">
+        Selamat Kembali.
+      </h1>
+      <p className="font-geist text-base text-ink-300 text-center mb-8">
+        Log masuk untuk urus website anda
+      </p>
+
+      {/* Form card */}
+      <div className="bg-ink-800 border border-white/[.08] rounded-2xl p-6 sm:p-8">
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <AuthInput
+            label="E-mel"
+            id="email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="nama@email.com"
+            autoComplete="email"
+            required
+          />
+
+          <AuthInput
+            label="Kata Laluan"
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            autoComplete="current-password"
+            required
+          />
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full font-geist font-bold text-sm text-ink-950 bg-volt-400 px-5 py-3.5 rounded-xl shadow-[0_0_0_1px_theme(colors.volt.500),0_8px_20px_rgba(199,255,61,.4)] hover:bg-volt-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors tracking-tight"
+          >
+            {loading ? 'Memuatkan...' : 'Log Masuk'}
+          </button>
+        </form>
+
+        <p className="font-geist text-sm text-ink-400 text-center mt-6">
+          Belum ada akaun?{' '}
+          <Link href="/register" className="text-brand-300 hover:text-brand-200 font-medium transition-colors">
+            Daftar percuma
+          </Link>
+        </p>
+      </div>
+
+      {/* Trust line */}
+      <div className="flex justify-center gap-6 mt-7 font-geist-mono text-[11px] text-ink-400 tracking-[.06em]">
+        <span>✓ PERCUMA UNTUK BERMULA</span>
+        <span>✓ AI BINA DALAM 60 SAAT</span>
+      </div>
+    </AuthLayout>
   )
 }
 
