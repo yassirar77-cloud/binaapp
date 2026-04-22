@@ -12,7 +12,7 @@ interface LandingNavProps {
 export default function LandingNav({ user, loading, onLogout }: LandingNavProps) {
   return (
     <nav className="sticky top-0 z-50 bg-ink-900/[.78] backdrop-blur-xl border-b border-white/[.06]">
-      <div className="max-w-[1200px] mx-auto px-8 py-3.5 flex items-center justify-between">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-8 py-3.5 flex items-center justify-between">
 
         {/* Logo — links to homepage */}
         <Link href="/" className="flex items-center gap-2.5">
@@ -23,7 +23,7 @@ export default function LandingNav({ user, loading, onLogout }: LandingNavProps)
             height={30}
             className="rounded-lg"
           />
-          <span className="font-geist font-bold text-lg text-white tracking-tight">
+          <span className="font-geist font-bold text-base sm:text-lg text-white tracking-tight">
             bina<span className="text-brand-300">app</span>
           </span>
         </Link>
@@ -60,15 +60,16 @@ export default function LandingNav({ user, loading, onLogout }: LandingNavProps)
               <>
                 <Link
                   href="/login"
-                  className="font-geist text-sm text-white px-3.5 py-2 hover:text-ink-300 transition-colors"
+                  className="hidden sm:inline font-geist text-sm text-white px-3.5 py-2 hover:text-ink-300 transition-colors"
                 >
                   Log Masuk
                 </Link>
                 <Link
                   href="/register"
-                  className="font-geist font-bold text-sm text-ink-950 bg-volt-400 px-5 py-2.5 rounded-xl shadow-[0_0_0_1px_theme(colors.volt.500),0_8px_20px_rgba(199,255,61,.4)] hover:bg-volt-300 transition-colors tracking-tight"
+                  className="font-geist font-bold text-sm text-ink-950 bg-volt-400 px-3.5 sm:px-5 py-2 sm:py-2.5 rounded-xl shadow-[0_0_0_1px_theme(colors.volt.500),0_8px_20px_rgba(199,255,61,.4)] hover:bg-volt-300 transition-colors tracking-tight"
                 >
-                  Mula Percuma →
+                  <span className="sm:hidden">Percuma →</span>
+                  <span className="hidden sm:inline">Mula Percuma →</span>
                 </Link>
               </>
             )
