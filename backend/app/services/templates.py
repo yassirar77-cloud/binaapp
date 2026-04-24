@@ -3192,13 +3192,6 @@ function handleContactSubmit(e) {{
             else:
                 logger.warning("Delivery system requested but no menu_items and no website_id - skipping")
 
-        # Chat Widget - Always inject when website_id exists
-        # This enables customer-to-owner chat on all restaurant websites
-        website_id = user_data.get("website_id", "")
-        if website_id:
-            api_url = user_data.get("api_url", "https://binaapp-backend.onrender.com")
-            html = self.inject_chat_widget(html, website_id, api_url)
-
         return html
 
     def apply_image_safety_guard(
