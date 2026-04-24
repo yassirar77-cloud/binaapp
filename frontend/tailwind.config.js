@@ -57,6 +57,7 @@ module.exports = {
         ok: { 400: '#22C08F', 500: '#0F9D6B' },
         warn: { 400: '#FFB020', 500: '#E08800' },
         err: { 400: '#FF5A5F', 500: '#E03A3F' },
+        info: { 400: '#3FB8FF', 500: '#1196EA' },
         whatsapp: '#25D366',
       },
       fontFamily: {
@@ -67,6 +68,7 @@ module.exports = {
         'fade-in': 'fadeIn 0.3s ease-in-out',
         'slide-up': 'slideUp 0.4s ease-out',
         'bounce-slow': 'bounce 2s infinite',
+        'pulse-red': 'pulseRed 1.6s ease-out infinite',
       },
       keyframes: {
         fadeIn: {
@@ -76,6 +78,11 @@ module.exports = {
         slideUp: {
           '0%': { transform: 'translateY(20px)', opacity: '0' },
           '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+        pulseRed: {
+          '0%': { transform: 'scale(1)', opacity: '1' },
+          '70%': { transform: 'scale(2.4)', opacity: '0' },
+          '100%': { transform: 'scale(2.4)', opacity: '0' },
         },
       },
     },
