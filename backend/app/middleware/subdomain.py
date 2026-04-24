@@ -245,12 +245,6 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
         html_content, flags=re.DOTALL
     )
 
-    # Always inject chat-widget.js - chat is available for ALL tiers
-    chat_widget_script = f'''
-<script src="https://binaapp-backend.onrender.com/static/widgets/chat-widget.js"
-        data-website-id="{website_id}"
-        data-api-url="https://binaapp-backend.onrender.com/api/v1"></script>'''
-
     # Only inject delivery widget if delivery was enabled
     delivery_widget_script = ""
     if has_delivery:
@@ -265,7 +259,7 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
     widget_injection = f'''
 <!-- BinaApp Widgets - Auto-injected with correct website_id -->
 <div id="binaapp-widget-container" data-website-id="{website_id}"></div>
-<script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>{delivery_widget_script}{chat_widget_script}
+<script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>{delivery_widget_script}
 '''
 
     # Inject before </body> or at end
