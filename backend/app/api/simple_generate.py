@@ -12,6 +12,8 @@ router = APIRouter()
 
 # API Keys
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_MODEL_PRO = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-reasoner")
 QWEN_API_KEY = os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
 STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
 
@@ -147,7 +149,7 @@ async def call_deepseek(prompt: str) -> Optional[str]:
                 "https://api.deepseek.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"},
                 json={
-                    "model": "deepseek-chat",
+                    "model": DEEPSEEK_MODEL_PRO,
                     "messages": [
                         {
                             "role": "system",

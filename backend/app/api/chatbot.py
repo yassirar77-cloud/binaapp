@@ -19,6 +19,7 @@ DEEPSEEK_API_KEY = (
     os.getenv("DASHSCOPE_API_KEY")
 )
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 
 # Debug: Log which env var was found
 if DEEPSEEK_API_KEY:
@@ -159,7 +160,7 @@ async def customer_support_chat(request: ChatRequest):
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "deepseek-chat",
+                    "model": DEEPSEEK_MODEL,
                     "messages": messages,
                     "max_tokens": 300,
                     "temperature": 0.7
@@ -234,7 +235,7 @@ async def chat_test():
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "deepseek-chat",
+                    "model": DEEPSEEK_MODEL,
                     "messages": [{"role": "user", "content": "Hi, test. Reply with 'OK'."}],
                     "max_tokens": 20
                 }
@@ -245,7 +246,7 @@ async def chat_test():
                 return {
                     "status": "ok",
                     "reply": data["choices"][0]["message"]["content"],
-                    "model": "deepseek-chat"
+                    "model": DEEPSEEK_MODEL
                 }
             else:
                 return {

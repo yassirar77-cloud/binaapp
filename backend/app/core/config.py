@@ -68,6 +68,10 @@ class Settings(BaseSettings):
         default="deepseek-chat",
         env="DEEPSEEK_MODEL"
     )
+    DEEPSEEK_MODEL_PRO: str = Field(
+        default="deepseek-reasoner",
+        env="DEEPSEEK_MODEL_PRO"
+    )
 
     # Qwen AI (Optional)
     QWEN_API_KEY: Optional[str] = Field(None, env="QWEN_API_KEY")
