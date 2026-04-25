@@ -450,6 +450,11 @@ async def publish_website(
             api_url="https://binaapp-backend.onrender.com"
         )
 
+        # Safety net: ensure AOS JS runtime is present whenever data-aos
+        # attributes are used. Without this, every animated section stays
+        # at opacity:0 forever and the page looks blank.
+        html_content = inject_aos_runtime_if_needed(html_content)
+
         # Upload to Supabase Storage with retry logic
         logger.info(f"📤 Uploading to Supabase Storage: {request.user_id}/{request.subdomain}/index.html")
 
@@ -697,6 +702,31 @@ def inject_chat_widget_if_needed(html: str, website_id: str, api_url: str = "htt
     return html + chat_widget
 
 
+def inject_aos_runtime_if_needed(html: str) -> str:
+    """Inject the AOS JS library + AOS.init() when the page uses data-aos
+    attributes but the runtime is missing.
+
+    The AI generator sometimes emits data-aos attributes and the AOS
+    stylesheet but forgets the JS, leaving every animated section
+    permanently at opacity:0 (page looks blank). This is the safety net.
+    Idempotent: skips when aos.js or AOS.init is already present.
+    """
+    if "data-aos=" not in html:
+        return html
+    if "aos.js" in html or "AOS.init" in html:
+        return html
+
+    aos_runtime = (
+        "\n<!-- BinaApp safety net: AOS runtime auto-injected "
+        "(data-aos used but aos.js was missing) -->\n"
+        '<script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>\n'
+        "<script>AOS.init({ duration: 800, once: true, offset: 100 });</script>"
+    )
+    if "</body>" in html:
+        return html.replace("</body>", aos_runtime + "\n</body>")
+    return html + aos_runtime
+
+
 def validate_subdomain(subdomain: str) -> bool:
     """Validate subdomain format"""
     # Must be 3-63 characters
@@ -809,4 +839,98 @@ async def republish_all_websites(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to republish websites: {str(e)}"
+        )
+
+
+# =====================================================
+# ADMIN: BACKFILL AOS RUNTIME ON EXISTING WEBSITES
+# =====================================================
+
+@router.post("/admin/backfill-aos-runtime")
+async def backfill_aos_runtime(
+    current_user: dict = Depends(get_optional_current_user)
+):
+    """
+    One-time backfill: scan all published websites and inject the AOS JS
+    runtime when data-aos attributes are present but aos.js is missing.
+
+    Idempotent — safe to re-run. Skips websites that don't use AOS or
+    already have the runtime.
+    """
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required for admin operations"
+        )
+
+    results = {"total": 0, "updated": 0, "skipped": 0, "errors": []}
+
+    try:
+        import httpx
+        url = f"{supabase_service.url}/rest/v1/websites"
+        params = {
+            "select": "id,user_id,subdomain,html_content,status",
+            "status": "eq.published",
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=supabase_service.headers, params=params)
+        if response.status_code != 200:
+            raise Exception(f"Failed to fetch websites: {response.status_code}")
+        all_websites = response.json()
+
+        if not all_websites:
+            return {"message": "No published websites found", **results}
+
+        results["total"] = len(all_websites)
+
+        for website in all_websites:
+            website_id = website.get("id")
+            subdomain = website.get("subdomain")
+            user_id = website.get("user_id")
+            html_content = website.get("html_content", "")
+
+            if not all([website_id, subdomain, user_id, html_content]):
+                results["skipped"] += 1
+                continue
+
+            try:
+                updated_html = inject_aos_runtime_if_needed(html_content)
+                if updated_html == html_content:
+                    # No data-aos attrs, or runtime already present
+                    results["skipped"] += 1
+                    continue
+
+                await storage_service.upload_website(
+                    user_id=user_id,
+                    subdomain=subdomain,
+                    html_content=updated_html,
+                )
+                await supabase_service.update_website(website_id, {
+                    "html_content": updated_html,
+                    "updated_at": datetime.utcnow().isoformat(),
+                })
+
+                results["updated"] += 1
+                logger.info(f"✅ AOS runtime backfilled for {subdomain}.binaapp.my")
+            except Exception as e:
+                error_msg = f"Failed to backfill AOS for {subdomain}: {str(e)}"
+                results["errors"].append(error_msg)
+                logger.error(f"❌ {error_msg}")
+
+        logger.info(
+            f"📊 AOS backfill complete: {results['updated']}/{results['total']} updated, "
+            f"{results['skipped']} skipped, {len(results['errors'])} errors"
+        )
+        return {
+            "message": (
+                f"AOS backfill complete: {results['updated']} updated, "
+                f"{results['skipped']} skipped (no AOS or already wired)"
+            ),
+            **results,
+        }
+    except Exception as e:
+        logger.error(f"❌ AOS backfill failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to backfill AOS: {str(e)}",
         )

@@ -2319,9 +2319,11 @@ html {{ scroll-behavior: smooth; }}
 body {{ background-color: var(--bg-color); }}
 </style>
 
-===== BEFORE </body> (MUST INCLUDE) =====
+===== BEFORE </body> (MANDATORY — DO NOT OMIT) =====
 <script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>
 <script>AOS.init({{ duration: 800, once: true, offset: 100 }});</script>
+⚠️ If you use ANY data-aos attribute in the HTML, the two lines above MUST appear before </body>.
+Without aos.js + AOS.init(), every animated section stays at opacity:0 and the page looks blank.
 
 ===== DESIGN SYSTEM =====
 
@@ -2365,6 +2367,12 @@ TECHNICAL:
 - Use font-heading for all headings, font-body for all body text
 - Use the primary, secondary, accent, surface colors from tailwind.config
 
+JS LIBRARY PAIRING (CRITICAL — page breaks otherwise):
+- Every JS library you reference MUST include BOTH its CSS and its JS, plus its init call.
+- AOS: if ANY element has data-aos="...", you MUST include aos.css in <head> AND aos.js + <script>AOS.init(...)</script> before </body>. Missing aos.js leaves all animated sections at opacity:0 (blank page).
+- Swiper / Slick / GLightbox / Fancybox / Splide / etc.: same rule — load BOTH css + js, then call the matching .init() / new <Lib>(...). Never load just the CSS.
+- If you cannot include a library's JS, do NOT use its attributes/classes.
+
 Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HTML."""
 
     async def _call_deepseek(
@@ -2393,7 +2401,13 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                         "messages": [
                             {
                                 "role": "system",
-                                "content": "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML.",
+                                "content": (
+                                    "You generate production-ready HTML only. Follow constraints exactly. "
+                                    "Do not invent facts. Output ONLY HTML. "
+                                    "Whenever you reference a JS library (AOS, Swiper, Slick, GLightbox, Fancybox, Splide, etc.), "
+                                    "you MUST include BOTH its CSS and its JS plus the matching init call. "
+                                    "Never load a library's CSS without its JS — that leaves animated/interactive elements broken."
+                                ),
                             },
                             {"role": "user", "content": prompt},
                         ],
@@ -2470,7 +2484,13 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                         "messages": [
                             {
                                 "role": "system",
-                                "content": "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML.",
+                                "content": (
+                                    "You generate production-ready HTML only. Follow constraints exactly. "
+                                    "Do not invent facts. Output ONLY HTML. "
+                                    "Whenever you reference a JS library (AOS, Swiper, Slick, GLightbox, Fancybox, Splide, etc.), "
+                                    "you MUST include BOTH its CSS and its JS plus the matching init call. "
+                                    "Never load a library's CSS without its JS — that leaves animated/interactive elements broken."
+                                ),
                             },
                             {"role": "user", "content": prompt},
                         ],

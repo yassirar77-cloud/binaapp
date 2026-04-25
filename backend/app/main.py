@@ -2885,6 +2885,11 @@ async def publish_website(
                 html_content += chat_widget_tag
             logger.info(f"✅ Chat widget injected for website {website_id}")
 
+        # Safety net: AI sometimes emits data-aos attributes and the AOS
+        # stylesheet but forgets aos.js, leaving sections stuck at opacity:0.
+        from app.api.simple.publish import inject_aos_runtime_if_needed
+        html_content = inject_aos_runtime_if_needed(html_content)
+
         delivery_enabled = bool(features.get("deliverySystem")) or bool(delivery)
 
         # CRITICAL FIX: ALWAYS create database record BEFORE storage upload

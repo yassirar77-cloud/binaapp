@@ -622,11 +622,11 @@ class DesignSystem:
 
     def get_animation_config(self) -> str:
         """Get AOS animation CDN and init config"""
-        return """SCROLL ANIMATIONS (MUST include AOS library):
+        return """SCROLL ANIMATIONS (MUST include AOS library — BOTH CSS and JS):
 Add these in <head>:
 <link href="https://unpkg.com/aos@2.3.4/dist/aos.css" rel="stylesheet">
 
-Add before </body>:
+Add before </body> (MANDATORY — without this, every data-aos element stays at opacity:0 and the page looks blank):
 <script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>
 <script>AOS.init({ duration: 800, once: true, offset: 100 });</script>
 
