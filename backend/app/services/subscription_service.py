@@ -137,28 +137,67 @@ class SubscriptionService:
             return []
 
     async def get_user_subscription(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Get user's current subscription"""
+        """Get user's current subscription.
+
+        Picks the longest-running active subscription so users with multiple
+        rows (e.g. legacy STARTER + current PRO) resolve to their highest tier.
+        Falls back to the latest row by created_at if no active row exists.
+        """
         try:
             url = f"{self.url}/rest/v1/subscriptions"
-            params = {"user_id": f"eq.{user_id}"}
+            params = {
+                "user_id": f"eq.{user_id}",
+                "status": "eq.active",
+                "order": "current_period_end.desc.nullslast,end_date.desc.nullslast",
+                "limit": "1",
+            }
 
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, headers=self.headers, params=params)
 
-            if response.status_code == 200:
-                records = response.json()
-                if records:
-                    sub = records[0]
-                    # Check if expired
-                    if sub.get("end_date"):
-                        end_date = datetime.fromisoformat(sub["end_date"].replace("Z", "+00:00"))
-                        if end_date < datetime.now(end_date.tzinfo):
-                            sub["status"] = "expired"
-                    return sub
+            records = response.json() if response.status_code == 200 else []
+            if not records:
+                # Fallback: no active row — fetch latest by created_at so
+                # callers still see expired/pending state instead of None.
+                fallback_params = {
+                    "user_id": f"eq.{user_id}",
+                    "order": "created_at.desc",
+                    "limit": "1",
+                }
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(url, headers=self.headers, params=fallback_params)
+                records = response.json() if response.status_code == 200 else []
+
+            if records:
+                sub = records[0]
+                # Check if expired
+                if sub.get("end_date"):
+                    end_date = datetime.fromisoformat(sub["end_date"].replace("Z", "+00:00"))
+                    if end_date < datetime.now(end_date.tzinfo):
+                        sub["status"] = "expired"
+                return sub
             return None
         except Exception as e:
             logger.error(f"Error getting user subscription: {e}")
             return None
+
+    async def _is_admin(self, user_id: str) -> bool:
+        """Return True if the user has role='admin' in public.users.
+
+        Founder/admin accounts bypass quota enforcement. Fails closed (False)
+        on any lookup error so non-admins are never accidentally bypassed.
+        """
+        try:
+            url = f"{self.url}/rest/v1/users"
+            params = {"id": f"eq.{user_id}", "select": "role", "limit": "1"}
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(url, headers=self.headers, params=params)
+            if resp.status_code == 200:
+                rows = resp.json()
+                return bool(rows) and rows[0].get("role") == "admin"
+        except Exception as e:
+            logger.warning(f"[is_admin] check failed for {user_id}: {e}")
+        return False
 
     async def get_subscription_status(self, user_id: str) -> Dict[str, Any]:
         """Get detailed subscription status for a user"""
@@ -452,6 +491,17 @@ class SubscriptionService:
         Actions: 'create_website', 'add_menu_item', 'generate_ai_hero',
                  'generate_ai_image', 'add_zone', 'add_rider'
         """
+        # Admin (founder) accounts bypass all quota enforcement.
+        if await self._is_admin(user_id):
+            return {
+                "allowed": True,
+                "current_usage": 0,
+                "limit": None,
+                "unlimited": True,
+                "admin_bypass": True,
+                "message": "Admin bypass",
+            }
+
         limits = await self.get_user_limits(user_id)
         usage = await self.get_or_create_usage_tracking(user_id)
         subscription_status = await self.get_subscription_status(user_id)

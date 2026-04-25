@@ -36,7 +36,7 @@ async def get_plan_features(user_id: str) -> Optional[Dict[str, Any]]:
             "user_id": f"eq.{user_id}",
             "status": "eq.active",
             "select": "tier,plan_id,subscription_plans(plan_name,features)",
-            "order": "created_at.desc",
+            "order": "current_period_end.desc.nullslast,end_date.desc.nullslast",
             "limit": "1",
         }
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -54,11 +54,29 @@ async def get_plan_features(user_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+async def _is_admin_user(user_id: str) -> bool:
+    """Check public.users.role == 'admin'. Fails closed (False) on error."""
+    try:
+        url = f"{settings.SUPABASE_URL}/rest/v1/users"
+        params = {"id": f"eq.{user_id}", "select": "role", "limit": "1"}
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url, headers=_SVC_HEADERS, params=params)
+        if resp.status_code == 200:
+            rows = resp.json()
+            return bool(rows) and rows[0].get("role") == "admin"
+    except Exception as e:
+        logger.warning(f"[plan_features] admin check failed for {user_id}: {e}")
+    return False
+
+
 async def can_publish_subdomain(user_id: str) -> bool:
     """
     True if the user's plan permits publishing to *.binaapp.my.
+    Admin (founder) accounts always pass.
     Fails closed — returns False on any error.
     """
+    if await _is_admin_user(user_id):
+        return True
     features = await get_plan_features(user_id)
     if features is None:
         return False

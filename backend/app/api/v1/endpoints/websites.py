@@ -58,6 +58,11 @@ async def generate_website(
         _base_url = settings.SUPABASE_URL
         _svc_headers = supabase_service.headers
 
+        # Admin (founder) accounts bypass quota enforcement entirely.
+        _is_admin_bypass = await subscription_service._is_admin(user_id)
+        if _is_admin_bypass:
+            logger.info(f"[LIMIT CHECK] admin bypass for user={user_id}")
+
         # 1. Count actual websites owned by this user (source of truth)
         async with _httpx.AsyncClient() as _client:
             _count_resp = await _client.get(
@@ -76,7 +81,10 @@ async def generate_website(
             else:
                 actual_count = len(_count_resp.json())
 
-        # 2. Get plan limit from active subscription
+        # 2. Get plan limit from active subscription.
+        # Order by current_period_end DESC so users with multiple subscription
+        # rows (e.g. legacy STARTER + current PRO) resolve to their highest
+        # active tier — picking by created_at can return a stale lower tier.
         async with _httpx.AsyncClient() as _client:
             _sub_resp = await _client.get(
                 f"{_base_url}/rest/v1/subscriptions",
@@ -85,23 +93,29 @@ async def generate_website(
                     "user_id": f"eq.{user_id}",
                     "status": "eq.active",
                     "select": "plan_id,subscription_plans(websites_limit,plan_name)",
-                    "order": "created_at.desc",
+                    "order": "current_period_end.desc.nullslast,end_date.desc.nullslast",
                     "limit": "1"
                 }
             )
 
-        if _sub_resp.status_code != 200 or not _sub_resp.json():
+        if not _is_admin_bypass and (_sub_resp.status_code != 200 or not _sub_resp.json()):
             raise HTTPException(
                 status_code=403,
                 detail={"error": "no_active_subscription", "message": "Tiada langganan aktif. Sila subscribe dahulu."}
             )
 
-        _sub_data = _sub_resp.json()[0]
-        websites_limit = _sub_data["subscription_plans"]["websites_limit"]
-        plan_name = _sub_data["subscription_plans"]["plan_name"]
+        _sub_rows = _sub_resp.json() if _sub_resp.status_code == 200 else []
+        if _sub_rows:
+            _sub_data = _sub_rows[0]
+            websites_limit = _sub_data["subscription_plans"]["websites_limit"]
+            plan_name = _sub_data["subscription_plans"]["plan_name"]
+        else:
+            # Admin bypass with no subscription row — treat as unlimited.
+            websites_limit = None
+            plan_name = "admin"
 
-        # Handle unlimited plans (websites_limit = None)
-        if websites_limit is not None:
+        # Handle unlimited plans (websites_limit = None) and admin bypass.
+        if websites_limit is not None and not _is_admin_bypass:
             # 3. Check addon credits
             async with _httpx.AsyncClient() as _client:
                 _addon_resp = await _client.get(
