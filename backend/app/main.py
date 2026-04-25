@@ -2849,6 +2849,21 @@ async def publish_website(
                     }
                 )
 
+        # Free-tier gate: subdomain publish requires can_publish_subdomain feature.
+        from app.services.plan_features import can_publish_subdomain as _cps
+        if not await _cps(user_id):
+            logger.warning(f"🚫 User {user_id} on free plan attempted subdomain publish")
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "success": False,
+                    "error": "subscription_required",
+                    "message": "Pelan percuma tidak boleh terbit ke subdomain. Upgrade ke Starter (RM5/bulan) untuk meneruskan.",
+                    "required_plan": "starter",
+                    "upgrade_url": "/dashboard/billing"
+                }
+            )
+
         # Ensure HTML uses the database record website_id
         html_content = fix_website_id_in_html(html_content, website_id)
 
