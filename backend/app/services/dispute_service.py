@@ -42,6 +42,7 @@ class DisputeAIService:
 
     def __init__(self):
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
+        self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
         self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "")
 
     async def analyze_dispute(
@@ -105,7 +106,7 @@ class DisputeAIService:
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": "deepseek-chat",
+                    "model": self.deepseek_model,
                     "messages": [
                         {
                             "role": "system",
@@ -644,7 +645,7 @@ Instructions:
                         "Content-Type": "application/json",
                     },
                     json={
-                        "model": "deepseek-chat",
+                        "model": self.deepseek_model,
                         "messages": [
                             {"role": "system", "content": system_prompt or self.AI_REPLY_SYSTEM_PROMPT},
                             {"role": "user", "content": prompt},

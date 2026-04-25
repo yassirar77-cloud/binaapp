@@ -494,6 +494,8 @@ class AIService:
         self.qwen_base_url = os.getenv("QWEN_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+        self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-reasoner")
         self.stability_api_key = os.getenv("STABILITY_API_KEY")
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_ANON_KEY")
@@ -1108,7 +1110,7 @@ Respond ONLY with valid JSON, no other text."""
                             "Content-Type": "application/json"
                         },
                         json={
-                            "model": "deepseek-chat",
+                            "model": self.deepseek_model,
                             "messages": [{"role": "user", "content": "Hello"}],
                             "max_tokens": 10
                         }
@@ -1443,7 +1445,7 @@ Format: Just the image description, no explanations."""
                                 "Content-Type": "application/json"
                             },
                             json={
-                                "model": "deepseek-chat",
+                                "model": self.deepseek_model,
                                 "messages": [
                                     {"role": "system", "content": system_prompt},
                                     {"role": "user", "content": user_prompt}
@@ -1832,7 +1834,7 @@ Generate prompts now:"""
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "deepseek-chat",
+                        "model": self.deepseek_model,
                         "messages": [{"role": "user", "content": prompt}],
                         "max_tokens": 1000,
                         "temperature": 0.3
@@ -2365,14 +2367,20 @@ TECHNICAL:
 
 Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HTML."""
 
-    async def _call_deepseek(self, prompt: str, temperature: float = 0.2) -> Optional[str]:
-        """Call DeepSeek API"""
+    async def _call_deepseek(
+        self,
+        prompt: str,
+        temperature: float = 0.2,
+        model: Optional[str] = None,
+    ) -> Optional[str]:
+        """Call DeepSeek API. Pass model=self.deepseek_model_pro for Expert (V4-Pro)."""
         if not self.deepseek_api_key:
             logger.warning("❌ DEEPSEEK_API_KEY not configured")
             return None
 
+        chosen_model = model or self.deepseek_model
         try:
-            logger.info(f"🔷 Calling DeepSeek API... (prompt length: {len(prompt)} chars)")
+            logger.info(f"🔷 Calling DeepSeek API ({chosen_model})... (prompt length: {len(prompt)} chars)")
             async with httpx.AsyncClient(timeout=120.0) as client:
                 r = await client.post(
                     f"{self.deepseek_base_url}/chat/completions",
@@ -2381,7 +2389,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                         "Content-Type": "application/json"
                     },
                     json={
-                        "model": "deepseek-chat",
+                        "model": chosen_model,
                         "messages": [
                             {
                                 "role": "system",
@@ -3954,7 +3962,7 @@ IMPORTANT INSTRUCTIONS:
         }
 
         with _timed_step("ai_html_generation", step_timings):
-            html_raw = await self._call_deepseek(prompt)
+            html_raw = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
             used_qwen_retry = False
 
             if not html_raw:
@@ -4029,7 +4037,7 @@ IMPORTANT INSTRUCTIONS:
                         + "\n".join(f"- {e}" for e in errors)
                         + "\nRegenerate the FULL HTML from scratch. Output ONLY HTML."
                     )
-                    retry = await self._call_deepseek(retry_prompt, temperature=0.1)
+                    retry = await self._call_deepseek(retry_prompt, temperature=0.1, model=self.deepseek_model_pro)
                     if not retry:
                         retry = await self._call_qwen(retry_prompt, temperature=0.1)
                     retry_html = self._extract_html(retry) if retry else None
@@ -4131,13 +4139,13 @@ IMPORTANT INSTRUCTIONS:
 
             # Try preferred AI first
             if ai_pref == "deepseek":
-                html = await self._call_deepseek(prompt)
+                html = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
                 if not html:
                     html = await self._call_qwen(prompt)
             else:
                 html = await self._call_qwen(prompt)
                 if not html:
-                    html = await self._call_deepseek(prompt)
+                    html = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
 
             if html:
                 html = self._extract_html(html)
@@ -4188,7 +4196,7 @@ IMPORTANT INSTRUCTIONS:
                             + "\n".join(f"- {e}" for e in errors)
                             + "\nRegenerate the FULL HTML from scratch. Output ONLY HTML."
                         )
-                        retry = await self._call_deepseek(retry_prompt, temperature=0.1)
+                        retry = await self._call_deepseek(retry_prompt, temperature=0.1, model=self.deepseek_model_pro)
                         if not retry:
                             retry = await self._call_qwen(retry_prompt, temperature=0.1)
                         retry_html = self._extract_html(retry) if retry else None
