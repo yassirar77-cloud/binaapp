@@ -567,6 +567,19 @@ async def publish_website(
                 detail="Not authorized to publish this website"
             )
 
+        # Free-tier gate: subdomain publish requires can_publish_subdomain feature.
+        from app.services.plan_features import can_publish_subdomain
+        if not await can_publish_subdomain(current_user.get("sub")):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "subscription_required",
+                    "message": "Pelan percuma tidak boleh terbit ke subdomain. Upgrade ke Starter (RM5/bulan) untuk meneruskan.",
+                    "required_plan": "starter",
+                    "upgrade_url": "/dashboard/billing",
+                },
+            )
+
         # Check if website is ready to publish
         if website["status"] != WebsiteStatus.DRAFT:
             raise HTTPException(
