@@ -27,6 +27,8 @@ interface DashboardHeaderProps {
   avatarUrl?: string
   /** New orders count for badge on Pesanan nav */
   newOrdersCount?: number
+  /** Logout handler (calls supabase.auth.signOut) */
+  onLogout?: () => void
 }
 
 export default function DashboardHeader({
@@ -34,6 +36,7 @@ export default function DashboardHeader({
   userName = 'Pengguna',
   avatarUrl,
   newOrdersCount,
+  onLogout,
 }: DashboardHeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
@@ -131,19 +134,18 @@ export default function DashboardHeader({
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setAvatarMenuOpen(false)} />
                 <div className="absolute right-0 top-full mt-2 z-50 w-44 rounded-xl bg-[#161623] border border-white/[0.08] py-1.5 shadow-xl shadow-black/40">
-                  {[
-                    { label: 'Profil', href: '/profile' },
-                    { label: 'Langganan', href: '/subscription' },
-                    { label: 'Log Keluar', href: '/logout' },
-                  ].map((item) => (
-                    <a
-                      key={item.href}
-                      href={item.href}
-                      className="block px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors"
-                    >
-                      {item.label}
-                    </a>
-                  ))}
+                  <a href="/profile" className="block px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors">
+                    Profil
+                  </a>
+                  <a href="/subscription" className="block px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors">
+                    Langganan
+                  </a>
+                  <button
+                    onClick={() => { setAvatarMenuOpen(false); onLogout?.() }}
+                    className="w-full text-left px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors bg-transparent border-0 cursor-pointer"
+                  >
+                    Log Keluar
+                  </button>
                 </div>
               </>
             )}

@@ -51,7 +51,6 @@ const NAV_ITEMS: { label: string; href: string; active?: boolean; hasBadge?: boo
 const ACCOUNT_ITEMS = [
   { label: 'Profil', href: '/profile' },
   { label: 'Langganan', href: '/subscription' },
-  { label: 'Log Keluar', href: '/logout' },
 ] as const
 
 /* ── Props ── */
@@ -78,6 +77,8 @@ interface MobileDashboardProps {
   onDeleteCancel: () => void
   onUpgradeClick: () => void
   onRenewClick: () => void
+  /** Logout handler (calls supabase.auth.signOut) */
+  onLogout?: () => void
 }
 
 export default function MobileDashboard({
@@ -98,6 +99,7 @@ export default function MobileDashboard({
   onDeleteCancel,
   onUpgradeClick,
   onRenewClick,
+  onLogout,
 }: MobileDashboardProps) {
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -108,6 +110,7 @@ export default function MobileDashboard({
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         ordersCount={ordersCount}
+        onLogout={onLogout}
       />
 
       {/* Drawer trigger (floats over header area on far left) */}
@@ -304,10 +307,12 @@ function MobileDrawer({
   open,
   onClose,
   ordersCount,
+  onLogout,
 }: {
   open: boolean
   onClose: () => void
   ordersCount: number
+  onLogout?: () => void
 }) {
   return (
     <>
@@ -383,6 +388,12 @@ function MobileDrawer({
               {item.label}
             </a>
           ))}
+          <button
+            onClick={() => { onClose(); onLogout?.() }}
+            className="flex items-center rounded-xl px-4 py-3 text-sm text-white/40 hover:text-white hover:bg-white/[0.04] transition-colors min-h-[44px] w-full bg-transparent border-0 cursor-pointer"
+          >
+            Log Keluar
+          </button>
         </div>
       </nav>
     </>
