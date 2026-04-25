@@ -72,30 +72,16 @@ export default function DashboardPage() {
     setError('')
 
     try {
-      // Check custom backend token first, then fall back to Supabase session
-      const storedToken = getStoredToken()
-      let currentUser: User | null = null
+      // Auth check — aligned with /my-projects pattern
+      const token = getStoredToken()
+      const currentUser = await getCurrentUser()
 
-      if (storedToken) {
-        // User logged in via custom backend auth - get user from stored data
-        const stored = await getCurrentUser()
-        if (stored) {
-          currentUser = stored as User
-        }
-      }
-
-      // Fall back to Supabase session if no custom token user
-      if (!currentUser) {
-        const { data: { user: supaUser } } = await supabase.auth.getUser()
-        currentUser = supaUser
-      }
-
-      if (!currentUser) {
+      if (!token || !currentUser) {
         router.push('/login')
         return
       }
 
-      setUser(currentUser)
+      setUser(currentUser as User)
 
       // Fetch projects directly from Supabase
       const { data, error: supabaseError } = await supabase
