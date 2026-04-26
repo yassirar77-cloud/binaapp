@@ -133,16 +133,16 @@ export default function OwnerChatDashboard({
       <div
         key={conv.id}
         onClick={() => handleSelectConversation(conv.id)}
-        className={`p-3 border-b cursor-pointer transition-colors ${
+        className={`p-3 border-b border-white/[0.06] cursor-pointer transition-colors ${
           isSelected
-            ? 'bg-orange-50 border-l-4 border-l-orange-500'
-            : 'hover:bg-gray-50 border-l-4 border-l-transparent'
+            ? 'bg-orange-500/10 border-l-4 border-l-orange-500'
+            : 'hover:bg-white/[0.04] border-l-4 border-l-transparent'
         }`}
       >
         <div className="flex items-start gap-3">
           <div
             className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold ${
-              hasUnread ? 'bg-orange-500' : 'bg-gray-400'
+              hasUnread ? 'bg-orange-500' : 'bg-white/20'
             }`}
           >
             {conv.customer_name?.charAt(0).toUpperCase() || '?'}
@@ -150,35 +150,35 @@ export default function OwnerChatDashboard({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between mb-0.5">
-              <div className="font-medium text-sm truncate">
+              <div className="font-medium text-sm truncate text-white">
                 {conv.customer_name || 'Pelanggan'}
               </div>
-              <div className="text-xs text-gray-400 flex-shrink-0 ml-2">
+              <div className="text-xs text-white/30 flex-shrink-0 ml-2">
                 {formatTime(conv.updated_at)}
               </div>
             </div>
 
             {conv.customer_phone && (
-              <div className="text-xs text-gray-500 flex items-center gap-1">
+              <div className="text-xs text-white/40 flex items-center gap-1">
                 <span>📱</span>
                 <span className="truncate">{conv.customer_phone}</span>
               </div>
             )}
 
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">
+              <span className="text-[10px] bg-blue-500/15 text-blue-400 px-2 py-0.5 rounded-full">
                 🌐 {websiteLabel}
               </span>
               {conv.status === 'closed' && (
-                <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
+                <span className="text-[10px] bg-white/10 text-white/40 px-2 py-0.5 rounded-full">
                   Ditutup
                 </span>
               )}
             </div>
 
-            <div className="text-xs text-gray-500 truncate mt-1">
+            <div className="text-xs text-white/40 truncate mt-1">
               {lastMessage?.sender_type === 'owner' && (
-                <span className="text-gray-400">Anda: </span>
+                <span className="text-white/30">Anda: </span>
               )}
               {lastMessageText}
             </div>
@@ -203,7 +203,7 @@ export default function OwnerChatDashboard({
             className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
               activeWebsiteId === 'all'
                 ? 'bg-orange-500 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                : 'bg-white/[0.06] text-white/60 hover:bg-white/[0.1]'
             }`}
           >
             Semua
@@ -216,7 +216,7 @@ export default function OwnerChatDashboard({
             className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
               activeWebsiteId === site.id
                 ? 'bg-orange-500 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                : 'bg-white/[0.06] text-white/60 hover:bg-white/[0.1]'
             }`}
           >
             {getWebsiteLabel(site)}
@@ -224,9 +224,9 @@ export default function OwnerChatDashboard({
         ))}
       </div>
 
-      <div className="flex flex-col md:flex-row h-[calc(100vh-320px)] md:h-[640px] max-h-[800px] border rounded-lg overflow-hidden bg-white">
+      <div className="flex flex-col md:flex-row h-[calc(100vh-320px)] md:h-[640px] max-h-[800px] border border-white/[0.08] rounded-lg overflow-hidden bg-white/[0.03]">
         {isMobileView && (
-          <div className="md:hidden bg-gray-50 p-2 border-b">
+          <div className="md:hidden bg-white/[0.04] p-2 border-b border-white/[0.06]">
             <button
               onClick={() => setShowChatList(!showChatList)}
               className="w-full py-2 px-4 bg-orange-500 text-white rounded-lg font-medium text-sm flex items-center justify-center gap-2 min-h-[44px]"
@@ -236,7 +236,7 @@ export default function OwnerChatDashboard({
           </div>
         )}
 
-        <div className={`${showChatList ? 'flex' : 'hidden'} md:flex w-full md:w-96 border-r bg-white flex-shrink-0`}>
+        <div className={`${showChatList ? 'flex' : 'hidden'} md:flex w-full md:w-96 border-r border-white/[0.08] bg-white/[0.03] flex-shrink-0`}>
           <div className="flex flex-col h-full w-full">
             <div className="flex items-center justify-between px-4 py-3 border-b bg-gradient-to-r from-orange-500 to-orange-600 text-white">
               <div className="font-semibold text-sm">Senarai Perbualan</div>
@@ -257,7 +257,7 @@ export default function OwnerChatDashboard({
                   <div className="animate-spin w-6 h-6 border-3 border-orange-500 border-t-transparent rounded-full" />
                 </div>
               ) : error ? (
-                <div className="p-4 text-center text-red-500 text-sm">
+                <div className="p-4 text-center text-red-400 text-sm">
                   {error}
                   <button
                     onClick={loadConversations}
@@ -267,10 +267,10 @@ export default function OwnerChatDashboard({
                   </button>
                 </div>
               ) : conversations.length === 0 ? (
-                <div className="p-8 text-center text-gray-500">
+                <div className="p-8 text-center text-white/40">
                   <div className="text-4xl mb-2">💬</div>
                   <div className="text-sm font-medium">Tiada perbualan lagi</div>
-                  <div className="text-xs text-gray-400 mt-2">
+                  <div className="text-xs text-white/30 mt-2">
                     Pelanggan boleh chat melalui butang di website anda
                   </div>
                 </div>
@@ -279,7 +279,7 @@ export default function OwnerChatDashboard({
               )}
             </div>
 
-            <div className="p-3 border-t bg-gray-50 text-xs text-gray-500 flex items-center justify-between">
+            <div className="p-3 border-t border-white/[0.06] bg-white/[0.04] text-xs text-white/40 flex items-center justify-between">
               <span>{conversations.length} perbualan</span>
               <span>
                 {conversations.reduce((sum, c) => sum + (c.unread_owner || 0), 0)} belum dibaca
@@ -288,7 +288,7 @@ export default function OwnerChatDashboard({
           </div>
         </div>
 
-        <div className={`${!showChatList ? 'flex' : 'hidden'} md:flex flex-1 bg-white`}>
+        <div className={`${!showChatList ? 'flex' : 'hidden'} md:flex flex-1 bg-white/[0.03]`}>
           {selectedConversation ? (
             <BinaChat
               conversationId={selectedConversation.id}
@@ -305,13 +305,13 @@ export default function OwnerChatDashboard({
               className="h-full w-full"
             />
           ) : (
-            <div className="h-full flex items-center justify-center text-gray-500 w-full">
+            <div className="h-full flex items-center justify-center text-white/40 w-full">
               <div className="text-center p-4 max-w-md">
                 <div className="text-4xl md:text-6xl mb-4">💬</div>
                 <p className="text-sm md:text-lg font-medium mb-2">
                   Pilih perbualan untuk mula chat
                 </p>
-                <p className="text-xs md:text-sm text-gray-400">
+                <p className="text-xs md:text-sm text-white/30">
                   Pelanggan boleh bertanya soalan melalui butang chat di website anda
                 </p>
               </div>
