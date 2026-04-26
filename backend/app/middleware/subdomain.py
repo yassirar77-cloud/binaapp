@@ -290,6 +290,14 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
     else:
         html_content += widget_injection
 
+    # AOS animation library JS injection
+    # Some AI-generated websites load aos.css but not aos.js,
+    # causing data-aos elements to stay invisible (opacity:0) forever.
+    if 'aos.css' in html_content.lower() and 'aos.js' not in html_content.lower():
+        aos_script = '<script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>\n<script>if(typeof AOS!=="undefined"){AOS.init({once:true,duration:600});}</script>\n'
+        if '</body>' in html_content:
+            html_content = html_content.replace('</body>', aos_script + '</body>', 1)
+
     return html_content
 
 
