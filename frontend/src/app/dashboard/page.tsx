@@ -1,5 +1,6 @@
 /**
  * Dashboard Page - Project Management
+ * Redesigned with new dark-theme dashboard components (B1–B5)
  */
 
 'use client'
@@ -7,13 +8,27 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Sparkles, Plus, Eye, Edit2, Trash2, ExternalLink, Calendar, Globe, CreditCard } from 'lucide-react'
+import { Sparkles, Truck, MapPin } from 'lucide-react'
 import { API_BASE_URL } from '@/lib/env'
 import { supabase, getStoredToken, getCurrentUser } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import { SubscriptionExpiredBanner } from '@/components/SubscriptionExpiredBanner'
-import { UsageWidget } from '@/components/UsageWidget'
 import { LimitReachedModal } from '@/components/LimitReachedModal'
+// New dashboard components
+import DashboardHeader from '@/components/dashboard-new/DashboardHeader'
+import DashboardGreeting from '@/components/dashboard-new/DashboardGreeting'
+import DashboardFooter from '@/components/dashboard-new/DashboardFooter'
+import HeroStats, {
+  type SalesData,
+  type OrdersData,
+  type CommissionData,
+} from '@/components/dashboard-new/HeroStats'
+import PrimaryActions, { type ActionItem } from '@/components/dashboard-new/PrimaryActions'
+import WebsitesSection, { type WebsiteItem } from '@/components/dashboard-new/WebsitesSection'
+import ActivityFeed, { type ActivityEvent } from '@/components/dashboard-new/ActivityFeed'
+import DashboardUsageWidget from '@/components/dashboard-new/DashboardUsageWidget'
+import MobileDashboard, { type MobileStat } from '@/components/dashboard-new/MobileDashboard'
+import '@/components/dashboard-new/dashboard.css'
 
 interface Project {
   id: string
@@ -41,6 +56,7 @@ export default function DashboardPage() {
     canBuyAddon: false,
     addonPrice: 0
   })
+  const [planLimit, setPlanLimit] = useState(1)
 
   useEffect(() => {
     loadProjects()
@@ -56,30 +72,16 @@ export default function DashboardPage() {
     setError('')
 
     try {
-      // Check custom backend token first, then fall back to Supabase session
-      const storedToken = getStoredToken()
-      let currentUser: User | null = null
+      // Auth check — aligned with /my-projects pattern
+      const token = getStoredToken()
+      const currentUser = await getCurrentUser()
 
-      if (storedToken) {
-        // User logged in via custom backend auth - get user from stored data
-        const stored = await getCurrentUser()
-        if (stored) {
-          currentUser = stored as User
-        }
-      }
-
-      // Fall back to Supabase session if no custom token user
-      if (!currentUser) {
-        const { data: { user: supaUser } } = await supabase.auth.getUser()
-        currentUser = supaUser
-      }
-
-      if (!currentUser) {
+      if (!token || !currentUser) {
         router.push('/login')
         return
       }
 
-      setUser(currentUser)
+      setUser(currentUser as User)
 
       // Fetch projects directly from Supabase
       const { data, error: supabaseError } = await supabase
@@ -105,6 +107,26 @@ export default function DashboardPage() {
       }))
 
       setProjects(transformedProjects)
+
+      // Fetch plan limit for dashboard display (non-critical)
+      try {
+        const { data: planData } = await supabase
+          .from('subscriptions')
+          .select('subscription_plans(websites_limit)')
+          .eq('user_id', currentUser.id)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        if (planData?.subscription_plans) {
+          const sp = planData.subscription_plans as any
+          const wl = Array.isArray(sp) ? sp[0]?.websites_limit : sp?.websites_limit
+          if (typeof wl === 'number') setPlanLimit(wl)
+        }
+      } catch {
+        // Non-critical — planLimit stays at default
+      }
     } catch (err: any) {
       console.error('Load projects error:', err)
       setError(err.message || 'Failed to load projects')
@@ -226,6 +248,88 @@ export default function DashboardPage() {
     }
   }
 
+  // ── Data mapping for new dashboard components ──
+
+  const displayName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Pengguna'
+  const businessName = projects[0]?.name || 'Perniagaan Anda'
+
+  // Map projects → WebsiteItem for new components
+  const websiteItems: WebsiteItem[] = projects.map((p) => ({
+    id: p.id,
+    name: p.name,
+    subdomain: `${p.subdomain}.binaapp.my`,
+    status: p.published_at ? 'published' : 'draft',
+    orders: 0,   // TODO: wire real order counts per website
+    views: '—',  // TODO: wire real analytics per website
+  }))
+
+  // TODO: Replace mock data below with real Supabase queries
+  const mockSales: SalesData = {
+    amount: '0',
+    currencyPrefix: 'RM',
+    deltaPercent: '0%',
+    deltaDirection: 'up',
+    barPoints: [0, 0, 0, 0, 0, 0, 0].map((v) => ({ value: v })),
+    dayLabels: ['I', 'S', 'R', 'K', 'J', 'S', 'A'],
+  }
+
+  const mockOrders: OrdersData = {
+    count: 0,
+    statusBreakdown: [
+      { label: 'Masak', count: 0, color: '#F59E0B' },
+      { label: 'Hantar', count: 0, color: '#3B82F6' },
+      { label: 'Siap', count: 0, color: '#22C08F' },
+    ],
+  }
+
+  const mockCommission: CommissionData = {
+    amount: '0',
+    currencyPrefix: 'RM',
+    subtitle: 'berbanding platform lain',
+    calcLine1: '0% komisen · RM 0 jimat',
+    calcLine2: 'vs 30% di platform lain',
+    ytdLabel: 'Tahun ini',
+    ytdAmount: 'RM 0',
+  }
+
+  const mockActions: ActionItem[] = [
+    {
+      icon: <Truck size={20} />,
+      title: 'Urus Penghantaran',
+      description: 'Tetapkan zon, harga, dan jadual penghantaran.',
+      meta: { dotColor: '#3B82F6', label: '0 zon aktif' },
+      hue: '#3B82F6',
+      href: '/delivery',
+    },
+    {
+      icon: <MapPin size={20} />,
+      title: 'Penghantar Live',
+      description: 'Pantau lokasi penghantar secara real-time.',
+      meta: { dotColor: '#22C08F', label: '0 penghantar', pulse: true },
+      hue: '#22C08F',
+      href: '/riders',
+    },
+    {
+      icon: <Sparkles size={20} />,
+      title: 'Reka Menu AI',
+      description: 'Jana menu cantik secara automatik dengan AI.',
+      meta: { dotColor: '#C7FF3D', label: 'AI sedia' },
+      hue: '#C7FF3D',
+      href: '/create',
+      featured: true,
+    },
+  ]
+
+  // TODO: Wire real activity events from order/website tables
+  const mockActivityEvents: ActivityEvent[] = []
+
+  const mobileStats: [MobileStat, MobileStat, MobileStat, MobileStat] = [
+    { label: 'Jualan Hari Ini', value: 'RM 0', delta: { text: '0%', color: '#C7FF3D', icon: 'up' } },
+    { label: 'Pesanan Baru', value: '0', pulse: true },
+    { label: 'Komisen Dijimatkan', value: 'RM 0', featured: true },
+    { label: 'Website Aktif', value: String(projects.length) },
+  ]
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -248,202 +352,108 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Subscription Expired Banner */}
+    <div className="dash-bg min-h-screen relative">
+      {/* Ambient background effects */}
+      <div className="dash-dotgrid" />
+      <div className="dash-glow-top" />
+      <div className="dash-glow-accent" />
+
+      {/* Subscription Expired Banner — preserved */}
       <SubscriptionExpiredBanner />
 
-      {/* Header */}
-      <header className="bg-white border-b sticky top-0 z-40">
-        <nav className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-primary-600" />
-            <span className="text-xl font-bold">BinaApp</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link href="/dashboard/billing" className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1">
-              <CreditCard className="w-4 h-4" />
-              Langganan
-            </Link>
-            <Link href="/profile" className="text-sm text-gray-600 hover:text-gray-900">
-              Profile
-            </Link>
-            <button onClick={handleCreateWebsiteClick} className="btn btn-primary btn-sm">
-              <Plus className="w-4 h-4 mr-2" />
-              Create New Website
-            </button>
-            <button
-              onClick={handleLogout}
-              className="text-sm text-red-500 hover:text-red-600"
-            >
-              Log Out
-            </button>
-          </div>
-        </nav>
-      </header>
+      {/* New dark header */}
+      <DashboardHeader
+        userName={displayName}
+        newOrdersCount={0}
+        notificationCount={0}
+        onLogout={handleLogout}
+      />
 
-      <div className="container mx-auto px-4 py-8">
-        {/* Title & Stats */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">My Projects</h1>
-          <p className="text-gray-600">Manage and view all your websites</p>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-            <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
-              <div className="text-3xl font-bold text-primary-600 mb-1">
-                {projects.length}
-              </div>
-              <div className="text-gray-600 text-sm">Total Websites</div>
-            </div>
-            <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
-              <div className="text-3xl font-bold text-green-600 mb-1">
-                {projects.filter(p => p.published_at).length}
-              </div>
-              <div className="text-gray-600 text-sm">Published</div>
-            </div>
-            <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
-              <div className="text-3xl font-bold text-blue-600 mb-1">-</div>
-              <div className="text-gray-600 text-sm">Total Views (Coming Soon)</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Error Message */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+      {/* Error message — preserved */}
+      {error && (
+        <div className="relative z-10 mx-auto max-w-7xl px-4 lg:px-6 mt-4">
+          <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-4 text-red-400 text-sm">
             {error}
           </div>
+        </div>
+      )}
+
+      {/* ── Mobile layout (below md breakpoint) ── */}
+      <MobileDashboard
+        userName={displayName}
+        businessName={businessName}
+        ordersCount={0}
+        stats={mobileStats}
+        actions={mockActions}
+        websites={websiteItems}
+        activityEvents={mockActivityEvents}
+        deleteConfirmId={deleteConfirm}
+        deletingId={deleting}
+        onCreateNew={handleCreateWebsiteClick}
+        onView={(w) => window.open(`https://${w.subdomain}`, '_blank')}
+        onEdit={(w) => router.push(`/edit/${w.id}`)}
+        onDelete={(id) => setDeleteConfirm(id)}
+        onDeleteConfirm={(id) => handleDelete(id)}
+        onDeleteCancel={() => setDeleteConfirm(null)}
+        onUpgradeClick={() => router.push('/dashboard/billing')}
+        onRenewClick={() => router.push('/dashboard/billing')}
+        onLogout={handleLogout}
+      />
+
+      {/* ── Desktop layout (md and up) ── */}
+      <main className="hidden md:block relative z-10 mx-auto max-w-7xl px-6 pb-12">
+        <DashboardGreeting userName={displayName} businessName={businessName} />
+
+        <HeroStats
+          sales={mockSales}
+          orders={mockOrders}
+          commission={mockCommission}
+          websites={{
+            active: projects.length,
+            limit: planLimit,
+            planName: 'Semasa',
+            onCreateNew: handleCreateWebsiteClick,
+            onUpgradePlan: () => router.push('/dashboard/billing'),
+          }}
+        />
+
+        <PrimaryActions actions={mockActions} />
+
+        <WebsitesSection
+          websites={websiteItems}
+          planLimit={planLimit}
+          deleteConfirmId={deleteConfirm}
+          deletingId={deleting}
+          onCreateNew={handleCreateWebsiteClick}
+          onView={(w) => window.open(`https://${w.subdomain}`, '_blank')}
+          onEdit={(w) => router.push(`/edit/${w.id}`)}
+          onDelete={(id) => setDeleteConfirm(id)}
+          onDeleteConfirm={(id) => handleDelete(id)}
+          onDeleteCancel={() => setDeleteConfirm(null)}
+        />
+
+        {/* TODO: Wire real activity events */}
+        {mockActivityEvents.length > 0 && (
+          <section className="mb-10">
+            <h2 className="font-geist font-semibold text-lg text-white tracking-[-0.02em] mb-4">
+              Aktiviti terkini
+            </h2>
+            <ActivityFeed events={mockActivityEvents} />
+          </section>
         )}
 
-        {/* Loading State */}
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="bg-white rounded-lg p-6 shadow-sm border border-gray-200 animate-pulse">
-                <div className="h-32 bg-gray-200 rounded mb-4"></div>
-                <div className="h-6 bg-gray-200 rounded mb-2"></div>
-                <div className="h-4 bg-gray-200 rounded w-2/3"></div>
-              </div>
-            ))}
-          </div>
-        ) : projects.length === 0 ? (
-          /* Empty State */
-          <div className="text-center py-20">
-            <div className="text-6xl mb-4">📄</div>
-            <h2 className="text-2xl font-bold mb-2">No websites yet</h2>
-            <p className="text-gray-600 mb-6">Create your first AI-powered website now!</p>
-            <button onClick={handleCreateWebsiteClick} className="btn btn-primary">
-              <Plus className="w-4 h-4 mr-2" />
-              Create Your First Website
-            </button>
-          </div>
-        ) : (
-          /* Projects Grid */
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {projects.map(project => (
-              <div
-                key={project.id}
-                className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-lg transition-shadow overflow-hidden"
-              >
-                {/* Preview Thumbnail */}
-                <div className="relative h-48 bg-gradient-to-br from-primary-100 to-primary-200 flex items-center justify-center">
-                  <Globe className="w-16 h-16 text-primary-600 opacity-50" />
-                  <div className="absolute top-3 right-3">
-                    <a
-                      href={project.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bg-white rounded-full p-2 shadow-md hover:shadow-lg transition-shadow"
-                      title="View Live"
-                    >
-                      <ExternalLink className="w-4 h-4 text-gray-700" />
-                    </a>
-                  </div>
-                </div>
+        <DashboardFooter />
+      </main>
 
-                {/* Content */}
-                <div className="p-6">
-                  <h3 className="text-xl font-bold mb-2 truncate" title={project.name}>
-                    {project.name}
-                  </h3>
-
-                  <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
-                    <Globe className="w-4 h-4" />
-                    <span className="truncate">{project.subdomain}.binaapp.my</span>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
-                    <Calendar className="w-4 h-4" />
-                    <span>Created {formatDate(project.created_at)}</span>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex gap-2">
-                    <a
-                      href={project.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 btn btn-outline btn-sm"
-                    >
-                      <Eye className="w-4 h-4 mr-1" />
-                      View
-                    </a>
-                    <Link
-                      href={`/edit/${project.id}`}
-                      className="flex-1 btn btn-outline btn-sm"
-                    >
-                      <Edit2 className="w-4 h-4 mr-1" />
-                      Edit
-                    </Link>
-                    {deleteConfirm === project.id ? (
-                      <button
-                        onClick={() => handleDelete(project.id)}
-                        disabled={deleting === project.id}
-                        className="flex-1 btn bg-red-600 hover:bg-red-700 text-white btn-sm"
-                      >
-                        {deleting === project.id ? '...' : 'Confirm?'}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => setDeleteConfirm(project.id)}
-                        className="btn btn-outline btn-sm text-red-600 hover:bg-red-50"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-
-                  {deleteConfirm === project.id && (
-                    <button
-                      onClick={() => setDeleteConfirm(null)}
-                      className="w-full mt-2 text-xs text-gray-500 hover:text-gray-700"
-                    >
-                      Cancel
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Create New Button (Mobile FAB) */}
-        <Link
-          href="/create"
-          className="fixed bottom-6 right-6 md:hidden btn btn-primary rounded-full w-14 h-14 flex items-center justify-center shadow-lg"
-        >
-          <Plus className="w-6 h-6" />
-        </Link>
-      </div>
-
-      {/* Usage Widget Sidebar (Desktop) */}
-      <div className="hidden lg:block fixed right-6 top-24 w-72">
-        <UsageWidget
+      {/* Usage widget — desktop only (mobile has its own inline copy in MobileDashboard) */}
+      <div className="hidden md:block">
+        <DashboardUsageWidget
           onUpgradeClick={() => router.push('/dashboard/billing')}
           onRenewClick={() => router.push('/dashboard/billing')}
         />
       </div>
 
-      {/* Limit Reached Modal */}
+      {/* Limit Reached Modal — preserved verbatim */}
       <LimitReachedModal
         show={showLimitModal}
         onClose={() => setShowLimitModal(false)}
