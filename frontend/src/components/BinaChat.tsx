@@ -498,7 +498,7 @@ export default function BinaChat({
             const messageText = getMessageText(msg);
             return (
                 <div key={msg.id} className="text-center my-3">
-                    <span className="bg-gray-200 text-gray-600 text-xs px-4 py-1.5 rounded-full inline-block">
+                    <span className="bg-white/10 text-white/50 text-xs px-4 py-1.5 rounded-full inline-block">
                         {messageText}
                     </span>
                 </div>
@@ -512,7 +512,7 @@ export default function BinaChat({
             <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} mb-3`}>
                 <div className={`max-w-[80%] ${isOwn ? 'order-2' : ''}`}>
                     {!isOwn && (
-                        <div className="text-xs text-gray-500 mb-1 ml-2 flex items-center gap-1">
+                        <div className="text-xs text-white/40 mb-1 ml-2 flex items-center gap-1">
                             <span>{senderIcon}</span>
                             {msg.sender_name}
                         </div>
@@ -520,7 +520,7 @@ export default function BinaChat({
                     <div className={`rounded-2xl px-4 py-2.5 ${
                         isOwn
                             ? 'bg-orange-500 text-white rounded-br-sm'
-                            : 'bg-white text-gray-800 rounded-bl-sm shadow-sm border border-gray-100'
+                            : 'bg-white/[0.08] text-white/90 rounded-bl-sm border border-white/[0.08]'
                     }`}>
                         {/* Image message */}
                         {msg.message_type === 'image' && msg.media_url && (
@@ -537,11 +537,11 @@ export default function BinaChat({
                         {msg.message_type === 'payment' && (
                             <div className={`border-2 rounded-lg p-2 mb-2 ${
                                 msg.metadata?.status === 'verified'
-                                    ? 'border-green-400 bg-green-50'
-                                    : 'border-yellow-400 bg-yellow-50'
+                                    ? 'border-green-500/40 bg-green-500/10'
+                                    : 'border-yellow-500/40 bg-yellow-500/10'
                             }`}>
                                 <div className={`text-xs font-bold mb-1 ${
-                                    msg.metadata?.status === 'verified' ? 'text-green-600' : 'text-yellow-700'
+                                    msg.metadata?.status === 'verified' ? 'text-green-400' : 'text-yellow-400'
                                 }`}>
                                     &#128179; Bukti Pembayaran
                                 </div>
@@ -555,12 +555,12 @@ export default function BinaChat({
                                     />
                                 )}
                                 {msg.metadata?.status === 'pending_verification' && (
-                                    <div className="text-xs text-yellow-700 mt-2 flex items-center gap-1">
+                                    <div className="text-xs text-yellow-400 mt-2 flex items-center gap-1">
                                         <span className="animate-pulse">&#9202;</span> Menunggu pengesahan
                                     </div>
                                 )}
                                 {msg.metadata?.status === 'verified' && (
-                                    <div className="text-xs text-green-600 mt-2">&#9989; Disahkan</div>
+                                    <div className="text-xs text-green-400 mt-2">&#9989; Disahkan</div>
                                 )}
                             </div>
                         )}
@@ -568,7 +568,7 @@ export default function BinaChat({
                         {/* Location message */}
                         {msg.message_type === 'location' && msg.metadata && (
                             <div
-                                className="bg-blue-50 rounded-lg p-3 mb-2 cursor-pointer hover:bg-blue-100 transition-colors"
+                                className="bg-blue-500/10 rounded-lg p-3 mb-2 cursor-pointer hover:bg-blue-500/15 transition-colors"
                                 onClick={() => {
                                     if (mapRef.current) {
                                         mapRef.current.setView([msg.metadata.lat, msg.metadata.lng], 16);
@@ -576,8 +576,8 @@ export default function BinaChat({
                                     }
                                 }}
                             >
-                                <div className="text-sm font-semibold text-blue-600">&#128205; Lokasi Dikongsi</div>
-                                <div className="text-xs text-gray-500">Tap untuk lihat di peta</div>
+                                <div className="text-sm font-semibold text-blue-400">&#128205; Lokasi Dikongsi</div>
+                                <div className="text-xs text-white/40">Tap untuk lihat di peta</div>
                             </div>
                         )}
 
@@ -587,7 +587,7 @@ export default function BinaChat({
                         )}
                     </div>
 
-                    <div className={`text-[10px] text-gray-400 mt-1 ${isOwn ? 'text-right mr-2' : 'ml-2'}`}>
+                    <div className={`text-[10px] text-white/30 mt-1 ${isOwn ? 'text-right mr-2' : 'ml-2'}`}>
                         {new Date(msg.created_at).toLocaleTimeString('ms-MY', {
                             hour: '2-digit',
                             minute: '2-digit'
@@ -610,11 +610,11 @@ export default function BinaChat({
         if (typingUsers.length === 0) return null;
 
         return (
-            <div className="flex items-center text-gray-500 text-sm mb-2 ml-2">
+            <div className="flex items-center text-white/40 text-sm mb-2 ml-2">
                 <div className="flex space-x-1 mr-2">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    <div className="w-2 h-2 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <div className="w-2 h-2 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <div className="w-2 h-2 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
                 Sedang menaip...
             </div>
@@ -626,7 +626,7 @@ export default function BinaChat({
     // =====================================================
 
     return (
-        <div className={`flex flex-col h-full bg-gray-100 ${className}`}>
+        <div className={`flex flex-col h-full bg-white/[0.02] ${className}`}>
             {/* Header */}
             <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-4 py-3 flex items-center justify-between shadow-sm">
                 <div className="flex items-center gap-3">
@@ -671,7 +671,7 @@ export default function BinaChat({
 
             {/* Map (collapsible) */}
             {showMap && (
-                <div className={`bg-white border-b transition-all duration-300 ${mapExpanded ? 'h-64' : 'h-32'}`}>
+                <div className={`bg-white/[0.04] border-b border-white/[0.06] transition-all duration-300 ${mapExpanded ? 'h-64' : 'h-32'}`}>
                     <div
                         ref={mapContainerRef}
                         className="w-full h-full"
@@ -679,13 +679,13 @@ export default function BinaChat({
                     />
                     <div className="absolute bottom-2 left-2 right-2 flex justify-between items-center px-2">
                         {riderLocation && (
-                            <div className="text-xs text-gray-600 bg-white/90 px-2 py-1 rounded shadow">
+                            <div className="text-xs text-white/70 bg-black/60 px-2 py-1 rounded shadow">
                                 &#128757; Rider sedang dalam perjalanan
                             </div>
                         )}
                         <button
                             onClick={() => setMapExpanded(!mapExpanded)}
-                            className="text-xs text-orange-600 bg-white/90 px-2 py-1 rounded shadow"
+                            className="text-xs text-orange-400 bg-black/60 px-2 py-1 rounded shadow"
                         >
                             {mapExpanded ? 'Kecilkan' : 'Besarkan'}
                         </button>
@@ -695,9 +695,9 @@ export default function BinaChat({
 
             {/* Error Banner */}
             {error && (
-                <div className="bg-red-100 text-red-700 text-sm px-4 py-2 flex items-center justify-between">
+                <div className="bg-red-500/15 text-red-400 text-sm px-4 py-2 flex items-center justify-between">
                     <span>{error}</span>
-                    <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700">
+                    <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300">
                         &times;
                     </button>
                 </div>
@@ -707,14 +707,14 @@ export default function BinaChat({
             <div className="flex-1 overflow-y-auto p-4">
                 {isLoading ? (
                     <div className="flex items-center justify-center h-full">
-                        <div className="text-center text-gray-500">
+                        <div className="text-center text-white/40">
                             <div className="animate-spin w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-2" />
                             <div className="text-sm">Memuatkan mesej...</div>
                         </div>
                     </div>
                 ) : messages.length === 0 ? (
                     <div className="flex items-center justify-center h-full">
-                        <div className="text-center text-gray-500">
+                        <div className="text-center text-white/40">
                             <div className="text-4xl mb-2">&#128172;</div>
                             <div className="text-sm">Tiada mesej lagi. Mulakan perbualan!</div>
                         </div>
@@ -729,11 +729,11 @@ export default function BinaChat({
             </div>
 
             {/* Input area */}
-            <div className="bg-white border-t p-3 safe-area-bottom">
+            <div className="bg-white/[0.04] border-t border-white/[0.06] p-3 safe-area-bottom">
                 {/* Attachment options */}
                 {showAttachments && (
                     <div className="flex space-x-2 mb-3">
-                        <label className="flex-1 bg-blue-50 text-blue-600 py-2.5 px-4 rounded-xl text-center cursor-pointer hover:bg-blue-100 transition-colors text-sm font-medium">
+                        <label className="flex-1 bg-blue-500/10 text-blue-400 py-2.5 px-4 rounded-xl text-center cursor-pointer hover:bg-blue-500/15 transition-colors text-sm font-medium">
                             &#128247; Gambar
                             <input
                                 ref={fileInputRef}
@@ -744,7 +744,7 @@ export default function BinaChat({
                             />
                         </label>
                         {userType === 'customer' && (
-                            <label className="flex-1 bg-green-50 text-green-600 py-2.5 px-4 rounded-xl text-center cursor-pointer hover:bg-green-100 transition-colors text-sm font-medium">
+                            <label className="flex-1 bg-green-500/10 text-green-400 py-2.5 px-4 rounded-xl text-center cursor-pointer hover:bg-green-500/15 transition-colors text-sm font-medium">
                                 &#128179; Bukti Bayar
                                 <input
                                     ref={paymentInputRef}
@@ -756,7 +756,7 @@ export default function BinaChat({
                             </label>
                         )}
                         <button
-                            className="px-3 text-gray-400 hover:text-gray-600 transition-colors"
+                            className="px-3 text-white/30 hover:text-white/60 transition-colors"
                             onClick={() => setShowAttachments(false)}
                         >
                             &times;
@@ -766,7 +766,7 @@ export default function BinaChat({
 
                 <div className="flex items-center space-x-2">
                     <button
-                        className="text-xl text-gray-400 hover:text-orange-500 transition-colors p-2"
+                        className="text-xl text-white/30 hover:text-orange-400 transition-colors p-2"
                         onClick={() => setShowAttachments(!showAttachments)}
                     >
                         &#128206;
@@ -783,13 +783,13 @@ export default function BinaChat({
                             }
                         }}
                         placeholder="Taip mesej..."
-                        className="flex-1 bg-gray-100 rounded-full px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-orange-300 text-sm"
+                        className="flex-1 bg-white/[0.06] rounded-full px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-orange-500/40 text-white text-sm"
                     />
 
                     <button
                         onClick={() => sendMessage('text', inputText)}
                         disabled={!inputText.trim() || !isConnected}
-                        className="bg-orange-500 hover:bg-orange-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors shadow-sm"
+                        className="bg-orange-500 hover:bg-orange-600 disabled:bg-white/10 disabled:cursor-not-allowed text-white rounded-full w-10 h-10 flex items-center justify-center transition-colors shadow-sm"
                     >
                         <svg className="w-5 h-5 transform rotate-90" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
