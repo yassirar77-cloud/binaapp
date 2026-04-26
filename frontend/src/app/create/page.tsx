@@ -336,7 +336,7 @@ export default function CreatePage() {
         // Check if subscription is active and not expired
         const isActive = data.status === 'active' && !data.is_expired
         setHasActiveSubscription(isActive)
-        setCurrentTier(data.plan_name || 'free')
+        setCurrentTier((data.tier || data.plan_name || 'free').toLowerCase())
       } else {
         console.error('[Create] Failed to get subscription status:', response.status)
         setHasActiveSubscription(false)
@@ -877,6 +877,18 @@ export default function CreatePage() {
       return
     }
 
+    // Free-tier gate: free plan can't publish to a subdomain.
+    // Uses currentTier already populated by checkSubscriptionStatus().
+    // Guarded by !subscriptionLoading so a slow status fetch doesn't
+    // misfire on paid users (race: default currentTier is 'free').
+    // Backend 403 'subscription_required' catches the race case below.
+    if (!subscriptionLoading && currentTier === 'free') {
+      setShowPublishModal(false)
+      setTargetTier('starter')
+      setShowUpgradeModal(true)
+      return
+    }
+
     // Check subscription limits before publishing
     const canCreate = await checkWebsiteLimit()
     if (!canCreate) {
@@ -966,6 +978,14 @@ export default function CreatePage() {
           })
           setShowLimitModal(true)
           setShowPublishModal(false)
+          return
+        }
+
+        // Backend free-tier gate (catches race where currentTier hadn't loaded)
+        if (response.status === 403 && errorData.error === 'subscription_required') {
+          setShowPublishModal(false)
+          setTargetTier(errorData.required_plan || 'starter')
+          setShowUpgradeModal(true)
           return
         }
 

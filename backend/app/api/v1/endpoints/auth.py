@@ -81,6 +81,13 @@ async def register(user_data: UserCreate):
         )
 
         # STEP 4: Initialize free subscription
+        # TODO(billing): this creates a row with plan_id=NULL. Migration 025 added
+        # a 'free' plan in subscription_plans; we should look up its plan_id here
+        # and set it on the new subscription so future free users join the new
+        # plan automatically. Until that's done, the migration's backfill UPDATE
+        # has to be re-run periodically (or moved into a trigger). Backend gates
+        # still work via the helper in services/plan_features.py, which fails
+        # closed when plan_id is NULL.
         await supabase_service.update_subscription(user_id, {
             'tier': SubscriptionTier.FREE,
             'status': 'active'

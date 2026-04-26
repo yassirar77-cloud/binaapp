@@ -2,10 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
+  --brand-500: #4F3DFF;
   --brand-orange: #ea580c;
+  --ink-900: #0B0B15;
+  --ink-800: #161623;
+  --ink-700: #232334;
+  --ink-500: #5A5A6E;
+  --ink-200: #DEDEE6;
 }
 
 html {
@@ -13,12 +19,19 @@ html {
 }
 
 body {
-  background-color: #030712;
-  color: #f9fafb;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: #0B0B15;
+  color: #EEEEF3;
+  font-family: 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overscroll-behavior-y: contain;
+  letter-spacing: -0.005em;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: -0.02em;
+  font-weight: 600;
 }
 
 /* PWA standalone mode adjustments */
@@ -31,7 +44,8 @@ body {
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {
-  width: 4px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -39,8 +53,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #374151;
-  border-radius: 2px;
+  background: #232334;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3A3A4A;
 }
 
 /* Pull to refresh indicator */
@@ -63,10 +81,17 @@ body {
 /* Recharts customizations */
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {
-  stroke: #1f2937;
+  stroke: #232334;
 }
 
 .recharts-text {
-  fill: #9ca3af;
+  fill: #86869A;
   font-size: 12px;
+  font-family: 'Geist', 'Inter', system-ui, sans-serif;
+}
+
+/* Selection */
+::selection {
+  background: rgba(79, 61, 255, 0.3);
+  color: #FFFFFF;
 }

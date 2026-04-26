@@ -102,13 +102,23 @@ export function UpgradeModal({ show, currentTier, targetTier, onClose }: Upgrade
 
   const tierPrice = prices[targetTier] || 0;
   const tierFeatures = features[targetTier] || [];
+  const isFreeToStarter = (currentTier || '').toLowerCase() === 'free' && targetTier === 'starter';
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="upgrade-modal" onClick={(e) => e.stopPropagation()}>
         <button className="close-btn" onClick={onClose}>×</button>
 
-        <h2>Upgrade ke {targetTier.toUpperCase()}</h2>
+        {isFreeToStarter ? (
+          <>
+            <h2>Your site looks amazing! 🚀</h2>
+            <p style={{ marginTop: 8, marginBottom: 16, color: '#4b5563' }}>
+              Upgrade to Starter (RM5/month) to publish at <strong>yourname.binaapp.my</strong>.
+            </p>
+          </>
+        ) : (
+          <h2>Upgrade ke {targetTier.toUpperCase()}</h2>
+        )}
 
         <div className="price-box">
           <div className="price">RM {tierPrice}</div>

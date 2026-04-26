@@ -19,10 +19,12 @@ from pathlib import Path
 from typing import Optional
 
 from app.core.config import settings
+from app.services.plan_features import can_publish_subdomain
 
 
 # Load locked page template once at startup
 _LOCKED_PAGE_TEMPLATE = None
+_UPGRADE_PAGE_TEMPLATE = None
 
 
 def _get_locked_page_html() -> str:
@@ -60,6 +62,26 @@ def _get_locked_page_html() -> str:
 </html>
 """
     return _LOCKED_PAGE_TEMPLATE
+
+
+def _get_upgrade_required_html() -> str:
+    """Load the free-tier upgrade-required template."""
+    global _UPGRADE_PAGE_TEMPLATE
+    if _UPGRADE_PAGE_TEMPLATE is None:
+        template_path = Path(__file__).parent.parent / "templates" / "website_upgrade_required.html"
+        try:
+            _UPGRADE_PAGE_TEMPLATE = template_path.read_text(encoding="utf-8")
+        except Exception as e:
+            logger.error(f"Failed to load upgrade-required template: {e}")
+            _UPGRADE_PAGE_TEMPLATE = (
+                "<!DOCTYPE html><html><head><title>Upgrade Required</title></head>"
+                "<body style='font-family:sans-serif;text-align:center;padding:50px;'>"
+                "<h1>Upgrade Required</h1>"
+                "<p>The owner needs to upgrade to publish this site.</p>"
+                "<a href='https://binaapp.my/dashboard/billing'>Upgrade</a>"
+                "</body></html>"
+            )
+    return _UPGRADE_PAGE_TEMPLATE
 
 
 def _get_not_found_html(subdomain: str) -> str:
@@ -245,12 +267,6 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
         html_content, flags=re.DOTALL
     )
 
-    # Always inject chat-widget.js - chat is available for ALL tiers
-    chat_widget_script = f'''
-<script src="https://binaapp-backend.onrender.com/static/widgets/chat-widget.js"
-        data-website-id="{website_id}"
-        data-api-url="https://binaapp-backend.onrender.com/api/v1"></script>'''
-
     # Only inject delivery widget if delivery was enabled
     delivery_widget_script = ""
     if has_delivery:
@@ -265,7 +281,7 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
     widget_injection = f'''
 <!-- BinaApp Widgets - Auto-injected with correct website_id -->
 <div id="binaapp-widget-container" data-website-id="{website_id}"></div>
-<script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>{delivery_widget_script}{chat_widget_script}
+<script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>{delivery_widget_script}
 '''
 
     # Inject before </body> or at end
@@ -325,6 +341,7 @@ async def subdomain_middleware(request: Request, call_next):
                 if website_result.data and len(website_result.data) > 0:
                     website_data = website_result.data[0]
                     website_id = str(website_data["id"])
+                    owner_id = website_data.get("user_id")
                     logger.info(f"[Subdomain] Found website_id {website_id} for {subdomain}")
 
                     # SUBSCRIPTION LOCK CHECK
@@ -332,6 +349,23 @@ async def subdomain_middleware(request: Request, call_next):
                         logger.info(f"[Subdomain] Website {subdomain} is locked")
                         return HTMLResponse(
                             content=_get_locked_page_html(),
+                            status_code=200,
+                            headers={
+                                "Content-Type": "text/html; charset=utf-8",
+                                "Cache-Control": "no-cache, no-store, must-revalidate",
+                                "X-Robots-Tag": "noindex, nofollow"
+                            }
+                        )
+
+                    # FREE-TIER GATE: refuse to serve sites whose owner's plan
+                    # doesn't include can_publish_subdomain. Fails closed.
+                    # TODO: per-owner LRU cache (60s TTL) deferred until request
+                    # metrics show this lookup is hot. One extra REST hop per
+                    # subdomain hit is acceptable while traffic is small.
+                    if owner_id and not await can_publish_subdomain(owner_id):
+                        logger.info(f"[Subdomain] Owner {owner_id} cannot publish subdomain — serving upgrade page for {subdomain}")
+                        return HTMLResponse(
+                            content=_get_upgrade_required_html(),
                             status_code=200,
                             headers={
                                 "Content-Type": "text/html; charset=utf-8",

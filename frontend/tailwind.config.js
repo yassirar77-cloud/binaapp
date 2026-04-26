@@ -64,9 +64,23 @@ module.exports = {
         geist: ['Geist', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
         'geist-mono': ['Geist Mono', 'JetBrains Mono', 'ui-monospace', 'monospace'],
       },
+      spacing: {
+        '18': '4.5rem',
+        '22': '5.5rem',
+      },
+      boxShadow: {
+        soft: '0 1px 2px rgba(11,11,21,0.06), 0 4px 12px rgba(11,11,21,0.04)',
+        card: '0 1px 3px rgba(11,11,21,0.08), 0 8px 24px rgba(11,11,21,0.06)',
+        lift: '0 12px 32px rgba(11,11,21,0.12)',
+        glow: '0 0 0 4px rgba(79,61,255,0.18)',
+      },
+      borderRadius: {
+        xl2: '1.25rem',
+      },
       animation: {
         'fade-in': 'fadeIn 0.3s ease-in-out',
         'slide-up': 'slideUp 0.4s ease-out',
+        'scale-in': 'scaleIn 0.18s ease-out',
         'bounce-slow': 'bounce 2s infinite',
         'pulse-red': 'pulseRed 1.6s ease-out infinite',
       },
@@ -76,8 +90,12 @@ module.exports = {
           '100%': { opacity: '1' },
         },
         slideUp: {
-          '0%': { transform: 'translateY(20px)', opacity: '0' },
+          '0%': { transform: 'translateY(12px)', opacity: '0' },
           '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+        scaleIn: {
+          '0%': { transform: 'scale(0.96)', opacity: '0' },
+          '100%': { transform: 'scale(1)', opacity: '1' },
         },
         pulseRed: {
           '0%': { transform: 'scale(1)', opacity: '1' },
