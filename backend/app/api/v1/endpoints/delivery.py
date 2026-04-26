@@ -769,6 +769,86 @@ async def create_order(
         )
 
 
+@router.get("/orders/my")
+async def get_my_orders(
+    status_filter: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Get all orders for the authenticated user's websites.
+    Uses backend-token auth (JWT) to identify user, then fetches
+    orders with order_items joined.
+    """
+    try:
+        # 1. Extract user_id from JWT payload ("sub" claim)
+        user_id = current_user.get("sub")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token: missing user ID",
+            )
+
+        # 2. Get all website IDs owned by this user
+        websites_response = (
+            supabase.table("websites")
+            .select("id")
+            .eq("user_id", user_id)
+            .execute()
+        )
+
+        # No websites = no orders (not an error)
+        if not websites_response.data:
+            return {"orders": [], "total": 0, "limit": limit, "offset": offset}
+
+        website_ids = [w["id"] for w in websites_response.data]
+
+        # 3. Count total matching orders (for pagination metadata)
+        count_query = (
+            supabase.table("delivery_orders")
+            .select("id", count="exact")
+            .in_("website_id", website_ids)
+        )
+        if status_filter:
+            count_query = count_query.eq("status", status_filter)
+        count_response = count_query.execute()
+        total = count_response.count if count_response.count is not None else len(count_response.data or [])
+
+        # 4. Fetch orders with order_items joined, paginated
+        query = (
+            supabase.table("delivery_orders")
+            .select("*, order_items(id, item_name, quantity, unit_price, total_price)")
+            .in_("website_id", website_ids)
+            .order("created_at", desc=True)
+            .range(offset, offset + limit - 1)
+        )
+
+        if status_filter:
+            query = query.eq("status", status_filter)
+
+        orders_response = query.execute()
+
+        orders = [convert_db_row_to_dict(o) for o in (orders_response.data or [])]
+
+        return {
+            "orders": orders,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching user orders: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch orders: {str(e)}",
+        )
+
+
 @router.get("/orders/{order_number}/track")
 async def track_order(
     order_number: str,
