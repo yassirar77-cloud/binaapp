@@ -13,6 +13,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Papan Pemuka', href: '/dashboard' },
   { label: 'Website Saya', href: '/my-projects' },
   { label: 'Pesanan', href: '/pesanan', badge: 3 },
+  { label: 'Chat', href: '/chat' },
   { label: 'Penghantar', href: '/rider' },
   { label: 'Menu', href: '/menu-designer' },
   { label: 'Analitik', href: '/coming-soon' },
