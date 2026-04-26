@@ -1,21 +1,21 @@
 'use client'
 
 import { useState } from 'react'
+import { usePathname } from 'next/navigation'
 
 interface NavItem {
   label: string
   href: string
-  active?: boolean
   badge?: number
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Papan Pemuka', href: '/dashboard', active: true },
-  { label: 'Website Saya', href: '/websites' },
-  { label: 'Pesanan', href: '/orders', badge: 3 },
-  { label: 'Penghantar', href: '/delivery' },
-  { label: 'Menu', href: '/menu' },
-  { label: 'Analitik', href: '/analytics' },
+  { label: 'Papan Pemuka', href: '/dashboard' },
+  { label: 'Website Saya', href: '/my-projects' },
+  { label: 'Pesanan', href: '/pesanan', badge: 3 },
+  { label: 'Penghantar', href: '/rider' },
+  { label: 'Menu', href: '/menu-designer' },
+  { label: 'Analitik', href: '/coming-soon' },
 ]
 
 interface DashboardHeaderProps {
@@ -38,14 +38,17 @@ export default function DashboardHeader({
   newOrdersCount,
   onLogout,
 }: DashboardHeaderProps) {
+  const pathname = usePathname()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
 
-  const navItems = NAV_ITEMS.map((item) =>
-    item.href === '/orders' && newOrdersCount !== undefined
-      ? { ...item, badge: newOrdersCount }
-      : item
-  )
+  const navItems = NAV_ITEMS.map((item) => ({
+    ...item,
+    active: pathname === item.href,
+    ...(item.href === '/pesanan' && newOrdersCount !== undefined
+      ? { badge: newOrdersCount }
+      : {}),
+  }))
 
   const initials = userName
     .split(' ')
