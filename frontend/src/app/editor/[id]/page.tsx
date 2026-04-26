@@ -61,7 +61,7 @@ export default function EditorPage() {
           setHtml(data.html_content || '');
         } else {
           setError('Website tidak dijumpai');
-          setTimeout(() => router.push('/my-projects'), 2000);
+          setTimeout(() => router.push('/dashboard'), 2000);
         }
         return;
       }
@@ -89,7 +89,7 @@ export default function EditorPage() {
 
       if (error || !data) {
         setError('Website tidak dijumpai');
-        setTimeout(() => router.push('/my-projects'), 2000);
+        setTimeout(() => router.push('/dashboard'), 2000);
         return;
       }
 
@@ -220,7 +220,7 @@ export default function EditorPage() {
           </div>
           <div className="flex gap-2">
             <button
-              onClick={() => router.push('/my-projects')}
+              onClick={() => router.push('/dashboard')}
               className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
             >
               ← Kembali

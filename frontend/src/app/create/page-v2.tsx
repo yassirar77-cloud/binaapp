@@ -165,7 +165,7 @@ export default function CreatePage() {
         .upload(`${subdomain}/index.html`, new Blob([html], { type: 'text/html' }), { upsert: true });
 
       alert('✅ Website saved!');
-      router.push('/my-projects');
+      router.push('/dashboard');
     } else {
       alert('❌ Error saving: ' + error?.message);
     }
@@ -189,7 +189,7 @@ export default function CreatePage() {
           <div className="flex items-center gap-4">
             {user ? (
               <>
-                <Link href="/my-projects" className="text-sm text-gray-600 hover:text-gray-900">
+                <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">
                   My Projects
                 </Link>
                 <button onClick={handleLogout} className="text-sm text-red-500 hover:text-red-600">
