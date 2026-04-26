@@ -445,11 +445,13 @@ export default function DashboardPage() {
         <DashboardFooter />
       </main>
 
-      {/* Usage widget — floating on desktop, inline on mobile (handled by component) */}
-      <DashboardUsageWidget
-        onUpgradeClick={() => router.push('/dashboard/billing')}
-        onRenewClick={() => router.push('/dashboard/billing')}
-      />
+      {/* Usage widget — desktop only (mobile has its own inline copy in MobileDashboard) */}
+      <div className="hidden md:block">
+        <DashboardUsageWidget
+          onUpgradeClick={() => router.push('/dashboard/billing')}
+          onRenewClick={() => router.push('/dashboard/billing')}
+        />
+      </div>
 
       {/* Limit Reached Modal — preserved verbatim */}
       <LimitReachedModal
