@@ -1028,7 +1028,7 @@ export default function CreatePage() {
                   <Link href="/profile" className="text-sm text-gray-600 hover:text-gray-900">
                     Profil
                   </Link>
-                  <Link href="/my-projects" className="text-sm text-gray-600 hover:text-gray-900">
+                  <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">
                     Website Saya
                   </Link>
                   <Link href="/dashboard/billing" className="text-sm text-gray-600 hover:text-gray-900">

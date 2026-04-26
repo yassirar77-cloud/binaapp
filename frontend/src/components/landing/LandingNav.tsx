@@ -44,7 +44,7 @@ export default function LandingNav({ user, loading, onLogout }: LandingNavProps)
             user ? (
               <>
                 <Link
-                  href="/my-projects"
+                  href="/dashboard"
                   className="font-geist text-sm text-ink-300 hover:text-white transition-colors px-3 py-2"
                 >
                   Website Saya

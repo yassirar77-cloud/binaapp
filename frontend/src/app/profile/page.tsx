@@ -1123,7 +1123,7 @@ export default function ProfilePage() {
 
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center gap-4">
-            <Link href="/my-projects" className="text-sm text-gray-600 hover:text-gray-900">
+            <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">
               Website Saya
             </Link>
             <Link href="/create" className="text-sm text-gray-600 hover:text-gray-900">
@@ -1158,7 +1158,7 @@ export default function ProfilePage() {
           <div className="md:hidden border-t bg-white">
             <div className="flex flex-col py-2">
               <Link
-                href="/my-projects"
+                href="/dashboard"
                 className="px-4 py-3 text-sm text-gray-600 hover:bg-gray-50 active:bg-gray-100"
                 onClick={() => setMobileMenuOpen(false)}
               >

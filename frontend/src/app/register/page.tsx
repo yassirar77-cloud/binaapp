@@ -64,7 +64,7 @@ function RegisterPageContent() {
       if (redirectUrl) {
         router.push(redirectUrl)
       } else {
-        router.push('/my-projects')
+        router.push('/dashboard')
       }
     } catch (error: any) {
       toast.error(error.message || 'Gagal mendaftar akaun')

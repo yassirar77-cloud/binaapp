@@ -59,7 +59,7 @@ export default function AnalyticsPage() {
           setWebsite(data);
         } else {
           setError('Website tidak dijumpai');
-          setTimeout(() => router.push('/my-projects'), 2000);
+          setTimeout(() => router.push('/dashboard'), 2000);
         }
         return;
       }
@@ -87,7 +87,7 @@ export default function AnalyticsPage() {
 
       if (error || !data) {
         setError('Website tidak dijumpai');
-        setTimeout(() => router.push('/my-projects'), 2000);
+        setTimeout(() => router.push('/dashboard'), 2000);
         return;
       }
 
@@ -133,7 +133,7 @@ export default function AnalyticsPage() {
             <span className="text-xl font-bold">BinaApp</span>
           </Link>
           <div className="flex items-center gap-4">
-            <Link href="/my-projects" className="text-sm text-gray-600 hover:text-gray-900">
+            <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">
               My Projects
             </Link>
             <Link href="/create" className="text-sm text-gray-600 hover:text-gray-900">
@@ -148,7 +148,7 @@ export default function AnalyticsPage() {
           {/* Page Header */}
           <div className="mb-6">
             <Link
-              href="/my-projects"
+              href="/dashboard"
               className="inline-flex items-center text-blue-500 hover:text-blue-600 mb-4"
             >
               <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">

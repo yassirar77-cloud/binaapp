@@ -17,7 +17,7 @@ import {
 const REFRESH_CHECK_INTERVAL = 2 * 60 * 1000
 
 // Protected paths that require authentication
-const PROTECTED_PATHS = ['/profile', '/my-projects', '/create']
+const PROTECTED_PATHS = ['/profile', '/my-projects', '/dashboard', '/create']
 
 /**
  * AuthProvider Component

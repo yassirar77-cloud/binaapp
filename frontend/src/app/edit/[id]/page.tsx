@@ -34,7 +34,7 @@ export default function EditWebsitePage() {
     } catch (error) {
       console.error('Error loading website:', error);
       alert('Website tidak dijumpai');
-      router.push('/my-projects');
+      router.push('/dashboard');
     } finally {
       setLoading(false);
     }
@@ -92,7 +92,7 @@ export default function EditWebsitePage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => router.push('/my-projects')}
+            onClick={() => router.push('/dashboard')}
             className="px-4 py-2 border rounded-lg hover:bg-gray-50"
           >
             Batal

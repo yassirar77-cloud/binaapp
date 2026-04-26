@@ -190,7 +190,7 @@ export default function ChatDashboardPage() {
               </p>
             </div>
             <Link
-              href="/my-projects"
+              href="/dashboard"
               className="text-sm text-orange-600 hover:text-orange-700 font-medium"
             >
               Lihat website saya
