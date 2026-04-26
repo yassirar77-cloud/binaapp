@@ -23,15 +23,14 @@ function formatBMDate(date: Date): { dayName: string; dateStr: string } {
 interface DashboardGreetingProps {
   /** User's first name or display name */
   userName: string
-  /** Business name to show in subtext */
-  businessName: string
+  /** @deprecated No longer displayed — kept for API compat */
+  businessName?: string
   /** Override the current date/time (useful for testing) */
   now?: Date
 }
 
 export default function DashboardGreeting({
   userName,
-  businessName,
   now,
 }: DashboardGreetingProps) {
   const current = now ?? new Date()
@@ -44,9 +43,7 @@ export default function DashboardGreeting({
         {greeting}, {userName}.
       </h1>
       <p className="mt-1 text-sm text-white/40">
-        Ini yang berlaku di{' '}
-        <span className="text-white/60">{businessName}</span>{' '}
-        hari ini &middot; {dayName}, {dateStr}
+        {dayName}, {dateStr}
       </p>
     </div>
   )
