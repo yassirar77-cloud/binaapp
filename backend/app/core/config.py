@@ -84,6 +84,18 @@ class Settings(BaseSettings):
         env="QWEN_MODEL"
     )
 
+    # Zhipu GLM-4.7 (Primary HTML generation)
+    ZAI_API_KEY: Optional[str] = Field(None, env="ZAI_API_KEY")
+    ZAI_BASE_URL: str = Field(
+        default="https://api.z.ai/api/paas/v4",
+        env="ZAI_BASE_URL"
+    )
+    ZAI_MODEL: str = Field(
+        default="glm-4.7",
+        env="ZAI_MODEL"
+    )
+    USE_GLM_FOR_HTML: bool = Field(default=True, env="USE_GLM_FOR_HTML")
+
     # Anthropic Claude AI (for AI Email Support)
     ANTHROPIC_API_KEY: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
     ANTHROPIC_MODEL: str = Field(

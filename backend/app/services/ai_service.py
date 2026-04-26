@@ -503,6 +503,10 @@ class AIService:
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
         self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
         self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-reasoner")
+        self.zai_api_key = os.getenv("ZAI_API_KEY")
+        self.zai_base_url = os.getenv("ZAI_BASE_URL", "https://api.z.ai/api/paas/v4")
+        self.zai_model = os.getenv("ZAI_MODEL", "glm-4.7")
+        self.use_glm_for_html = os.getenv("USE_GLM_FOR_HTML", "true").lower() == "true"
         self.stability_api_key = os.getenv("STABILITY_API_KEY")
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_ANON_KEY")
@@ -511,6 +515,7 @@ class AIService:
         logger.info("🚀 AI SERVICE - STRICT NO-PLACEHOLDER MODE")
         logger.info(f"   DeepSeek: {'✅ Ready' if self.deepseek_api_key else '❌ NOT SET'}")
         logger.info(f"   Qwen: {'✅ Ready' if self.qwen_api_key else '❌ NOT SET'}")
+        logger.info(f"   GLM: {'✅ Ready' if self.zai_api_key and self.use_glm_for_html else '❌ NOT SET'}")
         logger.info(f"   Stability AI: {'✅ Ready' if self.stability_api_key and STABILITY_AVAILABLE else '❌ NOT SET'}")
         logger.info(f"   Supabase Storage: {'✅ Ready' if self.supabase_url and self.supabase_key else '❌ NOT SET'}")
         logger.info("   Mode: Real images only, no placeholders allowed")
@@ -2426,6 +2431,60 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"🔷 DeepSeek ❌ Exception: {e}")
         return None
 
+    async def _call_glm(
+        self,
+        prompt: str,
+        temperature: float = 0.7,
+        model: Optional[str] = None,
+        max_tokens: int = 12000,
+    ) -> Optional[str]:
+        """Call ZhipuAI GLM API for HTML generation."""
+        if not self.zai_api_key:
+            logger.warning("❌ ZAI_API_KEY not configured")
+            return None
+
+        chosen_model = model or self.zai_model
+        try:
+            logger.info(f"🟢 Calling GLM API ({chosen_model})... (prompt length: {len(prompt)} chars)")
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                r = await client.post(
+                    f"{self.zai_base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.zai_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": chosen_model,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML.",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                        "thinking": {"type": "disabled"},
+                    }
+                )
+                if r.status_code == 200:
+                    content = r.json()["choices"][0]["message"]["content"]
+                    logger.info(f"🟢 GLM ✅ Generated {len(content)} characters")
+                    return content
+                else:
+                    try:
+                        error_body = r.text[:500]
+                    except Exception:
+                        error_body = "(unable to read response)"
+                    logger.error(f"🟢 GLM ❌ Status {r.status_code}: {error_body}")
+        except httpx.TimeoutException as e:
+            logger.error(f"🟢 GLM ❌ Timeout after 120s: {e}")
+        except httpx.ConnectError as e:
+            logger.error(f"🟢 GLM ❌ Connection error: {e}")
+        except Exception as e:
+            logger.error(f"🟢 GLM ❌ Exception: {e}")
+        return None
+
     # Default Qwen config for HTML generation.
     # qwen-plus-latest is used for HTML because it has a higher output-token cap
     # than qwen-max (qwen-max tops out at ~8K output on DashScope compatible mode,
@@ -4011,8 +4070,18 @@ IMPORTANT INSTRUCTIONS:
         }
 
         with _timed_step("ai_html_generation", step_timings):
-            html_raw = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
+            html_raw = None
             used_qwen_retry = False
+
+            # GLM primary path (when enabled)
+            if self.use_glm_for_html and self.zai_api_key:
+                html_raw = await self._call_glm(prompt)
+
+            # DeepSeek fallback
+            if not html_raw:
+                if self.use_glm_for_html and self.zai_api_key:
+                    logger.warning("⚠️ GLM failed, trying DeepSeek...")
+                html_raw = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
 
             if not html_raw:
                 logger.warning("⚠️ DeepSeek failed, trying Qwen...")
@@ -4192,15 +4261,21 @@ IMPORTANT INSTRUCTIONS:
                 color_mode=color_mode,
             )
 
-            # Try preferred AI first
-            if ai_pref == "deepseek":
-                html = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
-                if not html:
-                    html = await self._call_qwen(prompt)
-            else:
-                html = await self._call_qwen(prompt)
-                if not html:
+            # GLM primary path (when enabled)
+            html = None
+            if self.use_glm_for_html and self.zai_api_key:
+                html = await self._call_glm(prompt)
+
+            # Fallback to preferred AI if GLM disabled or failed
+            if not html:
+                if ai_pref == "deepseek":
                     html = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
+                    if not html:
+                        html = await self._call_qwen(prompt)
+                else:
+                    html = await self._call_qwen(prompt)
+                    if not html:
+                        html = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
 
             if html:
                 html = self._extract_html(html)
