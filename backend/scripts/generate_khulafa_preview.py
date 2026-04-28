@@ -27,6 +27,8 @@ BRIEF = {
     },
     "style_dna": "teh_tarik_warm",
     "color_mode": "light",
+    "cuisine_type": "malay_fusion",
+    "specific_dishes": ["Nasi Kerabu Deconstructed", "Rendang Burger", "Laksa Carbonara"],
     "sections": [
         {
             "type": "hero",
@@ -39,6 +41,7 @@ BRIEF = {
                 "cta_secondary_text": "Tempah Meja",
                 "cta_secondary_link": "https://wa.me/60173228899?text=Saya%20ingin%20tempah%20meja",
                 "image_key": "hero",
+                "halal_certified": True,
             },
         },
         {
@@ -50,7 +53,8 @@ BRIEF = {
                     "Bermula dari dapur kecil di rumah pengasas kami, Khulafa Bistro lahir daripada cinta kepada masakan Melayu yang autentik.",
                     "Kami percaya makanan tradisional boleh dipersembahkan dengan cara baru tanpa mengorbankan rasa asli. Setiap hidangan kami diolah menggunakan rempah tumbuk segar dan bahan tempatan pilihan.",
                 ],
-                "image_key": "gallery_1",
+                "image_key": "interior",
+                "signature": "— Keluarga Khulafa, Pengasas",
             },
         },
         {
@@ -61,8 +65,8 @@ BRIEF = {
                 "subheading": "Hidangan fusion halal yang memukau",
                 "source": "supabase",
                 "fallback_items": [
-                    {"name": "Nasi Kerabu Deconstructed", "description": "Nasi kerabu dengan bunga telang, ulam segar, dan ikan bakar \u2014 disusun gaya moden", "price": "RM 18.90", "image_key": "gallery_2", "is_popular": True},
-                    {"name": "Rendang Burger", "description": "Daging rendang juicy dalam roti brioche dengan acar jelatah dan sambal hijau", "price": "RM 22.90", "image_key": "gallery_3", "is_popular": True},
+                    {"name": "Nasi Kerabu Deconstructed", "description": "Nasi kerabu dengan bunga telang, ulam segar, dan ikan bakar \u2014 disusun gaya moden", "price": "RM 18.90", "image_key": "menu_1", "is_popular": True},
+                    {"name": "Rendang Burger", "description": "Daging rendang juicy dalam roti brioche dengan acar jelatah dan sambal hijau", "price": "RM 22.90", "image_key": "menu_2", "is_popular": True},
                     {"name": "Laksa Carbonara", "description": "Spaghetti dalam kuah laksa krimi, udang segar, dan taburan kerisik", "price": "RM 19.90"},
                 ],
             },
@@ -72,6 +76,7 @@ BRIEF = {
             "variant": "masonry",
             "content": {
                 "heading": "Suasana Kami",
+                "subtitle": "Setiap sudut bercerita — dari dapur ke meja anda",
                 "image_keys": ["gallery_1", "gallery_2", "gallery_3", "gallery_4"],
             },
         },
@@ -81,7 +86,7 @@ BRIEF = {
             "content": {
                 "heading": "Apa Kata Pelanggan",
                 "reviews": [
-                    {"name": "Aisha R.", "text": "Rendang burger terbaik yang pernah saya rasa! Anak-anak pun suka.", "rating": 5},
+                    {"name": "Aisha R.", "text": "Rendang burger terbaik yang pernah saya rasa! Anak-anak pun suka.", "rating": 5, "avatar_fallback": "Y.Ar"},
                     {"name": "Farid M.", "text": "Suasana cozy, sesuai untuk family dinner. Laksa carbonara memang unik!", "rating": 5},
                     {"name": "Siti N.", "text": "Harga berpatutan untuk kualiti fusion macam ni. Mesti datang lagi.", "rating": 4},
                 ],
@@ -94,7 +99,11 @@ BRIEF = {
                 "heading": "Hubungi Kami",
                 "whatsapp_cta": "WhatsApp Kami",
                 "address": "No. 12, Jalan Plumbum V7/V, Seksyen 7, Shah Alam",
-                "hours": "Selasa - Ahad, 11 pagi - 10 malam",
+                "hours_structured": [
+                    {"day": "Selasa - Jumaat", "time": "11:00 pg - 10:00 mlm"},
+                    {"day": "Sabtu - Ahad", "time": "9:00 pg - 11:00 mlm"},
+                    {"day": "Isnin", "time": "Tutup"},
+                ],
                 "show_map": True,
                 "map_query": "Khulafa Bistro Shah Alam",
                 "email": "hello@khulafabistro.my",
@@ -115,13 +124,8 @@ BRIEF = {
             },
         },
     ],
-    "image_map": {
-        "hero": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1200&h=800&fit=crop",
-        "gallery_1": "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=800&h=600&fit=crop",
-        "gallery_2": "https://images.unsplash.com/photo-1562967916-eb82221dfb44?w=800&h=600&fit=crop",
-        "gallery_3": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&h=600&fit=crop",
-        "gallery_4": "https://images.unsplash.com/photo-1476224203421-9ac39bcb3327?w=800&h=600&fit=crop",
-    },
+    # image_map left empty — auto-filled from cuisine_type "malay_fusion" pool
+    "image_map": {},
     "features": {
         "whatsapp": True,
         "google_map": True,

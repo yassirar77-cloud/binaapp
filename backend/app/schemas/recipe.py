@@ -31,6 +31,21 @@ class SectionType(str, Enum):
     footer = "footer"
 
 
+class CuisineType(str, Enum):
+    mamak = "mamak"
+    malay_fusion = "malay_fusion"
+    malay_traditional = "malay_traditional"
+    fine_dining_malay = "fine_dining_malay"
+    kopitiam_chinese = "kopitiam_chinese"
+    fast_food_halal = "fast_food_halal"
+    warung_kampung = "warung_kampung"
+    cafe_modern = "cafe_modern"
+    western_halal = "western_halal"
+    thai_halal = "thai_halal"
+    indian_halal = "indian_halal"
+    nyonya = "nyonya"
+
+
 class StyleDNA(str, Enum):
     teh_tarik_warm = "teh_tarik_warm"
     pandan_fresh = "pandan_fresh"
@@ -43,7 +58,7 @@ class StyleDNA(str, Enum):
 
 
 VALID_VARIANTS: Dict[SectionType, List[str]] = {
-    SectionType.hero: ["centered", "split", "video", "minimal", "slider"],
+    SectionType.hero: ["centered", "split", "video", "minimal", "slider", "fullscreen-image", "split-reverse", "asymmetric-card"],
     SectionType.about: ["story", "stats", "timeline", "cards", "minimal"],
     SectionType.menu: ["grid", "cards", "list", "categorized", "featured"],
     SectionType.gallery: ["masonry", "grid", "carousel", "lightbox", "full-width"],
@@ -141,6 +156,9 @@ class DesignBrief(BaseModel):
     business: BusinessInfo
     style_dna: StyleDNA
     color_mode: Literal["light", "dark"] = "light"
+
+    cuisine_type: Optional[CuisineType] = None
+    specific_dishes: List[str] = Field(default_factory=list)
 
     sections: List[SectionSpec] = Field(..., min_length=2, max_length=10)
     image_map: Dict[str, str] = Field(default_factory=dict)

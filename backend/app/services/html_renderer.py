@@ -89,9 +89,62 @@ def _theme_to_css(theme: ThemeTokens) -> str:
             color: var(--color-text);
             font-family: var(--font-body);
             margin: 0;
+            line-height: 1.7;
         }}
         h1, h2, h3, h4, h5, h6 {{
             font-family: var(--font-heading);
+            line-height: 1.1;
+        }}
+        /* Scroll-triggered fade-in */
+        [data-aos="fade-up"] {{
+            transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+        }}
+        /* Subtle image frame */
+        .img-frame {{
+            position: relative;
+        }}
+        .img-frame::after {{
+            content: '';
+            position: absolute;
+            inset: -8px;
+            border: 1px solid var(--color-border);
+            border-radius: inherit;
+            pointer-events: none;
+        }}
+        /* Menu card hover */
+        .menu-card {{
+            transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease;
+        }}
+        .menu-card:hover {{
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 0 20px 40px -12px rgba(0,0,0,0.15);
+        }}
+        /* Testimonial card hover */
+        .testimonial-card {{
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }}
+        .testimonial-card:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px -8px rgba(0,0,0,0.12);
+        }}
+        /* Accent line */
+        .accent-line {{
+            width: 48px;
+            height: 3px;
+            background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
+            border-radius: 2px;
+        }}
+        /* Hide Tailwind CDN play mode badge */
+        #__tailwind_play__, .tw-play-btn,
+        [style*="position: fixed"][style*="z-index: 2147483647"] {{
+            display: none !important;
+        }}
+        /* Prevent Google Maps SDK overlay messages */
+        .map-container iframe {{
+            pointer-events: none;
+        }}
+        .map-container:hover iframe {{
+            pointer-events: auto;
         }}"""
 
 
@@ -189,7 +242,17 @@ def _render_section(section: RenderedSection) -> str:
     if section.id == "footer":
         return f'<div id="{section.id}" {aos_attr} {delay_attr}>\n{inner}\n</div>'
 
-    return f"""<section id="{section.id}" class="py-20 px-4 sm:px-6 lg:px-8" {aos_attr} {delay_attr}>
+    # Vary vertical padding per section for visual rhythm
+    padding_map = {
+        "about": "py-24 md:py-32",
+        "menu": "py-20 md:py-28",
+        "gallery": "py-16 md:py-24",
+        "testimonial": "py-20 md:py-28",
+        "contact": "py-24 md:py-32",
+    }
+    pad = padding_map.get(section.id, "py-20")
+
+    return f"""<section id="{section.id}" class="{pad} px-4 sm:px-6 lg:px-8" {aos_attr} {delay_attr}>
     <div class="mx-auto" style="max-width: var(--max-width, 1280px);">
 {inner}
     </div>
@@ -204,14 +267,20 @@ def _render_section(section: RenderedSection) -> str:
 def _hero_split(p: Dict[str, Any]) -> str:
     img_html = ""
     if p.get("image_url"):
-        img_html = f"""        <div class="flex items-center justify-center py-8 lg:py-0">
-            <img src="{_esc(p['image_url'])}" alt="{_esc(p.get('image_alt', ''))}"
-                 class="w-full max-w-lg lg:max-w-none rounded-3xl object-cover"
-                 style="max-height: 550px; box-shadow: var(--shadow-lg);" loading="eager">
+        img_html = f"""        <div class="relative flex items-center justify-center py-8 lg:py-0 lg:-mr-8">
+            <div class="relative w-full max-w-lg lg:max-w-none">
+                <img src="{_esc(p['image_url'])}" alt="{_esc(p.get('image_alt', ''))}"
+                     class="w-full rounded-2xl object-cover relative z-10"
+                     style="max-height: 580px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.2);" loading="eager">
+                <div class="absolute inset-0 rounded-2xl z-20 pointer-events-none"
+                     style="background: linear-gradient(135deg, var(--color-primary) 0%, transparent 40%); opacity: 0.08;"></div>
+                <div class="hidden lg:block absolute -bottom-4 -right-4 w-full h-full rounded-2xl z-0"
+                     style="background-color: var(--color-accent); opacity: 0.4;"></div>
+            </div>
         </div>"""
     else:
         img_html = """        <div class="flex items-center justify-center py-8 lg:py-0">
-            <div class="w-full max-w-lg lg:max-w-none rounded-3xl flex items-center justify-center"
+            <div class="w-full max-w-lg lg:max-w-none rounded-2xl flex items-center justify-center"
                  style="height: 400px; background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));">
                 <i class="fa-solid fa-utensils text-6xl text-white/30"></i>
             </div>
@@ -224,24 +293,33 @@ def _hero_split(p: Dict[str, Any]) -> str:
                 {_esc(p['cta_secondary_text'])}
             </a>"""
 
+    halal_badge = ""
+    if p.get("halal_certified"):
+        halal_badge = """                    <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider mb-6"
+                         style="background-color: var(--color-accent); color: var(--color-secondary);">
+                        <i class="fa-solid fa-certificate"></i> Halal Certified
+                    </div>"""
+
     pos = p.get("image_position", "right")
     order = "lg:order-last" if pos == "left" else ""
 
-    return f"""    <div class="min-h-[80vh] flex items-center" style="background-color: var(--color-background);">
+    return f"""    <div class="min-h-[85vh] flex items-center" style="background-color: var(--color-background);">
         <div class="mx-auto w-full px-4 sm:px-6 lg:px-8" style="max-width: var(--max-width, 1280px);">
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 items-center">
-                <div class="flex flex-col justify-center py-12 lg:py-20 {order}">
-                    <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight"
-                        style="font-family: var(--font-heading); color: var(--color-text);">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+                <div class="flex flex-col justify-center py-12 lg:py-24 {order}">
+{halal_badge}
+                    <h1 class="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-black tracking-tight sm:tracking-tight"
+                        style="font-family: var(--font-heading); color: var(--color-text); line-height: 0.95;">
                         {_esc(p['headline'])}
                     </h1>
-                    <p class="mt-6 text-lg sm:text-xl leading-relaxed max-w-lg"
+                    <p class="mt-8 text-lg sm:text-xl leading-relaxed max-w-md"
                        style="color: var(--color-text-muted);">
                         {_esc(p['subheadline'])}
                     </p>
-                    <div class="mt-8 flex flex-wrap gap-4">
+                    <div class="mt-10 flex flex-wrap gap-4">
                         <a href="{_esc(p['cta_link'])}"
-                           class="inline-block bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white font-semibold rounded-2xl px-7 py-3.5 transition-colors duration-200">
+                           class="inline-block bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white font-semibold rounded-2xl px-8 py-4 transition-all duration-200 hover:shadow-lg"
+                           style="font-size: 1.05rem;">
                             {_esc(p['cta_text'])}
                         </a>
 {cta2}
@@ -253,35 +331,272 @@ def _hero_split(p: Dict[str, Any]) -> str:
     </div>"""
 
 
+@_component("HeroCentered")
+def _hero_centered(p: Dict[str, Any]) -> str:
+    """Full-width centered text over background image with gradient overlay."""
+    halal_badge = ""
+    if p.get("halal_certified"):
+        halal_badge = """            <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider mb-6"
+                 style="background-color: rgba(255,255,255,0.2); color: #fff; backdrop-filter: blur(4px);">
+                <i class="fa-solid fa-certificate"></i> Halal Certified
+            </div>"""
+
+    cta2 = ""
+    if p.get("cta_secondary_text") and p.get("cta_secondary_link"):
+        cta2 = f"""                <a href="{_esc(p['cta_secondary_link'])}"
+                   class="inline-block border-2 border-white/60 text-white hover:bg-white/20 font-semibold rounded-2xl px-7 py-3.5 transition-all duration-200">
+                    {_esc(p['cta_secondary_text'])}
+                </a>"""
+
+    bg_img = p.get("image_url", "")
+    bg_style = f'background-image: url({_esc(bg_img)});' if bg_img else 'background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));'
+
+    return f"""    <div class="relative min-h-[90vh] flex items-center justify-center overflow-hidden">
+        <!-- Background image -->
+        <div class="absolute inset-0 bg-cover bg-center" style="{bg_style}"></div>
+        <!-- Gradient overlay -->
+        <div class="absolute inset-0" style="background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.3) 40%, rgba(0,0,0,0.15) 100%);"></div>
+        <!-- Content -->
+        <div class="relative z-10 text-center px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto py-20">
+{halal_badge}
+            <h1 class="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black tracking-tight text-white"
+                style="font-family: var(--font-heading); line-height: 0.95;">
+                {_esc(p['headline'])}
+            </h1>
+            <p class="mt-6 text-lg sm:text-xl leading-relaxed text-white/80 max-w-2xl mx-auto">
+                {_esc(p['subheadline'])}
+            </p>
+            <div class="mt-10 flex flex-wrap justify-center gap-4">
+                <a href="{_esc(p['cta_link'])}"
+                   class="inline-block text-white font-semibold rounded-2xl px-8 py-4 transition-all duration-200 hover:shadow-lg hover:brightness-110"
+                   style="background-color: var(--color-primary); font-size: 1.05rem;">
+                    {_esc(p['cta_text'])}
+                </a>
+{cta2}
+            </div>
+        </div>
+    </div>"""
+
+
+@_component("HeroFullscreenImage")
+def _hero_fullscreen_image(p: Dict[str, Any]) -> str:
+    """100vh hero, dramatic photo, headline bottom-left with backdrop blur card."""
+    halal_badge = ""
+    if p.get("halal_certified"):
+        halal_badge = """                <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider mb-4"
+                     style="background-color: var(--color-accent); color: var(--color-secondary);">
+                    <i class="fa-solid fa-certificate"></i> Halal Certified
+                </div>"""
+
+    cta2 = ""
+    if p.get("cta_secondary_text") and p.get("cta_secondary_link"):
+        cta2 = f"""                    <a href="{_esc(p['cta_secondary_link'])}"
+                       class="inline-block border-2 border-white/40 text-white hover:bg-white/10 font-semibold rounded-2xl px-7 py-3.5 transition-all duration-200">
+                        {_esc(p['cta_secondary_text'])}
+                    </a>"""
+
+    bg_img = p.get("image_url", "")
+    bg_style = f'background-image: url({_esc(bg_img)});' if bg_img else 'background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));'
+
+    return f"""    <div class="relative h-screen min-h-[600px] max-h-[1000px] overflow-hidden">
+        <!-- Full background -->
+        <div class="absolute inset-0 bg-cover bg-center" style="{bg_style}"></div>
+        <div class="absolute inset-0" style="background: linear-gradient(to top, rgba(0,0,0,0.65) 0%, transparent 50%);"></div>
+        <!-- Bottom-left content card -->
+        <div class="absolute bottom-0 left-0 right-0 z-10 p-4 sm:p-8 lg:p-12">
+            <div class="max-w-2xl rounded-2xl p-8 sm:p-10"
+                 style="background: rgba(0,0,0,0.4); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.1);">
+{halal_badge}
+                <h1 class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-tight text-white"
+                    style="font-family: var(--font-heading); line-height: 0.95;">
+                    {_esc(p['headline'])}
+                </h1>
+                <p class="mt-4 text-base sm:text-lg leading-relaxed text-white/70 max-w-lg">
+                    {_esc(p['subheadline'])}
+                </p>
+                <div class="mt-8 flex flex-wrap gap-4">
+                    <a href="{_esc(p['cta_link'])}"
+                       class="inline-block text-white font-semibold rounded-2xl px-8 py-4 transition-all duration-200 hover:shadow-lg hover:brightness-110"
+                       style="background-color: var(--color-primary); font-size: 1.05rem;">
+                        {_esc(p['cta_text'])}
+                    </a>
+{cta2}
+                </div>
+            </div>
+        </div>
+    </div>"""
+
+
+@_component("HeroSplitReverse")
+def _hero_split_reverse(p: Dict[str, Any]) -> str:
+    """Minimal text hero — huge serif typography on cream, no hero image. Aesop-inspired."""
+    cta2 = ""
+    if p.get("cta_secondary_text") and p.get("cta_secondary_link"):
+        cta2 = f"""                <a href="{_esc(p['cta_secondary_link'])}"
+                   class="inline-block border-b-2 font-medium pb-1 transition-colors duration-200"
+                   style="border-color: var(--color-primary); color: var(--color-primary);">
+                    {_esc(p['cta_secondary_text'])}
+                </a>"""
+
+    # Split headline into words for typographic control
+    headline = _esc(p['headline'])
+
+    return f"""    <div class="min-h-[90vh] flex items-center" style="background-color: var(--color-background);">
+        <div class="mx-auto w-full px-4 sm:px-6 lg:px-8" style="max-width: var(--max-width, 1280px);">
+            <div class="max-w-5xl py-20 lg:py-32">
+                <!-- Thin accent line -->
+                <div class="w-16 mb-10" style="height: 1px; background-color: var(--color-primary);"></div>
+                <!-- Massive headline -->
+                <h1 class="text-5xl sm:text-6xl md:text-7xl lg:text-[6.5rem] xl:text-[8rem] font-normal tracking-tight"
+                    style="font-family: var(--font-heading); color: var(--color-text); line-height: 0.9; font-style: italic;">
+                    {headline}
+                </h1>
+                <!-- Subheadline in a constrained column -->
+                <div class="mt-10 lg:mt-14 max-w-md lg:ml-auto lg:mr-24">
+                    <p class="text-base sm:text-lg leading-relaxed"
+                       style="color: var(--color-text-muted);">
+                        {_esc(p['subheadline'])}
+                    </p>
+                    <div class="mt-8 flex flex-wrap items-center gap-6">
+                        <a href="{_esc(p['cta_link'])}"
+                           class="inline-block bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white font-semibold rounded-full px-8 py-4 transition-all duration-200 hover:shadow-lg"
+                           style="font-size: 0.95rem; letter-spacing: 0.03em;">
+                            {_esc(p['cta_text'])}
+                        </a>
+{cta2}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>"""
+
+
+@_component("HeroAsymmetricCard")
+def _hero_asymmetric_card(p: Dict[str, Any]) -> str:
+    """White card overlapping a 2x2 image grid — editorial magazine layout.
+    Image grid takes ~60% right. Card anchored bottom-left, overlapping the grid."""
+    halal_badge = ""
+    if p.get("halal_certified"):
+        halal_badge = """                    <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider mb-4"
+                         style="background-color: var(--color-accent); color: var(--color-secondary);">
+                        <i class="fa-solid fa-certificate"></i> Halal Certified
+                    </div>"""
+
+    cta2 = ""
+    if p.get("cta_secondary_text") and p.get("cta_secondary_link"):
+        cta2 = f"""                        <a href="{_esc(p['cta_secondary_link'])}"
+                           class="inline-block border-b-2 font-medium pb-1 transition-colors duration-200"
+                           style="border-color: var(--color-primary); color: var(--color-primary);">
+                            {_esc(p['cta_secondary_text'])}
+                        </a>"""
+
+    bg_img = p.get("image_url", "")
+
+    return f"""    <div class="relative min-h-[90vh] overflow-hidden" style="background-color: var(--color-background);">
+        <div class="mx-auto w-full px-4 sm:px-6 lg:px-8 py-12 lg:py-0" style="max-width: var(--max-width, 1280px);">
+            <!-- Mobile: stacked. Desktop: image grid right, card overlapping from left -->
+            <div class="relative lg:min-h-[85vh] lg:flex lg:items-center">
+                <!-- 2x2 Image grid — positioned right, takes ~60% -->
+                <div class="lg:absolute lg:right-0 lg:top-[8%] lg:bottom-[8%] lg:w-[58%]">
+                    <div class="grid grid-cols-2 gap-2 h-full">
+                        <div class="rounded-xl overflow-hidden">
+                            <img src="{_esc(bg_img)}" alt="{_esc(p.get('image_alt', ''))}"
+                                 class="w-full h-full object-cover" style="min-height: 220px;" loading="eager">
+                        </div>
+                        <div class="rounded-xl overflow-hidden">
+                            <img src="{_esc(bg_img)}" alt=""
+                                 class="w-full h-full object-cover object-left" style="min-height: 220px; filter: saturate(1.15);" loading="eager">
+                        </div>
+                        <div class="rounded-xl overflow-hidden">
+                            <img src="{_esc(bg_img)}" alt=""
+                                 class="w-full h-full object-cover object-bottom" style="min-height: 220px; filter: brightness(0.95);" loading="eager">
+                        </div>
+                        <div class="rounded-xl overflow-hidden">
+                            <img src="{_esc(bg_img)}" alt=""
+                                 class="w-full h-full object-cover object-right" style="min-height: 220px; filter: saturate(0.9) brightness(1.05);" loading="eager">
+                        </div>
+                    </div>
+                </div>
+                <!-- Overlapping text card — anchored left, overlaps image grid -->
+                <div class="relative z-10 mt-6 lg:mt-0 lg:w-[52%]">
+                    <div class="rounded-2xl p-8 sm:p-10 lg:p-12"
+                         style="background-color: var(--color-surface); box-shadow: 0 30px 60px -15px rgba(0,0,0,0.2);">
+{halal_badge}
+                        <h1 class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-tight"
+                            style="font-family: var(--font-heading); color: var(--color-text); line-height: 0.95;">
+                            {_esc(p['headline'])}
+                        </h1>
+                        <p class="mt-5 text-base sm:text-lg leading-relaxed max-w-md"
+                           style="color: var(--color-text-muted);">
+                            {_esc(p['subheadline'])}
+                        </p>
+                        <div class="mt-8 flex flex-wrap items-center gap-5">
+                            <a href="{_esc(p['cta_link'])}"
+                               class="inline-block bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white font-semibold rounded-2xl px-8 py-4 transition-all duration-200 hover:shadow-lg"
+                               style="font-size: 1.05rem;">
+                                {_esc(p['cta_text'])}
+                            </a>
+{cta2}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>"""
+
+
 @_component("AboutStory")
 def _about_story(p: Dict[str, Any]) -> str:
+    paras = p.get("paragraphs", [])
+    # First paragraph as pull-quote if there are multiple
+    pull_quote = ""
+    body_paras = paras
+    if len(paras) > 1:
+        pull_quote = f"""            <blockquote class="text-xl sm:text-2xl font-medium italic leading-snug pl-5 mt-6"
+                style="font-family: var(--font-heading); color: var(--color-text); border-left: 3px solid var(--color-primary);">
+                {_esc(paras[0])}
+            </blockquote>"""
+        body_paras = paras[1:]
+
     paragraphs = "\n".join(
         f'            <p class="text-base sm:text-lg leading-relaxed" style="color: var(--color-text-muted);">{_esc(para)}</p>'
-        for para in p.get("paragraphs", [])
+        for para in body_paras
     )
+
+    signature = ""
+    if p.get("signature"):
+        signature = f"""            <div class="mt-8 pt-6" style="border-top: 1px solid var(--color-border);">
+                <p class="text-sm font-semibold tracking-wide uppercase" style="color: var(--color-primary);">{_esc(p['signature'])}</p>
+            </div>"""
 
     img_html = ""
     if p.get("image_url"):
-        img_html = f"""        <div class="flex items-center justify-center">
+        img_html = f"""        <div class="relative lg:-ml-6 lg:mt-8">
             <img src="{_esc(p['image_url'])}" alt="{_esc(p.get('image_alt', ''))}"
-                 class="w-full rounded-2xl object-cover"
-                 style="max-height: 450px; box-shadow: var(--shadow-lg);" loading="lazy">
+                 class="w-full rounded-2xl object-cover relative z-10"
+                 style="max-height: 500px; box-shadow: 0 20px 40px -12px rgba(0,0,0,0.15);" loading="lazy">
+            <div class="hidden lg:block absolute -top-4 -left-4 w-3/4 h-3/4 rounded-2xl z-0"
+                 style="background-color: var(--color-accent); opacity: 0.3;"></div>
         </div>"""
 
     pos = p.get("image_position", "left")
-    cells = [img_html, f"""        <div class="flex flex-col justify-center">
-            <h2 class="text-3xl sm:text-4xl font-bold" style="font-family: var(--font-heading); color: var(--color-text);">
+    text_cell = f"""        <div class="flex flex-col justify-center">
+            <div class="accent-line mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">
                 {_esc(p['heading'])}
             </h2>
+{pull_quote}
             <div class="mt-6 space-y-4">
 {paragraphs}
             </div>
-        </div>"""]
+{signature}
+        </div>"""
 
+    cells = [img_html, text_cell]
     if pos == "right":
         cells = list(reversed(cells))
 
-    return f"""        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+    return f"""        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center">
 {cells[0]}
 {cells[1]}
         </div>"""
@@ -291,107 +606,147 @@ def _about_story(p: Dict[str, Any]) -> str:
 def _menu_grid(p: Dict[str, Any]) -> str:
     subheading = ""
     if p.get("subheading"):
-        subheading = f'        <p class="mt-3 text-lg" style="color: var(--color-text-muted);">{_esc(p["subheading"])}</p>'
+        subheading = f'        <p class="mt-4 text-lg leading-relaxed" style="color: var(--color-text-muted);">{_esc(p["subheading"])}</p>'
 
+    items = p.get("items", [])
     cards = []
-    for item in p.get("items", []):
+    for idx, item in enumerate(items):
+        is_featured = idx == 0 and item.get("badge")  # First popular item is featured
+
         badge_html = ""
         if item.get("badge"):
-            badge_html = f"""                    <span class="absolute top-3 right-3 text-white text-xs font-bold px-3 py-1 rounded-full"
-                          style="background-color: var(--color-primary);">{_esc(item['badge'])}</span>"""
+            badge_html = f"""                    <span class="absolute top-4 left-4 text-white text-xs font-bold px-4 py-1.5 rounded-full uppercase tracking-wider z-10"
+                          style="background-color: var(--color-primary); letter-spacing: 0.05em;">{_esc(item['badge'])}</span>"""
 
+        img_h = "h-56" if is_featured else "h-48"
+        fallback_js = "this.onerror=null;this.parentElement.innerHTML=\\'<div class=&quot;w-full {0} flex items-center justify-center&quot; style=&quot;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary))&quot;><i class=&quot;fa-solid fa-bowl-food text-4xl text-white/40&quot;></i></div>\\'".format(img_h)
         if item.get("image_url"):
-            img = f"""            <div class="relative">
+            img = f"""            <div class="relative overflow-hidden">
                 <img src="{_esc(item['image_url'])}" alt="{_esc(item['name'])}"
-                     class="w-full h-48 object-cover" loading="lazy">
+                     class="w-full {img_h} object-cover transition-transform duration-500 hover:scale-110" loading="lazy"
+                     onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
+                <div class="w-full {img_h} items-center justify-center" style="display:none;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
+                    <i class="fa-solid fa-bowl-food text-4xl text-white/40"></i>
+                </div>
 {badge_html}
             </div>"""
         else:
-            img = f"""            <div class="relative w-full h-48 flex items-center justify-center"
+            img = f"""            <div class="relative w-full {img_h} flex items-center justify-center"
                  style="background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));">
                 <i class="fa-solid fa-bowl-food text-4xl text-white/40"></i>
 {badge_html}
             </div>"""
 
-        cards.append(f"""        <div class="rounded-2xl overflow-hidden transition-shadow duration-200 hover:shadow-lg"
+        featured_class = "sm:col-span-2 lg:col-span-1" if is_featured else ""
+
+        cards.append(f"""        <div class="menu-card rounded-2xl overflow-hidden {featured_class}"
              style="background-color: var(--color-surface); box-shadow: var(--shadow);">
 {img}
-            <div class="p-5">
-                <div class="flex items-start justify-between gap-3">
-                    <h3 class="text-lg font-semibold" style="font-family: var(--font-heading); color: var(--color-text);">
-                        {_esc(item['name'])}
-                    </h3>
-                    <span class="text-sm font-bold whitespace-nowrap" style="color: var(--color-primary);">
-                        {_esc(item['price'])}
-                    </span>
-                </div>
+            <div class="p-6">
+                <h3 class="text-lg font-semibold" style="font-family: var(--font-heading); color: var(--color-text);">
+                    {_esc(item['name'])}
+                </h3>
                 <p class="mt-2 text-sm leading-relaxed" style="color: var(--color-text-muted);">
                     {_esc(item['description'])}
+                </p>
+                <p class="mt-4 text-xl font-bold" style="color: var(--color-primary);">
+                    {_esc(item['price'])}
                 </p>
             </div>
         </div>""")
 
-    return f"""        <div class="text-center mb-12">
-            <h2 class="text-3xl sm:text-4xl font-bold" style="font-family: var(--font-heading); color: var(--color-text);">
+    return f"""        <div class="text-center mb-14">
+            <div class="accent-line mx-auto mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">
                 {_esc(p['heading'])}
             </h2>
 {subheading}
         </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
 {chr(10).join(cards)}
         </div>"""
 
 
 @_component("GalleryMasonry")
 def _gallery_masonry(p: Dict[str, Any]) -> str:
-    images = "\n".join(
-        f"""            <div class="mb-4 break-inside-avoid overflow-hidden rounded-2xl">
-                <img src="{_esc(img['url'])}" alt="{_esc(img['alt'])}"
-                     class="w-full object-cover hover:scale-105 transition-transform duration-300" loading="lazy">
-            </div>"""
-        for img in p.get("images", [])
-    )
+    imgs = p.get("images", [])
 
-    return f"""        <h2 class="text-3xl sm:text-4xl font-bold text-center mb-12"
-            style="font-family: var(--font-heading); color: var(--color-text);">
-            {_esc(p['heading'])}
-        </h2>
-        <style>
-            .v2-masonry {{ column-count: 1; column-gap: 1rem; }}
-            @media (min-width: 640px) {{ .v2-masonry {{ column-count: 2; }} }}
-            @media (min-width: 1024px) {{ .v2-masonry {{ column-count: 3; }} }}
-        </style>
-        <div class="v2-masonry">
-{images}
+    # Bento grid: first image is large (2x2), rest fill in
+    bento_cells = []
+    for idx, img in enumerate(imgs):
+        if idx == 0:
+            # Large featured image — spans 2 cols and 2 rows
+            bento_cells.append(
+                f"""            <div class="col-span-2 row-span-2 overflow-hidden rounded-2xl group">
+                <img src="{_esc(img['url'])}" alt="{_esc(img['alt'])}"
+                     class="w-full h-full object-cover transition-all duration-500 group-hover:scale-105" loading="lazy"
+                     style="min-height: 400px;"
+                     onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
+                <div class="w-full items-center justify-center rounded-2xl" style="display:none;min-height:400px;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
+                    <i class="fa-solid fa-image text-4xl text-white/30"></i>
+                </div>
+            </div>""")
+        else:
+            bento_cells.append(
+                f"""            <div class="overflow-hidden rounded-2xl group">
+                <img src="{_esc(img['url'])}" alt="{_esc(img['alt'])}"
+                     class="w-full h-full object-cover transition-all duration-500 group-hover:scale-105" loading="lazy"
+                     style="min-height: 190px;"
+                     onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
+                <div class="w-full items-center justify-center rounded-2xl" style="display:none;min-height:190px;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
+                    <i class="fa-solid fa-image text-3xl text-white/30"></i>
+                </div>
+            </div>""")
+
+    cells_html = "\n".join(bento_cells)
+
+    subtitle = ""
+    if p.get("subtitle"):
+        subtitle = f"""        <p class="mt-3 text-lg leading-relaxed" style="color: var(--color-text-muted);">{_esc(p['subtitle'])}</p>"""
+
+    return f"""        <div class="mb-12 md:mb-16">
+            <div class="accent-line mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight"
+                style="font-family: var(--font-heading); color: var(--color-text);">
+                {_esc(p['heading'])}
+            </h2>
+{subtitle}
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-3 auto-rows-[190px] gap-2">
+{cells_html}
         </div>"""
 
 
 @_component("TestimonialCards")
 def _testimonial_cards(p: Dict[str, Any]) -> str:
     cards = []
-    for r in p.get("reviews", []):
+    for idx, r in enumerate(p.get("reviews", [])):
         stars = "".join(
             f'<i class="fa-{"solid" if i < r.get("rating", 5) else "regular"} fa-star text-sm" style="color: {"#F59E0B" if i < r.get("rating", 5) else "var(--color-text-muted)"};"></i>'
             for i in range(5)
         )
         initial = r.get("avatar_fallback", r.get("name", "?")[0].upper())
-        cards.append(f"""        <div class="p-6 rounded-2xl" style="background-color: var(--color-surface); box-shadow: var(--shadow);">
-            <div class="flex gap-1">{stars}</div>
-            <p class="mt-4 text-base leading-relaxed italic" style="color: var(--color-text-muted);">
+        # Alternate background: first card uses accent, others use surface
+        bg = "var(--color-accent)" if idx == 0 else "var(--color-surface)"
+        cards.append(f"""        <div class="testimonial-card p-8 rounded-2xl" style="background-color: {bg}; box-shadow: var(--shadow);">
+            <div class="flex gap-1 mb-5">{stars}</div>
+            <p class="text-base sm:text-lg leading-relaxed" style="font-family: var(--font-heading); color: var(--color-text); font-style: italic;">
                 &ldquo;{_esc(r['text'])}&rdquo;
             </p>
-            <div class="mt-6 flex items-center gap-3">
-                <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white"
+            <div class="mt-8 flex items-center gap-3">
+                <div class="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold text-white"
                      style="background-color: var(--color-primary);">{initial}</div>
                 <span class="text-sm font-semibold" style="color: var(--color-text);">{_esc(r['name'])}</span>
             </div>
         </div>""")
 
-    return f"""        <h2 class="text-3xl sm:text-4xl font-bold text-center mb-12"
-            style="font-family: var(--font-heading); color: var(--color-text);">
-            {_esc(p['heading'])}
-        </h2>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+    return f"""        <div class="text-center mb-14">
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight"
+                style="font-family: var(--font-heading); color: var(--color-text);">
+                {_esc(p['heading'])}
+            </h2>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
 {chr(10).join(cards)}
         </div>"""
 
@@ -413,7 +768,19 @@ def _contact_split(p: Dict[str, Any]) -> str:
                 <p style="color: var(--color-text-muted);">{_esc(p['address'])}</p>
             </div>""")
 
-    if p.get("hours"):
+    if p.get("hours_structured"):
+        hours_rows = "\n".join(
+            f'                        <div class="flex justify-between py-1.5" style="border-bottom: 1px solid var(--color-border);"><span class="font-medium" style="color: var(--color-text);">{_esc(h["day"])}</span><span style="color: var(--color-text-muted);">{_esc(h["time"])}</span></div>'
+            for h in p["hours_structured"]
+        )
+        items.append(f"""            <div class="flex items-start gap-3">
+                <i class="fa-solid fa-clock mt-1" style="color: var(--color-primary);"></i>
+                <div class="flex-1">
+                    <p class="font-semibold mb-2" style="color: var(--color-text);">Waktu Operasi</p>
+{hours_rows}
+                </div>
+            </div>""")
+    elif p.get("hours"):
         items.append(f"""            <div class="flex items-start gap-3">
                 <i class="fa-solid fa-clock mt-1" style="color: var(--color-primary);"></i>
                 <p style="color: var(--color-text-muted);">{_esc(p['hours'])}</p>
@@ -428,7 +795,7 @@ def _contact_split(p: Dict[str, Any]) -> str:
     map_html = ""
     if p.get("show_map") and (p.get("map_query") or p.get("address")):
         query = p.get("map_query") or p.get("address", "")
-        map_html = f"""        <div class="rounded-2xl overflow-hidden" style="box-shadow: var(--shadow-lg);">
+        map_html = f"""        <div class="map-container rounded-2xl overflow-hidden" style="box-shadow: var(--shadow-lg);">
             <iframe src="https://maps.google.com/maps?q={_esc(query)}&output=embed"
                     width="100%" height="350" style="border:0;" allowfullscreen loading="lazy"
                     referrerpolicy="no-referrer-when-downgrade" title="Location map"></iframe>
@@ -441,7 +808,8 @@ def _contact_split(p: Dict[str, Any]) -> str:
 
     return f"""        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-start">
             <div>
-                <h2 class="text-3xl sm:text-4xl font-bold" style="font-family: var(--font-heading); color: var(--color-text);">
+                <div class="accent-line mb-6"></div>
+                <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">
                     {_esc(p['heading'])}
                 </h2>
                 <div class="mt-8 space-y-6">
@@ -478,7 +846,7 @@ def _footer_brand(p: Dict[str, Any]) -> str:
 
     powered = ""
     if p.get("powered_by", True):
-        powered = '            <p>Dibina dengan <a href="https://binaapp.my" target="_blank" rel="noopener noreferrer" class="underline hover:opacity-100">BinaApp</a></p>'
+        powered = '            <p class="flex items-center justify-center gap-1.5">Dibina dengan <a href="https://binaapp.my" target="_blank" rel="noopener noreferrer" class="font-semibold tracking-wide hover:opacity-100 transition-opacity" style="opacity: 0.85;">Bina<span style="color: var(--color-primary);">App</span></a></p>'
 
     tagline_html = ""
     if p.get("tagline"):

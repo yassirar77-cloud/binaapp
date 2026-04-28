@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from app.data.malaysian_food_images import build_image_map as build_cuisine_image_map
+
 from app.schemas.recipe import (
     AnimationConfig,
     ColorTokens,
@@ -56,6 +58,18 @@ NAV_LABELS = {
 
 def build_recipe(brief: DesignBrief) -> PageRecipe:
     """Convert a validated DesignBrief into a fully-resolved PageRecipe."""
+    # If cuisine_type is set and image_map is sparse, auto-fill from cuisine pool
+    if brief.cuisine_type and not brief.image_map.get("hero"):
+        cuisine_images = build_cuisine_image_map(
+            brief.cuisine_type.value,
+            gallery_count=4,
+            menu_count=3,
+            seed=hash(brief.business.name) % 10000,
+        )
+        # Merge: explicit image_map entries take priority over cuisine pool
+        merged = {**cuisine_images, **brief.image_map}
+        brief = brief.model_copy(update={"image_map": merged})
+
     dna = get_style_dna(brief.style_dna.value)
 
     theme = _build_theme(dna)
@@ -222,7 +236,7 @@ def _resolve_props(
             continue
         elif key == "reviews" and isinstance(val, list):
             props["reviews"] = [
-                {**r, "avatar_fallback": r.get("name", "?")[0].upper()}
+                {**r, "avatar_fallback": r.get("avatar_fallback", r.get("name", "?")[0].upper())}
                 for r in val
             ]
         else:
