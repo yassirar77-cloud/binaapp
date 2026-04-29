@@ -95,6 +95,76 @@
 7. **Accessibility** — semantic HTML, proper heading hierarchy, alt text, aria-labels on interactive elements
 8. **Bahasa-first** — all placeholder text in Malay (Khulafa Bistro test data)
 
+## Anti-Patterns (Forbidden)
+
+1. **Two variants in same section that differ only in color** — variants must differ structurally, not just cosmetically
+2. **Carousels without touch-swipe on mobile** — every carousel/slider must support native touch-swipe gestures
+3. **Forms without WhatsApp fallback button** — Malaysian users prefer WhatsApp over email; every form must include a "Atau WhatsApp kami" button
+4. **Stats with placeholder numbers** — must feel real and specific: "5+ tahun", "200+ menu items", not "XX years"
+5. **Timeline starting from generic "Founded in 2020"** — must feel Malaysian context (Hari Raya 2018, MCO 2020 challenges, JAKIM certification milestones)
+6. **Hardcoded English text** — all user-facing text must be Bahasa Malaysia first; English only in code comments
+
+---
+
+## Failure Handling
+
+**If a variant cannot be built within 30 minutes:**
+
+1. Skip it, document why in `docs/V2_PROGRESS_NOTES.md`
+2. Move to next variant in batch
+3. After batch complete, list skipped variants for human review
+4. Never commit a half-broken variant — mark as TODO instead
+
+**If 2+ variants in a batch fail:**
+
+1. STOP the batch immediately
+2. Update `docs/V2_PROGRESS_NOTES.md` with failure details
+3. Wait for human direction — do not proceed to next batch
+
+---
+
+## Test Data — Khulafa Bistro
+
+Pinned values for all preview generation:
+
+```yaml
+cuisine_type: malay_fusion
+style_dna: teh_tarik_warm
+mode: light
+business_name: Khulafa Bistro
+location: Shah Alam, Selangor
+specific_dishes:
+  - Nasi Kerabu Deconstructed
+  - Rendang Burger
+  - Laksa Carbonara
+```
+
+**Stats data (for AboutStats):**
+- 5+ tahun pengalaman
+- 200+ menu items
+- 4.8/5 rating
+- 1,500+ pelanggan tetap
+
+**Timeline data (for AboutTimeline):**
+- 2018: Bermula dari dapur rumah
+- 2020: Restoran pertama di Shah Alam (during MCO challenges)
+- 2022: Halal certification dari JAKIM
+- 2024: Cawangan ke-3 dibuka
+
+**Founder data (for AboutStory):**
+- Name: Yassir Ar.
+- Title: Pengasas
+- Quote: "Resipi nenek, sentuhan moden — itu falsafah kami"
+
+**Contact form fields (for ContactForm):**
+- Nama Penuh
+- Nombor Telefon
+- Tarikh Acara
+- Bilangan Tetamu
+- Pesanan Tambahan
+
+---
+
 ## Execution Order
 
 ```
