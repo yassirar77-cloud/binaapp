@@ -130,6 +130,17 @@ MEE_GORENG: List[FoodImage] = [
     FoodImage("photo-1705562705207-4322c4ab4844", "Mee goreng with vegetables", "menu_item", "Yosafat Herdian"),
 ]
 
+MODERN_FUSION: List[FoodImage] = [
+    FoodImage("photo-1693376194231-677002aab5b2", "Asian fusion plated dish with chopsticks", "menu_item", "Curves Photography"),
+    FoodImage("photo-1585144570839-e429bb95ffb4", "Fine dining Asian fusion on black ceramic", "hero", "Louis Hansel"),
+    FoodImage("photo-1580876205972-0dc89bc0e336", "Modern cooked dish on white plate", "menu_item", "CHUTTERSNAP"),
+    FoodImage("photo-1653666351563-6e636c00b38e", "Rendang-style meat plated with veggies", "menu_item", "sandi firmansyah"),
+    FoodImage("photo-1585627990987-58ef59c709e6", "Gourmet braised chicken wings fine dining", "detail", "nmw brands"),
+    FoodImage("photo-1767429013002-69b35cb45395", "Fish with creamy sauce and bok choy", "menu_item", "You Le"),
+    FoodImage("photo-1621317607972-b2afed231542", "Rendang plated fine dining with lemon", "hero", "Fernandes Photographer"),
+    FoodImage("photo-1569580990518-5c62fd4bdcf7", "Fusion burger on teal ceramic plate", "menu_item", "Pesce Huang"),
+]
+
 RESTAURANT_INTERIOR: List[FoodImage] = [
     FoodImage("photo-1773927005455-8efc55a8d512", "Bright cafe interior with plants and tables", "ambience", "Janelle Ang"),
     FoodImage("photo-1771830916721-c8da5d52e50f", "Cozy cafe with wooden tables", "ambience", "Elist Nguyen"),
@@ -147,13 +158,13 @@ RESTAURANT_INTERIOR: List[FoodImage] = [
 
 CUISINE_POOLS: Dict[str, List[List[FoodImage]]] = {
     "mamak": [ROTI_CANAI, NASI_KANDAR, MEE_GORENG, SATAY],
-    "malay_fusion": [NASI_LEMAK, RENDANG, LAKSA, SATAY, KUIH, CHAR_KWAY_TEOW],
+    "malay_fusion": [NASI_LEMAK, RENDANG, LAKSA, SATAY, KUIH, CHAR_KWAY_TEOW, MODERN_FUSION],
     "malay_traditional": [NASI_LEMAK, RENDANG, SATAY, KUIH, NASI_KANDAR],
-    "fine_dining_malay": [RENDANG, LAKSA, NASI_LEMAK, SATAY, KUIH],
+    "fine_dining_malay": [RENDANG, LAKSA, NASI_LEMAK, SATAY, KUIH, MODERN_FUSION],
     "kopitiam_chinese": [CHAR_KWAY_TEOW, MEE_GORENG, LAKSA],
     "fast_food_halal": [SATAY, MEE_GORENG, NASI_LEMAK, ROTI_CANAI],
     "warung_kampung": [NASI_LEMAK, RENDANG, NASI_KANDAR, SATAY, MEE_GORENG],
-    "cafe_modern": [LAKSA, NASI_LEMAK, KUIH, RENDANG],
+    "cafe_modern": [LAKSA, NASI_LEMAK, KUIH, RENDANG, MODERN_FUSION],
     "western_halal": [RENDANG, SATAY, LAKSA],
     "thai_halal": [LAKSA, SATAY, MEE_GORENG],
     "indian_halal": [ROTI_CANAI, NASI_KANDAR],
