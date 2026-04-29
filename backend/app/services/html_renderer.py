@@ -134,10 +134,24 @@ def _theme_to_css(theme: ThemeTokens) -> str:
             background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
             border-radius: 2px;
         }}
-        /* Hide Tailwind CDN play mode badge */
+        /* Hide Tailwind CDN play mode badge — nuclear approach for PDF */
         #__tailwind_play__, .tw-play-btn,
-        [style*="position: fixed"][style*="z-index: 2147483647"] {{
+        [style*="position: fixed"][style*="z-index: 2147483647"],
+        [style*="position: fixed"][style*="z-index: 99999"],
+        [style*="position: fixed"][style*="z-index: 999999"],
+        [style*="position:fixed"][style*="z-index"] {{
             display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            width: 0 !important;
+            height: 0 !important;
+            overflow: hidden !important;
+            pointer-events: none !important;
+        }}
+        /* Catch-all: any fixed element in the bottom-right quadrant (badges, overlays) */
+        [style*="position: fixed"][style*="bottom"][style*="right"] {{
+            display: none !important;
+            visibility: hidden !important;
         }}
         /* Prevent Google Maps SDK overlay messages */
         .map-container iframe {{

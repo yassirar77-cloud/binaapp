@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Khulafa Bistro | Citarasa Melayu Moden untuk Seluruh Keluarga</title>
     <meta name="description" content="Khulafa Bistro menghidangkan masakan Melayu fusion yang menggabungkan resipi tradisional dengan sentuhan moden.">
-    <meta property="og:image" content="https://images.unsplash.com/photo-1775986501486-380ea9539e07?w=1200&amp;h=800&amp;fit=crop&amp;q=80">
+    <meta property="og:image" content="https://images.unsplash.com/photo-1636301175218-6994458a4b0a?w=1200&amp;h=800&amp;fit=crop&amp;q=80">
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Nunito:wght@400;500;600&display=swap">
     <link rel="stylesheet" href="https://unpkg.com/aos@2.3.4/dist/aos.css">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -106,10 +106,24 @@
             background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
             border-radius: 2px;
         }
-        /* Hide Tailwind CDN play mode badge */
+        /* Hide Tailwind CDN play mode badge — nuclear approach for PDF */
         #__tailwind_play__, .tw-play-btn,
-        [style*="position: fixed"][style*="z-index: 2147483647"] {
+        [style*="position: fixed"][style*="z-index: 2147483647"],
+        [style*="position: fixed"][style*="z-index: 99999"],
+        [style*="position: fixed"][style*="z-index: 999999"],
+        [style*="position:fixed"][style*="z-index"] {
             display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            width: 0 !important;
+            height: 0 !important;
+            overflow: hidden !important;
+            pointer-events: none !important;
+        }
+        /* Catch-all: any fixed element in the bottom-right quadrant (badges, overlays) */
+        [style*="position: fixed"][style*="bottom"][style*="right"] {
+            display: none !important;
+            visibility: hidden !important;
         }
         /* Prevent Google Maps SDK overlay messages */
         .map-container iframe {
@@ -167,7 +181,7 @@
 <div id="hero" data-aos="fade-up" >
     <div class="relative h-screen min-h-[600px] max-h-[1000px] overflow-hidden">
         <!-- Full background -->
-        <div class="absolute inset-0 bg-cover bg-center" style="background-image: url(https://images.unsplash.com/photo-1775986501486-380ea9539e07?w=1200&amp;h=800&amp;fit=crop&amp;q=80);"></div>
+        <div class="absolute inset-0 bg-cover bg-center" style="background-image: url(https://images.unsplash.com/photo-1636301175218-6994458a4b0a?w=1200&amp;h=800&amp;fit=crop&amp;q=80);"></div>
         <div class="absolute inset-0" style="background: linear-gradient(to top, rgba(0,0,0,0.65) 0%, transparent 50%);"></div>
         <!-- Bottom-left content card -->
         <div class="absolute bottom-0 left-0 right-0 z-10 p-4 sm:p-8 lg:p-12">
@@ -243,7 +257,7 @@
         <div class="menu-card rounded-2xl overflow-hidden sm:col-span-2 lg:col-span-1"
              style="background-color: var(--color-surface); box-shadow: var(--shadow);">
             <div class="relative overflow-hidden">
-                <img src="https://images.unsplash.com/photo-1617694455303-59af55af7e58?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Nasi Kerabu Deconstructed"
+                <img src="https://images.unsplash.com/photo-1752924349474-d717ed874d98?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Nasi Kerabu Deconstructed"
                      class="w-full h-56 object-cover transition-transform duration-500 hover:scale-110" loading="lazy"
                      onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
                 <div class="w-full h-56 items-center justify-center" style="display:none;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
@@ -267,7 +281,7 @@
         <div class="menu-card rounded-2xl overflow-hidden "
              style="background-color: var(--color-surface); box-shadow: var(--shadow);">
             <div class="relative overflow-hidden">
-                <img src="https://images.unsplash.com/photo-1624957389019-0c814505746d?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Rendang Burger"
+                <img src="https://images.unsplash.com/photo-1550367363-ea12860cc124?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Rendang Burger"
                      class="w-full h-48 object-cover transition-transform duration-500 hover:scale-110" loading="lazy"
                      onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
                 <div class="w-full h-48 items-center justify-center" style="display:none;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
@@ -323,7 +337,7 @@
         </div>
         <div class="grid grid-cols-2 md:grid-cols-3 auto-rows-[190px] gap-2">
             <div class="col-span-2 row-span-2 overflow-hidden rounded-2xl group">
-                <img src="https://images.unsplash.com/photo-1617694455712-77ce4c1ce7b3?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Khulafa Bistro"
+                <img src="https://images.unsplash.com/photo-1692757299006-8e047baddfa1?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Khulafa Bistro"
                      class="w-full h-full object-cover transition-all duration-500 group-hover:scale-105" loading="lazy"
                      style="min-height: 400px;"
                      onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
@@ -332,7 +346,7 @@
                 </div>
             </div>
             <div class="overflow-hidden rounded-2xl group">
-                <img src="https://images.unsplash.com/photo-1666239308347-4292ea2ff777?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Khulafa Bistro"
+                <img src="https://images.unsplash.com/photo-1642509600566-96fe95a744b3?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Khulafa Bistro"
                      class="w-full h-full object-cover transition-all duration-500 group-hover:scale-105" loading="lazy"
                      style="min-height: 190px;"
                      onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
@@ -341,7 +355,7 @@
                 </div>
             </div>
             <div class="overflow-hidden rounded-2xl group">
-                <img src="https://images.unsplash.com/photo-1560739086-eb6fde4babfa?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Khulafa Bistro"
+                <img src="https://images.unsplash.com/photo-1772855386828-a18ff9a12584?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Khulafa Bistro"
                      class="w-full h-full object-cover transition-all duration-500 group-hover:scale-105" loading="lazy"
                      style="min-height: 190px;"
                      onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
@@ -350,7 +364,7 @@
                 </div>
             </div>
             <div class="overflow-hidden rounded-2xl group">
-                <img src="https://images.unsplash.com/photo-1707270686195-7415251cc9c0?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Khulafa Bistro"
+                <img src="https://images.unsplash.com/photo-1617694455303-59af55af7e58?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Khulafa Bistro"
                      class="w-full h-full object-cover transition-all duration-500 group-hover:scale-105" loading="lazy"
                      style="min-height: 190px;"
                      onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
