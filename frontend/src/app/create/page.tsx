@@ -17,6 +17,7 @@ import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
 import { supabase, signOut as customSignOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
+import './create.css'
 
 const EXAMPLE_DESCRIPTIONS = [
   {
@@ -1014,160 +1015,166 @@ export default function CreatePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b sticky top-0 z-40">
-        <nav className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-primary-600" />
-            <span className="text-xl font-bold">BinaApp</span>
-          </Link>
-          <div className="flex items-center gap-4">
+    <div className="bg-create grain font-geist" style={{ minHeight: '100vh', color: '#F5F5FA' }}>
+      {/* ── Nav ── */}
+      <nav style={{ position: 'sticky', top: 0, zIndex: 50, backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', background: 'rgba(5,5,12,.72)', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+        <div className="shell-create" style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
+            <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit' }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'linear-gradient(135deg, #6B5CFF, #4F3DFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(79,61,255,.4), inset 0 1px 0 rgba(255,255,255,.2)', position: 'relative', overflow: 'hidden' }}>
+                <Sparkles size={15} color="#fff" />
+                <span style={{ position: 'absolute', top: 3, right: 3, width: 4, height: 4, borderRadius: '50%', background: '#C7FF3D', boxShadow: '0 0 6px #C7FF3D' }} />
+              </div>
+              <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.025em' }}>binaapp</span>
+            </Link>
+            <div className="hidden sm:flex" style={{ gap: 4, fontSize: 14 }}>
+              <span style={{ padding: '8px 12px', borderRadius: 8, color: '#F5F5FA', background: 'rgba(255,255,255,.05)', fontWeight: 500 }}>Create</span>
+              <Link href="/dashboard" style={{ padding: '8px 12px', borderRadius: 8, color: '#86869A', textDecoration: 'none' }}>My sites</Link>
+              <Link href="/create/templates" style={{ padding: '8px 12px', borderRadius: 8, color: '#86869A', textDecoration: 'none' }}>
+                {selectedTemplateId ? `Template: ${selectedTemplateId.replace(/_/g, ' ')}` : 'Templates'}
+              </Link>
+              <Link href="/dashboard/billing" style={{ padding: '8px 12px', borderRadius: 8, color: '#86869A', textDecoration: 'none' }}>Pricing</Link>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div className="pill pill-volt" style={{ cursor: 'pointer', padding: '4px 10px', fontSize: 10 }} onClick={() => setLanguage(language === 'ms' ? 'en' : 'ms')}>
+              <span className="led" /> {language === 'ms' ? 'BM' : 'EN'}
+            </div>
             {!authLoading && (
               user ? (
-                <>
-                  <Link href="/profile" className="text-sm text-gray-600 hover:text-gray-900">
-                    Profil
-                  </Link>
-                  <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">
-                    Website Saya
-                  </Link>
-                  <Link href="/dashboard/billing" className="text-sm text-gray-600 hover:text-gray-900">
-                    💎 Langganan
-                  </Link>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <button
                     onClick={handleLogout}
-                    className="text-sm text-red-500 hover:text-red-600"
+                    style={{ padding: '8px 10px', fontSize: 12, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 8, color: '#B8B8C8', cursor: 'pointer' }}
                   >
                     Log Keluar
                   </button>
-                </>
-              ) : (
-                <>
-                  <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900">
-                    Log Masuk
+                  <Link href="/profile" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px 4px 4px', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 999, textDecoration: 'none', color: 'inherit' }}>
+                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'linear-gradient(135deg, #C7FF3D, #4F3DFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#05050C' }}>
+                      {(user.email?.[0] || 'U').toUpperCase()}
+                    </div>
+                    <span style={{ fontSize: 13, color: '#B8B8C8' }}>{user.user_metadata?.full_name || user.email?.split('@')[0] || 'User'}</span>
                   </Link>
-                  <Link href="/register" className="btn btn-primary btn-sm">
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Link href="/login" style={{ padding: '8px 12px', fontSize: 13, color: '#86869A', textDecoration: 'none' }}>Log Masuk</Link>
+                  <Link href="/register" className="cr-btn" style={{ padding: '8px 14px', fontSize: 13, background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', textDecoration: 'none', borderRadius: 12, boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 1px 0 rgba(255,255,255,.18) inset, 0 8px 24px rgba(79,61,255,.35)' }}>
                     Daftar
                   </Link>
-                </>
+                </div>
               )
             )}
           </div>
-        </nav>
-      </header>
+        </div>
+      </nav>
 
-      <div className="container mx-auto px-4 py-8">
+      <main className="shell-create" style={{ paddingTop: 32, paddingBottom: 80, position: 'relative', zIndex: 2 }}>
+        {/* ── Limit Reached Banner (top-level, always visible) ── */}
         {isAtLimit && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
-            Had website dicapai. Sila upgrade plan atau beli addon untuk mencipta website baru.
-            <Link href="/dashboard/billing" className="ml-2 underline font-semibold">Upgrade Sekarang</Link>
+          <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
+            <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020', boxShadow: '0 0 14px #FFB020' }} />
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,176,32,.1)', border: '1px solid rgba(255,176,32,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FFB020', flexShrink: 0 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 4 14h7l-2 8 9-12h-7l2-8Z"/></svg>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA' }}>Had website dicapai</div>
+              <div style={{ fontSize: 12, color: '#86869A', marginTop: 2 }}>Upgrade plan atau beli addon untuk mencipta website baru.</div>
+            </div>
+            <Link href="/dashboard/billing" style={{ height: 32, fontSize: 12, padding: '0 12px', display: 'inline-flex', alignItems: 'center', borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,176,32,.4)', color: '#F5F5FA', textDecoration: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              Upgrade
+            </Link>
           </div>
         )}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold mb-3">
-            ✨ Create Your Website with AI
-          </h1>
-          <p className="text-gray-600 text-lg">
-            Describe your business in Bahasa Malaysia or English, and let AI build your website
-          </p>
-          {/* Template gallery link */}
-          <Link
-            href="/create/templates"
-            className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 text-orange-700 rounded-full text-sm font-medium hover:from-orange-100 hover:to-amber-100 transition-all"
-          >
-            <Layout className="w-4 h-4" />
-            {selectedTemplateId
-              ? `Template: ${selectedTemplateId.replace(/_/g, ' ')}`
-              : 'Browse Design Templates'}
-          </Link>
-        </div>
+
+        {/* ── Hero Card ── */}
+        <section className="cr-card cr-card-hairline" style={{ padding: 32, position: 'relative', overflow: 'hidden', marginBottom: 32 }}>
+          <div className="dotgrid" style={{ position: 'absolute', inset: 0, opacity: .4, maskImage: 'radial-gradient(ellipse at top right, black 20%, transparent 70%)', WebkitMaskImage: 'radial-gradient(ellipse at top right, black 20%, transparent 70%)' }} />
+          <div style={{ position: 'absolute', top: -100, right: -80, width: 320, height: 320, borderRadius: '50%', background: 'radial-gradient(circle, rgba(79,61,255,.22), transparent 60%)', pointerEvents: 'none' }} />
+          <div style={{ position: 'relative' }}>
+            <div className="pill pill-volt ai-pulse" style={{ marginBottom: 20 }}>
+              <span className="led" /> AI ready · powered by claude
+            </div>
+            <h1 style={{ fontSize: 56, fontWeight: 700, letterSpacing: '-0.045em', lineHeight: 1, margin: 0, color: '#F5F5FA' }}>
+              Bina, jual,<br />
+              <span style={{ background: 'linear-gradient(120deg, #C7FF3D 30%, #6B5CFF 70%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>bebas.</span>
+            </h1>
+            <p style={{ color: '#B8B8C8', fontSize: 18, lineHeight: 1.5, margin: '20px 0 28px', maxWidth: 540 }}>
+              Cerita pasal kedai anda. AI bina website siap dalam 60 saat — terima pesanan, jual menu, semua dalam satu tempat.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+              <span className="eyebrow" style={{ marginRight: 4 }}>Try:</span>
+              {EXAMPLE_DESCRIPTIONS.slice(0, 4).map((ex) => (
+                <button key={ex.title} className="chip" onClick={() => fillExample(ex)}>
+                  <Sparkles size={12} /> {ex.title}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 14, marginTop: 24, fontSize: 13, color: '#5A5A6E' }}>
+              <Link href="/create/templates" style={{ color: '#86869A', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Layout size={14} /> Browse templates
+              </Link>
+              <span style={{ color: '#3A3A4A' }}>·</span>
+              <a href="/menu-designer" style={{ color: '#86869A', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg>
+                Create print menu
+              </a>
+            </div>
+          </div>
+        </section>
 
         {!generatedHtml && styleVariations.length === 0 ? (
           <div className="max-w-4xl mx-auto">
             {/* Subscription Required Banner */}
             {!subscriptionLoading && hasActiveSubscription === false && user && (
-              <div className="mb-6 p-6 bg-red-50 border-2 border-red-300 rounded-xl">
-                <div className="flex flex-col md:flex-row items-center gap-4">
-                  <span className="text-4xl">🔒</span>
-                  <div className="flex-1 text-center md:text-left">
-                    <h3 className="text-red-800 font-bold text-lg mb-1">Langganan Diperlukan</h3>
-                    <p className="text-red-700 text-sm">
-                      Anda perlu melanggan pelan untuk mencipta website. Bermula dari RM5/bulan sahaja.
-                    </p>
-                  </div>
-                  <a
-                    href="/dashboard/billing"
-                    className="px-6 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"
-                  >
-                    Langgan Sekarang
-                  </a>
+              <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(199,255,61,.06), transparent)', border: '1px solid rgba(199,255,61,.22)' }}>
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#C7FF3D', boxShadow: '0 0 14px #C7FF3D' }} />
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(199,255,61,.1)', border: '1px solid rgba(199,255,61,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#C7FF3D', flexShrink: 0 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="m3 8 4 4 5-7 5 7 4-4v10H3z"/></svg>
                 </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA' }}>Langganan diperlukan</div>
+                  <div style={{ fontSize: 12, color: '#86869A', marginTop: 2 }}>Mula dari RM 5/bulan — batal bila-bila masa.</div>
+                </div>
+                <a href="/dashboard/billing" style={{ height: 32, fontSize: 12, padding: '0 12px', display: 'inline-flex', alignItems: 'center', borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(199,255,61,.3)', color: '#F5F5FA', textDecoration: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  Pilih Plan
+                </a>
               </div>
             )}
 
             {/* Not Logged In Banner */}
             {!authLoading && !user && (
-              <div className="mb-6 p-6 bg-blue-50 border-2 border-blue-300 rounded-xl">
-                <div className="flex flex-col md:flex-row items-center gap-4">
-                  <span className="text-4xl">👤</span>
-                  <div className="flex-1 text-center md:text-left">
-                    <h3 className="text-blue-800 font-bold text-lg mb-1">Log Masuk Diperlukan</h3>
-                    <p className="text-blue-700 text-sm">
-                      Sila log masuk dan langgan untuk mencipta website. Bermula dari RM5/bulan sahaja.
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <a
-                      href="/login?redirect=/create"
-                      className="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
-                    >
-                      Log Masuk
-                    </a>
-                    <a
-                      href="/register"
-                      className="px-6 py-3 border-2 border-blue-600 text-blue-600 font-bold rounded-lg hover:bg-blue-50 transition-colors whitespace-nowrap"
-                    >
-                      Daftar
-                    </a>
-                  </div>
+              <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(63,184,255,.06), transparent)', border: '1px solid rgba(63,184,255,.22)' }}>
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#3FB8FF', boxShadow: '0 0 14px #3FB8FF' }} />
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(63,184,255,.1)', border: '1px solid rgba(63,184,255,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3FB8FF', flexShrink: 0 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg>
                 </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA' }}>Sign in to save your work</div>
+                  <div style={{ fontSize: 12, color: '#86869A', marginTop: 2 }}>Continue as guest — but save your progress with a free account.</div>
+                </div>
+                <a href="/login?redirect=/create" style={{ height: 32, fontSize: 12, padding: '0 12px', display: 'inline-flex', alignItems: 'center', borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(63,184,255,.3)', color: '#F5F5FA', textDecoration: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  Sign in
+                </a>
               </div>
             )}
 
             {/* Limit Warning Banner */}
             {limitWarning && (
-              <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">⚠️</span>
-                  <div className="flex-1">
-                    <p className="text-orange-800 font-medium">{limitWarning}</p>
-                    <p className="text-orange-700 text-sm mt-1">
-                      Naik taraf pelan anda untuk lebih banyak website.
-                    </p>
-                  </div>
-                  <a
-                    href="/dashboard/billing"
-                    className="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors"
-                  >
-                    Naik Taraf
-                  </a>
+              <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020', boxShadow: '0 0 14px #FFB020' }} />
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,176,32,.1)', border: '1px solid rgba(255,176,32,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FFB020', flexShrink: 0 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 4 14h7l-2 8 9-12h-7l2-8Z"/></svg>
                 </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA' }}>{limitWarning}</div>
+                  <div style={{ fontSize: 12, color: '#86869A', marginTop: 2 }}>Upgrade untuk lebih banyak website.</div>
+                </div>
+                <a href="/dashboard/billing" style={{ height: 32, fontSize: 12, padding: '0 12px', display: 'inline-flex', alignItems: 'center', borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,176,32,.3)', color: '#F5F5FA', textDecoration: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  Upgrade
+                </a>
               </div>
             )}
-
-            <div style={{ marginBottom: '20px' }}>
-              <a href="/menu-designer" style={{
-                display: 'inline-block',
-                padding: '12px 24px',
-                background: '#16a34a',
-                color: 'white',
-                textDecoration: 'none',
-                borderRadius: '8px',
-                fontWeight: 'bold'
-              }}>
-                🍽️ Create Print Menu
-              </a>
-            </div>
 
             <div className="mb-6">
               <label className="block text-sm font-semibold mb-3 text-gray-700">
@@ -2162,7 +2169,7 @@ export default function CreatePage() {
             )}
           </div>
         )}
-      </div>
+      </main>
 
       {showPublishModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">

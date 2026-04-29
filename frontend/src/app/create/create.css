@@ -1,0 +1,161 @@
+/* BinaApp /create — premium dark redesign
+   Scoped styles for the create page only.
+   Uses cr- prefix on classes that conflict with globals.css (.card, .input, .textarea, .btn) */
+
+/* ------- Page background ------- */
+.bg-create {
+  background:
+    radial-gradient(1200px 700px at 78% -10%, rgba(79,61,255,.18), transparent 55%),
+    radial-gradient(900px 600px at -10% 30%, rgba(199,255,61,.06), transparent 55%),
+    #05050C;
+}
+.grain::before {
+  content: "";
+  position: fixed; inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  opacity: .035;
+  mix-blend-mode: overlay;
+  z-index: 1;
+}
+
+/* ------- Dotgrid pattern ------- */
+.dotgrid {
+  background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.05) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+/* ------- Cards (cr- prefixed) ------- */
+.cr-card {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,0)),
+    #0F0F1A;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 20px;
+  position: relative;
+}
+.cr-card-hairline {
+  position: relative;
+}
+.cr-card-hairline::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+/* ------- Type helpers ------- */
+.eyebrow {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #86869A;
+  font-weight: 500;
+}
+.num {
+  font-family: 'Geist Mono', monospace;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ------- Status pills ------- */
+.pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; font-weight: 500;
+  border: 1px solid;
+}
+.pill .led {
+  width: 6px; height: 6px; border-radius: 50%;
+}
+.pill-volt {
+  border-color: rgba(199,255,61,.3);
+  background: rgba(199,255,61,.07);
+  color: #DDFF7A;
+}
+.pill-volt .led { background: #C7FF3D; box-shadow: 0 0 10px #C7FF3D; }
+.pill-indigo {
+  border-color: rgba(107,92,255,.3);
+  background: rgba(79,61,255,.08);
+  color: #BAB0FF;
+}
+.pill-indigo .led { background: #6B5CFF; box-shadow: 0 0 10px #6B5CFF; }
+
+/* ------- Buttons (cr- prefixed) ------- */
+.cr-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 0; border-radius: 12px;
+  font-family: 'Geist', 'Inter', -apple-system, sans-serif;
+  font-weight: 600; font-size: 14px; letter-spacing: -0.01em;
+  padding: 11px 16px; cursor: pointer;
+  transition: all 180ms cubic-bezier(.25,1,.5,1);
+  white-space: nowrap;
+}
+.cr-btn:active { transform: scale(.98); }
+.cr-btn-ghost {
+  background: rgba(255,255,255,.04);
+  color: #F5F5FA;
+  border: 1px solid rgba(255,255,255,.08);
+}
+.cr-btn-ghost:hover { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.16); }
+.cr-btn-icon {
+  width: 36px; height: 36px; padding: 0;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  color: #B8B8C8; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 180ms;
+  border: 0;
+}
+.cr-btn-icon:hover { background: rgba(255,255,255,.08); color: #F5F5FA; }
+
+/* ------- Chips ------- */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 999px;
+  font-size: 13px; color: #B8B8C8;
+  cursor: pointer;
+  transition: all 180ms;
+  font-family: 'Geist', 'Inter', -apple-system, sans-serif;
+}
+.chip:hover { background: rgba(255,255,255,.08); color: #F5F5FA; border-color: rgba(255,255,255,.14); transform: translateY(-1px); }
+
+/* ------- AI pulse animation ------- */
+@keyframes aipulse {
+  0%, 100% { opacity: .8; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+.ai-pulse { animation: aipulse 2.4s ease-in-out infinite; }
+
+/* ------- Float-in animation ------- */
+@keyframes float-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.float-in { animation: float-up 420ms cubic-bezier(.25,1,.5,1) both; }
+
+/* ------- Banner accent bars ------- */
+.banner-accent {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  margin-bottom: 14px;
+  position: relative;
+  overflow: hidden;
+}
+.banner-accent::before {
+  content: "";
+  position: absolute; top: 0; bottom: 0; left: 0;
+  width: 3px;
+}
+
+/* ------- Layout shell ------- */
+.shell-create { max-width: 1440px; margin: 0 auto; padding: 0 28px; }
+@media (max-width: 1100px) { .shell-create { padding: 0 20px; } }
