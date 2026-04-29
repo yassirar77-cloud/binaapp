@@ -616,6 +616,169 @@ def _about_story(p: Dict[str, Any]) -> str:
         </div>"""
 
 
+@_component("AboutStats")
+def _about_stats(p: Dict[str, Any]) -> str:
+    """Metrics row (years, dishes served, ratings) with brief text below.
+    Data-driven trust — numbers speak louder."""
+    stats = p.get("stats", [])
+    stat_items = []
+    for idx, stat in enumerate(stats):
+        delay = idx * 100
+        stat_items.append(f"""            <div class="text-center p-6" data-aos="fade-up" data-aos-delay="{delay}">
+                <div class="text-4xl sm:text-5xl md:text-6xl font-black"
+                     style="font-family: var(--font-heading); color: var(--color-primary); line-height: 1;">
+                    {_esc(stat.get('value', ''))}
+                </div>
+                <p class="mt-3 text-sm sm:text-base font-medium uppercase tracking-wider"
+                   style="color: var(--color-text-muted); letter-spacing: 0.1em;">
+                    {_esc(stat.get('label', ''))}
+                </p>
+            </div>""")
+
+    stats_grid = "\n".join(stat_items)
+
+    description = ""
+    if p.get("description"):
+        description = f"""        <p class="mt-10 text-base sm:text-lg leading-relaxed text-center max-w-2xl mx-auto"
+           style="color: var(--color-text-muted);">
+            {_esc(p['description'])}
+        </p>"""
+
+    quote = ""
+    if p.get("quote") and p.get("quote_author"):
+        quote = f"""        <div class="mt-12 text-center">
+            <blockquote class="text-xl sm:text-2xl font-medium italic leading-snug max-w-xl mx-auto"
+                        style="font-family: var(--font-heading); color: var(--color-text);">
+                &ldquo;{_esc(p['quote'])}&rdquo;
+            </blockquote>
+            <p class="mt-4 text-sm font-semibold tracking-wide uppercase"
+               style="color: var(--color-primary);">
+                — {_esc(p['quote_author'])}
+            </p>
+        </div>"""
+
+    return f"""        <div class="text-center mb-12">
+            <div class="accent-line mx-auto mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight"
+                style="font-family: var(--font-heading); color: var(--color-text);">
+                {_esc(p['heading'])}
+            </h2>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-6 lg:gap-10 py-8 px-4 rounded-3xl"
+             style="background-color: var(--color-surface); box-shadow: var(--shadow-lg);">
+{stats_grid}
+        </div>
+{description}
+{quote}"""
+
+
+@_component("AboutTimeline")
+def _about_timeline(p: Dict[str, Any]) -> str:
+    """Vertical timeline of business milestones with alternating sides.
+    Heritage restaurants showing evolution — Malaysian context required."""
+    milestones = p.get("milestones", [])
+    timeline_items = []
+    for idx, m in enumerate(milestones):
+        is_right = idx % 2 == 1
+        delay = idx * 150
+        side_class = "md:text-right md:pr-12" if not is_right else "md:pl-12 md:col-start-2"
+        dot_pos = "md:right-0 md:translate-x-1/2" if not is_right else "md:left-0 md:-translate-x-1/2"
+
+        icon = m.get("icon", "fa-solid fa-circle-check")
+
+        timeline_items.append(f"""            <!-- Milestone {idx + 1} -->
+            <div class="relative pl-10 md:pl-0 {'md:col-start-1 ' + side_class if not is_right else side_class} pb-12"
+                 data-aos="fade-up" data-aos-delay="{delay}">
+                <!-- Mobile dot (left edge) -->
+                <div class="absolute left-0 top-1 w-8 h-8 rounded-full flex items-center justify-center md:hidden"
+                     style="background-color: var(--color-primary);">
+                    <i class="{_esc(icon)} text-white text-xs"></i>
+                </div>
+                <!-- Desktop dot (center line) -->
+                <div class="hidden md:flex absolute top-1 {dot_pos} w-10 h-10 rounded-full items-center justify-center z-10"
+                     style="background-color: var(--color-primary); box-shadow: 0 0 0 4px var(--color-background), 0 0 0 6px var(--color-primary);">
+                    <i class="{_esc(icon)} text-white text-sm"></i>
+                </div>
+                <span class="inline-block text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full mb-3"
+                      style="background-color: var(--color-accent); color: var(--color-secondary);">
+                    {_esc(m.get('year', ''))}
+                </span>
+                <h3 class="text-lg sm:text-xl font-bold mt-1"
+                    style="font-family: var(--font-heading); color: var(--color-text);">
+                    {_esc(m.get('title', ''))}
+                </h3>
+                <p class="mt-2 text-sm sm:text-base leading-relaxed"
+                   style="color: var(--color-text-muted);">
+                    {_esc(m.get('description', ''))}
+                </p>
+            </div>""")
+
+    items_html = "\n".join(timeline_items)
+
+    return f"""        <div class="text-center mb-16">
+            <div class="accent-line mx-auto mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight"
+                style="font-family: var(--font-heading); color: var(--color-text);">
+                {_esc(p['heading'])}
+            </h2>
+        </div>
+        <!-- Timeline container -->
+        <div class="relative max-w-3xl mx-auto">
+            <!-- Vertical line (mobile: left, desktop: center) -->
+            <div class="absolute left-4 md:left-1/2 md:-translate-x-px top-0 bottom-0 w-0.5"
+                 style="background: linear-gradient(to bottom, var(--color-primary), var(--color-accent));"></div>
+            <!-- Items -->
+            <div class="md:grid md:grid-cols-2 md:gap-x-16">
+{items_html}
+            </div>
+        </div>"""
+
+
+@_component("AboutCards")
+def _about_cards(p: Dict[str, Any]) -> str:
+    """3 value-proposition cards (Halal, Fresh, Family) with icons.
+    Quick-scan values for busy users who skip paragraphs."""
+    cards = p.get("cards", [])
+    card_items = []
+    for idx, card in enumerate(cards):
+        delay = idx * 100
+        icon = card.get("icon", "fa-solid fa-star")
+        card_items.append(f"""        <div class="p-8 rounded-2xl text-center transition-all duration-300 hover:-translate-y-1"
+             style="background-color: var(--color-surface); box-shadow: var(--shadow);"
+             data-aos="fade-up" data-aos-delay="{delay}">
+            <div class="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-6"
+                 style="background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));">
+                <i class="{_esc(icon)} text-2xl text-white"></i>
+            </div>
+            <h3 class="text-xl font-bold mb-3"
+                style="font-family: var(--font-heading); color: var(--color-text);">
+                {_esc(card.get('title', ''))}
+            </h3>
+            <p class="text-sm sm:text-base leading-relaxed"
+               style="color: var(--color-text-muted);">
+                {_esc(card.get('description', ''))}
+            </p>
+        </div>""")
+
+    cards_html = "\n".join(card_items)
+
+    subtitle = ""
+    if p.get("subtitle"):
+        subtitle = f"""        <p class="mt-4 text-lg leading-relaxed" style="color: var(--color-text-muted);">{_esc(p['subtitle'])}</p>"""
+
+    return f"""        <div class="text-center mb-14">
+            <div class="accent-line mx-auto mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight"
+                style="font-family: var(--font-heading); color: var(--color-text);">
+                {_esc(p['heading'])}
+            </h2>
+{subtitle}
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+{cards_html}
+        </div>"""
+
+
 @_component("MenuGrid")
 def _menu_grid(p: Dict[str, Any]) -> str:
     subheading = ""
