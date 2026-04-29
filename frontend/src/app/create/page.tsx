@@ -1014,158 +1014,233 @@ export default function CreatePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b sticky top-0 z-40">
-        <nav className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-primary-600" />
-            <span className="text-xl font-bold">BinaApp</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            {!authLoading && (
-              user ? (
-                <>
-                  <Link href="/profile" className="text-sm text-gray-600 hover:text-gray-900">
-                    Profil
-                  </Link>
-                  <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">
-                    Website Saya
-                  </Link>
-                  <Link href="/dashboard/billing" className="text-sm text-gray-600 hover:text-gray-900">
-                    💎 Langganan
-                  </Link>
-                  <button
-                    onClick={handleLogout}
-                    className="text-sm text-red-500 hover:text-red-600"
-                  >
-                    Log Keluar
-                  </button>
-                </>
-              ) : (
-                <>
-                  <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900">
-                    Log Masuk
-                  </Link>
-                  <Link href="/register" className="btn btn-primary btn-sm">
-                    Daftar
-                  </Link>
-                </>
-              )
-            )}
+    <div className="min-h-screen bg-ink-950 text-[#F5F5FA] font-geist">
+      <header className="sticky top-0 z-40 border-b border-white/[.06] bg-ink-900/70 backdrop-blur-xl">
+        <nav className="max-w-7xl mx-auto px-4 sm:px-8 h-14 flex items-center gap-4">
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-2 font-geist-mono text-[11px] tracking-[.06em] text-ink-500">
+            <span>PEMBINA AI</span>
+            <span className="text-ink-600">/</span>
+            <span className="text-white">create</span>
           </div>
+          <div className="flex-1" />
+          {/* Language toggle */}
+          <div className="inline-flex p-[3px] bg-white/[.04] border border-white/[.07] rounded-full">
+            {(['ms', 'en'] as const).map(l => (
+              <button
+                key={l}
+                onClick={() => setLanguage(l)}
+                className={`px-3 py-[5px] rounded-full font-geist-mono text-[11px] font-semibold tracking-[.04em] transition-all ${
+                  language === l
+                    ? 'bg-white text-ink-900'
+                    : 'text-ink-400 hover:text-ink-300'
+                }`}
+              >
+                {l === 'ms' ? 'BM' : 'EN'}
+              </button>
+            ))}
+          </div>
+          {/* Templates */}
+          <Link
+            href="/create/templates"
+            className="hidden sm:inline-flex items-center gap-[7px] px-3 py-[7px] rounded-lg bg-white/[.04] border border-white/[.07] text-[#B8B8C8] text-xs font-medium hover:bg-white/[.08] transition-colors"
+          >
+            <Layout className="w-[14px] h-[14px]" />
+            {selectedTemplateId
+              ? `Template: ${selectedTemplateId.replace(/_/g, ' ')}`
+              : 'Templates'}
+          </Link>
+          {/* Auth nav */}
+          {!authLoading && (
+            user ? (
+              <div className="flex items-center gap-3">
+                <Link href="/profile" className="hidden sm:block text-xs text-ink-400 hover:text-white transition-colors">
+                  Profil
+                </Link>
+                <Link href="/dashboard" className="hidden sm:block text-xs text-ink-400 hover:text-white transition-colors">
+                  Website Saya
+                </Link>
+                <Link href="/dashboard/billing" className="hidden sm:block text-xs text-ink-400 hover:text-white transition-colors">
+                  Langganan
+                </Link>
+                <button
+                  onClick={handleLogout}
+                  className="text-xs text-err-400 hover:text-err-500 transition-colors"
+                >
+                  Log Keluar
+                </button>
+                {/* User avatar */}
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-brand-500 to-brand-300 grid place-items-center text-white font-geist-mono text-[11px] font-bold">
+                  {(user.email?.[0] || 'U').toUpperCase()}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Link href="/login" className="text-xs text-ink-400 hover:text-white transition-colors">
+                  Log Masuk
+                </Link>
+                <Link
+                  href="/register"
+                  className="px-3 py-[7px] rounded-lg bg-brand-500 text-white text-xs font-semibold hover:bg-brand-600 transition-colors"
+                >
+                  Daftar
+                </Link>
+              </div>
+            )
+          )}
         </nav>
       </header>
 
-      <div className="container mx-auto px-4 py-8">
+      <div className="max-w-[1180px] mx-auto px-4 sm:px-8 pb-20">
+        {/* ── Hero ── */}
+        <div className="relative text-center py-12 sm:py-14 overflow-hidden">
+          {/* Dotgrid background */}
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(143,128,255,.12) 1px, transparent 0)',
+              backgroundSize: '22px 22px',
+              maskImage: 'radial-gradient(ellipse 70% 70% at 50% 30%, #000 30%, transparent 70%)',
+              WebkitMaskImage: 'radial-gradient(ellipse 70% 70% at 50% 30%, #000 30%, transparent 70%)',
+            }}
+          />
+          {/* Indigo glow */}
+          <div
+            aria-hidden="true"
+            className="absolute left-1/2 top-[20%] -translate-x-1/2 w-[520px] h-[280px] pointer-events-none"
+            style={{
+              background: 'radial-gradient(ellipse at center, rgba(79,61,255,.25), transparent 60%)',
+              filter: 'blur(40px)',
+            }}
+          />
+          <div className="relative">
+            {/* AI status pill */}
+            <div className="inline-flex items-center gap-2 px-3 py-[5px] pl-[9px] rounded-full bg-volt-400/[.06] border border-volt-400/[.18] font-geist-mono text-[11px] text-volt-400 tracking-[.06em] mb-5">
+              <span className="w-[6px] h-[6px] rounded-full bg-volt-400" style={{ boxShadow: '0 0 8px #C7FF3D' }} />
+              AI · LIVE
+            </div>
+            <h1 className="font-geist text-[40px] sm:text-[56px] font-bold tracking-[-0.045em] leading-[.98] text-white max-w-[780px] mx-auto">
+              Bina website kau dalam{' '}
+              <span className="text-volt-400">60 saat</span>
+              <br />
+              <span className="text-ink-400">cuma cerita pasal bisnes kau.</span>
+            </h1>
+            <p className="font-geist text-base text-[#B8B8C8] mt-3.5 tracking-[-0.005em]">
+              Tulis je apa kau jual — AI akan susun, design, &amp; hasilkan website siap pakai.
+            </p>
+          </div>
+        </div>
+
+        {/* ── Conditional Banners ── */}
         {isAtLimit && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
-            Had website dicapai. Sila upgrade plan atau beli addon untuk mencipta website baru.
-            <Link href="/dashboard/billing" className="ml-2 underline font-semibold">Upgrade Sekarang</Link>
+          <div className="relative mb-4 flex items-center gap-3.5 p-[14px_18px] rounded-[14px] overflow-hidden"
+            style={{ background: 'rgba(255,90,95,.06)', border: '1px solid rgba(255,90,95,.28)' }}>
+            <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-err-400" />
+            <div className="w-9 h-9 rounded-[10px] grid place-items-center flex-shrink-0 border text-err-400"
+              style={{ background: 'rgba(255,255,255,.04)', borderColor: 'rgba(255,90,95,.28)' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M10.3 3.7 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.7a2 2 0 0 0-3.4 0zM12 9v4M12 17h0"/></svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-geist-mono text-[10px] tracking-[.12em] text-err-400 font-semibold mb-0.5">LIMIT REACHED</div>
+              <div className="text-sm font-semibold text-white tracking-[-0.01em]">Kau dah capai had website. Upgrade untuk lagi.</div>
+              <div className="text-xs text-ink-400 mt-0.5">Plan ASAS = 3 websites · Plan PRO = unlimited.</div>
+            </div>
+            <Link href="/dashboard/billing"
+              className="flex-shrink-0 px-4 py-[9px] rounded-[10px] bg-volt-400 text-ink-950 text-xs font-bold transition-colors hover:bg-volt-300"
+              style={{ boxShadow: '0 0 0 1px #A8E81C, 0 8px 20px rgba(199,255,61,.3)' }}>
+              Upgrade
+            </Link>
           </div>
         )}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold mb-3">
-            ✨ Create Your Website with AI
-          </h1>
-          <p className="text-gray-600 text-lg">
-            Describe your business in Bahasa Malaysia or English, and let AI build your website
-          </p>
-          {/* Template gallery link */}
-          <Link
-            href="/create/templates"
-            className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 text-orange-700 rounded-full text-sm font-medium hover:from-orange-100 hover:to-amber-100 transition-all"
-          >
-            <Layout className="w-4 h-4" />
-            {selectedTemplateId
-              ? `Template: ${selectedTemplateId.replace(/_/g, ' ')}`
-              : 'Browse Design Templates'}
-          </Link>
-        </div>
 
         {!generatedHtml && styleVariations.length === 0 ? (
           <div className="max-w-4xl mx-auto">
             {/* Subscription Required Banner */}
             {!subscriptionLoading && hasActiveSubscription === false && user && (
-              <div className="mb-6 p-6 bg-red-50 border-2 border-red-300 rounded-xl">
-                <div className="flex flex-col md:flex-row items-center gap-4">
-                  <span className="text-4xl">🔒</span>
-                  <div className="flex-1 text-center md:text-left">
-                    <h3 className="text-red-800 font-bold text-lg mb-1">Langganan Diperlukan</h3>
-                    <p className="text-red-700 text-sm">
-                      Anda perlu melanggan pelan untuk mencipta website. Bermula dari RM5/bulan sahaja.
-                    </p>
-                  </div>
-                  <a
-                    href="/dashboard/billing"
-                    className="px-6 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"
-                  >
-                    Langgan Sekarang
-                  </a>
+              <div className="relative mb-4 flex items-center gap-3.5 p-[14px_18px] rounded-[14px] overflow-hidden"
+                style={{ background: 'rgba(79,61,255,.08)', border: '1px solid rgba(143,128,255,.28)' }}>
+                <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-brand-300" />
+                <div className="w-9 h-9 rounded-[10px] grid place-items-center flex-shrink-0 text-brand-300"
+                  style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(143,128,255,.28)' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="m3 8 4 4 5-7 5 7 4-4v10H3z"/></svg>
                 </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-geist-mono text-[10px] tracking-[.12em] text-brand-300 font-semibold mb-0.5">NO ACTIVE SUBSCRIPTION</div>
+                  <div className="text-sm font-semibold text-white tracking-[-0.01em]">Kau perlu langganan aktif untuk generate</div>
+                  <div className="text-xs text-ink-400 mt-0.5">Mula dari RM 5/bulan — batal bila-bila masa.</div>
+                </div>
+                <a
+                  href="/dashboard/billing"
+                  className="flex-shrink-0 px-4 py-[9px] rounded-[10px] bg-brand-500 text-white text-xs font-bold transition-colors hover:bg-brand-600"
+                >
+                  Pilih Plan
+                </a>
               </div>
             )}
 
             {/* Not Logged In Banner */}
             {!authLoading && !user && (
-              <div className="mb-6 p-6 bg-blue-50 border-2 border-blue-300 rounded-xl">
-                <div className="flex flex-col md:flex-row items-center gap-4">
-                  <span className="text-4xl">👤</span>
-                  <div className="flex-1 text-center md:text-left">
-                    <h3 className="text-blue-800 font-bold text-lg mb-1">Log Masuk Diperlukan</h3>
-                    <p className="text-blue-700 text-sm">
-                      Sila log masuk dan langgan untuk mencipta website. Bermula dari RM5/bulan sahaja.
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <a
-                      href="/login?redirect=/create"
-                      className="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
-                    >
-                      Log Masuk
-                    </a>
-                    <a
-                      href="/register"
-                      className="px-6 py-3 border-2 border-blue-600 text-blue-600 font-bold rounded-lg hover:bg-blue-50 transition-colors whitespace-nowrap"
-                    >
-                      Daftar
-                    </a>
-                  </div>
+              <div className="relative mb-4 flex items-center gap-3.5 p-[14px_18px] rounded-[14px] overflow-hidden"
+                style={{ background: 'rgba(255,176,32,.06)', border: '1px solid rgba(255,176,32,.22)' }}>
+                <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-warn-400" />
+                <div className="w-9 h-9 rounded-[10px] grid place-items-center flex-shrink-0 text-warn-400"
+                  style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,176,32,.22)' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
                 </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-geist-mono text-[10px] tracking-[.12em] text-warn-400 font-semibold mb-0.5">TIDAK LOG MASUK</div>
+                  <div className="text-sm font-semibold text-white tracking-[-0.01em]">Sila log masuk untuk mula bina website</div>
+                  <div className="text-xs text-ink-400 mt-0.5">Save progress kau and access kemudian.</div>
+                </div>
+                <a
+                  href="/login?redirect=/create"
+                  className="flex-shrink-0 px-4 py-[9px] rounded-[10px] bg-warn-400 text-ink-950 text-xs font-bold transition-colors hover:bg-warn-500"
+                >
+                  Log Masuk
+                </a>
               </div>
             )}
 
             {/* Limit Warning Banner */}
             {limitWarning && (
-              <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">⚠️</span>
-                  <div className="flex-1">
-                    <p className="text-orange-800 font-medium">{limitWarning}</p>
-                    <p className="text-orange-700 text-sm mt-1">
-                      Naik taraf pelan anda untuk lebih banyak website.
-                    </p>
-                  </div>
-                  <a
-                    href="/dashboard/billing"
-                    className="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors"
-                  >
-                    Naik Taraf
-                  </a>
+              <div className="relative mb-4 flex items-center gap-3.5 p-[14px_18px] rounded-[14px] overflow-hidden"
+                style={{ background: 'rgba(255,176,32,.06)', border: '1px solid rgba(255,176,32,.22)' }}>
+                <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-warn-400" />
+                <div className="w-9 h-9 rounded-[10px] grid place-items-center flex-shrink-0 text-warn-400"
+                  style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,176,32,.22)' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M10.3 3.7 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.7a2 2 0 0 0-3.4 0zM12 9v4M12 17h0"/></svg>
                 </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-geist-mono text-[10px] tracking-[.12em] text-warn-400 font-semibold mb-0.5">AMARAN</div>
+                  <div className="text-sm font-semibold text-white tracking-[-0.01em]">{limitWarning}</div>
+                  <div className="text-xs text-ink-400 mt-0.5">Naik taraf pelan anda untuk lebih banyak website.</div>
+                </div>
+                <a
+                  href="/dashboard/billing"
+                  className="flex-shrink-0 px-4 py-[9px] rounded-[10px] bg-warn-400 text-ink-950 text-xs font-bold transition-colors hover:bg-warn-500"
+                >
+                  Naik Taraf
+                </a>
               </div>
             )}
 
-            <div style={{ marginBottom: '20px' }}>
-              <a href="/menu-designer" style={{
-                display: 'inline-block',
-                padding: '12px 24px',
-                background: '#16a34a',
-                color: 'white',
-                textDecoration: 'none',
-                borderRadius: '8px',
-                fontWeight: 'bold'
-              }}>
-                🍽️ Create Print Menu
+            <div className="mb-5">
+              <a
+                href="/menu-designer"
+                className="inline-flex items-center gap-3 px-4 py-[14px] rounded-xl text-left transition-colors"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(199,255,61,.06), rgba(199,255,61,.02))',
+                  border: '1px solid rgba(199,255,61,.22)',
+                }}
+              >
+                <span className="w-8 h-8 rounded-lg grid place-items-center text-volt-400" style={{ background: 'rgba(199,255,61,.14)' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="9" rx="2"/><rect x="6" y="14" width="12" height="7"/></svg>
+                </span>
+                <span>
+                  <span className="block text-[13px] font-semibold text-[#E8E8F0]">Create Print Menu</span>
+                  <span className="block text-[11px] text-ink-400 mt-0.5">Menu untuk cetak kedai</span>
+                </span>
               </a>
             </div>
 
