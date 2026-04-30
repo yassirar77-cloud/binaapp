@@ -68,14 +68,14 @@ export default function DevicePreview({ htmlContent, title = "Preview" }: Device
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+    <div style={{ background: '#0F0F1A', border: '1px solid rgba(255,255,255,.06)', borderRadius: 20, overflow: 'hidden' }}>
       {/* Header with Device Toggle */}
-      <div className="bg-gray-800 text-white px-4 py-3">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <span className="font-semibold">{title}</span>
+      <div style={{ background: '#0A0A14', padding: '12px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#F5F5FA' }}>{title}</span>
 
           {/* Device Selector */}
-          <div className="flex items-center gap-2">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             {(Object.keys(DEVICE_CONFIGS) as DeviceType[]).map((deviceType) => {
               const DeviceIcon = DEVICE_CONFIGS[deviceType].icon
               const isActive = device === deviceType
@@ -87,17 +87,18 @@ export default function DevicePreview({ htmlContent, title = "Preview" }: Device
                     setDevice(deviceType)
                     setOrientation('portrait')
                   }}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                    isActive
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }`}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '8px 12px', borderRadius: 10, border: 0, cursor: 'pointer',
+                    fontSize: 13, fontFamily: "'Geist', sans-serif", transition: 'all 180ms',
+                    background: isActive ? 'rgba(79,61,255,.15)' : 'rgba(255,255,255,.04)',
+                    color: isActive ? '#F5F5FA' : '#86869A',
+                    boxShadow: isActive ? '0 0 12px rgba(79,61,255,.2), inset 0 1px 0 rgba(255,255,255,.04)' : 'none',
+                  }}
                   title={DEVICE_CONFIGS[deviceType].name}
                 >
-                  <DeviceIcon className="w-4 h-4" />
-                  <span className="hidden sm:inline text-sm">
-                    {DEVICE_CONFIGS[deviceType].name}
-                  </span>
+                  <DeviceIcon size={14} />
+                  <span className="hidden sm:inline">{DEVICE_CONFIGS[deviceType].name}</span>
                 </button>
               )
             })}
@@ -106,77 +107,57 @@ export default function DevicePreview({ htmlContent, title = "Preview" }: Device
             {canRotate && (
               <button
                 onClick={toggleOrientation}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: 0, cursor: 'pointer', background: 'rgba(255,255,255,.04)', color: '#86869A', fontSize: 13, fontFamily: "'Geist', sans-serif", transition: 'all 180ms' }}
                 title={`Rotate to ${orientation === 'portrait' ? 'landscape' : 'portrait'}`}
               >
-                <RotateCw className="w-4 h-4" />
-                <span className="hidden sm:inline text-sm">Rotate</span>
+                <RotateCw size={14} />
+                <span className="hidden sm:inline">Rotate</span>
               </button>
             )}
           </div>
 
           {/* Device Info */}
-          <div className="text-sm text-gray-400">
+          <span className="num" style={{ fontSize: 12, color: '#5A5A6E' }}>
             {width} × {height}px
-          </div>
+          </span>
         </div>
       </div>
 
       {/* Preview Area */}
       <div
-        className="relative bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center overflow-auto"
-        style={{ minHeight: '500px', maxHeight: '80vh' }}
+        style={{ position: 'relative', background: 'linear-gradient(135deg, #0A0A14, #0F0F1A)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto', minHeight: 500, maxHeight: '80vh' }}
       >
         {config.frame ? (
-          /* Device Frame (Mobile/Tablet) */
           <div
-            className="relative bg-black rounded-3xl shadow-2xl m-8 transition-all duration-300"
             style={{
-              width: `${width}px`,
-              height: `${height}px`,
-              transform: `scale(${config.scale})`,
-              transformOrigin: 'center'
+              position: 'relative', background: '#000', borderRadius: 24, margin: 32, transition: 'all 300ms',
+              width: width, height: height,
+              transform: `scale(${config.scale})`, transformOrigin: 'center',
+              boxShadow: '0 8px 40px rgba(0,0,0,.5)',
             }}
           >
-            {/* Device Notch (for mobile) */}
             {device === 'mobile' && orientation === 'portrait' && (
-              <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-1/3 h-6 bg-black rounded-b-2xl z-10"></div>
+              <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: '33%', height: 24, background: '#000', borderRadius: '0 0 16px 16px', zIndex: 10 }} />
             )}
-
-            {/* Screen */}
-            <div className="absolute inset-2 bg-white rounded-2xl overflow-hidden">
+            <div style={{ position: 'absolute', inset: 8, background: '#fff', borderRadius: 16, overflow: 'hidden' }}>
               <iframe
                 srcDoc={htmlContent}
-                className="w-full h-full border-0"
+                style={{ width: width, height: height, border: 0, transform: 'scale(1)', transformOrigin: 'top left' }}
                 title="Device Preview"
                 sandbox="allow-same-origin allow-scripts allow-forms"
-                style={{
-                  width: `${width}px`,
-                  height: `${height}px`,
-                  transform: 'scale(1)',
-                  transformOrigin: 'top left'
-                }}
               />
             </div>
-
-            {/* Home Button (mobile) */}
             {device === 'mobile' && orientation === 'portrait' && (
-              <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 w-12 h-12 rounded-full border-2 border-gray-800"></div>
+              <div style={{ position: 'absolute', bottom: 4, left: '50%', transform: 'translateX(-50%)', width: 48, height: 48, borderRadius: '50%', border: '2px solid #333' }} />
             )}
           </div>
         ) : (
-          /* Desktop Preview (no frame) */
           <div
-            className="relative bg-white shadow-2xl m-8 rounded-lg overflow-hidden transition-all duration-300"
-            style={{
-              width: '100%',
-              maxWidth: '1400px',
-              height: '700px'
-            }}
+            style={{ position: 'relative', background: '#fff', margin: 32, borderRadius: 12, overflow: 'hidden', width: '100%', maxWidth: 1400, height: 700, boxShadow: '0 8px 40px rgba(0,0,0,.5)', transition: 'all 300ms' }}
           >
             <iframe
               srcDoc={htmlContent}
-              className="w-full h-full border-0"
+              style={{ width: '100%', height: '100%', border: 0 }}
               title="Desktop Preview"
               sandbox="allow-same-origin allow-scripts allow-forms"
             />
@@ -185,13 +166,13 @@ export default function DevicePreview({ htmlContent, title = "Preview" }: Device
       </div>
 
       {/* Preview Controls Footer */}
-      <div className="bg-gray-50 px-4 py-3 border-t border-gray-200">
-        <div className="flex items-center justify-between text-sm text-gray-600">
-          <span>
-            Viewing in <strong className="text-gray-900 capitalize">{device}</strong> mode
+      <div style={{ background: '#0A0A14', padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,.04)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13 }}>
+          <span style={{ color: '#86869A' }}>
+            Viewing in <strong style={{ color: '#F5F5FA', textTransform: 'capitalize' }}>{device}</strong> mode
             {canRotate && ` (${orientation})`}
           </span>
-          <span className="text-gray-500">
+          <span style={{ color: '#5A5A6E' }}>
             Scroll to see full website
           </span>
         </div>
