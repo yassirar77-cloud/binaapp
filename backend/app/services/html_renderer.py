@@ -674,63 +674,81 @@ def _about_stats(p: Dict[str, Any]) -> str:
 
 @_component("AboutTimeline")
 def _about_timeline(p: Dict[str, Any]) -> str:
-    """Vertical timeline of business milestones with alternating sides.
+    """Editorial horizontal-panel timeline with monumental year typography.
+    Replaces generic vertical zigzag with boutique-editorial four-panel layout.
     Heritage restaurants showing evolution — Malaysian context required."""
     milestones = p.get("milestones", [])
-    timeline_items = []
+    panels = []
     for idx, m in enumerate(milestones):
-        is_right = idx % 2 == 1
+        year = _esc(m.get('year', ''))
+        title = _esc(m.get('title', ''))
+        description = _esc(m.get('description', ''))
+        image_url = m.get('image_url', '')
         delay = idx * 150
-        side_class = "md:text-right md:pr-12" if not is_right else "md:pl-12 md:col-start-2"
-        dot_pos = "md:right-0 md:translate-x-1/2" if not is_right else "md:left-0 md:-translate-x-1/2"
 
-        icon = m.get("icon", "fa-solid fa-circle-check")
+        # Alternate photo left/right within content area across panels
+        text_order = "md:order-1" if idx % 2 == 0 else "md:order-2"
+        photo_order = "md:order-2" if idx % 2 == 0 else "md:order-1"
 
-        timeline_items.append(f"""            <!-- Milestone {idx + 1} -->
-            <div class="relative pl-10 md:pl-0 {'md:col-start-1 ' + side_class if not is_right else side_class} pb-12"
-                 data-aos="fade-up" data-aos-delay="{delay}">
-                <!-- Mobile dot (left edge) -->
-                <div class="absolute left-0 top-1 w-8 h-8 rounded-full flex items-center justify-center md:hidden"
-                     style="background-color: var(--color-primary);">
-                    <i class="{_esc(icon)} text-white text-xs"></i>
+        # Photo block — real photograph or gradient fallback
+        if image_url:
+            photo_block = f"""                <div class="w-full md:w-[55%] shrink-0 overflow-hidden rounded-xl {photo_order}">
+                    <img src="{_esc(image_url)}" alt="{title}"
+                         class="w-full h-64 md:h-80 lg:h-96 object-cover" loading="lazy">
+                </div>"""
+        else:
+            photo_block = f"""                <div class="w-full md:w-[55%] shrink-0 rounded-xl flex items-center justify-center {photo_order}"
+                     style="background: linear-gradient(135deg, var(--color-primary), var(--color-secondary)); min-height: 16rem;">
+                    <i class="fa-solid fa-image text-5xl text-white/30"></i>
+                </div>"""
+
+        # Personal artifact caption — only for first milestone (2018)
+        artifact_html = ""
+        if idx == 0:
+            artifact_html = """\n                <p class="mt-3 text-sm italic" style="color: var(--color-text-muted); font-size: 14px;">— Buku tempahan pertama, Ramadan 2018</p>"""
+
+        # Separator between panels
+        border_class = "border-b" if idx < len(milestones) - 1 else ""
+        border_style = 'style="border-color: var(--color-accent);"' if idx < len(milestones) - 1 else ""
+
+        panels.append(f"""        <!-- Editorial Panel {idx + 1} — {year} -->
+        <div class="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-6 lg:gap-20 items-center py-16 lg:py-32 {border_class}" {border_style}
+             data-aos="fade-up" data-aos-delay="{delay}">
+            <!-- Year — monumental display typography -->
+            <div class="shrink-0 select-none">
+                <span class="block italic leading-none text-[72px] sm:text-[100px] lg:text-[160px]"
+                      style="font-family: var(--font-heading); color: var(--color-text); opacity: 0.12;">{year}</span>{artifact_html}
+            </div>
+            <!-- Content: headline + story + photograph (photo side alternates) -->
+            <div class="flex flex-col md:flex-row gap-8 items-center">
+                <!-- Text content -->
+                <div class="flex-1 {text_order}">
+                    <h3 class="font-bold leading-tight mb-4"
+                        style="font-family: var(--font-heading); color: var(--color-text); font-size: clamp(1.5rem, 2.5vw, 2rem);">
+                        {title}
+                    </h3>
+                    <p class="leading-relaxed text-base md:text-lg"
+                       style="color: var(--color-text-muted);">
+                        {description}
+                    </p>
                 </div>
-                <!-- Desktop dot (center line) -->
-                <div class="hidden md:flex absolute top-1 {dot_pos} w-10 h-10 rounded-full items-center justify-center z-10"
-                     style="background-color: var(--color-primary); box-shadow: 0 0 0 4px var(--color-background), 0 0 0 6px var(--color-primary);">
-                    <i class="{_esc(icon)} text-white text-sm"></i>
-                </div>
-                <span class="inline-block text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full mb-3"
-                      style="background-color: var(--color-accent); color: var(--color-secondary);">
-                    {_esc(m.get('year', ''))}
-                </span>
-                <h3 class="text-lg sm:text-xl font-bold mt-1"
-                    style="font-family: var(--font-heading); color: var(--color-text);">
-                    {_esc(m.get('title', ''))}
-                </h3>
-                <p class="mt-2 text-sm sm:text-base leading-relaxed"
-                   style="color: var(--color-text-muted);">
-                    {_esc(m.get('description', ''))}
-                </p>
-            </div>""")
+                <!-- Photograph -->
+{photo_block}
+            </div>
+        </div>""")
 
-    items_html = "\n".join(timeline_items)
+    panels_html = "\n".join(panels)
 
-    return f"""        <div class="text-center mb-16">
+    return f"""        <div class="text-center mb-16" data-aos="fade-up">
             <div class="accent-line mx-auto mb-6"></div>
             <h2 class="text-4xl md:text-5xl font-bold tracking-tight"
                 style="font-family: var(--font-heading); color: var(--color-text);">
                 {_esc(p['heading'])}
             </h2>
         </div>
-        <!-- Timeline container -->
-        <div class="relative max-w-3xl mx-auto">
-            <!-- Vertical line (mobile: left, desktop: center) -->
-            <div class="absolute left-4 md:left-1/2 md:-translate-x-px top-0 bottom-0 w-0.5"
-                 style="background: linear-gradient(to bottom, var(--color-primary), var(--color-accent));"></div>
-            <!-- Items -->
-            <div class="md:grid md:grid-cols-2 md:gap-x-16">
-{items_html}
-            </div>
+        <!-- Editorial timeline panels -->
+        <div>
+{panels_html}
         </div>"""
 
 

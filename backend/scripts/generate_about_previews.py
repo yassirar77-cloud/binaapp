@@ -88,25 +88,29 @@ ABOUT_VARIANTS = {
                 "year": "2018",
                 "title": "Bermula dari Dapur Rumah",
                 "description": "Khulafa Bistro bermula sebagai projek keluarga — memasak untuk jiran-jiran dan tempahan kecil sempena Hari Raya.",
-                "icon": "fa-solid fa-house-chimney",
+                # Assorted kuih on steel tray — handcrafted home kitchen feel
+                "image_url": "https://images.unsplash.com/photo-1617694455712-77ce4c1ce7b3?w=800&h=600&fit=crop&q=80",
             },
             {
                 "year": "2020",
                 "title": "Restoran Pertama di Shah Alam",
                 "description": "Walaupun cabaran MCO, kami membuka pintu restoran pertama di Seksyen 7. Penghantaran menjadi tulang belakang perniagaan.",
-                "icon": "fa-solid fa-store",
+                # Hawker serving plates — busy takeaway/shopfront context
+                "image_url": "https://images.unsplash.com/photo-1751704316221-7e7e6887d0ed?w=800&h=600&fit=crop&q=80",
             },
             {
                 "year": "2022",
                 "title": "Sijil Halal JAKIM",
                 "description": "Pencapaian yang membanggakan — pensijilan halal JAKIM diterima, mengukuhkan kepercayaan pelanggan kami.",
-                "icon": "fa-solid fa-certificate",
+                # Rendang in bowl close-up — halal-certified dish detail
+                "image_url": "https://images.unsplash.com/photo-1688084546323-fcd3f9d8389b?w=800&h=600&fit=crop&q=80",
             },
             {
                 "year": "2024",
                 "title": "Cawangan Ke-3 Dibuka",
                 "description": "Alhamdulillah, cawangan ketiga di Subang Jaya dibuka — membawa citarasa Khulafa kepada lebih ramai keluarga Malaysia.",
-                "icon": "fa-solid fa-champagne-glasses",
+                # Bright cafe interior with plants — modern restaurant
+                "image_url": "https://images.unsplash.com/photo-1773927005455-8efc55a8d512?w=800&h=600&fit=crop&q=80",
             },
         ],
     },
