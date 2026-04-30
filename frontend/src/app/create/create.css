@@ -474,3 +474,153 @@
   font-family: 'Geist', 'Inter', -apple-system, sans-serif;
 }
 .cr-share-item:hover { background: rgba(255,255,255,.06); color: #F5F5FA; }
+
+/* ═══════════════════════════════════════════
+   Dark overrides for shared modals on /create
+   Scoped via .bg-create ancestor so landing
+   page + dashboard stay light-themed.
+   ═══════════════════════════════════════════ */
+
+/* --- UpgradeModal dark --- */
+.bg-create .modal-overlay {
+  background: rgba(5,5,12,.85) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.bg-create .upgrade-modal {
+  background: linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,0)), #0F0F1A !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 20px !important;
+  color: #F5F5FA !important;
+  box-shadow: 0 24px 80px rgba(0,0,0,.6) !important;
+}
+.bg-create .upgrade-modal h2 { color: #F5F5FA !important; }
+.bg-create .upgrade-modal p { color: #86869A !important; }
+.bg-create .upgrade-modal .price-box {
+  background: rgba(255,255,255,.03) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 14px !important;
+}
+.bg-create .upgrade-modal .price { color: #C7FF3D !important; }
+.bg-create .upgrade-modal .period { color: #86869A !important; }
+.bg-create .upgrade-modal .features-list h3 { color: #B8B8C8 !important; }
+.bg-create .upgrade-modal .feature-item { color: #B8B8C8 !important; }
+.bg-create .upgrade-modal .feature-item .check { color: #C7FF3D !important; }
+.bg-create .upgrade-modal .upgrade-btn {
+  background: linear-gradient(180deg, #DDFF7A, #C7FF3D) !important;
+  color: #05050C !important;
+  border: 0 !important; border-radius: 12px !important;
+  box-shadow: 0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25) !important;
+}
+.bg-create .upgrade-modal .note { color: #5A5A6E !important; }
+.bg-create .upgrade-modal .close-btn {
+  color: #86869A !important; background: rgba(255,255,255,.04) !important;
+  border: 1px solid rgba(255,255,255,.08) !important; border-radius: 8px !important;
+}
+.bg-create .upgrade-modal .close-btn:hover { color: #F5F5FA !important; background: rgba(255,255,255,.08) !important; }
+
+/* --- AddonPurchaseModal dark --- */
+.bg-create .addon-modal {
+  background: linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,0)), #0F0F1A !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 20px !important;
+  color: #F5F5FA !important;
+  box-shadow: 0 24px 80px rgba(0,0,0,.6) !important;
+}
+.bg-create .addon-modal h2 { color: #F5F5FA !important; }
+.bg-create .addon-modal .addon-details h3 { color: #F5F5FA !important; }
+.bg-create .addon-modal .addon-price { color: #C7FF3D !important; }
+.bg-create .addon-modal .quantity-selector { color: #B8B8C8 !important; }
+.bg-create .addon-modal .quantity-selector select {
+  background: rgba(255,255,255,.04) !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  color: #F5F5FA !important; border-radius: 10px !important;
+}
+.bg-create .addon-modal .total-price { color: #C7FF3D !important; }
+.bg-create .addon-modal .purchase-btn {
+  background: linear-gradient(180deg, #DDFF7A, #C7FF3D) !important;
+  color: #05050C !important;
+  border: 0 !important; border-radius: 12px !important;
+  box-shadow: 0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25) !important;
+}
+.bg-create .addon-modal .close-btn {
+  color: #86869A !important; background: rgba(255,255,255,.04) !important;
+  border: 1px solid rgba(255,255,255,.08) !important; border-radius: 8px !important;
+}
+.bg-create .addon-modal .close-btn:hover { color: #F5F5FA !important; background: rgba(255,255,255,.08) !important; }
+
+/* --- LimitReachedModal dark --- */
+.bg-create .limit-modal-overlay {
+  background: rgba(5,5,12,.85) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.bg-create .limit-modal {
+  background: linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,0)), #0F0F1A !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 20px !important;
+  color: #F5F5FA !important;
+  box-shadow: 0 24px 80px rgba(0,0,0,.6) !important;
+}
+.bg-create .limit-modal .close-btn {
+  color: #86869A !important; background: rgba(255,255,255,.04) !important;
+  border: 1px solid rgba(255,255,255,.08) !important; border-radius: 8px !important;
+}
+.bg-create .limit-modal .close-btn:hover { color: #F5F5FA !important; background: rgba(255,255,255,.08) !important; }
+.bg-create .limit-modal-header h2 { color: #F5F5FA !important; }
+.bg-create .limit-modal-header p { color: #86869A !important; }
+.bg-create .limit-modal-header .warning-icon {
+  background: rgba(255,176,32,.1) !important;
+  border: 1px solid rgba(255,176,32,.3) !important;
+  color: #FFB020 !important;
+}
+.bg-create .limit-modal .usage-count { color: #FFB020 !important; }
+.bg-create .limit-modal .option-toggle {
+  background: rgba(255,255,255,.03) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 12px !important;
+}
+.bg-create .limit-modal .toggle-btn { color: #86869A !important; background: transparent !important; }
+.bg-create .limit-modal .toggle-btn.active {
+  background: rgba(79,61,255,.12) !important;
+  color: #F5F5FA !important;
+  box-shadow: 0 0 12px rgba(79,61,255,.15) !important;
+}
+.bg-create .limit-modal .plan-card {
+  background: rgba(255,255,255,.03) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 16px !important;
+}
+.bg-create .limit-modal .plan-header h3 { color: #F5F5FA !important; }
+.bg-create .limit-modal .plan-price .currency,
+.bg-create .limit-modal .plan-price .amount { color: #C7FF3D !important; }
+.bg-create .limit-modal .plan-price .period { color: #5A5A6E !important; }
+.bg-create .limit-modal .plan-features li { color: #B8B8C8 !important; }
+.bg-create .limit-modal .plan-features .check { color: #C7FF3D !important; }
+.bg-create .limit-modal .plan-btn {
+  background: linear-gradient(180deg, #6B5CFF, #4F3DFF) !important;
+  color: #fff !important;
+  border: 0 !important; border-radius: 12px !important;
+  box-shadow: 0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35) !important;
+}
+.bg-create .limit-modal .addon-card {
+  background: rgba(255,255,255,.03) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 16px !important;
+}
+.bg-create .limit-modal .addon-info h3 { color: #F5F5FA !important; }
+.bg-create .limit-modal .addon-price { color: #C7FF3D !important; }
+.bg-create .limit-modal .quantity-controls button {
+  background: rgba(255,255,255,.04) !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  color: #F5F5FA !important; border-radius: 8px !important;
+}
+.bg-create .limit-modal .total-price { color: #C7FF3D !important; }
+.bg-create .limit-modal .addon-btn {
+  background: linear-gradient(180deg, #DDFF7A, #C7FF3D) !important;
+  color: #05050C !important;
+  border: 0 !important; border-radius: 12px !important;
+  box-shadow: 0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25) !important;
+}
+.bg-create .limit-modal .addon-note { color: #5A5A6E !important; }
+.bg-create .limit-modal .modal-footer-note { color: #5A5A6E !important; }

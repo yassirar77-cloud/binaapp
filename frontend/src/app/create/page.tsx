@@ -1863,28 +1863,29 @@ export default function CreatePage() {
       </main>
 
       {showPublishModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <h2 className="text-2xl font-bold mb-4">Publish Your Website</h2>
-            
-            <div className="mb-4">
-              <label className="block text-sm font-semibold mb-2">
-                Project Name
-              </label>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,12,.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
+          <div className="cr-card cr-card-hairline" style={{ maxWidth: 460, width: '100%', padding: 32 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: '#F5F5FA', margin: 0 }}>Publish Your Website</h2>
+              <button onClick={() => { setShowPublishModal(false); setError(''); setSubdomainError(null); }} className="cr-btn-icon" aria-label="Close">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Project Name</label>
               <input
                 type="text"
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
                 placeholder="My Restaurant"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="cr-input"
               />
             </div>
 
-            <div className="mb-4">
-              <label className="block text-sm font-semibold mb-2">
-                Choose Subdomain
-              </label>
-              <div className="flex items-center gap-2">
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Choose Subdomain</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <input
                   type="text"
                   value={subdomain}
@@ -1895,54 +1896,45 @@ export default function CreatePage() {
                     setSubdomainError(validationError)
                   }}
                   placeholder="kedaiayam"
-                  className={`flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 ${
-                    subdomainError ? 'border-red-500' : 'border-gray-300'
-                  }`}
+                  className="cr-input"
+                  style={{ flex: 1, borderColor: subdomainError ? 'rgba(239,68,68,.5)' : undefined }}
                 />
-                <span className="text-gray-600">.binaapp.my</span>
+                <span style={{ fontSize: 13, color: '#5A5A6E', whiteSpace: 'nowrap' }}>.binaapp.my</span>
               </div>
               {subdomainError ? (
-                <p className="text-xs text-red-600 mt-1 font-medium">
-                  ❌ {subdomainError}
+                <p style={{ fontSize: 12, color: '#FCA5A5', marginTop: 6, fontWeight: 500 }}>
+                  {subdomainError}
                 </p>
               ) : (
-                <p className="text-xs text-gray-500 mt-1">
+                <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 6 }}>
                   Only lowercase letters, numbers, and hyphens
                 </p>
               )}
             </div>
 
             {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                {error}
+              <div className="banner-accent" style={{ marginBottom: 18, background: 'linear-gradient(90deg, rgba(239,68,68,.06), transparent)', border: '1px solid rgba(239,68,68,.22)' }}>
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#EF4444' }} />
+                <span style={{ fontSize: 13, color: '#FCA5A5' }}>{error}</span>
               </div>
             )}
 
-            <div className="flex gap-3">
+            <div style={{ display: 'flex', gap: 10 }}>
               <button
-                onClick={() => {
-                  setShowPublishModal(false)
-                  setError('')
-                  setSubdomainError(null)
-                }}
-                className="flex-1 btn btn-outline"
+                onClick={() => { setShowPublishModal(false); setError(''); setSubdomainError(null); }}
+                className="cr-btn cr-btn-ghost"
+                style={{ flex: 1 }}
                 disabled={publishing}
               >
                 Cancel
               </button>
               <button
                 onClick={handlePublish}
-                className="flex-1 btn btn-primary"
+                className="cr-btn"
+                style={{ flex: 1, background: 'linear-gradient(180deg, #DDFF7A, #C7FF3D)', color: '#05050C', boxShadow: '0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25)', opacity: publishing || !subdomain || !projectName || !!subdomainError ? .35 : 1, cursor: publishing || !subdomain || !projectName || !!subdomainError ? 'not-allowed' : 'pointer' }}
                 disabled={publishing || !subdomain || !projectName || !!subdomainError}
               >
-                {publishing ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Publishing...
-                  </>
-                ) : (
-                  'Publish Now'
-                )}
+                {publishing ? 'Publishing...' : 'Publish Now'}
               </button>
             </div>
           </div>
