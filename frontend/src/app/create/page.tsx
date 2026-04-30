@@ -1124,7 +1124,8 @@ export default function CreatePage() {
         </section>
 
         {!generatedHtml && styleVariations.length === 0 ? (
-          <div className="max-w-4xl mx-auto">
+          <div className="cr-layout">
+          <div className="cr-form-col">
             {/* Subscription Required Banner */}
             {!subscriptionLoading && hasActiveSubscription === false && user && (
               <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(199,255,61,.06), transparent)', border: '1px solid rgba(199,255,61,.22)' }}>
@@ -1542,24 +1543,25 @@ export default function CreatePage() {
             </div>
 
             {error && (
-              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-                {error}
+              <div className="banner-accent" style={{ background: 'linear-gradient(90deg, rgba(239,68,68,.06), transparent)', border: '1px solid rgba(239,68,68,.22)' }}>
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#EF4444' }} />
+                <span style={{ fontSize: 13, color: '#FCA5A5' }}>{error}</span>
               </div>
             )}
 
             <button
               onClick={handleGenerate}
               disabled={loading || description.length < 10 || isAtLimit}
-              className="w-full btn btn-primary text-lg py-4 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="cr-gen-btn"
             >
               {loading ? (
                 <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                  Generating your website...
+                  <div style={{ width: 18, height: 18, border: '2px solid rgba(5,5,12,.3)', borderTopColor: '#05050C', borderRadius: '50%', animation: 'spin .6s linear infinite' }} />
+                  Generating...
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-5 h-5 mr-2" />
+                  <Sparkles size={18} />
                   Generate Website with AI
                 </>
               )}
@@ -1716,6 +1718,61 @@ export default function CreatePage() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* ── AI Preview Rail ── */}
+          <aside className="cr-rail">
+            <div className="cr-rail-card cr-card cr-card-hairline">
+              <div className="eyebrow" style={{ marginBottom: 14 }}>PREVIEW</div>
+
+              {/* Completeness meter */}
+              {(() => {
+                const pct =
+                  (description.length >= 50 ? 30 : 0) +
+                  (businessType !== 'auto' ? 15 : 0) +
+                  (imageChoice !== 'none' ? 15 : 0) +
+                  (selectedFeatures.whatsapp || selectedFeatures.googleMap || selectedFeatures.deliverySystem || selectedFeatures.contactForm || selectedFeatures.socialMedia || selectedFeatures.priceList ? 15 : 0) +
+                  (paymentMethods.cod || paymentMethods.qr ? 15 : 0) +
+                  10; // language always selected
+                return (
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, color: '#86869A' }}>Completeness</span>
+                      <span className="num" style={{ fontSize: 12, color: pct >= 80 ? '#C7FF3D' : '#86869A' }}>{pct}%</span>
+                    </div>
+                    <div className="cr-meter">
+                      <div className="cr-meter-fill" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Wireframe blocks */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div className={`cr-wireframe-block ${description.length >= 50 ? 'cr-wireframe-lit' : ''}`}>
+                  <span style={{ fontSize: 13 }}>📝</span>
+                  <span style={{ fontSize: 12 }}>Deskripsi</span>
+                </div>
+                <div className={`cr-wireframe-block ${businessType !== 'auto' ? 'cr-wireframe-lit' : ''}`}>
+                  <span style={{ fontSize: 13 }}>🏪</span>
+                  <span style={{ fontSize: 12 }}>Jenis</span>
+                </div>
+                <div className={`cr-wireframe-block ${imageChoice !== 'none' ? 'cr-wireframe-lit' : ''}`}>
+                  <span style={{ fontSize: 13 }}>🖼️</span>
+                  <span style={{ fontSize: 12 }}>Gambar</span>
+                </div>
+                <div className={`cr-wireframe-block ${selectedFeatures.whatsapp || selectedFeatures.googleMap || selectedFeatures.deliverySystem || selectedFeatures.contactForm || selectedFeatures.socialMedia || selectedFeatures.priceList ? 'cr-wireframe-lit' : ''}`}>
+                  <span style={{ fontSize: 13 }}>⚡</span>
+                  <span style={{ fontSize: 12 }}>Ciri-ciri</span>
+                </div>
+                <div className={`cr-wireframe-block ${paymentMethods.cod || paymentMethods.qr ? 'cr-wireframe-lit' : ''}`}>
+                  <span style={{ fontSize: 13 }}>💳</span>
+                  <span style={{ fontSize: 12 }}>Bayaran</span>
+                </div>
+              </div>
+            </div>
+          </aside>
+
           </div>
         ) : styleVariations.length > 0 && !selectedStyle ? (
           <div className="max-w-7xl mx-auto">
