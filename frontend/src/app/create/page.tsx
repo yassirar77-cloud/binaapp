@@ -1176,149 +1176,129 @@ export default function CreatePage() {
               </div>
             )}
 
-            <div className="mb-6">
-              <label className="block text-sm font-semibold mb-3 text-gray-700">
-                Try an example:
-              </label>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {EXAMPLE_DESCRIPTIONS.map((example, idx) => (
+            {/* ── 01 Language & Theme ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
+              <div className="eyebrow" style={{ marginBottom: 16 }}>01 — BAHASA & TEMA</div>
+
+              {/* Language toggle */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Bahasa / Language</div>
+                <div style={{ display: 'inline-flex', gap: 8 }}>
                   <button
-                    key={idx}
-                    onClick={() => fillExample(example)}
-                    className="btn btn-outline btn-sm text-left justify-start"
+                    onClick={() => setLanguage('ms')}
+                    className={language === 'ms' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
                   >
-                    {example.title}
+                    Bahasa Malaysia
                   </button>
-                ))}
+                  <button
+                    onClick={() => setLanguage('en')}
+                    className={language === 'en' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
+                  >
+                    English
+                  </button>
+                </div>
+              </div>
+
+              {/* Color mode toggle */}
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Tema Warna / Color Theme</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setColorMode('light')}
+                    className={colorMode === 'light' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
+                    style={{ padding: '14px 16px', flexDirection: 'column', gap: 4 }}
+                  >
+                    <span style={{ fontSize: 22 }}>&#9728;&#65039;</span>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>Cerah / Light</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setColorMode('dark')}
+                    className={colorMode === 'dark' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
+                    style={{ padding: '14px 16px', flexDirection: 'column', gap: 4 }}
+                  >
+                    <span style={{ fontSize: 22 }}>&#127769;</span>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>Gelap / Dark</span>
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="mb-4">
-              <label className="block text-sm font-semibold mb-2 text-gray-700">
-                Language:
-              </label>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setLanguage('ms')}
-                  className={`btn ${language === 'ms' ? 'btn-primary' : 'btn-outline'}`}
-                >
-                  🇲🇾 Bahasa Malaysia
-                </button>
-                <button
-                  onClick={() => setLanguage('en')}
-                  className={`btn ${language === 'en' ? 'btn-primary' : 'btn-outline'}`}
-                >
-                  🇬🇧 English
-                </button>
-              </div>
-            </div>
-
-            {/* Business Type Selector - for dynamic categories */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">🏪 Jenis Perniagaan</h3>
-              <p className="text-gray-500 text-sm mb-3">Pilih jenis perniagaan anda</p>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {/* ── 02 Business Type ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
+              <div className="eyebrow" style={{ marginBottom: 16 }}>02 — JENIS PERNIAGAAN</div>
+              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih jenis perniagaan anda</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
                 {[
-                  { id: 'auto' as const, icon: '🔍', label: 'Auto Detect', desc: 'Sistem akan kesan automatik' },
-                  { id: 'food' as const, icon: '🍛', label: 'Restoran / Makanan', desc: 'Nasi, Lauk, Minuman' },
-                  { id: 'clothing' as const, icon: '👗', label: 'Pakaian / Butik', desc: 'Baju, Tudung, Aksesori' },
-                  { id: 'salon' as const, icon: '💇', label: 'Salon / Spa', desc: 'Potong, Rawatan, Warna' },
-                  { id: 'services' as const, icon: '🔧', label: 'Servis / Repair', desc: 'Perkhidmatan, Pakej' },
-                  { id: 'bakery' as const, icon: '🎂', label: 'Bakeri / Kek', desc: 'Kek, Pastri, Cookies' },
-                  { id: 'general' as const, icon: '🛒', label: 'Lain-lain', desc: 'Produk Umum' }
+                  { id: 'auto' as const, icon: '🔍', label: 'Auto Detect', desc: 'Kesan automatik', recommended: true },
+                  { id: 'food' as const, icon: '🍛', label: 'Restoran / Makanan', desc: 'Nasi, Lauk, Minuman', recommended: false },
+                  { id: 'clothing' as const, icon: '👗', label: 'Pakaian / Butik', desc: 'Baju, Tudung, Aksesori', recommended: false },
+                  { id: 'salon' as const, icon: '💇', label: 'Salon / Spa', desc: 'Potong, Rawatan, Warna', recommended: false },
+                  { id: 'services' as const, icon: '🔧', label: 'Servis / Repair', desc: 'Perkhidmatan, Pakej', recommended: false },
+                  { id: 'bakery' as const, icon: '🎂', label: 'Bakeri / Kek', desc: 'Kek, Pastri, Cookies', recommended: false },
+                  { id: 'general' as const, icon: '🛒', label: 'Lain-lain', desc: 'Produk Umum', recommended: false }
                 ].map(type => (
                   <button
                     key={type.id}
                     type="button"
                     onClick={() => setBusinessType(type.id)}
-                    className={`p-4 border-2 rounded-xl text-center transition ${
-                      businessType === type.id
-                        ? 'border-orange-500 bg-orange-50'
-                        : 'border-gray-200 hover:border-orange-300'
-                    }`}
+                    className={businessType === type.id ? 'cr-type-card cr-type-card-active' : 'cr-type-card'}
+                    style={{ position: 'relative' }}
                   >
-                    <span className="text-3xl block mb-1">{type.icon}</span>
-                    <p className="text-sm font-medium">{type.label}</p>
-                    <p className="text-xs text-gray-500 mt-1">{type.desc}</p>
+                    {type.recommended && (
+                      <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)' }}>REC</span>
+                    )}
+                    <span style={{ fontSize: 28, display: 'block', marginBottom: 6 }}>{type.icon}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>{type.label}</span>
+                    <span style={{ fontSize: 11, color: '#5A5A6E', marginTop: 4, display: 'block' }}>{type.desc}</span>
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-gray-500 mt-2">
-                {businessType === 'auto' && '💡 Sistem akan mengesan jenis perniagaan anda secara automatik dari deskripsi'}
-                {businessType === 'food' && '🛵 Butang: "Pesan Delivery" | Kategori: Nasi, Lauk, Minuman'}
-                {businessType === 'clothing' && '🛍️ Butang: "Beli Sekarang" | Pilihan saiz & warna | Penghantaran'}
-                {businessType === 'salon' && '📅 Butang: "Tempah Sekarang" | Tarikh temujanji & pilih staff'}
-                {businessType === 'services' && '🔧 Butang: "Tempah Servis" | Tarikh & lokasi servis'}
-                {businessType === 'bakery' && '🎂 Butang: "Tempah Kek" | Pilihan saiz & mesej atas kek'}
-                {businessType === 'general' && '🛒 Butang: "Beli Sekarang" | Pilihan penghantaran'}
-              </p>
-            </div>
-
-            {/* Color Mode Selector */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">🎨 Tema Warna / Color Theme</h3>
-              <p className="text-gray-500 text-sm mb-3">Pilih tema warna untuk website anda</p>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setColorMode('light')}
-                  className={`p-4 border-2 rounded-xl text-center transition ${
-                    colorMode === 'light'
-                      ? 'border-orange-500 bg-orange-50'
-                      : 'border-gray-200 hover:border-orange-300'
-                  }`}
-                >
-                  <span className="text-3xl block mb-1">&#9728;&#65039;</span>
-                  <p className="text-sm font-medium">Cerah / Light</p>
-                  <p className="text-xs text-gray-500 mt-1">Latar belakang terang</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setColorMode('dark')}
-                  className={`p-4 border-2 rounded-xl text-center transition ${
-                    colorMode === 'dark'
-                      ? 'border-orange-500 bg-orange-50'
-                      : 'border-gray-200 hover:border-orange-300'
-                  }`}
-                >
-                  <span className="text-3xl block mb-1">&#127769;</span>
-                  <p className="text-sm font-medium">Gelap / Dark</p>
-                  <p className="text-xs text-gray-500 mt-1">Latar belakang gelap</p>
-                </button>
+              <div style={{ fontSize: 12, color: '#5A5A6E', marginTop: 12 }}>
+                {businessType === 'auto' && 'Sistem akan mengesan jenis perniagaan anda secara automatik dari deskripsi'}
+                {businessType === 'food' && 'Butang: "Pesan Delivery" | Kategori: Nasi, Lauk, Minuman'}
+                {businessType === 'clothing' && 'Butang: "Beli Sekarang" | Pilihan saiz & warna | Penghantaran'}
+                {businessType === 'salon' && 'Butang: "Tempah Sekarang" | Tarikh temujanji & pilih staff'}
+                {businessType === 'services' && 'Butang: "Tempah Servis" | Tarikh & lokasi servis'}
+                {businessType === 'bakery' && 'Butang: "Tempah Kek" | Pilihan saiz & mesej atas kek'}
+                {businessType === 'general' && 'Butang: "Beli Sekarang" | Pilihan penghantaran'}
               </div>
             </div>
 
-            <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg">
-              <label className="flex items-center gap-3 cursor-pointer mb-3">
+            {/* ── 03 Multi-style ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20, background: 'linear-gradient(180deg, rgba(79,61,255,.06), rgba(255,255,255,0)), #0F0F1A' }}>
+              <label className="cr-check" style={{ marginBottom: multiStyle ? 14 : 0 }}>
                 <input
                   type="checkbox"
                   checked={multiStyle}
                   onChange={(e) => setMultiStyle(e.target.checked)}
-                  className="w-5 h-5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
                 />
+                <span className="cr-check-box" />
                 <div>
-                  <span className="font-semibold text-gray-900">
-                    ✨ Generate Multiple Styles (Recommended)
+                  <span style={{ fontSize: 14, fontWeight: 600, color: '#F5F5FA' }}>
+                    Generate Multiple Styles
                   </span>
-                  <p className="text-sm text-gray-600 mt-1">
+                  <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' as const, padding: '2px 7px', borderRadius: 6, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)' }}>REC</span>
+                  <p style={{ fontSize: 13, color: '#86869A', marginTop: 4 }}>
                     Get 3 design variations (Modern, Minimal, Bold) and choose your favorite
                   </p>
                 </div>
               </label>
-              
+
               {multiStyle && (
-                <label className="flex items-center gap-3 cursor-pointer ml-8">
+                <label className="cr-check" style={{ marginLeft: 32 }}>
                   <input
                     type="checkbox"
                     checked={generatePreviews}
                     onChange={(e) => setGeneratePreviews(e.target.checked)}
-                    className="w-5 h-5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
                   />
+                  <span className="cr-check-box" />
                   <div>
-                    <span className="font-medium text-gray-800">
-                      📸 Generate Preview Thumbnails
+                    <span style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8' }}>
+                      Generate Preview Thumbnails
                     </span>
-                    <p className="text-xs text-gray-600 mt-0.5">
+                    <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2 }}>
                       Takes 10-15 seconds longer but shows better previews
                     </p>
                   </div>
@@ -1326,10 +1306,9 @@ export default function CreatePage() {
               )}
             </div>
 
-            <div className="mb-6">
-              <label className="block text-sm font-semibold mb-2 text-gray-700">
-                Describe your business:
-              </label>
+            {/* ── 04 Description ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
+              <div className="eyebrow" style={{ marginBottom: 16 }}>04 — CERITAKAN PERNIAGAAN ANDA</div>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -1338,10 +1317,11 @@ export default function CreatePage() {
                     ? 'Contoh: Saya ada kedai runcit di Shah Alam yang jual barangan harian, makanan, dan minuman. Harga berpatutan dari RM1. Lokasi di Seksyen 7 Shah Alam. Telefon 019-1234567. Buka 7am-10pm setiap hari...'
                     : 'Example: I have a coffee shop in Kuala Lumpur serving specialty coffee, cakes, and light meals. Prices from RM8. Located at TTDI. Contact via WhatsApp 012-3456789. Open daily 8am-6pm...'
                 }
-                className="w-full h-64 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
+                className="cr-textarea"
+                style={{ width: '100%', height: 220, resize: 'none' }}
               />
-              <div className="text-right text-sm text-gray-500 mt-1">
-                {description.length} characters
+              <div className="cr-counter" style={{ color: description.length >= 100 ? '#34D399' : description.length >= 50 ? '#C7FF3D' : '#5A5A6E' }}>
+                <span className="num">{description.length}</span> characters
               </div>
             </div>
 
