@@ -1327,190 +1327,96 @@ export default function CreatePage() {
 
             <VisualImageUpload onImagesUploaded={setUploadedImages} />
 
-            {/* STRICT IMAGE CONTROL - Explicit User Choice */}
-            <div className="bg-white rounded-xl p-6 shadow-lg mt-6 border-2 border-purple-200">
-              <h3 className="text-lg font-bold mb-2">🖼️ Gambar untuk Website</h3>
-              <p className="text-gray-500 text-sm mb-4">Pilih bagaimana anda mahu gambar dalam website anda</p>
+            {/* ── 05 Image Source ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
+              <div className="eyebrow" style={{ marginBottom: 16 }}>05 — SUMBER GAMBAR</div>
+              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih bagaimana anda mahu gambar dalam website anda</div>
 
-              <div className="space-y-3">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {/* Option 1: No Images */}
-                <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${
-                  imageChoice === 'none' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'
-                }`}>
-                  <input
-                    type="radio"
-                    name="imageChoice"
-                    value="none"
-                    checked={imageChoice === 'none'}
-                    onChange={() => setImageChoice('none')}
-                    className="w-5 h-5 text-purple-600"
-                  />
-                  <span className="text-2xl">📝</span>
-                  <div className="flex-1">
-                    <p className="font-semibold">Tiada Gambar</p>
-                    <p className="text-sm text-gray-500">Website teks sahaja, tanpa gambar</p>
+                <label className={imageChoice === 'none' ? 'cr-radio cr-radio-active' : 'cr-radio'}>
+                  <input type="radio" name="imageChoice" value="none" checked={imageChoice === 'none'} onChange={() => setImageChoice('none')} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ fontSize: 22, flexShrink: 0 }}>📝</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Tiada Gambar</span>
+                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>Website teks sahaja, tanpa gambar</span>
                   </div>
                 </label>
 
                 {/* Option 2: Upload Own Images */}
-                <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${
-                  imageChoice === 'upload' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'
-                }`}>
-                  <input
-                    type="radio"
-                    name="imageChoice"
-                    value="upload"
-                    checked={imageChoice === 'upload'}
-                    onChange={() => setImageChoice('upload')}
-                    className="w-5 h-5 text-purple-600"
-                  />
-                  <span className="text-2xl">📷</span>
-                  <div className="flex-1">
-                    <p className="font-semibold">Muat Naik Gambar Sendiri</p>
-                    <p className="text-sm text-gray-500">Gunakan gambar yang anda upload di atas</p>
+                <label className={imageChoice === 'upload' ? 'cr-radio cr-radio-active' : 'cr-radio'}>
+                  <input type="radio" name="imageChoice" value="upload" checked={imageChoice === 'upload'} onChange={() => setImageChoice('upload')} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ fontSize: 22, flexShrink: 0 }}>📷</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Muat Naik Gambar Sendiri</span>
+                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>Gunakan gambar yang anda upload di atas</span>
                   </div>
                   {uploadedImages.gallery.length > 0 && (
-                    <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">
-                      {uploadedImages.gallery.length} gambar dimuat naik
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 8, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)', whiteSpace: 'nowrap' }}>
+                      {uploadedImages.gallery.length} dimuat naik
                     </span>
                   )}
                 </label>
 
                 {/* Option 3: Generate AI Images */}
-                <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${
-                  imageChoice === 'ai' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'
-                }`}>
-                  <input
-                    type="radio"
-                    name="imageChoice"
-                    value="ai"
-                    checked={imageChoice === 'ai'}
-                    onChange={() => setImageChoice('ai')}
-                    className="w-5 h-5 text-purple-600"
-                  />
-                  <span className="text-2xl">✨</span>
-                  <div className="flex-1">
-                    <p className="font-semibold">Jana Gambar AI</p>
-                    <p className="text-sm text-gray-500">AI akan jana gambar untuk perniagaan anda</p>
+                <label className={imageChoice === 'ai' ? 'cr-radio cr-radio-active' : 'cr-radio'}>
+                  <input type="radio" name="imageChoice" value="ai" checked={imageChoice === 'ai'} onChange={() => setImageChoice('ai')} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ fontSize: 22, flexShrink: 0 }}>✨</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Jana Gambar AI</span>
+                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>AI akan jana gambar untuk perniagaan anda</span>
                   </div>
-                  <span className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full">
-                    Premium
-                  </span>
+                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' as const, padding: '2px 7px', borderRadius: 6, background: 'rgba(107,92,255,.15)', color: '#BAB0FF', border: '1px solid rgba(107,92,255,.3)' }}>PREMIUM</span>
                 </label>
               </div>
 
               {/* Warning if upload selected but no images */}
               {imageChoice === 'upload' && uploadedImages.gallery.length === 0 && !uploadedImages.hero && (
-                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-yellow-800 text-sm">
-                    ⚠️ Anda belum muat naik gambar. Sila muat naik gambar di bahagian atas atau pilih pilihan lain.
-                  </p>
+                <div className="banner-accent float-in" style={{ marginTop: 14, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
+                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
+                  <span style={{ fontSize: 13, color: '#FFB020' }}>Anda belum muat naik gambar. Sila muat naik gambar di bahagian atas atau pilih pilihan lain.</span>
                 </div>
               )}
             </div>
 
-            {/* Feature Selector */}
-            <div className="bg-white rounded-xl p-6 shadow-lg mt-6">
-              <h3 className="text-lg font-bold mb-2">⚡ Pilih Ciri-ciri Website</h3>
-              <p className="text-gray-500 text-sm mb-4">Pilih apa yang anda mahu dalam website anda</p>
+            {/* ── 06 Features ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
+              <div className="eyebrow" style={{ marginBottom: 16 }}>06 — CIRI-CIRI WEBSITE</div>
+              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih apa yang anda mahu dalam website anda</div>
 
-              <div className="grid grid-cols-2 gap-3">
-                {/* WhatsApp */}
-                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={selectedFeatures.whatsapp}
-                    onChange={(e) => setSelectedFeatures({...selectedFeatures, whatsapp: e.target.checked})}
-                    className="w-5 h-5 text-green-600"
-                  />
-                  <span className="ml-3">
-                    <span className="text-xl">💬</span>
-                    <span className="ml-2 font-medium">WhatsApp</span>
-                  </span>
-                </label>
-
-                {/* Google Map */}
-                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={selectedFeatures.googleMap}
-                    onChange={(e) => setSelectedFeatures({...selectedFeatures, googleMap: e.target.checked})}
-                    className="w-5 h-5 text-blue-600"
-                  />
-                  <span className="ml-3">
-                    <span className="text-xl">📍</span>
-                    <span className="ml-2 font-medium">Google Map</span>
-                  </span>
-                </label>
-
-                {/* Delivery System */}
-                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={selectedFeatures.deliverySystem}
-                    onChange={(e) => setSelectedFeatures({...selectedFeatures, deliverySystem: e.target.checked})}
-                    className="w-5 h-5 text-orange-600"
-                  />
-                  <span className="ml-3">
-                    <span className="text-xl">🛵</span>
-                    <span className="ml-2 font-medium">Delivery Sendiri</span>
-                  </span>
-                </label>
-
-                {/* Contact Form */}
-                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={selectedFeatures.contactForm}
-                    onChange={(e) => setSelectedFeatures({...selectedFeatures, contactForm: e.target.checked})}
-                    className="w-5 h-5 text-purple-600"
-                  />
-                  <span className="ml-3">
-                    <span className="text-xl">📧</span>
-                    <span className="ml-2 font-medium">Borang Hubungi</span>
-                  </span>
-                </label>
-
-                {/* Social Media */}
-                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={selectedFeatures.socialMedia}
-                    onChange={(e) => setSelectedFeatures({...selectedFeatures, socialMedia: e.target.checked})}
-                    className="w-5 h-5 text-pink-600"
-                  />
-                  <span className="ml-3">
-                    <span className="text-xl">📱</span>
-                    <span className="ml-2 font-medium">Social Media</span>
-                  </span>
-                </label>
-
-                {/* Price List */}
-                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={selectedFeatures.priceList}
-                    onChange={(e) => setSelectedFeatures({...selectedFeatures, priceList: e.target.checked})}
-                    className="w-5 h-5 text-yellow-600"
-                  />
-                  <span className="ml-3">
-                    <span className="text-xl">💰</span>
-                    <span className="ml-2 font-medium">Senarai Harga</span>
-                  </span>
-                </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {[
+                  { key: 'whatsapp' as const, icon: '💬', label: 'WhatsApp' },
+                  { key: 'googleMap' as const, icon: '📍', label: 'Google Map' },
+                  { key: 'deliverySystem' as const, icon: '🛵', label: 'Delivery Sendiri' },
+                  { key: 'contactForm' as const, icon: '📧', label: 'Borang Hubungi' },
+                  { key: 'socialMedia' as const, icon: '📱', label: 'Social Media' },
+                  { key: 'priceList' as const, icon: '💰', label: 'Senarai Harga' },
+                ].map(f => (
+                  <label key={f.key} className={selectedFeatures[f.key] ? 'cr-feature-pill cr-feature-active' : 'cr-feature-pill'}>
+                    <input
+                      type="checkbox"
+                      checked={selectedFeatures[f.key]}
+                      onChange={(e) => setSelectedFeatures({...selectedFeatures, [f.key]: e.target.checked})}
+                      style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+                    />
+                    <span style={{ fontSize: 18 }}>{f.icon}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>{f.label}</span>
+                  </label>
+                ))}
               </div>
             </div>
 
-            {/* If Google Map selected, ask for address */}
+            {/* Google Map expand */}
             {selectedFeatures.googleMap && (
-              <div className="bg-blue-50 rounded-xl p-6 mt-4 border border-blue-200">
-                <h4 className="font-bold text-blue-800 mb-3">📍 Google Map</h4>
+              <div className="cr-sub-card float-in">
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>📍 Google Map</div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Alamat Penuh</label>
+                  <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Alamat Penuh</label>
                   <input
                     type="text"
                     placeholder="cth: 123, Jalan Sultan, Shah Alam, Selangor"
-                    className="w-full px-4 py-2 border rounded-lg"
+                    className="cr-input"
                     value={fullAddress}
                     onChange={(e) => setFullAddress(e.target.value)}
                   />
@@ -1518,179 +1424,112 @@ export default function CreatePage() {
               </div>
             )}
 
-            {/* If Social Media selected */}
+            {/* Social Media expand */}
             {selectedFeatures.socialMedia && (
-              <div className="bg-pink-50 rounded-xl p-6 mt-4 border border-pink-200">
-                <h4 className="font-bold text-pink-800 mb-3">📱 Social Media</h4>
-                <div className="space-y-3">
-                  <input
-                    type="text"
-                    placeholder="Instagram: @username"
-                    className="w-full px-4 py-2 border rounded-lg"
-                    value={instagram}
-                    onChange={(e) => setInstagram(e.target.value)}
-                  />
-                  <input
-                    type="text"
-                    placeholder="Facebook: page name or URL"
-                    className="w-full px-4 py-2 border rounded-lg"
-                    value={facebook}
-                    onChange={(e) => setFacebook(e.target.value)}
-                  />
-                  <input
-                    type="text"
-                    placeholder="TikTok: @username"
-                    className="w-full px-4 py-2 border rounded-lg"
-                    value={tiktok}
-                    onChange={(e) => setTiktok(e.target.value)}
-                  />
+              <div className="cr-sub-card float-in">
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>📱 Social Media</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <input type="text" placeholder="Instagram: @username" className="cr-input" value={instagram} onChange={(e) => setInstagram(e.target.value)} />
+                  <input type="text" placeholder="Facebook: page name or URL" className="cr-input" value={facebook} onChange={(e) => setFacebook(e.target.value)} />
+                  <input type="text" placeholder="TikTok: @username" className="cr-input" value={tiktok} onChange={(e) => setTiktok(e.target.value)} />
                 </div>
               </div>
             )}
 
-            {/* Delivery Settings - Only show if Delivery Sendiri is checked */}
+            {/* Delivery Settings expand */}
             {selectedFeatures.deliverySystem && (
-              <div className="bg-orange-50 rounded-xl p-6 mt-4 border border-orange-200">
-                <h4 className="font-bold text-orange-800 mb-3">🛵 Tetapan Delivery</h4>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="cr-sub-card float-in">
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>🛵 Tetapan Delivery</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   <div>
-                    <label className="text-sm text-gray-600">Caj Delivery (RM)</label>
-                    <input 
-                      type="number" 
-                      placeholder="5.00" 
-                      step="0.50"
-                      value={fulfillment.deliveryFee}
-                      onChange={(e) => setFulfillment({...fulfillment, deliveryFee: e.target.value})}
-                      className="w-full p-2 border rounded-lg mt-1" 
-                    />
+                    <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Caj Delivery (RM)</label>
+                    <input type="number" placeholder="5.00" step="0.50" className="cr-input" value={fulfillment.deliveryFee} onChange={(e) => setFulfillment({...fulfillment, deliveryFee: e.target.value})} />
                   </div>
                   <div>
-                    <label className="text-sm text-gray-600">Min. Order (RM)</label>
-                    <input 
-                      type="number" 
-                      placeholder="20.00" 
-                      step="1"
-                      value={fulfillment.minOrder}
-                      onChange={(e) => setFulfillment({...fulfillment, minOrder: e.target.value})}
-                      className="w-full p-2 border rounded-lg mt-1" 
-                    />
+                    <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Min. Order (RM)</label>
+                    <input type="number" placeholder="20.00" step="1" className="cr-input" value={fulfillment.minOrder} onChange={(e) => setFulfillment({...fulfillment, minOrder: e.target.value})} />
                   </div>
-                  <div className="col-span-2">
-                    <label className="text-sm text-gray-600">Kawasan Delivery</label>
-                    <input 
-                      type="text" 
-                      placeholder="Shah Alam, Klang, Subang"
-                      value={fulfillment.deliveryArea}
-                      onChange={(e) => setFulfillment({...fulfillment, deliveryArea: e.target.value})}
-                      className="w-full p-2 border rounded-lg mt-1" 
-                    />
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Kawasan Delivery</label>
+                    <input type="text" placeholder="Shah Alam, Klang, Subang" className="cr-input" value={fulfillment.deliveryArea} onChange={(e) => setFulfillment({...fulfillment, deliveryArea: e.target.value})} />
                   </div>
                 </div>
 
-                {/* Self Pickup Option - Nested under Delivery */}
-                <div className="mt-4 pt-4 border-t border-orange-200">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input 
-                      type="checkbox"
-                      checked={fulfillment.pickup}
-                      onChange={(e) => setFulfillment({...fulfillment, pickup: e.target.checked})}
-                      className="w-5 h-5 rounded accent-orange-500" 
-                    />
-                    <span className="text-xl">🏪</span>
-                    <div className="flex-1">
-                      <p className="font-semibold text-gray-800">Self Pickup</p>
-                      <p className="text-sm text-gray-500">Pelanggan ambil di kedai</p>
+                {/* Self Pickup */}
+                <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,.06)' }}>
+                  <label className="cr-check">
+                    <input type="checkbox" checked={fulfillment.pickup} onChange={(e) => setFulfillment({...fulfillment, pickup: e.target.checked})} />
+                    <span className="cr-check-box" />
+                    <span style={{ fontSize: 18 }}>🏪</span>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Self Pickup</span>
+                      <span style={{ fontSize: 12, color: '#5A5A6E', display: 'block' }}>Pelanggan ambil di kedai</span>
                     </div>
-                    <span className="text-green-600 font-bold">FREE</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#34D399' }}>FREE</span>
                   </label>
-                  
+
                   {fulfillment.pickup && (
-                    <div className="mt-3 pl-10">
-                      <label className="text-sm text-gray-600">Alamat Pickup</label>
-                      <input 
-                        type="text" 
-                        placeholder="No. 123, Jalan ABC, Shah Alam"
-                        value={fulfillment.pickupAddress}
-                        onChange={(e) => setFulfillment({...fulfillment, pickupAddress: e.target.value})}
-                        className="w-full p-2 border rounded-lg mt-1" 
-                      />
+                    <div style={{ marginTop: 10, marginLeft: 32 }}>
+                      <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Alamat Pickup</label>
+                      <input type="text" placeholder="No. 123, Jalan ABC, Shah Alam" className="cr-input" value={fulfillment.pickupAddress} onChange={(e) => setFulfillment({...fulfillment, pickupAddress: e.target.value})} />
                     </div>
                   )}
                 </div>
               </div>
             )}
 
-            {/* Payment Settings - QR + COD only */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border mt-6">
-              <h3 className="text-lg font-semibold mb-2">💳 Tetapan Pembayaran</h3>
-              <p className="text-gray-500 text-sm mb-4">Pilih cara pembayaran yang anda terima</p>
-              
-              {/* Payment Methods */}
-              <div className="space-y-3 mb-4">
+            {/* ── 07 Payment ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
+              <div className="eyebrow" style={{ marginBottom: 16 }}>07 — PEMBAYARAN</div>
+              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih cara pembayaran yang anda terima</div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: paymentMethods.qr ? 16 : 0 }}>
                 {/* COD */}
-                <label className="flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer hover:border-orange-300 transition-colors">
-                  <input 
-                    type="checkbox" 
-                    checked={paymentMethods.cod}
-                    onChange={(e) => setPaymentMethods({...paymentMethods, cod: e.target.checked})}
-                    className="w-5 h-5 rounded accent-orange-500" 
-                  />
-                  <span className="text-2xl">💵</span>
-                  <div>
-                    <p className="font-semibold">Cash on Delivery (COD)</p>
-                    <p className="text-sm text-gray-500">Bayar tunai bila terima</p>
+                <label className={paymentMethods.cod ? 'cr-radio cr-radio-active' : 'cr-radio'}>
+                  <input type="checkbox" checked={paymentMethods.cod} onChange={(e) => setPaymentMethods({...paymentMethods, cod: e.target.checked})} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ fontSize: 22, flexShrink: 0 }}>💵</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Cash on Delivery (COD)</span>
+                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>Bayar tunai bila terima</span>
                   </div>
+                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' as const, padding: '2px 7px', borderRadius: 6, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)' }}>POPULAR</span>
                 </label>
-                
+
                 {/* QR Payment */}
-                <label className="flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer hover:border-orange-300 transition-colors">
-                  <input 
-                    type="checkbox"
-                    checked={paymentMethods.qr}
-                    onChange={(e) => setPaymentMethods({...paymentMethods, qr: e.target.checked})}
-                    className="w-5 h-5 rounded accent-orange-500" 
-                  />
-                  <span className="text-2xl">📱</span>
-                  <div>
-                    <p className="font-semibold">QR Payment</p>
-                    <p className="text-sm text-gray-500">DuitNow / TNG / Bank QR</p>
+                <label className={paymentMethods.qr ? 'cr-radio cr-radio-active' : 'cr-radio'}>
+                  <input type="checkbox" checked={paymentMethods.qr} onChange={(e) => setPaymentMethods({...paymentMethods, qr: e.target.checked})} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>QR Payment</span>
+                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>DuitNow / TNG / Bank QR</span>
                   </div>
                 </label>
               </div>
-              
-              {/* QR Upload - Only show if QR payment enabled */}
+
+              {/* QR Upload */}
               {paymentMethods.qr && (
-                <div className="bg-orange-50 rounded-xl p-4 border border-orange-200">
-                  <p className="font-medium mb-3">📱 Muat Naik QR Pembayaran Anda</p>
-                  <div className="flex gap-4 items-start">
+                <div className="cr-sub-card float-in" style={{ marginTop: 0, marginBottom: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Muat Naik QR Pembayaran Anda</div>
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
                     {/* QR Upload Box */}
-                    <div className="w-32 h-32 border-2 border-dashed border-orange-300 rounded-xl bg-white flex-shrink-0">
-                      <label className="cursor-pointer w-full h-full flex flex-col items-center justify-center">
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          className="hidden"
-                          onChange={handleQRUpload} 
-                        />
+                    <div style={{ width: 120, height: 120, border: '2px dashed rgba(255,255,255,.12)', borderRadius: 14, background: 'rgba(255,255,255,.02)', flexShrink: 0, overflow: 'hidden' }}>
+                      <label style={{ cursor: 'pointer', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                        <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleQRUpload} />
                         {paymentQRPreview ? (
-                          <img 
-                            src={paymentQRPreview} 
-                            alt="Payment QR"
-                            className="w-full h-full object-contain rounded-xl p-1" 
-                          />
+                          <img src={paymentQRPreview} alt="Payment QR" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 4, borderRadius: 12 }} />
                         ) : (
                           <>
-                            <span className="text-3xl mb-1">📷</span>
-                            <span className="text-xs text-gray-500">Upload QR</span>
+                            <span style={{ fontSize: 28, marginBottom: 4 }}>📷</span>
+                            <span style={{ fontSize: 11, color: '#5A5A6E' }}>Upload QR</span>
                           </>
                         )}
                       </label>
                     </div>
-                    
+
                     {/* Instructions */}
-                    <div className="flex-1 text-sm text-gray-600">
-                      <p className="font-medium text-gray-800 mb-2">Cara mendapatkan QR:</p>
-                      <ol className="list-decimal list-inside space-y-1">
+                    <div style={{ flex: 1, fontSize: 13, color: '#86869A' }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8', marginBottom: 8 }}>Cara mendapatkan QR:</div>
+                      <ol style={{ listStyleType: 'decimal', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <li>Buka app bank / TNG / DuitNow</li>
                         <li>Pergi ke &quot;Receive Money&quot; atau &quot;My QR&quot;</li>
                         <li>Screenshot QR code anda</li>

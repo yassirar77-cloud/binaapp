@@ -256,3 +256,70 @@
   border: solid #fff; border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
+
+/* ------- Radio cards (cr- prefixed) ------- */
+.cr-radio {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 180ms cubic-bezier(.25,1,.5,1);
+  position: relative;
+}
+.cr-radio:hover { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.12); }
+.cr-radio-active {
+  background: rgba(79,61,255,.08);
+  border-color: rgba(107,92,255,.5);
+  box-shadow: 0 0 16px rgba(79,61,255,.15), inset 0 1px 0 rgba(255,255,255,.04);
+}
+.cr-radio-active:hover { background: rgba(79,61,255,.12); }
+
+/* ------- Feature toggle pills (cr- prefixed) ------- */
+.cr-feature-pill {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 180ms cubic-bezier(.25,1,.5,1);
+  color: #86869A;
+  position: relative;
+}
+.cr-feature-pill:hover { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.12); color: #B8B8C8; }
+.cr-feature-active {
+  background: rgba(79,61,255,.08);
+  border-color: rgba(107,92,255,.4);
+  color: #F5F5FA;
+  box-shadow: 0 0 14px rgba(79,61,255,.12);
+}
+.cr-feature-active:hover { background: rgba(79,61,255,.12); }
+
+/* ------- Text input (cr- prefixed) ------- */
+.cr-input {
+  display: block; width: 100%;
+  padding: 10px 14px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  font-family: 'Geist', 'Inter', -apple-system, sans-serif;
+  font-size: 14px; color: #F5F5FA;
+  transition: border-color 180ms, box-shadow 180ms;
+}
+.cr-input::placeholder { color: #5A5A6E; }
+.cr-input:focus {
+  outline: none;
+  border-color: rgba(199,255,61,.4);
+  box-shadow: 0 0 0 3px rgba(199,255,61,.08);
+}
+
+/* ------- Expandable sub-card ------- */
+.cr-sub-card {
+  padding: 20px 24px;
+  margin-bottom: 20px;
+  background: rgba(255,255,255,.02);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 16px;
+}
