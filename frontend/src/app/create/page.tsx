@@ -9,7 +9,7 @@ import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout } from 'lu
 import VisualImageUpload from './components/VisualImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
-import CodeAnimation from '@/components/CodeAnimation'
+// CodeAnimation removed — loading overlay uses pure CSS spinner
 import { UpgradeModal } from '@/components/UpgradeModal'
 import { AddonPurchaseModal } from '@/components/AddonPurchaseModal'
 import { LimitReachedModal } from '@/components/LimitReachedModal'
@@ -17,6 +17,7 @@ import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
 import { supabase, signOut as customSignOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import toast from 'react-hot-toast'
+import './create.css'
 
 const EXAMPLE_DESCRIPTIONS = [
   {
@@ -1014,304 +1015,291 @@ export default function CreatePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b sticky top-0 z-40">
-        <nav className="container mx-auto px-4 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-primary-600" />
-            <span className="text-xl font-bold">BinaApp</span>
-          </Link>
-          <div className="flex items-center gap-4">
+    <div className="bg-create grain font-geist" style={{ minHeight: '100vh', color: '#F5F5FA' }}>
+      {/* ── Nav ── */}
+      <nav style={{ position: 'sticky', top: 0, zIndex: 50, backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', background: 'rgba(5,5,12,.72)', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+        <div className="shell-create" style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
+            <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', color: 'inherit' }}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: 'linear-gradient(135deg, #6B5CFF, #4F3DFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(79,61,255,.4), inset 0 1px 0 rgba(255,255,255,.2)', position: 'relative', overflow: 'hidden' }}>
+                <Sparkles size={15} color="#fff" />
+                <span style={{ position: 'absolute', top: 3, right: 3, width: 4, height: 4, borderRadius: '50%', background: '#C7FF3D', boxShadow: '0 0 6px #C7FF3D' }} />
+              </div>
+              <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.025em' }}>binaapp</span>
+            </Link>
+            <div className="hidden sm:flex" style={{ gap: 4, fontSize: 14 }}>
+              <span style={{ padding: '8px 12px', borderRadius: 8, color: '#F5F5FA', background: 'rgba(255,255,255,.05)', fontWeight: 500 }}>Create</span>
+              <Link href="/dashboard" style={{ padding: '8px 12px', borderRadius: 8, color: '#86869A', textDecoration: 'none' }}>My sites</Link>
+              <Link href="/create/templates" style={{ padding: '8px 12px', borderRadius: 8, color: '#86869A', textDecoration: 'none' }}>
+                {selectedTemplateId ? `Template: ${selectedTemplateId.replace(/_/g, ' ')}` : 'Templates'}
+              </Link>
+              <Link href="/dashboard/billing" style={{ padding: '8px 12px', borderRadius: 8, color: '#86869A', textDecoration: 'none' }}>Pricing</Link>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div className="pill pill-volt" style={{ cursor: 'pointer', padding: '4px 10px', fontSize: 10 }} onClick={() => setLanguage(language === 'ms' ? 'en' : 'ms')}>
+              <span className="led" /> {language === 'ms' ? 'BM' : 'EN'}
+            </div>
             {!authLoading && (
               user ? (
-                <>
-                  <Link href="/profile" className="text-sm text-gray-600 hover:text-gray-900">
-                    Profil
-                  </Link>
-                  <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-900">
-                    Website Saya
-                  </Link>
-                  <Link href="/dashboard/billing" className="text-sm text-gray-600 hover:text-gray-900">
-                    💎 Langganan
-                  </Link>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <button
                     onClick={handleLogout}
-                    className="text-sm text-red-500 hover:text-red-600"
+                    style={{ padding: '8px 10px', fontSize: 12, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 8, color: '#B8B8C8', cursor: 'pointer' }}
                   >
                     Log Keluar
                   </button>
-                </>
-              ) : (
-                <>
-                  <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900">
-                    Log Masuk
+                  <Link href="/profile" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px 4px 4px', background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 999, textDecoration: 'none', color: 'inherit' }}>
+                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: 'linear-gradient(135deg, #C7FF3D, #4F3DFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#05050C' }}>
+                      {(user.email?.[0] || 'U').toUpperCase()}
+                    </div>
+                    <span style={{ fontSize: 13, color: '#B8B8C8' }}>{user.user_metadata?.full_name || user.email?.split('@')[0] || 'User'}</span>
                   </Link>
-                  <Link href="/register" className="btn btn-primary btn-sm">
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Link href="/login" style={{ padding: '8px 12px', fontSize: 13, color: '#86869A', textDecoration: 'none' }}>Log Masuk</Link>
+                  <Link href="/register" className="cr-btn" style={{ padding: '8px 14px', fontSize: 13, background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', textDecoration: 'none', borderRadius: 12, boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 1px 0 rgba(255,255,255,.18) inset, 0 8px 24px rgba(79,61,255,.35)' }}>
                     Daftar
                   </Link>
-                </>
+                </div>
               )
             )}
           </div>
-        </nav>
-      </header>
+        </div>
+      </nav>
 
-      <div className="container mx-auto px-4 py-8">
+      <main className="shell-create" style={{ paddingTop: 32, paddingBottom: 80, position: 'relative', zIndex: 2 }}>
+        {/* ── Limit Reached Banner (top-level, always visible) ── */}
         {isAtLimit && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
-            Had website dicapai. Sila upgrade plan atau beli addon untuk mencipta website baru.
-            <Link href="/dashboard/billing" className="ml-2 underline font-semibold">Upgrade Sekarang</Link>
+          <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
+            <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020', boxShadow: '0 0 14px #FFB020' }} />
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,176,32,.1)', border: '1px solid rgba(255,176,32,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FFB020', flexShrink: 0 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 4 14h7l-2 8 9-12h-7l2-8Z"/></svg>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA' }}>Had website dicapai</div>
+              <div style={{ fontSize: 12, color: '#86869A', marginTop: 2 }}>Upgrade plan atau beli addon untuk mencipta website baru.</div>
+            </div>
+            <Link href="/dashboard/billing" style={{ height: 32, fontSize: 12, padding: '0 12px', display: 'inline-flex', alignItems: 'center', borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,176,32,.4)', color: '#F5F5FA', textDecoration: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              Upgrade
+            </Link>
           </div>
         )}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold mb-3">
-            ✨ Create Your Website with AI
-          </h1>
-          <p className="text-gray-600 text-lg">
-            Describe your business in Bahasa Malaysia or English, and let AI build your website
-          </p>
-          {/* Template gallery link */}
-          <Link
-            href="/create/templates"
-            className="inline-flex items-center gap-2 mt-4 px-5 py-2.5 bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 text-orange-700 rounded-full text-sm font-medium hover:from-orange-100 hover:to-amber-100 transition-all"
-          >
-            <Layout className="w-4 h-4" />
-            {selectedTemplateId
-              ? `Template: ${selectedTemplateId.replace(/_/g, ' ')}`
-              : 'Browse Design Templates'}
-          </Link>
-        </div>
+
+        {/* ── Hero Card ── */}
+        <section className="cr-card cr-card-hairline" style={{ padding: 32, position: 'relative', overflow: 'hidden', marginBottom: 32 }}>
+          <div className="dotgrid" style={{ position: 'absolute', inset: 0, opacity: .4, maskImage: 'radial-gradient(ellipse at top right, black 20%, transparent 70%)', WebkitMaskImage: 'radial-gradient(ellipse at top right, black 20%, transparent 70%)' }} />
+          <div style={{ position: 'absolute', top: -100, right: -80, width: 320, height: 320, borderRadius: '50%', background: 'radial-gradient(circle, rgba(79,61,255,.22), transparent 60%)', pointerEvents: 'none' }} />
+          <div style={{ position: 'relative' }}>
+            <div className="pill pill-volt ai-pulse" style={{ marginBottom: 20 }}>
+              <span className="led" /> AI ready · powered by claude
+            </div>
+            <h1 style={{ fontSize: 56, fontWeight: 700, letterSpacing: '-0.045em', lineHeight: 1, margin: 0, color: '#F5F5FA' }}>
+              Bina, jual,<br />
+              <span style={{ background: 'linear-gradient(120deg, #C7FF3D 30%, #6B5CFF 70%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>bebas.</span>
+            </h1>
+            <p style={{ color: '#B8B8C8', fontSize: 18, lineHeight: 1.5, margin: '20px 0 28px', maxWidth: 540 }}>
+              Cerita pasal kedai anda. AI bina website siap dalam 60 saat — terima pesanan, jual menu, semua dalam satu tempat.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+              <span className="eyebrow" style={{ marginRight: 4 }}>Try:</span>
+              {EXAMPLE_DESCRIPTIONS.slice(0, 4).map((ex) => (
+                <button key={ex.title} className="chip" onClick={() => fillExample(ex)}>
+                  <Sparkles size={12} /> {ex.title}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 14, marginTop: 24, fontSize: 13, color: '#5A5A6E' }}>
+              <Link href="/create/templates" style={{ color: '#86869A', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Layout size={14} /> Browse templates
+              </Link>
+              <span style={{ color: '#3A3A4A' }}>·</span>
+              <a href="/menu-designer" style={{ color: '#86869A', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg>
+                Create print menu
+              </a>
+            </div>
+          </div>
+        </section>
 
         {!generatedHtml && styleVariations.length === 0 ? (
-          <div className="max-w-4xl mx-auto">
+          <div className="cr-layout">
+          <div className="cr-form-col">
             {/* Subscription Required Banner */}
             {!subscriptionLoading && hasActiveSubscription === false && user && (
-              <div className="mb-6 p-6 bg-red-50 border-2 border-red-300 rounded-xl">
-                <div className="flex flex-col md:flex-row items-center gap-4">
-                  <span className="text-4xl">🔒</span>
-                  <div className="flex-1 text-center md:text-left">
-                    <h3 className="text-red-800 font-bold text-lg mb-1">Langganan Diperlukan</h3>
-                    <p className="text-red-700 text-sm">
-                      Anda perlu melanggan pelan untuk mencipta website. Bermula dari RM5/bulan sahaja.
-                    </p>
-                  </div>
-                  <a
-                    href="/dashboard/billing"
-                    className="px-6 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition-colors whitespace-nowrap"
-                  >
-                    Langgan Sekarang
-                  </a>
+              <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(199,255,61,.06), transparent)', border: '1px solid rgba(199,255,61,.22)' }}>
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#C7FF3D', boxShadow: '0 0 14px #C7FF3D' }} />
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(199,255,61,.1)', border: '1px solid rgba(199,255,61,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#C7FF3D', flexShrink: 0 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="m3 8 4 4 5-7 5 7 4-4v10H3z"/></svg>
                 </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA' }}>Langganan diperlukan</div>
+                  <div style={{ fontSize: 12, color: '#86869A', marginTop: 2 }}>Mula dari RM 5/bulan — batal bila-bila masa.</div>
+                </div>
+                <a href="/dashboard/billing" style={{ height: 32, fontSize: 12, padding: '0 12px', display: 'inline-flex', alignItems: 'center', borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(199,255,61,.3)', color: '#F5F5FA', textDecoration: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  Pilih Plan
+                </a>
               </div>
             )}
 
             {/* Not Logged In Banner */}
             {!authLoading && !user && (
-              <div className="mb-6 p-6 bg-blue-50 border-2 border-blue-300 rounded-xl">
-                <div className="flex flex-col md:flex-row items-center gap-4">
-                  <span className="text-4xl">👤</span>
-                  <div className="flex-1 text-center md:text-left">
-                    <h3 className="text-blue-800 font-bold text-lg mb-1">Log Masuk Diperlukan</h3>
-                    <p className="text-blue-700 text-sm">
-                      Sila log masuk dan langgan untuk mencipta website. Bermula dari RM5/bulan sahaja.
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <a
-                      href="/login?redirect=/create"
-                      className="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
-                    >
-                      Log Masuk
-                    </a>
-                    <a
-                      href="/register"
-                      className="px-6 py-3 border-2 border-blue-600 text-blue-600 font-bold rounded-lg hover:bg-blue-50 transition-colors whitespace-nowrap"
-                    >
-                      Daftar
-                    </a>
-                  </div>
+              <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(63,184,255,.06), transparent)', border: '1px solid rgba(63,184,255,.22)' }}>
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#3FB8FF', boxShadow: '0 0 14px #3FB8FF' }} />
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(63,184,255,.1)', border: '1px solid rgba(63,184,255,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3FB8FF', flexShrink: 0 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg>
                 </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA' }}>Sign in to save your work</div>
+                  <div style={{ fontSize: 12, color: '#86869A', marginTop: 2 }}>Continue as guest — but save your progress with a free account.</div>
+                </div>
+                <a href="/login?redirect=/create" style={{ height: 32, fontSize: 12, padding: '0 12px', display: 'inline-flex', alignItems: 'center', borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(63,184,255,.3)', color: '#F5F5FA', textDecoration: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  Sign in
+                </a>
               </div>
             )}
 
             {/* Limit Warning Banner */}
             {limitWarning && (
-              <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">⚠️</span>
-                  <div className="flex-1">
-                    <p className="text-orange-800 font-medium">{limitWarning}</p>
-                    <p className="text-orange-700 text-sm mt-1">
-                      Naik taraf pelan anda untuk lebih banyak website.
-                    </p>
-                  </div>
-                  <a
-                    href="/dashboard/billing"
-                    className="px-4 py-2 bg-orange-600 text-white text-sm font-medium rounded-lg hover:bg-orange-700 transition-colors"
-                  >
-                    Naik Taraf
-                  </a>
+              <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020', boxShadow: '0 0 14px #FFB020' }} />
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(255,176,32,.1)', border: '1px solid rgba(255,176,32,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FFB020', flexShrink: 0 }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M13 2 4 14h7l-2 8 9-12h-7l2-8Z"/></svg>
                 </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA' }}>{limitWarning}</div>
+                  <div style={{ fontSize: 12, color: '#86869A', marginTop: 2 }}>Upgrade untuk lebih banyak website.</div>
+                </div>
+                <a href="/dashboard/billing" style={{ height: 32, fontSize: 12, padding: '0 12px', display: 'inline-flex', alignItems: 'center', borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,176,32,.3)', color: '#F5F5FA', textDecoration: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  Upgrade
+                </a>
               </div>
             )}
 
-            <div style={{ marginBottom: '20px' }}>
-              <a href="/menu-designer" style={{
-                display: 'inline-block',
-                padding: '12px 24px',
-                background: '#16a34a',
-                color: 'white',
-                textDecoration: 'none',
-                borderRadius: '8px',
-                fontWeight: 'bold'
-              }}>
-                🍽️ Create Print Menu
-              </a>
-            </div>
+            {/* ── 01 Language & Theme ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
+              <div className="eyebrow" style={{ marginBottom: 16 }}>01 — BAHASA & TEMA</div>
 
-            <div className="mb-6">
-              <label className="block text-sm font-semibold mb-3 text-gray-700">
-                Try an example:
-              </label>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {EXAMPLE_DESCRIPTIONS.map((example, idx) => (
+              {/* Language toggle */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Bahasa / Language</div>
+                <div style={{ display: 'inline-flex', gap: 8 }}>
                   <button
-                    key={idx}
-                    onClick={() => fillExample(example)}
-                    className="btn btn-outline btn-sm text-left justify-start"
+                    onClick={() => setLanguage('ms')}
+                    className={language === 'ms' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
                   >
-                    {example.title}
+                    Bahasa Malaysia
                   </button>
-                ))}
+                  <button
+                    onClick={() => setLanguage('en')}
+                    className={language === 'en' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
+                  >
+                    English
+                  </button>
+                </div>
+              </div>
+
+              {/* Color mode toggle */}
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Tema Warna / Color Theme</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setColorMode('light')}
+                    className={colorMode === 'light' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
+                    style={{ padding: '14px 16px', flexDirection: 'column', gap: 4 }}
+                  >
+                    <span style={{ fontSize: 22 }}>&#9728;&#65039;</span>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>Cerah / Light</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setColorMode('dark')}
+                    className={colorMode === 'dark' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
+                    style={{ padding: '14px 16px', flexDirection: 'column', gap: 4 }}
+                  >
+                    <span style={{ fontSize: 22 }}>&#127769;</span>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>Gelap / Dark</span>
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div className="mb-4">
-              <label className="block text-sm font-semibold mb-2 text-gray-700">
-                Language:
-              </label>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setLanguage('ms')}
-                  className={`btn ${language === 'ms' ? 'btn-primary' : 'btn-outline'}`}
-                >
-                  🇲🇾 Bahasa Malaysia
-                </button>
-                <button
-                  onClick={() => setLanguage('en')}
-                  className={`btn ${language === 'en' ? 'btn-primary' : 'btn-outline'}`}
-                >
-                  🇬🇧 English
-                </button>
-              </div>
-            </div>
-
-            {/* Business Type Selector - for dynamic categories */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">🏪 Jenis Perniagaan</h3>
-              <p className="text-gray-500 text-sm mb-3">Pilih jenis perniagaan anda</p>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {/* ── 02 Business Type ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
+              <div className="eyebrow" style={{ marginBottom: 16 }}>02 — JENIS PERNIAGAAN</div>
+              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih jenis perniagaan anda</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
                 {[
-                  { id: 'auto' as const, icon: '🔍', label: 'Auto Detect', desc: 'Sistem akan kesan automatik' },
-                  { id: 'food' as const, icon: '🍛', label: 'Restoran / Makanan', desc: 'Nasi, Lauk, Minuman' },
-                  { id: 'clothing' as const, icon: '👗', label: 'Pakaian / Butik', desc: 'Baju, Tudung, Aksesori' },
-                  { id: 'salon' as const, icon: '💇', label: 'Salon / Spa', desc: 'Potong, Rawatan, Warna' },
-                  { id: 'services' as const, icon: '🔧', label: 'Servis / Repair', desc: 'Perkhidmatan, Pakej' },
-                  { id: 'bakery' as const, icon: '🎂', label: 'Bakeri / Kek', desc: 'Kek, Pastri, Cookies' },
-                  { id: 'general' as const, icon: '🛒', label: 'Lain-lain', desc: 'Produk Umum' }
+                  { id: 'auto' as const, icon: '🔍', label: 'Auto Detect', desc: 'Kesan automatik', recommended: true },
+                  { id: 'food' as const, icon: '🍛', label: 'Restoran / Makanan', desc: 'Nasi, Lauk, Minuman', recommended: false },
+                  { id: 'clothing' as const, icon: '👗', label: 'Pakaian / Butik', desc: 'Baju, Tudung, Aksesori', recommended: false },
+                  { id: 'salon' as const, icon: '💇', label: 'Salon / Spa', desc: 'Potong, Rawatan, Warna', recommended: false },
+                  { id: 'services' as const, icon: '🔧', label: 'Servis / Repair', desc: 'Perkhidmatan, Pakej', recommended: false },
+                  { id: 'bakery' as const, icon: '🎂', label: 'Bakeri / Kek', desc: 'Kek, Pastri, Cookies', recommended: false },
+                  { id: 'general' as const, icon: '🛒', label: 'Lain-lain', desc: 'Produk Umum', recommended: false }
                 ].map(type => (
                   <button
                     key={type.id}
                     type="button"
                     onClick={() => setBusinessType(type.id)}
-                    className={`p-4 border-2 rounded-xl text-center transition ${
-                      businessType === type.id
-                        ? 'border-orange-500 bg-orange-50'
-                        : 'border-gray-200 hover:border-orange-300'
-                    }`}
+                    className={businessType === type.id ? 'cr-type-card cr-type-card-active' : 'cr-type-card'}
+                    style={{ position: 'relative' }}
                   >
-                    <span className="text-3xl block mb-1">{type.icon}</span>
-                    <p className="text-sm font-medium">{type.label}</p>
-                    <p className="text-xs text-gray-500 mt-1">{type.desc}</p>
+                    {type.recommended && (
+                      <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)' }}>REC</span>
+                    )}
+                    <span style={{ fontSize: 28, display: 'block', marginBottom: 6 }}>{type.icon}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>{type.label}</span>
+                    <span style={{ fontSize: 11, color: '#5A5A6E', marginTop: 4, display: 'block' }}>{type.desc}</span>
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-gray-500 mt-2">
-                {businessType === 'auto' && '💡 Sistem akan mengesan jenis perniagaan anda secara automatik dari deskripsi'}
-                {businessType === 'food' && '🛵 Butang: "Pesan Delivery" | Kategori: Nasi, Lauk, Minuman'}
-                {businessType === 'clothing' && '🛍️ Butang: "Beli Sekarang" | Pilihan saiz & warna | Penghantaran'}
-                {businessType === 'salon' && '📅 Butang: "Tempah Sekarang" | Tarikh temujanji & pilih staff'}
-                {businessType === 'services' && '🔧 Butang: "Tempah Servis" | Tarikh & lokasi servis'}
-                {businessType === 'bakery' && '🎂 Butang: "Tempah Kek" | Pilihan saiz & mesej atas kek'}
-                {businessType === 'general' && '🛒 Butang: "Beli Sekarang" | Pilihan penghantaran'}
-              </p>
-            </div>
-
-            {/* Color Mode Selector */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">🎨 Tema Warna / Color Theme</h3>
-              <p className="text-gray-500 text-sm mb-3">Pilih tema warna untuk website anda</p>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setColorMode('light')}
-                  className={`p-4 border-2 rounded-xl text-center transition ${
-                    colorMode === 'light'
-                      ? 'border-orange-500 bg-orange-50'
-                      : 'border-gray-200 hover:border-orange-300'
-                  }`}
-                >
-                  <span className="text-3xl block mb-1">&#9728;&#65039;</span>
-                  <p className="text-sm font-medium">Cerah / Light</p>
-                  <p className="text-xs text-gray-500 mt-1">Latar belakang terang</p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setColorMode('dark')}
-                  className={`p-4 border-2 rounded-xl text-center transition ${
-                    colorMode === 'dark'
-                      ? 'border-orange-500 bg-orange-50'
-                      : 'border-gray-200 hover:border-orange-300'
-                  }`}
-                >
-                  <span className="text-3xl block mb-1">&#127769;</span>
-                  <p className="text-sm font-medium">Gelap / Dark</p>
-                  <p className="text-xs text-gray-500 mt-1">Latar belakang gelap</p>
-                </button>
+              <div style={{ fontSize: 12, color: '#5A5A6E', marginTop: 12 }}>
+                {businessType === 'auto' && 'Sistem akan mengesan jenis perniagaan anda secara automatik dari deskripsi'}
+                {businessType === 'food' && 'Butang: "Pesan Delivery" | Kategori: Nasi, Lauk, Minuman'}
+                {businessType === 'clothing' && 'Butang: "Beli Sekarang" | Pilihan saiz & warna | Penghantaran'}
+                {businessType === 'salon' && 'Butang: "Tempah Sekarang" | Tarikh temujanji & pilih staff'}
+                {businessType === 'services' && 'Butang: "Tempah Servis" | Tarikh & lokasi servis'}
+                {businessType === 'bakery' && 'Butang: "Tempah Kek" | Pilihan saiz & mesej atas kek'}
+                {businessType === 'general' && 'Butang: "Beli Sekarang" | Pilihan penghantaran'}
               </div>
             </div>
 
-            <div className="mb-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg">
-              <label className="flex items-center gap-3 cursor-pointer mb-3">
+            {/* ── 03 Multi-style ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20, background: 'linear-gradient(180deg, rgba(79,61,255,.06), rgba(255,255,255,0)), #0F0F1A' }}>
+              <label className="cr-check" style={{ marginBottom: multiStyle ? 14 : 0 }}>
                 <input
                   type="checkbox"
                   checked={multiStyle}
                   onChange={(e) => setMultiStyle(e.target.checked)}
-                  className="w-5 h-5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
                 />
+                <span className="cr-check-box" />
                 <div>
-                  <span className="font-semibold text-gray-900">
-                    ✨ Generate Multiple Styles (Recommended)
+                  <span style={{ fontSize: 14, fontWeight: 600, color: '#F5F5FA' }}>
+                    Generate Multiple Styles
                   </span>
-                  <p className="text-sm text-gray-600 mt-1">
+                  <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' as const, padding: '2px 7px', borderRadius: 6, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)' }}>REC</span>
+                  <p style={{ fontSize: 13, color: '#86869A', marginTop: 4 }}>
                     Get 3 design variations (Modern, Minimal, Bold) and choose your favorite
                   </p>
                 </div>
               </label>
-              
+
               {multiStyle && (
-                <label className="flex items-center gap-3 cursor-pointer ml-8">
+                <label className="cr-check" style={{ marginLeft: 32 }}>
                   <input
                     type="checkbox"
                     checked={generatePreviews}
                     onChange={(e) => setGeneratePreviews(e.target.checked)}
-                    className="w-5 h-5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
                   />
+                  <span className="cr-check-box" />
                   <div>
-                    <span className="font-medium text-gray-800">
-                      📸 Generate Preview Thumbnails
+                    <span style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8' }}>
+                      Generate Preview Thumbnails
                     </span>
-                    <p className="text-xs text-gray-600 mt-0.5">
+                    <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2 }}>
                       Takes 10-15 seconds longer but shows better previews
                     </p>
                   </div>
@@ -1319,10 +1307,9 @@ export default function CreatePage() {
               )}
             </div>
 
-            <div className="mb-6">
-              <label className="block text-sm font-semibold mb-2 text-gray-700">
-                Describe your business:
-              </label>
+            {/* ── 04 Description ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
+              <div className="eyebrow" style={{ marginBottom: 16 }}>04 — CERITAKAN PERNIAGAAN ANDA</div>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -1331,199 +1318,106 @@ export default function CreatePage() {
                     ? 'Contoh: Saya ada kedai runcit di Shah Alam yang jual barangan harian, makanan, dan minuman. Harga berpatutan dari RM1. Lokasi di Seksyen 7 Shah Alam. Telefon 019-1234567. Buka 7am-10pm setiap hari...'
                     : 'Example: I have a coffee shop in Kuala Lumpur serving specialty coffee, cakes, and light meals. Prices from RM8. Located at TTDI. Contact via WhatsApp 012-3456789. Open daily 8am-6pm...'
                 }
-                className="w-full h-64 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none"
+                className="cr-textarea"
+                style={{ width: '100%', height: 220, resize: 'none' }}
               />
-              <div className="text-right text-sm text-gray-500 mt-1">
-                {description.length} characters
+              <div className="cr-counter" style={{ color: description.length >= 100 ? '#34D399' : description.length >= 50 ? '#C7FF3D' : '#5A5A6E' }}>
+                <span className="num">{description.length}</span> characters
               </div>
             </div>
 
             <VisualImageUpload onImagesUploaded={setUploadedImages} />
 
-            {/* STRICT IMAGE CONTROL - Explicit User Choice */}
-            <div className="bg-white rounded-xl p-6 shadow-lg mt-6 border-2 border-purple-200">
-              <h3 className="text-lg font-bold mb-2">🖼️ Gambar untuk Website</h3>
-              <p className="text-gray-500 text-sm mb-4">Pilih bagaimana anda mahu gambar dalam website anda</p>
+            {/* ── 05 Image Source ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
+              <div className="eyebrow" style={{ marginBottom: 16 }}>05 — SUMBER GAMBAR</div>
+              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih bagaimana anda mahu gambar dalam website anda</div>
 
-              <div className="space-y-3">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {/* Option 1: No Images */}
-                <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${
-                  imageChoice === 'none' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'
-                }`}>
-                  <input
-                    type="radio"
-                    name="imageChoice"
-                    value="none"
-                    checked={imageChoice === 'none'}
-                    onChange={() => setImageChoice('none')}
-                    className="w-5 h-5 text-purple-600"
-                  />
-                  <span className="text-2xl">📝</span>
-                  <div className="flex-1">
-                    <p className="font-semibold">Tiada Gambar</p>
-                    <p className="text-sm text-gray-500">Website teks sahaja, tanpa gambar</p>
+                <label className={imageChoice === 'none' ? 'cr-radio cr-radio-active' : 'cr-radio'}>
+                  <input type="radio" name="imageChoice" value="none" checked={imageChoice === 'none'} onChange={() => setImageChoice('none')} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ fontSize: 22, flexShrink: 0 }}>📝</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Tiada Gambar</span>
+                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>Website teks sahaja, tanpa gambar</span>
                   </div>
                 </label>
 
                 {/* Option 2: Upload Own Images */}
-                <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${
-                  imageChoice === 'upload' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'
-                }`}>
-                  <input
-                    type="radio"
-                    name="imageChoice"
-                    value="upload"
-                    checked={imageChoice === 'upload'}
-                    onChange={() => setImageChoice('upload')}
-                    className="w-5 h-5 text-purple-600"
-                  />
-                  <span className="text-2xl">📷</span>
-                  <div className="flex-1">
-                    <p className="font-semibold">Muat Naik Gambar Sendiri</p>
-                    <p className="text-sm text-gray-500">Gunakan gambar yang anda upload di atas</p>
+                <label className={imageChoice === 'upload' ? 'cr-radio cr-radio-active' : 'cr-radio'}>
+                  <input type="radio" name="imageChoice" value="upload" checked={imageChoice === 'upload'} onChange={() => setImageChoice('upload')} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ fontSize: 22, flexShrink: 0 }}>📷</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Muat Naik Gambar Sendiri</span>
+                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>Gunakan gambar yang anda upload di atas</span>
                   </div>
                   {uploadedImages.gallery.length > 0 && (
-                    <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">
-                      {uploadedImages.gallery.length} gambar dimuat naik
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 8, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)', whiteSpace: 'nowrap' }}>
+                      {uploadedImages.gallery.length} dimuat naik
                     </span>
                   )}
                 </label>
 
                 {/* Option 3: Generate AI Images */}
-                <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${
-                  imageChoice === 'ai' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'
-                }`}>
-                  <input
-                    type="radio"
-                    name="imageChoice"
-                    value="ai"
-                    checked={imageChoice === 'ai'}
-                    onChange={() => setImageChoice('ai')}
-                    className="w-5 h-5 text-purple-600"
-                  />
-                  <span className="text-2xl">✨</span>
-                  <div className="flex-1">
-                    <p className="font-semibold">Jana Gambar AI</p>
-                    <p className="text-sm text-gray-500">AI akan jana gambar untuk perniagaan anda</p>
+                <label className={imageChoice === 'ai' ? 'cr-radio cr-radio-active' : 'cr-radio'}>
+                  <input type="radio" name="imageChoice" value="ai" checked={imageChoice === 'ai'} onChange={() => setImageChoice('ai')} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ fontSize: 22, flexShrink: 0 }}>✨</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Jana Gambar AI</span>
+                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>AI akan jana gambar untuk perniagaan anda</span>
                   </div>
-                  <span className="bg-purple-100 text-purple-800 text-xs px-2 py-1 rounded-full">
-                    Premium
-                  </span>
+                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' as const, padding: '2px 7px', borderRadius: 6, background: 'rgba(107,92,255,.15)', color: '#BAB0FF', border: '1px solid rgba(107,92,255,.3)' }}>PREMIUM</span>
                 </label>
               </div>
 
               {/* Warning if upload selected but no images */}
               {imageChoice === 'upload' && uploadedImages.gallery.length === 0 && !uploadedImages.hero && (
-                <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <p className="text-yellow-800 text-sm">
-                    ⚠️ Anda belum muat naik gambar. Sila muat naik gambar di bahagian atas atau pilih pilihan lain.
-                  </p>
+                <div className="banner-accent float-in" style={{ marginTop: 14, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
+                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
+                  <span style={{ fontSize: 13, color: '#FFB020' }}>Anda belum muat naik gambar. Sila muat naik gambar di bahagian atas atau pilih pilihan lain.</span>
                 </div>
               )}
             </div>
 
-            {/* Feature Selector */}
-            <div className="bg-white rounded-xl p-6 shadow-lg mt-6">
-              <h3 className="text-lg font-bold mb-2">⚡ Pilih Ciri-ciri Website</h3>
-              <p className="text-gray-500 text-sm mb-4">Pilih apa yang anda mahu dalam website anda</p>
+            {/* ── 06 Features ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
+              <div className="eyebrow" style={{ marginBottom: 16 }}>06 — CIRI-CIRI WEBSITE</div>
+              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih apa yang anda mahu dalam website anda</div>
 
-              <div className="grid grid-cols-2 gap-3">
-                {/* WhatsApp */}
-                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={selectedFeatures.whatsapp}
-                    onChange={(e) => setSelectedFeatures({...selectedFeatures, whatsapp: e.target.checked})}
-                    className="w-5 h-5 text-green-600"
-                  />
-                  <span className="ml-3">
-                    <span className="text-xl">💬</span>
-                    <span className="ml-2 font-medium">WhatsApp</span>
-                  </span>
-                </label>
-
-                {/* Google Map */}
-                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={selectedFeatures.googleMap}
-                    onChange={(e) => setSelectedFeatures({...selectedFeatures, googleMap: e.target.checked})}
-                    className="w-5 h-5 text-blue-600"
-                  />
-                  <span className="ml-3">
-                    <span className="text-xl">📍</span>
-                    <span className="ml-2 font-medium">Google Map</span>
-                  </span>
-                </label>
-
-                {/* Delivery System */}
-                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={selectedFeatures.deliverySystem}
-                    onChange={(e) => setSelectedFeatures({...selectedFeatures, deliverySystem: e.target.checked})}
-                    className="w-5 h-5 text-orange-600"
-                  />
-                  <span className="ml-3">
-                    <span className="text-xl">🛵</span>
-                    <span className="ml-2 font-medium">Delivery Sendiri</span>
-                  </span>
-                </label>
-
-                {/* Contact Form */}
-                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={selectedFeatures.contactForm}
-                    onChange={(e) => setSelectedFeatures({...selectedFeatures, contactForm: e.target.checked})}
-                    className="w-5 h-5 text-purple-600"
-                  />
-                  <span className="ml-3">
-                    <span className="text-xl">📧</span>
-                    <span className="ml-2 font-medium">Borang Hubungi</span>
-                  </span>
-                </label>
-
-                {/* Social Media */}
-                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={selectedFeatures.socialMedia}
-                    onChange={(e) => setSelectedFeatures({...selectedFeatures, socialMedia: e.target.checked})}
-                    className="w-5 h-5 text-pink-600"
-                  />
-                  <span className="ml-3">
-                    <span className="text-xl">📱</span>
-                    <span className="ml-2 font-medium">Social Media</span>
-                  </span>
-                </label>
-
-                {/* Price List */}
-                <label className="flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={selectedFeatures.priceList}
-                    onChange={(e) => setSelectedFeatures({...selectedFeatures, priceList: e.target.checked})}
-                    className="w-5 h-5 text-yellow-600"
-                  />
-                  <span className="ml-3">
-                    <span className="text-xl">💰</span>
-                    <span className="ml-2 font-medium">Senarai Harga</span>
-                  </span>
-                </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {[
+                  { key: 'whatsapp' as const, icon: '💬', label: 'WhatsApp' },
+                  { key: 'googleMap' as const, icon: '📍', label: 'Google Map' },
+                  { key: 'deliverySystem' as const, icon: '🛵', label: 'Delivery Sendiri' },
+                  { key: 'contactForm' as const, icon: '📧', label: 'Borang Hubungi' },
+                  { key: 'socialMedia' as const, icon: '📱', label: 'Social Media' },
+                  { key: 'priceList' as const, icon: '💰', label: 'Senarai Harga' },
+                ].map(f => (
+                  <label key={f.key} className={selectedFeatures[f.key] ? 'cr-feature-pill cr-feature-active' : 'cr-feature-pill'}>
+                    <input
+                      type="checkbox"
+                      checked={selectedFeatures[f.key]}
+                      onChange={(e) => setSelectedFeatures({...selectedFeatures, [f.key]: e.target.checked})}
+                      style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+                    />
+                    <span style={{ fontSize: 18 }}>{f.icon}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>{f.label}</span>
+                  </label>
+                ))}
               </div>
             </div>
 
-            {/* If Google Map selected, ask for address */}
+            {/* Google Map expand */}
             {selectedFeatures.googleMap && (
-              <div className="bg-blue-50 rounded-xl p-6 mt-4 border border-blue-200">
-                <h4 className="font-bold text-blue-800 mb-3">📍 Google Map</h4>
+              <div className="cr-sub-card float-in">
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>📍 Google Map</div>
                 <div>
-                  <label className="block text-sm font-medium mb-1">Alamat Penuh</label>
+                  <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Alamat Penuh</label>
                   <input
                     type="text"
                     placeholder="cth: 123, Jalan Sultan, Shah Alam, Selangor"
-                    className="w-full px-4 py-2 border rounded-lg"
+                    className="cr-input"
                     value={fullAddress}
                     onChange={(e) => setFullAddress(e.target.value)}
                   />
@@ -1531,179 +1425,112 @@ export default function CreatePage() {
               </div>
             )}
 
-            {/* If Social Media selected */}
+            {/* Social Media expand */}
             {selectedFeatures.socialMedia && (
-              <div className="bg-pink-50 rounded-xl p-6 mt-4 border border-pink-200">
-                <h4 className="font-bold text-pink-800 mb-3">📱 Social Media</h4>
-                <div className="space-y-3">
-                  <input
-                    type="text"
-                    placeholder="Instagram: @username"
-                    className="w-full px-4 py-2 border rounded-lg"
-                    value={instagram}
-                    onChange={(e) => setInstagram(e.target.value)}
-                  />
-                  <input
-                    type="text"
-                    placeholder="Facebook: page name or URL"
-                    className="w-full px-4 py-2 border rounded-lg"
-                    value={facebook}
-                    onChange={(e) => setFacebook(e.target.value)}
-                  />
-                  <input
-                    type="text"
-                    placeholder="TikTok: @username"
-                    className="w-full px-4 py-2 border rounded-lg"
-                    value={tiktok}
-                    onChange={(e) => setTiktok(e.target.value)}
-                  />
+              <div className="cr-sub-card float-in">
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>📱 Social Media</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <input type="text" placeholder="Instagram: @username" className="cr-input" value={instagram} onChange={(e) => setInstagram(e.target.value)} />
+                  <input type="text" placeholder="Facebook: page name or URL" className="cr-input" value={facebook} onChange={(e) => setFacebook(e.target.value)} />
+                  <input type="text" placeholder="TikTok: @username" className="cr-input" value={tiktok} onChange={(e) => setTiktok(e.target.value)} />
                 </div>
               </div>
             )}
 
-            {/* Delivery Settings - Only show if Delivery Sendiri is checked */}
+            {/* Delivery Settings expand */}
             {selectedFeatures.deliverySystem && (
-              <div className="bg-orange-50 rounded-xl p-6 mt-4 border border-orange-200">
-                <h4 className="font-bold text-orange-800 mb-3">🛵 Tetapan Delivery</h4>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="cr-sub-card float-in">
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>🛵 Tetapan Delivery</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   <div>
-                    <label className="text-sm text-gray-600">Caj Delivery (RM)</label>
-                    <input 
-                      type="number" 
-                      placeholder="5.00" 
-                      step="0.50"
-                      value={fulfillment.deliveryFee}
-                      onChange={(e) => setFulfillment({...fulfillment, deliveryFee: e.target.value})}
-                      className="w-full p-2 border rounded-lg mt-1" 
-                    />
+                    <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Caj Delivery (RM)</label>
+                    <input type="number" placeholder="5.00" step="0.50" className="cr-input" value={fulfillment.deliveryFee} onChange={(e) => setFulfillment({...fulfillment, deliveryFee: e.target.value})} />
                   </div>
                   <div>
-                    <label className="text-sm text-gray-600">Min. Order (RM)</label>
-                    <input 
-                      type="number" 
-                      placeholder="20.00" 
-                      step="1"
-                      value={fulfillment.minOrder}
-                      onChange={(e) => setFulfillment({...fulfillment, minOrder: e.target.value})}
-                      className="w-full p-2 border rounded-lg mt-1" 
-                    />
+                    <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Min. Order (RM)</label>
+                    <input type="number" placeholder="20.00" step="1" className="cr-input" value={fulfillment.minOrder} onChange={(e) => setFulfillment({...fulfillment, minOrder: e.target.value})} />
                   </div>
-                  <div className="col-span-2">
-                    <label className="text-sm text-gray-600">Kawasan Delivery</label>
-                    <input 
-                      type="text" 
-                      placeholder="Shah Alam, Klang, Subang"
-                      value={fulfillment.deliveryArea}
-                      onChange={(e) => setFulfillment({...fulfillment, deliveryArea: e.target.value})}
-                      className="w-full p-2 border rounded-lg mt-1" 
-                    />
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Kawasan Delivery</label>
+                    <input type="text" placeholder="Shah Alam, Klang, Subang" className="cr-input" value={fulfillment.deliveryArea} onChange={(e) => setFulfillment({...fulfillment, deliveryArea: e.target.value})} />
                   </div>
                 </div>
 
-                {/* Self Pickup Option - Nested under Delivery */}
-                <div className="mt-4 pt-4 border-t border-orange-200">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input 
-                      type="checkbox"
-                      checked={fulfillment.pickup}
-                      onChange={(e) => setFulfillment({...fulfillment, pickup: e.target.checked})}
-                      className="w-5 h-5 rounded accent-orange-500" 
-                    />
-                    <span className="text-xl">🏪</span>
-                    <div className="flex-1">
-                      <p className="font-semibold text-gray-800">Self Pickup</p>
-                      <p className="text-sm text-gray-500">Pelanggan ambil di kedai</p>
+                {/* Self Pickup */}
+                <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,.06)' }}>
+                  <label className="cr-check">
+                    <input type="checkbox" checked={fulfillment.pickup} onChange={(e) => setFulfillment({...fulfillment, pickup: e.target.checked})} />
+                    <span className="cr-check-box" />
+                    <span style={{ fontSize: 18 }}>🏪</span>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Self Pickup</span>
+                      <span style={{ fontSize: 12, color: '#5A5A6E', display: 'block' }}>Pelanggan ambil di kedai</span>
                     </div>
-                    <span className="text-green-600 font-bold">FREE</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#34D399' }}>FREE</span>
                   </label>
-                  
+
                   {fulfillment.pickup && (
-                    <div className="mt-3 pl-10">
-                      <label className="text-sm text-gray-600">Alamat Pickup</label>
-                      <input 
-                        type="text" 
-                        placeholder="No. 123, Jalan ABC, Shah Alam"
-                        value={fulfillment.pickupAddress}
-                        onChange={(e) => setFulfillment({...fulfillment, pickupAddress: e.target.value})}
-                        className="w-full p-2 border rounded-lg mt-1" 
-                      />
+                    <div style={{ marginTop: 10, marginLeft: 32 }}>
+                      <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Alamat Pickup</label>
+                      <input type="text" placeholder="No. 123, Jalan ABC, Shah Alam" className="cr-input" value={fulfillment.pickupAddress} onChange={(e) => setFulfillment({...fulfillment, pickupAddress: e.target.value})} />
                     </div>
                   )}
                 </div>
               </div>
             )}
 
-            {/* Payment Settings - QR + COD only */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border mt-6">
-              <h3 className="text-lg font-semibold mb-2">💳 Tetapan Pembayaran</h3>
-              <p className="text-gray-500 text-sm mb-4">Pilih cara pembayaran yang anda terima</p>
-              
-              {/* Payment Methods */}
-              <div className="space-y-3 mb-4">
+            {/* ── 07 Payment ── */}
+            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
+              <div className="eyebrow" style={{ marginBottom: 16 }}>07 — PEMBAYARAN</div>
+              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih cara pembayaran yang anda terima</div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: paymentMethods.qr ? 16 : 0 }}>
                 {/* COD */}
-                <label className="flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer hover:border-orange-300 transition-colors">
-                  <input 
-                    type="checkbox" 
-                    checked={paymentMethods.cod}
-                    onChange={(e) => setPaymentMethods({...paymentMethods, cod: e.target.checked})}
-                    className="w-5 h-5 rounded accent-orange-500" 
-                  />
-                  <span className="text-2xl">💵</span>
-                  <div>
-                    <p className="font-semibold">Cash on Delivery (COD)</p>
-                    <p className="text-sm text-gray-500">Bayar tunai bila terima</p>
+                <label className={paymentMethods.cod ? 'cr-radio cr-radio-active' : 'cr-radio'}>
+                  <input type="checkbox" checked={paymentMethods.cod} onChange={(e) => setPaymentMethods({...paymentMethods, cod: e.target.checked})} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ fontSize: 22, flexShrink: 0 }}>💵</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Cash on Delivery (COD)</span>
+                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>Bayar tunai bila terima</span>
                   </div>
+                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' as const, padding: '2px 7px', borderRadius: 6, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)' }}>POPULAR</span>
                 </label>
-                
+
                 {/* QR Payment */}
-                <label className="flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer hover:border-orange-300 transition-colors">
-                  <input 
-                    type="checkbox"
-                    checked={paymentMethods.qr}
-                    onChange={(e) => setPaymentMethods({...paymentMethods, qr: e.target.checked})}
-                    className="w-5 h-5 rounded accent-orange-500" 
-                  />
-                  <span className="text-2xl">📱</span>
-                  <div>
-                    <p className="font-semibold">QR Payment</p>
-                    <p className="text-sm text-gray-500">DuitNow / TNG / Bank QR</p>
+                <label className={paymentMethods.qr ? 'cr-radio cr-radio-active' : 'cr-radio'}>
+                  <input type="checkbox" checked={paymentMethods.qr} onChange={(e) => setPaymentMethods({...paymentMethods, qr: e.target.checked})} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                  <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>QR Payment</span>
+                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>DuitNow / TNG / Bank QR</span>
                   </div>
                 </label>
               </div>
-              
-              {/* QR Upload - Only show if QR payment enabled */}
+
+              {/* QR Upload */}
               {paymentMethods.qr && (
-                <div className="bg-orange-50 rounded-xl p-4 border border-orange-200">
-                  <p className="font-medium mb-3">📱 Muat Naik QR Pembayaran Anda</p>
-                  <div className="flex gap-4 items-start">
+                <div className="cr-sub-card float-in" style={{ marginTop: 0, marginBottom: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Muat Naik QR Pembayaran Anda</div>
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
                     {/* QR Upload Box */}
-                    <div className="w-32 h-32 border-2 border-dashed border-orange-300 rounded-xl bg-white flex-shrink-0">
-                      <label className="cursor-pointer w-full h-full flex flex-col items-center justify-center">
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          className="hidden"
-                          onChange={handleQRUpload} 
-                        />
+                    <div style={{ width: 120, height: 120, border: '2px dashed rgba(255,255,255,.12)', borderRadius: 14, background: 'rgba(255,255,255,.02)', flexShrink: 0, overflow: 'hidden' }}>
+                      <label style={{ cursor: 'pointer', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                        <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleQRUpload} />
                         {paymentQRPreview ? (
-                          <img 
-                            src={paymentQRPreview} 
-                            alt="Payment QR"
-                            className="w-full h-full object-contain rounded-xl p-1" 
-                          />
+                          <img src={paymentQRPreview} alt="Payment QR" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 4, borderRadius: 12 }} />
                         ) : (
                           <>
-                            <span className="text-3xl mb-1">📷</span>
-                            <span className="text-xs text-gray-500">Upload QR</span>
+                            <span style={{ fontSize: 28, marginBottom: 4 }}>📷</span>
+                            <span style={{ fontSize: 11, color: '#5A5A6E' }}>Upload QR</span>
                           </>
                         )}
                       </label>
                     </div>
-                    
+
                     {/* Instructions */}
-                    <div className="flex-1 text-sm text-gray-600">
-                      <p className="font-medium text-gray-800 mb-2">Cara mendapatkan QR:</p>
-                      <ol className="list-decimal list-inside space-y-1">
+                    <div style={{ flex: 1, fontSize: 13, color: '#86869A' }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8', marginBottom: 8 }}>Cara mendapatkan QR:</div>
+                      <ol style={{ listStyleType: 'decimal', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <li>Buka app bank / TNG / DuitNow</li>
                         <li>Pergi ke &quot;Receive Money&quot; atau &quot;My QR&quot;</li>
                         <li>Screenshot QR code anda</li>
@@ -1716,437 +1543,308 @@ export default function CreatePage() {
             </div>
 
             {error && (
-              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-                {error}
+              <div className="banner-accent" style={{ background: 'linear-gradient(90deg, rgba(239,68,68,.06), transparent)', border: '1px solid rgba(239,68,68,.22)' }}>
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#EF4444' }} />
+                <span style={{ fontSize: 13, color: '#FCA5A5' }}>{error}</span>
               </div>
             )}
 
             <button
               onClick={handleGenerate}
               disabled={loading || description.length < 10 || isAtLimit}
-              className="w-full btn btn-primary text-lg py-4 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="cr-gen-btn"
             >
               {loading ? (
                 <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                  Generating your website...
+                  <div style={{ width: 18, height: 18, border: '2px solid rgba(5,5,12,.3)', borderTopColor: '#05050C', borderRadius: '50%', animation: 'spin .6s linear infinite' }} />
+                  Generating...
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-5 h-5 mr-2" />
+                  <Sparkles size={18} />
                   Generate Website with AI
                 </>
               )}
             </button>
 
             {loading && (
-              <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-                <div className="bg-gray-900 rounded-2xl p-8 max-w-2xl w-full mx-4">
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,12,.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+                <div className="cr-card cr-card-hairline" style={{ padding: 40, maxWidth: 560, width: '100%', margin: '0 16px' }}>
                   {error ? (
-                    /* Error State in Modal */
-                    <div className="text-center">
-                      <div className="mb-6">
-                        <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <span className="text-4xl">❌</span>
-                        </div>
-                        <h3 className="text-2xl font-bold text-white mb-2">Generation Failed</h3>
-                        <p className="text-gray-400 mb-4">Something went wrong while generating your website</p>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 28 }}>❌</div>
+                      <h3 style={{ fontSize: 22, fontWeight: 700, color: '#F5F5FA', margin: '0 0 8px' }}>Generation Failed</h3>
+                      <p style={{ fontSize: 14, color: '#86869A', margin: '0 0 20px' }}>Something went wrong while generating your website</p>
+                      <div style={{ padding: 14, background: 'rgba(239,68,68,.06)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 12, marginBottom: 24, textAlign: 'left' }}>
+                        <p style={{ fontSize: 13, color: '#FCA5A5', margin: 0 }}>{error}</p>
                       </div>
-
-                      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-6 text-left">
-                        <p className="text-red-400 text-sm">{error}</p>
-                      </div>
-
-                      <div className="flex gap-3 justify-center">
-                        <button
-                          onClick={() => {
-                            setLoading(false);
-                            setError('');
-                            setProgress(0);
-                          }}
-                          className="px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={() => {
-                            setError('');
-                            setProgress(0);
-                            handleGenerate();
-                          }}
-                          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition flex items-center gap-2"
-                        >
-                          <span>🔄</span> Try Again
-                        </button>
+                      <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                        <button onClick={() => { setLoading(false); setError(''); setProgress(0); }} className="cr-btn-ghost cr-btn">Cancel</button>
+                        <button onClick={() => { setError(''); setProgress(0); handleGenerate(); }} className="cr-btn" style={{ background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)' }}>Try Again</button>
                       </div>
                     </div>
                   ) : (
-                    /* Normal Loading State */
                     <>
-                      <div className="mb-6 relative">
-                        <CodeAnimation />
-                        <div className="absolute -top-2 -right-2 w-6 h-6 bg-blue-500 rounded-full animate-ping"></div>
+                      {/* AI Spinner */}
+                      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
+                        <div className="cr-spinner" />
                       </div>
 
-                      <div className="text-white mb-4 text-center">
-                        <div className="flex items-center justify-center gap-2 mb-2">
-                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-                          <h3 className="text-2xl font-bold">Building your website...</h3>
+                      <div style={{ textAlign: 'center', marginBottom: 28 }}>
+                        <h3 style={{ fontSize: 22, fontWeight: 700, color: '#F5F5FA', margin: '0 0 6px' }}>Building your website...</h3>
+                        <p style={{ fontSize: 14, color: '#86869A', margin: 0 }}>AI is writing production-ready HTML code for you</p>
+                      </div>
+
+                      {/* Progress bar */}
+                      <div style={{ marginBottom: 28 }}>
+                        <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,.06)', borderRadius: 99, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, #4F3DFF, #C7FF3D)', borderRadius: 99, transition: 'width 500ms cubic-bezier(.25,1,.5,1)' }} />
                         </div>
-                        <p className="text-gray-400">
-                          AI is writing production-ready HTML code for you
-                        </p>
+                        <div style={{ textAlign: 'center', marginTop: 8 }}>
+                          <span className="num" style={{ fontSize: 13, color: '#C7FF3D', fontWeight: 600 }}>{progress}%</span>
+                          <span style={{ fontSize: 13, color: '#5A5A6E', marginLeft: 6 }}>Complete</span>
+                        </div>
                       </div>
 
-                  {/* Progress bar */}
-                  <div className="mb-6">
-                    <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 transition-all duration-500 ease-out"
-                        style={{ width: `${progress}%` }}
-                      ></div>
-                    </div>
-                    <p className="text-center text-blue-400 mt-2 font-semibold">
-                      {progress}% Complete
-                    </p>
-                  </div>
+                      {/* 5-step indicators */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 380, margin: '0 auto' }}>
+                        {[
+                          { label: 'Analyzing your business description...', start: 10, end: 30 },
+                          { label: 'Generating Modern style...', start: 30, end: 50 },
+                          { label: 'Generating Minimal style...', start: 50, end: 70 },
+                          { label: 'Generating Bold style...', start: 70, end: 90 },
+                          { label: 'Finalizing website...', start: 90, end: 100 },
+                        ].map((step, i) => {
+                          const done = progress >= step.end;
+                          const active = progress >= step.start && progress < step.end;
+                          return (
+                            <div key={i} className={`cr-step ${active ? 'cr-step-active' : ''} ${done ? 'cr-step-done' : ''}`}>
+                              <div className="cr-step-dot" />
+                              <span style={{ fontSize: 13 }}>{done ? '✓ ' : ''}{step.label}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
 
-                  <div className="mt-6 space-y-3 text-left max-w-md mx-auto">
-                    {/* Step 1: Analyzing (10-25%) */}
-                    <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                        progress >= 10 && progress < 30 ? 'bg-blue-500 animate-pulse' :
-                        progress >= 30 ? 'bg-green-500' : 'bg-gray-600'
-                      }`}></div>
-                      <span className={`text-sm ${progress >= 30 ? 'text-green-400' : ''}`}>
-                        {progress >= 30 ? '✓ ' : ''}Analyzing your business description...
-                      </span>
-                    </div>
-                    {/* Step 2: Modern Style (30-50%) */}
-                    <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                        progress >= 30 && progress < 50 ? 'bg-purple-500 animate-pulse' :
-                        progress >= 50 ? 'bg-green-500' : 'bg-gray-600'
-                      }`}></div>
-                      <span className={`text-sm ${progress >= 50 ? 'text-green-400' : ''}`}>
-                        {progress >= 50 ? '✓ ' : ''}Generating Modern style...
-                      </span>
-                    </div>
-                    {/* Step 3: Minimal Style (50-70%) */}
-                    <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                        progress >= 50 && progress < 70 ? 'bg-pink-500 animate-pulse' :
-                        progress >= 70 ? 'bg-green-500' : 'bg-gray-600'
-                      }`}></div>
-                      <span className={`text-sm ${progress >= 70 ? 'text-green-400' : ''}`}>
-                        {progress >= 70 ? '✓ ' : ''}Generating Minimal style...
-                      </span>
-                    </div>
-                    {/* Step 4: Bold Style (70-90%) */}
-                    <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                        progress >= 70 && progress < 90 ? 'bg-orange-500 animate-pulse' :
-                        progress >= 90 ? 'bg-green-500' : 'bg-gray-600'
-                      }`}></div>
-                      <span className={`text-sm ${progress >= 90 ? 'text-green-400' : ''}`}>
-                        {progress >= 90 ? '✓ ' : ''}Generating Bold style...
-                      </span>
-                    </div>
-                    {/* Step 5: Finalizing (90-100%) */}
-                    <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                        progress >= 90 && progress < 100 ? 'bg-yellow-500 animate-pulse' :
-                        progress >= 100 ? 'bg-green-500' : 'bg-gray-600'
-                      }`}></div>
-                      <span className={`text-sm ${progress >= 100 ? 'text-green-400' : ''}`}>
-                        {progress >= 100 ? '✓ ' : ''}Finalizing website...
-                      </span>
-                    </div>
-                  </div>
+                      {/* Stale Progress Warning */}
+                      {staleWarning && (
+                        <div className="banner-accent" style={{ marginTop: 20, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
+                          <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
+                          <span style={{ fontSize: 13, color: '#FFB020' }}>Progress appears stuck at {progress}%. The backend may be experiencing issues. Job may still complete.</span>
+                        </div>
+                      )}
 
-                  {/* Stale Progress Warning */}
-                  {staleWarning && (
-                    <div className="mt-4 p-3 bg-yellow-500/20 border border-yellow-500/50 rounded-lg">
-                      <p className="text-yellow-400 text-sm text-center">
-                        ⚠️ Progress appears to be stuck at {progress}%. The backend may be experiencing issues.
-                        <br />
-                        <span className="text-xs text-yellow-500">Job may still complete - please wait or try again.</span>
+                      <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 20, textAlign: 'center' }}>
+                        This usually takes 45-90 seconds. Progress updates every 3 seconds.
                       </p>
-                    </div>
-                  )}
 
-                  <p className="text-xs text-gray-500 mt-6 text-center">
-                    This usually takes 45-90 seconds. Progress updates every 3 seconds ⏱️
-                  </p>
-
-                  {/* Debug: Show Job ID for troubleshooting */}
-                  {currentJobId && (
-                    <p className="text-xs text-gray-600 mt-2 text-center font-mono">
-                      Job: {currentJobId.slice(0, 8)}...
-                    </p>
-                  )}
+                      {currentJobId && (
+                        <p className="num" style={{ fontSize: 11, color: '#3A3A4A', marginTop: 8, textAlign: 'center' }}>
+                          Job: {currentJobId.slice(0, 8)}...
+                        </p>
+                      )}
                     </>
                   )}
                 </div>
               </div>
             )}
           </div>
-        ) : styleVariations.length > 0 && !selectedStyle ? (
-          <div className="max-w-7xl mx-auto">
-            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <div className="flex items-center gap-2 text-green-800 font-semibold mb-2">
-                <Check className="w-5 h-5" />
-                3 Design Variations Generated!
+
+          {/* ── AI Preview Rail ── */}
+          <aside className="cr-rail">
+            <div className="cr-rail-card cr-card cr-card-hairline">
+              <div className="eyebrow" style={{ marginBottom: 14 }}>PREVIEW</div>
+
+              {/* Completeness meter */}
+              {(() => {
+                const pct =
+                  (description.length >= 50 ? 30 : 0) +
+                  (businessType !== 'auto' ? 15 : 0) +
+                  (imageChoice !== 'none' ? 15 : 0) +
+                  (selectedFeatures.whatsapp || selectedFeatures.googleMap || selectedFeatures.deliverySystem || selectedFeatures.contactForm || selectedFeatures.socialMedia || selectedFeatures.priceList ? 15 : 0) +
+                  (paymentMethods.cod || paymentMethods.qr ? 15 : 0) +
+                  10; // language always selected
+                return (
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, color: '#86869A' }}>Completeness</span>
+                      <span className="num" style={{ fontSize: 12, color: pct >= 80 ? '#C7FF3D' : '#86869A' }}>{pct}%</span>
+                    </div>
+                    <div className="cr-meter">
+                      <div className="cr-meter-fill" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Wireframe blocks */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div className={`cr-wireframe-block ${description.length >= 50 ? 'cr-wireframe-lit' : ''}`}>
+                  <span style={{ fontSize: 13 }}>📝</span>
+                  <span style={{ fontSize: 12 }}>Deskripsi</span>
+                </div>
+                <div className={`cr-wireframe-block ${businessType !== 'auto' ? 'cr-wireframe-lit' : ''}`}>
+                  <span style={{ fontSize: 13 }}>🏪</span>
+                  <span style={{ fontSize: 12 }}>Jenis</span>
+                </div>
+                <div className={`cr-wireframe-block ${imageChoice !== 'none' ? 'cr-wireframe-lit' : ''}`}>
+                  <span style={{ fontSize: 13 }}>🖼️</span>
+                  <span style={{ fontSize: 12 }}>Gambar</span>
+                </div>
+                <div className={`cr-wireframe-block ${selectedFeatures.whatsapp || selectedFeatures.googleMap || selectedFeatures.deliverySystem || selectedFeatures.contactForm || selectedFeatures.socialMedia || selectedFeatures.priceList ? 'cr-wireframe-lit' : ''}`}>
+                  <span style={{ fontSize: 13 }}>⚡</span>
+                  <span style={{ fontSize: 12 }}>Ciri-ciri</span>
+                </div>
+                <div className={`cr-wireframe-block ${paymentMethods.cod || paymentMethods.qr ? 'cr-wireframe-lit' : ''}`}>
+                  <span style={{ fontSize: 13 }}>💳</span>
+                  <span style={{ fontSize: 12 }}>Bayaran</span>
+                </div>
               </div>
-              <p className="text-sm text-green-700">
-                Template: <span className="font-semibold">{templateUsed}</span> •
-                Features: <span className="font-semibold">{detectedFeatures.join(', ')}</span>
-              </p>
-              <p className="text-sm text-green-700 mt-2">
-                Click on any design below to view and customize it
-              </p>
+            </div>
+          </aside>
+
+          </div>
+        ) : styleVariations.length > 0 && !selectedStyle ? (
+          <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+            {/* Success banner */}
+            <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(199,255,61,.06), transparent)', border: '1px solid rgba(199,255,61,.22)' }}>
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#C7FF3D' }} />
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(199,255,61,.1)', border: '1px solid rgba(199,255,61,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Check size={16} style={{ color: '#C7FF3D' }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA' }}>3 Design Variations Generated!</div>
+                <div style={{ fontSize: 12, color: '#86869A', marginTop: 2 }}>
+                  Template: <span style={{ fontWeight: 600 }}>{templateUsed}</span> · Features: <span style={{ fontWeight: 600 }}>{detectedFeatures.join(', ')}</span>
+                </div>
+                <div style={{ fontSize: 12, color: '#86869A', marginTop: 4 }}>Click on any design below to view and customize it</div>
+              </div>
             </div>
 
             <button
-              onClick={() => {
-                setStyleVariations([])
-                setGeneratedHtml('')
-                setError('')
-                setPublishedUrl('')
-              }}
-              className="mb-6 btn btn-outline"
+              onClick={() => { setStyleVariations([]); setGeneratedHtml(''); setError(''); setPublishedUrl(''); }}
+              className="cr-btn cr-btn-ghost"
+              style={{ marginBottom: 24 }}
             >
               Create Another
             </button>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 32 }}>
               {styleVariations.map((variation, idx) => {
-                const styleInfo = {
-                  modern: {
-                    name: 'Modern',
-                    icon: '🎨',
-                    color: 'from-purple-500 to-blue-500',
-                    description: 'Vibrant gradients, glassmorphism, contemporary design'
-                  },
-                  minimal: {
-                    name: 'Minimal',
-                    icon: '✨',
-                    color: 'from-gray-700 to-gray-900',
-                    description: 'Clean, simple, elegant with lots of white space'
-                  },
-                  bold: {
-                    name: 'Bold',
-                    icon: '⚡',
-                    color: 'from-orange-500 to-red-500',
-                    description: 'High contrast, dramatic, attention-grabbing'
-                  }
-                }[variation.style] || {
-                  name: variation.style,
-                  icon: '🎯',
-                  color: 'from-blue-500 to-indigo-500',
-                  description: 'Custom style'
-                }
+                const styleInfo: Record<string, { name: string; icon: string; gradient: string; description: string }> = {
+                  modern: { name: 'Modern', icon: '🎨', gradient: 'linear-gradient(135deg, #6B5CFF, #4F3DFF)', description: 'Vibrant gradients, glassmorphism, contemporary design' },
+                  minimal: { name: 'Minimal', icon: '✨', gradient: 'linear-gradient(135deg, #5A5A6E, #3A3A4A)', description: 'Clean, simple, elegant with lots of white space' },
+                  bold: { name: 'Bold', icon: '⚡', gradient: 'linear-gradient(135deg, #F97316, #EF4444)', description: 'High contrast, dramatic, attention-grabbing' },
+                };
+                const info = styleInfo[variation.style] || { name: variation.style, icon: '🎯', gradient: 'linear-gradient(135deg, #6B5CFF, #4F3DFF)', description: 'Custom style' };
 
                 return (
                   <div
                     key={idx}
-                    className="group bg-white rounded-xl shadow-lg overflow-hidden border-2 border-transparent hover:border-primary-500 transition-all duration-300 cursor-pointer transform hover:scale-105"
-                    onClick={() => {
-                      console.log('Selecting variation:', variation)
-                      handleSelectVariation(variation)
-                    }}
+                    className="cr-var-card"
+                    onClick={() => { console.log('Selecting variation:', variation); handleSelectVariation(variation); }}
                   >
-                    <div className={`bg-gradient-to-r ${styleInfo.color} p-4 text-white`}>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-2xl">{styleInfo.icon}</span>
-                        <h3 className="text-xl font-bold">{styleInfo.name}</h3>
+                    {/* Style header bar */}
+                    <div style={{ padding: '16px 20px', background: info.gradient, borderRadius: '20px 20px 0 0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: 20 }}>{info.icon}</span>
+                        <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{info.name}</span>
                       </div>
-                      <p className="text-sm opacity-90">{styleInfo.description}</p>
+                      <p style={{ fontSize: 12, color: 'rgba(255,255,255,.75)', margin: 0 }}>{info.description}</p>
                     </div>
 
-                    <div className="relative bg-gray-100" style={{ height: '400px' }}>
+                    {/* Preview iframe */}
+                    <div style={{ position: 'relative', height: 380, background: '#0A0A14' }}>
                       {variation.html ? (
                         <iframe
                           srcDoc={variation.html}
-                          className="w-full h-full border-0 pointer-events-none"
-                          title={`${styleInfo.name} Preview`}
+                          style={{ width: '100%', height: '100%', border: 0, pointerEvents: 'none' }}
+                          title={`${info.name} Preview`}
                           sandbox="allow-same-origin"
-                          onLoad={() => console.log(`Iframe loaded for ${variation.style}`)}
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-400">
-                          <div className="text-center">
-                            <p className="text-sm">No preview available</p>
-                            <p className="text-xs mt-2">HTML length: {variation.html?.length || 0}</p>
-                          </div>
+                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5A5A6E', fontSize: 13 }}>
+                          No preview available
                         </div>
                       )}
-                      
-                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300 flex items-center justify-center">
-                        <button className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white text-primary-600 px-6 py-3 rounded-lg font-semibold shadow-lg">
-                          <Eye className="w-5 h-5 inline-block mr-2" />
-                          View Full Design
-                        </button>
+                      {/* Hover overlay */}
+                      <div className="cr-var-overlay">
+                        <span className="cr-btn" style={{ background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 8px 24px rgba(79,61,255,.4)' }}>
+                          <Eye size={16} /> View Full Design
+                        </span>
                       </div>
                     </div>
 
-                    <div className="p-4 bg-gray-50 text-center">
-                      <p className="text-sm text-gray-600">
+                    {/* Footer */}
+                    <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,.04)', textAlign: 'center' }}>
+                      <span style={{ fontSize: 12, color: '#5A5A6E' }}>
                         {variation.html ? `Click to view (${Math.round(variation.html.length / 1024)}KB)` : 'No content'}
-                      </p>
+                      </span>
                     </div>
                   </div>
-                )
+                );
               })}
             </div>
           </div>
         ) : (
-          <div className="max-w-7xl mx-auto">
-            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <div className="flex items-center gap-2 text-green-800 font-semibold mb-2">
-                <Check className="w-5 h-5" />
-                Website Generated Successfully!
+          <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+            {/* Success banner */}
+            <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(199,255,61,.06), transparent)', border: '1px solid rgba(199,255,61,.22)' }}>
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#C7FF3D' }} />
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(199,255,61,.1)', border: '1px solid rgba(199,255,61,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Check size={16} style={{ color: '#C7FF3D' }} />
               </div>
-              <p className="text-sm text-green-700">
-                Template: <span className="font-semibold">{templateUsed}</span> •
-                Features: <span className="font-semibold">{detectedFeatures.join(', ')}</span>
-                {selectedStyle && (
-                  <>
-                    {' • '}
-                    Style: <span className="font-semibold capitalize">{selectedStyle}</span>
-                  </>
-                )}
-              </p>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA' }}>Website Generated Successfully!</div>
+                <div style={{ fontSize: 12, color: '#86869A', marginTop: 2 }}>
+                  Template: <span style={{ fontWeight: 600 }}>{templateUsed}</span> · Features: <span style={{ fontWeight: 600 }}>{detectedFeatures.join(', ')}</span>
+                  {selectedStyle && <> · Style: <span style={{ fontWeight: 600, textTransform: 'capitalize' }}>{selectedStyle}</span></>}
+                </div>
+              </div>
             </div>
 
+            {/* Published URL bar */}
             {publishedUrl && (
-              <div className="mb-6 p-6 bg-blue-50 border-2 border-blue-200 rounded-lg">
-                <div className="flex items-center gap-2 text-blue-800 font-bold mb-3 text-lg">
-                  🎉 Website Published!
-                </div>
-                <p className="text-blue-700 mb-3">
-                  Your website is now live at:
-                </p>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={publishedUrl}
-                    readOnly
-                    className="flex-1 px-4 py-2 bg-white border border-blue-300 rounded-lg"
-                  />
-                  <a
-                    href={publishedUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-primary"
-                  >
-                    <Eye className="w-4 h-4 mr-2" />
-                    View Live
+              <div className="cr-card cr-card-hairline float-in" style={{ padding: '20px 24px', marginBottom: 20 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#C7FF3D', marginBottom: 8 }}>Website Published!</div>
+                <div style={{ fontSize: 13, color: '#86869A', marginBottom: 12 }}>Your website is now live at:</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input type="text" value={publishedUrl} readOnly className="cr-input" style={{ flex: 1 }} />
+                  <a href={publishedUrl} target="_blank" rel="noopener noreferrer" className="cr-btn" style={{ background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', textDecoration: 'none', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)' }}>
+                    <Eye size={14} /> View Live
                   </a>
                 </div>
               </div>
             )}
 
-            <div className="flex flex-wrap gap-3 mb-6">
+            {/* Action buttons */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
               {selectedStyle && styleVariations.length > 0 && (
-                <button
-                  onClick={handleBackToVariations}
-                  className="btn btn-outline"
-                >
-                  ← Back to Variations
-                </button>
+                <button onClick={handleBackToVariations} className="cr-btn cr-btn-ghost">← Back to Variations</button>
               )}
-              
-              <button
-                onClick={() => setPreviewMode(previewMode === 'single' ? 'multi' : 'single')}
-                className="btn btn-outline"
-                title={previewMode === 'single' ? 'View on all devices' : 'View single device'}
-              >
-                <Layout className="w-4 h-4 mr-2" />
-                {previewMode === 'single' ? 'Multi-Device' : 'Single Device'}
+              <button onClick={() => setPreviewMode(previewMode === 'single' ? 'multi' : 'single')} className="cr-btn cr-btn-ghost" title={previewMode === 'single' ? 'View on all devices' : 'View single device'}>
+                <Layout size={14} /> {previewMode === 'single' ? 'Multi-Device' : 'Single Device'}
+              </button>
+              <button onClick={handleDownload} className="cr-btn cr-btn-ghost"><Download size={14} /> Download HTML</button>
+              <button onClick={handleCopyHtml} className="cr-btn cr-btn-ghost">
+                {copied ? <><Check size={14} /> Copied!</> : <><Copy size={14} /> Copy HTML</>}
+              </button>
+              <button onClick={() => setShowPublishModal(true)} className="cr-btn" style={{ background: 'linear-gradient(180deg, #DDFF7A, #C7FF3D)', color: '#05050C', boxShadow: '0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25)' }}>
+                <Upload size={14} /> Publish Website
               </button>
 
-              <button
-                onClick={handleDownload}
-                className="btn btn-outline"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Download HTML
-              </button>
-
-              <button
-                onClick={handleCopyHtml}
-                className="btn btn-outline"
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-4 h-4 mr-2" />
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-4 h-4 mr-2" />
-                    Copy HTML
-                  </>
-                )}
-              </button>
-
-              <button
-                onClick={() => setShowPublishModal(true)}
-                className="btn btn-primary"
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Publish Website
-              </button>
-
-              <div className="relative group">
-                <button
-                  onClick={handleShare}
-                  className="btn btn-outline"
-                >
-                  <Share2 className="w-4 h-4 mr-2" />
-                  Share
-                </button>
-                <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-xl border border-gray-200 p-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 min-w-[150px]">
-                  <button
-                    onClick={() => handleShareSocial('whatsapp')}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded flex items-center gap-2"
-                  >
-                    <span className="text-xl">💬</span> WhatsApp
-                  </button>
-                  <button
-                    onClick={() => handleShareSocial('facebook')}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded flex items-center gap-2"
-                  >
-                    <span className="text-xl">📘</span> Facebook
-                  </button>
-                  <button
-                    onClick={() => handleShareSocial('twitter')}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded flex items-center gap-2"
-                  >
-                    <span className="text-xl">🐦</span> Twitter
-                  </button>
-                  <button
-                    onClick={() => handleShareSocial('linkedin')}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded flex items-center gap-2"
-                  >
-                    <span className="text-xl">💼</span> LinkedIn
-                  </button>
+              {/* Share dropdown */}
+              <div style={{ position: 'relative' }} className="group">
+                <button onClick={handleShare} className="cr-btn cr-btn-ghost"><Share2 size={14} /> Share</button>
+                <div className="cr-share-menu">
+                  <button onClick={() => handleShareSocial('whatsapp')} className="cr-share-item"><span style={{ fontSize: 16 }}>💬</span> WhatsApp</button>
+                  <button onClick={() => handleShareSocial('facebook')} className="cr-share-item"><span style={{ fontSize: 16 }}>📘</span> Facebook</button>
+                  <button onClick={() => handleShareSocial('twitter')} className="cr-share-item"><span style={{ fontSize: 16 }}>🐦</span> Twitter</button>
+                  <button onClick={() => handleShareSocial('linkedin')} className="cr-share-item"><span style={{ fontSize: 16 }}>💼</span> LinkedIn</button>
                 </div>
               </div>
 
-              <button
-                onClick={() => {
-                  setGeneratedHtml('')
-                  setStyleVariations([])
-                  setSelectedStyle(null)
-                  setError('')
-                  setPublishedUrl('')
-                }}
-                className="btn btn-outline"
-              >
-                Create Another
-              </button>
+              <button onClick={() => { setGeneratedHtml(''); setStyleVariations([]); setSelectedStyle(null); setError(''); setPublishedUrl(''); }} className="cr-btn cr-btn-ghost">Create Another</button>
             </div>
 
             {previewMode === 'single' ? (
@@ -2162,31 +1860,32 @@ export default function CreatePage() {
             )}
           </div>
         )}
-      </div>
+      </main>
 
       {showPublishModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <h2 className="text-2xl font-bold mb-4">Publish Your Website</h2>
-            
-            <div className="mb-4">
-              <label className="block text-sm font-semibold mb-2">
-                Project Name
-              </label>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,12,.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
+          <div className="cr-card cr-card-hairline" style={{ maxWidth: 460, width: '100%', padding: 32 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+              <h2 style={{ fontSize: 20, fontWeight: 700, color: '#F5F5FA', margin: 0 }}>Publish Your Website</h2>
+              <button onClick={() => { setShowPublishModal(false); setError(''); setSubdomainError(null); }} className="cr-btn-icon" aria-label="Close">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Project Name</label>
               <input
                 type="text"
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
                 placeholder="My Restaurant"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="cr-input"
               />
             </div>
 
-            <div className="mb-4">
-              <label className="block text-sm font-semibold mb-2">
-                Choose Subdomain
-              </label>
-              <div className="flex items-center gap-2">
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Choose Subdomain</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <input
                   type="text"
                   value={subdomain}
@@ -2197,54 +1896,45 @@ export default function CreatePage() {
                     setSubdomainError(validationError)
                   }}
                   placeholder="kedaiayam"
-                  className={`flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 ${
-                    subdomainError ? 'border-red-500' : 'border-gray-300'
-                  }`}
+                  className="cr-input"
+                  style={{ flex: 1, borderColor: subdomainError ? 'rgba(239,68,68,.5)' : undefined }}
                 />
-                <span className="text-gray-600">.binaapp.my</span>
+                <span style={{ fontSize: 13, color: '#5A5A6E', whiteSpace: 'nowrap' }}>.binaapp.my</span>
               </div>
               {subdomainError ? (
-                <p className="text-xs text-red-600 mt-1 font-medium">
-                  ❌ {subdomainError}
+                <p style={{ fontSize: 12, color: '#FCA5A5', marginTop: 6, fontWeight: 500 }}>
+                  {subdomainError}
                 </p>
               ) : (
-                <p className="text-xs text-gray-500 mt-1">
+                <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 6 }}>
                   Only lowercase letters, numbers, and hyphens
                 </p>
               )}
             </div>
 
             {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                {error}
+              <div className="banner-accent" style={{ marginBottom: 18, background: 'linear-gradient(90deg, rgba(239,68,68,.06), transparent)', border: '1px solid rgba(239,68,68,.22)' }}>
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#EF4444' }} />
+                <span style={{ fontSize: 13, color: '#FCA5A5' }}>{error}</span>
               </div>
             )}
 
-            <div className="flex gap-3">
+            <div style={{ display: 'flex', gap: 10 }}>
               <button
-                onClick={() => {
-                  setShowPublishModal(false)
-                  setError('')
-                  setSubdomainError(null)
-                }}
-                className="flex-1 btn btn-outline"
+                onClick={() => { setShowPublishModal(false); setError(''); setSubdomainError(null); }}
+                className="cr-btn cr-btn-ghost"
+                style={{ flex: 1 }}
                 disabled={publishing}
               >
                 Cancel
               </button>
               <button
                 onClick={handlePublish}
-                className="flex-1 btn btn-primary"
+                className="cr-btn"
+                style={{ flex: 1, background: 'linear-gradient(180deg, #DDFF7A, #C7FF3D)', color: '#05050C', boxShadow: '0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25)', opacity: publishing || !subdomain || !projectName || !!subdomainError ? .35 : 1, cursor: publishing || !subdomain || !projectName || !!subdomainError ? 'not-allowed' : 'pointer' }}
                 disabled={publishing || !subdomain || !projectName || !!subdomainError}
               >
-                {publishing ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Publishing...
-                  </>
-                ) : (
-                  'Publish Now'
-                )}
+                {publishing ? 'Publishing...' : 'Publish Now'}
               </button>
             </div>
           </div>

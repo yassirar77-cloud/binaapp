@@ -171,53 +171,53 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
   const uploadedCount = (heroImage ? 1 : 0) + menuItems.filter(m => m.file !== null).length
 
   return (
-    <div className="bg-white rounded-xl p-6 shadow-lg mb-6">
-      <h3 className="text-lg font-bold mb-2">📸 Muat Naik Gambar Anda / Upload Your Images</h3>
-      <p className="text-gray-500 text-sm mb-4">
+    <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
+      <div className="eyebrow" style={{ marginBottom: 16 }}>GAMBAR / IMAGES</div>
+      <p style={{ fontSize: 13, color: '#86869A', marginBottom: 16 }}>
         Pilih gambar untuk setiap bahagian. Jika tidak muat naik, AI akan jana gambar automatik.
         <br />
-        <span className="text-xs">Choose images for each section. If not uploaded, AI will generate images automatically.</span>
+        <span style={{ fontSize: 11, color: '#5A5A6E' }}>Choose images for each section. If not uploaded, AI will generate images automatically.</span>
       </p>
 
       {uploading && (
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <div className="flex items-center gap-2">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-            <p className="text-blue-700 text-sm font-medium">{uploadProgress}</p>
-          </div>
+        <div style={{ marginBottom: 16, padding: 12, background: 'rgba(79,61,255,.06)', border: '1px solid rgba(107,92,255,.25)', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 16, height: 16, border: '2px solid rgba(107,92,255,.3)', borderTopColor: '#6B5CFF', borderRadius: '50%', animation: 'spin .6s linear infinite' }} />
+          <span style={{ fontSize: 13, color: '#BAB0FF', fontWeight: 500 }}>{uploadProgress}</span>
         </div>
       )}
 
       {/* HERO IMAGE - Large Banner */}
-      <div className="mb-6">
-        <label className="block text-sm font-medium mb-2">
-          🖼️ Gambar Utama (Hero Banner)
-        </label>
-        <p className="text-xs text-gray-400 mb-2">Gambar besar di bahagian atas website / Large image at the top of the website</p>
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 14, fontWeight: 500, color: '#B8B8C8', marginBottom: 8 }}>
+          Gambar Utama (Hero Banner)
+        </div>
+        <p style={{ fontSize: 11, color: '#5A5A6E', marginBottom: 8 }}>Gambar besar di bahagian atas website / Large image at the top of the website</p>
         <div
-          className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center cursor-pointer hover:border-blue-500 transition"
+          style={{ border: '2px dashed rgba(255,255,255,.08)', borderRadius: 14, padding: 16, textAlign: 'center', cursor: 'pointer', transition: 'border-color 180ms' }}
           onClick={() => document.getElementById('hero-upload')?.click()}
+          onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'rgba(107,92,255,.4)')}
+          onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)')}
         >
           {heroPreview ? (
-            <div className="relative">
+            <div style={{ position: 'relative' }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={heroPreview} alt="Hero" className="w-full h-32 object-cover rounded-lg" />
+              <img src={heroPreview} alt="Hero" style={{ width: '100%', height: 128, objectFit: 'cover', borderRadius: 10 }} />
               <button
                 onClick={(e) => { e.stopPropagation(); removeHero(); }}
-                className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 text-xs hover:bg-red-600"
+                style={{ position: 'absolute', top: 8, right: 8, width: 24, height: 24, borderRadius: '50%', background: 'rgba(239,68,68,.8)', border: 0, color: '#fff', fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 title="Remove image"
               >✕</button>
               {heroUrl && (
-                <div className="absolute bottom-2 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded">
+                <div style={{ position: 'absolute', bottom: 8, left: 8, background: 'rgba(199,255,61,.15)', border: '1px solid rgba(199,255,61,.3)', color: '#C7FF3D', fontSize: 11, padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>
                   ✓ Uploaded
                 </div>
               )}
             </div>
           ) : (
-            <div className="py-6">
-              <span className="text-3xl">🖼️</span>
-              <p className="text-gray-500 mt-2 text-sm">Klik untuk muat naik gambar hero / Click to upload hero image</p>
-              <p className="text-xs text-gray-400">Saiz dicadangkan / Recommended size: 1920 x 600 piksel</p>
+            <div style={{ padding: '24px 0' }}>
+              <span style={{ fontSize: 28, display: 'block', marginBottom: 8 }}>🖼️</span>
+              <p style={{ fontSize: 13, color: '#86869A' }}>Klik untuk muat naik gambar hero / Click to upload hero image</p>
+              <p style={{ fontSize: 11, color: '#5A5A6E', marginTop: 4 }}>Saiz dicadangkan / Recommended size: 1920 x 600 piksel</p>
             </div>
           )}
         </div>
@@ -233,47 +233,44 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
 
       {/* MENU ITEMS - Unlimited */}
       <div>
-        <label className="block text-sm font-medium mb-2">
-          📷 Menu Produk (Unlimited)
-        </label>
-        <p className="text-xs text-gray-400 mb-3">
+        <div style={{ fontSize: 14, fontWeight: 500, color: '#B8B8C8', marginBottom: 8 }}>
+          Menu Produk (Unlimited)
+        </div>
+        <p style={{ fontSize: 11, color: '#5A5A6E', marginBottom: 12 }}>
           Tambah gambar, nama dan harga untuk setiap item menu anda
         </p>
 
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {menuItems.map((item, index) => (
-            <div key={index} className="flex gap-3 items-center p-4 bg-gray-50 rounded-xl border border-gray-200">
+            <div key={index} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 14, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)', borderRadius: 14 }}>
               {/* Image upload box */}
               <div
-                className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex-shrink-0 cursor-pointer hover:border-orange-400 transition flex items-center justify-center overflow-hidden"
+                style={{ width: 72, height: 72, border: '2px dashed rgba(255,255,255,.08)', borderRadius: 10, flexShrink: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', transition: 'border-color 180ms' }}
                 onClick={() => document.getElementById(`menu-upload-${index}`)?.click()}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'rgba(107,92,255,.4)')}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgba(255,255,255,.08)')}
               >
                 {item.preview ? (
-                  <div className="relative w-full h-full">
+                  <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={item.preview}
                       alt={`Menu ${index + 1}`}
-                      className="w-full h-full object-cover"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        clearMenuImage(index)
-                      }}
-                      className="absolute top-0 right-0 bg-red-500 text-white rounded-full w-5 h-5 text-xs hover:bg-red-600"
+                      onClick={(e) => { e.stopPropagation(); clearMenuImage(index); }}
+                      style={{ position: 'absolute', top: 0, right: 0, width: 18, height: 18, borderRadius: '50%', background: 'rgba(239,68,68,.8)', border: 0, color: '#fff', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                       title="Remove image"
                     >✕</button>
                     {item.url && (
-                      <div className="absolute bottom-0 left-0 right-0 bg-green-500 text-white text-xs text-center py-0.5">
+                      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(199,255,61,.2)', color: '#C7FF3D', fontSize: 10, textAlign: 'center', padding: '1px 0', fontWeight: 700 }}>
                         ✓
                       </div>
                     )}
                   </div>
                 ) : (
-                  <div className="text-center">
-                    <span className="text-2xl">📷</span>
-                  </div>
+                  <span style={{ fontSize: 22, color: '#5A5A6E' }}>📷</span>
                 )}
                 <input
                   id={`menu-upload-${index}`}
@@ -286,16 +283,17 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
               </div>
 
               {/* Name & Price inputs */}
-              <div className="flex-1 space-y-2">
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <input
                   type="text"
                   placeholder="Nama (cth: Nasi Lemak Special)"
                   value={item.name}
                   onChange={(e) => handleNameChange(index, e.target.value)}
-                  className="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+                  className="cr-input"
+                  style={{ fontSize: 13, padding: '8px 12px' }}
                 />
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-600">RM</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: '#86869A' }}>RM</span>
                   <input
                     type="number"
                     placeholder="0.00"
@@ -303,7 +301,8 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
                     min="0"
                     value={item.price}
                     onChange={(e) => handlePriceChange(index, e.target.value)}
-                    className="w-28 px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+                    className="cr-input"
+                    style={{ width: 110, fontSize: 13, padding: '8px 12px' }}
                   />
                 </div>
               </div>
@@ -312,7 +311,9 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
               {menuItems.length > 1 && (
                 <button
                   onClick={() => removeMenuItem(index)}
-                  className="text-red-500 hover:bg-red-50 p-2 rounded-full transition flex-shrink-0"
+                  style={{ padding: 8, borderRadius: '50%', border: 0, background: 'transparent', color: '#EF4444', cursor: 'pointer', flexShrink: 0, fontSize: 16, transition: 'background 180ms' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(239,68,68,.1)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                   title="Buang item ini"
                 >
                   🗑️
@@ -325,20 +326,22 @@ export default function VisualImageUpload({ onImagesUploaded }: VisualImageUploa
         {/* Add more button */}
         <button
           onClick={addMenuItem}
-          className="w-full mt-4 py-3 border-2 border-dashed border-orange-300 rounded-xl text-orange-600 font-medium hover:bg-orange-50 transition"
+          style={{ width: '100%', marginTop: 14, padding: '12px 0', border: '2px dashed rgba(199,255,61,.2)', borderRadius: 14, background: 'transparent', color: '#C7FF3D', fontWeight: 500, fontSize: 13, cursor: 'pointer', transition: 'all 180ms', fontFamily: "'Geist', 'Inter', -apple-system, sans-serif" }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(199,255,61,.04)'; e.currentTarget.style.borderColor = 'rgba(199,255,61,.35)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'rgba(199,255,61,.2)'; }}
         >
-          ➕ Tambah Item Lagi
+          + Tambah Item Lagi
         </button>
 
         {/* Item count */}
-        <p className="text-sm text-gray-400 text-center mt-3">
+        <p style={{ fontSize: 12, color: '#5A5A6E', textAlign: 'center', marginTop: 10 }}>
           {filledItemsCount} item ditambah
         </p>
       </div>
 
       {/* Upload status */}
-      <div className="mt-4 text-sm text-gray-500">
-        ✅ {uploadedCount} gambar dimuat naik
+      <div style={{ marginTop: 14, fontSize: 13, color: '#86869A' }}>
+        <span style={{ color: '#C7FF3D' }}>✓</span> {uploadedCount} gambar dimuat naik
       </div>
     </div>
   )

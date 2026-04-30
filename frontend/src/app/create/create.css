@@ -1,0 +1,626 @@
+/* BinaApp /create — premium dark redesign
+   Scoped styles for the create page only.
+   Uses cr- prefix on classes that conflict with globals.css (.card, .input, .textarea, .btn) */
+
+/* ------- Page background ------- */
+.bg-create {
+  background:
+    radial-gradient(1200px 700px at 78% -10%, rgba(79,61,255,.18), transparent 55%),
+    radial-gradient(900px 600px at -10% 30%, rgba(199,255,61,.06), transparent 55%),
+    #05050C;
+}
+.grain::before {
+  content: "";
+  position: fixed; inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .5 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  opacity: .035;
+  mix-blend-mode: overlay;
+  z-index: 1;
+}
+
+/* ------- Dotgrid pattern ------- */
+.dotgrid {
+  background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,.05) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+/* ------- Cards (cr- prefixed) ------- */
+.cr-card {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,0)),
+    #0F0F1A;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 20px;
+  position: relative;
+}
+.cr-card-hairline {
+  position: relative;
+}
+.cr-card-hairline::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+}
+
+/* ------- Type helpers ------- */
+.eyebrow {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #86869A;
+  font-weight: 500;
+}
+.num {
+  font-family: 'Geist Mono', monospace;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ------- Status pills ------- */
+.pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; font-weight: 500;
+  border: 1px solid;
+}
+.pill .led {
+  width: 6px; height: 6px; border-radius: 50%;
+}
+.pill-volt {
+  border-color: rgba(199,255,61,.3);
+  background: rgba(199,255,61,.07);
+  color: #DDFF7A;
+}
+.pill-volt .led { background: #C7FF3D; box-shadow: 0 0 10px #C7FF3D; }
+.pill-indigo {
+  border-color: rgba(107,92,255,.3);
+  background: rgba(79,61,255,.08);
+  color: #BAB0FF;
+}
+.pill-indigo .led { background: #6B5CFF; box-shadow: 0 0 10px #6B5CFF; }
+
+/* ------- Buttons (cr- prefixed) ------- */
+.cr-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 0; border-radius: 12px;
+  font-family: 'Geist', 'Inter', -apple-system, sans-serif;
+  font-weight: 600; font-size: 14px; letter-spacing: -0.01em;
+  padding: 11px 16px; cursor: pointer;
+  transition: all 180ms cubic-bezier(.25,1,.5,1);
+  white-space: nowrap;
+}
+.cr-btn:active { transform: scale(.98); }
+.cr-btn-ghost {
+  background: rgba(255,255,255,.04);
+  color: #F5F5FA;
+  border: 1px solid rgba(255,255,255,.08);
+}
+.cr-btn-ghost:hover { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.16); }
+.cr-btn-icon {
+  width: 36px; height: 36px; padding: 0;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  color: #B8B8C8; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: all 180ms;
+  border: 0;
+}
+.cr-btn-icon:hover { background: rgba(255,255,255,.08); color: #F5F5FA; }
+
+/* ------- Chips ------- */
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 999px;
+  font-size: 13px; color: #B8B8C8;
+  cursor: pointer;
+  transition: all 180ms;
+  font-family: 'Geist', 'Inter', -apple-system, sans-serif;
+}
+.chip:hover { background: rgba(255,255,255,.08); color: #F5F5FA; border-color: rgba(255,255,255,.14); transform: translateY(-1px); }
+
+/* ------- AI pulse animation ------- */
+@keyframes aipulse {
+  0%, 100% { opacity: .8; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+.ai-pulse { animation: aipulse 2.4s ease-in-out infinite; }
+
+/* ------- Float-in animation ------- */
+@keyframes float-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.float-in { animation: float-up 420ms cubic-bezier(.25,1,.5,1) both; }
+
+/* ------- Banner accent bars ------- */
+.banner-accent {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  margin-bottom: 14px;
+  position: relative;
+  overflow: hidden;
+}
+.banner-accent::before {
+  content: "";
+  position: absolute; top: 0; bottom: 0; left: 0;
+  width: 3px;
+}
+
+/* ------- Layout shell ------- */
+.shell-create { max-width: 1440px; margin: 0 auto; padding: 0 28px; }
+@media (max-width: 1100px) { .shell-create { padding: 0 20px; } }
+
+/* ------- Toggle buttons (cr- prefixed) ------- */
+.cr-toggle {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px 18px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+  font-family: 'Geist', 'Inter', -apple-system, sans-serif;
+  font-size: 14px; font-weight: 500;
+  color: #86869A;
+  cursor: pointer;
+  transition: all 180ms cubic-bezier(.25,1,.5,1);
+  white-space: nowrap;
+}
+.cr-toggle:hover { background: rgba(255,255,255,.07); color: #B8B8C8; border-color: rgba(255,255,255,.14); }
+.cr-toggle-active {
+  background: rgba(79,61,255,.12);
+  border-color: rgba(107,92,255,.5);
+  color: #F5F5FA;
+  box-shadow: 0 0 16px rgba(79,61,255,.2), inset 0 1px 0 rgba(255,255,255,.06);
+}
+.cr-toggle-active:hover { background: rgba(79,61,255,.18); }
+
+/* ------- Business type cards (cr- prefixed) ------- */
+.cr-type-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 18px 12px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 180ms cubic-bezier(.25,1,.5,1);
+  text-align: center;
+}
+.cr-type-card:hover { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.12); transform: translateY(-1px); }
+.cr-type-card-active {
+  background: rgba(79,61,255,.08);
+  border-color: rgba(107,92,255,.5);
+  box-shadow: 0 0 20px rgba(79,61,255,.15), inset 0 1px 0 rgba(255,255,255,.04);
+}
+.cr-type-card-active:hover { background: rgba(79,61,255,.12); }
+
+/* ------- Textarea (cr- prefixed) ------- */
+.cr-textarea {
+  display: block;
+  padding: 16px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px;
+  font-family: 'Geist', 'Inter', -apple-system, sans-serif;
+  font-size: 14px; line-height: 1.6;
+  color: #F5F5FA;
+  transition: border-color 180ms, box-shadow 180ms;
+}
+.cr-textarea::placeholder { color: #5A5A6E; }
+.cr-textarea:focus {
+  outline: none;
+  border-color: rgba(199,255,61,.4);
+  box-shadow: 0 0 0 3px rgba(199,255,61,.1), 0 0 20px rgba(199,255,61,.06);
+}
+
+/* ------- Char counter ------- */
+.cr-counter {
+  text-align: right;
+  margin-top: 8px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  transition: color 300ms;
+}
+
+/* ------- Checkbox (cr- prefixed) ------- */
+.cr-check {
+  display: flex; align-items: flex-start; gap: 12px;
+  cursor: pointer;
+}
+.cr-check input { position: absolute; opacity: 0; width: 0; height: 0; }
+.cr-check-box {
+  width: 20px; height: 20px; flex-shrink: 0;
+  border-radius: 6px; margin-top: 1px;
+  background: rgba(255,255,255,.04);
+  border: 1.5px solid rgba(255,255,255,.16);
+  transition: all 180ms;
+  position: relative;
+}
+.cr-check input:checked ~ .cr-check-box {
+  background: linear-gradient(180deg, #6B5CFF, #4F3DFF);
+  border-color: rgba(107,92,255,.6);
+  box-shadow: 0 0 12px rgba(79,61,255,.35);
+}
+.cr-check input:checked ~ .cr-check-box::after {
+  content: "";
+  position: absolute; top: 4px; left: 6px;
+  width: 6px; height: 10px;
+  border: solid #fff; border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* ------- Radio cards (cr- prefixed) ------- */
+.cr-radio {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 180ms cubic-bezier(.25,1,.5,1);
+  position: relative;
+}
+.cr-radio:hover { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.12); }
+.cr-radio-active {
+  background: rgba(79,61,255,.08);
+  border-color: rgba(107,92,255,.5);
+  box-shadow: 0 0 16px rgba(79,61,255,.15), inset 0 1px 0 rgba(255,255,255,.04);
+}
+.cr-radio-active:hover { background: rgba(79,61,255,.12); }
+
+/* ------- Feature toggle pills (cr- prefixed) ------- */
+.cr-feature-pill {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 180ms cubic-bezier(.25,1,.5,1);
+  color: #86869A;
+  position: relative;
+}
+.cr-feature-pill:hover { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.12); color: #B8B8C8; }
+.cr-feature-active {
+  background: rgba(79,61,255,.08);
+  border-color: rgba(107,92,255,.4);
+  color: #F5F5FA;
+  box-shadow: 0 0 14px rgba(79,61,255,.12);
+}
+.cr-feature-active:hover { background: rgba(79,61,255,.12); }
+
+/* ------- Text input (cr- prefixed) ------- */
+.cr-input {
+  display: block; width: 100%;
+  padding: 10px 14px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  font-family: 'Geist', 'Inter', -apple-system, sans-serif;
+  font-size: 14px; color: #F5F5FA;
+  transition: border-color 180ms, box-shadow 180ms;
+}
+.cr-input::placeholder { color: #5A5A6E; }
+.cr-input:focus {
+  outline: none;
+  border-color: rgba(199,255,61,.4);
+  box-shadow: 0 0 0 3px rgba(199,255,61,.08);
+}
+
+/* ------- Expandable sub-card ------- */
+.cr-sub-card {
+  padding: 20px 24px;
+  margin-bottom: 20px;
+  background: rgba(255,255,255,.02);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 16px;
+}
+
+/* ------- 2-column layout (form + rail) ------- */
+.cr-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 28px;
+  align-items: start;
+}
+.cr-form-col { min-width: 0; }
+.cr-rail { position: sticky; top: 96px; }
+.cr-rail-card { padding: 24px; }
+@media (max-width: 1100px) {
+  .cr-layout { grid-template-columns: 1fr; }
+  .cr-rail { display: none; }
+}
+
+/* ------- Generate button (cr- prefixed) ------- */
+.cr-gen-btn {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%;
+  padding: 16px 24px;
+  border: 0; border-radius: 14px;
+  font-family: 'Geist', 'Inter', -apple-system, sans-serif;
+  font-size: 16px; font-weight: 700; letter-spacing: -0.01em;
+  background: linear-gradient(180deg, #DDFF7A, #C7FF3D);
+  color: #05050C;
+  cursor: pointer;
+  transition: all 200ms cubic-bezier(.25,1,.5,1);
+  box-shadow: 0 0 0 1px rgba(199,255,61,.5), 0 1px 0 rgba(255,255,255,.25) inset, 0 8px 32px rgba(199,255,61,.25);
+  margin-top: 8px;
+}
+.cr-gen-btn:hover { transform: translateY(-1px); box-shadow: 0 0 0 1px rgba(199,255,61,.6), 0 1px 0 rgba(255,255,255,.25) inset, 0 12px 40px rgba(199,255,61,.35); }
+.cr-gen-btn:active { transform: scale(.98); }
+.cr-gen-btn:disabled {
+  opacity: .35; cursor: not-allowed;
+  transform: none;
+  box-shadow: 0 0 0 1px rgba(199,255,61,.2), 0 4px 16px rgba(199,255,61,.08);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ------- Completeness meter ------- */
+.cr-meter {
+  width: 100%; height: 4px;
+  background: rgba(255,255,255,.06);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.cr-meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4F3DFF, #C7FF3D);
+  border-radius: 99px;
+  transition: width 400ms cubic-bezier(.25,1,.5,1);
+}
+
+/* ------- Wireframe preview blocks ------- */
+.cr-wireframe-block {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.02);
+  border: 1px solid rgba(255,255,255,.04);
+  border-radius: 10px;
+  color: #5A5A6E;
+  transition: all 300ms;
+}
+.cr-wireframe-lit {
+  background: rgba(79,61,255,.06);
+  border-color: rgba(107,92,255,.25);
+  color: #F5F5FA;
+  box-shadow: 0 0 12px rgba(79,61,255,.08);
+}
+
+/* ------- AI Spinner (conic-gradient) ------- */
+.cr-spinner {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0%, #4F3DFF 40%, #C7FF3D 70%, transparent 100%);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+  animation: spin .9s linear infinite;
+}
+
+/* ------- Step indicators ------- */
+.cr-step {
+  display: flex; align-items: center; gap: 10px;
+  color: #5A5A6E;
+  transition: color 300ms;
+}
+.cr-step-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(255,255,255,.08);
+  transition: all 300ms;
+}
+.cr-step-active { color: #B8B8C8; }
+.cr-step-active .cr-step-dot {
+  background: #6B5CFF;
+  box-shadow: 0 0 10px rgba(107,92,255,.5);
+  animation: aipulse 1.6s ease-in-out infinite;
+}
+.cr-step-done { color: #C7FF3D; }
+.cr-step-done .cr-step-dot {
+  background: #C7FF3D;
+  box-shadow: 0 0 8px rgba(199,255,61,.4);
+}
+
+/* ------- Variation cards ------- */
+.cr-var-card {
+  background: #0F0F1A;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 20px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 220ms cubic-bezier(.25,1,.5,1);
+}
+.cr-var-card:hover {
+  border-color: rgba(107,92,255,.4);
+  box-shadow: 0 8px 32px rgba(79,61,255,.15);
+  transform: translateY(-2px);
+}
+.cr-var-overlay {
+  position: absolute; inset: 0;
+  background: rgba(5,5,12,0);
+  display: flex; align-items: center; justify-content: center;
+  transition: background 220ms;
+}
+.cr-var-overlay > * { opacity: 0; transition: opacity 220ms; }
+.cr-var-card:hover .cr-var-overlay { background: rgba(5,5,12,.5); }
+.cr-var-card:hover .cr-var-overlay > * { opacity: 1; }
+
+/* ------- Share dropdown ------- */
+.cr-share-menu {
+  position: absolute; top: 100%; left: 0; margin-top: 8px;
+  background: #0F0F1A;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+  padding: 6px;
+  opacity: 0; visibility: hidden;
+  transition: all 180ms;
+  z-index: 10; min-width: 160px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.5);
+}
+.group:hover .cr-share-menu { opacity: 1; visibility: visible; }
+.cr-share-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 8px 12px;
+  border: 0; border-radius: 8px;
+  background: transparent;
+  color: #B8B8C8; font-size: 13px;
+  cursor: pointer; text-align: left;
+  font-family: 'Geist', 'Inter', -apple-system, sans-serif;
+}
+.cr-share-item:hover { background: rgba(255,255,255,.06); color: #F5F5FA; }
+
+/* ═══════════════════════════════════════════
+   Dark overrides for shared modals on /create
+   Scoped via .bg-create ancestor so landing
+   page + dashboard stay light-themed.
+   ═══════════════════════════════════════════ */
+
+/* --- UpgradeModal dark --- */
+.bg-create .modal-overlay {
+  background: rgba(5,5,12,.85) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.bg-create .upgrade-modal {
+  background: linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,0)), #0F0F1A !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 20px !important;
+  color: #F5F5FA !important;
+  box-shadow: 0 24px 80px rgba(0,0,0,.6) !important;
+}
+.bg-create .upgrade-modal h2 { color: #F5F5FA !important; }
+.bg-create .upgrade-modal p { color: #86869A !important; }
+.bg-create .upgrade-modal .price-box {
+  background: rgba(255,255,255,.03) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 14px !important;
+}
+.bg-create .upgrade-modal .price { color: #C7FF3D !important; }
+.bg-create .upgrade-modal .period { color: #86869A !important; }
+.bg-create .upgrade-modal .features-list h3 { color: #B8B8C8 !important; }
+.bg-create .upgrade-modal .feature-item { color: #B8B8C8 !important; }
+.bg-create .upgrade-modal .feature-item .check { color: #C7FF3D !important; }
+.bg-create .upgrade-modal .upgrade-btn {
+  background: linear-gradient(180deg, #DDFF7A, #C7FF3D) !important;
+  color: #05050C !important;
+  border: 0 !important; border-radius: 12px !important;
+  box-shadow: 0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25) !important;
+}
+.bg-create .upgrade-modal .note { color: #5A5A6E !important; }
+.bg-create .upgrade-modal .close-btn {
+  color: #86869A !important; background: rgba(255,255,255,.04) !important;
+  border: 1px solid rgba(255,255,255,.08) !important; border-radius: 8px !important;
+}
+.bg-create .upgrade-modal .close-btn:hover { color: #F5F5FA !important; background: rgba(255,255,255,.08) !important; }
+
+/* --- AddonPurchaseModal dark --- */
+.bg-create .addon-modal {
+  background: linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,0)), #0F0F1A !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 20px !important;
+  color: #F5F5FA !important;
+  box-shadow: 0 24px 80px rgba(0,0,0,.6) !important;
+}
+.bg-create .addon-modal h2 { color: #F5F5FA !important; }
+.bg-create .addon-modal .addon-details h3 { color: #F5F5FA !important; }
+.bg-create .addon-modal .addon-price { color: #C7FF3D !important; }
+.bg-create .addon-modal .quantity-selector { color: #B8B8C8 !important; }
+.bg-create .addon-modal .quantity-selector select {
+  background: rgba(255,255,255,.04) !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  color: #F5F5FA !important; border-radius: 10px !important;
+}
+.bg-create .addon-modal .total-price { color: #C7FF3D !important; }
+.bg-create .addon-modal .purchase-btn {
+  background: linear-gradient(180deg, #DDFF7A, #C7FF3D) !important;
+  color: #05050C !important;
+  border: 0 !important; border-radius: 12px !important;
+  box-shadow: 0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25) !important;
+}
+.bg-create .addon-modal .close-btn {
+  color: #86869A !important; background: rgba(255,255,255,.04) !important;
+  border: 1px solid rgba(255,255,255,.08) !important; border-radius: 8px !important;
+}
+.bg-create .addon-modal .close-btn:hover { color: #F5F5FA !important; background: rgba(255,255,255,.08) !important; }
+
+/* --- LimitReachedModal dark --- */
+.bg-create .limit-modal-overlay {
+  background: rgba(5,5,12,.85) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.bg-create .limit-modal {
+  background: linear-gradient(180deg, rgba(255,255,255,.025), rgba(255,255,255,0)), #0F0F1A !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 20px !important;
+  color: #F5F5FA !important;
+  box-shadow: 0 24px 80px rgba(0,0,0,.6) !important;
+}
+.bg-create .limit-modal .close-btn {
+  color: #86869A !important; background: rgba(255,255,255,.04) !important;
+  border: 1px solid rgba(255,255,255,.08) !important; border-radius: 8px !important;
+}
+.bg-create .limit-modal .close-btn:hover { color: #F5F5FA !important; background: rgba(255,255,255,.08) !important; }
+.bg-create .limit-modal-header h2 { color: #F5F5FA !important; }
+.bg-create .limit-modal-header p { color: #86869A !important; }
+.bg-create .limit-modal-header .warning-icon {
+  background: rgba(255,176,32,.1) !important;
+  border: 1px solid rgba(255,176,32,.3) !important;
+  color: #FFB020 !important;
+}
+.bg-create .limit-modal .usage-count { color: #FFB020 !important; }
+.bg-create .limit-modal .option-toggle {
+  background: rgba(255,255,255,.03) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 12px !important;
+}
+.bg-create .limit-modal .toggle-btn { color: #86869A !important; background: transparent !important; }
+.bg-create .limit-modal .toggle-btn.active {
+  background: rgba(79,61,255,.12) !important;
+  color: #F5F5FA !important;
+  box-shadow: 0 0 12px rgba(79,61,255,.15) !important;
+}
+.bg-create .limit-modal .plan-card {
+  background: rgba(255,255,255,.03) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 16px !important;
+}
+.bg-create .limit-modal .plan-header h3 { color: #F5F5FA !important; }
+.bg-create .limit-modal .plan-price .currency,
+.bg-create .limit-modal .plan-price .amount { color: #C7FF3D !important; }
+.bg-create .limit-modal .plan-price .period { color: #5A5A6E !important; }
+.bg-create .limit-modal .plan-features li { color: #B8B8C8 !important; }
+.bg-create .limit-modal .plan-features .check { color: #C7FF3D !important; }
+.bg-create .limit-modal .plan-btn {
+  background: linear-gradient(180deg, #6B5CFF, #4F3DFF) !important;
+  color: #fff !important;
+  border: 0 !important; border-radius: 12px !important;
+  box-shadow: 0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35) !important;
+}
+.bg-create .limit-modal .addon-card {
+  background: rgba(255,255,255,.03) !important;
+  border: 1px solid rgba(255,255,255,.06) !important;
+  border-radius: 16px !important;
+}
+.bg-create .limit-modal .addon-info h3 { color: #F5F5FA !important; }
+.bg-create .limit-modal .addon-price { color: #C7FF3D !important; }
+.bg-create .limit-modal .quantity-controls button {
+  background: rgba(255,255,255,.04) !important;
+  border: 1px solid rgba(255,255,255,.08) !important;
+  color: #F5F5FA !important; border-radius: 8px !important;
+}
+.bg-create .limit-modal .total-price { color: #C7FF3D !important; }
+.bg-create .limit-modal .addon-btn {
+  background: linear-gradient(180deg, #DDFF7A, #C7FF3D) !important;
+  color: #05050C !important;
+  border: 0 !important; border-radius: 12px !important;
+  box-shadow: 0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25) !important;
+}
+.bg-create .limit-modal .addon-note { color: #5A5A6E !important; }
+.bg-create .limit-modal .modal-footer-note { color: #5A5A6E !important; }
