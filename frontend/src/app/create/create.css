@@ -393,3 +393,84 @@
   color: #F5F5FA;
   box-shadow: 0 0 12px rgba(79,61,255,.08);
 }
+
+/* ------- AI Spinner (conic-gradient) ------- */
+.cr-spinner {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0%, #4F3DFF 40%, #C7FF3D 70%, transparent 100%);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+  animation: spin .9s linear infinite;
+}
+
+/* ------- Step indicators ------- */
+.cr-step {
+  display: flex; align-items: center; gap: 10px;
+  color: #5A5A6E;
+  transition: color 300ms;
+}
+.cr-step-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(255,255,255,.08);
+  transition: all 300ms;
+}
+.cr-step-active { color: #B8B8C8; }
+.cr-step-active .cr-step-dot {
+  background: #6B5CFF;
+  box-shadow: 0 0 10px rgba(107,92,255,.5);
+  animation: aipulse 1.6s ease-in-out infinite;
+}
+.cr-step-done { color: #C7FF3D; }
+.cr-step-done .cr-step-dot {
+  background: #C7FF3D;
+  box-shadow: 0 0 8px rgba(199,255,61,.4);
+}
+
+/* ------- Variation cards ------- */
+.cr-var-card {
+  background: #0F0F1A;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 20px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 220ms cubic-bezier(.25,1,.5,1);
+}
+.cr-var-card:hover {
+  border-color: rgba(107,92,255,.4);
+  box-shadow: 0 8px 32px rgba(79,61,255,.15);
+  transform: translateY(-2px);
+}
+.cr-var-overlay {
+  position: absolute; inset: 0;
+  background: rgba(5,5,12,0);
+  display: flex; align-items: center; justify-content: center;
+  transition: background 220ms;
+}
+.cr-var-overlay > * { opacity: 0; transition: opacity 220ms; }
+.cr-var-card:hover .cr-var-overlay { background: rgba(5,5,12,.5); }
+.cr-var-card:hover .cr-var-overlay > * { opacity: 1; }
+
+/* ------- Share dropdown ------- */
+.cr-share-menu {
+  position: absolute; top: 100%; left: 0; margin-top: 8px;
+  background: #0F0F1A;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+  padding: 6px;
+  opacity: 0; visibility: hidden;
+  transition: all 180ms;
+  z-index: 10; min-width: 160px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.5);
+}
+.group:hover .cr-share-menu { opacity: 1; visibility: visible; }
+.cr-share-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 8px 12px;
+  border: 0; border-radius: 8px;
+  background: transparent;
+  color: #B8B8C8; font-size: 13px;
+  cursor: pointer; text-align: left;
+  font-family: 'Geist', 'Inter', -apple-system, sans-serif;
+}
+.cr-share-item:hover { background: rgba(255,255,255,.06); color: #F5F5FA; }

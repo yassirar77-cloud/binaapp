@@ -9,7 +9,7 @@ import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout } from 'lu
 import VisualImageUpload from './components/VisualImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
-import CodeAnimation from '@/components/CodeAnimation'
+// CodeAnimation removed — loading overlay uses pure CSS spinner
 import { UpgradeModal } from '@/components/UpgradeModal'
 import { AddonPurchaseModal } from '@/components/AddonPurchaseModal'
 import { LimitReachedModal } from '@/components/LimitReachedModal'
@@ -1568,151 +1568,81 @@ export default function CreatePage() {
             </button>
 
             {loading && (
-              <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-                <div className="bg-gray-900 rounded-2xl p-8 max-w-2xl w-full mx-4">
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,12,.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+                <div className="cr-card cr-card-hairline" style={{ padding: 40, maxWidth: 560, width: '100%', margin: '0 16px' }}>
                   {error ? (
-                    /* Error State in Modal */
-                    <div className="text-center">
-                      <div className="mb-6">
-                        <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <span className="text-4xl">❌</span>
-                        </div>
-                        <h3 className="text-2xl font-bold text-white mb-2">Generation Failed</h3>
-                        <p className="text-gray-400 mb-4">Something went wrong while generating your website</p>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 28 }}>❌</div>
+                      <h3 style={{ fontSize: 22, fontWeight: 700, color: '#F5F5FA', margin: '0 0 8px' }}>Generation Failed</h3>
+                      <p style={{ fontSize: 14, color: '#86869A', margin: '0 0 20px' }}>Something went wrong while generating your website</p>
+                      <div style={{ padding: 14, background: 'rgba(239,68,68,.06)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 12, marginBottom: 24, textAlign: 'left' }}>
+                        <p style={{ fontSize: 13, color: '#FCA5A5', margin: 0 }}>{error}</p>
                       </div>
-
-                      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-6 text-left">
-                        <p className="text-red-400 text-sm">{error}</p>
-                      </div>
-
-                      <div className="flex gap-3 justify-center">
-                        <button
-                          onClick={() => {
-                            setLoading(false);
-                            setError('');
-                            setProgress(0);
-                          }}
-                          className="px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={() => {
-                            setError('');
-                            setProgress(0);
-                            handleGenerate();
-                          }}
-                          className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition flex items-center gap-2"
-                        >
-                          <span>🔄</span> Try Again
-                        </button>
+                      <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                        <button onClick={() => { setLoading(false); setError(''); setProgress(0); }} className="cr-btn-ghost cr-btn">Cancel</button>
+                        <button onClick={() => { setError(''); setProgress(0); handleGenerate(); }} className="cr-btn" style={{ background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)' }}>Try Again</button>
                       </div>
                     </div>
                   ) : (
-                    /* Normal Loading State */
                     <>
-                      <div className="mb-6 relative">
-                        <CodeAnimation />
-                        <div className="absolute -top-2 -right-2 w-6 h-6 bg-blue-500 rounded-full animate-ping"></div>
+                      {/* AI Spinner */}
+                      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
+                        <div className="cr-spinner" />
                       </div>
 
-                      <div className="text-white mb-4 text-center">
-                        <div className="flex items-center justify-center gap-2 mb-2">
-                          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-                          <h3 className="text-2xl font-bold">Building your website...</h3>
+                      <div style={{ textAlign: 'center', marginBottom: 28 }}>
+                        <h3 style={{ fontSize: 22, fontWeight: 700, color: '#F5F5FA', margin: '0 0 6px' }}>Building your website...</h3>
+                        <p style={{ fontSize: 14, color: '#86869A', margin: 0 }}>AI is writing production-ready HTML code for you</p>
+                      </div>
+
+                      {/* Progress bar */}
+                      <div style={{ marginBottom: 28 }}>
+                        <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,.06)', borderRadius: 99, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, #4F3DFF, #C7FF3D)', borderRadius: 99, transition: 'width 500ms cubic-bezier(.25,1,.5,1)' }} />
                         </div>
-                        <p className="text-gray-400">
-                          AI is writing production-ready HTML code for you
-                        </p>
+                        <div style={{ textAlign: 'center', marginTop: 8 }}>
+                          <span className="num" style={{ fontSize: 13, color: '#C7FF3D', fontWeight: 600 }}>{progress}%</span>
+                          <span style={{ fontSize: 13, color: '#5A5A6E', marginLeft: 6 }}>Complete</span>
+                        </div>
                       </div>
 
-                  {/* Progress bar */}
-                  <div className="mb-6">
-                    <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
-                      <div
-                        className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 transition-all duration-500 ease-out"
-                        style={{ width: `${progress}%` }}
-                      ></div>
-                    </div>
-                    <p className="text-center text-blue-400 mt-2 font-semibold">
-                      {progress}% Complete
-                    </p>
-                  </div>
+                      {/* 5-step indicators */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 380, margin: '0 auto' }}>
+                        {[
+                          { label: 'Analyzing your business description...', start: 10, end: 30 },
+                          { label: 'Generating Modern style...', start: 30, end: 50 },
+                          { label: 'Generating Minimal style...', start: 50, end: 70 },
+                          { label: 'Generating Bold style...', start: 70, end: 90 },
+                          { label: 'Finalizing website...', start: 90, end: 100 },
+                        ].map((step, i) => {
+                          const done = progress >= step.end;
+                          const active = progress >= step.start && progress < step.end;
+                          return (
+                            <div key={i} className={`cr-step ${active ? 'cr-step-active' : ''} ${done ? 'cr-step-done' : ''}`}>
+                              <div className="cr-step-dot" />
+                              <span style={{ fontSize: 13 }}>{done ? '✓ ' : ''}{step.label}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
 
-                  <div className="mt-6 space-y-3 text-left max-w-md mx-auto">
-                    {/* Step 1: Analyzing (10-25%) */}
-                    <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                        progress >= 10 && progress < 30 ? 'bg-blue-500 animate-pulse' :
-                        progress >= 30 ? 'bg-green-500' : 'bg-gray-600'
-                      }`}></div>
-                      <span className={`text-sm ${progress >= 30 ? 'text-green-400' : ''}`}>
-                        {progress >= 30 ? '✓ ' : ''}Analyzing your business description...
-                      </span>
-                    </div>
-                    {/* Step 2: Modern Style (30-50%) */}
-                    <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                        progress >= 30 && progress < 50 ? 'bg-purple-500 animate-pulse' :
-                        progress >= 50 ? 'bg-green-500' : 'bg-gray-600'
-                      }`}></div>
-                      <span className={`text-sm ${progress >= 50 ? 'text-green-400' : ''}`}>
-                        {progress >= 50 ? '✓ ' : ''}Generating Modern style...
-                      </span>
-                    </div>
-                    {/* Step 3: Minimal Style (50-70%) */}
-                    <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                        progress >= 50 && progress < 70 ? 'bg-pink-500 animate-pulse' :
-                        progress >= 70 ? 'bg-green-500' : 'bg-gray-600'
-                      }`}></div>
-                      <span className={`text-sm ${progress >= 70 ? 'text-green-400' : ''}`}>
-                        {progress >= 70 ? '✓ ' : ''}Generating Minimal style...
-                      </span>
-                    </div>
-                    {/* Step 4: Bold Style (70-90%) */}
-                    <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                        progress >= 70 && progress < 90 ? 'bg-orange-500 animate-pulse' :
-                        progress >= 90 ? 'bg-green-500' : 'bg-gray-600'
-                      }`}></div>
-                      <span className={`text-sm ${progress >= 90 ? 'text-green-400' : ''}`}>
-                        {progress >= 90 ? '✓ ' : ''}Generating Bold style...
-                      </span>
-                    </div>
-                    {/* Step 5: Finalizing (90-100%) */}
-                    <div className="flex items-center gap-3 text-gray-300">
-                      <div className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                        progress >= 90 && progress < 100 ? 'bg-yellow-500 animate-pulse' :
-                        progress >= 100 ? 'bg-green-500' : 'bg-gray-600'
-                      }`}></div>
-                      <span className={`text-sm ${progress >= 100 ? 'text-green-400' : ''}`}>
-                        {progress >= 100 ? '✓ ' : ''}Finalizing website...
-                      </span>
-                    </div>
-                  </div>
+                      {/* Stale Progress Warning */}
+                      {staleWarning && (
+                        <div className="banner-accent" style={{ marginTop: 20, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
+                          <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
+                          <span style={{ fontSize: 13, color: '#FFB020' }}>Progress appears stuck at {progress}%. The backend may be experiencing issues. Job may still complete.</span>
+                        </div>
+                      )}
 
-                  {/* Stale Progress Warning */}
-                  {staleWarning && (
-                    <div className="mt-4 p-3 bg-yellow-500/20 border border-yellow-500/50 rounded-lg">
-                      <p className="text-yellow-400 text-sm text-center">
-                        ⚠️ Progress appears to be stuck at {progress}%. The backend may be experiencing issues.
-                        <br />
-                        <span className="text-xs text-yellow-500">Job may still complete - please wait or try again.</span>
+                      <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 20, textAlign: 'center' }}>
+                        This usually takes 45-90 seconds. Progress updates every 3 seconds.
                       </p>
-                    </div>
-                  )}
 
-                  <p className="text-xs text-gray-500 mt-6 text-center">
-                    This usually takes 45-90 seconds. Progress updates every 3 seconds ⏱️
-                  </p>
-
-                  {/* Debug: Show Job ID for troubleshooting */}
-                  {currentJobId && (
-                    <p className="text-xs text-gray-600 mt-2 text-center font-mono">
-                      Job: {currentJobId.slice(0, 8)}...
-                    </p>
-                  )}
+                      {currentJobId && (
+                        <p className="num" style={{ fontSize: 11, color: '#3A3A4A', marginTop: 8, textAlign: 'center' }}>
+                          Job: {currentJobId.slice(0, 8)}...
+                        </p>
+                      )}
                     </>
                   )}
                 </div>
@@ -1775,261 +1705,146 @@ export default function CreatePage() {
 
           </div>
         ) : styleVariations.length > 0 && !selectedStyle ? (
-          <div className="max-w-7xl mx-auto">
-            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <div className="flex items-center gap-2 text-green-800 font-semibold mb-2">
-                <Check className="w-5 h-5" />
-                3 Design Variations Generated!
+          <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+            {/* Success banner */}
+            <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(199,255,61,.06), transparent)', border: '1px solid rgba(199,255,61,.22)' }}>
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#C7FF3D' }} />
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(199,255,61,.1)', border: '1px solid rgba(199,255,61,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Check size={16} style={{ color: '#C7FF3D' }} />
               </div>
-              <p className="text-sm text-green-700">
-                Template: <span className="font-semibold">{templateUsed}</span> •
-                Features: <span className="font-semibold">{detectedFeatures.join(', ')}</span>
-              </p>
-              <p className="text-sm text-green-700 mt-2">
-                Click on any design below to view and customize it
-              </p>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA' }}>3 Design Variations Generated!</div>
+                <div style={{ fontSize: 12, color: '#86869A', marginTop: 2 }}>
+                  Template: <span style={{ fontWeight: 600 }}>{templateUsed}</span> · Features: <span style={{ fontWeight: 600 }}>{detectedFeatures.join(', ')}</span>
+                </div>
+                <div style={{ fontSize: 12, color: '#86869A', marginTop: 4 }}>Click on any design below to view and customize it</div>
+              </div>
             </div>
 
             <button
-              onClick={() => {
-                setStyleVariations([])
-                setGeneratedHtml('')
-                setError('')
-                setPublishedUrl('')
-              }}
-              className="mb-6 btn btn-outline"
+              onClick={() => { setStyleVariations([]); setGeneratedHtml(''); setError(''); setPublishedUrl(''); }}
+              className="cr-btn cr-btn-ghost"
+              style={{ marginBottom: 24 }}
             >
               Create Another
             </button>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, marginBottom: 32 }}>
               {styleVariations.map((variation, idx) => {
-                const styleInfo = {
-                  modern: {
-                    name: 'Modern',
-                    icon: '🎨',
-                    color: 'from-purple-500 to-blue-500',
-                    description: 'Vibrant gradients, glassmorphism, contemporary design'
-                  },
-                  minimal: {
-                    name: 'Minimal',
-                    icon: '✨',
-                    color: 'from-gray-700 to-gray-900',
-                    description: 'Clean, simple, elegant with lots of white space'
-                  },
-                  bold: {
-                    name: 'Bold',
-                    icon: '⚡',
-                    color: 'from-orange-500 to-red-500',
-                    description: 'High contrast, dramatic, attention-grabbing'
-                  }
-                }[variation.style] || {
-                  name: variation.style,
-                  icon: '🎯',
-                  color: 'from-blue-500 to-indigo-500',
-                  description: 'Custom style'
-                }
+                const styleInfo: Record<string, { name: string; icon: string; gradient: string; description: string }> = {
+                  modern: { name: 'Modern', icon: '🎨', gradient: 'linear-gradient(135deg, #6B5CFF, #4F3DFF)', description: 'Vibrant gradients, glassmorphism, contemporary design' },
+                  minimal: { name: 'Minimal', icon: '✨', gradient: 'linear-gradient(135deg, #5A5A6E, #3A3A4A)', description: 'Clean, simple, elegant with lots of white space' },
+                  bold: { name: 'Bold', icon: '⚡', gradient: 'linear-gradient(135deg, #F97316, #EF4444)', description: 'High contrast, dramatic, attention-grabbing' },
+                };
+                const info = styleInfo[variation.style] || { name: variation.style, icon: '🎯', gradient: 'linear-gradient(135deg, #6B5CFF, #4F3DFF)', description: 'Custom style' };
 
                 return (
                   <div
                     key={idx}
-                    className="group bg-white rounded-xl shadow-lg overflow-hidden border-2 border-transparent hover:border-primary-500 transition-all duration-300 cursor-pointer transform hover:scale-105"
-                    onClick={() => {
-                      console.log('Selecting variation:', variation)
-                      handleSelectVariation(variation)
-                    }}
+                    className="cr-var-card"
+                    onClick={() => { console.log('Selecting variation:', variation); handleSelectVariation(variation); }}
                   >
-                    <div className={`bg-gradient-to-r ${styleInfo.color} p-4 text-white`}>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-2xl">{styleInfo.icon}</span>
-                        <h3 className="text-xl font-bold">{styleInfo.name}</h3>
+                    {/* Style header bar */}
+                    <div style={{ padding: '16px 20px', background: info.gradient, borderRadius: '20px 20px 0 0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: 20 }}>{info.icon}</span>
+                        <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>{info.name}</span>
                       </div>
-                      <p className="text-sm opacity-90">{styleInfo.description}</p>
+                      <p style={{ fontSize: 12, color: 'rgba(255,255,255,.75)', margin: 0 }}>{info.description}</p>
                     </div>
 
-                    <div className="relative bg-gray-100" style={{ height: '400px' }}>
+                    {/* Preview iframe */}
+                    <div style={{ position: 'relative', height: 380, background: '#0A0A14' }}>
                       {variation.html ? (
                         <iframe
                           srcDoc={variation.html}
-                          className="w-full h-full border-0 pointer-events-none"
-                          title={`${styleInfo.name} Preview`}
+                          style={{ width: '100%', height: '100%', border: 0, pointerEvents: 'none' }}
+                          title={`${info.name} Preview`}
                           sandbox="allow-same-origin"
-                          onLoad={() => console.log(`Iframe loaded for ${variation.style}`)}
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-400">
-                          <div className="text-center">
-                            <p className="text-sm">No preview available</p>
-                            <p className="text-xs mt-2">HTML length: {variation.html?.length || 0}</p>
-                          </div>
+                        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5A5A6E', fontSize: 13 }}>
+                          No preview available
                         </div>
                       )}
-                      
-                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all duration-300 flex items-center justify-center">
-                        <button className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-white text-primary-600 px-6 py-3 rounded-lg font-semibold shadow-lg">
-                          <Eye className="w-5 h-5 inline-block mr-2" />
-                          View Full Design
-                        </button>
+                      {/* Hover overlay */}
+                      <div className="cr-var-overlay">
+                        <span className="cr-btn" style={{ background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 8px 24px rgba(79,61,255,.4)' }}>
+                          <Eye size={16} /> View Full Design
+                        </span>
                       </div>
                     </div>
 
-                    <div className="p-4 bg-gray-50 text-center">
-                      <p className="text-sm text-gray-600">
+                    {/* Footer */}
+                    <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,.04)', textAlign: 'center' }}>
+                      <span style={{ fontSize: 12, color: '#5A5A6E' }}>
                         {variation.html ? `Click to view (${Math.round(variation.html.length / 1024)}KB)` : 'No content'}
-                      </p>
+                      </span>
                     </div>
                   </div>
-                )
+                );
               })}
             </div>
           </div>
         ) : (
-          <div className="max-w-7xl mx-auto">
-            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <div className="flex items-center gap-2 text-green-800 font-semibold mb-2">
-                <Check className="w-5 h-5" />
-                Website Generated Successfully!
+          <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+            {/* Success banner */}
+            <div className="banner-accent float-in" style={{ background: 'linear-gradient(90deg, rgba(199,255,61,.06), transparent)', border: '1px solid rgba(199,255,61,.22)' }}>
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#C7FF3D' }} />
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(199,255,61,.1)', border: '1px solid rgba(199,255,61,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Check size={16} style={{ color: '#C7FF3D' }} />
               </div>
-              <p className="text-sm text-green-700">
-                Template: <span className="font-semibold">{templateUsed}</span> •
-                Features: <span className="font-semibold">{detectedFeatures.join(', ')}</span>
-                {selectedStyle && (
-                  <>
-                    {' • '}
-                    Style: <span className="font-semibold capitalize">{selectedStyle}</span>
-                  </>
-                )}
-              </p>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA' }}>Website Generated Successfully!</div>
+                <div style={{ fontSize: 12, color: '#86869A', marginTop: 2 }}>
+                  Template: <span style={{ fontWeight: 600 }}>{templateUsed}</span> · Features: <span style={{ fontWeight: 600 }}>{detectedFeatures.join(', ')}</span>
+                  {selectedStyle && <> · Style: <span style={{ fontWeight: 600, textTransform: 'capitalize' }}>{selectedStyle}</span></>}
+                </div>
+              </div>
             </div>
 
+            {/* Published URL bar */}
             {publishedUrl && (
-              <div className="mb-6 p-6 bg-blue-50 border-2 border-blue-200 rounded-lg">
-                <div className="flex items-center gap-2 text-blue-800 font-bold mb-3 text-lg">
-                  🎉 Website Published!
-                </div>
-                <p className="text-blue-700 mb-3">
-                  Your website is now live at:
-                </p>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={publishedUrl}
-                    readOnly
-                    className="flex-1 px-4 py-2 bg-white border border-blue-300 rounded-lg"
-                  />
-                  <a
-                    href={publishedUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-primary"
-                  >
-                    <Eye className="w-4 h-4 mr-2" />
-                    View Live
+              <div className="cr-card cr-card-hairline float-in" style={{ padding: '20px 24px', marginBottom: 20 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#C7FF3D', marginBottom: 8 }}>Website Published!</div>
+                <div style={{ fontSize: 13, color: '#86869A', marginBottom: 12 }}>Your website is now live at:</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input type="text" value={publishedUrl} readOnly className="cr-input" style={{ flex: 1 }} />
+                  <a href={publishedUrl} target="_blank" rel="noopener noreferrer" className="cr-btn" style={{ background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', textDecoration: 'none', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)' }}>
+                    <Eye size={14} /> View Live
                   </a>
                 </div>
               </div>
             )}
 
-            <div className="flex flex-wrap gap-3 mb-6">
+            {/* Action buttons */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
               {selectedStyle && styleVariations.length > 0 && (
-                <button
-                  onClick={handleBackToVariations}
-                  className="btn btn-outline"
-                >
-                  ← Back to Variations
-                </button>
+                <button onClick={handleBackToVariations} className="cr-btn cr-btn-ghost">← Back to Variations</button>
               )}
-              
-              <button
-                onClick={() => setPreviewMode(previewMode === 'single' ? 'multi' : 'single')}
-                className="btn btn-outline"
-                title={previewMode === 'single' ? 'View on all devices' : 'View single device'}
-              >
-                <Layout className="w-4 h-4 mr-2" />
-                {previewMode === 'single' ? 'Multi-Device' : 'Single Device'}
+              <button onClick={() => setPreviewMode(previewMode === 'single' ? 'multi' : 'single')} className="cr-btn cr-btn-ghost" title={previewMode === 'single' ? 'View on all devices' : 'View single device'}>
+                <Layout size={14} /> {previewMode === 'single' ? 'Multi-Device' : 'Single Device'}
+              </button>
+              <button onClick={handleDownload} className="cr-btn cr-btn-ghost"><Download size={14} /> Download HTML</button>
+              <button onClick={handleCopyHtml} className="cr-btn cr-btn-ghost">
+                {copied ? <><Check size={14} /> Copied!</> : <><Copy size={14} /> Copy HTML</>}
+              </button>
+              <button onClick={() => setShowPublishModal(true)} className="cr-btn" style={{ background: 'linear-gradient(180deg, #DDFF7A, #C7FF3D)', color: '#05050C', boxShadow: '0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25)' }}>
+                <Upload size={14} /> Publish Website
               </button>
 
-              <button
-                onClick={handleDownload}
-                className="btn btn-outline"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Download HTML
-              </button>
-
-              <button
-                onClick={handleCopyHtml}
-                className="btn btn-outline"
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-4 h-4 mr-2" />
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-4 h-4 mr-2" />
-                    Copy HTML
-                  </>
-                )}
-              </button>
-
-              <button
-                onClick={() => setShowPublishModal(true)}
-                className="btn btn-primary"
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Publish Website
-              </button>
-
-              <div className="relative group">
-                <button
-                  onClick={handleShare}
-                  className="btn btn-outline"
-                >
-                  <Share2 className="w-4 h-4 mr-2" />
-                  Share
-                </button>
-                <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-xl border border-gray-200 p-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 min-w-[150px]">
-                  <button
-                    onClick={() => handleShareSocial('whatsapp')}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded flex items-center gap-2"
-                  >
-                    <span className="text-xl">💬</span> WhatsApp
-                  </button>
-                  <button
-                    onClick={() => handleShareSocial('facebook')}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded flex items-center gap-2"
-                  >
-                    <span className="text-xl">📘</span> Facebook
-                  </button>
-                  <button
-                    onClick={() => handleShareSocial('twitter')}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded flex items-center gap-2"
-                  >
-                    <span className="text-xl">🐦</span> Twitter
-                  </button>
-                  <button
-                    onClick={() => handleShareSocial('linkedin')}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-100 rounded flex items-center gap-2"
-                  >
-                    <span className="text-xl">💼</span> LinkedIn
-                  </button>
+              {/* Share dropdown */}
+              <div style={{ position: 'relative' }} className="group">
+                <button onClick={handleShare} className="cr-btn cr-btn-ghost"><Share2 size={14} /> Share</button>
+                <div className="cr-share-menu">
+                  <button onClick={() => handleShareSocial('whatsapp')} className="cr-share-item"><span style={{ fontSize: 16 }}>💬</span> WhatsApp</button>
+                  <button onClick={() => handleShareSocial('facebook')} className="cr-share-item"><span style={{ fontSize: 16 }}>📘</span> Facebook</button>
+                  <button onClick={() => handleShareSocial('twitter')} className="cr-share-item"><span style={{ fontSize: 16 }}>🐦</span> Twitter</button>
+                  <button onClick={() => handleShareSocial('linkedin')} className="cr-share-item"><span style={{ fontSize: 16 }}>💼</span> LinkedIn</button>
                 </div>
               </div>
 
-              <button
-                onClick={() => {
-                  setGeneratedHtml('')
-                  setStyleVariations([])
-                  setSelectedStyle(null)
-                  setError('')
-                  setPublishedUrl('')
-                }}
-                className="btn btn-outline"
-              >
-                Create Another
-              </button>
+              <button onClick={() => { setGeneratedHtml(''); setStyleVariations([]); setSelectedStyle(null); setError(''); setPublishedUrl(''); }} className="cr-btn cr-btn-ghost">Create Another</button>
             </div>
 
             {previewMode === 'single' ? (
