@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout } from 'lucide-react'
+import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout, FileText } from 'lucide-react'
 import VisualImageUpload from './components/VisualImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
@@ -16,6 +16,7 @@ import { LimitReachedModal } from '@/components/LimitReachedModal'
 import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
 import { supabase, signOut as customSignOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
+import { checkImageSafety } from '@/utils/imageModeration'
 import toast from 'react-hot-toast'
 import './create.css'
 
@@ -131,6 +132,14 @@ export default function CreatePage() {
     gallery: { url: string; name: string; price: string }[]
   }>({ hero: null, gallery: [] })
 
+  // V3 inline upload UI state (replaces VisualImageUpload sub-component).
+  // These are ephemeral UX-only refs — uploadedImages above remains the
+  // source of truth that flows to the backend.
+  const [heroPreview, setHeroPreview] = useState<string>('')
+  const [uploadingHero, setUploadingHero] = useState(false)
+  const [menuPreviews, setMenuPreviews] = useState<Record<number, string>>({})
+  const [uploadingMenuIdx, setUploadingMenuIdx] = useState<number | null>(null)
+
   const [multiStyle, setMultiStyle] = useState(true)
   const [styleVariations, setStyleVariations] = useState<StyleVariation[]>([])
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null)
@@ -240,6 +249,159 @@ export default function CreatePage() {
       reader.readAsDataURL(file)
     }
   }
+
+  // ─────────────────────────────────────────────
+  // Inline hero/menu image upload (V3, Path 2)
+  // Mirrors VisualImageUpload's contract:
+  //   - POST ${API_BASE_URL}/api/upload-image multipart
+  //   - checkImageSafety() before upload, fail-open on errors
+  //   - Stores final url in uploadedImages.{hero|gallery[].url}
+  // ─────────────────────────────────────────────
+  const validateImageFile = (file: File): string | null => {
+    if (file.size > 8 * 1024 * 1024) return 'Saiz fail melebihi 8MB. Max 8MB.'
+    if (!/^image\/(png|jpeg|jpg|webp)$/.test(file.type)) return 'Format tidak disokong. Use PNG, JPG, atau WebP.'
+    return null
+  }
+
+  const uploadImageToBackend = async (file: File): Promise<string> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch(`${API_BASE_URL}/api/upload-image`, { method: 'POST', body: formData })
+    const data = await res.json()
+    if (data.success && data.url) return data.url as string
+    throw new Error(data.error || data.detail || 'Upload failed')
+  }
+
+  const handleHeroFile = async (file: File) => {
+    const v = validateImageFile(file)
+    if (v) { toast.error(v); return }
+    const moderation = await checkImageSafety(file)
+    if (!moderation.allowed) { toast.error(moderation.message); return }
+    const preview = URL.createObjectURL(file)
+    if (heroPreview) URL.revokeObjectURL(heroPreview)
+    setHeroPreview(preview)
+    setUploadingHero(true)
+    try {
+      const url = await uploadImageToBackend(file)
+      setUploadedImages(prev => ({ ...prev, hero: url }))
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal muat naik gambar')
+      URL.revokeObjectURL(preview)
+      setHeroPreview('')
+    } finally {
+      setUploadingHero(false)
+    }
+  }
+
+  const removeHero = () => {
+    if (heroPreview) URL.revokeObjectURL(heroPreview)
+    setHeroPreview('')
+    setUploadedImages(prev => ({ ...prev, hero: null }))
+  }
+
+  const handleHeroInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) handleHeroFile(file)
+    e.target.value = ''
+  }
+
+  const handleHeroDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const file = e.dataTransfer.files?.[0]
+    if (file) handleHeroFile(file)
+  }
+
+  // Menu items (uploadedImages.gallery is source of truth)
+  const ensureGalleryRow = (idx: number): { url: string; name: string; price: string }[] => {
+    const cur = uploadedImages.gallery
+    if (idx < cur.length) return cur
+    const next = [...cur]
+    while (next.length <= idx) next.push({ url: '', name: '', price: '' })
+    return next
+  }
+
+  const updateMenuField = (idx: number, patch: Partial<{ url: string; name: string; price: string }>) => {
+    setUploadedImages(prev => {
+      const arr = [...prev.gallery]
+      while (arr.length <= idx) arr.push({ url: '', name: '', price: '' })
+      arr[idx] = { ...arr[idx], ...patch }
+      return { ...prev, gallery: arr }
+    })
+  }
+
+  const addMenuItemRow = () => {
+    setUploadedImages(prev => ({ ...prev, gallery: [...prev.gallery, { url: '', name: '', price: '' }] }))
+  }
+
+  const removeMenuItemRow = (idx: number) => {
+    setMenuPreviews(prev => {
+      const next = { ...prev }
+      if (next[idx]) URL.revokeObjectURL(next[idx])
+      delete next[idx]
+      const shifted: Record<number, string> = {}
+      Object.entries(next).forEach(([k, v]) => {
+        const n = Number(k)
+        shifted[n > idx ? n - 1 : n] = v
+      })
+      return shifted
+    })
+    setUploadedImages(prev => ({ ...prev, gallery: prev.gallery.filter((_, i) => i !== idx) }))
+  }
+
+  const handleMenuFile = async (idx: number, file: File) => {
+    const v = validateImageFile(file)
+    if (v) { toast.error(v); return }
+    const moderation = await checkImageSafety(file)
+    if (!moderation.allowed) { toast.error(moderation.message); return }
+    const preview = URL.createObjectURL(file)
+    setMenuPreviews(prev => {
+      const next = { ...prev }
+      if (next[idx]) URL.revokeObjectURL(next[idx])
+      next[idx] = preview
+      return next
+    })
+    // Make sure a row exists at this index
+    const baseline = ensureGalleryRow(idx)
+    if (baseline !== uploadedImages.gallery) {
+      setUploadedImages(prev => ({ ...prev, gallery: baseline }))
+    }
+    setUploadingMenuIdx(idx)
+    try {
+      const url = await uploadImageToBackend(file)
+      updateMenuField(idx, { url })
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal muat naik gambar')
+      URL.revokeObjectURL(preview)
+      setMenuPreviews(prev => { const n = { ...prev }; delete n[idx]; return n })
+    } finally {
+      setUploadingMenuIdx(null)
+    }
+  }
+
+  const handleMenuInputChange = (idx: number) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) handleMenuFile(idx, file)
+    e.target.value = ''
+  }
+
+  const clearMenuImage = (idx: number) => {
+    setMenuPreviews(prev => {
+      const n = { ...prev }
+      if (n[idx]) URL.revokeObjectURL(n[idx])
+      delete n[idx]
+      return n
+    })
+    updateMenuField(idx, { url: '' })
+  }
+
+  // Cleanup blob preview URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (heroPreview) URL.revokeObjectURL(heroPreview)
+      Object.values(menuPreviews).forEach(u => { if (u) URL.revokeObjectURL(u) })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     checkUser()
@@ -1397,59 +1559,214 @@ export default function CreatePage() {
               );
             })()}
 
-            <VisualImageUpload onImagesUploaded={setUploadedImages} />
-
-            {/* ── 05 Image Source ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
-              <div className="eyebrow" style={{ marginBottom: 16 }}>05 — SUMBER GAMBAR</div>
-              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih bagaimana anda mahu gambar dalam website anda</div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {/* Option 1: No Images */}
-                <label className={imageChoice === 'none' ? 'cr-radio cr-radio-active' : 'cr-radio'}>
-                  <input type="radio" name="imageChoice" value="none" checked={imageChoice === 'none'} onChange={() => setImageChoice('none')} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
-                  <span style={{ fontSize: 22, flexShrink: 0 }}>📝</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Tiada Gambar</span>
-                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>Website teks sahaja, tanpa gambar</span>
-                  </div>
-                </label>
-
-                {/* Option 2: Upload Own Images */}
-                <label className={imageChoice === 'upload' ? 'cr-radio cr-radio-active' : 'cr-radio'}>
-                  <input type="radio" name="imageChoice" value="upload" checked={imageChoice === 'upload'} onChange={() => setImageChoice('upload')} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
-                  <span style={{ fontSize: 22, flexShrink: 0 }}>📷</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Muat Naik Gambar Sendiri</span>
-                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>Gunakan gambar yang anda upload di atas</span>
-                  </div>
-                  {uploadedImages.gallery.length > 0 && (
-                    <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 8, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)', whiteSpace: 'nowrap' }}>
-                      {uploadedImages.gallery.length} dimuat naik
-                    </span>
-                  )}
-                </label>
-
-                {/* Option 3: Generate AI Images */}
-                <label className={imageChoice === 'ai' ? 'cr-radio cr-radio-active' : 'cr-radio'}>
-                  <input type="radio" name="imageChoice" value="ai" checked={imageChoice === 'ai'} onChange={() => setImageChoice('ai')} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
-                  <span style={{ fontSize: 22, flexShrink: 0 }}>✨</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Jana Gambar AI</span>
-                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>AI akan jana gambar untuk perniagaan anda</span>
-                  </div>
-                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' as const, padding: '2px 7px', borderRadius: 6, background: 'rgba(107,92,255,.15)', color: '#BAB0FF', border: '1px solid rgba(107,92,255,.3)' }}>PREMIUM</span>
-                </label>
-              </div>
-
-              {/* Warning if upload selected but no images */}
-              {imageChoice === 'upload' && uploadedImages.gallery.length === 0 && !uploadedImages.hero && (
-                <div className="banner-accent float-in" style={{ marginTop: 14, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
-                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
-                  <span style={{ fontSize: 13, color: '#FFB020' }}>Anda belum muat naik gambar. Sila muat naik gambar di bahagian atas atau pilih pilihan lain.</span>
+            {/* ── 05 Hero image ── */}
+            <section style={{ marginBottom: 32 }}>
+              <div style={{ marginBottom: 20 }}>
+                <div className="section-num" style={{ marginBottom: 10 }}>
+                  <span className="dot" />05 — HERO IMAGE
                 </div>
-              )}
-            </div>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Hero image</h2>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Image utama untuk header website. Optional — AI boleh suggest dari brief anda.</p>
+              </div>
+              <div className="cr-card cr-card-hairline" style={{ padding: 16, display: 'flex', gap: 14, alignItems: 'stretch', flexWrap: 'wrap' }}>
+                <div
+                  onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = 'rgba(107,92,255,.5)'; e.currentTarget.style.background = 'rgba(79,61,255,.04)'; }}
+                  onDragLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.12)'; e.currentTarget.style.background = 'rgba(255,255,255,.015)'; }}
+                  onDrop={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.12)'; e.currentTarget.style.background = 'rgba(255,255,255,.015)'; handleHeroDrop(e); }}
+                  onClick={() => document.getElementById('v3-hero-upload')?.click()}
+                  style={{ flex: '1 1 280px', minWidth: 240, minHeight: 160, border: '1.5px dashed rgba(255,255,255,.12)', borderRadius: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, cursor: 'pointer', background: 'rgba(255,255,255,.015)', transition: 'all 220ms', position: 'relative', overflow: 'hidden', padding: 16 }}
+                >
+                  {(uploadedImages.hero || heroPreview) ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={heroPreview || uploadedImages.hero || ''} alt="Hero" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                      {uploadingHero && (
+                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(5,5,12,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                          <div style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,.25)', borderTopColor: '#C7FF3D', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
+                          <span style={{ fontSize: 12, color: '#F5F5FA' }}>Memuat naik…</span>
+                        </div>
+                      )}
+                      {uploadedImages.hero && !uploadingHero && (
+                        <span className="pill pill-volt" style={{ position: 'absolute', bottom: 8, left: 8, padding: '2px 8px', fontSize: 9 }}>
+                          <span className="led" /> UPLOADED
+                        </span>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); removeHero(); }}
+                        type="button"
+                        aria-label="Buang gambar"
+                        style={{ position: 'absolute', top: 8, right: 8, width: 26, height: 26, borderRadius: '50%', background: 'rgba(5,5,12,.7)', border: '1px solid rgba(255,255,255,.15)', color: '#F5F5FA', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}
+                      >
+                        ✕
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ width: 40, height: 40, borderRadius: 11, background: 'rgba(79,61,255,.1)', border: '1px solid rgba(107,92,255,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#BAB0FF' }}>
+                        <Upload size={18} />
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 13, color: '#F5F5FA', fontWeight: 500 }}>Drop image atau <span style={{ color: '#BAB0FF' }}>browse</span></div>
+                        <div style={{ fontSize: 11, color: '#5A5A6E', marginTop: 4 }}>PNG, JPG, WebP · max 8MB</div>
+                      </div>
+                    </>
+                  )}
+                  <input id="v3-hero-upload" type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onChange={handleHeroInputChange} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                </div>
+                <div style={{ flex: '1 1 200px', minWidth: 180, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setImageChoice('ai')}
+                    className="cr-btn cr-btn-ghost"
+                    style={{ justifyContent: 'flex-start', height: 52, gap: 10, padding: '0 12px', textAlign: 'left' }}
+                  >
+                    <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(199,255,61,.1)', border: '1px solid rgba(199,255,61,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#C7FF3D', flexShrink: 0 }}>
+                      <Sparkles size={14} />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>Generate AI</div>
+                      <div style={{ fontSize: 11, color: '#86869A' }}>Premium · 1 credit</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toast('Stock library — coming soon')}
+                    className="cr-btn cr-btn-ghost"
+                    style={{ justifyContent: 'flex-start', height: 52, gap: 10, padding: '0 12px', textAlign: 'left' }}
+                  >
+                    <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#86869A', flexShrink: 0 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>Stock library</div>
+                      <div style={{ fontSize: 11, color: '#86869A' }}>2,400+ free</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* ── 06 Menu items ── */}
+            <section style={{ marginBottom: 32 }}>
+              <div style={{ marginBottom: 20 }}>
+                <div className="section-num" style={{ marginBottom: 10 }}>
+                  <span className="dot" />06 — MENU ITEMS
+                </div>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Menu items</h2>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Tambah signature items anda. AI akan suggest description + format harga.</p>
+              </div>
+              <div className="cr-card cr-card-hairline" style={{ padding: 20 }}>
+                <div style={{ marginBottom: 16 }}>
+                  <div className="eyebrow" style={{ marginBottom: 10 }}>Image source</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                    {([
+                      { id: 'none' as const,   l: 'Tiada gambar',   s: 'Text-only menu', icon: <FileText size={16} />, premium: false },
+                      { id: 'upload' as const, l: 'Upload sendiri', s: 'Drag drop images', icon: <Upload size={16} />, premium: false },
+                      { id: 'ai' as const,     l: 'AI generate',    s: 'Premium · auto-match', icon: <Sparkles size={16} />, premium: true },
+                    ]).map(s => (
+                      <div
+                        key={s.id}
+                        className={'opt ' + (imageChoice === s.id ? 'selected' : '')}
+                        onClick={() => setImageChoice(s.id)}
+                        style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}
+                      >
+                        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B8B8C8', flexShrink: 0 }}>
+                          {s.icon}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {s.l}
+                            {s.premium && <span className="pill pill-volt" style={{ padding: '1px 6px', fontSize: 9 }}>PREMIUM</span>}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#86869A', marginTop: 1 }}>{s.s}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(uploadedImages.gallery.length > 0 ? uploadedImages.gallery : [{ url: '', name: '', price: '' }]).map((it, i) => {
+                    const showImg = menuPreviews[i] || it.url
+                    return (
+                      <div key={i} className="float-in" style={{ display: 'grid', gridTemplateColumns: '48px minmax(0,1fr) 100px 32px', gap: 8, alignItems: 'center', padding: '8px 10px 8px 8px', background: '#0F0F1A', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12 }}>
+                        <div
+                          onClick={() => document.getElementById(`v3-menu-upload-${i}`)?.click()}
+                          style={{ width: 40, height: 40, borderRadius: 8, background: showImg ? '#000' : 'rgba(255,255,255,.04)', border: showImg ? '1px solid rgba(255,255,255,.08)' : '1px dashed rgba(255,255,255,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5A5A6E', cursor: 'pointer', overflow: 'hidden', position: 'relative' }}
+                        >
+                          {showImg ? (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={showImg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              {uploadingMenuIdx === i && (
+                                <div style={{ position: 'absolute', inset: 0, background: 'rgba(5,5,12,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <div style={{ width: 12, height: 12, border: '1.5px solid rgba(255,255,255,.25)', borderTopColor: '#C7FF3D', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
+                                </div>
+                              )}
+                              {it.url && uploadingMenuIdx !== i && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); clearMenuImage(i); }}
+                                  type="button"
+                                  aria-label="Buang gambar"
+                                  style={{ position: 'absolute', top: 0, right: 0, width: 16, height: 16, borderRadius: '0 8px 0 4px', background: 'rgba(5,5,12,.8)', border: 0, color: '#F5F5FA', fontSize: 9, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                >✕</button>
+                              )}
+                            </>
+                          ) : (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
+                          )}
+                          <input id={`v3-menu-upload-${i}`} type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onChange={handleMenuInputChange(i)} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                        </div>
+                        <input
+                          className="cr-input"
+                          placeholder="Nasi Kandar Daging Crystal"
+                          value={it.name}
+                          onChange={(e) => updateMenuField(i, { name: e.target.value })}
+                          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 12px', minWidth: 0, width: '100%' }}
+                        />
+                        <div style={{ position: 'relative', minWidth: 0 }}>
+                          <span className="num" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#5A5A6E', pointerEvents: 'none' }}>RM</span>
+                          <input
+                            className="cr-input"
+                            placeholder="12.50"
+                            value={it.price}
+                            onChange={(e) => updateMenuField(i, { price: e.target.value })}
+                            style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 10px 0 32px', fontFamily: "'Geist Mono', monospace", width: '100%', minWidth: 0 }}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeMenuItemRow(i)}
+                          aria-label="Buang item"
+                          className="cr-btn-icon"
+                          style={{ width: 32, height: 40 }}
+                          disabled={uploadedImages.gallery.length === 0}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M5 6l1 14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-14"/></svg>
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={addMenuItemRow}
+                  style={{ marginTop: 10, width: '100%', padding: 12, background: 'transparent', border: '1.5px dashed rgba(199,255,61,.25)', borderRadius: 12, color: '#C7FF3D', fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontWeight: 500, fontFamily: "'Geist', 'Inter', -apple-system, sans-serif", transition: 'all 180ms' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(199,255,61,.04)'; e.currentTarget.style.borderColor = 'rgba(199,255,61,.4)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'rgba(199,255,61,.25)'; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                  Add item
+                </button>
+
+                {imageChoice === 'upload' && uploadedImages.gallery.filter(g => g.url).length === 0 && !uploadedImages.hero && (
+                  <div className="banner-accent float-in" style={{ marginTop: 14, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
+                    <span style={{ fontSize: 13, color: '#FFB020' }}>Anda belum muat naik gambar. Drop hero image di atas atau pilih pilihan lain.</span>
+                  </div>
+                )}
+              </div>
+            </section>
 
             {/* ── 06 Features ── */}
             <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
