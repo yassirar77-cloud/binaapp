@@ -1659,37 +1659,43 @@ export default function CreatePage() {
                 <div style={{ marginBottom: 16 }}>
                   <div className="eyebrow" style={{ marginBottom: 10 }}>Image source</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-                    {([
-                      { id: 'none' as const,   l: 'Tiada gambar',   s: 'Text-only menu', icon: <FileText size={16} />, premium: false },
-                      { id: 'upload' as const, l: 'Upload sendiri', s: 'Drag drop images', icon: <Upload size={16} />, premium: false },
-                      { id: 'ai' as const,     l: 'AI generate',    s: 'Premium · auto-match', icon: <Sparkles size={16} />, premium: true },
-                    ]).map(s => (
-                      <div
-                        key={s.id}
-                        className={'opt ' + (imageChoice === s.id ? 'selected' : '')}
-                        onClick={() => setImageChoice(s.id)}
-                        style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}
-                      >
-                        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B8B8C8', flexShrink: 0 }}>
-                          {s.icon}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
-                            {s.l}
-                            {s.premium && <span className="pill pill-volt" style={{ padding: '1px 6px', fontSize: 9 }}>PREMIUM</span>}
+                    {(() => {
+                      const uploadedCount = (uploadedImages.hero ? 1 : 0) + uploadedImages.gallery.filter(g => g.url).length
+                      const sources = [
+                        { id: 'none' as const,   l: 'Tiada gambar',   s: 'Text-only menu', icon: <FileText size={16} />, premium: false, badge: '' },
+                        { id: 'upload' as const, l: 'Upload sendiri', s: 'Drag drop images', icon: <Upload size={16} />, premium: false, badge: uploadedCount > 0 ? `${uploadedCount} uploaded` : '' },
+                        { id: 'ai' as const,     l: 'AI generate',    s: 'Premium · auto-match', icon: <Sparkles size={16} />, premium: true, badge: '' },
+                      ]
+                      return sources.map(s => (
+                        <div
+                          key={s.id}
+                          className={'opt ' + (imageChoice === s.id ? 'selected' : '')}
+                          onClick={() => setImageChoice(s.id)}
+                          style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}
+                        >
+                          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B8B8C8', flexShrink: 0 }}>
+                            {s.icon}
                           </div>
-                          <div style={{ fontSize: 11, color: '#86869A', marginTop: 1 }}>{s.s}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              {s.l}
+                              {s.premium && <span className="pill pill-volt" style={{ padding: '1px 6px', fontSize: 9 }}>PREMIUM</span>}
+                              {s.badge && <span className="pill pill-volt" style={{ padding: '1px 6px', fontSize: 9 }}>{s.badge}</span>}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#86869A', marginTop: 1 }}>{s.s}</div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    })()}
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {(uploadedImages.gallery.length > 0 ? uploadedImages.gallery : [{ url: '', name: '', price: '' }]).map((it, i) => {
                     const showImg = menuPreviews[i] || it.url
+                    const canRemove = uploadedImages.gallery.length > 0
                     return (
-                      <div key={i} className="float-in" style={{ display: 'grid', gridTemplateColumns: '48px minmax(0,1fr) 100px 32px', gap: 8, alignItems: 'center', padding: '8px 10px 8px 8px', background: '#0F0F1A', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12 }}>
+                      <div key={i} className="float-in menu-row" style={{ display: 'grid', gridTemplateColumns: '48px minmax(0,1fr) 100px 32px', gap: 8, alignItems: 'center', padding: '8px 10px 8px 8px', background: '#0F0F1A', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12 }}>
                         <div
                           onClick={() => document.getElementById(`v3-menu-upload-${i}`)?.click()}
                           style={{ width: 40, height: 40, borderRadius: 8, background: showImg ? '#000' : 'rgba(255,255,255,.04)', border: showImg ? '1px solid rgba(255,255,255,.08)' : '1px dashed rgba(255,255,255,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5A5A6E', cursor: 'pointer', overflow: 'hidden', position: 'relative' }}
@@ -1704,12 +1710,15 @@ export default function CreatePage() {
                                 </div>
                               )}
                               {it.url && uploadingMenuIdx !== i && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); clearMenuImage(i); }}
-                                  type="button"
-                                  aria-label="Buang gambar"
-                                  style={{ position: 'absolute', top: 0, right: 0, width: 16, height: 16, borderRadius: '0 8px 0 4px', background: 'rgba(5,5,12,.8)', border: 0, color: '#F5F5FA', fontSize: 9, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                >✕</button>
+                                <>
+                                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 12, background: 'linear-gradient(180deg, transparent, rgba(5,5,12,.8))', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', color: '#C7FF3D', fontSize: 9, fontWeight: 700, lineHeight: 1, paddingBottom: 1, pointerEvents: 'none' }}>✓</div>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); clearMenuImage(i); }}
+                                    type="button"
+                                    aria-label="Buang gambar"
+                                    style={{ position: 'absolute', top: 0, right: 0, width: 16, height: 16, borderRadius: '0 8px 0 4px', background: 'rgba(5,5,12,.8)', border: 0, color: '#F5F5FA', fontSize: 9, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                  >✕</button>
+                                </>
                               )}
                             </>
                           ) : (
@@ -1724,7 +1733,7 @@ export default function CreatePage() {
                           onChange={(e) => updateMenuField(i, { name: e.target.value })}
                           style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 12px', minWidth: 0, width: '100%' }}
                         />
-                        <div style={{ position: 'relative', minWidth: 0 }}>
+                        <div className="menu-row-price" style={{ position: 'relative', minWidth: 0 }}>
                           <span className="num" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#5A5A6E', pointerEvents: 'none' }}>RM</span>
                           <input
                             className="cr-input"
@@ -1738,9 +1747,10 @@ export default function CreatePage() {
                           type="button"
                           onClick={() => removeMenuItemRow(i)}
                           aria-label="Buang item"
-                          className="cr-btn-icon"
-                          style={{ width: 32, height: 40 }}
-                          disabled={uploadedImages.gallery.length === 0}
+                          className="cr-btn-icon menu-row-trash"
+                          style={{ width: 32, height: 40, opacity: canRemove ? 1 : 0.35, cursor: canRemove ? 'pointer' : 'not-allowed' }}
+                          disabled={!canRemove}
+                          title={canRemove ? 'Buang item ini' : 'Tambah item lain dahulu'}
                         >
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M5 6l1 14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-14"/></svg>
                         </button>
@@ -1758,6 +1768,15 @@ export default function CreatePage() {
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
                   Add item
                 </button>
+
+                {(() => {
+                  const filled = uploadedImages.gallery.filter(g => g.name || g.price || g.url).length
+                  return filled > 0 ? (
+                    <div className="num" style={{ marginTop: 10, fontSize: 11, color: '#5A5A6E', textAlign: 'center' }}>
+                      {filled} item{filled === 1 ? '' : 's'} added
+                    </div>
+                  ) : null
+                })()}
 
                 {imageChoice === 'upload' && uploadedImages.gallery.filter(g => g.url).length === 0 && !uploadedImages.hero && (
                   <div className="banner-accent float-in" style={{ marginTop: 14, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>

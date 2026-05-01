@@ -751,4 +751,16 @@
 }
 @media (max-width: 540px) {
   .biz-grid, .features-grid { grid-template-columns: 1fr !important; }
+  .menu-row {
+    grid-template-columns: 48px minmax(0,1fr) 32px !important;
+    grid-template-rows: auto auto !important;
+    row-gap: 8px !important;
+  }
+  .menu-row .menu-row-price {
+    grid-column: 2 / 3 !important;
+    grid-row: 2 / 3 !important;
+  }
+  .menu-row .menu-row-trash {
+    grid-row: 1 / 3 !important;
+  }
 }
