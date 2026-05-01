@@ -1913,44 +1913,78 @@ export default function CreatePage() {
               </div>
             )}
 
-            {/* ── 07 Payment ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
-              <div className="eyebrow" style={{ marginBottom: 16 }}>07 — PEMBAYARAN</div>
-              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih cara pembayaran yang anda terima</div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: paymentMethods.qr ? 16 : 0 }}>
-                {/* COD */}
-                <label className={paymentMethods.cod ? 'cr-radio cr-radio-active' : 'cr-radio'}>
-                  <input type="checkbox" checked={paymentMethods.cod} onChange={(e) => setPaymentMethods({...paymentMethods, cod: e.target.checked})} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
-                  <span style={{ fontSize: 22, flexShrink: 0 }}>💵</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Cash on Delivery (COD)</span>
-                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>Bayar tunai bila terima</span>
-                  </div>
-                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' as const, padding: '2px 7px', borderRadius: 6, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)' }}>POPULAR</span>
-                </label>
-
-                {/* QR Payment */}
-                <label className={paymentMethods.qr ? 'cr-radio cr-radio-active' : 'cr-radio'}>
-                  <input type="checkbox" checked={paymentMethods.qr} onChange={(e) => setPaymentMethods({...paymentMethods, qr: e.target.checked})} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
-                  <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>QR Payment</span>
-                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>DuitNow / TNG / Bank QR</span>
-                  </div>
-                </label>
+            {/* ── 08 Cara terima bayaran ── */}
+            <section style={{ marginBottom: 32 }}>
+              <div style={{ marginBottom: 20 }}>
+                <div className="section-num" style={{ marginBottom: 10 }}>
+                  <span className="dot" />08 — CARA TERIMA BAYARAN
+                </div>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Cara terima bayaran</h2>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Pilih method pembayaran. ToyyibPay &amp; QR boleh setup lepas generate.</p>
+              </div>
+              <div className="payment-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {(() => {
+                  const CashIcon = ({ size = 20 }: { size?: number }) => (
+                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="6" width="20" height="12" rx="2" />
+                      <circle cx="12" cy="12" r="2.5" />
+                      <path d="M6 10v.01M18 14v.01" />
+                    </svg>
+                  )
+                  const QRIcon = ({ size = 20 }: { size?: number }) => (
+                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="3" width="7" height="7" rx="1" />
+                      <rect x="14" y="3" width="7" height="7" rx="1" />
+                      <rect x="3" y="14" width="7" height="7" rx="1" />
+                      <path d="M14 14h3v3M21 14v3M14 21h3M21 17v4" />
+                    </svg>
+                  )
+                  const methods = [
+                    { id: 'cod' as const, l: 'Cash on Delivery', s: 'Customer bayar masa terima · simple', Icon: CashIcon, recommended: false },
+                    { id: 'qr'  as const, l: 'QR / Online Payment', s: 'DuitNow QR · ToyyibPay · Stripe', Icon: QRIcon, recommended: true },
+                  ]
+                  return methods.map(p => {
+                    const on = paymentMethods[p.id]
+                    return (
+                      <div
+                        key={p.id}
+                        role="checkbox"
+                        aria-checked={on}
+                        tabIndex={0}
+                        className={'opt ' + (on ? 'selected' : '')}
+                        onClick={() => setPaymentMethods({ ...paymentMethods, [p.id]: !on })}
+                        onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setPaymentMethods({ ...paymentMethods, [p.id]: !on }); } }}
+                        style={{ padding: 18, display: 'flex', gap: 14, alignItems: 'center' }}
+                      >
+                        <div style={{ width: 44, height: 44, borderRadius: 10, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B8B8C8', flexShrink: 0 }}>
+                          <p.Icon size={20} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <div style={{ fontSize: 15, fontWeight: 600, color: '#F5F5FA' }}>{p.l}</div>
+                            {p.recommended && <span className="pill pill-volt" style={{ padding: '2px 7px', fontSize: 9 }}>POPULAR</span>}
+                          </div>
+                          <div style={{ fontSize: 12, color: '#86869A', marginTop: 3 }}>{p.s}</div>
+                        </div>
+                        <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${on ? '#6B5CFF' : 'rgba(255,255,255,.15)'}`, background: on ? '#4F3DFF' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff' }}>
+                          {on && <Check size={10} strokeWidth={3} />}
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
               </div>
 
-              {/* QR Upload */}
+              {/* QR Upload (expand when QR enabled) */}
               {paymentMethods.qr && (
-                <div className="cr-sub-card float-in" style={{ marginTop: 0, marginBottom: 0 }}>
+                <div className="cr-sub-card float-in" style={{ marginTop: 14 }}>
                   <div style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Muat Naik QR Pembayaran Anda</div>
-                  <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-                    {/* QR Upload Box */}
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                     <div style={{ width: 120, height: 120, border: '2px dashed rgba(255,255,255,.12)', borderRadius: 14, background: 'rgba(255,255,255,.02)', flexShrink: 0, overflow: 'hidden' }}>
                       <label style={{ cursor: 'pointer', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                         <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleQRUpload} />
                         {paymentQRPreview ? (
+                          // eslint-disable-next-line @next/next/no-img-element
                           <img src={paymentQRPreview} alt="Payment QR" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 4, borderRadius: 12 }} />
                         ) : (
                           <>
@@ -1960,9 +1994,7 @@ export default function CreatePage() {
                         )}
                       </label>
                     </div>
-
-                    {/* Instructions */}
-                    <div style={{ flex: 1, fontSize: 13, color: '#86869A' }}>
+                    <div style={{ flex: 1, minWidth: 200, fontSize: 13, color: '#86869A' }}>
                       <div style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8', marginBottom: 8 }}>Cara mendapatkan QR:</div>
                       <ol style={{ listStyleType: 'decimal', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <li>Buka app bank / TNG / DuitNow</li>
@@ -1974,7 +2006,7 @@ export default function CreatePage() {
                   </div>
                 </div>
               )}
-            </div>
+            </section>
 
             {error && (
               <div className="banner-accent" style={{ background: 'linear-gradient(90deg, rgba(239,68,68,.06), transparent)', border: '1px solid rgba(239,68,68,.22)' }}>
