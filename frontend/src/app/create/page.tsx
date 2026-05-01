@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout } from 'lucide-react'
+import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout, FileText, MapPin, Truck, ListChecks, Globe, X as XIcon } from 'lucide-react'
 import VisualImageUpload from './components/VisualImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
@@ -16,6 +16,7 @@ import { LimitReachedModal } from '@/components/LimitReachedModal'
 import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
 import { supabase, signOut as customSignOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
+import { checkImageSafety } from '@/utils/imageModeration'
 import toast from 'react-hot-toast'
 import './create.css'
 
@@ -131,6 +132,18 @@ export default function CreatePage() {
     gallery: { url: string; name: string; price: string }[]
   }>({ hero: null, gallery: [] })
 
+  // V3 inline upload UI state (replaces VisualImageUpload sub-component).
+  // These are ephemeral UX-only refs — uploadedImages above remains the
+  // source of truth that flows to the backend.
+  const [heroPreview, setHeroPreview] = useState<string>('')
+  const [uploadingHero, setUploadingHero] = useState(false)
+  const [menuPreviews, setMenuPreviews] = useState<Record<number, string>>({})
+  const [uploadingMenuIdx, setUploadingMenuIdx] = useState<number | null>(null)
+  // V3 publish modal: tracks whether user clicked "Check availability" so we
+  // can display the 5-state machine (edit/available/taken/publishing/success)
+  // derived from existing subdomain/subdomainError/publishing/publishedUrl.
+  const [pubChecked, setPubChecked] = useState(false)
+
   const [multiStyle, setMultiStyle] = useState(true)
   const [styleVariations, setStyleVariations] = useState<StyleVariation[]>([])
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null)
@@ -240,6 +253,159 @@ export default function CreatePage() {
       reader.readAsDataURL(file)
     }
   }
+
+  // ─────────────────────────────────────────────
+  // Inline hero/menu image upload (V3, Path 2)
+  // Mirrors VisualImageUpload's contract:
+  //   - POST ${API_BASE_URL}/api/upload-image multipart
+  //   - checkImageSafety() before upload, fail-open on errors
+  //   - Stores final url in uploadedImages.{hero|gallery[].url}
+  // ─────────────────────────────────────────────
+  const validateImageFile = (file: File): string | null => {
+    if (file.size > 8 * 1024 * 1024) return 'Saiz fail melebihi 8MB. Max 8MB.'
+    if (!/^image\/(png|jpeg|jpg|webp)$/.test(file.type)) return 'Format tidak disokong. Use PNG, JPG, atau WebP.'
+    return null
+  }
+
+  const uploadImageToBackend = async (file: File): Promise<string> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch(`${API_BASE_URL}/api/upload-image`, { method: 'POST', body: formData })
+    const data = await res.json()
+    if (data.success && data.url) return data.url as string
+    throw new Error(data.error || data.detail || 'Upload failed')
+  }
+
+  const handleHeroFile = async (file: File) => {
+    const v = validateImageFile(file)
+    if (v) { toast.error(v); return }
+    const moderation = await checkImageSafety(file)
+    if (!moderation.allowed) { toast.error(moderation.message); return }
+    const preview = URL.createObjectURL(file)
+    if (heroPreview) URL.revokeObjectURL(heroPreview)
+    setHeroPreview(preview)
+    setUploadingHero(true)
+    try {
+      const url = await uploadImageToBackend(file)
+      setUploadedImages(prev => ({ ...prev, hero: url }))
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal muat naik gambar')
+      URL.revokeObjectURL(preview)
+      setHeroPreview('')
+    } finally {
+      setUploadingHero(false)
+    }
+  }
+
+  const removeHero = () => {
+    if (heroPreview) URL.revokeObjectURL(heroPreview)
+    setHeroPreview('')
+    setUploadedImages(prev => ({ ...prev, hero: null }))
+  }
+
+  const handleHeroInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) handleHeroFile(file)
+    e.target.value = ''
+  }
+
+  const handleHeroDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const file = e.dataTransfer.files?.[0]
+    if (file) handleHeroFile(file)
+  }
+
+  // Menu items (uploadedImages.gallery is source of truth)
+  const ensureGalleryRow = (idx: number): { url: string; name: string; price: string }[] => {
+    const cur = uploadedImages.gallery
+    if (idx < cur.length) return cur
+    const next = [...cur]
+    while (next.length <= idx) next.push({ url: '', name: '', price: '' })
+    return next
+  }
+
+  const updateMenuField = (idx: number, patch: Partial<{ url: string; name: string; price: string }>) => {
+    setUploadedImages(prev => {
+      const arr = [...prev.gallery]
+      while (arr.length <= idx) arr.push({ url: '', name: '', price: '' })
+      arr[idx] = { ...arr[idx], ...patch }
+      return { ...prev, gallery: arr }
+    })
+  }
+
+  const addMenuItemRow = () => {
+    setUploadedImages(prev => ({ ...prev, gallery: [...prev.gallery, { url: '', name: '', price: '' }] }))
+  }
+
+  const removeMenuItemRow = (idx: number) => {
+    setMenuPreviews(prev => {
+      const next = { ...prev }
+      if (next[idx]) URL.revokeObjectURL(next[idx])
+      delete next[idx]
+      const shifted: Record<number, string> = {}
+      Object.entries(next).forEach(([k, v]) => {
+        const n = Number(k)
+        shifted[n > idx ? n - 1 : n] = v
+      })
+      return shifted
+    })
+    setUploadedImages(prev => ({ ...prev, gallery: prev.gallery.filter((_, i) => i !== idx) }))
+  }
+
+  const handleMenuFile = async (idx: number, file: File) => {
+    const v = validateImageFile(file)
+    if (v) { toast.error(v); return }
+    const moderation = await checkImageSafety(file)
+    if (!moderation.allowed) { toast.error(moderation.message); return }
+    const preview = URL.createObjectURL(file)
+    setMenuPreviews(prev => {
+      const next = { ...prev }
+      if (next[idx]) URL.revokeObjectURL(next[idx])
+      next[idx] = preview
+      return next
+    })
+    // Make sure a row exists at this index
+    const baseline = ensureGalleryRow(idx)
+    if (baseline !== uploadedImages.gallery) {
+      setUploadedImages(prev => ({ ...prev, gallery: baseline }))
+    }
+    setUploadingMenuIdx(idx)
+    try {
+      const url = await uploadImageToBackend(file)
+      updateMenuField(idx, { url })
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal muat naik gambar')
+      URL.revokeObjectURL(preview)
+      setMenuPreviews(prev => { const n = { ...prev }; delete n[idx]; return n })
+    } finally {
+      setUploadingMenuIdx(null)
+    }
+  }
+
+  const handleMenuInputChange = (idx: number) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) handleMenuFile(idx, file)
+    e.target.value = ''
+  }
+
+  const clearMenuImage = (idx: number) => {
+    setMenuPreviews(prev => {
+      const n = { ...prev }
+      if (n[idx]) URL.revokeObjectURL(n[idx])
+      delete n[idx]
+      return n
+    })
+    updateMenuField(idx, { url: '' })
+  }
+
+  // Cleanup blob preview URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (heroPreview) URL.revokeObjectURL(heroPreview)
+      Object.values(menuPreviews).forEach(u => { if (u) URL.revokeObjectURL(u) })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     checkUser()
@@ -1177,83 +1343,120 @@ export default function CreatePage() {
               </div>
             )}
 
-            {/* ── 01 Language & Theme ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
-              <div className="eyebrow" style={{ marginBottom: 16 }}>01 — BAHASA & TEMA</div>
-
-              {/* Language toggle */}
+            {/* ── 02 Bahasa & Tema ── */}
+            <section style={{ marginBottom: 32 }}>
               <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Bahasa / Language</div>
-                <div style={{ display: 'inline-flex', gap: 8 }}>
-                  <button
-                    onClick={() => setLanguage('ms')}
-                    className={language === 'ms' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
-                  >
-                    Bahasa Malaysia
-                  </button>
-                  <button
-                    onClick={() => setLanguage('en')}
-                    className={language === 'en' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
-                  >
-                    English
-                  </button>
+                <div className="section-num" style={{ marginBottom: 10 }}>
+                  <span className="dot" />02 — BAHASA &amp; TEMA
+                </div>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Bahasa &amp; tema</h2>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Pilihan asas — boleh tukar bila-bila masa selepas generate.</p>
+              </div>
+              <div className="basics-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div className="cr-card cr-card-hairline" style={{ padding: 18, minWidth: 0 }}>
+                  <div className="eyebrow" style={{ marginBottom: 12 }}>Bahasa website</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <div
+                      className={'opt ' + (language === 'ms' ? 'selected' : '')}
+                      onClick={() => setLanguage('ms')}
+                      style={{ flex: 1, padding: '12px 10px', minWidth: 0 }}
+                    >
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA', lineHeight: 1.2, wordBreak: 'break-word' }}>Bahasa Malaysia</div>
+                      <div style={{ fontSize: 11, color: '#86869A', marginTop: 3 }}>Default</div>
+                    </div>
+                    <div
+                      className={'opt ' + (language === 'en' ? 'selected' : '')}
+                      onClick={() => setLanguage('en')}
+                      style={{ flex: 1, padding: '12px 10px', minWidth: 0 }}
+                    >
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA', lineHeight: 1.2, wordBreak: 'break-word' }}>English</div>
+                      <div style={{ fontSize: 11, color: '#86869A', marginTop: 3 }}>For tourists</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="cr-card cr-card-hairline" style={{ padding: 18, minWidth: 0 }}>
+                  <div className="eyebrow" style={{ marginBottom: 12 }}>Color theme</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <div
+                      className={'opt ' + (colorMode === 'light' ? 'selected' : '')}
+                      onClick={() => setColorMode('light')}
+                      style={{ flex: 1, padding: 0, minWidth: 0, overflow: 'hidden' }}
+                    >
+                      <div style={{ height: 48, background: 'linear-gradient(135deg,#F7F7FA,#EEEEF3)', borderRadius: '13px 13px 0 0' }} />
+                      <div style={{ padding: '10px 10px' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA' }}>Cerah</div>
+                        <div style={{ fontSize: 11, color: '#86869A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Light · putih</div>
+                      </div>
+                    </div>
+                    <div
+                      className={'opt ' + (colorMode === 'dark' ? 'selected' : '')}
+                      onClick={() => setColorMode('dark')}
+                      style={{ flex: 1, padding: 0, minWidth: 0, overflow: 'hidden' }}
+                    >
+                      <div style={{ height: 48, background: 'linear-gradient(135deg,#1F1F2A,#0B0B15)', borderRadius: '13px 13px 0 0' }} />
+                      <div style={{ padding: '10px 10px' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA' }}>Gelap</div>
+                        <div style={{ fontSize: 11, color: '#86869A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Dark · premium</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
+            </section>
 
-              {/* Color mode toggle */}
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Tema Warna / Color Theme</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <button
-                    type="button"
-                    onClick={() => setColorMode('light')}
-                    className={colorMode === 'light' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
-                    style={{ padding: '14px 16px', flexDirection: 'column', gap: 4 }}
-                  >
-                    <span style={{ fontSize: 22 }}>&#9728;&#65039;</span>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>Cerah / Light</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setColorMode('dark')}
-                    className={colorMode === 'dark' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
-                    style={{ padding: '14px 16px', flexDirection: 'column', gap: 4 }}
-                  >
-                    <span style={{ fontSize: 22 }}>&#127769;</span>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>Gelap / Dark</span>
-                  </button>
+            {/* ── 03 Apa jenis kedai anda? ── */}
+            <section style={{ marginBottom: 32 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, marginBottom: 20, flexWrap: 'wrap' }}>
+                <div>
+                  <div className="section-num" style={{ marginBottom: 10 }}>
+                    <span className="dot" />03 — APA JENIS KEDAI ANDA?
+                  </div>
+                  <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Apa jenis kedai anda?</h2>
+                  <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>AI guna pilihan ni untuk pilih layout, content &amp; menu structure yang sesuai.</p>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                  <div
+                    role="switch"
+                    aria-checked={multiStyle}
+                    tabIndex={0}
+                    onClick={() => setMultiStyle(!multiStyle)}
+                    onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setMultiStyle(!multiStyle); } }}
+                    className={'toggle ' + (multiStyle ? 'on' : '')}
+                  />
+                  <span style={{ fontSize: 13, color: '#B8B8C8' }}>
+                    Multi-style preview
+                    <span className="pill pill-indigo" style={{ marginLeft: 6, padding: '2px 7px' }}>
+                      <span style={{ display: 'inline-flex', width: 10, height: 10 }}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#C7FF3D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>
+                      </span>
+                      AI
+                    </span>
+                  </span>
                 </div>
               </div>
-            </div>
-
-            {/* ── 02 Business Type ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
-              <div className="eyebrow" style={{ marginBottom: 16 }}>02 — JENIS PERNIAGAAN</div>
-              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih jenis perniagaan anda</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
-                {[
-                  { id: 'auto' as const, icon: '🔍', label: 'Auto Detect', desc: 'Kesan automatik', recommended: true },
-                  { id: 'food' as const, icon: '🍛', label: 'Restoran / Makanan', desc: 'Nasi, Lauk, Minuman', recommended: false },
-                  { id: 'clothing' as const, icon: '👗', label: 'Pakaian / Butik', desc: 'Baju, Tudung, Aksesori', recommended: false },
-                  { id: 'salon' as const, icon: '💇', label: 'Salon / Spa', desc: 'Potong, Rawatan, Warna', recommended: false },
-                  { id: 'services' as const, icon: '🔧', label: 'Servis / Repair', desc: 'Perkhidmatan, Pakej', recommended: false },
-                  { id: 'bakery' as const, icon: '🎂', label: 'Bakeri / Kek', desc: 'Kek, Pastri, Cookies', recommended: false },
-                  { id: 'general' as const, icon: '🛒', label: 'Lain-lain', desc: 'Produk Umum', recommended: false }
-                ].map(type => (
-                  <button
+              <div className="biz-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 12 }}>
+                {([
+                  { id: 'auto' as const, icon: '✨', label: 'Auto Detect', sub: 'AI pilih sesuai dengan deskripsi anda', recommended: true },
+                  { id: 'food' as const, icon: '🍜', label: 'Restoran', sub: 'Mamak, kafe, kedai makan', recommended: false },
+                  { id: 'clothing' as const, icon: '👗', label: 'Pakaian', sub: 'Butik, fashion, lifestyle', recommended: false },
+                  { id: 'salon' as const, icon: '💇', label: 'Salon', sub: 'Hair, beauty, spa', recommended: false },
+                  { id: 'services' as const, icon: '🔧', label: 'Servis', sub: 'Bengkel, plumbing, repair', recommended: false },
+                  { id: 'bakery' as const, icon: '🥐', label: 'Bakeri', sub: 'Roti, kek, pastri', recommended: false },
+                  { id: 'general' as const, icon: '✦', label: 'Lain-lain', sub: 'Custom — beritahu AI', recommended: false }
+                ]).map(type => (
+                  <div
                     key={type.id}
-                    type="button"
                     onClick={() => setBusinessType(type.id)}
-                    className={businessType === type.id ? 'cr-type-card cr-type-card-active' : 'cr-type-card'}
-                    style={{ position: 'relative' }}
+                    className={'opt ' + (businessType === type.id ? 'selected' : '')}
+                    style={{ padding: 14, minHeight: 110, minWidth: 0 }}
                   >
                     {type.recommended && (
-                      <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)' }}>REC</span>
+                      <div className="pill pill-volt" style={{ position: 'absolute', top: 8, right: 8, padding: '2px 6px', fontSize: 9 }}>RECOMMENDED</div>
                     )}
-                    <span style={{ fontSize: 28, display: 'block', marginBottom: 6 }}>{type.icon}</span>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>{type.label}</span>
-                    <span style={{ fontSize: 11, color: '#5A5A6E', marginTop: 4, display: 'block' }}>{type.desc}</span>
-                  </button>
+                    <div style={{ fontSize: 22, marginBottom: 10, filter: 'grayscale(.2)' }}>{type.icon}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA', marginBottom: 3, lineHeight: 1.2 }}>{type.label}</div>
+                    <div style={{ fontSize: 11, color: '#86869A', lineHeight: 1.35 }}>{type.sub}</div>
+                  </div>
                 ))}
               </div>
               <div style={{ fontSize: 12, color: '#5A5A6E', marginTop: 12 }}>
@@ -1265,30 +1468,8 @@ export default function CreatePage() {
                 {businessType === 'bakery' && 'Butang: "Tempah Kek" | Pilihan saiz & mesej atas kek'}
                 {businessType === 'general' && 'Butang: "Beli Sekarang" | Pilihan penghantaran'}
               </div>
-            </div>
-
-            {/* ── 03 Multi-style ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20, background: 'linear-gradient(180deg, rgba(79,61,255,.06), rgba(255,255,255,0)), #0F0F1A' }}>
-              <label className="cr-check" style={{ marginBottom: multiStyle ? 14 : 0 }}>
-                <input
-                  type="checkbox"
-                  checked={multiStyle}
-                  onChange={(e) => setMultiStyle(e.target.checked)}
-                />
-                <span className="cr-check-box" />
-                <div>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: '#F5F5FA' }}>
-                    Generate Multiple Styles
-                  </span>
-                  <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' as const, padding: '2px 7px', borderRadius: 6, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)' }}>REC</span>
-                  <p style={{ fontSize: 13, color: '#86869A', marginTop: 4 }}>
-                    Get 3 design variations (Modern, Minimal, Bold) and choose your favorite
-                  </p>
-                </div>
-              </label>
-
               {multiStyle && (
-                <label className="cr-check" style={{ marginLeft: 32 }}>
+                <label className="cr-check" style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.04)', borderRadius: 10 }}>
                   <input
                     type="checkbox"
                     checked={generatePreviews}
@@ -1296,117 +1477,374 @@ export default function CreatePage() {
                   />
                   <span className="cr-check-box" />
                   <div>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8' }}>
-                      Generate Preview Thumbnails
-                    </span>
-                    <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2 }}>
-                      Takes 10-15 seconds longer but shows better previews
-                    </p>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8' }}>Generate Preview Thumbnails</span>
+                    <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2 }}>Takes 10-15 seconds longer but shows better previews</p>
                   </div>
                 </label>
               )}
-            </div>
+            </section>
 
-            {/* ── 04 Description ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
-              <div className="eyebrow" style={{ marginBottom: 16 }}>04 — CERITAKAN PERNIAGAAN ANDA</div>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder={
-                  language === 'ms'
-                    ? 'Contoh: Saya ada kedai runcit di Shah Alam yang jual barangan harian, makanan, dan minuman. Harga berpatutan dari RM1. Lokasi di Seksyen 7 Shah Alam. Telefon 019-1234567. Buka 7am-10pm setiap hari...'
-                    : 'Example: I have a coffee shop in Kuala Lumpur serving specialty coffee, cakes, and light meals. Prices from RM8. Located at TTDI. Contact via WhatsApp 012-3456789. Open daily 8am-6pm...'
-                }
-                className="cr-textarea"
-                style={{ width: '100%', height: 220, resize: 'none' }}
-              />
-              <div className="cr-counter" style={{ color: description.length >= 100 ? '#34D399' : description.length >= 50 ? '#C7FF3D' : '#5A5A6E' }}>
-                <span className="num">{description.length}</span> characters
-              </div>
-            </div>
-
-            <VisualImageUpload onImagesUploaded={setUploadedImages} />
-
-            {/* ── 05 Image Source ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
-              <div className="eyebrow" style={{ marginBottom: 16 }}>05 — SUMBER GAMBAR</div>
-              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih bagaimana anda mahu gambar dalam website anda</div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {/* Option 1: No Images */}
-                <label className={imageChoice === 'none' ? 'cr-radio cr-radio-active' : 'cr-radio'}>
-                  <input type="radio" name="imageChoice" value="none" checked={imageChoice === 'none'} onChange={() => setImageChoice('none')} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
-                  <span style={{ fontSize: 22, flexShrink: 0 }}>📝</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Tiada Gambar</span>
-                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>Website teks sahaja, tanpa gambar</span>
+            {/* ── 04 Cerita pasal kedai anda ── */}
+            {(() => {
+              const DESC_MIN = 200;
+              const DESC_MAX = 1000;
+              const len = description.length;
+              const pct = Math.min(100, (len / DESC_MIN) * 100);
+              type DescStatus = 'empty' | 'tooshort' | 'ok' | 'great' | 'plenty';
+              const status: DescStatus =
+                len === 0 ? 'empty'
+                : len < DESC_MIN ? 'tooshort'
+                : len < 600 ? 'ok'
+                : len < 900 ? 'great'
+                : 'plenty';
+              const helpers: Record<DescStatus, { c: string; t: string }> = {
+                empty:    { c: '#5A5A6E', t: 'AI akan tanya soalan dengan deskripsi anda.' },
+                tooshort: { c: '#FFB020', t: `Tambah ${DESC_MIN - len} aksara lagi untuk hasil terbaik.` },
+                ok:       { c: '#22C08F', t: 'Bagus — AI dah ada cukup info.' },
+                great:    { c: '#C7FF3D', t: 'Premium quality output dijangka. AI ready.' },
+                plenty:   { c: '#C7FF3D', t: `Sangat detailed. ${DESC_MAX - len} aksara baki.` },
+              };
+              const helper = helpers[status];
+              return (
+                <section style={{ marginBottom: 32 }}>
+                  <div style={{ marginBottom: 20 }}>
+                    <div className="section-num" style={{ marginBottom: 10 }}>
+                      <span className="dot" />04 — CERITA PASAL KEDAI ANDA
+                    </div>
+                    <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Cerita pasal kedai anda</h2>
+                    <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Lebih detail = website lebih baik. Cakap pasal vibe, pelanggan, signature menu, sejarah — semua membantu AI.</p>
                   </div>
-                </label>
-
-                {/* Option 2: Upload Own Images */}
-                <label className={imageChoice === 'upload' ? 'cr-radio cr-radio-active' : 'cr-radio'}>
-                  <input type="radio" name="imageChoice" value="upload" checked={imageChoice === 'upload'} onChange={() => setImageChoice('upload')} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
-                  <span style={{ fontSize: 22, flexShrink: 0 }}>📷</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Muat Naik Gambar Sendiri</span>
-                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>Gunakan gambar yang anda upload di atas</span>
-                  </div>
-                  {uploadedImages.gallery.length > 0 && (
-                    <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 8, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)', whiteSpace: 'nowrap' }}>
-                      {uploadedImages.gallery.length} dimuat naik
-                    </span>
-                  )}
-                </label>
-
-                {/* Option 3: Generate AI Images */}
-                <label className={imageChoice === 'ai' ? 'cr-radio cr-radio-active' : 'cr-radio'}>
-                  <input type="radio" name="imageChoice" value="ai" checked={imageChoice === 'ai'} onChange={() => setImageChoice('ai')} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
-                  <span style={{ fontSize: 22, flexShrink: 0 }}>✨</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Jana Gambar AI</span>
-                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>AI akan jana gambar untuk perniagaan anda</span>
-                  </div>
-                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' as const, padding: '2px 7px', borderRadius: 6, background: 'rgba(107,92,255,.15)', color: '#BAB0FF', border: '1px solid rgba(107,92,255,.3)' }}>PREMIUM</span>
-                </label>
-              </div>
-
-              {/* Warning if upload selected but no images */}
-              {imageChoice === 'upload' && uploadedImages.gallery.length === 0 && !uploadedImages.hero && (
-                <div className="banner-accent float-in" style={{ marginTop: 14, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
-                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
-                  <span style={{ fontSize: 13, color: '#FFB020' }}>Anda belum muat naik gambar. Sila muat naik gambar di bahagian atas atau pilih pilihan lain.</span>
-                </div>
-              )}
-            </div>
-
-            {/* ── 06 Features ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
-              <div className="eyebrow" style={{ marginBottom: 16 }}>06 — CIRI-CIRI WEBSITE</div>
-              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih apa yang anda mahu dalam website anda</div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                {[
-                  { key: 'whatsapp' as const, icon: '💬', label: 'WhatsApp' },
-                  { key: 'googleMap' as const, icon: '📍', label: 'Google Map' },
-                  { key: 'deliverySystem' as const, icon: '🛵', label: 'Delivery Sendiri' },
-                  { key: 'contactForm' as const, icon: '📧', label: 'Borang Hubungi' },
-                  { key: 'socialMedia' as const, icon: '📱', label: 'Social Media' },
-                  { key: 'priceList' as const, icon: '💰', label: 'Senarai Harga' },
-                ].map(f => (
-                  <label key={f.key} className={selectedFeatures[f.key] ? 'cr-feature-pill cr-feature-active' : 'cr-feature-pill'}>
-                    <input
-                      type="checkbox"
-                      checked={selectedFeatures[f.key]}
-                      onChange={(e) => setSelectedFeatures({...selectedFeatures, [f.key]: e.target.checked})}
-                      style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+                  <div className="cr-card cr-card-hairline" style={{ padding: 4, position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 8, zIndex: 2 }}>
+                      <span className="pill pill-indigo" style={{ padding: '4px 10px' }}>
+                        <span style={{ display: 'inline-flex', width: 10, height: 10 }}>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#C7FF3D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>
+                        </span>
+                        AI listening
+                      </span>
+                    </div>
+                    <textarea
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value.slice(0, DESC_MAX))}
+                      placeholder={
+                        language === 'ms'
+                          ? 'Contoh: Kedai mamak family-run di Shah Alam since 1998. Kami famous dengan nasi kandar daging crystal kuah pedas — customer datang dari KL khas untuk makan. Vibe authentic, tak fancy. Open 24 jam, weekends penuh dengan family ramai-ramai.'
+                          : 'Example: I have a coffee shop in Kuala Lumpur serving specialty coffee, cakes, and light meals. Prices from RM8. Located at TTDI. Contact via WhatsApp 012-3456789. Open daily 8am-6pm.'
+                      }
+                      style={{
+                        width: '100%',
+                        background: 'transparent',
+                        border: 'none',
+                        minHeight: 180,
+                        fontSize: 15,
+                        padding: '20px 22px 64px',
+                        boxShadow: 'none',
+                        outline: 'none',
+                        resize: 'vertical',
+                        color: '#F5F5FA',
+                        lineHeight: 1.55,
+                        fontFamily: "'Geist', 'Inter', -apple-system, sans-serif",
+                        letterSpacing: '-0.005em',
+                      }}
                     />
-                    <span style={{ fontSize: 18 }}>{f.icon}</span>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{f.label}</span>
-                  </label>
-                ))}
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTop: '1px solid rgba(255,255,255,.04)', background: 'linear-gradient(180deg, transparent, rgba(0,0,0,.2))', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 200, maxWidth: 480 }}>
+                        <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: helper.c, transition: 'all 300ms', boxShadow: `0 0 8px ${helper.c}` }} />
+                        </div>
+                        <div className="num" style={{ fontSize: 11, color: helper.c, minWidth: 60 }}>{len} / {DESC_MAX}</div>
+                      </div>
+                      <div style={{ fontSize: 12, color: helper.c, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Sparkles size={11} /> {helper.t}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              );
+            })()}
+
+            {/* ── 05 Hero image ── */}
+            <section style={{ marginBottom: 32 }}>
+              <div style={{ marginBottom: 20 }}>
+                <div className="section-num" style={{ marginBottom: 10 }}>
+                  <span className="dot" />05 — HERO IMAGE
+                </div>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Hero image</h2>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Image utama untuk header website. Optional — AI boleh suggest dari brief anda.</p>
               </div>
-            </div>
+              <div className="cr-card cr-card-hairline" style={{ padding: 16, display: 'flex', gap: 14, alignItems: 'stretch', flexWrap: 'wrap' }}>
+                <div
+                  onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = 'rgba(107,92,255,.5)'; e.currentTarget.style.background = 'rgba(79,61,255,.04)'; }}
+                  onDragLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.12)'; e.currentTarget.style.background = 'rgba(255,255,255,.015)'; }}
+                  onDrop={(e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,.12)'; e.currentTarget.style.background = 'rgba(255,255,255,.015)'; handleHeroDrop(e); }}
+                  onClick={() => document.getElementById('v3-hero-upload')?.click()}
+                  style={{ flex: '1 1 280px', minWidth: 240, minHeight: 160, border: '1.5px dashed rgba(255,255,255,.12)', borderRadius: 14, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, cursor: 'pointer', background: 'rgba(255,255,255,.015)', transition: 'all 220ms', position: 'relative', overflow: 'hidden', padding: 16 }}
+                >
+                  {(uploadedImages.hero || heroPreview) ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={heroPreview || uploadedImages.hero || ''} alt="Hero" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                      {uploadingHero && (
+                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(5,5,12,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                          <div style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,.25)', borderTopColor: '#C7FF3D', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
+                          <span style={{ fontSize: 12, color: '#F5F5FA' }}>Memuat naik…</span>
+                        </div>
+                      )}
+                      {uploadedImages.hero && !uploadingHero && (
+                        <span className="pill pill-volt" style={{ position: 'absolute', bottom: 8, left: 8, padding: '2px 8px', fontSize: 9 }}>
+                          <span className="led" /> UPLOADED
+                        </span>
+                      )}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); removeHero(); }}
+                        type="button"
+                        aria-label="Buang gambar"
+                        style={{ position: 'absolute', top: 8, right: 8, width: 26, height: 26, borderRadius: '50%', background: 'rgba(5,5,12,.7)', border: '1px solid rgba(255,255,255,.15)', color: '#F5F5FA', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}
+                      >
+                        ✕
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ width: 40, height: 40, borderRadius: 11, background: 'rgba(79,61,255,.1)', border: '1px solid rgba(107,92,255,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#BAB0FF' }}>
+                        <Upload size={18} />
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 13, color: '#F5F5FA', fontWeight: 500 }}>Drop image atau <span style={{ color: '#BAB0FF' }}>browse</span></div>
+                        <div style={{ fontSize: 11, color: '#5A5A6E', marginTop: 4 }}>PNG, JPG, WebP · max 8MB</div>
+                      </div>
+                    </>
+                  )}
+                  <input id="v3-hero-upload" type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onChange={handleHeroInputChange} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                </div>
+                <div style={{ flex: '1 1 200px', minWidth: 180, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => setImageChoice('ai')}
+                    className="cr-btn cr-btn-ghost"
+                    style={{ justifyContent: 'flex-start', height: 52, gap: 10, padding: '0 12px', textAlign: 'left' }}
+                  >
+                    <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(199,255,61,.1)', border: '1px solid rgba(199,255,61,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#C7FF3D', flexShrink: 0 }}>
+                      <Sparkles size={14} />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>Generate AI</div>
+                      <div style={{ fontSize: 11, color: '#86869A' }}>Premium · 1 credit</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toast('Stock library — coming soon')}
+                    className="cr-btn cr-btn-ghost"
+                    style={{ justifyContent: 'flex-start', height: 52, gap: 10, padding: '0 12px', textAlign: 'left' }}
+                  >
+                    <div style={{ width: 30, height: 30, borderRadius: 8, background: 'rgba(255,255,255,.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#86869A', flexShrink: 0 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>Stock library</div>
+                      <div style={{ fontSize: 11, color: '#86869A' }}>2,400+ free</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* ── 06 Menu items ── */}
+            <section style={{ marginBottom: 32 }}>
+              <div style={{ marginBottom: 20 }}>
+                <div className="section-num" style={{ marginBottom: 10 }}>
+                  <span className="dot" />06 — MENU ITEMS
+                </div>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Menu items</h2>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Tambah signature items anda. AI akan suggest description + format harga.</p>
+              </div>
+              <div className="cr-card cr-card-hairline" style={{ padding: 20 }}>
+                <div style={{ marginBottom: 16 }}>
+                  <div className="eyebrow" style={{ marginBottom: 10 }}>Image source</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+                    {(() => {
+                      const uploadedCount = (uploadedImages.hero ? 1 : 0) + uploadedImages.gallery.filter(g => g.url).length
+                      const sources = [
+                        { id: 'none' as const,   l: 'Tiada gambar',   s: 'Text-only menu', icon: <FileText size={16} />, premium: false, badge: '' },
+                        { id: 'upload' as const, l: 'Upload sendiri', s: 'Drag drop images', icon: <Upload size={16} />, premium: false, badge: uploadedCount > 0 ? `${uploadedCount} uploaded` : '' },
+                        { id: 'ai' as const,     l: 'AI generate',    s: 'Premium · auto-match', icon: <Sparkles size={16} />, premium: true, badge: '' },
+                      ]
+                      return sources.map(s => (
+                        <div
+                          key={s.id}
+                          className={'opt ' + (imageChoice === s.id ? 'selected' : '')}
+                          onClick={() => setImageChoice(s.id)}
+                          style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}
+                        >
+                          <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B8B8C8', flexShrink: 0 }}>
+                            {s.icon}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              {s.l}
+                              {s.premium && <span className="pill pill-volt" style={{ padding: '1px 6px', fontSize: 9 }}>PREMIUM</span>}
+                              {s.badge && <span className="pill pill-volt" style={{ padding: '1px 6px', fontSize: 9 }}>{s.badge}</span>}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#86869A', marginTop: 1 }}>{s.s}</div>
+                          </div>
+                        </div>
+                      ))
+                    })()}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {(uploadedImages.gallery.length > 0 ? uploadedImages.gallery : [{ url: '', name: '', price: '' }]).map((it, i) => {
+                    const showImg = menuPreviews[i] || it.url
+                    const canRemove = uploadedImages.gallery.length > 0
+                    return (
+                      <div key={i} className="float-in menu-row" style={{ display: 'grid', gridTemplateColumns: '48px minmax(0,1fr) 100px 32px', gap: 8, alignItems: 'center', padding: '8px 10px 8px 8px', background: '#0F0F1A', border: '1px solid rgba(255,255,255,.06)', borderRadius: 12 }}>
+                        <div
+                          onClick={() => document.getElementById(`v3-menu-upload-${i}`)?.click()}
+                          style={{ width: 40, height: 40, borderRadius: 8, background: showImg ? '#000' : 'rgba(255,255,255,.04)', border: showImg ? '1px solid rgba(255,255,255,.08)' : '1px dashed rgba(255,255,255,.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5A5A6E', cursor: 'pointer', overflow: 'hidden', position: 'relative' }}
+                        >
+                          {showImg ? (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={showImg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              {uploadingMenuIdx === i && (
+                                <div style={{ position: 'absolute', inset: 0, background: 'rgba(5,5,12,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <div style={{ width: 12, height: 12, border: '1.5px solid rgba(255,255,255,.25)', borderTopColor: '#C7FF3D', borderRadius: '50%', animation: 'spin .8s linear infinite' }} />
+                                </div>
+                              )}
+                              {it.url && uploadingMenuIdx !== i && (
+                                <>
+                                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 12, background: 'linear-gradient(180deg, transparent, rgba(5,5,12,.8))', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', color: '#C7FF3D', fontSize: 9, fontWeight: 700, lineHeight: 1, paddingBottom: 1, pointerEvents: 'none' }}>✓</div>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); clearMenuImage(i); }}
+                                    type="button"
+                                    aria-label="Buang gambar"
+                                    style={{ position: 'absolute', top: 0, right: 0, width: 16, height: 16, borderRadius: '0 8px 0 4px', background: 'rgba(5,5,12,.8)', border: 0, color: '#F5F5FA', fontSize: 9, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                  >✕</button>
+                                </>
+                              )}
+                            </>
+                          ) : (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>
+                          )}
+                          <input id={`v3-menu-upload-${i}`} type="file" accept="image/png,image/jpeg,image/jpg,image/webp" onChange={handleMenuInputChange(i)} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+                        </div>
+                        <input
+                          className="cr-input"
+                          placeholder="Nasi Kandar Daging Crystal"
+                          value={it.name}
+                          onChange={(e) => updateMenuField(i, { name: e.target.value })}
+                          style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 12px', minWidth: 0, width: '100%' }}
+                        />
+                        <div className="menu-row-price" style={{ position: 'relative', minWidth: 0 }}>
+                          <span className="num" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#5A5A6E', pointerEvents: 'none' }}>RM</span>
+                          <input
+                            className="cr-input"
+                            placeholder="12.50"
+                            value={it.price}
+                            onChange={(e) => updateMenuField(i, { price: e.target.value })}
+                            style={{ background: 'transparent', border: '1px solid rgba(255,255,255,.04)', height: 40, padding: '0 10px 0 32px', fontFamily: "'Geist Mono', monospace", width: '100%', minWidth: 0 }}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeMenuItemRow(i)}
+                          aria-label="Buang item"
+                          className="cr-btn-icon menu-row-trash"
+                          style={{ width: 32, height: 40, opacity: canRemove ? 1 : 0.35, cursor: canRemove ? 'pointer' : 'not-allowed' }}
+                          disabled={!canRemove}
+                          title={canRemove ? 'Buang item ini' : 'Tambah item lain dahulu'}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M5 6l1 14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-14"/></svg>
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={addMenuItemRow}
+                  style={{ marginTop: 10, width: '100%', padding: 12, background: 'transparent', border: '1.5px dashed rgba(199,255,61,.25)', borderRadius: 12, color: '#C7FF3D', fontSize: 13, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontWeight: 500, fontFamily: "'Geist', 'Inter', -apple-system, sans-serif", transition: 'all 180ms' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(199,255,61,.04)'; e.currentTarget.style.borderColor = 'rgba(199,255,61,.4)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'rgba(199,255,61,.25)'; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                  Add item
+                </button>
+
+                {(() => {
+                  const filled = uploadedImages.gallery.filter(g => g.name || g.price || g.url).length
+                  return filled > 0 ? (
+                    <div className="num" style={{ marginTop: 10, fontSize: 11, color: '#5A5A6E', textAlign: 'center' }}>
+                      {filled} item{filled === 1 ? '' : 's'} added
+                    </div>
+                  ) : null
+                })()}
+
+                {imageChoice === 'upload' && uploadedImages.gallery.filter(g => g.url).length === 0 && !uploadedImages.hero && (
+                  <div className="banner-accent float-in" style={{ marginTop: 14, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
+                    <span style={{ fontSize: 13, color: '#FFB020' }}>Anda belum muat naik gambar. Drop hero image di atas atau pilih pilihan lain.</span>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* ── 07 Features yang anda nak ── */}
+            <section style={{ marginBottom: 32 }}>
+              <div style={{ marginBottom: 20 }}>
+                <div className="section-num" style={{ marginBottom: 10 }}>
+                  <span className="dot" />07 — FEATURES YANG ANDA NAK
+                </div>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Features yang anda nak</h2>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Pilih mana yang relevant. Boleh tukar/tambah selepas generate.</p>
+              </div>
+              <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 12 }}>
+                {(() => {
+                  const WhatsAppIcon = ({ size = 16 }: { size?: number }) => (
+                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 11.5a8.4 8.4 0 0 1-1.2 4.4L21 21l-5.2-1.4a8.5 8.5 0 1 1 5.2-8.1Z" />
+                      <path d="M8.5 9.5c.2 1 .8 2.2 1.7 3.1.9 1 2 1.5 3 1.7l1.2-1.1 2 .9c-.1.6-.5 1.2-1.1 1.5-1.4.7-3.7.2-5.6-1.7-1.8-1.8-2.4-4.2-1.7-5.6.3-.6.8-1 1.4-1.1l1 2-1 1.3Z" />
+                    </svg>
+                  )
+                  const features = [
+                    { key: 'whatsapp' as const,        label: 'WhatsApp Order',  sub: 'Pesanan terus ke WhatsApp', Icon: WhatsAppIcon, color: '#25D366' },
+                    { key: 'googleMap' as const,       label: 'Google Maps',     sub: 'Lokasi & arah ke kedai',     Icon: MapPin,       color: '#4F3DFF' },
+                    { key: 'deliverySystem' as const,  label: 'Delivery',        sub: 'Penghantaran sendiri',       Icon: Truck,        color: '#FFB020' },
+                    { key: 'contactForm' as const,     label: 'Borang Tempahan', sub: 'Booking / reservation',      Icon: FileText,     color: '#3FB8FF' },
+                    { key: 'socialMedia' as const,     label: 'Social Media',    sub: 'IG, FB, TikTok feed',        Icon: Share2,       color: '#FF5A5F' },
+                    { key: 'priceList' as const,       label: 'Senarai Harga',   sub: 'Menu / katalog harga',       Icon: ListChecks,   color: '#C7FF3D' },
+                  ]
+                  return features.map(f => {
+                    const on = selectedFeatures[f.key]
+                    return (
+                      <div
+                        key={f.key}
+                        role="checkbox"
+                        aria-checked={on}
+                        tabIndex={0}
+                        className={'opt ' + (on ? 'selected' : '')}
+                        onClick={() => setSelectedFeatures({ ...selectedFeatures, [f.key]: !on })}
+                        onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setSelectedFeatures({ ...selectedFeatures, [f.key]: !on }); } }}
+                        style={{ padding: 14, display: 'flex', gap: 10, alignItems: 'flex-start', minWidth: 0 }}
+                      >
+                        <div style={{ width: 34, height: 34, borderRadius: 9, background: on ? 'rgba(79,61,255,.18)' : 'rgba(255,255,255,.04)', border: `1px solid ${on ? 'rgba(107,92,255,.4)' : 'rgba(255,255,255,.08)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: on ? '#BAB0FF' : f.color, flexShrink: 0 }}>
+                          <f.Icon size={16} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2, lineHeight: 1.25, wordBreak: 'break-word', color: '#F5F5FA' }}>{f.label}</div>
+                          <div style={{ fontSize: 11, color: '#86869A', lineHeight: 1.35 }}>{f.sub}</div>
+                        </div>
+                        <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${on ? '#6B5CFF' : 'rgba(255,255,255,.15)'}`, background: on ? '#4F3DFF' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2, color: '#fff' }}>
+                          {on && <Check size={10} strokeWidth={3} />}
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+            </section>
 
             {/* Google Map expand */}
             {selectedFeatures.googleMap && (
@@ -1479,44 +1917,78 @@ export default function CreatePage() {
               </div>
             )}
 
-            {/* ── 07 Payment ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
-              <div className="eyebrow" style={{ marginBottom: 16 }}>07 — PEMBAYARAN</div>
-              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih cara pembayaran yang anda terima</div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: paymentMethods.qr ? 16 : 0 }}>
-                {/* COD */}
-                <label className={paymentMethods.cod ? 'cr-radio cr-radio-active' : 'cr-radio'}>
-                  <input type="checkbox" checked={paymentMethods.cod} onChange={(e) => setPaymentMethods({...paymentMethods, cod: e.target.checked})} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
-                  <span style={{ fontSize: 22, flexShrink: 0 }}>💵</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>Cash on Delivery (COD)</span>
-                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>Bayar tunai bila terima</span>
-                  </div>
-                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' as const, padding: '2px 7px', borderRadius: 6, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)' }}>POPULAR</span>
-                </label>
-
-                {/* QR Payment */}
-                <label className={paymentMethods.qr ? 'cr-radio cr-radio-active' : 'cr-radio'}>
-                  <input type="checkbox" checked={paymentMethods.qr} onChange={(e) => setPaymentMethods({...paymentMethods, qr: e.target.checked})} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
-                  <span style={{ fontSize: 22, flexShrink: 0 }}>📱</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>QR Payment</span>
-                    <span style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2, display: 'block' }}>DuitNow / TNG / Bank QR</span>
-                  </div>
-                </label>
+            {/* ── 08 Cara terima bayaran ── */}
+            <section style={{ marginBottom: 32 }}>
+              <div style={{ marginBottom: 20 }}>
+                <div className="section-num" style={{ marginBottom: 10 }}>
+                  <span className="dot" />08 — CARA TERIMA BAYARAN
+                </div>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Cara terima bayaran</h2>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Pilih method pembayaran. ToyyibPay &amp; QR boleh setup lepas generate.</p>
+              </div>
+              <div className="payment-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {(() => {
+                  const CashIcon = ({ size = 20 }: { size?: number }) => (
+                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="6" width="20" height="12" rx="2" />
+                      <circle cx="12" cy="12" r="2.5" />
+                      <path d="M6 10v.01M18 14v.01" />
+                    </svg>
+                  )
+                  const QRIcon = ({ size = 20 }: { size?: number }) => (
+                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="3" width="7" height="7" rx="1" />
+                      <rect x="14" y="3" width="7" height="7" rx="1" />
+                      <rect x="3" y="14" width="7" height="7" rx="1" />
+                      <path d="M14 14h3v3M21 14v3M14 21h3M21 17v4" />
+                    </svg>
+                  )
+                  const methods = [
+                    { id: 'cod' as const, l: 'Cash on Delivery', s: 'Customer bayar masa terima · simple', Icon: CashIcon, recommended: false },
+                    { id: 'qr'  as const, l: 'QR / Online Payment', s: 'DuitNow QR · ToyyibPay · Stripe', Icon: QRIcon, recommended: true },
+                  ]
+                  return methods.map(p => {
+                    const on = paymentMethods[p.id]
+                    return (
+                      <div
+                        key={p.id}
+                        role="checkbox"
+                        aria-checked={on}
+                        tabIndex={0}
+                        className={'opt ' + (on ? 'selected' : '')}
+                        onClick={() => setPaymentMethods({ ...paymentMethods, [p.id]: !on })}
+                        onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setPaymentMethods({ ...paymentMethods, [p.id]: !on }); } }}
+                        style={{ padding: 18, display: 'flex', gap: 14, alignItems: 'center' }}
+                      >
+                        <div style={{ width: 44, height: 44, borderRadius: 10, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#B8B8C8', flexShrink: 0 }}>
+                          <p.Icon size={20} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <div style={{ fontSize: 15, fontWeight: 600, color: '#F5F5FA' }}>{p.l}</div>
+                            {p.recommended && <span className="pill pill-volt" style={{ padding: '2px 7px', fontSize: 9 }}>POPULAR</span>}
+                          </div>
+                          <div style={{ fontSize: 12, color: '#86869A', marginTop: 3 }}>{p.s}</div>
+                        </div>
+                        <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${on ? '#6B5CFF' : 'rgba(255,255,255,.15)'}`, background: on ? '#4F3DFF' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#fff' }}>
+                          {on && <Check size={10} strokeWidth={3} />}
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
               </div>
 
-              {/* QR Upload */}
+              {/* QR Upload (expand when QR enabled) */}
               {paymentMethods.qr && (
-                <div className="cr-sub-card float-in" style={{ marginTop: 0, marginBottom: 0 }}>
+                <div className="cr-sub-card float-in" style={{ marginTop: 14 }}>
                   <div style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Muat Naik QR Pembayaran Anda</div>
-                  <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-                    {/* QR Upload Box */}
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                     <div style={{ width: 120, height: 120, border: '2px dashed rgba(255,255,255,.12)', borderRadius: 14, background: 'rgba(255,255,255,.02)', flexShrink: 0, overflow: 'hidden' }}>
                       <label style={{ cursor: 'pointer', width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                         <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleQRUpload} />
                         {paymentQRPreview ? (
+                          // eslint-disable-next-line @next/next/no-img-element
                           <img src={paymentQRPreview} alt="Payment QR" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 4, borderRadius: 12 }} />
                         ) : (
                           <>
@@ -1526,9 +1998,7 @@ export default function CreatePage() {
                         )}
                       </label>
                     </div>
-
-                    {/* Instructions */}
-                    <div style={{ flex: 1, fontSize: 13, color: '#86869A' }}>
+                    <div style={{ flex: 1, minWidth: 200, fontSize: 13, color: '#86869A' }}>
                       <div style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8', marginBottom: 8 }}>Cara mendapatkan QR:</div>
                       <ol style={{ listStyleType: 'decimal', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <li>Buka app bank / TNG / DuitNow</li>
@@ -1540,7 +2010,7 @@ export default function CreatePage() {
                   </div>
                 </div>
               )}
-            </div>
+            </section>
 
             {error && (
               <div className="banner-accent" style={{ background: 'linear-gradient(90deg, rgba(239,68,68,.06), transparent)', border: '1px solid rgba(239,68,68,.22)' }}>
@@ -1549,28 +2019,43 @@ export default function CreatePage() {
               </div>
             )}
 
-            <button
-              onClick={handleGenerate}
-              disabled={loading || description.length < 10 || isAtLimit}
-              className="cr-gen-btn"
-            >
-              {loading ? (
-                <>
-                  <div style={{ width: 18, height: 18, border: '2px solid rgba(5,5,12,.3)', borderTopColor: '#05050C', borderRadius: '50%', animation: 'spin .6s linear infinite' }} />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Sparkles size={18} />
-                  Generate Website with AI
-                </>
-              )}
-            </button>
+            {/* Ready-to-bina CTA (mirrors design's pep card; doubles as mobile-only generate path when rail is collapsed at <1100px) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: 24, background: 'linear-gradient(135deg, rgba(79,61,255,.12), rgba(199,255,61,.04))', border: '1px solid rgba(107,92,255,.25)', borderRadius: 18, marginTop: 16, flexWrap: 'wrap' }}>
+              <div className="ai-pulse" style={{ width: 48, height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #C7FF3D, #6B5CFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 30px rgba(199,255,61,.4)', color: '#05050C', flexShrink: 0 }}>
+                <Sparkles size={22} strokeWidth={2} />
+              </div>
+              <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+                <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.015em', color: '#F5F5FA' }}>Ready to bina?</div>
+                <div style={{ fontSize: 13, color: '#86869A', marginTop: 2 }}>AI dah ada cukup info — tekan untuk generate.</div>
+              </div>
+              <button
+                onClick={handleGenerate}
+                disabled={loading || description.length < 10 || isAtLimit}
+                className="cr-gen-btn cr-pulse-glow"
+                style={{ width: 'auto', height: 48, padding: '0 20px', fontSize: 15, marginTop: 0, flexShrink: 0 }}
+              >
+                {loading ? (
+                  <>
+                    <div style={{ width: 16, height: 16, border: '2px solid rgba(5,5,12,.3)', borderTopColor: '#05050C', borderRadius: '50%', animation: 'spin .6s linear infinite' }} />
+                    Generating…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={15} /> Generate
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14m-6-7 7 7-7 7" /></svg>
+                  </>
+                )}
+              </button>
+            </div>
 
             {loading && (
-              <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,12,.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-                <div className="cr-card cr-card-hairline" style={{ padding: 40, maxWidth: 560, width: '100%', margin: '0 16px' }}>
-                  {error ? (
+              <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(5,5,12,.92)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+                {/* Background dotgrid + radial pulse */}
+                <div className="dotgrid" style={{ position: 'absolute', inset: 0, opacity: .5, maskImage: 'radial-gradient(ellipse at center, black 20%, transparent 70%)', WebkitMaskImage: 'radial-gradient(ellipse at center, black 20%, transparent 70%)', pointerEvents: 'none' }} />
+                <div className="ai-pulse" style={{ position: 'absolute', top: '40%', left: '50%', width: 600, height: 600, marginLeft: -300, marginTop: -300, borderRadius: '50%', background: 'radial-gradient(circle, rgba(79,61,255,.3), transparent 60%)', pointerEvents: 'none' }} />
+
+                {error ? (
+                  <div className="cr-card cr-card-hairline" style={{ padding: 40, maxWidth: 560, width: '100%', position: 'relative', zIndex: 1 }}>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 28 }}>❌</div>
                       <h3 style={{ fontSize: 22, fontWeight: 700, color: '#F5F5FA', margin: '0 0 8px' }}>Generation Failed</h3>
@@ -1583,124 +2068,248 @@ export default function CreatePage() {
                         <button onClick={() => { setError(''); setProgress(0); handleGenerate(); }} className="cr-btn" style={{ background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)' }}>Try Again</button>
                       </div>
                     </div>
-                  ) : (
-                    <>
-                      {/* AI Spinner */}
-                      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
-                        <div className="cr-spinner" />
+                  </div>
+                ) : (
+                  <div style={{ position: 'relative', textAlign: 'center', maxWidth: 480, zIndex: 1 }}>
+                    {/* Orbital ring + gradient sphere */}
+                    <div style={{ position: 'relative', width: 120, height: 120, margin: '0 auto 36px' }}>
+                      <svg width="120" height="120" style={{ position: 'absolute', inset: 0, animation: 'orbit 6s linear infinite' }}>
+                        <circle cx="60" cy="60" r="54" stroke="rgba(255,255,255,.06)" strokeWidth="1" fill="none" />
+                        <circle
+                          cx="60" cy="60" r="54"
+                          stroke="#C7FF3D" strokeWidth="2" fill="none"
+                          strokeDasharray={`${Math.max(0, Math.min(progress, 100)) * 3.39} 339`}
+                          strokeLinecap="round"
+                          transform="rotate(-90 60 60)"
+                          style={{ filter: 'drop-shadow(0 0 8px #C7FF3D)', transition: 'stroke-dasharray 500ms cubic-bezier(.25,1,.5,1)' }}
+                        />
+                      </svg>
+                      <div style={{ position: 'absolute', inset: 18, borderRadius: '50%', background: 'linear-gradient(135deg, #6B5CFF, #4F3DFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 60px rgba(79,61,255,.6), inset 0 1px 0 rgba(255,255,255,.2)', color: '#fff' }}>
+                        <Sparkles size={32} />
                       </div>
+                    </div>
 
-                      <div style={{ textAlign: 'center', marginBottom: 28 }}>
-                        <h3 style={{ fontSize: 22, fontWeight: 700, color: '#F5F5FA', margin: '0 0 6px' }}>Building your website...</h3>
-                        <p style={{ fontSize: 14, color: '#86869A', margin: 0 }}>AI is writing production-ready HTML code for you</p>
+                    <div className="eyebrow ai-pulse" style={{ color: '#C7FF3D', marginBottom: 14, fontSize: 11 }}>AI is working · {progress}%</div>
+                    <h2 style={{ fontSize: 36, fontWeight: 700, letterSpacing: '-0.035em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>
+                      Building your website…
+                    </h2>
+
+                    {/* Indigo→volt progress bar */}
+                    <div style={{ marginTop: 22, maxWidth: 380, marginLeft: 'auto', marginRight: 'auto' }}>
+                      <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,.06)', borderRadius: 99, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, #4F3DFF, #C7FF3D)', borderRadius: 99, boxShadow: '0 0 12px rgba(199,255,61,.4)', transition: 'width 500ms cubic-bezier(.25,1,.5,1)' }} />
                       </div>
-
-                      {/* Progress bar */}
-                      <div style={{ marginBottom: 28 }}>
-                        <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,.06)', borderRadius: 99, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, #4F3DFF, #C7FF3D)', borderRadius: 99, transition: 'width 500ms cubic-bezier(.25,1,.5,1)' }} />
-                        </div>
-                        <div style={{ textAlign: 'center', marginTop: 8 }}>
-                          <span className="num" style={{ fontSize: 13, color: '#C7FF3D', fontWeight: 600 }}>{progress}%</span>
-                          <span style={{ fontSize: 13, color: '#5A5A6E', marginLeft: 6 }}>Complete</span>
-                        </div>
+                      <div style={{ textAlign: 'center', marginTop: 8 }}>
+                        <span className="num" style={{ fontSize: 13, color: '#C7FF3D', fontWeight: 600 }}>{progress}%</span>
+                        <span style={{ fontSize: 13, color: '#5A5A6E', marginLeft: 6 }}>Complete</span>
                       </div>
+                    </div>
 
-                      {/* 5-step indicators */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 380, margin: '0 auto' }}>
-                        {[
-                          { label: 'Analyzing your business description...', start: 10, end: 30 },
-                          { label: 'Generating Modern style...', start: 30, end: 50 },
-                          { label: 'Generating Minimal style...', start: 50, end: 70 },
-                          { label: 'Generating Bold style...', start: 70, end: 90 },
-                          { label: 'Finalizing website...', start: 90, end: 100 },
-                        ].map((step, i) => {
-                          const done = progress >= step.end;
-                          const active = progress >= step.start && progress < step.end;
-                          return (
-                            <div key={i} className={`cr-step ${active ? 'cr-step-active' : ''} ${done ? 'cr-step-done' : ''}`}>
-                              <div className="cr-step-dot" />
-                              <span style={{ fontSize: 13 }}>{done ? '✓ ' : ''}{step.label}</span>
+                    {/* 5-step list (existing labels preserved per locked decision) */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 28, textAlign: 'left' }}>
+                      {[
+                        { label: 'Analyzing your business description', start: 10, end: 30 },
+                        { label: 'Generating Modern style', start: 30, end: 50 },
+                        { label: 'Generating Minimal style', start: 50, end: 70 },
+                        { label: 'Generating Bold style', start: 70, end: 90 },
+                        { label: 'Finalizing website', start: 90, end: 100 },
+                      ].map((step, i) => {
+                        const done = progress >= step.end
+                        const active = progress >= step.start && progress < step.end
+                        return (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: active ? 'rgba(199,255,61,.06)' : 'transparent', transition: 'all 300ms' }}>
+                            <div style={{ width: 16, height: 16, borderRadius: '50%', border: done ? 'none' : `1.5px solid ${active ? '#C7FF3D' : 'rgba(255,255,255,.1)'}`, background: done ? '#22C08F' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              {done && <Check size={10} stroke="#05050C" strokeWidth={3} />}
+                              {active && <div className="ai-pulse" style={{ width: 6, height: 6, borderRadius: 50, background: '#C7FF3D', boxShadow: '0 0 8px #C7FF3D' }} />}
                             </div>
-                          );
-                        })}
+                            <span style={{ fontSize: 13, color: (done || active) ? '#F5F5FA' : '#5A5A6E', fontWeight: active ? 500 : 400 }}>{step.label}</span>
+                            {done && <span className="num" style={{ marginLeft: 'auto', fontSize: 10, color: '#22C08F' }}>✓</span>}
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Stale Progress Warning */}
+                    {staleWarning && (
+                      <div className="banner-accent" style={{ marginTop: 20, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)', textAlign: 'left' }}>
+                        <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
+                        <span style={{ fontSize: 13, color: '#FFB020' }}>Progress appears stuck at {progress}%. The backend may be experiencing issues. Job may still complete.</span>
                       </div>
+                    )}
 
-                      {/* Stale Progress Warning */}
-                      {staleWarning && (
-                        <div className="banner-accent" style={{ marginTop: 20, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)' }}>
-                          <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
-                          <span style={{ fontSize: 13, color: '#FFB020' }}>Progress appears stuck at {progress}%. The backend may be experiencing issues. Job may still complete.</span>
-                        </div>
-                      )}
+                    <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 20 }}>
+                      This usually takes 45-90 seconds. Progress updates every 3 seconds.
+                    </p>
 
-                      <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 20, textAlign: 'center' }}>
-                        This usually takes 45-90 seconds. Progress updates every 3 seconds.
+                    {currentJobId && (
+                      <p className="num" style={{ fontSize: 11, color: '#3A3A4A', marginTop: 8 }}>
+                        Job: {currentJobId.slice(0, 8)}…
                       </p>
-
-                      {currentJobId && (
-                        <p className="num" style={{ fontSize: 11, color: '#3A3A4A', marginTop: 8, textAlign: 'center' }}>
-                          Job: {currentJobId.slice(0, 8)}...
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          {/* ── AI Preview Rail ── */}
-          <aside className="cr-rail">
-            <div className="cr-rail-card cr-card cr-card-hairline">
-              <div className="eyebrow" style={{ marginBottom: 14 }}>PREVIEW</div>
-
-              {/* Completeness meter */}
-              {(() => {
-                const pct =
-                  (description.length >= 50 ? 30 : 0) +
-                  (businessType !== 'auto' ? 15 : 0) +
-                  (imageChoice !== 'none' ? 15 : 0) +
-                  (selectedFeatures.whatsapp || selectedFeatures.googleMap || selectedFeatures.deliverySystem || selectedFeatures.contactForm || selectedFeatures.socialMedia || selectedFeatures.priceList ? 15 : 0) +
-                  (paymentMethods.cod || paymentMethods.qr ? 15 : 0) +
-                  10; // language always selected
-                return (
-                  <div style={{ marginBottom: 18 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <span style={{ fontSize: 12, color: '#86869A' }}>Completeness</span>
-                      <span className="num" style={{ fontSize: 12, color: pct >= 80 ? '#C7FF3D' : '#86869A' }}>{pct}%</span>
+          {/* ── AI Preview Rail (V3) ── */}
+          <aside className="cr-rail" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {(() => {
+              const featureCount = (
+                (selectedFeatures.whatsapp ? 1 : 0) +
+                (selectedFeatures.googleMap ? 1 : 0) +
+                (selectedFeatures.deliverySystem ? 1 : 0) +
+                (selectedFeatures.contactForm ? 1 : 0) +
+                (selectedFeatures.socialMedia ? 1 : 0) +
+                (selectedFeatures.priceList ? 1 : 0)
+              )
+              const filledMenuCount = uploadedImages.gallery.filter(g => g.name || g.price || g.url).length
+              const bizLabels: Record<typeof businessType, string> = {
+                auto: 'AI auto-detect',
+                food: 'Restoran',
+                clothing: 'Pakaian',
+                salon: 'Salon',
+                services: 'Servis',
+                bakery: 'Bakeri',
+                general: 'Lain-lain',
+              }
+              const completeness = Math.min(100, Math.round(
+                (description.length >= 200 ? 30 : (description.length / 200) * 30) +
+                (businessType !== 'auto' ? 15 : 0) +
+                (filledMenuCount >= 1 ? 20 : 0) +
+                (featureCount * 5) +
+                ((paymentMethods.cod || paymentMethods.qr) ? 10 : 0) +
+                10 // language always selected
+              ))
+              const subdomainPlaceholder = subdomain ? `${subdomain}.binaapp.my` : 'kedai-anda.binaapp.my'
+              const previewTitle = (description.split(/[\.,]/)[0] || '').trim().slice(0, 30) || 'Kedai anda'
+              return (
+                <>
+                  {/* AI Preview Pane */}
+                  <div className="cr-card cr-card-hairline" style={{ padding: 0, overflow: 'hidden' }}>
+                    <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ position: 'relative', width: 22, height: 22 }}>
+                          <div className="ai-pulse" style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'radial-gradient(circle, rgba(199,255,61,.4), transparent 70%)' }} />
+                          <div style={{ position: 'absolute', inset: 4, borderRadius: '50%', background: 'linear-gradient(135deg, #C7FF3D, #4F3DFF)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Sparkles size={9} stroke="#05050C" />
+                          </div>
+                        </div>
+                        <span className="eyebrow" style={{ color: '#F5F5FA', letterSpacing: '.12em' }}>AI Preview</span>
+                      </div>
+                      <span className="num" style={{ fontSize: 11, color: '#5A5A6E' }}>v0.1 draft</span>
                     </div>
-                    <div className="cr-meter">
-                      <div className="cr-meter-fill" style={{ width: `${pct}%` }} />
+
+                    {/* Mini browser preview */}
+                    <div style={{ background: '#05050C', padding: 14 }}>
+                      <div style={{ background: '#0F0F1A', border: '1px solid rgba(255,255,255,.06)', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ height: 22, background: '#16161F', display: 'flex', alignItems: 'center', padding: '0 10px', gap: 4, borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                          <div style={{ width: 6, height: 6, borderRadius: 50, background: '#FF5A5F' }} />
+                          <div style={{ width: 6, height: 6, borderRadius: 50, background: '#FFB020' }} />
+                          <div style={{ width: 6, height: 6, borderRadius: 50, background: '#22C08F' }} />
+                          <div className="num" style={{ marginLeft: 'auto', fontSize: 9, color: '#5A5A6E', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>{subdomainPlaceholder}</div>
+                        </div>
+                        <div style={{ padding: 14, minHeight: 140, position: 'relative' }}>
+                          {description.length < 50 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: .5 }}>
+                              <div className="shimmer" style={{ height: 14, borderRadius: 4, background: 'rgba(255,255,255,.04)' }} />
+                              <div className="shimmer" style={{ height: 8, borderRadius: 4, width: '60%', background: 'rgba(255,255,255,.04)' }} />
+                              <div style={{ height: 60, borderRadius: 6, background: 'rgba(255,255,255,.03)', marginTop: 6 }} />
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                <div style={{ flex: 1, height: 22, borderRadius: 4, background: 'rgba(255,255,255,.03)' }} />
+                                <div style={{ flex: 1, height: 22, borderRadius: 4, background: 'rgba(255,255,255,.03)' }} />
+                              </div>
+                              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 6, color: '#5A5A6E', fontSize: 11 }}>
+                                <Sparkles size={16} />
+                                <div>Cerita pasal kedai untuk preview</div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }} className="float-in">
+                              <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '-0.02em', color: '#F5F5FA' }}>
+                                {previewTitle}
+                              </div>
+                              <div style={{ fontSize: 9, color: '#86869A', lineHeight: 1.4 }}>{description.slice(0, 80)}…</div>
+                              <div style={{ height: 50, borderRadius: 6, marginTop: 4, background: colorMode === 'light' ? 'linear-gradient(135deg,#EEEEF3,#DEDEE6)' : 'linear-gradient(135deg, rgba(79,61,255,.3), rgba(199,255,61,.15))', position: 'relative', overflow: 'hidden' }}>
+                                <div className="dotgrid" style={{ position: 'absolute', inset: 0, opacity: .3 }} />
+                              </div>
+                              <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                                {(['whatsapp', 'googleMap', 'deliverySystem', 'priceList'] as const).filter(k => selectedFeatures[k]).slice(0, 4).map(k => (
+                                  <div key={k} style={{ flex: 1, height: 18, borderRadius: 4, background: 'rgba(255,255,255,.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <div style={{ width: 8, height: 2, borderRadius: 1, background: '#86869A' }} />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Field summary */}
+                    <div style={{ padding: '4px 4px 14px' }}>
+                      {([
+                        { l: 'Business',    v: bizLabels[businessType] },
+                        { l: 'Language',    v: language === 'ms' ? 'Bahasa Malaysia' : 'English' },
+                        { l: 'Theme',       v: colorMode === 'light' ? 'Light' : 'Dark' },
+                        { l: 'Menu items',  v: `${filledMenuCount} ${filledMenuCount === 1 ? 'item' : 'items'}` },
+                        { l: 'Features',    v: `${featureCount} aktif` },
+                        { l: 'Payment',     v: paymentMethods.cod && paymentMethods.qr ? 'COD + QR' : paymentMethods.qr ? 'QR / Online' : paymentMethods.cod ? 'COD' : '—' },
+                      ]).map((f, i) => (
+                        <div key={f.l} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 14px', fontSize: 12, borderTop: i === 0 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
+                          <span style={{ color: '#86869A' }}>{f.l}</span>
+                          <span style={{ color: '#F5F5FA', fontFamily: "'Geist Mono', monospace", fontSize: 11 }}>{f.v}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                );
-              })()}
 
-              {/* Wireframe blocks */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div className={`cr-wireframe-block ${description.length >= 50 ? 'cr-wireframe-lit' : ''}`}>
-                  <span style={{ fontSize: 13 }}>📝</span>
-                  <span style={{ fontSize: 12 }}>Deskripsi</span>
-                </div>
-                <div className={`cr-wireframe-block ${businessType !== 'auto' ? 'cr-wireframe-lit' : ''}`}>
-                  <span style={{ fontSize: 13 }}>🏪</span>
-                  <span style={{ fontSize: 12 }}>Jenis</span>
-                </div>
-                <div className={`cr-wireframe-block ${imageChoice !== 'none' ? 'cr-wireframe-lit' : ''}`}>
-                  <span style={{ fontSize: 13 }}>🖼️</span>
-                  <span style={{ fontSize: 12 }}>Gambar</span>
-                </div>
-                <div className={`cr-wireframe-block ${selectedFeatures.whatsapp || selectedFeatures.googleMap || selectedFeatures.deliverySystem || selectedFeatures.contactForm || selectedFeatures.socialMedia || selectedFeatures.priceList ? 'cr-wireframe-lit' : ''}`}>
-                  <span style={{ fontSize: 13 }}>⚡</span>
-                  <span style={{ fontSize: 12 }}>Ciri-ciri</span>
-                </div>
-                <div className={`cr-wireframe-block ${paymentMethods.cod || paymentMethods.qr ? 'cr-wireframe-lit' : ''}`}>
-                  <span style={{ fontSize: 13 }}>💳</span>
-                  <span style={{ fontSize: 12 }}>Bayaran</span>
-                </div>
-              </div>
-            </div>
+                  {/* Brief completeness */}
+                  <div className="cr-card" style={{ padding: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <span className="eyebrow">Brief completeness</span>
+                      <span className="num" style={{ fontSize: 13, color: completeness > 70 ? '#C7FF3D' : completeness > 40 ? '#FFB020' : '#5A5A6E', fontWeight: 600 }}>{completeness}%</span>
+                    </div>
+                    <div style={{ height: 4, background: 'rgba(255,255,255,.05)', borderRadius: 999, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${completeness}%`, background: completeness > 70 ? 'linear-gradient(90deg, #4F3DFF, #C7FF3D)' : '#5A5A6E', transition: 'all 400ms cubic-bezier(.25,1,.5,1)' }} />
+                    </div>
+                  </div>
+
+                  {/* Generate */}
+                  <button
+                    type="button"
+                    className={'cr-gen-btn ' + (completeness > 50 && !loading ? 'cr-pulse-glow' : '')}
+                    onClick={handleGenerate}
+                    disabled={loading || description.length < 10 || isAtLimit}
+                    style={{ height: 60, fontSize: 16, padding: 0, borderRadius: 16, marginTop: 0 }}
+                  >
+                    {loading ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid rgba(5,5,12,.3)', borderTopColor: '#05050C', animation: 'orbit 800ms linear infinite' }} />
+                        Generating…
+                      </span>
+                    ) : (
+                      <>
+                        <Sparkles size={16} /> Generate website
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14m-6-7 7 7-7 7" /></svg>
+                      </>
+                    )}
+                  </button>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 12, fontSize: 11, color: '#5A5A6E', flexWrap: 'wrap' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg>
+                      Secure
+                    </span>
+                    <span>·</span>
+                    <span>Generates in ~60s</span>
+                    <span>·</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <Sparkles size={11} stroke="#C7FF3D" /> Claude
+                    </span>
+                  </div>
+                </>
+              )
+            })()}
           </aside>
 
           </div>
@@ -1862,84 +2471,256 @@ export default function CreatePage() {
         )}
       </main>
 
-      {showPublishModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,12,.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
-          <div className="cr-card cr-card-hairline" style={{ maxWidth: 460, width: '100%', padding: 32 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-              <h2 style={{ fontSize: 20, fontWeight: 700, color: '#F5F5FA', margin: 0 }}>Publish Your Website</h2>
-              <button onClick={() => { setShowPublishModal(false); setError(''); setSubdomainError(null); }} className="cr-btn-icon" aria-label="Close">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-              </button>
-            </div>
+      {showPublishModal && (() => {
+        // Derive 5-state machine from existing primitives (no new backend).
+        type PubState = 'edit' | 'available' | 'taken' | 'publishing' | 'success'
+        const pubState: PubState =
+          publishedUrl ? 'success'
+          : publishing ? 'publishing'
+          : (subdomain && subdomainError) ? 'taken'
+          : (subdomain && !subdomainError && pubChecked) ? 'available'
+          : 'edit'
 
-            <div style={{ marginBottom: 18 }}>
-              <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Project Name</label>
-              <input
-                type="text"
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                placeholder="My Restaurant"
-                className="cr-input"
-              />
-            </div>
+        const stateMeta: Record<PubState, { l: string; desc: string }> = {
+          edit:        { l: 'Choose your subdomain',  desc: 'Pilih address website anda. Boleh tukar nanti via custom domain.' },
+          available:   { l: 'Subdomain available',    desc: 'Bagus pilihan! Tekan publish untuk go live.' },
+          taken:       { l: 'Already taken',          desc: 'Subdomain ni dah ada orang ambik. Try yang lain.' },
+          publishing:  { l: 'Publishing your site',   desc: 'Tunggu sat — biasanya 8–12 saat.' },
+          success:     { l: 'Live!',                  desc: 'Website anda dah go live. Share link untuk dapat orders.' },
+        }
+        const meta = stateMeta[pubState]
 
-            <div style={{ marginBottom: 18 }}>
-              <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Choose Subdomain</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input
-                  type="text"
-                  value={subdomain}
-                  onChange={(e) => {
-                    const value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
-                    setSubdomain(value)
-                    const validationError = validateSubdomain(value)
-                    setSubdomainError(validationError)
-                  }}
-                  placeholder="kedaiayam"
-                  className="cr-input"
-                  style={{ flex: 1, borderColor: subdomainError ? 'rgba(239,68,68,.5)' : undefined }}
-                />
-                <span style={{ fontSize: 13, color: '#5A5A6E', whiteSpace: 'nowrap' }}>.binaapp.my</span>
+        // Suggest 3 alternatives when 'taken' (client-side suffix patterns)
+        const suggestions = (() => {
+          const base = subdomain.replace(/[^a-z0-9]/g, '') || 'kedai'
+          return [`${base}-sa`, `${base}-mamak`, `${base}98`]
+            .map(s => s.slice(0, 30))
+            .filter(s => !validateSubdomain(s))
+        })()
+
+        const closeModal = () => {
+          setShowPublishModal(false)
+          setError('')
+          setSubdomainError(null)
+          setPubChecked(false)
+        }
+
+        const handleCheckAvailability = () => {
+          const v = validateSubdomain(subdomain)
+          setSubdomainError(v)
+          setPubChecked(true)
+        }
+
+        const copyLiveUrl = () => {
+          navigator.clipboard.writeText(publishedUrl).then(
+            () => { setCopied(true); setTimeout(() => setCopied(false), 1800); toast.success('URL copied') },
+            () => toast.error('Copy failed')
+          )
+        }
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,12,.7)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 110, padding: 24 }} onClick={closeModal}>
+            <div className="float-in" onClick={(e) => e.stopPropagation()} style={{ width: 520, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#0F0F1A', border: '1px solid rgba(255,255,255,.08)', borderRadius: 22, boxShadow: '0 40px 100px rgba(0,0,0,.6), 0 0 0 1px rgba(107,92,255,.15), 0 0 80px rgba(79,61,255,.15)', position: 'relative' }}>
+              <div style={{ padding: 28, position: 'relative' }}>
+                <button onClick={closeModal} className="cr-btn-icon" aria-label="Close" style={{ position: 'absolute', top: 16, right: 16, width: 32, height: 32 }}>
+                  <XIcon size={14} />
+                </button>
+
+                {/* Header with state-aware icon */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6 }}>
+                  {pubState === 'success' ? (
+                    <div style={{ width: 44, height: 44, borderRadius: 12, background: 'linear-gradient(135deg, #C7FF3D, #22C08F)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 30px rgba(199,255,61,.5)', color: '#05050C' }}>
+                      <Check size={22} strokeWidth={3} />
+                    </div>
+                  ) : pubState === 'taken' ? (
+                    <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,90,95,.1)', border: '1px solid rgba(255,90,95,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FF8A8E' }}>
+                      <XIcon size={20} />
+                    </div>
+                  ) : pubState === 'publishing' ? (
+                    <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(79,61,255,.15)', border: '1px solid rgba(107,92,255,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid rgba(255,255,255,.15)', borderTopColor: '#C7FF3D', animation: 'orbit 800ms linear infinite' }} />
+                    </div>
+                  ) : (
+                    <div style={{ width: 44, height: 44, borderRadius: 12, background: 'linear-gradient(135deg, #6B5CFF, #4F3DFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 30px rgba(79,61,255,.4)', color: '#fff' }}>
+                      <Globe size={20} />
+                    </div>
+                  )}
+                  <div>
+                    <div className="eyebrow" style={{ color: pubState === 'success' ? '#C7FF3D' : pubState === 'taken' ? '#FF8A8E' : '#BAB0FF', marginBottom: 4 }}>STEP 04 · PUBLISH</div>
+                    <h3 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA' }}>{meta.l}</h3>
+                  </div>
+                </div>
+                <p style={{ color: '#86869A', fontSize: 14, lineHeight: 1.5, margin: '12px 0 22px' }}>{meta.desc}</p>
+
+                {/* Project name + subdomain input — visible in edit/available/taken */}
+                {pubState !== 'success' && pubState !== 'publishing' && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <label className="eyebrow" style={{ display: 'block', color: '#B8B8C8', letterSpacing: '.1em', fontSize: 11, marginBottom: 8 }}>Project name</label>
+                      <input
+                        type="text"
+                        value={projectName}
+                        onChange={(e) => setProjectName(e.target.value)}
+                        placeholder="My Restaurant"
+                        className="cr-input"
+                      />
+                    </div>
+                    <div>
+                      <label className="eyebrow" style={{ display: 'block', color: '#B8B8C8', letterSpacing: '.1em', fontSize: 11, marginBottom: 8 }}>Subdomain</label>
+                      <div style={{ display: 'flex', alignItems: 'stretch', background: '#16161F', border: `1px solid ${pubState === 'taken' ? 'rgba(255,90,95,.5)' : pubState === 'available' ? 'rgba(199,255,61,.4)' : 'rgba(255,255,255,.08)'}`, borderRadius: 12, overflow: 'hidden', boxShadow: pubState === 'taken' ? '0 0 0 4px rgba(255,90,95,.12)' : pubState === 'available' ? '0 0 0 4px rgba(199,255,61,.12)' : 'none', transition: 'all 200ms' }}>
+                        <input
+                          value={subdomain}
+                          onChange={(e) => {
+                            const value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
+                            setSubdomain(value)
+                            setSubdomainError(validateSubdomain(value))
+                            setPubChecked(false)
+                          }}
+                          placeholder="kedai-yassir"
+                          style={{ flex: 1, background: 'transparent', border: 0, padding: '14px 14px', color: '#F5F5FA', fontFamily: "'Geist Mono', monospace", fontSize: 15, outline: 'none' }}
+                        />
+                        <div style={{ display: 'flex', alignItems: 'center', padding: '0 16px', borderLeft: '1px solid rgba(255,255,255,.04)', color: '#86869A', fontFamily: "'Geist Mono', monospace", fontSize: 14 }}>.binaapp.my</div>
+                      </div>
+                      {pubState === 'taken' && (
+                        <div style={{ marginTop: 10, padding: 12, background: 'rgba(255,90,95,.06)', border: '1px solid rgba(255,90,95,.2)', borderRadius: 10, fontSize: 13, color: '#FF8A8E' }}>
+                          <div style={{ marginBottom: 6, fontWeight: 500 }}>{subdomainError || 'Try these instead:'}</div>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {suggestions.slice(0, 3).map(s => (
+                              <button
+                                key={s}
+                                type="button"
+                                onClick={() => { setSubdomain(s); setSubdomainError(null); setPubChecked(true); }}
+                                className="chip"
+                                style={{ borderColor: 'rgba(255,90,95,.2)', background: 'rgba(255,90,95,.04)', color: '#FF8A8E', fontFamily: "'Geist Mono', monospace", fontSize: 12 }}
+                              >{s}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {pubState === 'available' && (
+                        <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(199,255,61,.05)', border: '1px solid rgba(199,255,61,.2)', borderRadius: 10, fontSize: 13, color: '#DDFF7A', display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <Check size={14} strokeWidth={2.5} /> Available! Press publish to go live.
+                        </div>
+                      )}
+                      {pubState === 'edit' && (
+                        <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 8 }}>
+                          Only lowercase letters, numbers, and hyphens · 3-30 characters
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* Publishing — shimmer bar */}
+                {pubState === 'publishing' && (
+                  <div style={{ padding: '20px 0' }}>
+                    <div className="num" style={{ fontSize: 13, color: '#86869A', marginBottom: 10, display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Provisioning DNS · SSL · CDN</span>
+                      <span style={{ color: '#C7FF3D' }}>72%</span>
+                    </div>
+                    <div style={{ height: 4, background: 'rgba(255,255,255,.05)', borderRadius: 999, overflow: 'hidden' }}>
+                      <div className="shimmer" style={{ height: '100%', width: '72%', background: 'linear-gradient(90deg, #4F3DFF, #C7FF3D)', boxShadow: '0 0 12px #C7FF3D' }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Success — live URL + share */}
+                {pubState === 'success' && (
+                  <div>
+                    <div style={{ padding: 16, background: 'rgba(199,255,61,.05)', border: '1px solid rgba(199,255,61,.2)', borderRadius: 12, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="eyebrow" style={{ color: '#C7FF3D' }}>YOUR LIVE URL</div>
+                        <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 14, color: '#F5F5FA', marginTop: 4, wordBreak: 'break-all' }}>{publishedUrl}</div>
+                      </div>
+                      <button type="button" className="cr-btn cr-btn-ghost" onClick={copyLiveUrl} style={{ padding: '8px 12px' }}>
+                        {copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy</>}
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button type="button" className="cr-btn cr-btn-ghost" onClick={() => handleShareSocial('whatsapp')} style={{ flex: '1 1 140px' }}>
+                        <Share2 size={14} /> Share WhatsApp
+                      </button>
+                      <button
+                        type="button"
+                        className="cr-btn cr-btn-ghost"
+                        onClick={() => window.open(`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(publishedUrl)}`, '_blank', 'width=300,height=300')}
+                        style={{ flex: '1 1 140px' }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v3M14 21h3M21 17v4"/></svg>
+                        QR code
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error banner */}
+                {error && pubState !== 'success' && (
+                  <div className="banner-accent" style={{ marginTop: 16, marginBottom: 0, background: 'linear-gradient(90deg, rgba(239,68,68,.06), transparent)', border: '1px solid rgba(239,68,68,.22)' }}>
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#EF4444' }} />
+                    <span style={{ fontSize: 13, color: '#FCA5A5' }}>{error}</span>
+                  </div>
+                )}
+
+                {/* Actions row */}
+                <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+                  {pubState === 'edit' && (
+                    <>
+                      <button type="button" className="cr-btn cr-btn-ghost" onClick={closeModal} style={{ flex: 1 }} disabled={publishing}>Cancel</button>
+                      <button
+                        type="button"
+                        className="cr-btn"
+                        onClick={handleCheckAvailability}
+                        disabled={!subdomain || !projectName}
+                        style={{ flex: 1, background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)', opacity: !subdomain || !projectName ? .35 : 1, cursor: !subdomain || !projectName ? 'not-allowed' : 'pointer' }}
+                      >
+                        Check availability
+                      </button>
+                    </>
+                  )}
+                  {pubState === 'available' && (
+                    <>
+                      <button type="button" className="cr-btn cr-btn-ghost" onClick={() => setPubChecked(false)} style={{ flex: 1 }} disabled={publishing}>Edit</button>
+                      <button
+                        type="button"
+                        className="cr-btn"
+                        onClick={handlePublish}
+                        disabled={publishing || !subdomain || !projectName || !!subdomainError}
+                        style={{ flex: 1, background: 'linear-gradient(180deg, #DDFF7A, #C7FF3D)', color: '#05050C', boxShadow: '0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25)' }}
+                      >
+                        <Globe size={14} /> Publish now
+                      </button>
+                    </>
+                  )}
+                  {pubState === 'taken' && (
+                    <button
+                      type="button"
+                      className="cr-btn"
+                      onClick={() => { setPubChecked(false); }}
+                      style={{ flex: 1, background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)' }}
+                    >
+                      Try another
+                    </button>
+                  )}
+                  {pubState === 'success' && (
+                    <>
+                      <button type="button" className="cr-btn cr-btn-ghost" onClick={closeModal} style={{ flex: 1 }}>Close</button>
+                      <button
+                        type="button"
+                        className="cr-btn"
+                        onClick={() => router.push('/dashboard')}
+                        style={{ flex: 1, background: 'linear-gradient(180deg, #DDFF7A, #C7FF3D)', color: '#05050C', boxShadow: '0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25)' }}
+                      >
+                        Open dashboard
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14m-6-7 7 7-7 7" /></svg>
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-              {subdomainError ? (
-                <p style={{ fontSize: 12, color: '#FCA5A5', marginTop: 6, fontWeight: 500 }}>
-                  {subdomainError}
-                </p>
-              ) : (
-                <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 6 }}>
-                  Only lowercase letters, numbers, and hyphens
-                </p>
-              )}
-            </div>
-
-            {error && (
-              <div className="banner-accent" style={{ marginBottom: 18, background: 'linear-gradient(90deg, rgba(239,68,68,.06), transparent)', border: '1px solid rgba(239,68,68,.22)' }}>
-                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#EF4444' }} />
-                <span style={{ fontSize: 13, color: '#FCA5A5' }}>{error}</span>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={() => { setShowPublishModal(false); setError(''); setSubdomainError(null); }}
-                className="cr-btn cr-btn-ghost"
-                style={{ flex: 1 }}
-                disabled={publishing}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePublish}
-                className="cr-btn"
-                style={{ flex: 1, background: 'linear-gradient(180deg, #DDFF7A, #C7FF3D)', color: '#05050C', boxShadow: '0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25)', opacity: publishing || !subdomain || !projectName || !!subdomainError ? .35 : 1, cursor: publishing || !subdomain || !projectName || !!subdomainError ? 'not-allowed' : 'pointer' }}
-                disabled={publishing || !subdomain || !projectName || !!subdomainError}
-              >
-                {publishing ? 'Publishing...' : 'Publish Now'}
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Upgrade Modal */}
       <UpgradeModal
