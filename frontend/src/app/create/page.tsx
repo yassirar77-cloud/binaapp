@@ -1177,54 +1177,66 @@ export default function CreatePage() {
               </div>
             )}
 
-            {/* ── 01 Language & Theme ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
-              <div className="eyebrow" style={{ marginBottom: 16 }}>01 — BAHASA & TEMA</div>
-
-              {/* Language toggle */}
+            {/* ── 02 Bahasa & Tema ── */}
+            <section style={{ marginBottom: 32 }}>
               <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Bahasa / Language</div>
-                <div style={{ display: 'inline-flex', gap: 8 }}>
-                  <button
-                    onClick={() => setLanguage('ms')}
-                    className={language === 'ms' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
-                  >
-                    Bahasa Malaysia
-                  </button>
-                  <button
-                    onClick={() => setLanguage('en')}
-                    className={language === 'en' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
-                  >
-                    English
-                  </button>
+                <div className="section-num" style={{ marginBottom: 10 }}>
+                  <span className="dot" />02 — BAHASA &amp; TEMA
+                </div>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Bahasa &amp; tema</h2>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Pilihan asas — boleh tukar bila-bila masa selepas generate.</p>
+              </div>
+              <div className="basics-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div className="cr-card cr-card-hairline" style={{ padding: 18, minWidth: 0 }}>
+                  <div className="eyebrow" style={{ marginBottom: 12 }}>Bahasa website</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <div
+                      className={'opt ' + (language === 'ms' ? 'selected' : '')}
+                      onClick={() => setLanguage('ms')}
+                      style={{ flex: 1, padding: '12px 10px', minWidth: 0 }}
+                    >
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA', lineHeight: 1.2, wordBreak: 'break-word' }}>Bahasa Malaysia</div>
+                      <div style={{ fontSize: 11, color: '#86869A', marginTop: 3 }}>Default</div>
+                    </div>
+                    <div
+                      className={'opt ' + (language === 'en' ? 'selected' : '')}
+                      onClick={() => setLanguage('en')}
+                      style={{ flex: 1, padding: '12px 10px', minWidth: 0 }}
+                    >
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA', lineHeight: 1.2, wordBreak: 'break-word' }}>English</div>
+                      <div style={{ fontSize: 11, color: '#86869A', marginTop: 3 }}>For tourists</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="cr-card cr-card-hairline" style={{ padding: 18, minWidth: 0 }}>
+                  <div className="eyebrow" style={{ marginBottom: 12 }}>Color theme</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <div
+                      className={'opt ' + (colorMode === 'light' ? 'selected' : '')}
+                      onClick={() => setColorMode('light')}
+                      style={{ flex: 1, padding: 0, minWidth: 0, overflow: 'hidden' }}
+                    >
+                      <div style={{ height: 48, background: 'linear-gradient(135deg,#F7F7FA,#EEEEF3)', borderRadius: '13px 13px 0 0' }} />
+                      <div style={{ padding: '10px 10px' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA' }}>Cerah</div>
+                        <div style={{ fontSize: 11, color: '#86869A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Light · putih</div>
+                      </div>
+                    </div>
+                    <div
+                      className={'opt ' + (colorMode === 'dark' ? 'selected' : '')}
+                      onClick={() => setColorMode('dark')}
+                      style={{ flex: 1, padding: 0, minWidth: 0, overflow: 'hidden' }}
+                    >
+                      <div style={{ height: 48, background: 'linear-gradient(135deg,#1F1F2A,#0B0B15)', borderRadius: '13px 13px 0 0' }} />
+                      <div style={{ padding: '10px 10px' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA' }}>Gelap</div>
+                        <div style={{ fontSize: 11, color: '#86869A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Dark · premium</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
-
-              {/* Color mode toggle */}
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500, color: '#B8B8C8', marginBottom: 10 }}>Tema Warna / Color Theme</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <button
-                    type="button"
-                    onClick={() => setColorMode('light')}
-                    className={colorMode === 'light' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
-                    style={{ padding: '14px 16px', flexDirection: 'column', gap: 4 }}
-                  >
-                    <span style={{ fontSize: 22 }}>&#9728;&#65039;</span>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>Cerah / Light</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setColorMode('dark')}
-                    className={colorMode === 'dark' ? 'cr-toggle cr-toggle-active' : 'cr-toggle'}
-                    style={{ padding: '14px 16px', flexDirection: 'column', gap: 4 }}
-                  >
-                    <span style={{ fontSize: 22 }}>&#127769;</span>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>Gelap / Dark</span>
-                  </button>
-                </div>
-              </div>
-            </div>
+            </section>
 
             {/* ── 02 Business Type ── */}
             <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
