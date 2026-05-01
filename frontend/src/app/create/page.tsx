@@ -1238,34 +1238,59 @@ export default function CreatePage() {
               </div>
             </section>
 
-            {/* ── 02 Business Type ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
-              <div className="eyebrow" style={{ marginBottom: 16 }}>02 — JENIS PERNIAGAAN</div>
-              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih jenis perniagaan anda</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
-                {[
-                  { id: 'auto' as const, icon: '🔍', label: 'Auto Detect', desc: 'Kesan automatik', recommended: true },
-                  { id: 'food' as const, icon: '🍛', label: 'Restoran / Makanan', desc: 'Nasi, Lauk, Minuman', recommended: false },
-                  { id: 'clothing' as const, icon: '👗', label: 'Pakaian / Butik', desc: 'Baju, Tudung, Aksesori', recommended: false },
-                  { id: 'salon' as const, icon: '💇', label: 'Salon / Spa', desc: 'Potong, Rawatan, Warna', recommended: false },
-                  { id: 'services' as const, icon: '🔧', label: 'Servis / Repair', desc: 'Perkhidmatan, Pakej', recommended: false },
-                  { id: 'bakery' as const, icon: '🎂', label: 'Bakeri / Kek', desc: 'Kek, Pastri, Cookies', recommended: false },
-                  { id: 'general' as const, icon: '🛒', label: 'Lain-lain', desc: 'Produk Umum', recommended: false }
-                ].map(type => (
-                  <button
+            {/* ── 03 Apa jenis kedai anda? ── */}
+            <section style={{ marginBottom: 32 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, marginBottom: 20, flexWrap: 'wrap' }}>
+                <div>
+                  <div className="section-num" style={{ marginBottom: 10 }}>
+                    <span className="dot" />03 — APA JENIS KEDAI ANDA?
+                  </div>
+                  <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Apa jenis kedai anda?</h2>
+                  <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>AI guna pilihan ni untuk pilih layout, content &amp; menu structure yang sesuai.</p>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                  <div
+                    role="switch"
+                    aria-checked={multiStyle}
+                    tabIndex={0}
+                    onClick={() => setMultiStyle(!multiStyle)}
+                    onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setMultiStyle(!multiStyle); } }}
+                    className={'toggle ' + (multiStyle ? 'on' : '')}
+                  />
+                  <span style={{ fontSize: 13, color: '#B8B8C8' }}>
+                    Multi-style preview
+                    <span className="pill pill-indigo" style={{ marginLeft: 6, padding: '2px 7px' }}>
+                      <span style={{ display: 'inline-flex', width: 10, height: 10 }}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#C7FF3D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>
+                      </span>
+                      AI
+                    </span>
+                  </span>
+                </div>
+              </div>
+              <div className="biz-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 12 }}>
+                {([
+                  { id: 'auto' as const, icon: '✨', label: 'Auto Detect', sub: 'AI pilih sesuai dengan deskripsi anda', recommended: true },
+                  { id: 'food' as const, icon: '🍜', label: 'Restoran', sub: 'Mamak, kafe, kedai makan', recommended: false },
+                  { id: 'clothing' as const, icon: '👗', label: 'Pakaian', sub: 'Butik, fashion, lifestyle', recommended: false },
+                  { id: 'salon' as const, icon: '💇', label: 'Salon', sub: 'Hair, beauty, spa', recommended: false },
+                  { id: 'services' as const, icon: '🔧', label: 'Servis', sub: 'Bengkel, plumbing, repair', recommended: false },
+                  { id: 'bakery' as const, icon: '🥐', label: 'Bakeri', sub: 'Roti, kek, pastri', recommended: false },
+                  { id: 'general' as const, icon: '✦', label: 'Lain-lain', sub: 'Custom — beritahu AI', recommended: false }
+                ]).map(type => (
+                  <div
                     key={type.id}
-                    type="button"
                     onClick={() => setBusinessType(type.id)}
-                    className={businessType === type.id ? 'cr-type-card cr-type-card-active' : 'cr-type-card'}
-                    style={{ position: 'relative' }}
+                    className={'opt ' + (businessType === type.id ? 'selected' : '')}
+                    style={{ padding: 14, minHeight: 110, minWidth: 0 }}
                   >
                     {type.recommended && (
-                      <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 9, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 6, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)' }}>REC</span>
+                      <div className="pill pill-volt" style={{ position: 'absolute', top: 8, right: 8, padding: '2px 6px', fontSize: 9 }}>RECOMMENDED</div>
                     )}
-                    <span style={{ fontSize: 28, display: 'block', marginBottom: 6 }}>{type.icon}</span>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: '#F5F5FA', display: 'block' }}>{type.label}</span>
-                    <span style={{ fontSize: 11, color: '#5A5A6E', marginTop: 4, display: 'block' }}>{type.desc}</span>
-                  </button>
+                    <div style={{ fontSize: 22, marginBottom: 10, filter: 'grayscale(.2)' }}>{type.icon}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA', marginBottom: 3, lineHeight: 1.2 }}>{type.label}</div>
+                    <div style={{ fontSize: 11, color: '#86869A', lineHeight: 1.35 }}>{type.sub}</div>
+                  </div>
                 ))}
               </div>
               <div style={{ fontSize: 12, color: '#5A5A6E', marginTop: 12 }}>
@@ -1277,30 +1302,8 @@ export default function CreatePage() {
                 {businessType === 'bakery' && 'Butang: "Tempah Kek" | Pilihan saiz & mesej atas kek'}
                 {businessType === 'general' && 'Butang: "Beli Sekarang" | Pilihan penghantaran'}
               </div>
-            </div>
-
-            {/* ── 03 Multi-style ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20, background: 'linear-gradient(180deg, rgba(79,61,255,.06), rgba(255,255,255,0)), #0F0F1A' }}>
-              <label className="cr-check" style={{ marginBottom: multiStyle ? 14 : 0 }}>
-                <input
-                  type="checkbox"
-                  checked={multiStyle}
-                  onChange={(e) => setMultiStyle(e.target.checked)}
-                />
-                <span className="cr-check-box" />
-                <div>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: '#F5F5FA' }}>
-                    Generate Multiple Styles
-                  </span>
-                  <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase' as const, padding: '2px 7px', borderRadius: 6, background: 'rgba(199,255,61,.12)', color: '#C7FF3D', border: '1px solid rgba(199,255,61,.25)' }}>REC</span>
-                  <p style={{ fontSize: 13, color: '#86869A', marginTop: 4 }}>
-                    Get 3 design variations (Modern, Minimal, Bold) and choose your favorite
-                  </p>
-                </div>
-              </label>
-
               {multiStyle && (
-                <label className="cr-check" style={{ marginLeft: 32 }}>
+                <label className="cr-check" style={{ marginTop: 14, padding: '10px 12px', background: 'rgba(255,255,255,.02)', border: '1px solid rgba(255,255,255,.04)', borderRadius: 10 }}>
                   <input
                     type="checkbox"
                     checked={generatePreviews}
@@ -1308,16 +1311,12 @@ export default function CreatePage() {
                   />
                   <span className="cr-check-box" />
                   <div>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8' }}>
-                      Generate Preview Thumbnails
-                    </span>
-                    <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2 }}>
-                      Takes 10-15 seconds longer but shows better previews
-                    </p>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: '#B8B8C8' }}>Generate Preview Thumbnails</span>
+                    <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 2 }}>Takes 10-15 seconds longer but shows better previews</p>
                   </div>
                 </label>
               )}
-            </div>
+            </section>
 
             {/* ── 04 Description ── */}
             <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
