@@ -1318,24 +1318,84 @@ export default function CreatePage() {
               )}
             </section>
 
-            {/* ── 04 Description ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
-              <div className="eyebrow" style={{ marginBottom: 16 }}>04 — CERITAKAN PERNIAGAAN ANDA</div>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder={
-                  language === 'ms'
-                    ? 'Contoh: Saya ada kedai runcit di Shah Alam yang jual barangan harian, makanan, dan minuman. Harga berpatutan dari RM1. Lokasi di Seksyen 7 Shah Alam. Telefon 019-1234567. Buka 7am-10pm setiap hari...'
-                    : 'Example: I have a coffee shop in Kuala Lumpur serving specialty coffee, cakes, and light meals. Prices from RM8. Located at TTDI. Contact via WhatsApp 012-3456789. Open daily 8am-6pm...'
-                }
-                className="cr-textarea"
-                style={{ width: '100%', height: 220, resize: 'none' }}
-              />
-              <div className="cr-counter" style={{ color: description.length >= 100 ? '#34D399' : description.length >= 50 ? '#C7FF3D' : '#5A5A6E' }}>
-                <span className="num">{description.length}</span> characters
-              </div>
-            </div>
+            {/* ── 04 Cerita pasal kedai anda ── */}
+            {(() => {
+              const DESC_MIN = 200;
+              const DESC_MAX = 1000;
+              const len = description.length;
+              const pct = Math.min(100, (len / DESC_MIN) * 100);
+              type DescStatus = 'empty' | 'tooshort' | 'ok' | 'great' | 'plenty';
+              const status: DescStatus =
+                len === 0 ? 'empty'
+                : len < DESC_MIN ? 'tooshort'
+                : len < 600 ? 'ok'
+                : len < 900 ? 'great'
+                : 'plenty';
+              const helpers: Record<DescStatus, { c: string; t: string }> = {
+                empty:    { c: '#5A5A6E', t: 'AI akan tanya soalan dengan deskripsi anda.' },
+                tooshort: { c: '#FFB020', t: `Tambah ${DESC_MIN - len} aksara lagi untuk hasil terbaik.` },
+                ok:       { c: '#22C08F', t: 'Bagus — AI dah ada cukup info.' },
+                great:    { c: '#C7FF3D', t: 'Premium quality output dijangka. AI ready.' },
+                plenty:   { c: '#C7FF3D', t: `Sangat detailed. ${DESC_MAX - len} aksara baki.` },
+              };
+              const helper = helpers[status];
+              return (
+                <section style={{ marginBottom: 32 }}>
+                  <div style={{ marginBottom: 20 }}>
+                    <div className="section-num" style={{ marginBottom: 10 }}>
+                      <span className="dot" />04 — CERITA PASAL KEDAI ANDA
+                    </div>
+                    <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Cerita pasal kedai anda</h2>
+                    <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Lebih detail = website lebih baik. Cakap pasal vibe, pelanggan, signature menu, sejarah — semua membantu AI.</p>
+                  </div>
+                  <div className="cr-card cr-card-hairline" style={{ padding: 4, position: 'relative', overflow: 'hidden' }}>
+                    <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 8, zIndex: 2 }}>
+                      <span className="pill pill-indigo" style={{ padding: '4px 10px' }}>
+                        <span style={{ display: 'inline-flex', width: 10, height: 10 }}>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#C7FF3D" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></svg>
+                        </span>
+                        AI listening
+                      </span>
+                    </div>
+                    <textarea
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value.slice(0, DESC_MAX))}
+                      placeholder={
+                        language === 'ms'
+                          ? 'Contoh: Kedai mamak family-run di Shah Alam since 1998. Kami famous dengan nasi kandar daging crystal kuah pedas — customer datang dari KL khas untuk makan. Vibe authentic, tak fancy. Open 24 jam, weekends penuh dengan family ramai-ramai.'
+                          : 'Example: I have a coffee shop in Kuala Lumpur serving specialty coffee, cakes, and light meals. Prices from RM8. Located at TTDI. Contact via WhatsApp 012-3456789. Open daily 8am-6pm.'
+                      }
+                      style={{
+                        width: '100%',
+                        background: 'transparent',
+                        border: 'none',
+                        minHeight: 180,
+                        fontSize: 15,
+                        padding: '20px 22px 64px',
+                        boxShadow: 'none',
+                        outline: 'none',
+                        resize: 'vertical',
+                        color: '#F5F5FA',
+                        lineHeight: 1.55,
+                        fontFamily: "'Geist', 'Inter', -apple-system, sans-serif",
+                        letterSpacing: '-0.005em',
+                      }}
+                    />
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderTop: '1px solid rgba(255,255,255,.04)', background: 'linear-gradient(180deg, transparent, rgba(0,0,0,.2))', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 200, maxWidth: 480 }}>
+                        <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,.06)', borderRadius: 999, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: helper.c, transition: 'all 300ms', boxShadow: `0 0 8px ${helper.c}` }} />
+                        </div>
+                        <div className="num" style={{ fontSize: 11, color: helper.c, minWidth: 60 }}>{len} / {DESC_MAX}</div>
+                      </div>
+                      <div style={{ fontSize: 12, color: helper.c, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Sparkles size={11} /> {helper.t}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              );
+            })()}
 
             <VisualImageUpload onImagesUploaded={setUploadedImages} />
 
