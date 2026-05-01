@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout, FileText, MapPin, Truck, ListChecks } from 'lucide-react'
+import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout, FileText, MapPin, Truck, ListChecks, Globe, X as XIcon } from 'lucide-react'
 import VisualImageUpload from './components/VisualImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
@@ -139,6 +139,10 @@ export default function CreatePage() {
   const [uploadingHero, setUploadingHero] = useState(false)
   const [menuPreviews, setMenuPreviews] = useState<Record<number, string>>({})
   const [uploadingMenuIdx, setUploadingMenuIdx] = useState<number | null>(null)
+  // V3 publish modal: tracks whether user clicked "Check availability" so we
+  // can display the 5-state machine (edit/available/taken/publishing/success)
+  // derived from existing subdomain/subdomainError/publishing/publishedUrl.
+  const [pubChecked, setPubChecked] = useState(false)
 
   const [multiStyle, setMultiStyle] = useState(true)
   const [styleVariations, setStyleVariations] = useState<StyleVariation[]>([])
@@ -2456,84 +2460,256 @@ export default function CreatePage() {
         )}
       </main>
 
-      {showPublishModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,12,.85)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
-          <div className="cr-card cr-card-hairline" style={{ maxWidth: 460, width: '100%', padding: 32 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-              <h2 style={{ fontSize: 20, fontWeight: 700, color: '#F5F5FA', margin: 0 }}>Publish Your Website</h2>
-              <button onClick={() => { setShowPublishModal(false); setError(''); setSubdomainError(null); }} className="cr-btn-icon" aria-label="Close">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-              </button>
-            </div>
+      {showPublishModal && (() => {
+        // Derive 5-state machine from existing primitives (no new backend).
+        type PubState = 'edit' | 'available' | 'taken' | 'publishing' | 'success'
+        const pubState: PubState =
+          publishedUrl ? 'success'
+          : publishing ? 'publishing'
+          : (subdomain && subdomainError) ? 'taken'
+          : (subdomain && !subdomainError && pubChecked) ? 'available'
+          : 'edit'
 
-            <div style={{ marginBottom: 18 }}>
-              <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Project Name</label>
-              <input
-                type="text"
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                placeholder="My Restaurant"
-                className="cr-input"
-              />
-            </div>
+        const stateMeta: Record<PubState, { l: string; desc: string }> = {
+          edit:        { l: 'Choose your subdomain',  desc: 'Pilih address website anda. Boleh tukar nanti via custom domain.' },
+          available:   { l: 'Subdomain available',    desc: 'Bagus pilihan! Tekan publish untuk go live.' },
+          taken:       { l: 'Already taken',          desc: 'Subdomain ni dah ada orang ambik. Try yang lain.' },
+          publishing:  { l: 'Publishing your site',   desc: 'Tunggu sat — biasanya 8–12 saat.' },
+          success:     { l: 'Live!',                  desc: 'Website anda dah go live. Share link untuk dapat orders.' },
+        }
+        const meta = stateMeta[pubState]
 
-            <div style={{ marginBottom: 18 }}>
-              <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Choose Subdomain</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input
-                  type="text"
-                  value={subdomain}
-                  onChange={(e) => {
-                    const value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
-                    setSubdomain(value)
-                    const validationError = validateSubdomain(value)
-                    setSubdomainError(validationError)
-                  }}
-                  placeholder="kedaiayam"
-                  className="cr-input"
-                  style={{ flex: 1, borderColor: subdomainError ? 'rgba(239,68,68,.5)' : undefined }}
-                />
-                <span style={{ fontSize: 13, color: '#5A5A6E', whiteSpace: 'nowrap' }}>.binaapp.my</span>
+        // Suggest 3 alternatives when 'taken' (client-side suffix patterns)
+        const suggestions = (() => {
+          const base = subdomain.replace(/[^a-z0-9]/g, '') || 'kedai'
+          return [`${base}-sa`, `${base}-mamak`, `${base}98`]
+            .map(s => s.slice(0, 30))
+            .filter(s => !validateSubdomain(s))
+        })()
+
+        const closeModal = () => {
+          setShowPublishModal(false)
+          setError('')
+          setSubdomainError(null)
+          setPubChecked(false)
+        }
+
+        const handleCheckAvailability = () => {
+          const v = validateSubdomain(subdomain)
+          setSubdomainError(v)
+          setPubChecked(true)
+        }
+
+        const copyLiveUrl = () => {
+          navigator.clipboard.writeText(publishedUrl).then(
+            () => { setCopied(true); setTimeout(() => setCopied(false), 1800); toast.success('URL copied') },
+            () => toast.error('Copy failed')
+          )
+        }
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,12,.7)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 110, padding: 24 }} onClick={closeModal}>
+            <div className="float-in" onClick={(e) => e.stopPropagation()} style={{ width: 520, maxWidth: '100%', maxHeight: '90vh', overflow: 'auto', background: '#0F0F1A', border: '1px solid rgba(255,255,255,.08)', borderRadius: 22, boxShadow: '0 40px 100px rgba(0,0,0,.6), 0 0 0 1px rgba(107,92,255,.15), 0 0 80px rgba(79,61,255,.15)', position: 'relative' }}>
+              <div style={{ padding: 28, position: 'relative' }}>
+                <button onClick={closeModal} className="cr-btn-icon" aria-label="Close" style={{ position: 'absolute', top: 16, right: 16, width: 32, height: 32 }}>
+                  <XIcon size={14} />
+                </button>
+
+                {/* Header with state-aware icon */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6 }}>
+                  {pubState === 'success' ? (
+                    <div style={{ width: 44, height: 44, borderRadius: 12, background: 'linear-gradient(135deg, #C7FF3D, #22C08F)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 30px rgba(199,255,61,.5)', color: '#05050C' }}>
+                      <Check size={22} strokeWidth={3} />
+                    </div>
+                  ) : pubState === 'taken' ? (
+                    <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,90,95,.1)', border: '1px solid rgba(255,90,95,.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FF8A8E' }}>
+                      <XIcon size={20} />
+                    </div>
+                  ) : pubState === 'publishing' ? (
+                    <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(79,61,255,.15)', border: '1px solid rgba(107,92,255,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid rgba(255,255,255,.15)', borderTopColor: '#C7FF3D', animation: 'orbit 800ms linear infinite' }} />
+                    </div>
+                  ) : (
+                    <div style={{ width: 44, height: 44, borderRadius: 12, background: 'linear-gradient(135deg, #6B5CFF, #4F3DFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 30px rgba(79,61,255,.4)', color: '#fff' }}>
+                      <Globe size={20} />
+                    </div>
+                  )}
+                  <div>
+                    <div className="eyebrow" style={{ color: pubState === 'success' ? '#C7FF3D' : pubState === 'taken' ? '#FF8A8E' : '#BAB0FF', marginBottom: 4 }}>STEP 04 · PUBLISH</div>
+                    <h3 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA' }}>{meta.l}</h3>
+                  </div>
+                </div>
+                <p style={{ color: '#86869A', fontSize: 14, lineHeight: 1.5, margin: '12px 0 22px' }}>{meta.desc}</p>
+
+                {/* Project name + subdomain input — visible in edit/available/taken */}
+                {pubState !== 'success' && pubState !== 'publishing' && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <label className="eyebrow" style={{ display: 'block', color: '#B8B8C8', letterSpacing: '.1em', fontSize: 11, marginBottom: 8 }}>Project name</label>
+                      <input
+                        type="text"
+                        value={projectName}
+                        onChange={(e) => setProjectName(e.target.value)}
+                        placeholder="My Restaurant"
+                        className="cr-input"
+                      />
+                    </div>
+                    <div>
+                      <label className="eyebrow" style={{ display: 'block', color: '#B8B8C8', letterSpacing: '.1em', fontSize: 11, marginBottom: 8 }}>Subdomain</label>
+                      <div style={{ display: 'flex', alignItems: 'stretch', background: '#16161F', border: `1px solid ${pubState === 'taken' ? 'rgba(255,90,95,.5)' : pubState === 'available' ? 'rgba(199,255,61,.4)' : 'rgba(255,255,255,.08)'}`, borderRadius: 12, overflow: 'hidden', boxShadow: pubState === 'taken' ? '0 0 0 4px rgba(255,90,95,.12)' : pubState === 'available' ? '0 0 0 4px rgba(199,255,61,.12)' : 'none', transition: 'all 200ms' }}>
+                        <input
+                          value={subdomain}
+                          onChange={(e) => {
+                            const value = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
+                            setSubdomain(value)
+                            setSubdomainError(validateSubdomain(value))
+                            setPubChecked(false)
+                          }}
+                          placeholder="kedai-yassir"
+                          style={{ flex: 1, background: 'transparent', border: 0, padding: '14px 14px', color: '#F5F5FA', fontFamily: "'Geist Mono', monospace", fontSize: 15, outline: 'none' }}
+                        />
+                        <div style={{ display: 'flex', alignItems: 'center', padding: '0 16px', borderLeft: '1px solid rgba(255,255,255,.04)', color: '#86869A', fontFamily: "'Geist Mono', monospace", fontSize: 14 }}>.binaapp.my</div>
+                      </div>
+                      {pubState === 'taken' && (
+                        <div style={{ marginTop: 10, padding: 12, background: 'rgba(255,90,95,.06)', border: '1px solid rgba(255,90,95,.2)', borderRadius: 10, fontSize: 13, color: '#FF8A8E' }}>
+                          <div style={{ marginBottom: 6, fontWeight: 500 }}>{subdomainError || 'Try these instead:'}</div>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {suggestions.slice(0, 3).map(s => (
+                              <button
+                                key={s}
+                                type="button"
+                                onClick={() => { setSubdomain(s); setSubdomainError(null); setPubChecked(true); }}
+                                className="chip"
+                                style={{ borderColor: 'rgba(255,90,95,.2)', background: 'rgba(255,90,95,.04)', color: '#FF8A8E', fontFamily: "'Geist Mono', monospace", fontSize: 12 }}
+                              >{s}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {pubState === 'available' && (
+                        <div style={{ marginTop: 10, padding: '10px 12px', background: 'rgba(199,255,61,.05)', border: '1px solid rgba(199,255,61,.2)', borderRadius: 10, fontSize: 13, color: '#DDFF7A', display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <Check size={14} strokeWidth={2.5} /> Available! Press publish to go live.
+                        </div>
+                      )}
+                      {pubState === 'edit' && (
+                        <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 8 }}>
+                          Only lowercase letters, numbers, and hyphens · 3-30 characters
+                        </p>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* Publishing — shimmer bar */}
+                {pubState === 'publishing' && (
+                  <div style={{ padding: '20px 0' }}>
+                    <div className="num" style={{ fontSize: 13, color: '#86869A', marginBottom: 10, display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Provisioning DNS · SSL · CDN</span>
+                      <span style={{ color: '#C7FF3D' }}>72%</span>
+                    </div>
+                    <div style={{ height: 4, background: 'rgba(255,255,255,.05)', borderRadius: 999, overflow: 'hidden' }}>
+                      <div className="shimmer" style={{ height: '100%', width: '72%', background: 'linear-gradient(90deg, #4F3DFF, #C7FF3D)', boxShadow: '0 0 12px #C7FF3D' }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Success — live URL + share */}
+                {pubState === 'success' && (
+                  <div>
+                    <div style={{ padding: 16, background: 'rgba(199,255,61,.05)', border: '1px solid rgba(199,255,61,.2)', borderRadius: 12, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="eyebrow" style={{ color: '#C7FF3D' }}>YOUR LIVE URL</div>
+                        <div style={{ fontFamily: "'Geist Mono', monospace", fontSize: 14, color: '#F5F5FA', marginTop: 4, wordBreak: 'break-all' }}>{publishedUrl}</div>
+                      </div>
+                      <button type="button" className="cr-btn cr-btn-ghost" onClick={copyLiveUrl} style={{ padding: '8px 12px' }}>
+                        {copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy</>}
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button type="button" className="cr-btn cr-btn-ghost" onClick={() => handleShareSocial('whatsapp')} style={{ flex: '1 1 140px' }}>
+                        <Share2 size={14} /> Share WhatsApp
+                      </button>
+                      <button
+                        type="button"
+                        className="cr-btn cr-btn-ghost"
+                        onClick={() => window.open(`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(publishedUrl)}`, '_blank', 'width=300,height=300')}
+                        style={{ flex: '1 1 140px' }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v3M14 21h3M21 17v4"/></svg>
+                        QR code
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Error banner */}
+                {error && pubState !== 'success' && (
+                  <div className="banner-accent" style={{ marginTop: 16, marginBottom: 0, background: 'linear-gradient(90deg, rgba(239,68,68,.06), transparent)', border: '1px solid rgba(239,68,68,.22)' }}>
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#EF4444' }} />
+                    <span style={{ fontSize: 13, color: '#FCA5A5' }}>{error}</span>
+                  </div>
+                )}
+
+                {/* Actions row */}
+                <div style={{ display: 'flex', gap: 10, marginTop: 22 }}>
+                  {pubState === 'edit' && (
+                    <>
+                      <button type="button" className="cr-btn cr-btn-ghost" onClick={closeModal} style={{ flex: 1 }} disabled={publishing}>Cancel</button>
+                      <button
+                        type="button"
+                        className="cr-btn"
+                        onClick={handleCheckAvailability}
+                        disabled={!subdomain || !projectName}
+                        style={{ flex: 1, background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)', opacity: !subdomain || !projectName ? .35 : 1, cursor: !subdomain || !projectName ? 'not-allowed' : 'pointer' }}
+                      >
+                        Check availability
+                      </button>
+                    </>
+                  )}
+                  {pubState === 'available' && (
+                    <>
+                      <button type="button" className="cr-btn cr-btn-ghost" onClick={() => setPubChecked(false)} style={{ flex: 1 }} disabled={publishing}>Edit</button>
+                      <button
+                        type="button"
+                        className="cr-btn"
+                        onClick={handlePublish}
+                        disabled={publishing || !subdomain || !projectName || !!subdomainError}
+                        style={{ flex: 1, background: 'linear-gradient(180deg, #DDFF7A, #C7FF3D)', color: '#05050C', boxShadow: '0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25)' }}
+                      >
+                        <Globe size={14} /> Publish now
+                      </button>
+                    </>
+                  )}
+                  {pubState === 'taken' && (
+                    <button
+                      type="button"
+                      className="cr-btn"
+                      onClick={() => { setPubChecked(false); }}
+                      style={{ flex: 1, background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)' }}
+                    >
+                      Try another
+                    </button>
+                  )}
+                  {pubState === 'success' && (
+                    <>
+                      <button type="button" className="cr-btn cr-btn-ghost" onClick={closeModal} style={{ flex: 1 }}>Close</button>
+                      <button
+                        type="button"
+                        className="cr-btn"
+                        onClick={() => router.push('/dashboard')}
+                        style={{ flex: 1, background: 'linear-gradient(180deg, #DDFF7A, #C7FF3D)', color: '#05050C', boxShadow: '0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25)' }}
+                      >
+                        Open dashboard
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14m-6-7 7 7-7 7" /></svg>
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
-              {subdomainError ? (
-                <p style={{ fontSize: 12, color: '#FCA5A5', marginTop: 6, fontWeight: 500 }}>
-                  {subdomainError}
-                </p>
-              ) : (
-                <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 6 }}>
-                  Only lowercase letters, numbers, and hyphens
-                </p>
-              )}
-            </div>
-
-            {error && (
-              <div className="banner-accent" style={{ marginBottom: 18, background: 'linear-gradient(90deg, rgba(239,68,68,.06), transparent)', border: '1px solid rgba(239,68,68,.22)' }}>
-                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#EF4444' }} />
-                <span style={{ fontSize: 13, color: '#FCA5A5' }}>{error}</span>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                onClick={() => { setShowPublishModal(false); setError(''); setSubdomainError(null); }}
-                className="cr-btn cr-btn-ghost"
-                style={{ flex: 1 }}
-                disabled={publishing}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handlePublish}
-                className="cr-btn"
-                style={{ flex: 1, background: 'linear-gradient(180deg, #DDFF7A, #C7FF3D)', color: '#05050C', boxShadow: '0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25)', opacity: publishing || !subdomain || !projectName || !!subdomainError ? .35 : 1, cursor: publishing || !subdomain || !projectName || !!subdomainError ? 'not-allowed' : 'pointer' }}
-                disabled={publishing || !subdomain || !projectName || !!subdomainError}
-              >
-                {publishing ? 'Publishing...' : 'Publish Now'}
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Upgrade Modal */}
       <UpgradeModal
