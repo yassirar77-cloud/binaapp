@@ -2019,23 +2019,34 @@ export default function CreatePage() {
               </div>
             )}
 
-            <button
-              onClick={handleGenerate}
-              disabled={loading || description.length < 10 || isAtLimit}
-              className="cr-gen-btn"
-            >
-              {loading ? (
-                <>
-                  <div style={{ width: 18, height: 18, border: '2px solid rgba(5,5,12,.3)', borderTopColor: '#05050C', borderRadius: '50%', animation: 'spin .6s linear infinite' }} />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Sparkles size={18} />
-                  Generate Website with AI
-                </>
-              )}
-            </button>
+            {/* Ready-to-bina CTA (mirrors design's pep card; doubles as mobile-only generate path when rail is collapsed at <1100px) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: 24, background: 'linear-gradient(135deg, rgba(79,61,255,.12), rgba(199,255,61,.04))', border: '1px solid rgba(107,92,255,.25)', borderRadius: 18, marginTop: 16, flexWrap: 'wrap' }}>
+              <div className="ai-pulse" style={{ width: 48, height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #C7FF3D, #6B5CFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 30px rgba(199,255,61,.4)', color: '#05050C', flexShrink: 0 }}>
+                <Sparkles size={22} strokeWidth={2} />
+              </div>
+              <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+                <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.015em', color: '#F5F5FA' }}>Ready to bina?</div>
+                <div style={{ fontSize: 13, color: '#86869A', marginTop: 2 }}>AI dah ada cukup info — tekan untuk generate.</div>
+              </div>
+              <button
+                onClick={handleGenerate}
+                disabled={loading || description.length < 10 || isAtLimit}
+                className="cr-gen-btn cr-pulse-glow"
+                style={{ width: 'auto', height: 48, padding: '0 20px', fontSize: 15, marginTop: 0, flexShrink: 0 }}
+              >
+                {loading ? (
+                  <>
+                    <div style={{ width: 16, height: 16, border: '2px solid rgba(5,5,12,.3)', borderTopColor: '#05050C', borderRadius: '50%', animation: 'spin .6s linear infinite' }} />
+                    Generating…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={15} /> Generate
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14m-6-7 7 7-7 7" /></svg>
+                  </>
+                )}
+              </button>
+            </div>
 
             {loading && (
               <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(5,5,12,.92)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
