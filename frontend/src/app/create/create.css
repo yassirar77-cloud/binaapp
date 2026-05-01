@@ -624,3 +624,131 @@
 }
 .bg-create .limit-modal .addon-note { color: #5A5A6E !important; }
 .bg-create .limit-modal .modal-footer-note { color: #5A5A6E !important; }
+
+/* ═══════════════════════════════════════════
+   V3 augmentations — selection card primitive,
+   numbered section header, toggle, additional
+   pill variants, shimmer, glow pulse, orbital
+   spinner, responsive form grids.
+   ═══════════════════════════════════════════ */
+
+/* ------- Selection card primitive (`.opt`) ------- */
+.opt {
+  position: relative;
+  background: #0F0F1A;
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 14px;
+  padding: 14px;
+  cursor: pointer;
+  transition: all 200ms cubic-bezier(.25,1,.5,1);
+  overflow: hidden;
+}
+.opt:hover {
+  background: #14141F;
+  border-color: rgba(255,255,255,.14);
+  transform: translateY(-2px);
+}
+.opt.selected {
+  background: linear-gradient(180deg, rgba(79,61,255,.10), rgba(79,61,255,.04));
+  border-color: rgba(107,92,255,.55);
+  box-shadow:
+    0 0 0 1px rgba(107,92,255,.3),
+    0 12px 32px rgba(79,61,255,.18),
+    inset 0 1px 0 rgba(255,255,255,.06);
+}
+.opt.selected::before {
+  content: "";
+  position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(400px 120px at 50% 0%, rgba(79,61,255,.18), transparent 70%);
+  border-radius: inherit;
+}
+
+/* ------- Mini iOS-style toggle ------- */
+.toggle {
+  width: 36px; height: 20px;
+  background: #1F1F2A;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 999px;
+  position: relative; cursor: pointer; flex-shrink: 0;
+  transition: background 220ms, border-color 220ms;
+}
+.toggle::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: #5A5A6E;
+  transition: all 220ms cubic-bezier(.25,1,.5,1);
+}
+.toggle.on { background: rgba(79,61,255,.25); border-color: rgba(107,92,255,.5); }
+.toggle.on::after { left: 18px; background: #C7FF3D; box-shadow: 0 0 10px rgba(199,255,61,.6); }
+
+/* ------- Numbered section header (eyebrow with LED dot) ------- */
+.section-num {
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: #5A5A6E;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.section-num .dot {
+  display: inline-block; width: 5px; height: 5px;
+  border-radius: 50%; background: #4F3DFF;
+  box-shadow: 0 0 12px #4F3DFF;
+  margin-right: 8px; vertical-align: middle;
+}
+
+/* ------- Additional pill variants ------- */
+.pill-warn {
+  border-color: rgba(255,176,32,.3);
+  background: rgba(255,176,32,.08);
+  color: #FFC966;
+}
+.pill-warn .led { background: #FFB020; box-shadow: 0 0 10px #FFB020; }
+.pill-err {
+  border-color: rgba(255,90,95,.3);
+  background: rgba(255,90,95,.08);
+  color: #FF8A8E;
+}
+.pill-err .led { background: #FF5A5F; box-shadow: 0 0 10px #FF5A5F; }
+
+/* ------- Shimmer animation (skeleton + publish progress) ------- */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.06) 50%, transparent);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ------- Volt glow pulse (sticky generate CTA) ------- */
+@keyframes glowpulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(168,232,28,.6), 0 12px 32px rgba(199,255,61,.28), 0 0 60px rgba(199,255,61,.18); }
+  50% { box-shadow: 0 0 0 1px rgba(168,232,28,.8), 0 16px 50px rgba(199,255,61,.5), 0 0 100px rgba(199,255,61,.3); }
+}
+.cr-pulse-glow { animation: glowpulse 2.6s ease-in-out infinite; }
+
+/* ------- Orbital spinner (loading overlay ring) ------- */
+@keyframes orbit {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ------- Responsive form grids (used inside form column) -------
+   Defaults set inline on each grid; these media queries collapse
+   them at narrow widths so cards never clip behind the rail. */
+@media (max-width: 1180px) {
+  .create-grid { grid-template-columns: minmax(0,1fr) 300px !important; gap: 20px !important; }
+  .biz-grid { grid-template-columns: repeat(3, minmax(0,1fr)) !important; }
+}
+@media (max-width: 920px) {
+  .create-grid { grid-template-columns: 1fr !important; }
+  .basics-grid { grid-template-columns: 1fr !important; }
+  .biz-grid { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
+  .features-grid { grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
+  .payment-grid { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 540px) {
+  .biz-grid, .features-grid { grid-template-columns: 1fr !important; }
+}
