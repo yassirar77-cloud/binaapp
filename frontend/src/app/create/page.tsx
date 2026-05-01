@@ -2116,57 +2116,164 @@ export default function CreatePage() {
             )}
           </div>
 
-          {/* ── AI Preview Rail ── */}
-          <aside className="cr-rail">
-            <div className="cr-rail-card cr-card cr-card-hairline">
-              <div className="eyebrow" style={{ marginBottom: 14 }}>PREVIEW</div>
-
-              {/* Completeness meter */}
-              {(() => {
-                const pct =
-                  (description.length >= 50 ? 30 : 0) +
-                  (businessType !== 'auto' ? 15 : 0) +
-                  (imageChoice !== 'none' ? 15 : 0) +
-                  (selectedFeatures.whatsapp || selectedFeatures.googleMap || selectedFeatures.deliverySystem || selectedFeatures.contactForm || selectedFeatures.socialMedia || selectedFeatures.priceList ? 15 : 0) +
-                  (paymentMethods.cod || paymentMethods.qr ? 15 : 0) +
-                  10; // language always selected
-                return (
-                  <div style={{ marginBottom: 18 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <span style={{ fontSize: 12, color: '#86869A' }}>Completeness</span>
-                      <span className="num" style={{ fontSize: 12, color: pct >= 80 ? '#C7FF3D' : '#86869A' }}>{pct}%</span>
+          {/* ── AI Preview Rail (V3) ── */}
+          <aside className="cr-rail" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {(() => {
+              const featureCount = (
+                (selectedFeatures.whatsapp ? 1 : 0) +
+                (selectedFeatures.googleMap ? 1 : 0) +
+                (selectedFeatures.deliverySystem ? 1 : 0) +
+                (selectedFeatures.contactForm ? 1 : 0) +
+                (selectedFeatures.socialMedia ? 1 : 0) +
+                (selectedFeatures.priceList ? 1 : 0)
+              )
+              const filledMenuCount = uploadedImages.gallery.filter(g => g.name || g.price || g.url).length
+              const bizLabels: Record<typeof businessType, string> = {
+                auto: 'AI auto-detect',
+                food: 'Restoran',
+                clothing: 'Pakaian',
+                salon: 'Salon',
+                services: 'Servis',
+                bakery: 'Bakeri',
+                general: 'Lain-lain',
+              }
+              const completeness = Math.min(100, Math.round(
+                (description.length >= 200 ? 30 : (description.length / 200) * 30) +
+                (businessType !== 'auto' ? 15 : 0) +
+                (filledMenuCount >= 1 ? 20 : 0) +
+                (featureCount * 5) +
+                ((paymentMethods.cod || paymentMethods.qr) ? 10 : 0) +
+                10 // language always selected
+              ))
+              const subdomainPlaceholder = subdomain ? `${subdomain}.binaapp.my` : 'kedai-anda.binaapp.my'
+              const previewTitle = (description.split(/[\.,]/)[0] || '').trim().slice(0, 30) || 'Kedai anda'
+              return (
+                <>
+                  {/* AI Preview Pane */}
+                  <div className="cr-card cr-card-hairline" style={{ padding: 0, overflow: 'hidden' }}>
+                    <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ position: 'relative', width: 22, height: 22 }}>
+                          <div className="ai-pulse" style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'radial-gradient(circle, rgba(199,255,61,.4), transparent 70%)' }} />
+                          <div style={{ position: 'absolute', inset: 4, borderRadius: '50%', background: 'linear-gradient(135deg, #C7FF3D, #4F3DFF)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Sparkles size={9} stroke="#05050C" />
+                          </div>
+                        </div>
+                        <span className="eyebrow" style={{ color: '#F5F5FA', letterSpacing: '.12em' }}>AI Preview</span>
+                      </div>
+                      <span className="num" style={{ fontSize: 11, color: '#5A5A6E' }}>v0.1 draft</span>
                     </div>
-                    <div className="cr-meter">
-                      <div className="cr-meter-fill" style={{ width: `${pct}%` }} />
+
+                    {/* Mini browser preview */}
+                    <div style={{ background: '#05050C', padding: 14 }}>
+                      <div style={{ background: '#0F0F1A', border: '1px solid rgba(255,255,255,.06)', borderRadius: 10, overflow: 'hidden' }}>
+                        <div style={{ height: 22, background: '#16161F', display: 'flex', alignItems: 'center', padding: '0 10px', gap: 4, borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                          <div style={{ width: 6, height: 6, borderRadius: 50, background: '#FF5A5F' }} />
+                          <div style={{ width: 6, height: 6, borderRadius: 50, background: '#FFB020' }} />
+                          <div style={{ width: 6, height: 6, borderRadius: 50, background: '#22C08F' }} />
+                          <div className="num" style={{ marginLeft: 'auto', fontSize: 9, color: '#5A5A6E', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>{subdomainPlaceholder}</div>
+                        </div>
+                        <div style={{ padding: 14, minHeight: 140, position: 'relative' }}>
+                          {description.length < 50 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, opacity: .5 }}>
+                              <div className="shimmer" style={{ height: 14, borderRadius: 4, background: 'rgba(255,255,255,.04)' }} />
+                              <div className="shimmer" style={{ height: 8, borderRadius: 4, width: '60%', background: 'rgba(255,255,255,.04)' }} />
+                              <div style={{ height: 60, borderRadius: 6, background: 'rgba(255,255,255,.03)', marginTop: 6 }} />
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                <div style={{ flex: 1, height: 22, borderRadius: 4, background: 'rgba(255,255,255,.03)' }} />
+                                <div style={{ flex: 1, height: 22, borderRadius: 4, background: 'rgba(255,255,255,.03)' }} />
+                              </div>
+                              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 6, color: '#5A5A6E', fontSize: 11 }}>
+                                <Sparkles size={16} />
+                                <div>Cerita pasal kedai untuk preview</div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }} className="float-in">
+                              <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '-0.02em', color: '#F5F5FA' }}>
+                                {previewTitle}
+                              </div>
+                              <div style={{ fontSize: 9, color: '#86869A', lineHeight: 1.4 }}>{description.slice(0, 80)}…</div>
+                              <div style={{ height: 50, borderRadius: 6, marginTop: 4, background: colorMode === 'light' ? 'linear-gradient(135deg,#EEEEF3,#DEDEE6)' : 'linear-gradient(135deg, rgba(79,61,255,.3), rgba(199,255,61,.15))', position: 'relative', overflow: 'hidden' }}>
+                                <div className="dotgrid" style={{ position: 'absolute', inset: 0, opacity: .3 }} />
+                              </div>
+                              <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                                {(['whatsapp', 'googleMap', 'deliverySystem', 'priceList'] as const).filter(k => selectedFeatures[k]).slice(0, 4).map(k => (
+                                  <div key={k} style={{ flex: 1, height: 18, borderRadius: 4, background: 'rgba(255,255,255,.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <div style={{ width: 8, height: 2, borderRadius: 1, background: '#86869A' }} />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Field summary */}
+                    <div style={{ padding: '4px 4px 14px' }}>
+                      {([
+                        { l: 'Business',    v: bizLabels[businessType] },
+                        { l: 'Language',    v: language === 'ms' ? 'Bahasa Malaysia' : 'English' },
+                        { l: 'Theme',       v: colorMode === 'light' ? 'Light' : 'Dark' },
+                        { l: 'Menu items',  v: `${filledMenuCount} ${filledMenuCount === 1 ? 'item' : 'items'}` },
+                        { l: 'Features',    v: `${featureCount} aktif` },
+                        { l: 'Payment',     v: paymentMethods.cod && paymentMethods.qr ? 'COD + QR' : paymentMethods.qr ? 'QR / Online' : paymentMethods.cod ? 'COD' : '—' },
+                      ]).map((f, i) => (
+                        <div key={f.l} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 14px', fontSize: 12, borderTop: i === 0 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
+                          <span style={{ color: '#86869A' }}>{f.l}</span>
+                          <span style={{ color: '#F5F5FA', fontFamily: "'Geist Mono', monospace", fontSize: 11 }}>{f.v}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                );
-              })()}
 
-              {/* Wireframe blocks */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div className={`cr-wireframe-block ${description.length >= 50 ? 'cr-wireframe-lit' : ''}`}>
-                  <span style={{ fontSize: 13 }}>📝</span>
-                  <span style={{ fontSize: 12 }}>Deskripsi</span>
-                </div>
-                <div className={`cr-wireframe-block ${businessType !== 'auto' ? 'cr-wireframe-lit' : ''}`}>
-                  <span style={{ fontSize: 13 }}>🏪</span>
-                  <span style={{ fontSize: 12 }}>Jenis</span>
-                </div>
-                <div className={`cr-wireframe-block ${imageChoice !== 'none' ? 'cr-wireframe-lit' : ''}`}>
-                  <span style={{ fontSize: 13 }}>🖼️</span>
-                  <span style={{ fontSize: 12 }}>Gambar</span>
-                </div>
-                <div className={`cr-wireframe-block ${selectedFeatures.whatsapp || selectedFeatures.googleMap || selectedFeatures.deliverySystem || selectedFeatures.contactForm || selectedFeatures.socialMedia || selectedFeatures.priceList ? 'cr-wireframe-lit' : ''}`}>
-                  <span style={{ fontSize: 13 }}>⚡</span>
-                  <span style={{ fontSize: 12 }}>Ciri-ciri</span>
-                </div>
-                <div className={`cr-wireframe-block ${paymentMethods.cod || paymentMethods.qr ? 'cr-wireframe-lit' : ''}`}>
-                  <span style={{ fontSize: 13 }}>💳</span>
-                  <span style={{ fontSize: 12 }}>Bayaran</span>
-                </div>
-              </div>
-            </div>
+                  {/* Brief completeness */}
+                  <div className="cr-card" style={{ padding: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <span className="eyebrow">Brief completeness</span>
+                      <span className="num" style={{ fontSize: 13, color: completeness > 70 ? '#C7FF3D' : completeness > 40 ? '#FFB020' : '#5A5A6E', fontWeight: 600 }}>{completeness}%</span>
+                    </div>
+                    <div style={{ height: 4, background: 'rgba(255,255,255,.05)', borderRadius: 999, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${completeness}%`, background: completeness > 70 ? 'linear-gradient(90deg, #4F3DFF, #C7FF3D)' : '#5A5A6E', transition: 'all 400ms cubic-bezier(.25,1,.5,1)' }} />
+                    </div>
+                  </div>
+
+                  {/* Generate */}
+                  <button
+                    type="button"
+                    className={'cr-gen-btn ' + (completeness > 50 && !loading ? 'cr-pulse-glow' : '')}
+                    onClick={handleGenerate}
+                    disabled={loading || description.length < 10 || isAtLimit}
+                    style={{ height: 60, fontSize: 16, padding: 0, borderRadius: 16, marginTop: 0 }}
+                  >
+                    {loading ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid rgba(5,5,12,.3)', borderTopColor: '#05050C', animation: 'orbit 800ms linear infinite' }} />
+                        Generating…
+                      </span>
+                    ) : (
+                      <>
+                        <Sparkles size={16} /> Generate website
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14m-6-7 7 7-7 7" /></svg>
+                      </>
+                    )}
+                  </button>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 12, fontSize: 11, color: '#5A5A6E', flexWrap: 'wrap' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 1 1 8 0v4"/></svg>
+                      Secure
+                    </span>
+                    <span>·</span>
+                    <span>Generates in ~60s</span>
+                    <span>·</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <Sparkles size={11} stroke="#C7FF3D" /> Claude
+                    </span>
+                  </div>
+                </>
+              )
+            })()}
           </aside>
 
           </div>
