@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout, FileText } from 'lucide-react'
+import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout, FileText, MapPin, Truck, ListChecks } from 'lucide-react'
 import VisualImageUpload from './components/VisualImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
@@ -1787,33 +1787,60 @@ export default function CreatePage() {
               </div>
             </section>
 
-            {/* ── 06 Features ── */}
-            <div className="cr-card cr-card-hairline" style={{ padding: '24px 28px', marginBottom: 20 }}>
-              <div className="eyebrow" style={{ marginBottom: 16 }}>06 — CIRI-CIRI WEBSITE</div>
-              <div style={{ fontSize: 13, color: '#86869A', marginBottom: 14 }}>Pilih apa yang anda mahu dalam website anda</div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                {[
-                  { key: 'whatsapp' as const, icon: '💬', label: 'WhatsApp' },
-                  { key: 'googleMap' as const, icon: '📍', label: 'Google Map' },
-                  { key: 'deliverySystem' as const, icon: '🛵', label: 'Delivery Sendiri' },
-                  { key: 'contactForm' as const, icon: '📧', label: 'Borang Hubungi' },
-                  { key: 'socialMedia' as const, icon: '📱', label: 'Social Media' },
-                  { key: 'priceList' as const, icon: '💰', label: 'Senarai Harga' },
-                ].map(f => (
-                  <label key={f.key} className={selectedFeatures[f.key] ? 'cr-feature-pill cr-feature-active' : 'cr-feature-pill'}>
-                    <input
-                      type="checkbox"
-                      checked={selectedFeatures[f.key]}
-                      onChange={(e) => setSelectedFeatures({...selectedFeatures, [f.key]: e.target.checked})}
-                      style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
-                    />
-                    <span style={{ fontSize: 18 }}>{f.icon}</span>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{f.label}</span>
-                  </label>
-                ))}
+            {/* ── 07 Features yang anda nak ── */}
+            <section style={{ marginBottom: 32 }}>
+              <div style={{ marginBottom: 20 }}>
+                <div className="section-num" style={{ marginBottom: 10 }}>
+                  <span className="dot" />07 — FEATURES YANG ANDA NAK
+                </div>
+                <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Features yang anda nak</h2>
+                <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Pilih mana yang relevant. Boleh tukar/tambah selepas generate.</p>
               </div>
-            </div>
+              <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0,1fr))', gap: 12 }}>
+                {(() => {
+                  const WhatsAppIcon = ({ size = 16 }: { size?: number }) => (
+                    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 11.5a8.4 8.4 0 0 1-1.2 4.4L21 21l-5.2-1.4a8.5 8.5 0 1 1 5.2-8.1Z" />
+                      <path d="M8.5 9.5c.2 1 .8 2.2 1.7 3.1.9 1 2 1.5 3 1.7l1.2-1.1 2 .9c-.1.6-.5 1.2-1.1 1.5-1.4.7-3.7.2-5.6-1.7-1.8-1.8-2.4-4.2-1.7-5.6.3-.6.8-1 1.4-1.1l1 2-1 1.3Z" />
+                    </svg>
+                  )
+                  const features = [
+                    { key: 'whatsapp' as const,        label: 'WhatsApp Order',  sub: 'Pesanan terus ke WhatsApp', Icon: WhatsAppIcon, color: '#25D366' },
+                    { key: 'googleMap' as const,       label: 'Google Maps',     sub: 'Lokasi & arah ke kedai',     Icon: MapPin,       color: '#4F3DFF' },
+                    { key: 'deliverySystem' as const,  label: 'Delivery',        sub: 'Penghantaran sendiri',       Icon: Truck,        color: '#FFB020' },
+                    { key: 'contactForm' as const,     label: 'Borang Tempahan', sub: 'Booking / reservation',      Icon: FileText,     color: '#3FB8FF' },
+                    { key: 'socialMedia' as const,     label: 'Social Media',    sub: 'IG, FB, TikTok feed',        Icon: Share2,       color: '#FF5A5F' },
+                    { key: 'priceList' as const,       label: 'Senarai Harga',   sub: 'Menu / katalog harga',       Icon: ListChecks,   color: '#C7FF3D' },
+                  ]
+                  return features.map(f => {
+                    const on = selectedFeatures[f.key]
+                    return (
+                      <div
+                        key={f.key}
+                        role="checkbox"
+                        aria-checked={on}
+                        tabIndex={0}
+                        className={'opt ' + (on ? 'selected' : '')}
+                        onClick={() => setSelectedFeatures({ ...selectedFeatures, [f.key]: !on })}
+                        onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setSelectedFeatures({ ...selectedFeatures, [f.key]: !on }); } }}
+                        style={{ padding: 14, display: 'flex', gap: 10, alignItems: 'flex-start', minWidth: 0 }}
+                      >
+                        <div style={{ width: 34, height: 34, borderRadius: 9, background: on ? 'rgba(79,61,255,.18)' : 'rgba(255,255,255,.04)', border: `1px solid ${on ? 'rgba(107,92,255,.4)' : 'rgba(255,255,255,.08)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: on ? '#BAB0FF' : f.color, flexShrink: 0 }}>
+                          <f.Icon size={16} />
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 2, lineHeight: 1.25, wordBreak: 'break-word', color: '#F5F5FA' }}>{f.label}</div>
+                          <div style={{ fontSize: 11, color: '#86869A', lineHeight: 1.35 }}>{f.sub}</div>
+                        </div>
+                        <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${on ? '#6B5CFF' : 'rgba(255,255,255,.15)'}`, background: on ? '#4F3DFF' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2, color: '#fff' }}>
+                          {on && <Check size={10} strokeWidth={3} />}
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+            </section>
 
             {/* Google Map expand */}
             {selectedFeatures.googleMap && (
