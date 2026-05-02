@@ -17,6 +17,7 @@ import {
   type Invoice,
   type InvoiceStatus,
 } from './components/BillingCard'
+import { RiderCard, type Rider } from './components/RiderCard'
 import { Toast, type ToastTone } from './components/primitives/Toast'
 
 interface ProfileHubProps {
@@ -35,6 +36,19 @@ interface RawTransaction {
   created_at?: string
   toyyibpay_bill_code?: string | null
   invoice_number?: string | null
+}
+
+interface RawWebsite {
+  id: string
+}
+
+interface RawRider {
+  id: string
+  name?: string | null
+  phone?: string | null
+  vehicle_plate?: string | null
+  is_online?: boolean | null
+  total_deliveries?: number | null
 }
 
 const TOAST_TIMEOUT = 2200
@@ -85,6 +99,17 @@ function toAmount(raw: number | string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+function mapRider(raw: RawRider): Rider {
+  return {
+    id: raw.id,
+    name: (raw.name ?? '').trim(),
+    phone: raw.phone ?? null,
+    vehiclePlate: raw.vehicle_plate ?? null,
+    isOnline: raw.is_online === true,
+    totalDeliveries: typeof raw.total_deliveries === 'number' ? raw.total_deliveries : 0,
+  }
+}
+
 function mapTransaction(t: RawTransaction): Invoice | null {
   const created = t.created_at ?? null
   const date = formatBmDate(created)
@@ -112,6 +137,7 @@ export function ProfileHub({
 
   const { usage: subscriptionData, plan, loading: subLoading } = useSubscription()
   const [invoices, setInvoices] = useState<Invoice[] | null>(null)
+  const [riders, setRiders] = useState<Rider[] | null>(null)
 
   const showToast = useCallback((msg: string, tone: ToastTone = 'success') => {
     setToast({ msg, tone })
@@ -154,6 +180,66 @@ export function ProfileHub({
     return () => { cancelled = true }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadRiders() {
+      const token = getStoredToken()
+      if (!token) {
+        if (!cancelled) setRiders([])
+        return
+      }
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      }
+      try {
+        const websitesRes = await fetch(`${API_URL}/api/v1/websites/`, { headers })
+        if (!websitesRes.ok) {
+          if (!cancelled) setRiders([])
+          return
+        }
+        const websites: RawWebsite[] = await websitesRes.json()
+        if (!Array.isArray(websites) || websites.length === 0) {
+          if (!cancelled) setRiders([])
+          return
+        }
+
+        const results = await Promise.all(
+          websites.map(async (w) => {
+            try {
+              const res = await fetch(
+                `${API_URL}/api/v1/delivery/admin/websites/${w.id}/riders`,
+                { headers },
+              )
+              if (!res.ok) return [] as RawRider[]
+              const data = await res.json()
+              return Array.isArray(data) ? (data as RawRider[]) : []
+            } catch (err) {
+              console.warn(`[Profile] Failed to load riders for website ${w.id}:`, err)
+              return [] as RawRider[]
+            }
+          }),
+        )
+
+        const dedupedById = new Map<string, RawRider>()
+        for (const list of results) {
+          for (const r of list) {
+            if (r?.id && !dedupedById.has(r.id)) dedupedById.set(r.id, r)
+          }
+        }
+        const mapped = Array.from(dedupedById.values()).map(mapRider)
+        if (!cancelled) setRiders(mapped)
+      } catch (err) {
+        console.warn('[Profile] Failed to load riders:', err)
+        if (!cancelled) setRiders([])
+      }
+    }
+
+    loadRiders()
+    return () => { cancelled = true }
+  }, [])
+
   const tier = normalizeTier(plan?.name)
   const planLabel = tier.toUpperCase()
   const status = normalizeStatus(plan?.status)
@@ -182,6 +268,10 @@ export function ProfileHub({
       return
     }
     window.open(`${TOYYIBPAY_BILL_BASE}/${invoice.toyyibpayBillCode}`, '_blank', 'noopener,noreferrer')
+  }, [showToast])
+
+  const handleRiderUnavailable = useCallback(() => {
+    showToast('Pengurusan rider akan datang tidak lama lagi')
   }, [showToast])
 
   return (
@@ -230,6 +320,12 @@ export function ProfileHub({
           onViewAll={handleViewAllInvoices}
           onChangePayment={handleChangePayment}
           onDownloadReceipt={handleDownloadReceipt}
+        />
+
+        <RiderCard
+          riders={riders}
+          onAdd={handleRiderUnavailable}
+          onManage={handleRiderUnavailable}
         />
       </main>
 
