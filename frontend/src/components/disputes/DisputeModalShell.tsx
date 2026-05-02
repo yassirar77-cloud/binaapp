@@ -84,7 +84,7 @@ export function DisputeModalShell({
 
   return createPortal(
     <div
-      className="profile-hub"
+      className="profile-hub dispute-modal-overlay"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose()
@@ -113,7 +113,9 @@ export function DisputeModalShell({
           borderRadius: 12,
           width: '100%',
           maxWidth,
-          maxHeight: 'calc(100vh - 32px)',
+          ...(fill
+            ? { height: 'min(720px, calc(100vh - 32px))' }
+            : { maxHeight: 'calc(100vh - 32px)' }),
           display: 'flex',
           flexDirection: 'column',
           boxShadow: '0 20px 60px rgba(15, 17, 26, 0.18)',
@@ -182,6 +184,9 @@ export function DisputeModalShell({
 
       <style jsx>{`
         @media (max-width: 520px) {
+          .dispute-modal-overlay {
+            padding: 0 !important;
+          }
           .dispute-modal {
             max-width: 100% !important;
             border-radius: 0 !important;

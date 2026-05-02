@@ -184,7 +184,6 @@ export function DisputeThread({
           style={{
             flex: 1,
             minHeight: 240,
-            maxHeight: '50vh',
             overflowY: 'auto',
             background: '#f7f7f8',
             border: '0.5px solid var(--border)',

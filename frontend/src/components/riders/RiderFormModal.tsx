@@ -97,7 +97,7 @@ export function RiderFormModal({
 
   return createPortal(
     <div
-      className="profile-hub"
+      className="profile-hub rider-form-overlay"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose()
@@ -180,6 +180,9 @@ export function RiderFormModal({
 
       <style jsx>{`
         @media (max-width: 520px) {
+          .rider-form-overlay {
+            padding: 0 !important;
+          }
           .rider-form-modal {
             max-width: 100% !important;
             border-radius: 0 !important;
