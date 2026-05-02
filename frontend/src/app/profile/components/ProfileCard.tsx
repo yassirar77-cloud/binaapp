@@ -152,14 +152,6 @@ export function ProfileCard({
           disabled={loading}
           autoComplete="organization"
         />
-        <Field
-          label="Emel"
-          value={email}
-          onChange={() => { /* read-only */ }}
-          full
-          disabled
-          autoComplete="email"
-        />
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
