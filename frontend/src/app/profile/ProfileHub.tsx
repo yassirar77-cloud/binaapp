@@ -21,8 +21,13 @@ import { RiderCard, type Rider } from './components/RiderCard'
 import { DisputeCard, type Dispute } from './components/DisputeCard'
 import { Toast, type ToastTone } from './components/primitives/Toast'
 import { RiderFormModal } from '@/components/riders/RiderFormModal'
-import type { RiderFormRider, RiderFormWebsite } from '@/components/riders/RiderForm'
+import type { RiderFormRider } from '@/components/riders/RiderForm'
 import type { VehicleType } from '@/components/riders/useRiderMutations'
+import { NewDisputeForm } from '@/components/disputes/NewDisputeForm'
+import { DisputeListModal } from '@/components/disputes/DisputeListModal'
+import { DisputeThread } from '@/components/disputes/DisputeThread'
+import { ResolveDisputeModal } from '@/components/disputes/ResolveDisputeModal'
+import type { Dispute as ApiDispute } from '@/types'
 
 interface ProfileHubProps {
   user: User
@@ -186,11 +191,20 @@ export function ProfileHub({
   const [rawRiders, setRawRiders] = useState<Map<string, RawRider>>(new Map())
   const [websites, setWebsites] = useState<RawWebsite[]>([])
   const [disputes, setDisputes] = useState<Dispute[] | null>(null)
+  const [rawDisputes, setRawDisputes] = useState<Map<string, ApiDispute>>(new Map())
   const [openDisputeCount, setOpenDisputeCount] = useState(0)
+  const [disputeListRefresh, setDisputeListRefresh] = useState(0)
   const [riderModal, setRiderModal] = useState<
     | { mode: 'closed' }
     | { mode: 'add' }
     | { mode: 'edit'; rider: RiderFormRider }
+  >({ mode: 'closed' })
+  const [disputeModal, setDisputeModal] = useState<
+    | { mode: 'closed' }
+    | { mode: 'new' }
+    | { mode: 'list' }
+    | { mode: 'thread'; dispute: ApiDispute }
+    | { mode: 'resolve'; dispute: ApiDispute; from: 'thread' | 'list' | null }
   >({ mode: 'closed' })
 
   const showToast = useCallback((msg: string, tone: ToastTone = 'success') => {
@@ -300,55 +314,53 @@ export function ProfileHub({
     void loadRiders()
   }, [loadRiders])
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadDisputes() {
-      const token = getStoredToken()
-      if (!token) {
-        if (!cancelled) {
-          setDisputes([])
-          setOpenDisputeCount(0)
-        }
+  const loadDisputes = useCallback(async () => {
+    const token = getStoredToken()
+    if (!token) {
+      setDisputes([])
+      setRawDisputes(new Map())
+      setOpenDisputeCount(0)
+      return
+    }
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/disputes/owner/list?status=open&per_page=1`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+      if (!res.ok) {
+        setDisputes([])
+        setRawDisputes(new Map())
+        setOpenDisputeCount(0)
         return
       }
-      try {
-        const res = await fetch(
-          `${API_URL}/api/v1/disputes/owner/list?status=open&per_page=1`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-          },
-        )
-        if (!res.ok) {
-          if (!cancelled) {
-            setDisputes([])
-            setOpenDisputeCount(0)
-          }
-          return
-        }
-        const data: { disputes?: RawDispute[]; total?: number } = await res.json()
-        const mapped = (data.disputes ?? [])
-          .map(mapDispute)
-          .filter((d): d is Dispute => d !== null)
-        if (!cancelled) {
-          setDisputes(mapped)
-          setOpenDisputeCount(typeof data.total === 'number' ? data.total : mapped.length)
-        }
-      } catch (err) {
-        console.warn('[Profile] Failed to load disputes:', err)
-        if (!cancelled) {
-          setDisputes([])
-          setOpenDisputeCount(0)
-        }
+      const data: { disputes?: ApiDispute[]; total?: number } = await res.json()
+      const rawList = data.disputes ?? []
+      const mapped = rawList
+        .map((d) => mapDispute(d as RawDispute))
+        .filter((d): d is Dispute => d !== null)
+      const byId = new Map<string, ApiDispute>()
+      for (const r of rawList) {
+        if (r?.id) byId.set(r.id, r)
       }
+      setDisputes(mapped)
+      setRawDisputes(byId)
+      setOpenDisputeCount(typeof data.total === 'number' ? data.total : mapped.length)
+    } catch (err) {
+      console.warn('[Profile] Failed to load disputes:', err)
+      setDisputes([])
+      setRawDisputes(new Map())
+      setOpenDisputeCount(0)
     }
-
-    loadDisputes()
-    return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    void loadDisputes()
+  }, [loadDisputes])
 
   const tier = normalizeTier(plan?.name)
   const planLabel = tier.toUpperCase()
@@ -404,13 +416,28 @@ export function ProfileHub({
 
   const closeRiderModal = useCallback(() => setRiderModal({ mode: 'closed' }), [])
 
-  const handleViewAllDisputes = useCallback(() => {
-    router.push('/disputes')
-  }, [router])
+  const handleCreateDispute = useCallback(() => {
+    setDisputeModal({ mode: 'new' })
+  }, [])
 
-  const handleRespondDispute = useCallback(() => {
-    router.push('/disputes')
-  }, [router])
+  const handleViewAllDisputes = useCallback(() => {
+    setDisputeModal({ mode: 'list' })
+    setDisputeListRefresh((n) => n + 1)
+  }, [])
+
+  const handleRespondDispute = useCallback(
+    (summary: Dispute) => {
+      const raw = rawDisputes.get(summary.id)
+      if (!raw) {
+        showToast('Aduan tidak dijumpai. Sila muat semula.', 'error')
+        return
+      }
+      setDisputeModal({ mode: 'thread', dispute: raw })
+    },
+    [rawDisputes, showToast],
+  )
+
+  const closeDisputeModal = useCallback(() => setDisputeModal({ mode: 'closed' }), [])
 
   return (
     <div className="profile-hub profile-hub-page" style={{ minHeight: '100vh', padding: '40px 20px 80px' }}>
@@ -471,6 +498,7 @@ export function ProfileHub({
           totalOpen={openDisputeCount}
           onViewAll={handleViewAllDisputes}
           onRespond={handleRespondDispute}
+          onCreate={handleCreateDispute}
         />
 
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
@@ -511,6 +539,61 @@ export function ProfileHub({
         onDeleted={() => {
           void loadRiders()
           closeRiderModal()
+        }}
+        onShowToast={(msg, tone) => showToast(msg, tone)}
+      />
+
+      <NewDisputeForm
+        open={disputeModal.mode === 'new'}
+        onClose={closeDisputeModal}
+        websites={websites.map((w) => ({
+          id: w.id,
+          label:
+            (w.name || w.business_name || w.subdomain || 'Website tanpa nama').trim() +
+            (w.subdomain ? ` (${w.subdomain}.binaapp.my)` : ''),
+        }))}
+        onSubmitted={() => { void loadDisputes() }}
+        onShowToast={(msg, tone) => showToast(msg, tone)}
+      />
+
+      <DisputeListModal
+        open={disputeModal.mode === 'list'}
+        onClose={closeDisputeModal}
+        refreshKey={disputeListRefresh}
+        onSelectDispute={(d) => setDisputeModal({ mode: 'thread', dispute: d })}
+        onShowToast={(msg, tone) => showToast(msg, tone)}
+      />
+
+      <DisputeThread
+        open={disputeModal.mode === 'thread'}
+        dispute={disputeModal.mode === 'thread' ? disputeModal.dispute : null}
+        onClose={() => {
+          closeDisputeModal()
+          void loadDisputes()
+        }}
+        onRequestResolve={() => {
+          if (disputeModal.mode === 'thread') {
+            setDisputeModal({ mode: 'resolve', dispute: disputeModal.dispute, from: 'thread' })
+          }
+        }}
+        onShowToast={(msg, tone) => showToast(msg, tone)}
+      />
+
+      <ResolveDisputeModal
+        open={disputeModal.mode === 'resolve'}
+        disputeId={disputeModal.mode === 'resolve' ? disputeModal.dispute.id : null}
+        disputeNumber={disputeModal.mode === 'resolve' ? disputeModal.dispute.dispute_number : null}
+        onClose={() => {
+          if (disputeModal.mode === 'resolve' && disputeModal.from === 'thread') {
+            setDisputeModal({ mode: 'thread', dispute: disputeModal.dispute })
+          } else {
+            closeDisputeModal()
+          }
+        }}
+        onResolved={() => {
+          void loadDisputes()
+          setDisputeListRefresh((n) => n + 1)
+          closeDisputeModal()
         }}
         onShowToast={(msg, tone) => showToast(msg, tone)}
       />
