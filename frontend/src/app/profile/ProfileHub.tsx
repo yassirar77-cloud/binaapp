@@ -20,6 +20,9 @@ import {
 import { RiderCard, type Rider } from './components/RiderCard'
 import { DisputeCard, type Dispute } from './components/DisputeCard'
 import { Toast, type ToastTone } from './components/primitives/Toast'
+import { RiderFormModal } from '@/components/riders/RiderFormModal'
+import type { RiderFormRider, RiderFormWebsite } from '@/components/riders/RiderForm'
+import type { VehicleType } from '@/components/riders/useRiderMutations'
 
 interface ProfileHubProps {
   user: User
@@ -42,13 +45,20 @@ interface RawTransaction {
 
 interface RawWebsite {
   id: string
+  name?: string | null
+  business_name?: string | null
+  subdomain?: string | null
 }
 
 interface RawRider {
   id: string
   name?: string | null
   phone?: string | null
+  email?: string | null
+  vehicle_type?: string | null
   vehicle_plate?: string | null
+  vehicle_model?: string | null
+  is_active?: boolean | null
   is_online?: boolean | null
   total_deliveries?: number | null
 }
@@ -173,8 +183,15 @@ export function ProfileHub({
   const { usage: subscriptionData, plan, loading: subLoading } = useSubscription()
   const [invoices, setInvoices] = useState<Invoice[] | null>(null)
   const [riders, setRiders] = useState<Rider[] | null>(null)
+  const [rawRiders, setRawRiders] = useState<Map<string, RawRider>>(new Map())
+  const [websites, setWebsites] = useState<RawWebsite[]>([])
   const [disputes, setDisputes] = useState<Dispute[] | null>(null)
   const [openDisputeCount, setOpenDisputeCount] = useState(0)
+  const [riderModal, setRiderModal] = useState<
+    | { mode: 'closed' }
+    | { mode: 'add' }
+    | { mode: 'edit'; rider: RiderFormRider }
+  >({ mode: 'closed' })
 
   const showToast = useCallback((msg: string, tone: ToastTone = 'success') => {
     setToast({ msg, tone })
@@ -217,65 +234,71 @@ export function ProfileHub({
     return () => { cancelled = true }
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadRiders() {
-      const token = getStoredToken()
-      if (!token) {
-        if (!cancelled) setRiders([])
+  const loadRiders = useCallback(async () => {
+    const token = getStoredToken()
+    if (!token) {
+      setRiders([])
+      setRawRiders(new Map())
+      return
+    }
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    }
+    try {
+      const websitesRes = await fetch(`${API_URL}/api/v1/websites/`, { headers })
+      if (!websitesRes.ok) {
+        setWebsites([])
+        setRiders([])
+        setRawRiders(new Map())
         return
       }
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+      const websitesData: RawWebsite[] = await websitesRes.json()
+      const websiteList = Array.isArray(websitesData) ? websitesData : []
+      setWebsites(websiteList)
+
+      if (websiteList.length === 0) {
+        setRiders([])
+        setRawRiders(new Map())
+        return
       }
-      try {
-        const websitesRes = await fetch(`${API_URL}/api/v1/websites/`, { headers })
-        if (!websitesRes.ok) {
-          if (!cancelled) setRiders([])
-          return
-        }
-        const websites: RawWebsite[] = await websitesRes.json()
-        if (!Array.isArray(websites) || websites.length === 0) {
-          if (!cancelled) setRiders([])
-          return
-        }
 
-        const results = await Promise.all(
-          websites.map(async (w) => {
-            try {
-              const res = await fetch(
-                `${API_URL}/api/v1/delivery/admin/websites/${w.id}/riders`,
-                { headers },
-              )
-              if (!res.ok) return [] as RawRider[]
-              const data = await res.json()
-              return Array.isArray(data) ? (data as RawRider[]) : []
-            } catch (err) {
-              console.warn(`[Profile] Failed to load riders for website ${w.id}:`, err)
-              return [] as RawRider[]
-            }
-          }),
-        )
-
-        const dedupedById = new Map<string, RawRider>()
-        for (const list of results) {
-          for (const r of list) {
-            if (r?.id && !dedupedById.has(r.id)) dedupedById.set(r.id, r)
+      const results = await Promise.all(
+        websiteList.map(async (w) => {
+          try {
+            const res = await fetch(
+              `${API_URL}/api/v1/delivery/admin/websites/${w.id}/riders`,
+              { headers },
+            )
+            if (!res.ok) return [] as RawRider[]
+            const data = await res.json()
+            return Array.isArray(data) ? (data as RawRider[]) : []
+          } catch (err) {
+            console.warn(`[Profile] Failed to load riders for website ${w.id}:`, err)
+            return [] as RawRider[]
           }
-        }
-        const mapped = Array.from(dedupedById.values()).map(mapRider)
-        if (!cancelled) setRiders(mapped)
-      } catch (err) {
-        console.warn('[Profile] Failed to load riders:', err)
-        if (!cancelled) setRiders([])
-      }
-    }
+        }),
+      )
 
-    loadRiders()
-    return () => { cancelled = true }
+      const dedupedById = new Map<string, RawRider>()
+      for (const list of results) {
+        for (const r of list) {
+          if (r?.id && !dedupedById.has(r.id)) dedupedById.set(r.id, r)
+        }
+      }
+      const mapped = Array.from(dedupedById.values()).map(mapRider)
+      setRiders(mapped)
+      setRawRiders(dedupedById)
+    } catch (err) {
+      console.warn('[Profile] Failed to load riders:', err)
+      setRiders([])
+      setRawRiders(new Map())
+    }
   }, [])
+
+  useEffect(() => {
+    void loadRiders()
+  }, [loadRiders])
 
   useEffect(() => {
     let cancelled = false
@@ -357,9 +380,29 @@ export function ProfileHub({
     window.open(`${TOYYIBPAY_BILL_BASE}/${invoice.toyyibpayBillCode}`, '_blank', 'noopener,noreferrer')
   }, [showToast])
 
-  const handleRiderUnavailable = useCallback(() => {
-    showToast('Pengurusan rider akan datang tidak lama lagi')
-  }, [showToast])
+  const handleAddRider = useCallback(() => {
+    setRiderModal({ mode: 'add' })
+  }, [])
+
+  const handleManageRider = useCallback(
+    (rider: Rider) => {
+      const raw = rawRiders.get(rider.id)
+      const editRider: RiderFormRider = {
+        id: rider.id,
+        name: rider.name || raw?.name || null,
+        phone: rider.phone ?? raw?.phone ?? null,
+        email: raw?.email ?? null,
+        vehicle_type: (raw?.vehicle_type as VehicleType | undefined) ?? null,
+        vehicle_plate: rider.vehiclePlate ?? raw?.vehicle_plate ?? null,
+        vehicle_model: raw?.vehicle_model ?? null,
+        is_active: raw?.is_active ?? null,
+      }
+      setRiderModal({ mode: 'edit', rider: editRider })
+    },
+    [rawRiders],
+  )
+
+  const closeRiderModal = useCallback(() => setRiderModal({ mode: 'closed' }), [])
 
   const handleViewAllDisputes = useCallback(() => {
     router.push('/disputes')
@@ -419,8 +462,8 @@ export function ProfileHub({
 
         <RiderCard
           riders={riders}
-          onAdd={handleRiderUnavailable}
-          onManage={handleRiderUnavailable}
+          onAdd={handleAddRider}
+          onManage={handleManageRider}
         />
 
         <DisputeCard
@@ -456,6 +499,21 @@ export function ProfileHub({
       </main>
 
       <Toast msg={toast?.msg ?? null} tone={toast?.tone} />
+
+      <RiderFormModal
+        open={riderModal.mode !== 'closed'}
+        mode={riderModal.mode === 'edit' ? 'edit' : 'add'}
+        rider={riderModal.mode === 'edit' ? riderModal.rider : undefined}
+        websites={websites}
+        initialWebsiteId={websites[0]?.id ?? null}
+        onClose={closeRiderModal}
+        onSaved={() => { void loadRiders() }}
+        onDeleted={() => {
+          void loadRiders()
+          closeRiderModal()
+        }}
+        onShowToast={(msg, tone) => showToast(msg, tone)}
+      />
     </div>
   )
 }
