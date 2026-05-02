@@ -121,8 +121,8 @@ ABOUT_VARIANTS = {
                 "icon": "fa-solid fa-bowl-food",
                 "title": "Citarasa Warisan Datuk",
                 "description": "Resipi turun-temurun keluarga, dimasak setiap hari dengan rempah segar tumbukan — warisan yang kami jaga dengan bangga.",
-                # Grandmother cooking / heritage kitchen photo
-                "image_url": "https://images.unsplash.com/photo-1586190848861-99aa4a171e90?w=900&h=600&fit=crop&q=80",
+                # Rendang in bowl close-up — dark, rich, instantly readable as Malay heritage (BINA-28)
+                "image_url": "https://images.unsplash.com/photo-1688084546323-fcd3f9d8389b?w=900&h=600&fit=crop&q=80",
             },
             {
                 "icon": "fa-solid fa-leaf",
