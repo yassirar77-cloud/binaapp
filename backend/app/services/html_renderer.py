@@ -561,115 +561,160 @@ def _hero_asymmetric_card(p: Dict[str, Any]) -> str:
 
 @_component("AboutStory")
 def _about_story(p: Dict[str, Any]) -> str:
+    """Editorial asymmetric story: full-bleed photo left, narrow text column right.
+    Founder gravitas treatment — NOT a symmetric 50/50 dental clinic split."""
     paras = p.get("paragraphs", [])
-    # First paragraph as pull-quote if there are multiple
-    pull_quote = ""
+    # First paragraph becomes large pull-quote; rest are body
+    pull_quote_text = ""
     body_paras = paras
-    if len(paras) > 1:
-        pull_quote = f"""            <blockquote class="text-xl sm:text-2xl font-medium italic leading-snug pl-5 mt-6"
-                style="font-family: var(--font-heading); color: var(--color-text); border-left: 3px solid var(--color-primary);">
-                {_esc(paras[0])}
-            </blockquote>"""
+    if paras:
+        pull_quote_text = paras[0]
         body_paras = paras[1:]
 
-    paragraphs = "\n".join(
-        f'            <p class="text-base sm:text-lg leading-relaxed" style="color: var(--color-text-muted);">{_esc(para)}</p>'
+    pull_quote_html = ""
+    if pull_quote_text:
+        pull_quote_html = f"""                <blockquote class="italic leading-snug mb-8"
+                            style="font-family: var(--font-heading); color: var(--color-text); font-size: clamp(1.4rem, 2.2vw, 2rem); line-height: 1.25;">
+                    {_esc(pull_quote_text)}
+                </blockquote>"""
+
+    body_html = "\n".join(
+        f'                <p class="text-base leading-relaxed" style="color: var(--color-text-muted);">{_esc(para)}</p>'
         for para in body_paras
     )
 
-    signature = ""
+    # Founder gravitas — parse "— Yassir Ar., Pengasas" signature
+    signature_html = ""
     if p.get("signature"):
-        signature = f"""            <div class="mt-8 pt-6" style="border-top: 1px solid var(--color-border);">
-                <p class="text-sm font-semibold tracking-wide uppercase" style="color: var(--color-primary);">{_esc(p['signature'])}</p>
-            </div>"""
+        sig = p['signature'].lstrip('—').strip()
+        parts = [s.strip() for s in sig.split(',', 1)]
+        name = _esc(parts[0]) if parts else _esc(sig)
+        role = _esc(parts[1]) if len(parts) > 1 else ""
+        role_line = f'<p class="text-sm mt-0.5" style="color: var(--color-text-muted);">{role}</p>' if role else ""
+        signature_html = f"""                <div class="mt-10 pt-8 flex items-center gap-4" style="border-top: 1px solid var(--color-border);">
+                    <div class="shrink-0 w-11 h-11 rounded-full flex items-center justify-center"
+                         style="background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));">
+                        <i class="fa-solid fa-user text-white text-sm"></i>
+                    </div>
+                    <div>
+                        <p class="text-base font-semibold" style="font-family: var(--font-heading); color: var(--color-text);">{name}</p>
+                        {role_line}
+                    </div>
+                </div>"""
 
+    # Full-bleed photo — breaks out of section padding via negative margins
     img_html = ""
     if p.get("image_url"):
-        img_html = f"""        <div class="relative lg:-ml-6 lg:mt-8">
-            <img src="{_esc(p['image_url'])}" alt="{_esc(p.get('image_alt', ''))}"
-                 class="w-full rounded-2xl object-cover relative z-10"
-                 style="max-height: 500px; box-shadow: 0 20px 40px -12px rgba(0,0,0,0.15);" loading="lazy">
-            <div class="hidden lg:block absolute -top-4 -left-4 w-3/4 h-3/4 rounded-2xl z-0"
-                 style="background-color: var(--color-accent); opacity: 0.3;"></div>
-        </div>"""
+        img_html = f"""            <!-- Photo column: bleeds off left edge, full section height on desktop -->
+            <div class="relative -ml-4 sm:-ml-6 lg:-ml-8 mb-8 lg:mb-0 lg:absolute lg:inset-y-0 lg:left-0 lg:w-[44%] overflow-hidden">
+                <img src="{_esc(p['image_url'])}" alt="{_esc(p.get('image_alt', ''))}"
+                     class="w-full object-cover"
+                     style="height: 360px; min-height: 360px; object-position: center;" loading="lazy">
+                <!-- Soft right edge fade on desktop -->
+                <div class="hidden lg:block absolute inset-y-0 right-0 w-20"
+                     style="background: linear-gradient(to right, transparent, var(--color-background));"></div>
+            </div>"""
 
-    pos = p.get("image_position", "left")
-    text_cell = f"""        <div class="flex flex-col justify-center">
-            <div class="accent-line mb-6"></div>
-            <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">
-                {_esc(p['heading'])}
-            </h2>
-{pull_quote}
-            <div class="mt-6 space-y-4">
-{paragraphs}
+    text_offset = "lg:ml-[46%] lg:pl-12" if p.get("image_url") else ""
+
+    return f"""        <!-- Editorial asymmetric story layout -->
+        <div class="relative">
+{img_html}
+            <!-- Text column: right side, offset from photo, generous top padding on desktop -->
+            <div class="{text_offset} py-0 lg:py-16">
+                <div class="max-w-xl">
+                    <div class="accent-line mb-6"></div>
+                    <h2 class="text-4xl md:text-5xl font-bold tracking-tight mb-8"
+                        style="font-family: var(--font-heading); color: var(--color-text);">
+                        {_esc(p['heading'])}
+                    </h2>
+{pull_quote_html}
+                    <div class="space-y-4">
+{body_html}
+                    </div>
+{signature_html}
+                </div>
             </div>
-{signature}
-        </div>"""
-
-    cells = [img_html, text_cell]
-    if pos == "right":
-        cells = list(reversed(cells))
-
-    return f"""        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-20 items-center">
-{cells[0]}
-{cells[1]}
         </div>"""
 
 
 @_component("AboutStats")
 def _about_stats(p: Dict[str, Any]) -> str:
-    """Metrics row (years, dishes served, ratings) with brief text below.
-    Data-driven trust — numbers speak louder."""
+    """Editorial year monument + founder quote centrepiece + compact stat row.
+    Boutique-restaurant register — NOT a B2B SaaS dashboard."""
+    import re as _re
+    # Extract hero year from description text
+    hero_year = "2018"
+    desc_text = p.get("description", "")
+    yr_match = _re.search(r'\b(19|20)\d{2}\b', desc_text)
+    if yr_match:
+        hero_year = yr_match.group(0)
+
+    # Compact supporting stats
     stats = p.get("stats", [])
     stat_items = []
     for idx, stat in enumerate(stats):
-        delay = idx * 100
-        stat_items.append(f"""            <div class="text-center p-6" data-aos="fade-up" data-aos-delay="{delay}">
-                <div class="text-4xl sm:text-5xl md:text-6xl font-black"
-                     style="font-family: var(--font-heading); color: var(--color-primary); line-height: 1;">
-                    {_esc(stat.get('value', ''))}
-                </div>
-                <p class="mt-3 text-sm sm:text-base font-medium uppercase tracking-wider"
-                   style="color: var(--color-text-muted); letter-spacing: 0.1em;">
-                    {_esc(stat.get('label', ''))}
-                </p>
-            </div>""")
+        stat_items.append(f"""                <div class="text-center py-4">
+                    <div class="text-2xl sm:text-3xl md:text-4xl font-black"
+                         style="font-family: var(--font-heading); color: var(--color-primary); line-height: 1;">
+                        {_esc(stat.get('value', ''))}
+                    </div>
+                    <p class="mt-2 text-xs sm:text-sm font-medium uppercase tracking-wider"
+                       style="color: var(--color-text-muted); letter-spacing: 0.08em;">
+                        {_esc(stat.get('label', ''))}
+                    </p>
+                </div>""")
+    stats_row = "\n".join(stat_items)
 
-    stats_grid = "\n".join(stat_items)
+    # Founder quote as editorial centrepiece
+    quote_block = ""
+    if p.get("quote") and p.get("quote_author"):
+        quote_block = f"""        <!-- Founder quote — editorial centrepiece with ghost year -->
+        <div class="relative py-20 lg:py-28 overflow-hidden" data-aos="fade-up">
+            <!-- Ghost year — monumental background typography -->
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden">
+                <span class="block italic leading-none"
+                      style="font-family: var(--font-heading); font-size: clamp(140px, 22vw, 240px); color: var(--color-text); opacity: 0.07; white-space: nowrap;">{hero_year}</span>
+            </div>
+            <!-- Quote content -->
+            <div class="relative z-10 max-w-3xl mx-auto text-center px-4">
+                <blockquote class="italic leading-tight"
+                            style="font-family: var(--font-heading); color: var(--color-text); font-size: clamp(1.75rem, 3.5vw, 3rem); line-height: 1.2;">
+                    &ldquo;{_esc(p['quote'])}&rdquo;
+                </blockquote>
+                <div class="mt-8 flex items-center justify-center gap-4">
+                    <div style="width: 48px; height: 1px; background-color: var(--color-primary);"></div>
+                    <p class="text-sm font-semibold tracking-wider uppercase"
+                       style="color: var(--color-primary);">
+                        {_esc(p['quote_author'])}
+                    </p>
+                    <div style="width: 48px; height: 1px; background-color: var(--color-primary);"></div>
+                </div>
+            </div>
+        </div>"""
 
     description = ""
     if p.get("description"):
-        description = f"""        <p class="mt-10 text-base sm:text-lg leading-relaxed text-center max-w-2xl mx-auto"
+        description = f"""        <p class="mt-6 text-sm sm:text-base leading-relaxed text-center max-w-2xl mx-auto"
            style="color: var(--color-text-muted);">
             {_esc(p['description'])}
         </p>"""
 
-    quote = ""
-    if p.get("quote") and p.get("quote_author"):
-        quote = f"""        <div class="mt-12 text-center">
-            <blockquote class="text-xl sm:text-2xl font-medium italic leading-snug max-w-xl mx-auto"
-                        style="font-family: var(--font-heading); color: var(--color-text);">
-                &ldquo;{_esc(p['quote'])}&rdquo;
-            </blockquote>
-            <p class="mt-4 text-sm font-semibold tracking-wide uppercase"
-               style="color: var(--color-primary);">
-                — {_esc(p['quote_author'])}
-            </p>
-        </div>"""
-
-    return f"""        <div class="text-center mb-12">
+    return f"""        <div class="text-center mb-4">
             <div class="accent-line mx-auto mb-6"></div>
             <h2 class="text-4xl md:text-5xl font-bold tracking-tight"
                 style="font-family: var(--font-heading); color: var(--color-text);">
                 {_esc(p['heading'])}
             </h2>
         </div>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-6 lg:gap-10 py-8 px-4 rounded-3xl"
-             style="background-color: var(--color-surface); box-shadow: var(--shadow-lg);">
-{stats_grid}
+{quote_block}
+        <!-- Supporting stats — compact row -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 py-8 px-6 rounded-3xl"
+             style="background-color: var(--color-surface); box-shadow: var(--shadow-lg);"
+             data-aos="fade-up">
+{stats_row}
         </div>
-{description}
-{quote}"""
+{description}"""
 
 
 @_component("AboutTimeline")
@@ -754,31 +799,98 @@ def _about_timeline(p: Dict[str, Any]) -> str:
 
 @_component("AboutCards")
 def _about_cards(p: Dict[str, Any]) -> str:
-    """3 value-proposition cards (Heritage, Fresh, Family) with icons.
-    Quick-scan values for busy users who skip paragraphs."""
+    """Asymmetric value-proposition layout: dominant first card + secondary pair.
+    Heritage restaurant register — breaks 3-equal-SaaS symmetry."""
     cards = p.get("cards", [])
-    card_items = []
-    for idx, card in enumerate(cards):
-        delay = idx * 100
-        icon = card.get("icon", "fa-solid fa-star")
-        card_items.append(f"""        <div class="p-8 rounded-2xl text-center transition-all duration-300 hover:-translate-y-1"
-             style="background-color: var(--color-surface); box-shadow: var(--shadow);"
-             data-aos="fade-up" data-aos-delay="{delay}">
-            <div class="w-16 h-16 mx-auto rounded-2xl flex items-center justify-center mb-6"
-                 style="background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));">
-                <i class="{_esc(icon)} text-2xl text-white"></i>
-            </div>
-            <h3 class="text-xl font-bold mb-3"
-                style="font-family: var(--font-heading); color: var(--color-text);">
-                {_esc(card.get('title', ''))}
-            </h3>
-            <p class="text-sm sm:text-base leading-relaxed"
-               style="color: var(--color-text-muted);">
-                {_esc(card.get('description', ''))}
-            </p>
-        </div>""")
 
-    cards_html = "\n".join(card_items)
+    # First card: DOMINANT — full-width hero with photo background or gradient
+    dominant_html = ""
+    secondary_items = []
+
+    if cards:
+        first = cards[0]
+        icon = _esc(first.get("icon", "fa-solid fa-star"))
+        title = _esc(first.get("title", ""))
+        desc = _esc(first.get("description", ""))
+        img_url = first.get("image_url", "")
+
+        if img_url:
+            dominant_bg = f'background-image: url({_esc(img_url)}); background-size: cover; background-position: center;'
+            overlay = '<div class="absolute inset-0 rounded-2xl" style="background: linear-gradient(to top, rgba(0,0,0,0.72) 40%, rgba(0,0,0,0.25) 100%);"></div>'
+            icon_block = f'<i class="{icon} text-3xl text-white/80 mb-6 relative z-10"></i>'
+            text_color = "text-white"
+            desc_color = "text-white/75"
+        else:
+            dominant_bg = 'background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));'
+            overlay = ""
+            icon_block = f'<i class="{icon} text-3xl text-white/80 mb-6"></i>'
+            text_color = "text-white"
+            desc_color = "text-white/75"
+
+        dominant_html = f"""        <!-- Dominant first card -->
+        <div class="relative rounded-2xl overflow-hidden flex flex-col justify-end p-8 sm:p-10"
+             style="min-height: 340px; {dominant_bg}"
+             data-aos="fade-up">
+            {overlay}
+            <div class="relative z-10">
+                {icon_block}
+                <h3 class="text-2xl sm:text-3xl font-bold mb-3 {text_color}"
+                    style="font-family: var(--font-heading);">
+                    {title}
+                </h3>
+                <p class="text-sm sm:text-base leading-relaxed {desc_color}">
+                    {desc}
+                </p>
+            </div>
+        </div>"""
+
+    for idx, card in enumerate(cards[1:], start=1):
+        delay = idx * 120
+        icon = _esc(card.get("icon", "fa-solid fa-star"))
+        img_url = card.get("image_url", "")
+
+        if img_url:
+            bg_style = f'background-image: url({_esc(img_url)}); background-size: cover; background-position: center;'
+            overlay = '<div class="absolute inset-0 rounded-2xl" style="background: linear-gradient(to top, rgba(0,0,0,0.68) 40%, rgba(0,0,0,0.2) 100%);"></div>'
+            icon_block = f'<i class="{icon} text-2xl text-white/75 mb-4 relative z-10"></i>'
+            text_color = "text-white"
+            desc_color = "text-white/70"
+            bg_card = ""
+        else:
+            bg_style = ""
+            overlay = ""
+            icon_block = f"""<div class="w-12 h-12 rounded-xl flex items-center justify-center mb-4"
+                         style="background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));">
+                        <i class="{icon} text-lg text-white"></i>
+                    </div>"""
+            text_color = ""
+            desc_color = ""
+            bg_card = 'background-color: var(--color-surface); box-shadow: var(--shadow);'
+
+        secondary_items.append(f"""            <div class="relative rounded-2xl overflow-hidden flex flex-col justify-end p-7 transition-all duration-300 hover:-translate-y-1"
+                 style="min-height: 260px; {bg_style}{bg_card}"
+                 data-aos="fade-up" data-aos-delay="{delay}">
+                {overlay}
+                <div class="relative z-10">
+                    {icon_block}
+                    <h3 class="text-xl font-bold mb-2 {text_color}"
+                        style="font-family: var(--font-heading); {'color: var(--color-text);' if not text_color else ''}">
+                        {_esc(card.get('title', ''))}
+                    </h3>
+                    <p class="text-sm leading-relaxed {desc_color}"
+                       style="{'color: var(--color-text-muted);' if not desc_color else ''}">
+                        {_esc(card.get('description', ''))}
+                    </p>
+                </div>
+            </div>""")
+
+    secondary_html = "\n".join(secondary_items)
+    secondary_grid = ""
+    if secondary_items:
+        secondary_grid = f"""        <!-- Secondary cards: side-by-side below dominant -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-6">
+{secondary_html}
+        </div>"""
 
     subtitle = ""
     if p.get("subtitle"):
@@ -792,9 +904,8 @@ def _about_cards(p: Dict[str, Any]) -> str:
             </h2>
 {subtitle}
         </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-{cards_html}
-        </div>"""
+{dominant_html}
+{secondary_grid}"""
 
 
 @_component("MenuGrid")

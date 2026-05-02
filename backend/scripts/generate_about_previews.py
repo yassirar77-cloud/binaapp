@@ -121,16 +121,22 @@ ABOUT_VARIANTS = {
                 "icon": "fa-solid fa-bowl-food",
                 "title": "Citarasa Warisan Datuk",
                 "description": "Resipi turun-temurun keluarga, dimasak setiap hari dengan rempah segar tumbukan — warisan yang kami jaga dengan bangga.",
+                # Grandmother cooking / heritage kitchen photo
+                "image_url": "https://images.unsplash.com/photo-1586190848861-99aa4a171e90?w=900&h=600&fit=crop&q=80",
             },
             {
                 "icon": "fa-solid fa-leaf",
                 "title": "Bahan Segar Harian",
                 "description": "Rempah ditumbuk setiap pagi. Sayur dan daging dibekalkan terus dari pembekal tempatan yang dipercayai.",
+                # Morning market / fresh produce photo
+                "image_url": "https://images.unsplash.com/photo-1542838132-92c53300491e?w=900&h=600&fit=crop&q=80",
             },
             {
                 "icon": "fa-solid fa-heart",
                 "title": "Mesra Keluarga",
                 "description": "Ruang permainan kanak-kanak, kerusi tinggi bayi, dan menu khas kecil-kecil — kami faham keperluan keluarga.",
+                # Family dining photo
+                "image_url": "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=900&h=600&fit=crop&q=80",
             },
         ],
     },
