@@ -54,7 +54,6 @@ HERO_SECTION = {
         "cta_secondary_text": "Tempah Meja",
         "cta_secondary_link": "https://wa.me/60173228899?text=Saya%20ingin%20tempah%20meja",
         "image_key": "hero",
-        "halal_certified": True,
     },
 }
 
@@ -100,9 +99,9 @@ ABOUT_VARIANTS = {
             },
             {
                 "year": "2022",
-                "title": "Sijil Halal JAKIM",
-                "description": "Pencapaian yang membanggakan — pensijilan halal JAKIM diterima, mengukuhkan kepercayaan pelanggan kami.",
-                # Rendang in bowl close-up — halal-certified dish detail
+                "title": "Memperluaskan Citarasa",
+                "description": "Kami menambah 30+ menu baharu dan membuka cawangan kedua — membawa citarasa Khulafa kepada lebih ramai keluarga.",
+                # Rendang in bowl close-up — rich heritage dish detail
                 "image_url": "https://images.unsplash.com/photo-1688084546323-fcd3f9d8389b?w=800&h=600&fit=crop&q=80",
             },
             {
@@ -119,9 +118,9 @@ ABOUT_VARIANTS = {
         "subtitle": "Tiga nilai teras yang menjadi asas setiap hidangan kami",
         "cards": [
             {
-                "icon": "fa-solid fa-certificate",
-                "title": "100% Halal",
-                "description": "Semua bahan dan proses penyediaan disahkan halal oleh JAKIM. Keluarga anda boleh makan dengan tenang.",
+                "icon": "fa-solid fa-bowl-food",
+                "title": "Citarasa Warisan Datuk",
+                "description": "Resipi turun-temurun keluarga, dimasak setiap hari dengan rempah segar tumbukan — warisan yang kami jaga dengan bangga.",
             },
             {
                 "icon": "fa-solid fa-leaf",

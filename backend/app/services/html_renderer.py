@@ -311,7 +311,7 @@ def _hero_split(p: Dict[str, Any]) -> str:
     if p.get("halal_certified"):
         halal_badge = """                    <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider mb-6"
                          style="background-color: var(--color-accent); color: var(--color-secondary);">
-                        <i class="fa-solid fa-certificate"></i> Halal Certified
+                        <i class="fa-solid fa-store"></i> Pengusaha Muslim
                     </div>"""
 
     pos = p.get("image_position", "right")
@@ -352,7 +352,7 @@ def _hero_centered(p: Dict[str, Any]) -> str:
     if p.get("halal_certified"):
         halal_badge = """            <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider mb-6"
                  style="background-color: rgba(255,255,255,0.2); color: #fff; backdrop-filter: blur(4px);">
-                <i class="fa-solid fa-certificate"></i> Halal Certified
+                <i class="fa-solid fa-store"></i> Pengusaha Muslim
             </div>"""
 
     cta2 = ""
@@ -399,7 +399,7 @@ def _hero_fullscreen_image(p: Dict[str, Any]) -> str:
     if p.get("halal_certified"):
         halal_badge = """                <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider mb-4"
                      style="background-color: var(--color-accent); color: var(--color-secondary);">
-                    <i class="fa-solid fa-certificate"></i> Halal Certified
+                    <i class="fa-solid fa-store"></i> Pengusaha Muslim
                 </div>"""
 
     cta2 = ""
@@ -493,7 +493,7 @@ def _hero_asymmetric_card(p: Dict[str, Any]) -> str:
     if p.get("halal_certified"):
         halal_badge = """                    <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider mb-4"
                          style="background-color: var(--color-accent); color: var(--color-secondary);">
-                        <i class="fa-solid fa-certificate"></i> Halal Certified
+                        <i class="fa-solid fa-store"></i> Pengusaha Muslim
                     </div>"""
 
     cta2 = ""
@@ -754,7 +754,7 @@ def _about_timeline(p: Dict[str, Any]) -> str:
 
 @_component("AboutCards")
 def _about_cards(p: Dict[str, Any]) -> str:
-    """3 value-proposition cards (Halal, Fresh, Family) with icons.
+    """3 value-proposition cards (Heritage, Fresh, Family) with icons.
     Quick-scan values for busy users who skip paragraphs."""
     cards = p.get("cards", [])
     card_items = []

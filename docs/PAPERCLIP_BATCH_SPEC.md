@@ -25,7 +25,7 @@
 | 5 | story | AboutStory | Split layout: image left, founder narrative right with signature | Emotional connection through personal origin story | Warung-style "dari dapur ke hati" storytelling | Image stacks above text, signature stays |
 | 6 | stats | AboutStats | Metrics row (years, dishes served, ratings) with brief text below | Data-driven trust — numbers speak louder | F&B sites that lead with "15 tahun berkhidmat" | Stats become 2x2 grid, counters animate on scroll |
 | 7 | timeline | AboutTimeline | Vertical timeline of business milestones with alternating sides | Heritage restaurants showing evolution from 1985 to today | Mamak chain "Sejarah Kami" pages | Single-column timeline, dots on left edge |
-| 8 | cards | AboutCards | 3 value-proposition cards (Halal, Fresh, Family) with icons | Quick-scan values for busy users who skip paragraphs | Franchise sites with "Mengapa Kami" grid | Cards stack vertically, full-width |
+| 8 | cards | AboutCards | 3 value-proposition cards (Heritage, Fresh, Family) with icons | Quick-scan values for busy users who skip paragraphs | Franchise sites with "Mengapa Kami" grid | Cards stack vertically, full-width |
 
 ---
 
@@ -101,7 +101,7 @@
 2. **Carousels without touch-swipe on mobile** — every carousel/slider must support native touch-swipe gestures
 3. **Forms without WhatsApp fallback button** — Malaysian users prefer WhatsApp over email; every form must include a "Atau WhatsApp kami" button
 4. **Stats with placeholder numbers** — must feel real and specific: "5+ tahun", "200+ menu items", not "XX years"
-5. **Timeline starting from generic "Founded in 2020"** — must feel Malaysian context (Hari Raya 2018, MCO 2020 challenges, JAKIM certification milestones)
+5. **Timeline starting from generic "Founded in 2020"** — must feel Malaysian context (Hari Raya 2018, MCO 2020 challenges, expansion milestones)
 6. **Hardcoded English text** — all user-facing text must be Bahasa Malaysia first; English only in code comments
 
 ---
@@ -148,7 +148,8 @@ specific_dishes:
 **Timeline data (for AboutTimeline):**
 - 2018: Bermula dari dapur rumah
 - 2020: Restoran pertama di Shah Alam (during MCO challenges)
-- 2022: Halal certification dari JAKIM
+- 2022: Memperluaskan Citarasa (cawangan kedua + menu baharu)
+  - Note: Halal certification claims require uploaded JAKIM cert (gated feature for production)
 - 2024: Cawangan ke-3 dibuka
 
 **Founder data (for AboutStory):**

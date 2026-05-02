@@ -51,7 +51,6 @@ HERO_CONTENT = {
     "cta_secondary_text": "Tempah Meja",
     "cta_secondary_link": "https://wa.me/60173228899?text=Saya%20ingin%20tempah%20meja",
     "image_key": "hero",
-    "halal_certified": True,
 }
 
 # Rest-of-page sections (same across all hero previews)
