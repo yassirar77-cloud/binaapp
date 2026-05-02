@@ -76,3 +76,30 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
 }
+
+/* Mobile breakpoint — convert dense rows to wrap and tighten paddings.
+   Uses !important to override inline grid templates on the row classes. */
+@media (max-width: 520px) {
+  .profile-hub-page {
+    padding: 24px 16px 60px !important;
+  }
+  .profile-hub section {
+    padding: 18px !important;
+  }
+  .profile-hub .profile-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+    gap: 6px 12px !important;
+  }
+  .profile-hub .profile-row > .profile-row__main {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .profile-hub .profile-row > .profile-row__avatar {
+    flex: 0 0 auto;
+  }
+  .profile-hub .profile-row > .profile-row__trail {
+    margin-left: auto;
+  }
+}

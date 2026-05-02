@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { User } from '@supabase/supabase-js'
-import { supabase, getCurrentUser } from '@/lib/supabase'
+import { supabase, getCurrentUser, signOut as customSignOut } from '@/lib/supabase'
 import { ProfileHub } from './ProfileHub'
 import type { ProfileCardData } from './components/ProfileCard'
 import './tokens.css'
@@ -78,6 +78,12 @@ export default function ProfilePage() {
     [user],
   )
 
+  const handleLogout = useCallback(async () => {
+    await customSignOut()
+    if (supabase) await supabase.auth.signOut()
+    router.push('/')
+  }, [router])
+
   if (authChecking || !user) {
     return (
       <div
@@ -102,6 +108,7 @@ export default function ProfilePage() {
       initial={profile}
       loading={loading}
       onSaveProfile={handleSaveProfile}
+      onLogout={handleLogout}
     />
   )
 }

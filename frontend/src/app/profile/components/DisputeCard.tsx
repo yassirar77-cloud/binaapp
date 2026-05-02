@@ -87,6 +87,7 @@ export function DisputeCard({ disputes, totalOpen, onViewAll, onRespond }: Dispu
       </div>
 
       <div
+        className="profile-row"
         style={{
           marginTop: 16,
           display: 'grid',
@@ -99,7 +100,7 @@ export function DisputeCard({ disputes, totalOpen, onViewAll, onRespond }: Dispu
           borderRadius: 10,
         }}
       >
-        <div style={{ minWidth: 0 }}>
+        <div className="profile-row__main" style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <code
               style={{

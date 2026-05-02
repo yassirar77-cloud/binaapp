@@ -26,6 +26,7 @@ interface ProfileHubProps {
   initial: ProfileCardData
   loading?: boolean
   onSaveProfile: (next: ProfileCardData) => Promise<void>
+  onLogout: () => void | Promise<void>
 }
 
 interface RawTransaction {
@@ -163,6 +164,7 @@ export function ProfileHub({
   initial,
   loading = false,
   onSaveProfile,
+  onLogout,
 }: ProfileHubProps) {
   const router = useRouter()
   const [toast, setToast] = useState<{ msg: string; tone: ToastTone } | null>(null)
@@ -368,7 +370,7 @@ export function ProfileHub({
   }, [router])
 
   return (
-    <div className="profile-hub" style={{ minHeight: '100vh', padding: '40px 20px 80px' }}>
+    <div className="profile-hub profile-hub-page" style={{ minHeight: '100vh', padding: '40px 20px 80px' }}>
       <main
         style={{
           maxWidth: 720,
@@ -427,6 +429,30 @@ export function ProfileHub({
           onViewAll={handleViewAllDisputes}
           onRespond={handleRespondDispute}
         />
+
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
+          <button
+            type="button"
+            onClick={() => onLogout()}
+            className="profile-logout"
+            style={{
+              fontFamily: 'inherit',
+              fontSize: 13,
+              fontWeight: 500,
+              color: '#dc2626',
+              border: '0.5px solid var(--border-strong)',
+              borderRadius: 'var(--r-input)',
+              padding: '8px 18px',
+              minHeight: 36,
+              background: 'transparent',
+              cursor: 'pointer',
+              transition: 'background 120ms',
+              letterSpacing: 'inherit',
+            }}
+          >
+            Log keluar
+          </button>
+        </div>
       </main>
 
       <Toast msg={toast?.msg ?? null} tone={toast?.tone} />

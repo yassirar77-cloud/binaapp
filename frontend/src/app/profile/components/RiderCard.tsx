@@ -120,6 +120,7 @@ export function RiderCard({ riders, onAdd, onManage }: RiderCardProps) {
             return (
               <div
                 key={rider.id}
+                className="profile-row"
                 style={{
                   display: 'grid',
                   gridTemplateColumns: 'auto 1fr auto auto',
@@ -129,8 +130,10 @@ export function RiderCard({ riders, onAdd, onManage }: RiderCardProps) {
                   borderTop: '0.5px solid var(--border)',
                 }}
               >
-                <Avatar initials={avatarInitial(rider)} tone={tone} size={38} />
-                <div style={{ minWidth: 0 }}>
+                <div className="profile-row__avatar">
+                  <Avatar initials={avatarInitial(rider)} tone={tone} size={38} />
+                </div>
+                <div className="profile-row__main" style={{ minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     {hasName ? (
                       <span style={{ fontSize: 14, color: 'var(--ink-1)', fontWeight: 500 }}>

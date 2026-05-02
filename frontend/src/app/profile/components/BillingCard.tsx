@@ -151,6 +151,7 @@ export function BillingCard({
             return (
               <div
                 key={inv.id}
+                className="profile-row"
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '1fr auto auto auto',
@@ -160,7 +161,7 @@ export function BillingCard({
                   borderTop: i === 0 ? 'none' : '0.5px solid var(--border)',
                 }}
               >
-                <div style={{ minWidth: 0 }}>
+                <div className="profile-row__main" style={{ minWidth: 0 }}>
                   <div
                     style={{
                       fontSize: 13,
