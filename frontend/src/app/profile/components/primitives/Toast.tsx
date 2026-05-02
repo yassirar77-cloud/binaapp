@@ -1,15 +1,20 @@
-import { Check } from 'lucide-react'
+import { Check, X } from 'lucide-react'
+
+export type ToastTone = 'success' | 'error'
 
 interface ToastProps {
   msg: string | null
+  tone?: ToastTone
 }
 
-export function Toast({ msg }: ToastProps) {
+export function Toast({ msg, tone = 'success' }: ToastProps) {
   if (!msg) return null
+  const Icon = tone === 'error' ? X : Check
+  const iconColor = tone === 'error' ? '#f87171' : '#10b981'
   return (
     <div
-      role="status"
-      aria-live="polite"
+      role={tone === 'error' ? 'alert' : 'status'}
+      aria-live={tone === 'error' ? 'assertive' : 'polite'}
       style={{
         position: 'fixed',
         bottom: 28,
@@ -29,7 +34,7 @@ export function Toast({ msg }: ToastProps) {
         gap: 8,
       }}
     >
-      <Check size={14} strokeWidth={2} color="#10b981" />
+      <Icon size={14} strokeWidth={2} color={iconColor} />
       {msg}
     </div>
   )
