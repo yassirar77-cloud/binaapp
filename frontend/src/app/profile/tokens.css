@@ -1,0 +1,78 @@
+/* BinaApp /profile design tokens
+   Source: Claude Design handoff DLg4-C1yE1WtVQey14nPgA, profile.html lines 8-53.
+   Scoped to .profile-hub so we don't leak globals. */
+
+.profile-hub {
+  --orange: #f97316;
+  --orange-hover: #ea6a0a;
+  --page-bg: #f7f7f8;
+  --card-bg: #ffffff;
+  --border: rgba(15, 17, 26, 0.08);
+  --border-strong: rgba(15, 17, 26, 0.12);
+  --warn-border: #f59e0b;
+  --warn-bg: #fffaf0;
+
+  --ink-1: #0f111a;
+  --ink-2: #4b5061;
+  --ink-3: #8a8e9c;
+  --ink-4: #b6b9c4;
+
+  --p-blue: #3b82f6;
+  --p-green: #10b981;
+  --p-purple: #8b5cf6;
+  --p-coral: #fb7185;
+  --p-pink: #ec4899;
+  --p-amber: #f59e0b;
+
+  --pill-green-bg: #e7f7ef;
+  --pill-green-fg: #047857;
+  --pill-amber-bg: #fef3c7;
+  --pill-amber-fg: #92400e;
+  --pill-gray-bg: #eeeff2;
+  --pill-gray-fg: #4b5061;
+  --pill-purple-bg: #ede9fe;
+  --pill-purple-fg: #5b21b6;
+  --pill-red-bg: #fee2e2;
+  --pill-red-fg: #b91c1c;
+
+  --avatar-purple-bg: #ede9fe;
+  --avatar-purple-fg: #5b21b6;
+  --avatar-teal-bg: #ccfbf1;
+  --avatar-teal-fg: #0f766e;
+  --avatar-amber-bg: #fef3c7;
+  --avatar-amber-fg: #92400e;
+
+  --r-card: 12px;
+  --r-input: 8px;
+  --r-pill: 999px;
+
+  font-family: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--page-bg);
+  color: var(--ink-1);
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.profile-hub ::selection {
+  background: #fed7aa;
+  color: #9a3412;
+}
+
+@keyframes profileToastIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@keyframes profilePulseDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
