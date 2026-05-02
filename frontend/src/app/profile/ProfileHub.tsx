@@ -18,6 +18,7 @@ import {
   type InvoiceStatus,
 } from './components/BillingCard'
 import { RiderCard, type Rider } from './components/RiderCard'
+import { DisputeCard, type Dispute } from './components/DisputeCard'
 import { Toast, type ToastTone } from './components/primitives/Toast'
 
 interface ProfileHubProps {
@@ -49,6 +50,18 @@ interface RawRider {
   vehicle_plate?: string | null
   is_online?: boolean | null
   total_deliveries?: number | null
+}
+
+interface RawDispute {
+  id: string
+  dispute_number?: string | null
+  order_id?: string | null
+  customer_name?: string | null
+  description?: string | null
+  order_amount?: number | string | null
+  disputed_amount?: number | string | null
+  status?: string | null
+  created_at?: string | null
 }
 
 const TOAST_TIMEOUT = 2200
@@ -99,6 +112,26 @@ function toAmount(raw: number | string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+function mapDispute(raw: RawDispute): Dispute | null {
+  if (!raw.id || !raw.created_at) return null
+  const displayId = raw.dispute_number?.trim() || raw.order_id?.trim() || raw.id
+  const amountRaw = raw.disputed_amount ?? raw.order_amount ?? null
+  const amountNum =
+    amountRaw === null || amountRaw === undefined
+      ? null
+      : Number.isFinite(Number(amountRaw))
+        ? Number(amountRaw)
+        : null
+  return {
+    id: raw.id,
+    displayId,
+    customerName: (raw.customer_name ?? '').trim(),
+    reason: (raw.description ?? '').trim() || 'Tiada keterangan',
+    amount: amountNum,
+    createdAt: raw.created_at,
+  }
+}
+
 function mapRider(raw: RawRider): Rider {
   return {
     id: raw.id,
@@ -138,6 +171,8 @@ export function ProfileHub({
   const { usage: subscriptionData, plan, loading: subLoading } = useSubscription()
   const [invoices, setInvoices] = useState<Invoice[] | null>(null)
   const [riders, setRiders] = useState<Rider[] | null>(null)
+  const [disputes, setDisputes] = useState<Dispute[] | null>(null)
+  const [openDisputeCount, setOpenDisputeCount] = useState(0)
 
   const showToast = useCallback((msg: string, tone: ToastTone = 'success') => {
     setToast({ msg, tone })
@@ -240,6 +275,56 @@ export function ProfileHub({
     return () => { cancelled = true }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadDisputes() {
+      const token = getStoredToken()
+      if (!token) {
+        if (!cancelled) {
+          setDisputes([])
+          setOpenDisputeCount(0)
+        }
+        return
+      }
+      try {
+        const res = await fetch(
+          `${API_URL}/api/v1/disputes/owner/list?status=open&per_page=1`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          },
+        )
+        if (!res.ok) {
+          if (!cancelled) {
+            setDisputes([])
+            setOpenDisputeCount(0)
+          }
+          return
+        }
+        const data: { disputes?: RawDispute[]; total?: number } = await res.json()
+        const mapped = (data.disputes ?? [])
+          .map(mapDispute)
+          .filter((d): d is Dispute => d !== null)
+        if (!cancelled) {
+          setDisputes(mapped)
+          setOpenDisputeCount(typeof data.total === 'number' ? data.total : mapped.length)
+        }
+      } catch (err) {
+        console.warn('[Profile] Failed to load disputes:', err)
+        if (!cancelled) {
+          setDisputes([])
+          setOpenDisputeCount(0)
+        }
+      }
+    }
+
+    loadDisputes()
+    return () => { cancelled = true }
+  }, [])
+
   const tier = normalizeTier(plan?.name)
   const planLabel = tier.toUpperCase()
   const status = normalizeStatus(plan?.status)
@@ -273,6 +358,14 @@ export function ProfileHub({
   const handleRiderUnavailable = useCallback(() => {
     showToast('Pengurusan rider akan datang tidak lama lagi')
   }, [showToast])
+
+  const handleViewAllDisputes = useCallback(() => {
+    router.push('/disputes')
+  }, [router])
+
+  const handleRespondDispute = useCallback(() => {
+    router.push('/disputes')
+  }, [router])
 
   return (
     <div className="profile-hub" style={{ minHeight: '100vh', padding: '40px 20px 80px' }}>
@@ -326,6 +419,13 @@ export function ProfileHub({
           riders={riders}
           onAdd={handleRiderUnavailable}
           onManage={handleRiderUnavailable}
+        />
+
+        <DisputeCard
+          disputes={disputes}
+          totalOpen={openDisputeCount}
+          onViewAll={handleViewAllDisputes}
+          onRespond={handleRespondDispute}
         />
       </main>
 
