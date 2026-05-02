@@ -115,6 +115,7 @@ celerybeat.pid
 # Misc
 .scrapy
 cython_debug/
+.design/
 .abstra/
 .cursorignore
 .cursorindexingignore
