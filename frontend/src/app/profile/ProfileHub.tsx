@@ -20,6 +20,14 @@ import {
 import { RiderCard, type Rider } from './components/RiderCard'
 import { DisputeCard, type Dispute } from './components/DisputeCard'
 import { Toast, type ToastTone } from './components/primitives/Toast'
+import { RiderFormModal } from '@/components/riders/RiderFormModal'
+import type { RiderFormRider } from '@/components/riders/RiderForm'
+import type { VehicleType } from '@/components/riders/useRiderMutations'
+import { NewDisputeForm } from '@/components/disputes/NewDisputeForm'
+import { DisputeListModal } from '@/components/disputes/DisputeListModal'
+import { DisputeThread } from '@/components/disputes/DisputeThread'
+import { ResolveDisputeModal } from '@/components/disputes/ResolveDisputeModal'
+import type { Dispute as ApiDispute } from '@/types'
 
 interface ProfileHubProps {
   user: User
@@ -42,13 +50,20 @@ interface RawTransaction {
 
 interface RawWebsite {
   id: string
+  name?: string | null
+  business_name?: string | null
+  subdomain?: string | null
 }
 
 interface RawRider {
   id: string
   name?: string | null
   phone?: string | null
+  email?: string | null
+  vehicle_type?: string | null
   vehicle_plate?: string | null
+  vehicle_model?: string | null
+  is_active?: boolean | null
   is_online?: boolean | null
   total_deliveries?: number | null
 }
@@ -173,8 +188,24 @@ export function ProfileHub({
   const { usage: subscriptionData, plan, loading: subLoading } = useSubscription()
   const [invoices, setInvoices] = useState<Invoice[] | null>(null)
   const [riders, setRiders] = useState<Rider[] | null>(null)
+  const [rawRiders, setRawRiders] = useState<Map<string, RawRider>>(new Map())
+  const [websites, setWebsites] = useState<RawWebsite[]>([])
   const [disputes, setDisputes] = useState<Dispute[] | null>(null)
+  const [rawDisputes, setRawDisputes] = useState<Map<string, ApiDispute>>(new Map())
   const [openDisputeCount, setOpenDisputeCount] = useState(0)
+  const [disputeListRefresh, setDisputeListRefresh] = useState(0)
+  const [riderModal, setRiderModal] = useState<
+    | { mode: 'closed' }
+    | { mode: 'add' }
+    | { mode: 'edit'; rider: RiderFormRider }
+  >({ mode: 'closed' })
+  const [disputeModal, setDisputeModal] = useState<
+    | { mode: 'closed' }
+    | { mode: 'new' }
+    | { mode: 'list' }
+    | { mode: 'thread'; dispute: ApiDispute }
+    | { mode: 'resolve'; dispute: ApiDispute; from: 'thread' | 'list' | null }
+  >({ mode: 'closed' })
 
   const showToast = useCallback((msg: string, tone: ToastTone = 'success') => {
     setToast({ msg, tone })
@@ -217,115 +248,119 @@ export function ProfileHub({
     return () => { cancelled = true }
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadRiders() {
-      const token = getStoredToken()
-      if (!token) {
-        if (!cancelled) setRiders([])
+  const loadRiders = useCallback(async () => {
+    const token = getStoredToken()
+    if (!token) {
+      setRiders([])
+      setRawRiders(new Map())
+      return
+    }
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    }
+    try {
+      const websitesRes = await fetch(`${API_URL}/api/v1/websites/`, { headers })
+      if (!websitesRes.ok) {
+        setWebsites([])
+        setRiders([])
+        setRawRiders(new Map())
         return
       }
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+      const websitesData: RawWebsite[] = await websitesRes.json()
+      const websiteList = Array.isArray(websitesData) ? websitesData : []
+      setWebsites(websiteList)
+
+      if (websiteList.length === 0) {
+        setRiders([])
+        setRawRiders(new Map())
+        return
       }
-      try {
-        const websitesRes = await fetch(`${API_URL}/api/v1/websites/`, { headers })
-        if (!websitesRes.ok) {
-          if (!cancelled) setRiders([])
-          return
-        }
-        const websites: RawWebsite[] = await websitesRes.json()
-        if (!Array.isArray(websites) || websites.length === 0) {
-          if (!cancelled) setRiders([])
-          return
-        }
 
-        const results = await Promise.all(
-          websites.map(async (w) => {
-            try {
-              const res = await fetch(
-                `${API_URL}/api/v1/delivery/admin/websites/${w.id}/riders`,
-                { headers },
-              )
-              if (!res.ok) return [] as RawRider[]
-              const data = await res.json()
-              return Array.isArray(data) ? (data as RawRider[]) : []
-            } catch (err) {
-              console.warn(`[Profile] Failed to load riders for website ${w.id}:`, err)
-              return [] as RawRider[]
-            }
-          }),
-        )
-
-        const dedupedById = new Map<string, RawRider>()
-        for (const list of results) {
-          for (const r of list) {
-            if (r?.id && !dedupedById.has(r.id)) dedupedById.set(r.id, r)
+      const results = await Promise.all(
+        websiteList.map(async (w) => {
+          try {
+            const res = await fetch(
+              `${API_URL}/api/v1/delivery/admin/websites/${w.id}/riders`,
+              { headers },
+            )
+            if (!res.ok) return [] as RawRider[]
+            const data = await res.json()
+            return Array.isArray(data) ? (data as RawRider[]) : []
+          } catch (err) {
+            console.warn(`[Profile] Failed to load riders for website ${w.id}:`, err)
+            return [] as RawRider[]
           }
-        }
-        const mapped = Array.from(dedupedById.values()).map(mapRider)
-        if (!cancelled) setRiders(mapped)
-      } catch (err) {
-        console.warn('[Profile] Failed to load riders:', err)
-        if (!cancelled) setRiders([])
-      }
-    }
+        }),
+      )
 
-    loadRiders()
-    return () => { cancelled = true }
+      const dedupedById = new Map<string, RawRider>()
+      for (const list of results) {
+        for (const r of list) {
+          if (r?.id && !dedupedById.has(r.id)) dedupedById.set(r.id, r)
+        }
+      }
+      const mapped = Array.from(dedupedById.values()).map(mapRider)
+      setRiders(mapped)
+      setRawRiders(dedupedById)
+    } catch (err) {
+      console.warn('[Profile] Failed to load riders:', err)
+      setRiders([])
+      setRawRiders(new Map())
+    }
   }, [])
 
   useEffect(() => {
-    let cancelled = false
+    void loadRiders()
+  }, [loadRiders])
 
-    async function loadDisputes() {
-      const token = getStoredToken()
-      if (!token) {
-        if (!cancelled) {
-          setDisputes([])
-          setOpenDisputeCount(0)
-        }
-        return
-      }
-      try {
-        const res = await fetch(
-          `${API_URL}/api/v1/disputes/owner/list?status=open&per_page=1`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
+  const loadDisputes = useCallback(async () => {
+    const token = getStoredToken()
+    if (!token) {
+      setDisputes([])
+      setRawDisputes(new Map())
+      setOpenDisputeCount(0)
+      return
+    }
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/disputes/owner/list?status=open&per_page=1`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
           },
-        )
-        if (!res.ok) {
-          if (!cancelled) {
-            setDisputes([])
-            setOpenDisputeCount(0)
-          }
-          return
-        }
-        const data: { disputes?: RawDispute[]; total?: number } = await res.json()
-        const mapped = (data.disputes ?? [])
-          .map(mapDispute)
-          .filter((d): d is Dispute => d !== null)
-        if (!cancelled) {
-          setDisputes(mapped)
-          setOpenDisputeCount(typeof data.total === 'number' ? data.total : mapped.length)
-        }
-      } catch (err) {
-        console.warn('[Profile] Failed to load disputes:', err)
-        if (!cancelled) {
-          setDisputes([])
-          setOpenDisputeCount(0)
-        }
+        },
+      )
+      if (!res.ok) {
+        setDisputes([])
+        setRawDisputes(new Map())
+        setOpenDisputeCount(0)
+        return
       }
+      const data: { disputes?: ApiDispute[]; total?: number } = await res.json()
+      const rawList = data.disputes ?? []
+      const mapped = rawList
+        .map((d) => mapDispute(d as RawDispute))
+        .filter((d): d is Dispute => d !== null)
+      const byId = new Map<string, ApiDispute>()
+      for (const r of rawList) {
+        if (r?.id) byId.set(r.id, r)
+      }
+      setDisputes(mapped)
+      setRawDisputes(byId)
+      setOpenDisputeCount(typeof data.total === 'number' ? data.total : mapped.length)
+    } catch (err) {
+      console.warn('[Profile] Failed to load disputes:', err)
+      setDisputes([])
+      setRawDisputes(new Map())
+      setOpenDisputeCount(0)
     }
-
-    loadDisputes()
-    return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    void loadDisputes()
+  }, [loadDisputes])
 
   const tier = normalizeTier(plan?.name)
   const planLabel = tier.toUpperCase()
@@ -357,17 +392,52 @@ export function ProfileHub({
     window.open(`${TOYYIBPAY_BILL_BASE}/${invoice.toyyibpayBillCode}`, '_blank', 'noopener,noreferrer')
   }, [showToast])
 
-  const handleRiderUnavailable = useCallback(() => {
-    showToast('Pengurusan rider akan datang tidak lama lagi')
-  }, [showToast])
+  const handleAddRider = useCallback(() => {
+    setRiderModal({ mode: 'add' })
+  }, [])
+
+  const handleManageRider = useCallback(
+    (rider: Rider) => {
+      const raw = rawRiders.get(rider.id)
+      const editRider: RiderFormRider = {
+        id: rider.id,
+        name: rider.name || raw?.name || null,
+        phone: rider.phone ?? raw?.phone ?? null,
+        email: raw?.email ?? null,
+        vehicle_type: (raw?.vehicle_type as VehicleType | undefined) ?? null,
+        vehicle_plate: rider.vehiclePlate ?? raw?.vehicle_plate ?? null,
+        vehicle_model: raw?.vehicle_model ?? null,
+        is_active: raw?.is_active ?? null,
+      }
+      setRiderModal({ mode: 'edit', rider: editRider })
+    },
+    [rawRiders],
+  )
+
+  const closeRiderModal = useCallback(() => setRiderModal({ mode: 'closed' }), [])
+
+  const handleCreateDispute = useCallback(() => {
+    setDisputeModal({ mode: 'new' })
+  }, [])
 
   const handleViewAllDisputes = useCallback(() => {
-    router.push('/disputes')
-  }, [router])
+    setDisputeModal({ mode: 'list' })
+    setDisputeListRefresh((n) => n + 1)
+  }, [])
 
-  const handleRespondDispute = useCallback(() => {
-    router.push('/disputes')
-  }, [router])
+  const handleRespondDispute = useCallback(
+    (summary: Dispute) => {
+      const raw = rawDisputes.get(summary.id)
+      if (!raw) {
+        showToast('Aduan tidak dijumpai. Sila muat semula.', 'error')
+        return
+      }
+      setDisputeModal({ mode: 'thread', dispute: raw })
+    },
+    [rawDisputes, showToast],
+  )
+
+  const closeDisputeModal = useCallback(() => setDisputeModal({ mode: 'closed' }), [])
 
   return (
     <div className="profile-hub profile-hub-page" style={{ minHeight: '100vh', padding: '40px 20px 80px' }}>
@@ -419,8 +489,8 @@ export function ProfileHub({
 
         <RiderCard
           riders={riders}
-          onAdd={handleRiderUnavailable}
-          onManage={handleRiderUnavailable}
+          onAdd={handleAddRider}
+          onManage={handleManageRider}
         />
 
         <DisputeCard
@@ -428,6 +498,7 @@ export function ProfileHub({
           totalOpen={openDisputeCount}
           onViewAll={handleViewAllDisputes}
           onRespond={handleRespondDispute}
+          onCreate={handleCreateDispute}
         />
 
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
@@ -456,6 +527,76 @@ export function ProfileHub({
       </main>
 
       <Toast msg={toast?.msg ?? null} tone={toast?.tone} />
+
+      <RiderFormModal
+        open={riderModal.mode !== 'closed'}
+        mode={riderModal.mode === 'edit' ? 'edit' : 'add'}
+        rider={riderModal.mode === 'edit' ? riderModal.rider : undefined}
+        websites={websites}
+        initialWebsiteId={websites[0]?.id ?? null}
+        onClose={closeRiderModal}
+        onSaved={() => { void loadRiders() }}
+        onDeleted={() => {
+          void loadRiders()
+          closeRiderModal()
+        }}
+        onShowToast={(msg, tone) => showToast(msg, tone)}
+      />
+
+      <NewDisputeForm
+        open={disputeModal.mode === 'new'}
+        onClose={closeDisputeModal}
+        websites={websites.map((w) => ({
+          id: w.id,
+          label:
+            (w.name || w.business_name || w.subdomain || 'Website tanpa nama').trim() +
+            (w.subdomain ? ` (${w.subdomain}.binaapp.my)` : ''),
+        }))}
+        onSubmitted={() => { void loadDisputes() }}
+        onShowToast={(msg, tone) => showToast(msg, tone)}
+      />
+
+      <DisputeListModal
+        open={disputeModal.mode === 'list'}
+        onClose={closeDisputeModal}
+        refreshKey={disputeListRefresh}
+        onSelectDispute={(d) => setDisputeModal({ mode: 'thread', dispute: d })}
+        onShowToast={(msg, tone) => showToast(msg, tone)}
+      />
+
+      <DisputeThread
+        open={disputeModal.mode === 'thread'}
+        dispute={disputeModal.mode === 'thread' ? disputeModal.dispute : null}
+        onClose={() => {
+          closeDisputeModal()
+          void loadDisputes()
+        }}
+        onRequestResolve={() => {
+          if (disputeModal.mode === 'thread') {
+            setDisputeModal({ mode: 'resolve', dispute: disputeModal.dispute, from: 'thread' })
+          }
+        }}
+        onShowToast={(msg, tone) => showToast(msg, tone)}
+      />
+
+      <ResolveDisputeModal
+        open={disputeModal.mode === 'resolve'}
+        disputeId={disputeModal.mode === 'resolve' ? disputeModal.dispute.id : null}
+        disputeNumber={disputeModal.mode === 'resolve' ? disputeModal.dispute.dispute_number : null}
+        onClose={() => {
+          if (disputeModal.mode === 'resolve' && disputeModal.from === 'thread') {
+            setDisputeModal({ mode: 'thread', dispute: disputeModal.dispute })
+          } else {
+            closeDisputeModal()
+          }
+        }}
+        onResolved={() => {
+          void loadDisputes()
+          setDisputeListRefresh((n) => n + 1)
+          closeDisputeModal()
+        }}
+        onShowToast={(msg, tone) => showToast(msg, tone)}
+      />
     </div>
   )
 }

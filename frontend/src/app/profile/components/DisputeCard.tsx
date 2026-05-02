@@ -2,6 +2,7 @@
 
 import { ChevronRight } from 'lucide-react'
 import { Card } from './primitives/Card'
+import { GhostButton } from './primitives/GhostButton'
 import { LinkBtn } from './primitives/LinkBtn'
 import { Pill } from './primitives/Pill'
 import { PrimaryButton } from './primitives/PrimaryButton'
@@ -20,6 +21,7 @@ interface DisputeCardProps {
   totalOpen: number
   onViewAll: () => void
   onRespond: (dispute: Dispute) => void
+  onCreate: () => void
 }
 
 const BM_MONTHS = [
@@ -51,16 +53,16 @@ function formatAmount(amount: number | null): string {
   return `RM${amount.toFixed(2)}`
 }
 
-export function DisputeCard({ disputes, totalOpen, onViewAll, onRespond }: DisputeCardProps) {
-  if (disputes === null) return null
-  if (disputes.length === 0 || totalOpen === 0) return null
-
-  const featured = disputes[0]
-  const customer = featured.customerName.trim() || 'Pelanggan'
-  const timeAgo = formatRelativeBm(featured.createdAt)
+export function DisputeCard({ disputes, totalOpen, onViewAll, onRespond, onCreate }: DisputeCardProps) {
+  const loading = disputes === null
+  const hasDisputes = !loading && (disputes.length > 0 || totalOpen > 0)
+  const featured = hasDisputes ? disputes?.[0] : undefined
 
   return (
-    <Card warn style={{ background: 'linear-gradient(0deg, #fffaf0 0%, #ffffff 60%)' }}>
+    <Card
+      warn={hasDisputes}
+      style={hasDisputes ? { background: 'linear-gradient(0deg, #fffaf0 0%, #ffffff 60%)' } : undefined}
+    >
       <div
         style={{
           display: 'flex',
@@ -71,75 +73,97 @@ export function DisputeCard({ disputes, totalOpen, onViewAll, onRespond }: Dispu
       >
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <h3 style={{ fontSize: 15, fontWeight: 500, margin: 0 }}>Dispute</h3>
-            <Pill tone="amber">{totalOpen} menunggu</Pill>
+            <h3 style={{ fontSize: 15, fontWeight: 500, margin: 0 }}>Aduan & Pertikaian</h3>
+            {hasDisputes && totalOpen > 0 && <Pill tone="amber">{totalOpen} menunggu</Pill>}
           </div>
           <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>
-            Pertikaian dari pelanggan
+            {loading
+              ? 'Memuatkan…'
+              : hasDisputes
+                ? 'Pertikaian aktif memerlukan perhatian'
+                : 'Tiada aduan aktif'}
           </div>
         </div>
-        <LinkBtn onClick={onViewAll}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            Lihat semua
-            <ChevronRight size={12} strokeWidth={1.5} style={{ display: 'inline-block' }} />
-          </span>
-        </LinkBtn>
+        {hasDisputes && (
+          <LinkBtn onClick={onViewAll}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              Lihat semua
+              <ChevronRight size={12} strokeWidth={1.5} style={{ display: 'inline-block' }} />
+            </span>
+          </LinkBtn>
+        )}
       </div>
 
-      <div
-        className="profile-row"
-        style={{
-          marginTop: 16,
-          display: 'grid',
-          gridTemplateColumns: '1fr auto auto',
-          alignItems: 'center',
-          gap: 14,
-          padding: '14px 16px',
-          background: '#fff',
-          border: '0.5px solid var(--border)',
-          borderRadius: 10,
-        }}
-      >
-        <div className="profile-row__main" style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <code
-              style={{
-                fontFamily: "'Geist Mono', ui-monospace, monospace",
-                fontSize: 12,
-                color: 'var(--ink-1)',
-                fontWeight: 500,
-              }}
-            >
-              #{featured.displayId}
-            </code>
-            <Pill tone="amber">Baru</Pill>
-          </div>
-          <div
-            style={{
-              fontSize: 12,
-              color: 'var(--ink-3)',
-              marginTop: 4,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {customer} · &ldquo;{featured.reason}&rdquo; · {timeAgo}
-          </div>
-        </div>
-        <span
+      {featured && (
+        <div
+          className="profile-row"
           style={{
-            fontSize: 13,
-            color: 'var(--ink-1)',
-            fontVariantNumeric: 'tabular-nums',
-            fontWeight: 500,
+            marginTop: 16,
+            display: 'grid',
+            gridTemplateColumns: '1fr auto auto',
+            alignItems: 'center',
+            gap: 14,
+            padding: '14px 16px',
+            background: '#fff',
+            border: '0.5px solid var(--border)',
+            borderRadius: 10,
           }}
         >
-          {formatAmount(featured.amount)}
-        </span>
-        <PrimaryButton onClick={() => onRespond(featured)} style={{ padding: '7px 12px' }}>
-          Jawab
-        </PrimaryButton>
+          <div className="profile-row__main" style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <code
+                style={{
+                  fontFamily: "'Geist Mono', ui-monospace, monospace",
+                  fontSize: 12,
+                  color: 'var(--ink-1)',
+                  fontWeight: 500,
+                }}
+              >
+                #{featured.displayId}
+              </code>
+              <Pill tone="amber">Baru</Pill>
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                color: 'var(--ink-3)',
+                marginTop: 4,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {(featured.customerName.trim() || 'Pelanggan')} · &ldquo;{featured.reason}&rdquo; · {formatRelativeBm(featured.createdAt)}
+            </div>
+          </div>
+          <span
+            style={{
+              fontSize: 13,
+              color: 'var(--ink-1)',
+              fontVariantNumeric: 'tabular-nums',
+              fontWeight: 500,
+            }}
+          >
+            {formatAmount(featured.amount)}
+          </span>
+          <PrimaryButton onClick={() => onRespond(featured)} style={{ padding: '7px 12px' }}>
+            Jawab
+          </PrimaryButton>
+        </div>
+      )}
+
+      <div
+        style={{
+          marginTop: hasDisputes ? 12 : 16,
+          display: 'flex',
+          justifyContent: hasDisputes ? 'flex-start' : 'center',
+        }}
+      >
+        {hasDisputes ? (
+          <GhostButton onClick={onCreate}>+ Buat Aduan Baru</GhostButton>
+        ) : (
+          <PrimaryButton onClick={onCreate}>+ Buat Aduan Baru</PrimaryButton>
+        )}
       </div>
     </Card>
   )
