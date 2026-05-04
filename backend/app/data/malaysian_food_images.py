@@ -168,7 +168,7 @@ RESTAURANT_INTERIOR: List[FoodImage] = [
     FoodImage("photo-1664428376383-799654030b72", "People sitting at restaurant table", "ambience", "Rendy Novantino"),
     FoodImage("photo-1766492281651-e893cd930191", "Cozy restaurant with wooden tables", "ambience", "aLgivari Rizchy"),
     FoodImage("photo-1771830916812-28b912eac957", "Dimly lit cafe interior", "ambience", "Elist Nguyen"),
-    FoodImage("photo-1765872292853-427bc0cd8442", "Cafe with large windows and greenery", "ambience", "maxine guo"),
+    # photo-1765872292853-427bc0cd8442 removed — showed Christmas wreaths in window, off-brand (BINA-33)
 ]
 
 
