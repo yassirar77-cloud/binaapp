@@ -446,6 +446,18 @@ VARIANTS = [
                 "hours_structured": HOURS_STRUCTURED,
             },
         },
+        # Adjacent contact section — fills page, removes dead whitespace (BINA-33)
+        {
+            "type": "contact",
+            "variant": "simple",
+            "content": {
+                "heading": "Jumpa Kami",
+                "whatsapp_cta": "WhatsApp Sekarang",
+                "address": "No. 12, Jalan Plumbum V7/V, Seksyen 7, 40000 Shah Alam, Selangor",
+                "hours_structured": HOURS_STRUCTURED,
+                "whatsapp_message": "Salam Khulafa Bistro! Saya nak tanya tentang waktu operasi.",
+            },
+        },
         FOOTER,
     ]),
 
