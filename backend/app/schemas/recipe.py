@@ -29,6 +29,8 @@ class SectionType(str, Enum):
     testimonial = "testimonial"
     contact = "contact"
     footer = "footer"
+    hours = "hours"
+    cta = "cta"
 
 
 class CuisineType(str, Enum):
@@ -65,6 +67,8 @@ VALID_VARIANTS: Dict[SectionType, List[str]] = {
     SectionType.testimonial: ["cards", "slider", "quote", "grid", "minimal"],
     SectionType.contact: ["simple", "form", "map", "split", "cards"],
     SectionType.footer: ["simple", "columns", "cta", "minimal", "brand"],
+    SectionType.hours: ["simple-table", "today-focus"],
+    SectionType.cta: ["booking-prominent", "whatsapp-first"],
 }
 
 # Component name = SectionType title + Variant title, e.g. "HeroSplit"

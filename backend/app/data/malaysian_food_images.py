@@ -130,6 +130,26 @@ MEE_GORENG: List[FoodImage] = [
     FoodImage("photo-1705562705207-4322c4ab4844", "Mee goreng with vegetables", "menu_item", "Yosafat Herdian"),
 ]
 
+NASI_KERABU: List[FoodImage] = [
+    # Nasi Kerabu — blue rice dish with herbs, ulam, and coconut-based dressings
+    # Best visual proxy: Laksa/herb-heavy rice dishes with blue-green tones
+    FoodImage("photo-1775986501486-380ea9539e07", "Rice with herbs and garnish in bowl", "hero", "Kent Chin"),
+    FoodImage("photo-1561741858-cefa7ca99edf", "Rice with coconut and herb toppings", "menu_item", "Baiq Daling"),
+    FoodImage("photo-1707270686195-7415251cc9c0", "Herb rice plated on white dish", "menu_item", "Inna Safa"),
+    FoodImage("photo-1647093953000-9065ed6f85ef", "Rice with fresh vegetables and toppings", "menu_item", "Iosi Pratama"),
+    FoodImage("photo-1770966485209-e20d97337f1a", "Nasi with herb garnish and sambal", "menu_item", "You Le"),
+]
+
+BURGER_RENDANG: List[FoodImage] = [
+    # Rendang Burger — fusion rendang patty in brioche/sesame bun
+    # All images verified to visually show a burger (bun + patty visible) (BINA-34)
+    FoodImage("photo-1569580990518-5c62fd4bdcf7", "Fusion burger with dark sesame bun on teal plate", "hero", "Pesce Huang"),
+    FoodImage("photo-1568901346375-23c9450c58cd", "Gourmet beef burger with brioche bun and toppings", "menu_item", "Ash Edmonds"),
+    FoodImage("photo-1553979459-d2229ba7433b", "Stacked gourmet burger with sesame bun and cheese", "hero", "amirali mirhashemian"),
+    FoodImage("photo-1561758033-d89a9ad46330", "Classic beef burger with fries on wooden board", "detail", "Hana Oliver"),
+    FoodImage("photo-1586816001966-79b736744398", "Juicy burger with sesame bun, lettuce and tomato", "menu_item", "Önder Örtel"),
+]
+
 MODERN_FUSION: List[FoodImage] = [
     FoodImage("photo-1693376194231-677002aab5b2", "Asian fusion plated dish with chopsticks", "menu_item", "Curves Photography"),
     FoodImage("photo-1585144570839-e429bb95ffb4", "Fine dining Asian fusion on black ceramic", "hero", "Louis Hansel"),
@@ -148,7 +168,7 @@ RESTAURANT_INTERIOR: List[FoodImage] = [
     FoodImage("photo-1664428376383-799654030b72", "People sitting at restaurant table", "ambience", "Rendy Novantino"),
     FoodImage("photo-1766492281651-e893cd930191", "Cozy restaurant with wooden tables", "ambience", "aLgivari Rizchy"),
     FoodImage("photo-1771830916812-28b912eac957", "Dimly lit cafe interior", "ambience", "Elist Nguyen"),
-    FoodImage("photo-1765872292853-427bc0cd8442", "Cafe with large windows and greenery", "ambience", "maxine guo"),
+    # photo-1765872292853-427bc0cd8442 removed — showed Christmas wreaths in window, off-brand (BINA-33)
 ]
 
 
@@ -158,7 +178,7 @@ RESTAURANT_INTERIOR: List[FoodImage] = [
 
 CUISINE_POOLS: Dict[str, List[List[FoodImage]]] = {
     "mamak": [ROTI_CANAI, NASI_KANDAR, MEE_GORENG, SATAY],
-    "malay_fusion": [NASI_LEMAK, RENDANG, LAKSA, SATAY, KUIH, CHAR_KWAY_TEOW, MODERN_FUSION],
+    "malay_fusion": [NASI_LEMAK, RENDANG, LAKSA, SATAY, KUIH, CHAR_KWAY_TEOW, MODERN_FUSION, NASI_KERABU, BURGER_RENDANG],
     "malay_traditional": [NASI_LEMAK, RENDANG, SATAY, KUIH, NASI_KANDAR],
     "fine_dining_malay": [RENDANG, LAKSA, NASI_LEMAK, SATAY, KUIH, MODERN_FUSION],
     "kopitiam_chinese": [CHAR_KWAY_TEOW, MEE_GORENG, LAKSA],
@@ -175,17 +195,18 @@ CUISINE_POOLS: Dict[str, List[List[FoodImage]]] = {
 DISH_POOL_MAP: Dict[str, List[FoodImage]] = {
     "nasi_lemak": NASI_LEMAK,
     "rendang": RENDANG,
-    "rendang_burger": RENDANG,          # rendang-flavored burger → use rendang pool
+    "rendang_burger": BURGER_RENDANG,   # dedicated fusion burger pool (BINA-31)
     "laksa": LAKSA,
     "laksa_carbonara": LAKSA,
-    "nasi_kerabu": LAKSA,               # closest visual proxy until NASI_KERABU pool added
-    "nasi_kerabu_deconstructed": MODERN_FUSION,  # "deconstructed" → fusion plating
+    "nasi_kerabu": NASI_KERABU,         # dedicated nasi kerabu pool (BINA-31)
+    "nasi_kerabu_deconstructed": NASI_KERABU,     # "deconstructed" → still kerabu-family (BINA-33)
     "nasi_kandar": NASI_KANDAR,
     "satay": SATAY,
     "kuih": KUIH,
     "char_kway_teow": CHAR_KWAY_TEOW,
     "mee_goreng": MEE_GORENG,
     "modern_fusion": MODERN_FUSION,
+    "burger_rendang": BURGER_RENDANG,   # alias
 }
 
 

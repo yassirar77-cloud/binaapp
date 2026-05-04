@@ -1183,6 +1183,1054 @@ def _footer_brand(p: Dict[str, Any]) -> str:
 # Body scripts
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Menu Variants — editorial_list, chef_picks, category_tabs
+# ---------------------------------------------------------------------------
+
+@_component("MenuList")
+def _menu_list(p: Dict[str, Any]) -> str:
+    """Type-led editorial menu — dish name (display serif), description, price.
+    Categorized by section. Dotted leader between name and price. No images."""
+    items = p.get("items", [])
+
+    # Group items by category; ungrouped items go under a default heading
+    categories: Dict[str, list] = {}
+    for item in items:
+        cat = item.get("category", "Hidangan")
+        categories.setdefault(cat, []).append(item)
+    if not categories:
+        categories = {"Hidangan Pilihan": items}
+
+    cat_blocks = []
+    for cat_name, cat_items in categories.items():
+        rows = []
+        for item in cat_items:
+            badge = (
+                f'<span class="ml-3 text-xs font-bold uppercase tracking-widest px-2 py-0.5 rounded-full text-white"'
+                f' style="background-color: var(--color-primary); letter-spacing: 0.08em;">{_esc(item["badge"])}</span>'
+                if item.get("badge") else ""
+            )
+            desc_html = (
+                f'<p class="mt-1 text-sm leading-relaxed max-w-xl" style="color: var(--color-text-muted);">{_esc(item["description"])}</p>'
+                if item.get("description") else ""
+            )
+            rows.append(f"""            <div class="py-5" style="border-bottom: 1px dashed var(--color-border);">
+                <div class="flex items-baseline justify-between gap-4">
+                    <h3 class="text-xl leading-tight flex items-center flex-wrap gap-1"
+                        style="font-family: var(--font-heading); color: var(--color-text); font-weight: 600;">
+                        {_esc(item['name'])}{badge}
+                    </h3>
+                    <span class="shrink-0 text-xl font-bold tabular-nums" style="color: var(--color-primary);">
+                        {_esc(item.get('price', ''))}
+                    </span>
+                </div>
+{desc_html}
+            </div>""")
+
+        cat_blocks.append(f"""        <div class="mb-10">
+            <div class="flex items-center gap-4 mb-2">
+                <span class="text-xs font-bold uppercase tracking-widest" style="color: var(--color-primary); letter-spacing: 0.15em;">{_esc(cat_name)}</span>
+                <div class="flex-1 h-px" style="background-color: var(--color-border);"></div>
+            </div>
+{chr(10).join(rows)}
+        </div>""")
+
+    heading = _esc(p.get('heading', 'Menu'))
+    subheading = (
+        f'        <p class="mt-3 text-lg leading-relaxed max-w-2xl mx-auto" style="color: var(--color-text-muted);">{_esc(p["subheading"])}</p>'
+        if p.get("subheading") else ""
+    )
+
+    return f"""        <div class="text-center mb-14">
+            <div class="accent-line mx-auto mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">
+                {heading}
+            </h2>
+{subheading}
+        </div>
+        <div class="max-w-3xl mx-auto">
+{chr(10).join(cat_blocks)}
+        </div>"""
+
+
+@_component("MenuFeatured")
+def _menu_featured(p: Dict[str, Any]) -> str:
+    """Chef's picks — 1 hero dish (60% width) + 3 supporting in vertical stack."""
+    items = p.get("items", [])
+    hero_item = items[0] if items else {}
+    support_items = items[1:4]
+
+    def _dish_badge(item: dict) -> str:
+        if item.get("badge"):
+            return f'<span class="inline-block text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full text-white mb-3" style="background-color: var(--color-primary);">{_esc(item["badge"])}</span>'
+        return ""
+
+    hero_img = ""
+    if hero_item.get("image_url"):
+        hero_img = f"""                <div class="overflow-hidden rounded-2xl" style="height: 340px;">
+                    <img src="{_esc(hero_item['image_url'])}" alt="{_esc(hero_item.get('name',''))}"
+                         class="w-full h-full object-cover transition-transform duration-700 hover:scale-105" loading="lazy"
+                         onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
+                    <div class="w-full items-center justify-center rounded-2xl" style="display:none;height:340px;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
+                        <i class="fa-solid fa-bowl-food text-4xl text-white/40"></i>
+                    </div>
+                </div>"""
+
+    support_cards = []
+    for item in support_items:
+        img_html = ""
+        if item.get("image_url"):
+            img_html = f"""                    <div class="shrink-0 w-20 h-20 overflow-hidden rounded-xl">
+                        <img src="{_esc(item['image_url'])}" alt="{_esc(item.get('name',''))}"
+                             class="w-full h-full object-cover" loading="lazy"
+                             onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
+                        <div class="w-20 h-20 items-center justify-center rounded-xl" style="display:none;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
+                            <i class="fa-solid fa-bowl-food text-white/40 text-lg"></i>
+                        </div>
+                    </div>"""
+
+        support_cards.append(f"""            <div class="flex gap-5 p-5 rounded-2xl" style="background-color: var(--color-surface); box-shadow: var(--shadow);">
+{img_html}
+                <div class="min-w-0 flex-1">
+                    <p class="text-base font-semibold leading-tight" style="font-family: var(--font-heading); color: var(--color-text);">{_esc(item.get('name',''))}</p>
+                    <p class="text-xs mt-1 leading-relaxed line-clamp-2" style="color: var(--color-text-muted);">{_esc(item.get('description',''))}</p>
+                    <p class="mt-2 font-bold" style="color: var(--color-primary);">{_esc(item.get('price',''))}</p>
+                </div>
+            </div>""")
+
+    heading = _esc(p.get('heading', 'Chef\'s Picks'))
+    subheading = (
+        f'        <p class="mt-3 text-lg" style="color: var(--color-text-muted);">{_esc(p["subheading"])}</p>'
+        if p.get("subheading") else ""
+    )
+
+    return f"""        <div class="mb-14">
+            <div class="accent-line mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">
+                {heading}
+            </h2>
+{subheading}
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-8 items-start">
+            <!-- Hero dish: 3/5 width -->
+            <div class="lg:col-span-3">
+                <div class="rounded-2xl overflow-hidden" style="background-color: var(--color-surface); box-shadow: var(--shadow-lg);">
+{hero_img}
+                    <div class="p-8">
+                        {_dish_badge(hero_item)}
+                        <h3 class="text-3xl font-bold leading-tight mb-3" style="font-family: var(--font-heading); color: var(--color-text);">{_esc(hero_item.get('name',''))}</h3>
+                        <p class="text-base leading-relaxed" style="color: var(--color-text-muted);">{_esc(hero_item.get('description',''))}</p>
+                        <p class="mt-5 text-2xl font-bold" style="color: var(--color-primary);">{_esc(hero_item.get('price',''))}</p>
+                    </div>
+                </div>
+            </div>
+            <!-- Supporting dishes: 2/5 width -->
+            <div class="lg:col-span-2 space-y-4">
+                <p class="text-xs font-bold uppercase tracking-widest mb-4" style="color: var(--color-text-muted); letter-spacing: 0.12em;">Hidangan Lain</p>
+{chr(10).join(support_cards)}
+            </div>
+        </div>"""
+
+
+@_component("MenuCategorized")
+def _menu_categorized(p: Dict[str, Any]) -> str:
+    """Category tabs — click switches grid. JS-driven tab filter with fade transition."""
+    items = p.get("items", [])
+    categories = p.get("categories", [])
+
+    # Auto-detect categories from items if not explicitly provided
+    if not categories:
+        seen: list = []
+        for item in items:
+            c = item.get("category", "Lain-lain")
+            if c not in seen:
+                seen.append(c)
+        categories = seen or ["Semua"]
+
+    # Build category tab buttons
+    tab_buttons = []
+    for i, cat in enumerate(categories):
+        active_style = "style=\"background-color: var(--color-primary); color: white;\""
+        inactive_style = "style=\"background-color: var(--color-surface); color: var(--color-text);\""
+        tab_buttons.append(
+            f'<button onclick="filterMenu(\'{_esc(cat)}\')" id="tab-{i}" '
+            f'class="tab-btn px-5 py-2 rounded-full text-sm font-semibold transition-all duration-200 whitespace-nowrap" '
+            f'{active_style if i == 0 else inactive_style}>'
+            f'{_esc(cat)}</button>'
+        )
+
+    # Build all menu cards with data-category attribute
+    cards = []
+    for item in items:
+        cat = item.get("category", categories[0] if categories else "Semua")
+        badge_html = (
+            f'<span class="absolute top-3 left-3 text-white text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide z-10"'
+            f' style="background-color: var(--color-primary);">{_esc(item["badge"])}</span>'
+            if item.get("badge") else ""
+        )
+        img_html = ""
+        if item.get("image_url"):
+            img_html = f"""            <div class="relative overflow-hidden h-44">
+                <img src="{_esc(item['image_url'])}" alt="{_esc(item.get('name',''))}"
+                     class="w-full h-full object-cover transition-transform duration-500 hover:scale-110" loading="lazy"
+                     onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
+                <div class="w-full h-44 items-center justify-center" style="display:none;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
+                    <i class="fa-solid fa-bowl-food text-3xl text-white/40"></i>
+                </div>
+{badge_html}
+            </div>"""
+        cards.append(f"""        <div class="menu-card rounded-2xl overflow-hidden" data-cat="{_esc(cat)}"
+             style="background-color: var(--color-surface); box-shadow: var(--shadow);">
+{img_html}
+            <div class="p-5">
+                <h3 class="text-base font-semibold leading-tight" style="font-family: var(--font-heading); color: var(--color-text);">{_esc(item.get('name',''))}</h3>
+                <p class="mt-1.5 text-xs leading-relaxed" style="color: var(--color-text-muted);">{_esc(item.get('description',''))}</p>
+                <p class="mt-3 text-lg font-bold" style="color: var(--color-primary);">{_esc(item.get('price',''))}</p>
+            </div>
+        </div>""")
+
+    heading = _esc(p.get('heading', 'Menu'))
+    first_cat = _esc(categories[0]) if categories else "Semua"
+
+    return f"""        <div class="text-center mb-10">
+            <div class="accent-line mx-auto mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">{heading}</h2>
+        </div>
+        <!-- Category tabs -->
+        <div class="flex gap-3 overflow-x-auto pb-3 mb-10 -mx-2 px-2 scrollbar-none">
+            {"".join(tab_buttons)}
+        </div>
+        <!-- Menu grid -->
+        <div id="menu-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+{chr(10).join(cards)}
+        </div>
+        <script>
+        function filterMenu(cat) {{
+            const cards = document.querySelectorAll('#menu-grid [data-cat]');
+            cards.forEach(function(card) {{
+                card.style.opacity = '0';
+                card.style.transition = 'opacity 0.25s';
+                setTimeout(function() {{
+                    card.style.display = (cat === 'Semua' || card.dataset.cat === cat) ? '' : 'none';
+                    card.style.opacity = '1';
+                }}, 150);
+            }});
+            document.querySelectorAll('.tab-btn').forEach(function(btn) {{
+                btn.style.backgroundColor = btn.textContent.trim() === cat ? 'var(--color-primary)' : 'var(--color-surface)';
+                btn.style.color = btn.textContent.trim() === cat ? 'white' : 'var(--color-text)';
+            }});
+        }}
+        filterMenu('{first_cat}');
+        </script>"""
+
+
+# ---------------------------------------------------------------------------
+# Gallery Variants — carousel, grid, full-width story
+# ---------------------------------------------------------------------------
+
+@_component("GalleryCarousel")
+def _gallery_carousel(p: Dict[str, Any]) -> str:
+    """Full-bleed immersive carousel. Each slide 16:9, caption overlay, auto-advance."""
+    imgs = p.get("images", [])
+    if not imgs:
+        return '<div class="text-center py-20" style="color:var(--color-text-muted);">No images</div>'
+
+    slides_html = []
+    dots_html = []
+    for i, img in enumerate(imgs):
+        caption = img.get("caption", img.get("alt", ""))
+        slides_html.append(f"""            <div class="carousel-slide absolute inset-0 transition-opacity duration-700" style="opacity: {'1' if i == 0 else '0'}; z-index: {'1' if i == 0 else '0'};">
+                <img src="{_esc(img['url'])}" alt="{_esc(img['alt'])}"
+                     class="w-full h-full object-cover" loading="{'eager' if i == 0 else 'lazy'}"
+                     onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
+                <div class="w-full h-full items-center justify-center" style="display:none;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
+                    <i class="fa-solid fa-image text-5xl text-white/30"></i>
+                </div>
+                <!-- Caption overlay -->
+                {f'<div class="absolute bottom-0 left-0 right-0 px-6 py-5 bg-gradient-to-t from-black/60 to-transparent"><p class="text-white text-sm font-medium">{_esc(caption)}</p></div>' if caption else ''}
+            </div>""")
+        active_dot = "style=\"background-color: white; opacity: 1;\"" if i == 0 else "style=\"background-color: white; opacity: 0.4;\""
+        dots_html.append(f'<button class="carousel-dot w-2 h-2 rounded-full transition-all duration-300 cursor-pointer" data-slide="{i}" {active_dot} onclick="goSlide({i})"></button>')
+
+    subtitle = ""
+    if p.get("subtitle"):
+        subtitle = f'        <p class="mt-3 text-lg" style="color: var(--color-text-muted);">{_esc(p["subtitle"])}</p>'
+
+    total = len(imgs)
+    return f"""        <div class="mb-12">
+            <div class="accent-line mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">{_esc(p.get('heading','Galeri'))}</h2>
+{subtitle}
+        </div>
+        <!-- Full-bleed carousel wrapper -->
+        <div id="carousel-wrap" class="relative overflow-hidden rounded-2xl"
+             style="padding-bottom: 56.25%; background: var(--color-surface);">
+{chr(10).join(slides_html)}
+            <!-- Prev/Next arrows -->
+            <button onclick="prevSlide()" class="absolute left-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full flex items-center justify-center transition-all hover:scale-110"
+                    style="background: rgba(0,0,0,0.45); color: white;">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <button onclick="nextSlide()" class="absolute right-4 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full flex items-center justify-center transition-all hover:scale-110"
+                    style="background: rgba(0,0,0,0.45); color: white;">
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>
+            <!-- Dots -->
+            <div class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex gap-2">
+                {"".join(dots_html)}
+            </div>
+        </div>
+        <script>
+        (function(){{
+            var cur = 0;
+            var total = {total};
+            var timer = null;
+            function showSlide(n) {{
+                var slides = document.querySelectorAll('.carousel-slide');
+                var dots = document.querySelectorAll('.carousel-dot');
+                cur = (n + total) % total;
+                slides.forEach(function(s, i) {{
+                    s.style.opacity = i === cur ? '1' : '0';
+                    s.style.zIndex = i === cur ? '1' : '0';
+                }});
+                dots.forEach(function(d, i) {{
+                    d.style.opacity = i === cur ? '1' : '0.4';
+                }});
+            }}
+            window.goSlide = showSlide;
+            window.nextSlide = function() {{ showSlide(cur + 1); resetTimer(); }};
+            window.prevSlide = function() {{ showSlide(cur - 1); resetTimer(); }};
+            function resetTimer() {{
+                clearInterval(timer);
+                timer = setInterval(function() {{ showSlide(cur + 1); }}, 6000);
+            }}
+            var wrap = document.getElementById('carousel-wrap');
+            if (wrap) {{
+                wrap.addEventListener('mouseenter', function() {{ clearInterval(timer); }});
+                wrap.addEventListener('mouseleave', function() {{ resetTimer(); }});
+            }}
+            resetTimer();
+        }})();
+        </script>"""
+
+
+@_component("GalleryGrid")
+def _gallery_grid(p: Dict[str, Any]) -> str:
+    """Uniform 3×3 Instagram-style grid. Equal sizing, 2px gutter. Hover: zoom + caption."""
+    imgs = p.get("images", [])
+
+    cells = []
+    for img in imgs:
+        caption = img.get("caption", img.get("alt", ""))
+        caption_html = ""
+        if caption:
+            caption_html = f"""                <!-- Caption fade on hover -->
+                <div class="absolute inset-0 flex items-end p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                     style="background: linear-gradient(to top, rgba(0,0,0,0.65), transparent);">
+                    <p class="text-white text-xs font-medium leading-tight">{_esc(caption)}</p>
+                </div>"""
+        cells.append(f"""            <div class="relative overflow-hidden group" style="aspect-ratio: 1;">
+                <img src="{_esc(img['url'])}" alt="{_esc(img['alt'])}"
+                     class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" loading="lazy"
+                     onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
+                <div class="w-full h-full items-center justify-center" style="display:none;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
+                    <i class="fa-solid fa-image text-3xl text-white/30"></i>
+                </div>
+{caption_html}
+            </div>""")
+
+    subtitle = ""
+    if p.get("subtitle"):
+        subtitle = f'        <p class="mt-3 text-lg" style="color: var(--color-text-muted);">{_esc(p["subtitle"])}</p>'
+
+    return f"""        <div class="text-center mb-12">
+            <div class="accent-line mx-auto mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">{_esc(p.get('heading','Galeri'))}</h2>
+{subtitle}
+        </div>
+        <div class="grid grid-cols-3" style="gap: 2px;">
+{chr(10).join(cells)}
+        </div>"""
+
+
+@_component("GalleryFullWidth")
+def _gallery_full_width(p: Dict[str, Any]) -> str:
+    """Vertical magazine-feature narrative. Photo → drop-cap para → pull quote → half-photo + text → closing photo + para."""
+    imgs = p.get("images", [])
+    paragraphs = p.get("paragraphs", [])
+    pull_quote = p.get("pull_quote", "")
+
+    # Build alternating layout blocks
+    blocks = []
+    img_idx = 0
+
+    # Block 1: full-bleed opening photo
+    if img_idx < len(imgs):
+        img = imgs[img_idx]; img_idx += 1
+        blocks.append(f"""        <!-- Full-bleed opening photo -->
+        <div class="overflow-hidden rounded-2xl" style="max-height: 520px;">
+            <img src="{_esc(img['url'])}" alt="{_esc(img['alt'])}"
+                 class="w-full object-cover transition-transform duration-700 hover:scale-105" loading="lazy"
+                 style="max-height: 520px; object-position: center;">
+        </div>""")
+
+    # Block 2: opening paragraph with drop cap
+    if paragraphs:
+        para = paragraphs[0]
+        blocks.append(f"""        <!-- Opening paragraph — drop cap -->
+        <div class="max-w-2xl">
+            <p class="text-lg leading-relaxed gallery-drop-cap" style="color: var(--color-text-muted);">{_esc(para)}</p>
+        </div>""")
+
+    # Block 3: pull quote (if provided)
+    if pull_quote:
+        blocks.append(f"""        <!-- Pull quote -->
+        <div class="max-w-2xl mx-auto text-center py-4">
+            <blockquote class="text-2xl md:text-3xl font-bold italic leading-snug"
+                        style="font-family: var(--font-heading); color: var(--color-primary);">
+                &ldquo;{_esc(pull_quote)}&rdquo;
+            </blockquote>
+        </div>""")
+
+    # Block 4: half-width photo right + text left
+    if img_idx < len(imgs) and len(paragraphs) > 1:
+        img = imgs[img_idx]; img_idx += 1
+        para2 = paragraphs[1]
+        blocks.append(f"""        <!-- Half-width photo right + text left -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+            <div>
+                <p class="text-lg leading-relaxed" style="color: var(--color-text-muted);">{_esc(para2)}</p>
+            </div>
+            <div class="overflow-hidden rounded-2xl">
+                <img src="{_esc(img['url'])}" alt="{_esc(img['alt'])}"
+                     class="w-full object-cover" style="height: 360px;" loading="lazy">
+            </div>
+        </div>""")
+
+    # Block 5: closing full-bleed photo + closing paragraph
+    if img_idx < len(imgs):
+        img = imgs[img_idx]; img_idx += 1
+        blocks.append(f"""        <!-- Closing full-bleed photo -->
+        <div class="overflow-hidden rounded-2xl" style="max-height: 440px;">
+            <img src="{_esc(img['url'])}" alt="{_esc(img['alt'])}"
+                 class="w-full object-cover" style="max-height: 440px; object-position: center;" loading="lazy">
+        </div>""")
+
+    if len(paragraphs) > 2:
+        blocks.append(f"""        <!-- Closing paragraph -->
+        <div class="max-w-2xl mx-auto text-center">
+            <p class="text-lg leading-relaxed" style="color: var(--color-text-muted);">{_esc(paragraphs[2])}</p>
+        </div>""")
+
+    subtitle = ""
+    if p.get("subtitle"):
+        subtitle = f'        <p class="mt-3 text-lg" style="color: var(--color-text-muted);">{_esc(p["subtitle"])}</p>'
+
+    drop_cap_css = """<style>
+        .gallery-drop-cap::first-letter {
+            font-family: var(--font-heading);
+            font-size: 4rem;
+            font-weight: 900;
+            line-height: 0.8;
+            float: left;
+            margin-right: 0.1em;
+            margin-top: 0.05em;
+            color: var(--color-primary);
+        }
+    </style>"""
+
+    return f"""{drop_cap_css}
+        <div class="mb-14">
+            <div class="accent-line mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">{_esc(p.get('heading','Kisah Kami'))}</h2>
+{subtitle}
+        </div>
+        <div class="space-y-10">
+{chr(10).join(blocks)}
+        </div>"""
+
+
+# ---------------------------------------------------------------------------
+# Contact Variants — form, simple, cards overlay
+# ---------------------------------------------------------------------------
+
+@_component("ContactForm")
+def _contact_form(p: Dict[str, Any]) -> str:
+    """Booking form centered — Name, Phone, Date, Time, Pax. WhatsApp secondary. Map below."""
+    wa_num = p.get("whatsapp_number", "")
+    wa_msg = p.get("whatsapp_message", "Saya ingin membuat tempahan meja di restoran anda.")
+
+    # WhatsApp submission — builds pre-filled message from form
+    form_html = f"""        <div class="max-w-2xl mx-auto">
+            <form id="booking-form" class="rounded-2xl p-8 md:p-10 space-y-5" style="background-color: var(--color-surface); box-shadow: var(--shadow-lg);">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div>
+                        <label class="block text-sm font-semibold mb-1.5" style="color: var(--color-text);">Nama</label>
+                        <input type="text" id="bk-name" placeholder="Nama penuh" required
+                               class="w-full rounded-xl px-4 py-3 text-sm outline-none transition-shadow focus:ring-2"
+                               style="background: var(--color-background); border: 1px solid var(--color-border); color: var(--color-text); --tw-ring-color: var(--color-primary);">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-1.5" style="color: var(--color-text);">No. Telefon</label>
+                        <input type="tel" id="bk-phone" placeholder="01X-XXXXXXXX" required
+                               class="w-full rounded-xl px-4 py-3 text-sm outline-none"
+                               style="background: var(--color-background); border: 1px solid var(--color-border); color: var(--color-text);">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-1.5" style="color: var(--color-text);">Tarikh</label>
+                        <input type="date" id="bk-date" required
+                               class="w-full rounded-xl px-4 py-3 text-sm outline-none"
+                               style="background: var(--color-background); border: 1px solid var(--color-border); color: var(--color-text);">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-semibold mb-1.5" style="color: var(--color-text);">Masa</label>
+                        <select id="bk-time" class="w-full rounded-xl px-4 py-3 text-sm outline-none appearance-none"
+                                style="background: var(--color-background); border: 1px solid var(--color-border); color: var(--color-text);">
+                            <option value="">Pilih masa</option>
+                            <option>11:00 pagi</option><option>12:00 tengah hari</option>
+                            <option>1:00 petang</option><option>2:00 petang</option>
+                            <option>6:00 petang</option><option>7:00 petang</option>
+                            <option>8:00 malam</option><option>9:00 malam</option>
+                        </select>
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label class="block text-sm font-semibold mb-1.5" style="color: var(--color-text);">Bilangan Tetamu</label>
+                        <div class="flex items-center gap-3">
+                            <button type="button" onclick="document.getElementById('bk-pax').stepDown()" class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg transition-colors hover:opacity-80" style="background-color: var(--color-primary); color: white;">−</button>
+                            <input type="number" id="bk-pax" value="2" min="1" max="20"
+                                   class="w-20 text-center rounded-xl px-2 py-3 text-lg font-bold outline-none"
+                                   style="background: var(--color-background); border: 1px solid var(--color-border); color: var(--color-text);">
+                            <button type="button" onclick="document.getElementById('bk-pax').stepUp()" class="w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg transition-colors hover:opacity-80" style="background-color: var(--color-primary); color: white;">+</button>
+                        </div>
+                    </div>
+                </div>
+                <button type="submit" class="w-full py-4 rounded-xl font-bold text-white text-base transition-opacity hover:opacity-90" style="background-color: var(--color-primary);">
+                    Hantar Tempahan
+                </button>
+            </form>
+            <!-- WhatsApp secondary -->
+            <div class="mt-5 text-center">
+                <p class="text-sm mb-3" style="color: var(--color-text-muted);">atau tempah terus melalui</p>
+                <a href="https://wa.me/{_esc(wa_num)}?text={_esc(wa_msg)}" target="_blank" rel="noopener noreferrer"
+                   class="inline-flex items-center gap-2 font-semibold rounded-xl px-6 py-3 text-white transition-opacity hover:opacity-90"
+                   style="background-color: #25D366;">
+                    <i class="fa-brands fa-whatsapp text-xl"></i> WhatsApp
+                </a>
+            </div>
+        </div>"""
+
+    map_html = ""
+    if p.get("show_map") and (p.get("map_query") or p.get("address")):
+        query = p.get("map_query") or p.get("address", "")
+        map_html = f"""        <div class="map-container mt-10 rounded-2xl overflow-hidden" style="box-shadow: var(--shadow);">
+            <iframe src="https://maps.google.com/maps?q={_esc(query)}&output=embed"
+                    width="100%" height="300" style="border:0;" allowfullscreen loading="lazy"
+                    referrerpolicy="no-referrer-when-downgrade" title="Location map"></iframe>
+        </div>"""
+
+    return f"""        <div class="text-center mb-12">
+            <div class="accent-line mx-auto mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">{_esc(p.get('heading','Tempahan'))}</h2>
+        </div>
+{form_html}
+{map_html}
+        <script>
+        document.getElementById('booking-form').addEventListener('submit', function(e) {{
+            e.preventDefault();
+            var name = document.getElementById('bk-name').value;
+            var phone = document.getElementById('bk-phone').value;
+            var date = document.getElementById('bk-date').value;
+            var time = document.getElementById('bk-time').value;
+            var pax = document.getElementById('bk-pax').value;
+            var msg = 'Salam, saya ' + name + ' ingin membuat tempahan meja.%0A%0ATarikh: ' + date + '%0AMasa: ' + time + '%0ABilangan: ' + pax + ' orang%0ATelefon: ' + phone;
+            window.open('https://wa.me/{_esc(wa_num)}?text=' + msg, '_blank');
+        }});
+        </script>"""
+
+
+@_component("ContactSimple")
+def _contact_simple(p: Dict[str, Any]) -> str:
+    """Minimal essential — hours + WhatsApp CTA + address. No map, no form. Centered."""
+    wa_num = p.get("whatsapp_number", "")
+    wa_msg = p.get("whatsapp_message", "Salam! Saya nak dapatkan maklumat lanjut.")
+
+    hours_html = ""
+    if p.get("hours_structured"):
+        rows = "\n".join(
+            f'                <div class="flex justify-between items-center py-3" style="border-bottom: 1px solid var(--color-border);">'
+            f'<span class="font-medium" style="color: var(--color-text);">{_esc(h["day"])}</span>'
+            f'<span class="text-sm" style="color: var(--color-text-muted);">{_esc(h["time"])}</span></div>'
+            for h in p["hours_structured"]
+        )
+        hours_html = f"""            <div class="rounded-2xl p-6" style="background-color: var(--color-surface); box-shadow: var(--shadow);">
+                <div class="flex items-center gap-2 mb-4">
+                    <i class="fa-solid fa-clock" style="color: var(--color-primary);"></i>
+                    <p class="font-bold" style="color: var(--color-text);">Waktu Operasi</p>
+                </div>
+{rows}
+            </div>"""
+    elif p.get("hours"):
+        hours_html = f"""            <p class="text-base" style="color: var(--color-text-muted);">
+                <i class="fa-solid fa-clock mr-2" style="color: var(--color-primary);"></i>{_esc(p['hours'])}
+            </p>"""
+
+    address_html = ""
+    if p.get("address"):
+        address_html = f"""            <div class="flex items-start gap-3">
+                <i class="fa-solid fa-location-dot mt-1 shrink-0" style="color: var(--color-primary);"></i>
+                <p class="text-base" style="color: var(--color-text-muted);">{_esc(p['address'])}</p>
+            </div>"""
+
+    return f"""        <div class="max-w-lg mx-auto text-center">
+            <div class="accent-line mx-auto mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight mb-10" style="font-family: var(--font-heading); color: var(--color-text);">{_esc(p.get('heading','Hubungi Kami'))}</h2>
+            <!-- Big WhatsApp CTA -->
+            <a href="https://wa.me/{_esc(wa_num)}?text={_esc(wa_msg)}" target="_blank" rel="noopener noreferrer"
+               class="inline-flex items-center gap-3 text-white font-bold text-lg rounded-2xl px-10 py-5 transition-transform hover:scale-105 mb-10"
+               style="background-color: #25D366; box-shadow: 0 8px 24px -4px rgba(37,211,102,0.4);">
+                <i class="fa-brands fa-whatsapp text-2xl"></i>
+                {_esc(p.get('whatsapp_cta', 'WhatsApp Kami'))}
+            </a>
+            <div class="space-y-6 text-left">
+{hours_html}
+{address_html}
+            </div>
+        </div>"""
+
+
+@_component("ContactCards")
+def _contact_cards(p: Dict[str, Any]) -> str:
+    """Glassmorphic contact card over restaurant interior background photo."""
+    bg_url = p.get("background_image_url", "")
+    wa_num = p.get("whatsapp_number", "")
+    wa_msg = p.get("whatsapp_message", "Salam! Saya ingin hubungi restoran anda.")
+
+    hours_html = ""
+    if p.get("hours_structured"):
+        rows = "\n".join(
+            f'                    <div class="flex justify-between py-1.5 text-sm">'
+            f'<span class="font-medium text-white/90">{_esc(h["day"])}</span>'
+            f'<span class="text-white/70">{_esc(h["time"])}</span></div>'
+            for h in p["hours_structured"]
+        )
+        hours_html = f"""                <div class="mt-5 pt-5" style="border-top: 1px solid rgba(255,255,255,0.2);">
+                    <p class="text-xs font-bold uppercase tracking-widest text-white/60 mb-3">Waktu Operasi</p>
+{rows}
+                </div>"""
+
+    bg_style = f'background-image: url("{_esc(bg_url)}"); background-size: cover; background-position: center;' if bg_url else f'background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));'
+
+    return f"""        <div class="relative min-h-96 flex items-center justify-center rounded-2xl overflow-hidden py-16 px-4"
+             style="{bg_style}">
+            <!-- Dark overlay for readability -->
+            <div class="absolute inset-0" style="background: rgba(0,0,0,0.45); backdrop-filter: blur(0px);"></div>
+            <!-- Glassmorphic card -->
+            <div class="relative z-10 w-full max-w-md rounded-2xl p-8 text-white"
+                 style="background: rgba(255,255,255,0.12); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.25); box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                <div class="accent-line mb-5" style="background: rgba(255,255,255,0.6);"></div>
+                <h2 class="text-3xl font-bold mb-6 text-white" style="font-family: var(--font-heading);">{_esc(p.get('heading','Hubungi Kami'))}</h2>
+                <!-- WhatsApp CTA -->
+                <a href="https://wa.me/{_esc(wa_num)}?text={_esc(wa_msg)}" target="_blank" rel="noopener noreferrer"
+                   class="inline-flex items-center gap-3 font-bold rounded-xl px-6 py-3.5 text-white transition-opacity hover:opacity-90 mb-5"
+                   style="background-color: #25D366;">
+                    <i class="fa-brands fa-whatsapp text-xl"></i>
+                    {_esc(p.get('whatsapp_cta', 'WhatsApp Kami'))}
+                </a>
+                <!-- Address -->
+                {f'<div class="flex items-start gap-3 mt-4"><i class="fa-solid fa-location-dot mt-0.5 text-white/70"></i><p class="text-sm text-white/80">{_esc(p["address"])}</p></div>' if p.get("address") else ""}
+{hours_html}
+            </div>
+        </div>"""
+
+
+# ---------------------------------------------------------------------------
+# Footer Variants — minimal, columns (rich)
+# ---------------------------------------------------------------------------
+
+@_component("FooterMinimal")
+def _footer_minimal(p: Dict[str, Any]) -> str:
+    """Compact footer — name, tagline, social icons, copyright."""
+    year = p.get("copyright_year", 2026)
+
+    social_html = ""
+    if p.get("social_links"):
+        icons = " ".join(
+            f'<a href="{_esc(link["url"])}" target="_blank" rel="noopener noreferrer"'
+            f' class="opacity-60 hover:opacity-100 transition-opacity"'
+            f' style="color: var(--color-background);" aria-label="{_esc(link["platform"])}">'
+            f'<i class="{_esc(link["icon"])} text-lg"></i></a>'
+            for link in p["social_links"]
+        )
+        social_html = f'            <div class="flex gap-4">{icons}</div>'
+
+    powered = ""
+    if p.get("powered_by", True):
+        powered = '<span class="opacity-50"> · Dibina dengan <a href="https://binaapp.my" target="_blank" class="font-semibold hover:opacity-100" style="opacity: 0.7;">BinaApp</a></span>'
+
+    return f"""    <footer class="py-8 px-4 sm:px-6 lg:px-8" style="background-color: var(--color-text); color: var(--color-background);">
+        <div class="mx-auto" style="max-width: var(--max-width, 1280px);">
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div class="text-center sm:text-left">
+                    <p class="font-bold text-lg" style="font-family: var(--font-heading);">{_esc(p.get('business_name',''))}</p>
+                    {f'<p class="text-xs opacity-50 mt-0.5">{_esc(p["tagline"])}</p>' if p.get("tagline") else ""}
+                </div>
+{social_html}
+                <p class="text-xs opacity-40">&copy; {year} {_esc(p.get('business_name',''))}{powered}</p>
+            </div>
+        </div>
+    </footer>"""
+
+
+@_component("FooterColumns")
+def _footer_columns(p: Dict[str, Any]) -> str:
+    """Rich footer — newsletter, social icons, 3 link columns, copyright + BinaApp credit."""
+    year = p.get("copyright_year", 2026)
+    wa_num = p.get("whatsapp_number", "")
+
+    # Social icons
+    social_html = ""
+    if p.get("social_links"):
+        icons = "\n".join(
+            f'                <a href="{_esc(link["url"])}" target="_blank" rel="noopener noreferrer"'
+            f' class="w-9 h-9 rounded-full flex items-center justify-center transition-opacity hover:opacity-80"'
+            f' style="background-color: rgba(255,255,255,0.15);" aria-label="{_esc(link["platform"])}">'
+            f'<i class="{_esc(link["icon"])} text-sm text-white"></i></a>'
+            for link in p["social_links"]
+        )
+        social_html = f'            <div class="flex gap-3 mt-4">\n{icons}\n            </div>'
+
+    # Newsletter
+    newsletter_html = ""
+    if p.get("newsletter", True):
+        subscribe_label = _esc(p.get("newsletter_cta", "Sertai"))
+        newsletter_html = f"""            <div class="mt-8 lg:mt-0">
+                <p class="text-sm font-semibold text-white/80 mb-3">Dapatkan Tawaran Terkini</p>
+                <form class="flex gap-2" onsubmit="event.preventDefault(); alert('Terima kasih!');">
+                    <input type="email" placeholder="emel@contoh.com" required
+                           class="flex-1 rounded-xl px-4 py-2.5 text-sm outline-none"
+                           style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; min-width: 0;">
+                    <button type="submit" class="px-5 py-2.5 rounded-xl text-sm font-bold transition-opacity hover:opacity-90 whitespace-nowrap"
+                            style="background-color: var(--color-primary); color: white;">{subscribe_label}</button>
+                </form>
+            </div>"""
+
+    # Link columns
+    link_cols = p.get("link_columns", [
+        {"title": "Menu", "links": [{"label": "Hidangan Utama", "href": "#menu"}, {"label": "Minuman", "href": "#menu"}, {"label": "Manisan", "href": "#menu"}]},
+        {"title": "Tentang", "links": [{"label": "Kisah Kami", "href": "#about"}, {"label": "Galeri", "href": "#gallery"}]},
+        {"title": "Hubungi", "links": [{"label": "Lokasi", "href": "#contact"}, {"label": "Tempahan", "href": "#contact"}]},
+    ])
+    cols_html = "\n".join(
+        f"""            <div>
+                <p class="text-sm font-bold uppercase tracking-widest mb-4 text-white/60">{_esc(col['title'])}</p>
+                <ul class="space-y-2">
+                    {''.join(f"<li><a href='{_esc(lnk.get('href','#'))}' class='text-sm text-white/60 hover:text-white transition-colors'>{_esc(lnk.get('label',''))}</a></li>" for lnk in col.get('links', []))}
+                </ul>
+            </div>"""
+        for col in link_cols
+    )
+
+    powered = ""
+    if p.get("powered_by", True):
+        powered = '<span> · Dibina dengan <a href="https://binaapp.my" target="_blank" class="font-semibold hover:opacity-100 transition-opacity" style="opacity: 0.7;">BinaApp</a></span>'
+
+    return f"""    <footer style="background-color: var(--color-text); color: white;">
+        <!-- Top bar -->
+        <div class="px-4 sm:px-6 lg:px-8 py-14 border-b" style="border-color: rgba(255,255,255,0.08);">
+            <div class="mx-auto grid grid-cols-1 lg:grid-cols-5 gap-12" style="max-width: var(--max-width, 1280px);">
+                <!-- Brand col (2/5) -->
+                <div class="lg:col-span-2">
+                    <h3 class="text-2xl font-bold text-white" style="font-family: var(--font-heading);">{_esc(p.get('business_name',''))}</h3>
+                    {f'<p class="mt-1 text-sm opacity-50">{_esc(p["tagline"])}</p>' if p.get("tagline") else ""}
+{social_html}
+{newsletter_html}
+                </div>
+                <!-- Link columns (3/5) -->
+                <div class="lg:col-span-3 grid grid-cols-2 sm:grid-cols-3 gap-8">
+{cols_html}
+                </div>
+            </div>
+        </div>
+        <!-- Bottom bar -->
+        <div class="px-4 sm:px-6 lg:px-8 py-5">
+            <div class="mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-white/40"
+                 style="max-width: var(--max-width, 1280px);">
+                <p>&copy; {year} {_esc(p.get('business_name',''))}{powered}</p>
+                {f'<a href="https://wa.me/{_esc(wa_num)}" target="_blank" class="flex items-center gap-1.5 opacity-50 hover:opacity-80 transition-opacity text-white"><i class="fa-brands fa-whatsapp"></i> +{_esc(wa_num)}</a>' if wa_num else ""}
+            </div>
+        </div>
+    </footer>"""
+
+
+# ---------------------------------------------------------------------------
+# Testimonial Variants — slider (reviews_carousel), quote (reviews_pull_quote)
+# ---------------------------------------------------------------------------
+
+@_component("TestimonialSlider")
+def _testimonial_slider(p: Dict[str, Any]) -> str:
+    """Rotating testimonial carousel — auto-advance every 6s, pause on hover."""
+    reviews = p.get("reviews", [])
+    if not reviews:
+        return '<div class="text-center py-16" style="color:var(--color-text-muted);">Tiada ulasan lagi.</div>'
+
+    cards = []
+    for i, r in enumerate(reviews):
+        stars = "".join(
+            f'<i class="fa-{"solid" if j < r.get("rating", 5) else "regular"} fa-star text-sm" style="color: {"#F59E0B" if j < r.get("rating", 5) else "var(--color-text-muted)"};"></i>'
+            for j in range(5)
+        )
+        initial = r.get("avatar_fallback", r.get("name", "?")[0].upper())
+        cards.append(
+            f'<div class="review-slide absolute inset-0 flex items-center justify-center px-4 transition-opacity duration-500"'
+            f' style="opacity: {"1" if i == 0 else "0"}; z-index: {"1" if i == 0 else "0"};">'
+            f'<div class="max-w-xl w-full mx-auto text-center">'
+            f'<div class="flex justify-center gap-1 mb-5">{stars}</div>'
+            f'<p class="text-xl sm:text-2xl leading-relaxed italic" style="font-family: var(--font-heading); color: var(--color-text);">&ldquo;{_esc(r["text"])}&rdquo;</p>'
+            f'<div class="mt-8 flex items-center justify-center gap-3">'
+            f'<div class="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background-color: var(--color-primary);">{initial}</div>'
+            f'<span class="font-semibold" style="color: var(--color-text);">{_esc(r.get("name",""))}</span>'
+            f'</div>'
+            f'</div></div>'
+        )
+
+    dots_html = " ".join(
+        f'<button class="rev-dot w-2 h-2 rounded-full transition-all duration-300 cursor-pointer" data-idx="{i}" '
+        f'style="background-color: var(--color-primary); opacity: {"1" if i == 0 else "0.3"};" onclick="goRev({i})"></button>'
+        for i in range(len(reviews))
+    )
+
+    total = len(reviews)
+    return f"""        <div class="text-center mb-14">
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">{_esc(p.get('heading','Kata Pelanggan Kami'))}</h2>
+        </div>
+        <div id="rev-wrap" class="relative" style="min-height: 260px;">
+{chr(10).join(cards)}
+        </div>
+        <div class="flex justify-center gap-3 mt-8">{dots_html}</div>
+        <script>
+        (function(){{
+            var cur = 0; var total = {total}; var timer = null;
+            function show(n) {{
+                cur = (n + total) % total;
+                document.querySelectorAll('.review-slide').forEach(function(s, i) {{
+                    s.style.opacity = i === cur ? '1' : '0';
+                    s.style.zIndex = i === cur ? '1' : '0';
+                }});
+                document.querySelectorAll('.rev-dot').forEach(function(d, i) {{
+                    d.style.opacity = i === cur ? '1' : '0.3';
+                }});
+            }}
+            window.goRev = show;
+            function reset() {{ clearInterval(timer); timer = setInterval(function() {{ show(cur + 1); }}, 6000); }}
+            var wrap = document.getElementById('rev-wrap');
+            if (wrap) {{
+                wrap.addEventListener('mouseenter', function() {{ clearInterval(timer); }});
+                wrap.addEventListener('mouseleave', reset);
+            }}
+            reset();
+        }})();
+        </script>"""
+
+
+@_component("TestimonialQuote")
+def _testimonial_quote(p: Dict[str, Any]) -> str:
+    """Single elevated review — large display serif pull-quote with brand background."""
+    reviews = p.get("reviews", [])
+    r = reviews[0] if reviews else {}
+
+    stars = "".join(
+        f'<i class="fa-solid fa-star text-base" style="color: #F59E0B;"></i>'
+        for _ in range(r.get("rating", 5))
+    )
+    initial = r.get("avatar_fallback", r.get("name", "?")[0].upper())
+
+    return f"""        <div class="rounded-3xl px-8 py-16 md:px-20 text-center relative overflow-hidden"
+             style="background: linear-gradient(135deg, var(--color-accent), var(--color-surface));">
+            <!-- Ghost typography backdrop -->
+            <div class="absolute -top-8 left-1/2 -translate-x-1/2 text-[12rem] leading-none font-black select-none pointer-events-none"
+                 style="color: var(--color-primary); opacity: 0.04; font-family: var(--font-heading);">&ldquo;</div>
+            <div class="relative z-10 max-w-3xl mx-auto">
+                <div class="flex justify-center gap-1 mb-8">{stars}</div>
+                <blockquote class="text-2xl sm:text-3xl md:text-4xl leading-snug italic mb-10"
+                            style="font-family: var(--font-heading); color: var(--color-text);">
+                    &ldquo;{_esc(r.get('text',''))}&rdquo;
+                </blockquote>
+                <div class="flex items-center justify-center gap-4">
+                    <div class="w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold text-white shrink-0"
+                         style="background-color: var(--color-primary);">{initial}</div>
+                    <div class="text-left">
+                        <p class="font-bold" style="font-family: var(--font-heading); color: var(--color-text);">{_esc(r.get('name',''))}</p>
+                        {f'<p class="text-sm" style="color: var(--color-text-muted);">{_esc(r.get("role","Pelanggan"))}</p>'}
+                    </div>
+                </div>
+            </div>
+        </div>"""
+
+
+# ---------------------------------------------------------------------------
+# Hours Section — simple_table, today_focus
+# ---------------------------------------------------------------------------
+
+@_component("HoursSimpleTable")
+def _hours_simple_table(p: Dict[str, Any]) -> str:
+    """Clean operating hours table — day/time pairs in a well-spaced table."""
+    hours = p.get("hours_structured", [])
+
+    rows = []
+    for h in hours:
+        is_closed = "tutup" in h.get("time", "").lower() or "closed" in h.get("time", "").lower()
+        time_style = "color: var(--color-text-muted); opacity: 0.5;" if is_closed else "color: var(--color-text-muted);"
+        rows.append(f"""                <tr style="border-bottom: 1px solid var(--color-border);">
+                    <td class="py-3.5 font-medium pr-8" style="color: var(--color-text);">{_esc(h['day'])}</td>
+                    <td class="py-3.5 text-right" style="{time_style}">{_esc(h['time'])}</td>
+                </tr>""")
+
+    return f"""        <div class="max-w-sm mx-auto text-center">
+            <div class="accent-line mx-auto mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight mb-10" style="font-family: var(--font-heading); color: var(--color-text);">{_esc(p.get('heading','Waktu Operasi'))}</h2>
+            <div class="rounded-2xl p-6 text-left" style="background-color: var(--color-surface); box-shadow: var(--shadow);">
+                <table class="w-full">
+                    <tbody>
+{chr(10).join(rows)}
+                    </tbody>
+                </table>
+            </div>
+        </div>"""
+
+
+@_component("HoursTodayFocus")
+def _hours_today_focus(p: Dict[str, Any]) -> str:
+    """Today-focus hours — big status banner + full week table below."""
+    hours = p.get("hours_structured", [])
+    status_text = p.get("status_text", "Kami Buka Sekarang")
+    status_sub = p.get("status_sub", "")
+    is_open = p.get("is_open", True)
+
+    status_color = "#22c55e" if is_open else "#ef4444"
+    status_icon = "fa-circle-check" if is_open else "fa-circle-xmark"
+
+    rows = []
+    for h in hours:
+        is_closed = "tutup" in h.get("time", "").lower() or "closed" in h.get("time", "").lower()
+        row_opacity = " opacity-50" if is_closed else ""
+        rows.append(f"""                <div class="flex justify-between py-2.5{row_opacity}" style="border-bottom: 1px solid var(--color-border);">
+                    <span class="text-sm font-medium" style="color: var(--color-text);">{_esc(h['day'])}</span>
+                    <span class="text-sm" style="color: var(--color-text-muted);">{_esc(h['time'])}</span>
+                </div>""")
+
+    sub_html = f'<p class="text-lg mt-2 opacity-80">{_esc(status_sub)}</p>' if status_sub else ""
+
+    return f"""        <div class="max-w-md mx-auto text-center">
+            <div class="accent-line mx-auto mb-8"></div>
+            <!-- Big status banner -->
+            <div class="rounded-2xl py-10 px-8 mb-8" style="background-color: var(--color-surface); box-shadow: var(--shadow-lg);">
+                <i class="{status_icon} text-4xl mb-4" style="color: {status_color};"></i>
+                <h2 class="text-3xl md:text-4xl font-bold" style="font-family: var(--font-heading); color: var(--color-text);">{_esc(status_text)}</h2>
+{sub_html}
+            </div>
+            <!-- Full week table -->
+            <h3 class="text-lg font-bold mb-4 text-left" style="color: var(--color-text);">{_esc(p.get('week_heading','Waktu Operasi Mingguan'))}</h3>
+            <div class="rounded-2xl p-6 text-left" style="background-color: var(--color-surface); box-shadow: var(--shadow);">
+{chr(10).join(rows)}
+            </div>
+        </div>"""
+
+
+# ---------------------------------------------------------------------------
+# CTA Section — booking_prominent, whatsapp_first
+# ---------------------------------------------------------------------------
+
+@_component("CtaBookingProminent")
+def _cta_booking_prominent(p: Dict[str, Any]) -> str:
+    """Large reservation CTA — headline, date/time/pax, WhatsApp pre-fill. Mobile-first."""
+    wa_num = p.get("whatsapp_number", "")
+    headline = _esc(p.get("headline", "Tempah Meja Sekarang"))
+    subheadline = _esc(p.get("subheadline", "Jangan lepas peluang menikmati hidangan terbaik kami."))
+
+    return f"""        <div class="rounded-3xl px-6 py-16 md:px-16 text-center relative overflow-hidden"
+             style="background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));">
+            <!-- Ghost oversized numeral backdrop -->
+            <div class="absolute top-0 right-0 text-[20rem] leading-none font-black select-none pointer-events-none opacity-5 text-white"
+                 style="font-family: var(--font-heading);">T</div>
+            <div class="relative z-10 max-w-xl mx-auto">
+                <h2 class="text-4xl md:text-5xl font-bold text-white mb-4 leading-tight" style="font-family: var(--font-heading);">{headline}</h2>
+                <p class="text-white/80 text-lg mb-10">{subheadline}</p>
+                <!-- Quick booking form -->
+                <div class="rounded-2xl p-6 mb-6" style="background: rgba(255,255,255,0.12); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.2);">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+                        <div>
+                            <label class="block text-xs font-bold text-white/70 mb-1.5 uppercase tracking-wider">Tarikh</label>
+                            <input type="date" id="cta-date" class="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                                   style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); color: white;">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-white/70 mb-1.5 uppercase tracking-wider">Masa</label>
+                            <select id="cta-time" class="w-full rounded-xl px-3 py-2.5 text-sm outline-none appearance-none"
+                                    style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); color: white;">
+                                <option value="">Pilih masa</option>
+                                <option>12:00 tgh</option><option>1:00 ptg</option><option>6:00 ptg</option>
+                                <option>7:00 mlm</option><option>8:00 mlm</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-white/70 mb-1.5 uppercase tracking-wider">Tetamu</label>
+                            <select id="cta-pax" class="w-full rounded-xl px-3 py-2.5 text-sm outline-none appearance-none"
+                                    style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); color: white;">
+                                {"".join(f'<option value="{i}">{i} orang</option>' for i in range(1, 13))}
+                            </select>
+                        </div>
+                    </div>
+                    <button onclick="ctaBook()" class="w-full py-4 rounded-xl font-bold text-base transition-opacity hover:opacity-90"
+                            style="background-color: white; color: var(--color-primary);">
+                        <i class="fa-brands fa-whatsapp mr-2"></i>Tempah via WhatsApp
+                    </button>
+                </div>
+            </div>
+        </div>
+        <script>
+        function ctaBook() {{
+            var date = document.getElementById('cta-date').value || 'Belum dipilih';
+            var time = document.getElementById('cta-time').value || 'Belum dipilih';
+            var pax = document.getElementById('cta-pax').value || '2';
+            var msg = 'Salam! Saya ingin tempah meja.%0ATarikh: ' + date + '%0AMasa: ' + time + '%0AJumlah tetamu: ' + pax + ' orang';
+            window.open('https://wa.me/{_esc(wa_num)}?text=' + msg, '_blank');
+        }}
+        </script>"""
+
+
+@_component("CtaWhatsappFirst")
+def _cta_whatsapp_first(p: Dict[str, Any]) -> str:
+    """Single huge WhatsApp CTA — pre-filled message, mobile-first. Minimal design."""
+    wa_num = p.get("whatsapp_number", "")
+    wa_msg = p.get("whatsapp_message", "Salam Khulafa Bistro, saya nak tempah meja...")
+    headline = _esc(p.get("headline", "Bercakap Terus dengan Kami"))
+    subheadline = _esc(p.get("subheadline", "Tempah meja, tanya menu, atau sebarang pertanyaan — kami sentiasa bersedia."))
+
+    supporting = p.get("supporting_info", [])
+    info_html = ""
+    if supporting:
+        items_html = "".join(
+            f'<div class="flex items-center gap-2 text-sm" style="color: var(--color-text-muted);"><i class="{_esc(item.get("icon","fa-solid fa-check"))} text-xs" style="color: var(--color-primary);"></i>{_esc(item.get("text",""))}</div>'
+            for item in supporting
+        )
+        info_html = f'<div class="flex flex-wrap justify-center gap-x-6 gap-y-2 mb-8">{items_html}</div>'
+
+    return f"""        <div class="max-w-lg mx-auto text-center">
+            <div class="accent-line mx-auto mb-6"></div>
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight mb-4" style="font-family: var(--font-heading); color: var(--color-text);">{headline}</h2>
+            <p class="text-lg leading-relaxed mb-8" style="color: var(--color-text-muted);">{subheadline}</p>
+{info_html}
+            <!-- Oversized WhatsApp button -->
+            <a href="https://wa.me/{_esc(wa_num)}?text={_esc(wa_msg)}" target="_blank" rel="noopener noreferrer"
+               class="inline-flex items-center justify-center gap-4 font-bold text-2xl text-white rounded-3xl px-12 py-7 transition-transform hover:scale-105 active:scale-95 w-full sm:w-auto"
+               style="background-color: #25D366; box-shadow: 0 16px 40px -8px rgba(37,211,102,0.45);">
+                <i class="fa-brands fa-whatsapp text-4xl"></i>
+                WhatsApp Kami
+            </a>
+            <p class="mt-5 text-xs" style="color: var(--color-text-muted);">Respon dalam masa 15 minit &bull; Buka {p.get('hours_short', 'Sel-Ahad 11pg-10mlm')}</p>
+        </div>"""
+
+
 def _body_scripts(recipe: PageRecipe) -> str:
     lines = []
     for url in recipe.body_scripts:
