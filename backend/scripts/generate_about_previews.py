@@ -65,6 +65,8 @@ ABOUT_VARIANTS = {
             "Bermula dari dapur kecil di rumah pengasas kami, Khulafa Bistro lahir daripada cinta kepada masakan Melayu yang autentik.",
             "Kami percaya makanan tradisional boleh dipersembahkan dengan cara baru tanpa mengorbankan rasa asli. Setiap hidangan kami diolah menggunakan rempah tumbuk segar dan bahan tempatan pilihan.",
         ],
+        # BINA-29: Using RESTAURANT_INTERIOR pool placeholder (auto-selected by build_image_map).
+        # TODO BINA-32: Replace with real Khulafa Bistro interior photography once available.
         "image_key": "interior",
         "signature": "— Yassir Ar., Pengasas",
     },
