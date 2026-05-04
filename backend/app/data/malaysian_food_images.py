@@ -141,13 +141,13 @@ NASI_KERABU: List[FoodImage] = [
 ]
 
 BURGER_RENDANG: List[FoodImage] = [
-    # Rendang Burger — fusion rendang patty in brioche bun
-    # Use modern-fusion + rendang pool for visual richness
-    FoodImage("photo-1569580990518-5c62fd4bdcf7", "Fusion burger on teal ceramic plate", "hero", "Pesce Huang"),
-    FoodImage("photo-1688084546323-fcd3f9d8389b", "Rendang beef close-up — patty visual", "detail", "Christian Dala"),
-    FoodImage("photo-1621317607972-b2afed231542", "Rendang plated fine dining with garnish", "menu_item", "Fernandes Photographer"),
-    FoodImage("photo-1653666351563-6e636c00b38e", "Rendang-style meat with herbs", "menu_item", "sandi firmansyah"),
-    FoodImage("photo-1585144570839-e429bb95ffb4", "Fine dining burger-style plating on ceramic", "hero", "Louis Hansel"),
+    # Rendang Burger — fusion rendang patty in brioche/sesame bun
+    # All images verified to visually show a burger (bun + patty visible) (BINA-34)
+    FoodImage("photo-1569580990518-5c62fd4bdcf7", "Fusion burger with dark sesame bun on teal plate", "hero", "Pesce Huang"),
+    FoodImage("photo-1568901346375-23c9450c58cd", "Gourmet beef burger with brioche bun and toppings", "menu_item", "Ash Edmonds"),
+    FoodImage("photo-1553979459-d2229ba7433b", "Stacked gourmet burger with sesame bun and cheese", "hero", "amirali mirhashemian"),
+    FoodImage("photo-1561758033-d89a9ad46330", "Classic beef burger with fries on wooden board", "detail", "Hana Oliver"),
+    FoodImage("photo-1586816001966-79b736744398", "Juicy burger with sesame bun, lettuce and tomato", "menu_item", "Önder Örtel"),
 ]
 
 MODERN_FUSION: List[FoodImage] = [
