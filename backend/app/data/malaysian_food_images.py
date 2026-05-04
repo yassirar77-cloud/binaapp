@@ -172,6 +172,36 @@ CUISINE_POOLS: Dict[str, List[List[FoodImage]]] = {
 }
 
 
+DISH_POOL_MAP: Dict[str, List[FoodImage]] = {
+    "nasi_lemak": NASI_LEMAK,
+    "rendang": RENDANG,
+    "rendang_burger": RENDANG,          # rendang-flavored burger → use rendang pool
+    "laksa": LAKSA,
+    "laksa_carbonara": LAKSA,
+    "nasi_kerabu": LAKSA,               # closest visual proxy until NASI_KERABU pool added
+    "nasi_kerabu_deconstructed": MODERN_FUSION,  # "deconstructed" → fusion plating
+    "nasi_kandar": NASI_KANDAR,
+    "satay": SATAY,
+    "kuih": KUIH,
+    "char_kway_teow": CHAR_KWAY_TEOW,
+    "mee_goreng": MEE_GORENG,
+    "modern_fusion": MODERN_FUSION,
+}
+
+
+def get_dish_pool(dish_name: str) -> Optional[List[FoodImage]]:
+    """Resolve a dish name to its image pool. Returns None if no match."""
+    if not dish_name:
+        return None
+    normalized = dish_name.lower().replace(" ", "_").replace("-", "_")
+    if normalized in DISH_POOL_MAP:
+        return DISH_POOL_MAP[normalized]
+    for key, pool in DISH_POOL_MAP.items():
+        if normalized.startswith(key) or key in normalized:
+            return pool
+    return None
+
+
 def get_cuisine_images(cuisine_type: str) -> List[FoodImage]:
     """Get all images for a cuisine type, flattened from pools."""
     pools = CUISINE_POOLS.get(cuisine_type, [])
