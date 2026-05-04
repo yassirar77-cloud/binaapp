@@ -243,7 +243,15 @@ VARIANTS = [
                 "heading": "Cerita di Sebalik Khulafa",
                 "subtitle": "Dari dapur ke meja — kisah cinta kami dengan masakan",
                 "image_keys": ["gallery_1", "interior", "gallery_2", "gallery_3"],
-                "paragraphs": GALLERY_PARAGRAPHS,
+                "pull_quote": "Resipi nenek, sentuhan moden — itu falsafah kami",
+                "paragraphs": [
+                    # Opening — Khulafa origin, Datuk Abdul Wahith founding, family kitchen 2018
+                    "Khulafa Bistro bermula di dapur keluarga Datuk Abdul Wahith pada tahun 2018 — seorang pengusaha Muslim yang percaya bahawa masakan terbaik lahir dari resipi yang diwarisi, bukan dari formula kilang. Setiap hidangan yang keluar dari dapur kami membawa cerita yang sama: cinta, tradisi, dan bahan-bahan segar yang dipilih sendiri.",
+                    # Middle — ingredient sourcing
+                    "Kami bekerjasama rapat dengan pembekal tempatan di Selangor untuk memastikan setiap bahan — dari beras basmati hinggalah rempah rendang — tiba segar setiap pagi. Dapur terbuka kami bukan sekadar rekaan; ia adalah janji ketelusan kepada setiap tetamu yang makan bersama kami.",
+                    # Closing — expansion to Subang Jaya
+                    "Kini, dengan cabang baharu di Subang Jaya, kami membawa rasa yang sama ke lebih ramai keluarga Malaysia. Khulafa bukan sekadar restoran — ia adalah tempat di mana setiap meja menjadi meja makan keluarga.",
+                ],
             },
         },
         FOOTER,

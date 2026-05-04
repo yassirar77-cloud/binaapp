@@ -1555,60 +1555,92 @@ def _gallery_grid(p: Dict[str, Any]) -> str:
 
 @_component("GalleryFullWidth")
 def _gallery_full_width(p: Dict[str, Any]) -> str:
-    """Vertical magazine-feature narrative. Photo → paragraph → half-photo → text → photo."""
+    """Vertical magazine-feature narrative. Photo → drop-cap para → pull quote → half-photo + text → closing photo + para."""
     imgs = p.get("images", [])
     paragraphs = p.get("paragraphs", [])
+    pull_quote = p.get("pull_quote", "")
 
     # Build alternating layout blocks
     blocks = []
     img_idx = 0
 
-    # Block 1: full-width hero image
+    # Block 1: full-bleed opening photo
     if img_idx < len(imgs):
         img = imgs[img_idx]; img_idx += 1
-        blocks.append(f"""        <!-- Full-width opening photo -->
+        blocks.append(f"""        <!-- Full-bleed opening photo -->
         <div class="overflow-hidden rounded-2xl" style="max-height: 520px;">
             <img src="{_esc(img['url'])}" alt="{_esc(img['alt'])}"
                  class="w-full object-cover transition-transform duration-700 hover:scale-105" loading="lazy"
                  style="max-height: 520px; object-position: center;">
         </div>""")
 
-    # Block 2: first paragraph
+    # Block 2: opening paragraph with drop cap
     if paragraphs:
         para = paragraphs[0]
-        blocks.append(f"""        <div class="max-w-2xl">
-            <p class="text-lg leading-relaxed" style="color: var(--color-text-muted);">{_esc(para)}</p>
+        blocks.append(f"""        <!-- Opening paragraph — drop cap -->
+        <div class="max-w-2xl">
+            <p class="text-lg leading-relaxed gallery-drop-cap" style="color: var(--color-text-muted);">{_esc(para)}</p>
         </div>""")
 
-    # Block 3: half-image left + text right
+    # Block 3: pull quote (if provided)
+    if pull_quote:
+        blocks.append(f"""        <!-- Pull quote -->
+        <div class="max-w-2xl mx-auto text-center py-4">
+            <blockquote class="text-2xl md:text-3xl font-bold italic leading-snug"
+                        style="font-family: var(--font-heading); color: var(--color-primary);">
+                &ldquo;{_esc(pull_quote)}&rdquo;
+            </blockquote>
+        </div>""")
+
+    # Block 4: half-width photo right + text left
     if img_idx < len(imgs) and len(paragraphs) > 1:
         img = imgs[img_idx]; img_idx += 1
         para2 = paragraphs[1]
-        blocks.append(f"""        <!-- Half-image + text -->
+        blocks.append(f"""        <!-- Half-width photo right + text left -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+            <div>
+                <p class="text-lg leading-relaxed" style="color: var(--color-text-muted);">{_esc(para2)}</p>
+            </div>
             <div class="overflow-hidden rounded-2xl">
                 <img src="{_esc(img['url'])}" alt="{_esc(img['alt'])}"
                      class="w-full object-cover" style="height: 360px;" loading="lazy">
             </div>
-            <div>
-                <p class="text-lg leading-relaxed" style="color: var(--color-text-muted);">{_esc(para2)}</p>
-            </div>
         </div>""")
 
-    # Block 4: closing full-width image
+    # Block 5: closing full-bleed photo + closing paragraph
     if img_idx < len(imgs):
         img = imgs[img_idx]; img_idx += 1
-        blocks.append(f"""        <!-- Closing full-width photo -->
+        blocks.append(f"""        <!-- Closing full-bleed photo -->
         <div class="overflow-hidden rounded-2xl" style="max-height: 440px;">
             <img src="{_esc(img['url'])}" alt="{_esc(img['alt'])}"
                  class="w-full object-cover" style="max-height: 440px; object-position: center;" loading="lazy">
+        </div>""")
+
+    if len(paragraphs) > 2:
+        blocks.append(f"""        <!-- Closing paragraph -->
+        <div class="max-w-2xl mx-auto text-center">
+            <p class="text-lg leading-relaxed" style="color: var(--color-text-muted);">{_esc(paragraphs[2])}</p>
         </div>""")
 
     subtitle = ""
     if p.get("subtitle"):
         subtitle = f'        <p class="mt-3 text-lg" style="color: var(--color-text-muted);">{_esc(p["subtitle"])}</p>'
 
-    return f"""        <div class="mb-14">
+    drop_cap_css = """<style>
+        .gallery-drop-cap::first-letter {
+            font-family: var(--font-heading);
+            font-size: 4rem;
+            font-weight: 900;
+            line-height: 0.8;
+            float: left;
+            margin-right: 0.1em;
+            margin-top: 0.05em;
+            color: var(--color-primary);
+        }
+    </style>"""
+
+    return f"""{drop_cap_css}
+        <div class="mb-14">
             <div class="accent-line mb-6"></div>
             <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">{_esc(p.get('heading','Kisah Kami'))}</h2>
 {subtitle}
