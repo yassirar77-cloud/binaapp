@@ -199,7 +199,7 @@ DISH_POOL_MAP: Dict[str, List[FoodImage]] = {
     "laksa": LAKSA,
     "laksa_carbonara": LAKSA,
     "nasi_kerabu": NASI_KERABU,         # dedicated nasi kerabu pool (BINA-31)
-    "nasi_kerabu_deconstructed": MODERN_FUSION,  # "deconstructed" → fusion plating
+    "nasi_kerabu_deconstructed": NASI_KERABU,     # "deconstructed" → still kerabu-family (BINA-33)
     "nasi_kandar": NASI_KANDAR,
     "satay": SATAY,
     "kuih": KUIH,
