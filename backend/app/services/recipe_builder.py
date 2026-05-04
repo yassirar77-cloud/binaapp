@@ -11,6 +11,7 @@ Converts a DesignBrief into a PageRecipe by:
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any, Dict, List
 
 from app.data.malaysian_food_images import build_image_map as build_cuisine_image_map
@@ -64,7 +65,7 @@ def build_recipe(brief: DesignBrief) -> PageRecipe:
             brief.cuisine_type.value,
             gallery_count=4,
             menu_count=3,
-            seed=hash(brief.business.name) % 10000,
+            seed=int(hashlib.md5(brief.business.name.encode()).hexdigest()[:8], 16) % 10000,
         )
         # Merge: explicit image_map entries take priority over cuisine pool
         merged = {**cuisine_images, **brief.image_map}
@@ -218,11 +219,20 @@ def _resolve_props(
                 for k in val
             ]
         elif key == "fallback_items" and isinstance(val, list):
+            from app.data.malaysian_food_images import get_dish_pool
+            import random
             resolved_items = []
             for item in val:
                 resolved = {**item}
                 ik = resolved.pop("image_key", None)
-                if ik:
+                dish_name = resolved.get("name", "")
+                dish_pool = get_dish_pool(dish_name)
+                if dish_pool:
+                    # Deterministic pick based on dish name — stable across runs
+                    dish_seed = int(hashlib.md5(dish_name.encode()).hexdigest()[:8], 16)
+                    rng = random.Random(dish_seed)
+                    resolved["image_url"] = rng.choice(dish_pool).url
+                elif ik:
                     resolved["image_url"] = brief.image_map.get(ik, "")
                 else:
                     resolved["image_url"] = None
