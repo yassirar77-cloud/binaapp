@@ -45,6 +45,8 @@ NAV_LABELS = {
         "gallery": "Galeri",
         "testimonial": "Testimoni",
         "contact": "Hubungi",
+        "hours": "Waktu",
+        "cta": None,  # CTA sections don't appear in nav
     },
     "en": {
         "hero": "Home",
@@ -53,6 +55,8 @@ NAV_LABELS = {
         "gallery": "Gallery",
         "testimonial": "Testimonials",
         "contact": "Contact",
+        "hours": "Hours",
+        "cta": None,
     },
 }
 
@@ -213,6 +217,8 @@ def _resolve_props(
         if key == "image_key" and isinstance(val, str):
             props["image_url"] = brief.image_map.get(val, "")
             props["image_alt"] = brief.business.name
+        elif key == "background_image_key" and isinstance(val, str):
+            props["background_image_url"] = brief.image_map.get(val, "")
         elif key == "image_keys" and isinstance(val, list):
             props["images"] = [
                 {"url": brief.image_map.get(k, ""), "alt": brief.business.name}
@@ -252,8 +258,8 @@ def _resolve_props(
         else:
             props[key] = val
 
-    # Inject WhatsApp for contact sections
-    if section_type == "contact" and brief.business.whatsapp:
+    # Inject WhatsApp for contact and CTA sections
+    if section_type in ("contact", "cta") and brief.business.whatsapp:
         props.setdefault("whatsapp_number", brief.business.whatsapp)
 
     # Inject business name for footer
