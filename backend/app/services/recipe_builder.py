@@ -34,6 +34,7 @@ from app.schemas.recipe import (
     resolve_component_name,
 )
 from app.schemas.style_dna import get_style_dna, StyleDNADef
+from app.data.animation_tokens import get_animation_tokens
 
 
 # Section type → nav label (Bahasa / English)
@@ -82,6 +83,8 @@ def build_recipe(brief: DesignBrief) -> PageRecipe:
     nav = _build_nav(brief)
     sections = _build_sections(brief)
 
+    anim = get_animation_tokens(dna.key)
+
     return PageRecipe(
         **{"$schema": "page_recipe_v1"},
         version="1.0",
@@ -91,7 +94,6 @@ def build_recipe(brief: DesignBrief) -> PageRecipe:
         sections=sections,
         head_assets=[
             dna.font_cdn,
-            "https://unpkg.com/aos@2.3.4/dist/aos.css",
             "https://cdn.tailwindcss.com",
             "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css",
         ],
@@ -109,8 +111,16 @@ def build_recipe(brief: DesignBrief) -> PageRecipe:
                 },
             }
         }),
-        body_scripts=["https://unpkg.com/aos@2.3.4/dist/aos.js"],
-        init_scripts=["AOS.init({ duration: 800, once: true, offset: 100 });"],
+        body_scripts=[],
+        init_scripts=[],
+        animation_tokens={
+            "easing": anim.easing,
+            "duration_base_ms": anim.duration_base_ms,
+            "stagger_ms": anim.stagger_ms,
+            "reveal_distance_px": anim.reveal_distance_px,
+            "hover_lift_px": anim.hover_lift_px,
+            "page_entrance_enabled": anim.page_entrance_enabled,
+        },
     )
 
 

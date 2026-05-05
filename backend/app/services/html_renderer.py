@@ -16,7 +16,7 @@ from app.schemas.recipe import PageRecipe, RenderedSection, NavConfig, ThemeToke
 
 def render_html(recipe: PageRecipe) -> str:
     """Render a PageRecipe into a complete, self-contained HTML string."""
-    css_vars = _theme_to_css(recipe.theme)
+    css_vars = _theme_to_css(recipe.theme, recipe.animation_tokens)
     tw_config_script = _tailwind_config_script(recipe)
     head_links = _head_links(recipe)
     nav_html = _render_nav(recipe.nav, recipe.theme)
@@ -24,6 +24,7 @@ def render_html(recipe: PageRecipe) -> str:
         _render_section(s) for s in recipe.sections
     )
     body_scripts = _body_scripts(recipe)
+    reveal_script = _reveal_script()
 
     return f"""<!DOCTYPE html>
 <html lang="{recipe.meta.language}">
@@ -49,6 +50,7 @@ def render_html(recipe: PageRecipe) -> str:
 {sections_html}
 
 {body_scripts}
+{reveal_script}
 </body>
 </html>"""
 
@@ -57,10 +59,17 @@ def render_html(recipe: PageRecipe) -> str:
 # Theme → CSS custom properties
 # ---------------------------------------------------------------------------
 
-def _theme_to_css(theme: ThemeTokens) -> str:
+def _theme_to_css(theme: ThemeTokens, animation_tokens: dict = None) -> str:
     c = theme.colors
     f = theme.fonts
     t = theme.tokens
+    # Animation token defaults (teh_tarik_warm values)
+    at = animation_tokens or {}
+    reveal_easing = at.get("easing", "cubic-bezier(0.22, 1, 0.36, 1)")
+    reveal_duration = at.get("duration_base_ms", 700)
+    reveal_distance = at.get("reveal_distance_px", 30)
+    reveal_stagger = at.get("stagger_ms", 100)
+    hover_lift = at.get("hover_lift_px", 2)
     return f"""        :root {{
             --color-primary: {c.primary};
             --color-primary-hover: {c.primary_hover};
@@ -82,6 +91,11 @@ def _theme_to_css(theme: ThemeTokens) -> str:
             --shadow-lg: {t.shadow_lg};
             --spacing-section: {t.spacing_section};
             --max-width: {t.max_width};
+            --reveal-easing: {reveal_easing};
+            --reveal-duration: {reveal_duration}ms;
+            --reveal-distance: {reveal_distance}px;
+            --reveal-stagger: {reveal_stagger}ms;
+            --hover-lift: {hover_lift}px;
         }}
         html {{ scroll-behavior: smooth; }}
         body {{
@@ -95,9 +109,31 @@ def _theme_to_css(theme: ThemeTokens) -> str:
             font-family: var(--font-heading);
             line-height: 1.1;
         }}
-        /* Scroll-triggered fade-in */
-        [data-aos="fade-up"] {{
-            transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+        /* Scroll-reveal system (replaces AOS) */
+        [data-reveal] {{
+            opacity: 0;
+            transform: translateY(var(--reveal-distance));
+            transition: opacity var(--reveal-duration) var(--reveal-easing),
+                        transform var(--reveal-duration) var(--reveal-easing);
+        }}
+        [data-reveal].animate-in {{
+            opacity: 1;
+            transform: translateY(0);
+        }}
+        [data-reveal-delay="1"] {{ transition-delay: calc(var(--reveal-stagger) * 1); }}
+        [data-reveal-delay="2"] {{ transition-delay: calc(var(--reveal-stagger) * 2); }}
+        [data-reveal-delay="3"] {{ transition-delay: calc(var(--reveal-stagger) * 3); }}
+        [data-reveal-delay="4"] {{ transition-delay: calc(var(--reveal-stagger) * 4); }}
+        /* Page entrance choreography */
+        [data-entrance] {{
+            opacity: 0;
+            transform: translateY(var(--reveal-distance));
+            transition: opacity var(--reveal-duration) var(--reveal-easing),
+                        transform var(--reveal-duration) var(--reveal-easing);
+        }}
+        [data-entrance].animate-in {{
+            opacity: 1;
+            transform: translateY(0);
         }}
         /* Subtle image frame */
         .img-frame {{
@@ -111,21 +147,28 @@ def _theme_to_css(theme: ThemeTokens) -> str:
             border-radius: inherit;
             pointer-events: none;
         }}
-        /* Menu card hover */
+        /* Menu card hover with style-DNA-aware lift */
         .menu-card {{
-            transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease;
+            transition: transform 0.3s var(--reveal-easing), box-shadow 0.3s ease;
         }}
         .menu-card:hover {{
-            transform: translateY(-4px) scale(1.02);
+            transform: translateY(calc(-1 * var(--hover-lift))) scale(1.02);
             box-shadow: 0 20px 40px -12px rgba(0,0,0,0.15);
         }}
         /* Testimonial card hover */
         .testimonial-card {{
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            transition: transform 0.3s var(--reveal-easing), box-shadow 0.3s ease;
         }}
         .testimonial-card:hover {{
-            transform: translateY(-2px);
+            transform: translateY(calc(-1 * var(--hover-lift)));
             box-shadow: 0 12px 24px -8px rgba(0,0,0,0.12);
+        }}
+        /* Button and card hover lift */
+        [data-hover-lift] {{
+            transition: transform 200ms var(--reveal-easing), box-shadow 200ms var(--reveal-easing);
+        }}
+        [data-hover-lift]:hover {{
+            transform: translateY(calc(-1 * var(--hover-lift)));
         }}
         /* Accent line */
         .accent-line {{
@@ -245,16 +288,16 @@ def _render_section(section: RenderedSection) -> str:
         return f'<!-- Unknown component: {section.component} -->'
 
     inner = renderer(section.props)
-    aos_attr = f'data-aos="{section.animation.type}"'
-    delay_attr = f'data-aos-delay="{section.animation.delay}"' if section.animation.delay else ""
+    reveal_attr = "data-reveal"
+    delay_attr = f'data-reveal-delay="{section.animation.delay}"' if section.animation.delay else ""
 
     # Hero gets no extra padding (it manages its own)
     if section.id == "hero":
-        return f'<div id="{section.id}" {aos_attr} {delay_attr}>\n{inner}\n</div>'
+        return f'<div id="{section.id}" {reveal_attr} {delay_attr}>\n{inner}\n</div>'
 
     # Footer gets no section wrapper padding either
     if section.id == "footer":
-        return f'<div id="{section.id}" {aos_attr} {delay_attr}>\n{inner}\n</div>'
+        return f'<div id="{section.id}" {reveal_attr} {delay_attr}>\n{inner}\n</div>'
 
     # Vary vertical padding per section for visual rhythm
     padding_map = {
@@ -266,7 +309,7 @@ def _render_section(section: RenderedSection) -> str:
     }
     pad = padding_map.get(section.id, "py-20")
 
-    return f"""<section id="{section.id}" class="{pad} px-4 sm:px-6 lg:px-8" {aos_attr} {delay_attr}>
+    return f"""<section id="{section.id}" class="{pad} px-4 sm:px-6 lg:px-8" {reveal_attr} {delay_attr}>
     <div class="mx-auto" style="max-width: var(--max-width, 1280px);">
 {inner}
     </div>
@@ -323,14 +366,16 @@ def _hero_split(p: Dict[str, Any]) -> str:
                 <div class="flex flex-col justify-center py-12 lg:py-24 {order}">
 {halal_badge}
                     <h1 class="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-black tracking-tight sm:tracking-tight"
+                        data-entrance data-entrance-delay="200"
                         style="font-family: var(--font-heading); color: var(--color-text); line-height: 0.95;">
                         {_esc(p['headline'])}
                     </h1>
                     <p class="mt-8 text-lg sm:text-xl leading-relaxed max-w-md"
+                       data-entrance data-entrance-delay="400"
                        style="color: var(--color-text-muted);">
                         {_esc(p['subheadline'])}
                     </p>
-                    <div class="mt-10 flex flex-wrap gap-4">
+                    <div class="mt-10 flex flex-wrap gap-4" data-entrance data-entrance-delay="600">
                         <a href="{_esc(p['cta_link'])}"
                            class="inline-block bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white font-semibold rounded-2xl px-8 py-4 transition-all duration-200 hover:shadow-lg"
                            style="font-size: 1.05rem;">
@@ -374,13 +419,15 @@ def _hero_centered(p: Dict[str, Any]) -> str:
         <div class="relative z-10 text-center px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto py-20">
 {halal_badge}
             <h1 class="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black tracking-tight text-white"
+                data-entrance data-entrance-delay="200"
                 style="font-family: var(--font-heading); line-height: 0.95;">
                 {_esc(p['headline'])}
             </h1>
-            <p class="mt-6 text-lg sm:text-xl leading-relaxed text-white/80 max-w-2xl mx-auto">
+            <p class="mt-6 text-lg sm:text-xl leading-relaxed text-white/80 max-w-2xl mx-auto"
+               data-entrance data-entrance-delay="400">
                 {_esc(p['subheadline'])}
             </p>
-            <div class="mt-10 flex flex-wrap justify-center gap-4">
+            <div class="mt-10 flex flex-wrap justify-center gap-4" data-entrance data-entrance-delay="600">
                 <a href="{_esc(p['cta_link'])}"
                    class="inline-block text-white font-semibold rounded-2xl px-8 py-4 transition-all duration-200 hover:shadow-lg hover:brightness-110"
                    style="background-color: var(--color-primary); font-size: 1.05rem;">
@@ -422,13 +469,15 @@ def _hero_fullscreen_image(p: Dict[str, Any]) -> str:
                  style="background: rgba(0,0,0,0.4); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.1);">
 {halal_badge}
                 <h1 class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-tight text-white"
+                    data-entrance data-entrance-delay="200"
                     style="font-family: var(--font-heading); line-height: 0.95;">
                     {_esc(p['headline'])}
                 </h1>
-                <p class="mt-4 text-base sm:text-lg leading-relaxed text-white/70 max-w-lg">
+                <p class="mt-4 text-base sm:text-lg leading-relaxed text-white/70 max-w-lg"
+                   data-entrance data-entrance-delay="400">
                     {_esc(p['subheadline'])}
                 </p>
-                <div class="mt-8 flex flex-wrap gap-4">
+                <div class="mt-8 flex flex-wrap gap-4" data-entrance data-entrance-delay="600">
                     <a href="{_esc(p['cta_link'])}"
                        class="inline-block text-white font-semibold rounded-2xl px-8 py-4 transition-all duration-200 hover:shadow-lg hover:brightness-110"
                        style="background-color: var(--color-primary); font-size: 1.05rem;">
@@ -462,16 +511,18 @@ def _hero_split_reverse(p: Dict[str, Any]) -> str:
                 <div class="w-16 mb-10" style="height: 1px; background-color: var(--color-primary);"></div>
                 <!-- Massive headline -->
                 <h1 class="text-5xl sm:text-6xl md:text-7xl lg:text-[6.5rem] xl:text-[8rem] font-normal tracking-tight"
+                    data-entrance data-entrance-delay="200"
                     style="font-family: var(--font-heading); color: var(--color-text); line-height: 0.9; font-style: italic;">
                     {headline}
                 </h1>
                 <!-- Subheadline in a constrained column -->
                 <div class="mt-10 lg:mt-14 max-w-md lg:ml-auto lg:mr-24">
                     <p class="text-base sm:text-lg leading-relaxed"
+                       data-entrance data-entrance-delay="400"
                        style="color: var(--color-text-muted);">
                         {_esc(p['subheadline'])}
                     </p>
-                    <div class="mt-8 flex flex-wrap items-center gap-6">
+                    <div class="mt-8 flex flex-wrap items-center gap-6" data-entrance data-entrance-delay="600">
                         <a href="{_esc(p['cta_link'])}"
                            class="inline-block bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white font-semibold rounded-full px-8 py-4 transition-all duration-200 hover:shadow-lg"
                            style="font-size: 0.95rem; letter-spacing: 0.03em;">
@@ -537,14 +588,16 @@ def _hero_asymmetric_card(p: Dict[str, Any]) -> str:
                          style="background-color: var(--color-surface); box-shadow: 0 30px 60px -15px rgba(0,0,0,0.2);">
 {halal_badge}
                         <h1 class="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black tracking-tight"
+                            data-entrance data-entrance-delay="200"
                             style="font-family: var(--font-heading); color: var(--color-text); line-height: 0.95;">
                             {_esc(p['headline'])}
                         </h1>
                         <p class="mt-5 text-base sm:text-lg leading-relaxed max-w-md"
+                           data-entrance data-entrance-delay="400"
                            style="color: var(--color-text-muted);">
                             {_esc(p['subheadline'])}
                         </p>
-                        <div class="mt-8 flex flex-wrap items-center gap-5">
+                        <div class="mt-8 flex flex-wrap items-center gap-5" data-entrance data-entrance-delay="600">
                             <a href="{_esc(p['cta_link'])}"
                                class="inline-block bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white font-semibold rounded-2xl px-8 py-4 transition-all duration-200 hover:shadow-lg"
                                style="font-size: 1.05rem;">
@@ -670,7 +723,7 @@ def _about_stats(p: Dict[str, Any]) -> str:
     quote_block = ""
     if p.get("quote") and p.get("quote_author"):
         quote_block = f"""        <!-- Founder quote — editorial centrepiece with ghost year -->
-        <div class="relative py-20 lg:py-28 overflow-hidden" data-aos="fade-up">
+        <div class="relative py-20 lg:py-28 overflow-hidden" data-reveal>
             <!-- Ghost year — monumental background typography -->
             <div class="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden">
                 <span class="block italic leading-none"
@@ -711,7 +764,7 @@ def _about_stats(p: Dict[str, Any]) -> str:
         <!-- Supporting stats — compact row -->
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 py-8 px-6 rounded-3xl"
              style="background-color: var(--color-surface); box-shadow: var(--shadow-lg);"
-             data-aos="fade-up">
+             data-reveal>
 {stats_row}
         </div>
 {description}"""
@@ -758,7 +811,7 @@ def _about_timeline(p: Dict[str, Any]) -> str:
 
         panels.append(f"""        <!-- Editorial Panel {idx + 1} — {year} -->
         <div class="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-6 lg:gap-20 items-center py-16 lg:py-32 {border_class}" {border_style}
-             data-aos="fade-up" data-aos-delay="{delay}">
+             data-reveal data-reveal-delay="{delay}">
             <!-- Year — monumental display typography -->
             <div class="shrink-0 select-none">
                 <span class="block italic leading-none text-[72px] sm:text-[100px] lg:text-[160px]"
@@ -784,7 +837,7 @@ def _about_timeline(p: Dict[str, Any]) -> str:
 
     panels_html = "\n".join(panels)
 
-    return f"""        <div class="text-center mb-16" data-aos="fade-up">
+    return f"""        <div class="text-center mb-16" data-reveal>
             <div class="accent-line mx-auto mb-6"></div>
             <h2 class="text-4xl md:text-5xl font-bold tracking-tight"
                 style="font-family: var(--font-heading); color: var(--color-text);">
@@ -830,7 +883,7 @@ def _about_cards(p: Dict[str, Any]) -> str:
         dominant_html = f"""        <!-- Dominant first card -->
         <div class="relative rounded-2xl overflow-hidden flex flex-col justify-end p-8 sm:p-10"
              style="min-height: 340px; {dominant_bg}"
-             data-aos="fade-up">
+             data-reveal>
             {overlay}
             <div class="relative z-10">
                 {icon_block}
@@ -869,7 +922,7 @@ def _about_cards(p: Dict[str, Any]) -> str:
 
         secondary_items.append(f"""            <div class="relative rounded-2xl overflow-hidden flex flex-col justify-end p-7 transition-all duration-300 hover:-translate-y-1"
                  style="min-height: 260px; {bg_style}{bg_card}"
-                 data-aos="fade-up" data-aos-delay="{delay}">
+                 data-reveal data-reveal-delay="{delay}">
                 {overlay}
                 <div class="relative z-10">
                     {icon_block}
@@ -2229,6 +2282,41 @@ def _cta_whatsapp_first(p: Dict[str, Any]) -> str:
             </a>
             <p class="mt-5 text-xs" style="color: var(--color-text-muted);">Respon dalam masa 15 minit &bull; Buka {p.get('hours_short', 'Sel-Ahad 11pg-10mlm')}</p>
         </div>"""
+
+
+def _reveal_script() -> str:
+    """Custom Intersection Observer script that replaces AOS library."""
+    return """<script>
+(function() {
+  // Page entrance choreography
+  var heroEls = document.querySelectorAll('[data-entrance]');
+  heroEls.forEach(function(el, i) {
+    var delay = parseInt(el.getAttribute('data-entrance-delay') || (i * 100));
+    setTimeout(function() { el.classList.add('animate-in'); }, delay);
+  });
+
+  // Scroll reveals via Intersection Observer
+  if ('IntersectionObserver' in window) {
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('animate-in');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15, rootMargin: '0px 0px -50px 0px' });
+
+    document.querySelectorAll('[data-reveal]').forEach(function(el) {
+      observer.observe(el);
+    });
+  } else {
+    // Fallback for old browsers
+    document.querySelectorAll('[data-reveal]').forEach(function(el) {
+      el.classList.add('animate-in');
+    });
+  }
+})();
+</script>"""
 
 
 def _body_scripts(recipe: PageRecipe) -> str:
