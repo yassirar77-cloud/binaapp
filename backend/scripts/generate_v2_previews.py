@@ -498,6 +498,18 @@ VARIANTS = [
     ]),
 ]
 
+# ---------------------------------------------------------------------------
+# Style DNA test previews — one per new style DNA to verify animation tokens
+# ---------------------------------------------------------------------------
+
+STYLE_DNA_TESTS = [
+    "pasar_malam_neon",
+    "kampung_serene",
+    "kopitiam_nostalgia",
+    "streetfood_bold",
+    "fine_dining_obsidian",
+]
+
 
 # ---------------------------------------------------------------------------
 # Generator
@@ -518,8 +530,42 @@ def generate_variant(filename: str, sections: list) -> None:
     print(f"  ✓ {filename}.html — {len(html):,} bytes")
 
 
+def generate_style_dna_test(style_dna_key: str) -> None:
+    """Generate a full-page test preview for a specific style DNA."""
+    brief_dict = {
+        **BASE_BRIEF,
+        "style_dna": style_dna_key,
+        "sections": [
+            HERO,
+            {
+                "type": "menu",
+                "variant": "grid",
+                "content": {
+                    "heading": "Menu Istimewa",
+                    "subheading": "Hidangan fusion halal yang memukau selera",
+                    "source": "supabase",
+                    "fallback_items": MENU_ITEMS_FULL[:6],
+                },
+            },
+            FOOTER,
+        ],
+    }
+    brief = DesignBrief(**brief_dict)
+    recipe = build_recipe(brief)
+    html = render_html(recipe)
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    out_dir = os.path.join(repo_root, "docs", "previews")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f"test_{style_dna_key}.html")
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"  ✓ test_{style_dna_key}.html — {len(html):,} bytes")
+
+
 if __name__ == "__main__":
-    print(f"Generating {len(VARIANTS)} V2 variant previews...\n")
+    total = len(VARIANTS) + len(STYLE_DNA_TESTS)
+    print(f"Generating {total} V2 variant previews...\n")
     errors = []
     for vname, vsections in VARIANTS:
         try:
@@ -528,11 +574,19 @@ if __name__ == "__main__":
             errors.append((vname, str(e)))
             print(f"  ✗ {vname} — ERROR: {e}")
 
+    print(f"\n  --- Style DNA animation test previews ---\n")
+    for dna_key in STYLE_DNA_TESTS:
+        try:
+            generate_style_dna_test(dna_key)
+        except Exception as e:
+            errors.append((f"test_{dna_key}", str(e)))
+            print(f"  ✗ test_{dna_key} — ERROR: {e}")
+
     print(f"\n{'='*60}")
     if errors:
-        print(f"DONE — {len(VARIANTS) - len(errors)}/{len(VARIANTS)} succeeded, {len(errors)} failed:")
+        print(f"DONE — {total - len(errors)}/{total} succeeded, {len(errors)} failed:")
         for name, err in errors:
             print(f"  FAILED: {name} → {err}")
     else:
-        print(f"DONE — All {len(VARIANTS)} previews generated to docs/previews/")
+        print(f"DONE — All {total} previews generated to docs/previews/")
     print(f"{'='*60}")

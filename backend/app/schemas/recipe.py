@@ -323,5 +323,6 @@ class PageRecipe(BaseModel):
     tailwind_config: Optional[TailwindConfig] = None
     body_scripts: List[str] = Field(default_factory=list)
     init_scripts: List[str] = Field(default_factory=list)
+    animation_tokens: Optional[Dict[str, Any]] = None
 
     model_config = {"populate_by_name": True}

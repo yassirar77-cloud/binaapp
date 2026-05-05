@@ -7,7 +7,6 @@
     <meta name="description" content="Khulafa Bistro menghidangkan masakan Melayu fusion yang menggabungkan resipi tradisional dengan sentuhan moden.">
     <meta property="og:image" content="https://images.unsplash.com/photo-1775986501486-380ea9539e07?w=1200&amp;h=800&amp;fit=crop&amp;q=80">
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400;600;700&family=Nunito:wght@400;500;600&display=swap">
-    <link rel="stylesheet" href="https://unpkg.com/aos@2.3.4/dist/aos.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
         <script>
@@ -54,6 +53,11 @@
             --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -4px rgba(0,0,0,0.04);
             --spacing-section: 5rem;
             --max-width: 1280px;
+            --reveal-easing: cubic-bezier(0.22, 1, 0.36, 1);
+            --reveal-duration: 700ms;
+            --reveal-distance: 30px;
+            --reveal-stagger: 100ms;
+            --hover-lift: 2px;
         }
         html { scroll-behavior: smooth; }
         body {
@@ -67,9 +71,31 @@
             font-family: var(--font-heading);
             line-height: 1.1;
         }
-        /* Scroll-triggered fade-in */
-        [data-aos="fade-up"] {
-            transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+        /* Scroll-reveal system (replaces AOS) */
+        [data-reveal] {
+            opacity: 0;
+            transform: translateY(var(--reveal-distance));
+            transition: opacity var(--reveal-duration) var(--reveal-easing),
+                        transform var(--reveal-duration) var(--reveal-easing);
+        }
+        [data-reveal].animate-in {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        [data-reveal-delay="1"] { transition-delay: calc(var(--reveal-stagger) * 1); }
+        [data-reveal-delay="2"] { transition-delay: calc(var(--reveal-stagger) * 2); }
+        [data-reveal-delay="3"] { transition-delay: calc(var(--reveal-stagger) * 3); }
+        [data-reveal-delay="4"] { transition-delay: calc(var(--reveal-stagger) * 4); }
+        /* Page entrance choreography */
+        [data-entrance] {
+            opacity: 0;
+            transform: translateY(var(--reveal-distance));
+            transition: opacity var(--reveal-duration) var(--reveal-easing),
+                        transform var(--reveal-duration) var(--reveal-easing);
+        }
+        [data-entrance].animate-in {
+            opacity: 1;
+            transform: translateY(0);
         }
         /* Subtle image frame */
         .img-frame {
@@ -83,21 +109,28 @@
             border-radius: inherit;
             pointer-events: none;
         }
-        /* Menu card hover */
+        /* Menu card hover with style-DNA-aware lift */
         .menu-card {
-            transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease;
+            transition: transform 0.3s var(--reveal-easing), box-shadow 0.3s ease;
         }
         .menu-card:hover {
-            transform: translateY(-4px) scale(1.02);
+            transform: translateY(calc(-1 * var(--hover-lift))) scale(1.02);
             box-shadow: 0 20px 40px -12px rgba(0,0,0,0.15);
         }
         /* Testimonial card hover */
         .testimonial-card {
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            transition: transform 0.3s var(--reveal-easing), box-shadow 0.3s ease;
         }
         .testimonial-card:hover {
-            transform: translateY(-2px);
+            transform: translateY(calc(-1 * var(--hover-lift)));
             box-shadow: 0 12px 24px -8px rgba(0,0,0,0.12);
+        }
+        /* Button and card hover lift */
+        [data-hover-lift] {
+            transition: transform 200ms var(--reveal-easing), box-shadow 200ms var(--reveal-easing);
+        }
+        [data-hover-lift]:hover {
+            transform: translateY(calc(-1 * var(--hover-lift)));
         }
         /* Accent line */
         .accent-line {
@@ -170,21 +203,23 @@
 <!-- Spacer for fixed nav -->
 <div style="height: 72px;"></div>
 
-<div id="hero" data-aos="fade-up" >
+<div id="hero" data-reveal >
     <div class="min-h-[85vh] flex items-center" style="background-color: var(--color-background);">
         <div class="mx-auto w-full px-4 sm:px-6 lg:px-8" style="max-width: var(--max-width, 1280px);">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
                 <div class="flex flex-col justify-center py-12 lg:py-24 ">
 
                     <h1 class="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-black tracking-tight sm:tracking-tight"
+                        data-entrance data-entrance-delay="200"
                         style="font-family: var(--font-heading); color: var(--color-text); line-height: 0.95;">
                         Masakan Melayu Fusion di Hati Shah Alam
                     </h1>
                     <p class="mt-8 text-lg sm:text-xl leading-relaxed max-w-md"
+                       data-entrance data-entrance-delay="400"
                        style="color: var(--color-text-muted);">
                         Resipi warisan nenek, dimasak dengan gaya masa kini untuk keluarga anda
                     </p>
-                    <div class="mt-10 flex flex-wrap gap-4">
+                    <div class="mt-10 flex flex-wrap gap-4" data-entrance data-entrance-delay="600">
                         <a href="#menu"
                            class="inline-block bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white font-semibold rounded-2xl px-8 py-4 transition-all duration-200 hover:shadow-lg"
                            style="font-size: 1.05rem;">
@@ -212,7 +247,7 @@
     </div>
 </div>
 
-<section id="contact" class="py-24 md:py-32 px-4 sm:px-6 lg:px-8" data-aos="fade-up" data-aos-delay="100">
+<section id="contact" class="py-24 md:py-32 px-4 sm:px-6 lg:px-8" data-reveal data-reveal-delay="100">
     <div class="mx-auto" style="max-width: var(--max-width, 1280px);">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-start">
             <div>
@@ -256,7 +291,7 @@
     </div>
 </section>
 
-<div id="footer" data-aos="fade-up" data-aos-delay="100">
+<div id="footer" data-reveal data-reveal-delay="100">
     <footer class="py-12 px-4 sm:px-6 lg:px-8" style="background-color: var(--color-text); color: var(--color-background);">
         <div class="mx-auto" style="max-width: var(--max-width, 1280px);">
             <div class="flex flex-col items-center text-center gap-6">
@@ -282,7 +317,37 @@
     </footer>
 </div>
 
-<script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>
-<script>AOS.init({ duration: 800, once: true, offset: 100 });</script>
+
+<script>
+(function() {
+  // Page entrance choreography
+  var heroEls = document.querySelectorAll('[data-entrance]');
+  heroEls.forEach(function(el, i) {
+    var delay = parseInt(el.getAttribute('data-entrance-delay') || (i * 100));
+    setTimeout(function() { el.classList.add('animate-in'); }, delay);
+  });
+
+  // Scroll reveals via Intersection Observer
+  if ('IntersectionObserver' in window) {
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('animate-in');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15, rootMargin: '0px 0px -50px 0px' });
+
+    document.querySelectorAll('[data-reveal]').forEach(function(el) {
+      observer.observe(el);
+    });
+  } else {
+    // Fallback for old browsers
+    document.querySelectorAll('[data-reveal]').forEach(function(el) {
+      el.classList.add('animate-in');
+    });
+  }
+})();
+</script>
 </body>
 </html>
