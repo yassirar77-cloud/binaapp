@@ -57,6 +57,11 @@ class StyleDNA(str, Enum):
     lampu_neon = "lampu_neon"
     warisan_emas = "warisan_emas"
     ombak_biru = "ombak_biru"
+    pasar_malam_neon = "pasar_malam_neon"
+    kampung_serene = "kampung_serene"
+    kopitiam_nostalgia = "kopitiam_nostalgia"
+    streetfood_bold = "streetfood_bold"
+    fine_dining_obsidian = "fine_dining_obsidian"
 
 
 VALID_VARIANTS: Dict[SectionType, List[str]] = {

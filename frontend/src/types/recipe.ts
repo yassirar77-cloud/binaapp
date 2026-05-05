@@ -17,6 +17,8 @@ export type SectionType = (typeof SECTION_TYPES)[number]
 export const STYLE_DNA_KEYS = [
   'teh_tarik_warm', 'pandan_fresh', 'kopi_hitam', 'sambal_berani',
   'sutera_putih', 'lampu_neon', 'warisan_emas', 'ombak_biru',
+  'pasar_malam_neon', 'kampung_serene', 'kopitiam_nostalgia',
+  'streetfood_bold', 'fine_dining_obsidian',
 ] as const
 export type StyleDNAKey = (typeof STYLE_DNA_KEYS)[number]
 
