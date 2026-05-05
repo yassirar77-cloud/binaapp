@@ -384,8 +384,8 @@ class TestComponentResolution:
 
 
 class TestStyleDNA:
-    def test_all_8_registered(self):
-        assert len(STYLE_DNAS) == 8
+    def test_all_13_registered(self):
+        assert len(STYLE_DNAS) == 13
 
     def test_lookup_teh_tarik(self):
         dna = get_style_dna("teh_tarik_warm")
