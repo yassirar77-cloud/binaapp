@@ -244,15 +244,19 @@ class TestAssemblerE2E:
         assert "wa.me/60173228899" in html
         assert "BinaApp" in html
 
-    def test_html_has_tailwind_and_aos(self):
+    def test_html_has_tailwind_and_animations(self):
         brief = DesignBrief(**KHULAFA_BRIEF)
         recipe = build_recipe(brief)
         html = render_html(recipe)
 
         assert "tailwindcss" in html
-        assert "aos@2.3.4" in html
-        assert "AOS.init" in html
         assert "font-awesome" in html
+        # AOS replaced with custom IO observer (BINA-36-B)
+        assert "aos@" not in html
+        assert "AOS.init" not in html
+        assert "data-reveal" in html
+        assert "IntersectionObserver" in html
+        assert "--reveal-easing" in html
 
     def test_html_has_nav(self):
         brief = DesignBrief(**KHULAFA_BRIEF)

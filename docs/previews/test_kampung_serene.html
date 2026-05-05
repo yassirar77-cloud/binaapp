@@ -7,7 +7,6 @@
     <meta name="description" content="Khulafa Bistro menghidangkan masakan Melayu fusion yang menggabungkan resipi tradisional dengan sentuhan moden.">
     <meta property="og:image" content="https://images.unsplash.com/photo-1775986501486-380ea9539e07?w=1200&amp;h=800&amp;fit=crop&amp;q=80">
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,600&family=Noto+Serif:wght@400;600&display=swap">
-    <link rel="stylesheet" href="https://unpkg.com/aos@2.3.4/dist/aos.css">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
         <script>
@@ -54,6 +53,11 @@
             --shadow-lg: 0 8px 20px -4px rgba(45,80,22,0.08), 0 4px 8px -4px rgba(0,0,0,0.04);
             --spacing-section: 5rem;
             --max-width: 1280px;
+            --reveal-easing: cubic-bezier(0.4, 0, 0.2, 1);
+            --reveal-duration: 900ms;
+            --reveal-distance: 40px;
+            --reveal-stagger: 150ms;
+            --hover-lift: 1px;
         }
         html { scroll-behavior: smooth; }
         body {
@@ -67,9 +71,31 @@
             font-family: var(--font-heading);
             line-height: 1.1;
         }
-        /* Scroll-triggered fade-in */
-        [data-aos="fade-up"] {
-            transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+        /* Scroll-reveal system (replaces AOS) */
+        [data-reveal] {
+            opacity: 0;
+            transform: translateY(var(--reveal-distance));
+            transition: opacity var(--reveal-duration) var(--reveal-easing),
+                        transform var(--reveal-duration) var(--reveal-easing);
+        }
+        [data-reveal].animate-in {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        [data-reveal-delay="1"] { transition-delay: calc(var(--reveal-stagger) * 1); }
+        [data-reveal-delay="2"] { transition-delay: calc(var(--reveal-stagger) * 2); }
+        [data-reveal-delay="3"] { transition-delay: calc(var(--reveal-stagger) * 3); }
+        [data-reveal-delay="4"] { transition-delay: calc(var(--reveal-stagger) * 4); }
+        /* Page entrance choreography */
+        [data-entrance] {
+            opacity: 0;
+            transform: translateY(var(--reveal-distance));
+            transition: opacity var(--reveal-duration) var(--reveal-easing),
+                        transform var(--reveal-duration) var(--reveal-easing);
+        }
+        [data-entrance].animate-in {
+            opacity: 1;
+            transform: translateY(0);
         }
         /* Subtle image frame */
         .img-frame {
@@ -83,21 +109,28 @@
             border-radius: inherit;
             pointer-events: none;
         }
-        /* Menu card hover */
+        /* Menu card hover with style-DNA-aware lift */
         .menu-card {
-            transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease;
+            transition: transform 0.3s var(--reveal-easing), box-shadow 0.3s ease;
         }
         .menu-card:hover {
-            transform: translateY(-4px) scale(1.02);
+            transform: translateY(calc(-1 * var(--hover-lift))) scale(1.02);
             box-shadow: 0 20px 40px -12px rgba(0,0,0,0.15);
         }
         /* Testimonial card hover */
         .testimonial-card {
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            transition: transform 0.3s var(--reveal-easing), box-shadow 0.3s ease;
         }
         .testimonial-card:hover {
-            transform: translateY(-2px);
+            transform: translateY(calc(-1 * var(--hover-lift)));
             box-shadow: 0 12px 24px -8px rgba(0,0,0,0.12);
+        }
+        /* Button and card hover lift */
+        [data-hover-lift] {
+            transition: transform 200ms var(--reveal-easing), box-shadow 200ms var(--reveal-easing);
+        }
+        [data-hover-lift]:hover {
+            transform: translateY(calc(-1 * var(--hover-lift)));
         }
         /* Accent line */
         .accent-line {
@@ -143,9 +176,7 @@
         </a>
         <div class="hidden md:flex items-center gap-8">
         <a href="#hero" class="text-sm font-medium hover:opacity-80 transition-opacity" style="color: var(--color-text);">Laman Utama</a>
-        <a href="#about" class="text-sm font-medium hover:opacity-80 transition-opacity" style="color: var(--color-text);">Tentang</a>
         <a href="#menu" class="text-sm font-medium hover:opacity-80 transition-opacity" style="color: var(--color-text);">Menu</a>
-        <a href="#contact" class="text-sm font-medium hover:opacity-80 transition-opacity" style="color: var(--color-text);">Hubungi</a>
 
         <a href="https://wa.me/60173228899" target="_blank" rel="noopener noreferrer"
            class="text-sm font-semibold text-white rounded-xl px-5 py-2.5 transition-colors duration-200"
@@ -159,9 +190,7 @@
     </div>
     <div id="mobile-menu" class="hidden md:hidden px-4 pb-4 space-y-3">
         <a href="#hero" class="text-sm font-medium hover:opacity-80 transition-opacity" style="color: var(--color-text);">Laman Utama</a>
-        <a href="#about" class="text-sm font-medium hover:opacity-80 transition-opacity" style="color: var(--color-text);">Tentang</a>
         <a href="#menu" class="text-sm font-medium hover:opacity-80 transition-opacity" style="color: var(--color-text);">Menu</a>
-        <a href="#contact" class="text-sm font-medium hover:opacity-80 transition-opacity" style="color: var(--color-text);">Hubungi</a>
 
         <a href="https://wa.me/60173228899" target="_blank" rel="noopener noreferrer"
            class="text-sm font-semibold text-white rounded-xl px-5 py-2.5 transition-colors duration-200"
@@ -174,27 +203,29 @@
 <!-- Spacer for fixed nav -->
 <div style="height: 72px;"></div>
 
-<div id="hero" data-aos="fade-up" >
+<div id="hero" data-reveal >
     <div class="min-h-[85vh] flex items-center" style="background-color: var(--color-background);">
         <div class="mx-auto w-full px-4 sm:px-6 lg:px-8" style="max-width: var(--max-width, 1280px);">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
                 <div class="flex flex-col justify-center py-12 lg:py-24 ">
 
                     <h1 class="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-black tracking-tight sm:tracking-tight"
+                        data-entrance data-entrance-delay="200"
                         style="font-family: var(--font-heading); color: var(--color-text); line-height: 0.95;">
                         Masakan Melayu Fusion di Hati Shah Alam
                     </h1>
                     <p class="mt-8 text-lg sm:text-xl leading-relaxed max-w-md"
+                       data-entrance data-entrance-delay="400"
                        style="color: var(--color-text-muted);">
                         Resipi warisan nenek, dimasak dengan gaya masa kini untuk keluarga anda
                     </p>
-                    <div class="mt-10 flex flex-wrap gap-4">
+                    <div class="mt-10 flex flex-wrap gap-4" data-entrance data-entrance-delay="600">
                         <a href="#menu"
                            class="inline-block bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)] text-white font-semibold rounded-2xl px-8 py-4 transition-all duration-200 hover:shadow-lg"
                            style="font-size: 1.05rem;">
                             Lihat Menu
                         </a>
-            <a href="https://wa.me/60173228899"
+            <a href="https://wa.me/60173228899?text=Saya%20ingin%20tempah%20meja"
                class="inline-block border-2 border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-white font-semibold rounded-2xl px-7 py-3.5 transition-colors duration-200">
                 Tempah Meja
             </a>
@@ -216,58 +247,14 @@
     </div>
 </div>
 
-<section id="about" class="py-24 md:py-32 px-4 sm:px-6 lg:px-8" data-aos="fade-up" data-aos-delay="100">
-    <div class="mx-auto" style="max-width: var(--max-width, 1280px);">
-        <!-- Editorial asymmetric story layout -->
-        <div class="relative">
-            <!-- Photo column: bleeds off left edge, full section height on desktop -->
-            <div class="relative -ml-4 sm:-ml-6 lg:-ml-8 mb-8 lg:mb-0 lg:absolute lg:inset-y-0 lg:left-0 lg:w-[44%] overflow-hidden">
-                <img src="https://images.unsplash.com/photo-1771830916721-c8da5d52e50f?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Khulafa Bistro"
-                     class="w-full object-cover"
-                     style="height: 360px; min-height: 360px; object-position: center;" loading="lazy">
-                <!-- Soft right edge fade on desktop -->
-                <div class="hidden lg:block absolute inset-y-0 right-0 w-20"
-                     style="background: linear-gradient(to right, transparent, var(--color-background));"></div>
-            </div>
-            <!-- Text column: right side, offset from photo, generous top padding on desktop -->
-            <div class="lg:ml-[46%] lg:pl-12 py-0 lg:py-16">
-                <div class="max-w-xl">
-                    <div class="accent-line mb-6"></div>
-                    <h2 class="text-4xl md:text-5xl font-bold tracking-tight mb-8"
-                        style="font-family: var(--font-heading); color: var(--color-text);">
-                        Kisah Kami
-                    </h2>
-                <blockquote class="italic leading-snug mb-8"
-                            style="font-family: var(--font-heading); color: var(--color-text); font-size: clamp(1.4rem, 2.2vw, 2rem); line-height: 1.25;">
-                    Bermula dari dapur kecil di rumah pengasas kami, Khulafa Bistro lahir daripada cinta kepada masakan Melayu yang autentik.
-                </blockquote>
-                    <div class="space-y-4">
-                <p class="text-base leading-relaxed" style="color: var(--color-text-muted);">Kami percaya makanan tradisional boleh dipersembahkan dengan cara baru tanpa mengorbankan rasa asli.</p>
-                    </div>
-                <div class="mt-10 pt-8 flex items-center gap-4" style="border-top: 1px solid var(--color-border);">
-                    <div class="shrink-0 w-11 h-11 rounded-full flex items-center justify-center"
-                         style="background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));">
-                        <i class="fa-solid fa-user text-white text-sm"></i>
-                    </div>
-                    <div>
-                        <p class="text-base font-semibold" style="font-family: var(--font-heading); color: var(--color-text);">-- Keluarga Khulafa</p>
-                        <p class="text-sm mt-0.5" style="color: var(--color-text-muted);">Pengasas</p>
-                    </div>
-                </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</section>
-
-<section id="menu" class="py-20 md:py-28 px-4 sm:px-6 lg:px-8" data-aos="fade-up" data-aos-delay="100">
+<section id="menu" class="py-20 md:py-28 px-4 sm:px-6 lg:px-8" data-reveal data-reveal-delay="100">
     <div class="mx-auto" style="max-width: var(--max-width, 1280px);">
         <div class="text-center mb-14">
             <div class="accent-line mx-auto mb-6"></div>
             <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">
                 Menu Istimewa
             </h2>
-        <p class="mt-4 text-lg leading-relaxed" style="color: var(--color-text-muted);">Hidangan fusion halal yang memukau</p>
+        <p class="mt-4 text-lg leading-relaxed" style="color: var(--color-text-muted);">Hidangan fusion halal yang memukau selera</p>
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
         <div class="menu-card rounded-2xl overflow-hidden sm:col-span-2 lg:col-span-1"
@@ -287,7 +274,7 @@
                     Nasi Kerabu Deconstructed
                 </h3>
                 <p class="mt-2 text-sm leading-relaxed" style="color: var(--color-text-muted);">
-                    Nasi kerabu dengan bunga telang
+                    Nasi kerabu dengan bunga telang, ulam segar, dan ikan bakar — disusun gaya moden
                 </p>
                 <p class="mt-4 text-xl font-bold" style="color: var(--color-primary);">
                     RM 18.90
@@ -311,7 +298,7 @@
                     Rendang Burger
                 </h3>
                 <p class="mt-2 text-sm leading-relaxed" style="color: var(--color-text-muted);">
-                    Daging rendang juicy
+                    Daging rendang juicy dalam roti brioche dengan acar jelatah dan sambal hijau
                 </p>
                 <p class="mt-4 text-xl font-bold" style="color: var(--color-primary);">
                     RM 22.90
@@ -334,61 +321,83 @@
                     Laksa Carbonara
                 </h3>
                 <p class="mt-2 text-sm leading-relaxed" style="color: var(--color-text-muted);">
-                    Spaghetti dalam kuah laksa
+                    Spaghetti dalam kuah laksa krimi, udang segar, dan taburan kerisik
                 </p>
                 <p class="mt-4 text-xl font-bold" style="color: var(--color-primary);">
                     RM 19.90
                 </p>
             </div>
         </div>
+        <div class="menu-card rounded-2xl overflow-hidden "
+             style="background-color: var(--color-surface); box-shadow: var(--shadow);">
+            <div class="relative overflow-hidden">
+                <img src="https://images.unsplash.com/photo-1666239308347-4292ea2ff777?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Nasi Lemak Bistro"
+                     class="w-full h-48 object-cover transition-transform duration-500 hover:scale-110" loading="lazy"
+                     onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
+                <div class="w-full h-48 items-center justify-center" style="display:none;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
+                    <i class="fa-solid fa-bowl-food text-4xl text-white/40"></i>
+                </div>
+
+            </div>
+            <div class="p-6">
+                <h3 class="text-lg font-semibold" style="font-family: var(--font-heading); color: var(--color-text);">
+                    Nasi Lemak Bistro
+                </h3>
+                <p class="mt-2 text-sm leading-relaxed" style="color: var(--color-text-muted);">
+                    Nasi lemak premium dengan ayam goreng rempah, telur separuh masak dan sambal hijau
+                </p>
+                <p class="mt-4 text-xl font-bold" style="color: var(--color-primary);">
+                    RM 16.90
+                </p>
+            </div>
+        </div>
+        <div class="menu-card rounded-2xl overflow-hidden "
+             style="background-color: var(--color-surface); box-shadow: var(--shadow);">
+            <div class="relative overflow-hidden">
+                <img src="https://images.unsplash.com/photo-1696385793103-71f51f6fd3b7?w=800&amp;h=600&amp;fit=crop&amp;q=80" alt="Satay Khulafa 10pc"
+                     class="w-full h-48 object-cover transition-transform duration-500 hover:scale-110" loading="lazy"
+                     onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
+                <div class="w-full h-48 items-center justify-center" style="display:none;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
+                    <i class="fa-solid fa-bowl-food text-4xl text-white/40"></i>
+                </div>
+
+            </div>
+            <div class="p-6">
+                <h3 class="text-lg font-semibold" style="font-family: var(--font-heading); color: var(--color-text);">
+                    Satay Khulafa 10pc
+                </h3>
+                <p class="mt-2 text-sm leading-relaxed" style="color: var(--color-text-muted);">
+                    Satay daging pilihan dengan sos kacang istimewa dan ketupat palas
+                </p>
+                <p class="mt-4 text-xl font-bold" style="color: var(--color-primary);">
+                    RM 14.90
+                </p>
+            </div>
+        </div>
+        <div class="menu-card rounded-2xl overflow-hidden "
+             style="background-color: var(--color-surface); box-shadow: var(--shadow);">
+            <div class="relative w-full h-48 flex items-center justify-center"
+                 style="background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));">
+                <i class="fa-solid fa-bowl-food text-4xl text-white/40"></i>
+
+            </div>
+            <div class="p-6">
+                <h3 class="text-lg font-semibold" style="font-family: var(--font-heading); color: var(--color-text);">
+                    Teh Tarik Creamy
+                </h3>
+                <p class="mt-2 text-sm leading-relaxed" style="color: var(--color-text-muted);">
+                    Teh tarik tarikan barista dengan lapisan susu buih pekat
+                </p>
+                <p class="mt-4 text-xl font-bold" style="color: var(--color-primary);">
+                    RM 5.90
+                </p>
+            </div>
+        </div>
         </div>
     </div>
 </section>
 
-<section id="contact" class="py-24 md:py-32 px-4 sm:px-6 lg:px-8" data-aos="fade-up" data-aos-delay="100">
-    <div class="mx-auto" style="max-width: var(--max-width, 1280px);">
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-start">
-            <div>
-                <div class="accent-line mb-6"></div>
-                <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">
-                    Hubungi Kami
-                </h2>
-                <div class="mt-8 space-y-6">
-            <a href="https://wa.me/60173228899" target="_blank" rel="noopener noreferrer"
-               class="inline-flex items-center gap-3 text-white font-semibold rounded-2xl px-7 py-3.5 transition-colors duration-200"
-               style="background-color: #25D366;">
-                <i class="fa-brands fa-whatsapp text-xl"></i>
-                WhatsApp Kami
-            </a>
-            <div class="flex items-start gap-3">
-                <i class="fa-solid fa-location-dot mt-1" style="color: var(--color-primary);"></i>
-                <p style="color: var(--color-text-muted);">No. 12, Jalan Plumbum V7/V, Shah Alam</p>
-            </div>
-            <div class="flex items-start gap-3">
-                <i class="fa-solid fa-clock mt-1" style="color: var(--color-primary);"></i>
-                <div class="flex-1">
-                    <p class="font-semibold mb-2" style="color: var(--color-text);">Waktu Operasi</p>
-                        <div class="flex justify-between py-1.5" style="border-bottom: 1px solid var(--color-border);"><span class="font-medium" style="color: var(--color-text);">Selasa - Jumaat</span><span style="color: var(--color-text-muted);">11:00 pg - 10:00 mlm</span></div>
-                        <div class="flex justify-between py-1.5" style="border-bottom: 1px solid var(--color-border);"><span class="font-medium" style="color: var(--color-text);">Sabtu - Ahad</span><span style="color: var(--color-text-muted);">9:00 pg - 11:00 mlm</span></div>
-                        <div class="flex justify-between py-1.5" style="border-bottom: 1px solid var(--color-border);"><span class="font-medium" style="color: var(--color-text);">Isnin</span><span style="color: var(--color-text-muted);">Tutup</span></div>
-                </div>
-            </div>
-            <div class="flex items-start gap-3">
-                <i class="fa-solid fa-envelope mt-1" style="color: var(--color-primary);"></i>
-                <a href="mailto:hello@khulafabistro.my" class="hover:underline" style="color: var(--color-text-muted);">hello@khulafabistro.my</a>
-            </div>
-                </div>
-            </div>
-        <div class="map-container rounded-2xl overflow-hidden" style="box-shadow: var(--shadow-lg);">
-            <iframe src="https://maps.google.com/maps?q=Khulafa Bistro Shah Alam&output=embed"
-                    width="100%" height="350" style="border:0;" allowfullscreen loading="lazy"
-                    referrerpolicy="no-referrer-when-downgrade" title="Location map"></iframe>
-        </div>
-        </div>
-    </div>
-</section>
-
-<div id="footer" data-aos="fade-up" data-aos-delay="100">
+<div id="footer" data-reveal data-reveal-delay="100">
     <footer class="py-12 px-4 sm:px-6 lg:px-8" style="background-color: var(--color-text); color: var(--color-background);">
         <div class="mx-auto" style="max-width: var(--max-width, 1280px);">
             <div class="flex flex-col items-center text-center gap-6">
@@ -400,6 +409,8 @@
                 </div>
             <div class="flex gap-4">
                 <a href="https://instagram.com/khulafabistro" target="_blank" rel="noopener noreferrer" class="w-10 h-10 rounded-full flex items-center justify-center transition-opacity duration-200 hover:opacity-80" style="background-color: var(--color-primary);" aria-label="instagram"><i class="fa-brands fa-instagram text-white"></i></a>
+                <a href="https://facebook.com/KhulafaBistroShahAlam" target="_blank" rel="noopener noreferrer" class="w-10 h-10 rounded-full flex items-center justify-center transition-opacity duration-200 hover:opacity-80" style="background-color: var(--color-primary);" aria-label="facebook"><i class="fa-brands fa-facebook text-white"></i></a>
+                <a href="https://wa.me/60173228899" target="_blank" rel="noopener noreferrer" class="w-10 h-10 rounded-full flex items-center justify-center transition-opacity duration-200 hover:opacity-80" style="background-color: var(--color-primary);" aria-label="whatsapp"><i class="fa-brands fa-whatsapp text-white"></i></a>
             </div>
 
                 <hr class="w-full max-w-xs opacity-20">
@@ -412,7 +423,37 @@
     </footer>
 </div>
 
-<script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>
-<script>AOS.init({ duration: 800, once: true, offset: 100 });</script>
+
+<script>
+(function() {
+  // Page entrance choreography
+  var heroEls = document.querySelectorAll('[data-entrance]');
+  heroEls.forEach(function(el, i) {
+    var delay = parseInt(el.getAttribute('data-entrance-delay') || (i * 100));
+    setTimeout(function() { el.classList.add('animate-in'); }, delay);
+  });
+
+  // Scroll reveals via Intersection Observer
+  if ('IntersectionObserver' in window) {
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('animate-in');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15, rootMargin: '0px 0px -50px 0px' });
+
+    document.querySelectorAll('[data-reveal]').forEach(function(el) {
+      observer.observe(el);
+    });
+  } else {
+    // Fallback for old browsers
+    document.querySelectorAll('[data-reveal]').forEach(function(el) {
+      el.classList.add('animate-in');
+    });
+  }
+})();
+</script>
 </body>
 </html>
