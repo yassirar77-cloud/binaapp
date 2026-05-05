@@ -124,6 +124,10 @@ app.include_router(chatbot_router, tags=["Chatbot"])  # Customer support chatbot
 app.include_router(subscription_status.router, prefix="/api/v1", tags=["Subscription"])  # Subscription status endpoints
 app.include_router(email_polling_router, prefix="/api/v1", tags=["Email Polling"])  # Email polling admin endpoints
 
+# V2 component-recipe pipeline (Phase 1 — test endpoint only)
+from app.api.v2.generate_test import router as v2_generate_test_router
+app.include_router(v2_generate_test_router)
+
 # Mount static files for widgets (chat, delivery, etc.)
 # Files are accessible at /static/widgets/chat-widget.js, etc.
 # Use pathlib for reliable path resolution
