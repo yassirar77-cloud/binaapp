@@ -49,7 +49,8 @@ export interface RestaurantTheme {
 }
 
 export interface CartItem {
-  id: number
+  /** Menu item UUID — matches `menu_items.id` from the backend. */
+  id: string
   name: string
   price: number
   qty: number
