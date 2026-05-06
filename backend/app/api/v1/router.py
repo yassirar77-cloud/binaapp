@@ -5,7 +5,7 @@ Combines all API endpoints
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, websites, payments, templates, delivery, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes
+from app.api.v1.endpoints import auth, websites, payments, templates, delivery, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers
 
 api_router = APIRouter()
 
@@ -23,3 +23,4 @@ api_router.include_router(email_support.router, prefix="/email", tags=["AI Email
 api_router.include_router(moderation.router, tags=["Image Moderation"])
 api_router.include_router(template_gallery.router, prefix="/templates", tags=["Template Gallery"])
 api_router.include_router(disputes.router, tags=["Dispute Resolution"])
+api_router.include_router(customers.router, tags=["Customer Lookup"])

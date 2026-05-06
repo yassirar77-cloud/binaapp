@@ -9,6 +9,16 @@
 export type RestaurantStatus = 'open' | 'closed' | 'busy'
 
 export interface RestaurantTheme {
+  /**
+   * UUID of the underlying `websites` row. Used to scope API calls
+   * (customer lookup, menu fetch, order placement) to this restaurant.
+   *
+   * TODO(restaurant): Replace the hardcoded mitora UUID in DEFAULT_RESTAURANT
+   * with real subdomain resolution from middleware (e.g. pelita.binaapp.my
+   * resolves to websites.slug='pelita').
+   */
+  websiteId: string
+
   /** Full display name. e.g. "Nasi Kandar Pelita" */
   name: string
   /** Short name for headlines. e.g. "Pelita" */
@@ -45,3 +55,37 @@ export interface CartItem {
   qty: number
   img?: string
 }
+
+/**
+ * Customer identity captured by the phone-identification page.
+ *
+ * Stored in a separate Zustand store + localStorage key (`binaapp_customer`)
+ * because cart and customer have different lifecycles: the cart clears
+ * after order placement, but the customer record persists for repeat
+ * orders.
+ */
+export interface Customer {
+  /** Server-side UUID from `website_customers.id`. Null until first order. */
+  id: string | null
+  /** 10-digit Malaysian local format, digits only — e.g. `0176119872`. */
+  phone: string
+  /** Display name from `website_customers.name`. Empty until customer fills it in. */
+  name: string
+  /** Last saved delivery address from `website_customers.address`. Empty for new customers. */
+  address: string
+  /** ISO timestamp of when this identity was captured. */
+  savedAt: string
+}
+
+/** Response shape from `GET /api/v1/customers/lookup`. */
+export type CustomerLookupResponse =
+  | { exists: false }
+  | {
+      exists: true
+      customer: {
+        id: string
+        name: string
+        address: string
+        phone: string
+      }
+    }

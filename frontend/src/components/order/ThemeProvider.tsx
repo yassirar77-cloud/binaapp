@@ -1,18 +1,27 @@
+'use client'
+
+import { createContext, useContext, useMemo } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 import type { RestaurantTheme } from './types'
 
 /**
- * Hardcoded default for PR 1 — the foundation drop.
+ * Hardcoded default for PR 2 — gives the customer-flow a real `website_id`
+ * so end-to-end calls against `/api/v1/customers/lookup` work on the
+ * Vercel preview without needing subdomain resolution wired up.
  *
- * TODO(restaurant): Replace with real subdomain resolution from middleware
- * (e.g. `pelita.binaapp.my` -> websites.slug='pelita') in PR 2 or whichever
- * PR first needs real restaurant data (likely PR 3 menu page).
+ * The UUID below is the `mitora` test website that's already in
+ * production with menu data.
+ *
+ * TODO(restaurant): Replace this hardcoded mitora website ID with real
+ * subdomain resolution from middleware (e.g. `pelita.binaapp.my` ->
+ * websites.slug='pelita') in a later PR.
  *
  * TODO(restaurant): Add brand_primary, brand_primary_hover, brand_primary_fg,
  * brand_secondary columns to the `websites` table — currently hardcoded.
  */
 export const DEFAULT_RESTAURANT: RestaurantTheme = {
+  websiteId: '3dc0420c-fbd4-4262-82bd-aca42724af84',
   name: 'Nasi Kandar Pelita',
   short: 'Pelita',
   initials: 'NP',
@@ -41,10 +50,27 @@ interface ThemeProviderProps {
   children: ReactNode
 }
 
+const RestaurantContext = createContext<RestaurantTheme | null>(null)
+
 /**
- * Wraps the customer-flow tree, scopes the design tokens, and injects
- * the per-restaurant `--brand-*` CSS variables. Server component — no
- * client behavior, just structural styling.
+ * Hook for accessing the current restaurant from anywhere inside the
+ * customer-flow tree. Throws if called outside a `<ThemeProvider>`.
+ */
+export function useRestaurant(): RestaurantTheme {
+  const ctx = useContext(RestaurantContext)
+  if (!ctx) {
+    throw new Error(
+      'useRestaurant must be used inside <ThemeProvider> (in /order/* routes)'
+    )
+  }
+  return ctx
+}
+
+/**
+ * Wraps the customer-flow tree, scopes the design tokens, injects
+ * the per-restaurant `--brand-*` CSS variables, AND exposes the
+ * restaurant object via React context for descendant client
+ * components to consume via `useRestaurant()`.
  *
  * Rules in `app/order/theme.css` are all scoped under `.order-flow` so
  * they never collide with the owner-side globals.
@@ -54,6 +80,10 @@ export function ThemeProvider({ restaurant, className, children }: ThemeProvider
   const brandPrimaryHover = safeColor(restaurant.brandPrimaryHover, FALLBACK_PRIMARY_HOVER)
   const brandPrimaryFg = safeColor(restaurant.brandPrimaryFg, FALLBACK_PRIMARY_FG)
   const brandSecondary = safeColor(restaurant.brandSecondary, FALLBACK_SECONDARY)
+
+  // Re-create the context value only when the restaurant actually
+  // changes — prevents needless re-renders down the tree.
+  const value = useMemo(() => restaurant, [restaurant])
 
   const style = {
     '--brand-primary': brandPrimary,
@@ -66,8 +96,10 @@ export function ThemeProvider({ restaurant, className, children }: ThemeProvider
   } as CSSProperties
 
   return (
-    <div className={cn('order-flow', className)} style={style}>
-      {children}
-    </div>
+    <RestaurantContext.Provider value={value}>
+      <div className={cn('order-flow', className)} style={style}>
+        {children}
+      </div>
+    </RestaurantContext.Provider>
   )
 }
