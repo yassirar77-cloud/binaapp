@@ -842,6 +842,331 @@
 .order-flow .menu-empty h2 { font-size: 18px; font-weight: 500; margin: 0 0 6px; letter-spacing: -0.015em; color: var(--fg); }
 .order-flow .menu-empty p { font-size: 14px; color: var(--fg-2); margin: 0 0 24px; line-height: 1.45; }
 
+/* === CART PAGE ===
+   Renders as a full-screen sheet on mobile and a darkened-letterbox
+   modal on desktop. The .order-flow wrapper itself flips to a dark
+   backdrop, with the .cart-sheet panel pinned 8vh from the top with
+   rounded top corners.
+*/
+.order-flow.cart-route {
+  background: rgba(11, 11, 21, 0.55);
+}
+@media (min-width: 768px) {
+  .order-flow.cart-route { background: rgba(11, 11, 21, 0.55); }
+}
+
+.order-flow .cart-sheet {
+  max-width: 420px;
+  margin: 8vh auto 0;
+  min-height: 92vh;
+  background: var(--bg);
+  border-radius: 18px 18px 0 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: order-flow-slideUpY 320ms var(--ease);
+}
+@keyframes order-flow-slideUpY {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.order-flow .cart-grip {
+  width: 36px; height: 4px;
+  background: var(--border-strong);
+  border-radius: 999px;
+  margin: 8px auto 0;
+  flex-shrink: 0;
+}
+
+.order-flow .cart-header {
+  padding: 14px 20px 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border-soft);
+  position: sticky; top: 0;
+  background: var(--bg);
+  z-index: 10;
+}
+.order-flow .cart-header h1 {
+  font-size: 18px;
+  font-weight: 500;
+  margin: 0;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+}
+.order-flow .close-btn {
+  width: 32px; height: 32px;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  border: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--fg-2);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.order-flow .close-btn:hover { background: var(--bg-muted); }
+
+.order-flow .cart-meta {
+  padding: 10px 20px;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--fg-muted);
+}
+.order-flow .cart-meta .resto-mini {
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  background: var(--brand-primary);
+  color: var(--brand-primary-fg);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.order-flow .cart-items {
+  padding: 4px 20px;
+}
+.order-flow .cart-row {
+  display: flex; gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-soft);
+  align-items: flex-start;
+}
+.order-flow .cart-row:last-child { border-bottom: 0; }
+.order-flow .cart-thumb {
+  width: 56px; height: 56px;
+  border-radius: 10px;
+  background-size: cover; background-position: center;
+  background-color: var(--bg-muted);
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--fg-faint);
+  overflow: hidden;
+}
+.order-flow .cart-thumb img {
+  width: 100%; height: 100%;
+  object-fit: cover; display: block;
+}
+.order-flow .cart-info { flex: 1; min-width: 0; }
+.order-flow .cart-info .nm {
+  font-size: 14px; font-weight: 500;
+  margin: 0 0 2px;
+  color: var(--fg);
+  letter-spacing: -0.005em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.order-flow .cart-info .nt {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin: 0;
+}
+.order-flow .cart-actions {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.order-flow .cart-actions .qty-stepper {
+  display: flex; align-items: center; gap: 0;
+  background: var(--bg-soft);
+  border-radius: 999px;
+  padding: 2px;
+}
+.order-flow .cart-actions .qty-stepper button {
+  width: 28px; height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.order-flow .cart-actions .qty-stepper button:hover { background: var(--bg); }
+.order-flow .cart-actions .qty-stepper .q {
+  font-size: 13px; font-weight: 500;
+  min-width: 20px; text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.order-flow .cart-row .price {
+  font-size: 14px; font-weight: 500;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.005em;
+}
+.order-flow .delete-btn {
+  background: transparent; border: 0;
+  color: var(--fg-faint);
+  padding: 4px;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+.order-flow .delete-btn:hover { color: var(--err); }
+
+.order-flow .notes-section {
+  padding: 16px 20px;
+  border-top: 8px solid var(--bg-soft);
+}
+.order-flow .notes-section .lbl {
+  font-size: 13px; font-weight: 500;
+  color: var(--fg);
+  margin-bottom: 8px;
+}
+.order-flow .notes-section .lbl .opt {
+  color: var(--fg-muted);
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+.order-flow .promo-section {
+  padding: 12px 20px 0;
+  border-top: 8px solid var(--bg-soft);
+}
+
+.order-flow .promo-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--fg-2);
+  background: var(--bg);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  width: 100%;
+}
+.order-flow .promo-row .ic { color: var(--brand-primary); flex-shrink: 0; }
+.order-flow .promo-row .cta {
+  margin-left: auto;
+  color: var(--brand-primary);
+  font-weight: 500;
+  font-size: 13px;
+}
+.order-flow .promo-row.applied {
+  background: color-mix(in oklab, var(--brand-primary) 8%, white);
+  border-color: color-mix(in oklab, var(--brand-primary) 20%, transparent);
+  border-style: solid;
+  cursor: default;
+}
+.order-flow .promo-row .rmv {
+  margin-left: auto;
+  background: transparent; border: 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.order-flow .promo-row .rmv:hover { color: var(--err); }
+.order-flow .promo-row .b {
+  font-weight: 500;
+  color: var(--brand-primary);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+.order-flow .promo-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.order-flow .promo-form .input {
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  flex: 1;
+}
+.order-flow .promo-form .btn-pill { flex-shrink: 0; width: auto; }
+.order-flow .promo-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--err);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.order-flow .summary {
+  padding: 16px 20px 20px;
+  border-top: 8px solid var(--bg-soft);
+}
+.order-flow .sum-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 0;
+  font-size: 14px;
+  color: var(--fg-2);
+}
+.order-flow .sum-row .v {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.order-flow .sum-row.discount .v { color: var(--ok); }
+.order-flow .sum-row.muted-fee .v {
+  color: var(--fg-muted);
+  font-style: italic;
+  font-size: 13px;
+}
+.order-flow .sum-total {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+.order-flow .sum-total .l {
+  font-size: 14px;
+  color: var(--fg-2);
+}
+.order-flow .sum-total .v {
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.order-flow .sum-total .v .rm {
+  font-size: 13px;
+  color: var(--fg-muted);
+  margin-right: 2px;
+  font-family: var(--font-mono);
+  font-weight: 400;
+}
+
+.order-flow .checkout-bar {
+  position: sticky; bottom: 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border-soft);
+  padding: 12px 20px 20px;
+}
+
+.order-flow .empty-cart {
+  text-align: center;
+  padding: 80px 32px 40px;
+  flex: 1;
+}
+.order-flow .empty-cart .ic {
+  width: 64px; height: 64px;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--fg-faint);
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 16px;
+}
+.order-flow .empty-cart h2 {
+  font-size: 18px; font-weight: 500;
+  margin: 0 0 6px;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+}
+.order-flow .empty-cart p {
+  font-size: 14px;
+  color: var(--fg-2);
+  margin: 0 0 24px;
+  line-height: 1.45;
+}
+
 /* === SHEET (bottom sheet on mobile, modal on desktop) === */
 @keyframes order-flow-fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes order-flow-slideUp { from { transform: translate(-50%, 100%); } to { transform: translate(-50%, 0); } }
