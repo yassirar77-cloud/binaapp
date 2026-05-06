@@ -52,6 +52,7 @@ export async function middleware(req: NextRequest) {
     '/favicon.ico',
     '/manifest.json',
     '/icons',
+    '/order',        // Customer-facing delivery flow — must always be public
   ]
 
   const isComingSoonBypassPath = comingSoonBypassPaths.some(path =>

@@ -295,7 +295,7 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
         order_button_html = f'''
 <a href="{order_target}"
    class="binaapp-order-button"
-   style="position:fixed;bottom:24px;right:24px;background:{brand_color};color:#fff;padding:14px 24px;border-radius:999px;text-decoration:none;font-family:system-ui,-apple-system,sans-serif;font-weight:500;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:999999;display:inline-flex;align-items:center;gap:8px;">
+   style="position:fixed;bottom:96px;right:24px;background:{brand_color};color:#fff;padding:14px 24px;border-radius:999px;text-decoration:none;font-family:system-ui,-apple-system,sans-serif;font-weight:500;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:999999;display:inline-flex;align-items:center;gap:8px;">
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"></path>
     <path d="M3 6h18"></path>
