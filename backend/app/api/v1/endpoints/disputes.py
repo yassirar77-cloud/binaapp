@@ -408,6 +408,147 @@ async def get_disputes_for_order(order_id: str):
         )
 
 
+@router.post("/customer-create", response_model=DisputeResponse)
+async def create_customer_dispute(dispute: DisputeCreate):
+    """
+    Create a customer-facing dispute for a delivered order.
+
+    **Public endpoint** — no JWT auth. Used by the /order/[orderNumber]/dispute
+    page in the customer flow. Customer is identified by their phone (already
+    captured at the identify step). The website's owner is auto-derived from
+    the order's website_id and stored as the dispute's user_id so the dispute
+    surfaces in the owner-side dispute list.
+
+    Differs from `POST /create` (the owner-auth complaint endpoint):
+      - No JWT — public
+      - order_id is REQUIRED (a customer dispute is always order-scoped)
+      - Skips synchronous AI analysis to keep the customer-side request
+        latency low. Owners can still respond manually; the existing
+        AI-auto-reply pipeline can pick this up async (TODO[disputes]).
+
+    Conflict (409) is returned when an active dispute already exists on the
+    order, mirroring the owner-side endpoint's behavior.
+    """
+    if not dispute.order_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="order_id is required for customer disputes",
+        )
+
+    supabase = get_supabase_client()
+
+    try:
+        # Validate order exists.
+        order_result = supabase.table("delivery_orders").select(
+            "id, order_number, total_amount, customer_name, customer_phone, customer_email, website_id"
+        ).eq("id", dispute.order_id).execute()
+
+        if not order_result.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Order not found",
+            )
+
+        order = order_result.data[0]
+        website_id = order.get("website_id")
+        if not website_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Order is missing a website binding",
+            )
+
+        # Resolve website owner so the dispute lands in the correct
+        # owner's dispute list.
+        website_result = supabase.table("websites").select("user_id").eq(
+            "id", website_id
+        ).execute()
+        if not website_result.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Website not found",
+            )
+        owner_user_id = website_result.data[0]["user_id"]
+
+        # Reject duplicate active dispute on this order.
+        existing = supabase.table("ai_disputes").select(
+            "id, dispute_number"
+        ).eq("order_id", dispute.order_id).in_(
+            "status", ["open", "under_review", "awaiting_response"]
+        ).execute()
+
+        if existing.data:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"An active dispute (#{existing.data[0]['dispute_number']}) "
+                    f"already exists for this order"
+                ),
+            )
+
+        # Insert. AI analysis intentionally skipped — see docstring.
+        # The status / severity defaults match what the owner-side
+        # endpoint sets when AI analysis fails.
+        dispute_data = {
+            "user_id": owner_user_id,
+            "order_id": dispute.order_id,
+            "website_id": website_id,
+            "customer_name": (
+                dispute.customer_name or order.get("customer_name") or "Customer"
+            ),
+            "customer_phone": (
+                dispute.customer_phone or order.get("customer_phone")
+            ),
+            "customer_email": (
+                dispute.customer_email or order.get("customer_email")
+            ),
+            "category": dispute.category.value,
+            "description": dispute.description,
+            "evidence_urls": dispute.evidence_urls or [],
+            "severity": "medium",
+            "ai_decision": "escalated",
+            "status": "open",
+        }
+
+        result = supabase.table("ai_disputes").insert(dispute_data).execute()
+        if not result.data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create dispute",
+            )
+
+        dispute_record = result.data[0]
+
+        # System message for the dispute thread (mirrors the owner endpoint).
+        try:
+            order_ref = f" untuk pesanan #{order.get('order_number', 'N/A')}"
+            supabase.table("dispute_messages").insert({
+                "dispute_id": dispute_record["id"],
+                "sender_type": "system",
+                "sender_name": "System",
+                "message": (
+                    f"Aduan #{dispute_record['dispute_number']} dibuka{order_ref}. "
+                    f"Kategori: {dispute.category.value.replace('_', ' ').title()}."
+                ),
+            }).execute()
+        except Exception as msg_err:
+            logger.warning(f"[Customer Dispute] Could not insert system message: {msg_err}")
+
+        logger.info(
+            f"[Customer Dispute] Created #{dispute_record['dispute_number']} "
+            f"for order {order.get('order_number')} (owner={owner_user_id})"
+        )
+        return dispute_record
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Customer Dispute] Error creating dispute: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create dispute: {str(e)}",
+        )
+
+
 # =====================================================
 # BUSINESS OWNER ENDPOINTS (Auth required)
 # =====================================================
