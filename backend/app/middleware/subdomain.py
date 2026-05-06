@@ -276,6 +276,24 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
         '', html_content, flags=re.DOTALL
     )
 
+    # Strip dead inline ordering system + empty widget placeholder. The
+    # ~1500-line <script> block (templates.py:inject_ordering_system) is
+    # unreachable from the new /order/* flow but still loads and spams the
+    # console; the empty <div id="binaapp-widget"> is leftover from when
+    # delivery-widget.js used to populate it.
+    #
+    # Does NOT touch <body><div class="delivery-page"> wrapper (would nuke
+    # the homepage), the chat widget (separate, always-on by design), or any
+    # AI-generated content.
+    html_content = re.sub(
+        r'<script\b[^>]*>[^<]*?BinaApp Delivery System - Complete Implementation.*?</script>',
+        '', html_content, flags=re.DOTALL
+    )
+    html_content = re.sub(
+        r'<div\s+id=["\']binaapp-widget["\'][^>]*>\s*</div>',
+        '', html_content
+    )
+
     # TODO(brand): Add brand_primary column to websites table for per-restaurant
     # button color. Until then, fall back to BinaApp orange.
     brand_color = "#E8501F"
