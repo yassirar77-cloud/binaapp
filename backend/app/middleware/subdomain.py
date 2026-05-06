@@ -233,7 +233,8 @@ async def _fetch_html_from_storage(subdomain: str) -> Optional[str]:
 def _inject_widgets(html_content: str, website_id: str, business_type: str = "food", language: str = "ms") -> str:
     """
     Remove old widget scripts and inject correct ones with the proper website_id.
-    Only re-injects delivery widget if delivery was enabled during generation.
+    For delivery-enabled sites, injects a "Pesan Delivery" button that links to
+    the new /order/identify flow (replaces the old delivery-widget.js popup).
     Always injects chat widget (available for ALL tiers).
     """
     # Detect if delivery was enabled BEFORE stripping widget scripts.
@@ -267,21 +268,38 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
         html_content, flags=re.DOTALL
     )
 
-    # Only inject delivery widget if delivery was enabled
-    delivery_widget_script = ""
+    # Strip the inline old-flow delivery button baked into published HTML by
+    # templates.py (id="binaapp-delivery-btn"). Without this, customers would
+    # see both the old bottom-left button and the new bottom-right button.
+    html_content = re.sub(
+        r'<button[^>]*id=["\']binaapp-delivery-btn["\'][^>]*>.*?</button>',
+        '', html_content, flags=re.DOTALL
+    )
+
+    # TODO(brand): Add brand_primary column to websites table for per-restaurant
+    # button color. Until then, fall back to BinaApp orange.
+    brand_color = "#E8501F"
+
+    # Only inject the order button if delivery was enabled.
+    # TODO(widget): Delete old delivery-widget.js after 30-day rollback window.
+    order_button_html = ""
     if has_delivery:
-        delivery_widget_script = f'''
-<script src="https://binaapp-backend.onrender.com/static/widgets/delivery-widget.js"
-        data-website-id="{website_id}"
-        data-api-url="https://binaapp-backend.onrender.com/api/v1"
-        data-primary-color="#ea580c"
-        data-business-type="{business_type}"
-        data-language="{language}"></script>'''
+        order_button_html = f'''
+<a href="/order/identify"
+   class="binaapp-order-button"
+   style="position:fixed;bottom:24px;right:24px;background:{brand_color};color:#fff;padding:14px 24px;border-radius:999px;text-decoration:none;font-family:system-ui,-apple-system,sans-serif;font-weight:500;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:9999;display:inline-flex;align-items:center;gap:8px;">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"></path>
+    <path d="M3 6h18"></path>
+    <path d="M16 10a4 4 0 0 1-8 0"></path>
+  </svg>
+  Pesan Delivery
+</a>'''
 
     widget_injection = f'''
 <!-- BinaApp Widgets - Auto-injected with correct website_id -->
 <div id="binaapp-widget-container" data-website-id="{website_id}"></div>
-<script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>{delivery_widget_script}
+<script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>{order_button_html}
 '''
 
     # Inject before </body> or at end
