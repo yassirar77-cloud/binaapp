@@ -207,7 +207,9 @@ export function CheckoutPageClient() {
       // Cart goes away on a successful order.
       clearCart()
 
-      router.replace(`/order/${placed.id}/track`)
+      // Tracking endpoint is keyed by order_number (e.g. "ORD-3847"),
+      // not the UUID — see GET /api/v1/delivery/orders/{order_number}/track.
+      router.replace(`/order/${encodeURIComponent(placed.order_number)}/track`)
     } catch (err) {
       const msg =
         err instanceof PlaceOrderError
