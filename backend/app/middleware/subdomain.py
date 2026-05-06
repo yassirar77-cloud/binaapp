@@ -10,7 +10,7 @@ exception falls through to call_next() instead of killing the ASGI connection
 """
 
 from fastapi import Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
 from loguru import logger
 import re
@@ -230,7 +230,7 @@ async def _fetch_html_from_storage(subdomain: str) -> Optional[str]:
     return None
 
 
-def _inject_widgets(html_content: str, website_id: str, business_type: str = "food", language: str = "ms") -> str:
+def _inject_widgets(html_content: str, website_id: str, business_type: str = "food", language: str = "ms", subdomain: str = "") -> str:
     """
     Remove old widget scripts and inject correct ones with the proper website_id.
     For delivery-enabled sites, injects a "Pesan Delivery" button that links to
@@ -282,12 +282,20 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
 
     # Only inject the order button if delivery was enabled.
     # TODO(widget): Delete old delivery-widget.js after 30-day rollback window.
+    #
+    # Button links to the absolute www.{MAIN_DOMAIN} URL: the /order/* flow is a
+    # Next.js app served from Vercel on the apex domain. Subdomain hosts (this
+    # middleware) only serve stored restaurant HTML, so a relative /order/identify
+    # link would be re-intercepted here and serve the homepage again — making the
+    # button appear to "do nothing". The ?r=<subdomain> query param carries the
+    # restaurant context across the domain hop.
     order_button_html = ""
     if has_delivery:
+        order_target = f"https://www.{settings.MAIN_DOMAIN}/order/identify?r={subdomain}"
         order_button_html = f'''
-<a href="/order/identify"
+<a href="{order_target}"
    class="binaapp-order-button"
-   style="position:fixed;bottom:24px;right:24px;background:{brand_color};color:#fff;padding:14px 24px;border-radius:999px;text-decoration:none;font-family:system-ui,-apple-system,sans-serif;font-weight:500;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:9999;display:inline-flex;align-items:center;gap:8px;">
+   style="position:fixed;bottom:24px;right:24px;background:{brand_color};color:#fff;padding:14px 24px;border-radius:999px;text-decoration:none;font-family:system-ui,-apple-system,sans-serif;font-weight:500;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.15);z-index:999999;display:inline-flex;align-items:center;gap:8px;">
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"></path>
     <path d="M3 6h18"></path>
@@ -341,6 +349,24 @@ async def subdomain_middleware(request: Request, call_next):
         if not subdomain:
             # Not a subdomain request, continue to normal API routing
             return await call_next(request)
+
+        # /order/* on a subdomain must hop to the Next.js app on www. The order
+        # flow is hosted on Vercel under www.{MAIN_DOMAIN}; this middleware only
+        # serves stored restaurant HTML. Without this redirect, a click on the
+        # injected "Pesan Delivery" button (or any internal /order/* link) would
+        # be intercepted here and re-serve the restaurant homepage — visible to
+        # the user as "the button did nothing". Carries the subdomain through as
+        # ?r=<subdomain> so the Next.js flow can resolve restaurant context.
+        path = request.url.path or "/"
+        if path.startswith("/order"):
+            target = f"https://www.{settings.MAIN_DOMAIN}{path}"
+            qs = request.url.query
+            if qs:
+                target = f"{target}?{qs}&r={subdomain}"
+            else:
+                target = f"{target}?r={subdomain}"
+            logger.info(f"[Subdomain] Redirecting {subdomain}{path} -> {target}")
+            return RedirectResponse(url=target, status_code=302)
 
         logger.info(f"[Subdomain] Serving: {subdomain}.binaapp.my")
 
@@ -445,7 +471,7 @@ async def subdomain_middleware(request: Request, call_next):
 
         # STEP 3: Inject widgets if we have a website_id
         if website_id:
-            html_content = _inject_widgets(html_content, website_id, business_type, language)
+            html_content = _inject_widgets(html_content, website_id, business_type, language, subdomain)
             logger.info(f"[Subdomain] Injected widgets for {subdomain} (id: {website_id})")
 
         return HTMLResponse(
