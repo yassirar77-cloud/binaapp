@@ -18,6 +18,7 @@ from app.models.schemas import (
     WebsiteStatus
 )
 from app.services.supabase_client import supabase_service
+from app.core.supabase import get_supabase_client
 from app.core.security import get_current_user
 from app.services.ai_service import ai_service
 from app.services.storage_service import storage_service
@@ -1134,28 +1135,31 @@ async def get_website_by_domain(domain: str):
 
         logger.info(f"Looking up website by domain: {domain}")
 
+        supabase = get_supabase_client()
+        columns = 'id, name, business_name, subdomain, custom_domain, whatsapp_number, status'
+
         # Try subdomain first
-        result = await supabase_service.supabase.table('websites')\
-            .select('id, name, business_name, subdomain, custom_domain, whatsapp_number, status')\
+        result = supabase.table('websites')\
+            .select(columns)\
             .eq('subdomain', domain)\
-            .maybeSingle()\
+            .limit(1)\
             .execute()
 
         # If not found, try custom domain
         if not result.data:
-            result = await supabase_service.supabase.table('websites')\
-                .select('id, name, business_name, subdomain, custom_domain, whatsapp_number, status')\
+            result = supabase.table('websites')\
+                .select(columns)\
                 .eq('custom_domain', f"{domain}.binaapp.my")\
-                .maybeSingle()\
+                .limit(1)\
                 .execute()
 
         # Still not found, try with .binaapp.my appended
         if not result.data:
-            result = await supabase_service.supabase.table('websites')\
-                .select('id, name, business_name, subdomain, custom_domain, whatsapp_number, status')\
+            result = supabase.table('websites')\
+                .select(columns)\
                 .eq('subdomain', domain)\
                 .or_(f'custom_domain.eq.{domain}')\
-                .maybeSingle()\
+                .limit(1)\
                 .execute()
 
         if not result.data:
@@ -1165,8 +1169,9 @@ async def get_website_by_domain(domain: str):
                 detail=f"Website not found for domain: {domain}"
             )
 
-        logger.info(f"Found website: {result.data.get('id')} for domain: {domain}")
-        return result.data
+        website = result.data[0]
+        logger.info(f"Found website: {website.get('id')} for domain: {domain}")
+        return website
 
     except HTTPException:
         raise
