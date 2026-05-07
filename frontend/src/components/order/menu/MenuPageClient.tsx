@@ -119,6 +119,32 @@ export function MenuPageClient({ initialMenu, initialError }: MenuPageClientProp
     setSelectedItem(null)
   }
 
+  // ---- Client-side initial fetch when no SSR data is provided.
+  //      This is the normal path now that restaurant ID is resolved
+  //      client-side from the ?r= query parameter.
+  useEffect(() => {
+    if (initialMenu || !hydrated) return
+    if (!restaurant.websiteId) return
+
+    let cancelled = false
+    async function load() {
+      try {
+        const data = await fetchMenu(restaurant.websiteId)
+        if (!cancelled) setMenu(data)
+      } catch (err) {
+        if (cancelled) return
+        const msg =
+          err instanceof MenuFetchError
+            ? err.message
+            : 'Tidak dapat memuatkan menu. Cuba lagi sebentar.'
+        setError(msg)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, restaurant.websiteId])
+
   // ---- Retry after fetch error.
   const handleRetry = async () => {
     setRetrying(true)

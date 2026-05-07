@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { IdentifyForm } from '@/components/order/identify/IdentifyForm'
+import { IdentifyPageClient } from '@/components/order/identify/IdentifyPageClient'
 
 export const metadata: Metadata = {
   title: 'Selamat datang · BinaApp',
@@ -7,9 +7,5 @@ export const metadata: Metadata = {
 }
 
 export default function IdentifyPage() {
-  return (
-    <div className="phone-page">
-      <IdentifyForm />
-    </div>
-  )
+  return <IdentifyPageClient />
 }
