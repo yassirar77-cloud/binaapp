@@ -1136,7 +1136,7 @@ async def get_website_by_domain(domain: str):
 
         # Try subdomain first
         result = await supabase_service.supabase.table('websites')\
-            .select('id, business_name, subdomain, custom_domain, status')\
+            .select('id, name, business_name, subdomain, custom_domain, whatsapp_number, status')\
             .eq('subdomain', domain)\
             .maybeSingle()\
             .execute()
@@ -1144,7 +1144,7 @@ async def get_website_by_domain(domain: str):
         # If not found, try custom domain
         if not result.data:
             result = await supabase_service.supabase.table('websites')\
-                .select('id, business_name, subdomain, custom_domain, status')\
+                .select('id, name, business_name, subdomain, custom_domain, whatsapp_number, status')\
                 .eq('custom_domain', f"{domain}.binaapp.my")\
                 .maybeSingle()\
                 .execute()
@@ -1152,7 +1152,7 @@ async def get_website_by_domain(domain: str):
         # Still not found, try with .binaapp.my appended
         if not result.data:
             result = await supabase_service.supabase.table('websites')\
-                .select('id, business_name, subdomain, custom_domain, status')\
+                .select('id, name, business_name, subdomain, custom_domain, whatsapp_number, status')\
                 .eq('subdomain', domain)\
                 .or_(f'custom_domain.eq.{domain}')\
                 .maybeSingle()\
