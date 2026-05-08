@@ -159,6 +159,9 @@ export function TrackingPageClient({ orderNumber }: TrackingPageClientProps) {
 
   const { order, items, rider, riderLocation, etaMinutes } = data
   const showMap = shouldShowMap(order.status)
+  const hasDeliveryCoords = order.deliveryLatitude != null && order.deliveryLongitude != null
+  const hasRiderCoords = riderLocation != null
+  const hasMapCoords = hasDeliveryCoords || hasRiderCoords
   const cancelled = order.status === 'cancelled' || order.status === 'rejected'
   const delivered = isDeliveredStatus(order.status)
 
@@ -194,13 +197,14 @@ export function TrackingPageClient({ orderNumber }: TrackingPageClientProps) {
         </div>
       )}
 
-      {showMap && order.deliveryLatitude != null && order.deliveryLongitude != null && (
+      {showMap && hasMapCoords && (
         <div className="map-card">
           <DeliveryMap
-            delivery={{
-              lat: order.deliveryLatitude,
-              lng: order.deliveryLongitude,
-            }}
+            delivery={
+              order.deliveryLatitude != null && order.deliveryLongitude != null
+                ? { lat: order.deliveryLatitude, lng: order.deliveryLongitude }
+                : null
+            }
             rider={
               riderLocation
                 ? { lat: riderLocation.latitude, lng: riderLocation.longitude }
@@ -210,7 +214,7 @@ export function TrackingPageClient({ orderNumber }: TrackingPageClientProps) {
         </div>
       )}
 
-      {showMap && (order.deliveryLatitude == null || order.deliveryLongitude == null) && (
+      {showMap && !hasMapCoords && (
         <div className="map-card unavailable">
           <span>Peta tidak tersedia untuk pesanan ini.</span>
         </div>
