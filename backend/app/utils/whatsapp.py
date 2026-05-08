@@ -237,6 +237,42 @@ https://binaapp.my/order/tracking/{order_number}"""
     return send_whatsapp_message(customer_phone, message)
 
 
+def notify_customer_order_placed(
+    customer_phone: str,
+    order_number: str,
+    restaurant_name: str,
+    total_amount: float,
+) -> bool:
+    """
+    Notify customer that their order has been received, with a tracking link.
+
+    Sent immediately after order creation so the customer can recover the
+    tracking URL even if they close the browser.
+
+    Args:
+        customer_phone: Customer's phone number (Malaysian format)
+        order_number: Order reference number (e.g. BNA-20260508-0002)
+        restaurant_name: Name of the restaurant
+        total_amount: Total order amount
+
+    Returns:
+        bool: True if notification sent successfully
+    """
+
+    message = f"""🍽️ *Pesanan anda {order_number} telah diterima!*
+
+📍 Restoran: {restaurant_name}
+💰 Total: RM{total_amount:.2f}
+⏱️ Anggaran: ~30 minit
+
+Track pesanan anda:
+https://www.binaapp.my/order/tracking/{order_number}
+
+Terima kasih! 🙏"""
+
+    return send_whatsapp_message(customer_phone, message)
+
+
 def notify_rider_new_orders_available(
     rider_phone: str,
     rider_name: str,
