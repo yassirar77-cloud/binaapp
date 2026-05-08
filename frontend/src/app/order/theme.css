@@ -328,20 +328,6 @@
   color: var(--fg-2);
   font-variant-numeric: tabular-nums;
 }
-.order-flow .phone-prefix .flag {
-  width: 18px; height: 12px;
-  background: linear-gradient(to bottom, #CC0000 50%, #003399 50%);
-  border-radius: 2px;
-  position: relative;
-  overflow: hidden;
-}
-.order-flow .phone-prefix .flag::after {
-  content: '';
-  position: absolute; top: 1px; left: 2px;
-  width: 5px; height: 5px;
-  background: #FFCC00;
-  border-radius: 999px;
-}
 .order-flow .phone-input {
   flex: 1;
   border: 0; outline: 0;
@@ -430,6 +416,70 @@
   gap: 6px;
   align-items: center;
 }
+
+/* ---- Active orders recovery ---- */
+.order-flow .active-orders {
+  margin-top: 20px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 14px;
+}
+.order-flow .ao-header {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 600;
+  color: var(--fg);
+  margin-bottom: 10px;
+}
+.order-flow .ao-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.order-flow .ao-card {
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 12px;
+}
+.order-flow .ao-top {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.order-flow .ao-num {
+  font-size: 13px; font-weight: 600; color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.order-flow .ao-meta {
+  font-size: 12px; color: var(--fg-2); margin-top: 4px;
+}
+.order-flow .ao-track-btn {
+  display: block;
+  margin-top: 8px;
+  text-align: center;
+  font-size: 13px; font-weight: 600;
+  color: var(--brand-primary);
+  background: transparent;
+  border: 1px solid var(--brand-primary);
+  border-radius: 8px;
+  padding: 8px 0;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+.order-flow .ao-track-btn:hover {
+  background: var(--brand-primary);
+  color: #fff;
+}
+/* Status pills */
+.order-flow .pill {
+  font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 999px;
+  white-space: nowrap;
+}
+.order-flow .pill.pending     { background: #FEF3C7; color: #92400E; }
+.order-flow .pill.confirmed   { background: #DBEAFE; color: #1E40AF; }
+.order-flow .pill.preparing   { background: #FDE68A; color: #78350F; }
+.order-flow .pill.ready        { background: #D1FAE5; color: #065F46; }
+.order-flow .pill.picked-up   { background: #E0E7FF; color: #3730A3; }
+.order-flow .pill.delivering   { background: #CFFAFE; color: #155E75; }
 
 .order-flow .continue-area { margin-top: 24px; }
 

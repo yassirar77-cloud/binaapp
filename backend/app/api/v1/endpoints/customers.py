@@ -13,6 +13,7 @@ with empty-name rows for users who tap their phone but never order.
 """
 
 import re
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import Client
 from loguru import logger
@@ -112,4 +113,86 @@ async def lookup_customer(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"error": "LOOKUP_FAILED", "message": "Customer lookup failed"},
+        )
+
+
+# TODO(security): Add rate limiting (30 req/min per IP) before scaling
+@router.get("/{phone}/active-orders")
+async def get_active_orders(
+    phone: str,
+    website_id: str = Query(..., description="UUID of the restaurant website"),
+    supabase: Client = Depends(get_supabase_client),
+):
+    """Return a customer's recent active orders for a given restaurant.
+
+    **Public endpoint** — used by the /order/identify page so a customer
+    who lost their tracking link can recover it.
+
+    Only returns orders where `customer_phone` matches the normalised
+    phone AND the status is still active (not delivered / cancelled /
+    rejected). Limited to the 5 most recent orders. Response is
+    deliberately minimal — no address, payment details, or customer_id.
+    """
+    if not website_id or not UUID_RE.match(website_id.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "INVALID_WEBSITE_ID", "message": "website_id must be a valid UUID"},
+        )
+
+    normalized = _normalize_phone(phone)
+    if len(normalized) < 9:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "INVALID_PHONE", "message": "phone must contain at least 9 digits"},
+        )
+
+    try:
+        # Fetch active orders for this phone + website
+        terminal_statuses = ("delivered", "cancelled", "rejected")
+        result = (
+            supabase.table("delivery_orders")
+            .select("order_number, status, total_amount, created_at, website_id")
+            .eq("website_id", website_id.strip())
+            .eq("customer_phone", normalized)
+            .not_.in_("status", list(terminal_statuses))
+            .order("created_at", desc=True)
+            .limit(5)
+            .execute()
+        )
+
+        if not result.data:
+            return {"orders": []}
+
+        # Fetch restaurant name + subdomain for the website
+        ws = (
+            supabase.table("websites")
+            .select("business_name, subdomain")
+            .eq("id", website_id.strip())
+            .single()
+            .execute()
+        )
+        restaurant_name = ws.data.get("business_name", "") if ws.data else ""
+        restaurant_subdomain = ws.data.get("subdomain", "") if ws.data else ""
+
+        orders = [
+            {
+                "order_number": o["order_number"],
+                "restaurant_name": restaurant_name,
+                "restaurant_subdomain": restaurant_subdomain,
+                "status": o["status"],
+                "total": float(o.get("total_amount", 0)),
+                "created_at": o["created_at"],
+            }
+            for o in result.data
+        ]
+
+        return {"orders": orders}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Active Orders] DB error for phone={normalized}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "ACTIVE_ORDERS_FAILED", "message": "Failed to fetch active orders"},
         )

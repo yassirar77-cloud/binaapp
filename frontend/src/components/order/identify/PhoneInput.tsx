@@ -38,7 +38,7 @@ export const PhoneInput = forwardRef<HTMLInputElement, PhoneInputProps>(
     return (
       <div className={cn('phone-input-wrap', focused && 'focused', className)}>
         <div className="phone-prefix">
-          <div className="flag" aria-hidden="true" />
+          <span aria-hidden="true">🇲🇾</span>
           <span>+60</span>
         </div>
         <input

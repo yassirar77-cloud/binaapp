@@ -61,3 +61,41 @@ export async function lookupCustomer(
 
   return (await res.json()) as CustomerLookupResponse
 }
+
+/** A single active order returned by the active-orders endpoint. */
+export interface ActiveOrder {
+  order_number: string
+  restaurant_name: string
+  restaurant_subdomain: string
+  status: string
+  total: number
+  created_at: string
+}
+
+/**
+ * Fetch a customer's active (non-terminal) orders for a given restaurant.
+ *
+ * Returns an empty array when nothing is active — callers should hide the
+ * section rather than showing an empty state.
+ */
+export async function fetchActiveOrders(
+  websiteId: string,
+  phone: string,
+  signal?: AbortSignal
+): Promise<ActiveOrder[]> {
+  const url = new URL(
+    `${API_BASE}/api/v1/customers/${encodeURIComponent(phone)}/active-orders`
+  )
+  url.searchParams.set('website_id', websiteId)
+
+  const res = await fetch(url.toString(), {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal,
+  })
+
+  if (!res.ok) return []
+
+  const body = await res.json()
+  return (body.orders ?? []) as ActiveOrder[]
+}

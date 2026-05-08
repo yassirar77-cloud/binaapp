@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowRight, Info, Lock } from 'lucide-react'
 import { Button, Spinner } from '../primitives'
-import { lookupCustomer } from '../api'
+import { lookupCustomer, fetchActiveOrders, type ActiveOrder } from '../api'
 import { useCustomerStore } from '../customer-store'
 import {
   fromStorageFormat,
@@ -13,6 +13,7 @@ import {
 } from '../phone'
 import { useRestaurant } from '../ThemeProvider'
 import type { Customer } from '../types'
+import { ActiveOrders } from './ActiveOrders'
 import { PhoneInput } from './PhoneInput'
 import { ReturningCustomerCard } from './ReturningCustomerCard'
 
@@ -46,6 +47,7 @@ export function IdentifyForm() {
   const [typed, setTyped] = useState('') // 9 digits max, no leading 0
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const [submitting, setSubmitting] = useState(false)
+  const [activeOrders, setActiveOrders] = useState<ActiveOrder[]>([])
 
   // ---- Pre-fill from localStorage on mount (Q3: never auto-redirect, do
   //      pre-fill so a returning customer is one tap away from continuing).
@@ -69,6 +71,7 @@ export function IdentifyForm() {
 
     if (!isValidTyped(typed)) {
       setPhase({ kind: 'idle' })
+      setActiveOrders([])
       return
     }
 
@@ -79,8 +82,13 @@ export function IdentifyForm() {
     const run = async () => {
       try {
         const storage = toStorageFormat(typed)
-        const result = await lookupCustomer(restaurant.websiteId, storage, controller.signal)
+        const [result, orders] = await Promise.all([
+          lookupCustomer(restaurant.websiteId, storage, controller.signal),
+          fetchActiveOrders(restaurant.websiteId, storage, controller.signal),
+        ])
         if (controller.signal.aborted) return
+
+        setActiveOrders(orders)
 
         if (result.exists) {
           setPhase({ kind: 'returning', customer: result.customer })
@@ -93,6 +101,7 @@ export function IdentifyForm() {
         // customer — never block ordering on a flaky lookup.
         // eslint-disable-next-line no-console
         console.error('[order/identify] lookup failed, falling back to new customer:', err)
+        setActiveOrders([])
         setPhase({ kind: 'new' })
       }
     }
@@ -185,6 +194,10 @@ export function IdentifyForm() {
           <Info className="icon" size={14} aria-hidden="true" />
           <span>Pelanggan baru? Anda akan didaftarkan automatik.</span>
         </div>
+      )}
+
+      {activeOrders.length > 0 && (phase.kind === 'returning' || phase.kind === 'new') && (
+        <ActiveOrders orders={activeOrders} />
       )}
 
       <div className="continue-area">

@@ -48,6 +48,7 @@ from app.utils.whatsapp import (
     notify_owner_new_order,
     notify_rider_assigned,
     notify_customer_status_update,
+    notify_customer_order_placed,
 )
 
 router = APIRouter(prefix="/delivery", tags=["Delivery System"])
@@ -717,7 +718,7 @@ async def create_order(
             )
 
         # 8. Create notification for owner
-        website_result = supabase.table("websites").select("user_id").eq("id", order.website_id).single().execute()
+        website_result = supabase.table("websites").select("user_id, business_name").eq("id", order.website_id).single().execute()
         if website_result.data:
             owner_id = website_result.data["user_id"]
             await create_notification(
@@ -750,6 +751,20 @@ async def create_order(
             except Exception as wa_error:
                 logger.warning(f"⚠️ Failed to send WhatsApp to owner: {wa_error}")
                 # Don't fail the order creation if WhatsApp fails
+
+        # 8b. Send WhatsApp confirmation to customer with tracking link
+        try:
+            restaurant_name = website_result.data.get("business_name", "Restoran") if website_result.data else "Restoran"
+            notify_customer_order_placed(
+                customer_phone=order.customer_phone,
+                order_number=created_order['order_number'],
+                restaurant_name=restaurant_name,
+                total_amount=float(total_amount),
+            )
+            logger.info(f"📱 WhatsApp confirmation sent to customer for order {created_order['order_number']}")
+        except Exception as wa_error:
+            logger.warning(f"⚠️ Failed to send WhatsApp to customer: {wa_error}")
+            # Don't fail the order creation if WhatsApp fails
 
         logger.info(f"✅ Order created: {created_order['order_number']} - Total: RM{total_amount}")
 
