@@ -232,7 +232,7 @@ def notify_customer_status_update(
 {rider_info}
 
 📱 Jejak pesanan anda:
-https://binaapp.my/track/{order_number}"""
+https://binaapp.my/order/tracking/{order_number}"""
 
     return send_whatsapp_message(customer_phone, message)
 

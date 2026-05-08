@@ -19,7 +19,7 @@ interface SuccessOverlayProps {
  */
 export function SuccessOverlay({ disputeNumber, orderNumber }: SuccessOverlayProps) {
   const router = useRouter()
-  const trackOrderHref = `/order/${encodeURIComponent(orderNumber)}/track`
+  const trackOrderHref = `/order/tracking/${encodeURIComponent(orderNumber)}`
 
   return (
     <div className="success fade-up">

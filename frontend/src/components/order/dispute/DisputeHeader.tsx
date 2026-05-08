@@ -20,7 +20,7 @@ export function DisputeHeader({ title = 'Lapor masalah', orderNumber }: DisputeH
       <button
         type="button"
         className="back-btn"
-        onClick={() => router.push(`/order/${encodeURIComponent(orderNumber)}/track`)}
+        onClick={() => router.push(`/order/tracking/${encodeURIComponent(orderNumber)}`)}
         aria-label="Kembali ke pesanan"
       >
         <ChevronLeft size={16} strokeWidth={2.2} aria-hidden="true" />
