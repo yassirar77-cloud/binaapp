@@ -209,7 +209,7 @@ export function CheckoutPageClient() {
 
       // Tracking endpoint is keyed by order_number (e.g. "ORD-3847"),
       // not the UUID — see GET /api/v1/delivery/orders/{order_number}/track.
-      router.replace(`/order/${encodeURIComponent(placed.order_number)}/track`)
+      router.replace(`/order/tracking/${encodeURIComponent(placed.order_number)}`)
     } catch (err) {
       const msg =
         err instanceof PlaceOrderError
