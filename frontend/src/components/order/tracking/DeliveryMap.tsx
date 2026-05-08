@@ -5,7 +5,7 @@ import 'leaflet/dist/leaflet.css'
 import { useEffect, useRef } from 'react'
 
 interface DeliveryMapProps {
-  delivery: { lat: number; lng: number }
+  delivery?: { lat: number; lng: number } | null
   rider?: { lat: number; lng: number } | null
 }
 
@@ -39,8 +39,15 @@ export function DeliveryMap({ delivery, rider }: DeliveryMapProps) {
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
+    // Center on delivery if available, else rider, else KL fallback.
+    const center: [number, number] = delivery
+      ? [delivery.lat, delivery.lng]
+      : rider
+        ? [rider.lat, rider.lng]
+        : [3.139, 101.687]
+
     const map = L.map(containerRef.current, {
-      center: [delivery.lat, delivery.lng],
+      center,
       zoom: 14,
       zoomControl: false,
       attributionControl: false,
@@ -55,11 +62,13 @@ export function DeliveryMap({ delivery, rider }: DeliveryMapProps) {
       .addAttribution('© <a href="https://www.openstreetmap.org/copyright">OSM</a>')
       .addTo(map)
 
-    deliveryMarkerRef.current = L.marker([delivery.lat, delivery.lng], {
-      icon: makeIcon('delivery'),
-      title: 'Lokasi penghantaran',
-      keyboard: false,
-    }).addTo(map)
+    if (delivery) {
+      deliveryMarkerRef.current = L.marker([delivery.lat, delivery.lng], {
+        icon: makeIcon('delivery'),
+        title: 'Lokasi penghantaran',
+        keyboard: false,
+      }).addTo(map)
+    }
 
     mapRef.current = map
 
@@ -73,7 +82,7 @@ export function DeliveryMap({ delivery, rider }: DeliveryMapProps) {
     // The map should rebuild only if the destination changes — rider
     // updates are applied via the second effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [delivery.lat, delivery.lng])
+  }, [delivery?.lat, delivery?.lng])
 
   // ---- Sync the rider marker + route polyline with each poll.
   useEffect(() => {
@@ -92,24 +101,29 @@ export function DeliveryMap({ delivery, rider }: DeliveryMapProps) {
         }).addTo(map)
       }
 
-      const linePoints: L.LatLngExpression[] = [latLng, [delivery.lat, delivery.lng]]
-      if (routeLineRef.current) {
-        routeLineRef.current.setLatLngs(linePoints)
-      } else {
-        routeLineRef.current = L.polyline(linePoints, {
-          color: getCssVar('--brand-primary') || '#E8501F',
-          weight: 3,
-          dashArray: '6 6',
-          opacity: 0.85,
-        }).addTo(map)
-      }
+      if (delivery) {
+        // Both markers available — draw polyline and fit bounds.
+        const linePoints: L.LatLngExpression[] = [latLng, [delivery.lat, delivery.lng]]
+        if (routeLineRef.current) {
+          routeLineRef.current.setLatLngs(linePoints)
+        } else {
+          routeLineRef.current = L.polyline(linePoints, {
+            color: getCssVar('--brand-primary') || '#E8501F',
+            weight: 3,
+            dashArray: '6 6',
+            opacity: 0.85,
+          }).addTo(map)
+        }
 
-      // Auto-fit so both markers stay visible.
-      const bounds = L.latLngBounds([latLng, [delivery.lat, delivery.lng]])
-      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16, animate: true })
+        const bounds = L.latLngBounds([latLng, [delivery.lat, delivery.lng]])
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16, animate: true })
+      } else {
+        // Rider only — center on rider position.
+        map.setView(latLng, 15, { animate: true })
+      }
     } else {
       // Rider GPS missing — strip the marker + line and recenter on
-      // the destination so the map still feels alive.
+      // the destination (if available) so the map still feels alive.
       if (riderMarkerRef.current) {
         map.removeLayer(riderMarkerRef.current)
         riderMarkerRef.current = null
@@ -118,13 +132,15 @@ export function DeliveryMap({ delivery, rider }: DeliveryMapProps) {
         map.removeLayer(routeLineRef.current)
         routeLineRef.current = null
       }
-      map.setView([delivery.lat, delivery.lng], 14, { animate: true })
+      if (delivery) {
+        map.setView([delivery.lat, delivery.lng], 14, { animate: true })
+      }
     }
     // We deliberately depend on the lat/lng primitives rather than
     // the `rider` object — re-running on every poll's new object
     // identity would jitter the map even when coords haven't changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rider?.lat, rider?.lng, delivery.lat, delivery.lng])
+  }, [rider?.lat, rider?.lng, delivery?.lat, delivery?.lng])
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 }
