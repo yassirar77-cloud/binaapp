@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
 import {
@@ -44,7 +44,7 @@ import { PlaceOrderCTA } from './PlaceOrderCTA'
  * Order placement (COD only for v1 — see PaymentMethodSection):
  *   1. POST /api/v1/delivery/orders with the normalized payload.
  *   2. On success, clear the cart and replace the route with
- *      /order/{order_id}/track (PR 6 territory; route may 404 today).
+ *      /order/tracking/{order_number}.
  *   3. On failure, surface the error inline above the CTA — DO NOT
  *      clear the form, the customer can retry.
  */
@@ -81,6 +81,9 @@ export function CheckoutPageClient() {
   // Place-order state
   const [placing, setPlacing] = useState(false)
   const [placeError, setPlaceError] = useState<string | null>(null)
+  // Prevents the empty-cart guard from hijacking navigation after a
+  // successful order clears the cart.
+  const orderedRef = useRef(false)
 
   // ---- Toggle the page-background class for /order/checkout.
   useEffect(() => {
@@ -104,7 +107,7 @@ export function CheckoutPageClient() {
       router.replace('/order/identify')
       return
     }
-    if (cartItems.length === 0) {
+    if (cartItems.length === 0 && !orderedRef.current) {
       toast('Keranjang anda kosong', { icon: '🛒' })
       router.replace('/order/menu')
       return
@@ -204,7 +207,9 @@ export function CheckoutPageClient() {
         address: resolvedAddress.trim(),
       })
 
-      // Cart goes away on a successful order.
+      // Flag before clearing so the empty-cart guard doesn't redirect
+      // to /order/menu — we're about to navigate to the tracking page.
+      orderedRef.current = true
       clearCart()
 
       // Tracking endpoint is keyed by order_number (e.g. "ORD-3847"),
