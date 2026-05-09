@@ -2,38 +2,42 @@
 
 import { AlertTriangle, MessageCircle } from 'lucide-react'
 import Link from 'next/link'
+import { useRestaurantStore } from '../restaurant-store'
 
 interface ActionButtonsProps {
   orderNumber: string
-  /** WhatsApp number for the restaurant. Optional — falls back to a no-op. */
-  restaurantPhone?: string
 }
 
 /**
  * Two ghost buttons at the bottom of the tracking page:
- *   - "Hubungi restoran" → wa.me deep link if a phone is provided,
- *     otherwise a no-op stub (rare in production).
- *   - "Ada masalah?" → /order/{order_number}/dispute (PR 7 territory,
- *     route 404s today).
+ *   - "Hubungi restoran" → opens a WhatsApp deep link to the
+ *     restaurant's WhatsApp number (sourced from the restaurant
+ *     store, populated by the by-domain lookup).
+ *   - "Ada masalah?" → /order/{order_number}/dispute.
  */
-export function ActionButtons({ orderNumber, restaurantPhone }: ActionButtonsProps) {
-  const wa = restaurantPhone
-    ? `https://wa.me/${(restaurantPhone || '').replace(/\D/g, '')}?text=${encodeURIComponent(`Hi, saya pesanan #${orderNumber}`)}`
-    : null
+export function ActionButtons({ orderNumber }: ActionButtonsProps) {
+  const whatsappNumber = useRestaurantStore((s) => s.restaurant?.whatsappNumber ?? null)
+
+  const handleContactRestaurant = () => {
+    const phone = whatsappNumber?.replace(/\D/g, '')
+    if (!phone) {
+      alert('Nombor WhatsApp restoran tidak tersedia')
+      return
+    }
+    const message = `Hai! Pasal pesanan ${orderNumber}`
+    window.open(
+      `https://wa.me/${phone}?text=${encodeURIComponent(message)}`,
+      '_blank',
+      'noopener,noreferrer'
+    )
+  }
 
   return (
     <div className="tk-actions">
-      {wa ? (
-        <a className="action-btn" href={wa} target="_blank" rel="noopener noreferrer">
-          <MessageCircle size={14} strokeWidth={2} aria-hidden="true" />
-          Hubungi restoran
-        </a>
-      ) : (
-        <button type="button" className="action-btn" disabled>
-          <MessageCircle size={14} strokeWidth={2} aria-hidden="true" />
-          Hubungi restoran
-        </button>
-      )}
+      <button type="button" className="action-btn" onClick={handleContactRestaurant}>
+        <MessageCircle size={14} strokeWidth={2} aria-hidden="true" />
+        Hubungi restoran
+      </button>
       <Link
         className="action-btn warn"
         href={`/order/${encodeURIComponent(orderNumber)}/dispute`}
