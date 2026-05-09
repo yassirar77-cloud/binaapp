@@ -17,13 +17,10 @@ interface ActionButtonsProps {
  */
 export function ActionButtons({ orderNumber }: ActionButtonsProps) {
   const whatsappNumber = useRestaurantStore((s) => s.restaurant?.whatsappNumber ?? null)
+  const phone = whatsappNumber?.replace(/\D/g, '') || null
 
   const handleContactRestaurant = () => {
-    const phone = whatsappNumber?.replace(/\D/g, '')
-    if (!phone) {
-      alert('Nombor WhatsApp restoran tidak tersedia')
-      return
-    }
+    if (!phone) return
     const message = `Hai! Pasal pesanan ${orderNumber}`
     window.open(
       `https://wa.me/${phone}?text=${encodeURIComponent(message)}`,
@@ -34,10 +31,12 @@ export function ActionButtons({ orderNumber }: ActionButtonsProps) {
 
   return (
     <div className="tk-actions">
-      <button type="button" className="action-btn" onClick={handleContactRestaurant}>
-        <MessageCircle size={14} strokeWidth={2} aria-hidden="true" />
-        Hubungi restoran
-      </button>
+      {phone && (
+        <button type="button" className="action-btn" onClick={handleContactRestaurant}>
+          <MessageCircle size={14} strokeWidth={2} aria-hidden="true" />
+          Hubungi restoran
+        </button>
+      )}
       <Link
         className="action-btn warn"
         href={`/order/${encodeURIComponent(orderNumber)}/dispute`}
