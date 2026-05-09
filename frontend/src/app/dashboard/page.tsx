@@ -299,7 +299,7 @@ export default function DashboardPage() {
       description: 'Tetapkan zon, harga, dan jadual penghantaran.',
       meta: { dotColor: '#3B82F6', label: '0 zon aktif' },
       hue: '#3B82F6',
-      href: '/delivery',
+      href: '/dashboard/penghantaran',
     },
     {
       icon: <MapPin size={20} />,
