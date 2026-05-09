@@ -12,7 +12,8 @@ interface ActionButtonsProps {
  * Two ghost buttons at the bottom of the tracking page:
  *   - "Hubungi restoran" → opens a WhatsApp deep link to the
  *     restaurant's WhatsApp number (sourced from the restaurant
- *     store, populated by the by-domain lookup).
+ *     store, populated by the by-domain lookup). Hidden entirely
+ *     when the restaurant has not configured a WhatsApp number.
  *   - "Ada masalah?" → /order/{order_number}/dispute.
  */
 export function ActionButtons({ orderNumber }: ActionButtonsProps) {
