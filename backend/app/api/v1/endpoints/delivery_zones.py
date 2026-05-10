@@ -79,6 +79,8 @@ class ZoneIn(BaseModel):
     max_simultaneous_orders: int = Field(ge=0, default=10)
     customer_notes: str | None = None
     active: bool = True
+    inner_radius_m: int | None = Field(default=None, ge=0)
+    outer_radius_m: int | None = Field(default=None, ge=1)
 
 
 class ZonePatch(BaseModel):
@@ -92,6 +94,8 @@ class ZonePatch(BaseModel):
     max_simultaneous_orders: Optional[int] = Field(default=None, ge=0)
     customer_notes: Optional[str] = None
     active: Optional[bool] = None
+    inner_radius_m: Optional[int] = Field(default=None, ge=0)
+    outer_radius_m: Optional[int] = Field(default=None, ge=1)
 
 
 class ZoneOut(BaseModel):
@@ -108,6 +112,8 @@ class ZoneOut(BaseModel):
     customer_notes: str | None
     active: bool
     area_m2: float | None
+    inner_radius_m: int | None = None
+    outer_radius_m: int | None = None
     created_at: str
     updated_at: str
 
@@ -127,6 +133,8 @@ def _row_to_zone_out(row: Dict[str, Any]) -> ZoneOut:
         customer_notes=row.get("customer_notes"),
         active=row["active"],
         area_m2=row.get("area_m2"),
+        inner_radius_m=row.get("inner_radius_m"),
+        outer_radius_m=row.get("outer_radius_m"),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -180,6 +188,8 @@ async def create_zone(
             "p_max_simultaneous_orders": zone.max_simultaneous_orders,
             "p_customer_notes": zone.customer_notes,
             "p_active": zone.active,
+            "p_inner_radius_m": zone.inner_radius_m,
+            "p_outer_radius_m": zone.outer_radius_m,
         }
         res = supabase.rpc("insert_delivery_zone", rpc_args).execute()
         new_id = res.data
@@ -232,6 +242,8 @@ async def update_zone(
             "p_max_simultaneous_orders": patch.max_simultaneous_orders,
             "p_customer_notes": patch.customer_notes,
             "p_active": patch.active,
+            "p_inner_radius_m": patch.inner_radius_m,
+            "p_outer_radius_m": patch.outer_radius_m,
         }
         supabase.rpc("update_delivery_zone", rpc_args).execute()
 
@@ -426,3 +438,153 @@ async def geocode_postcode(
         }
     _cache_put(key, result)
     return GeocodeResult(**result)
+
+
+# =====================================================
+# Free-text address geocoder — used for auto-locating outlets
+# from registered location_address. Same Nominatim proxy + cache as
+# postcode lookup, but accepts arbitrary text via Nominatim's `q=` param.
+# =====================================================
+_ADDRESS_MIN_LEN = 4
+_ADDRESS_MAX_LEN = 300
+
+
+@router.get("/geocode-address", response_model=GeocodeResult)
+async def geocode_address(
+    q: str = Query(..., min_length=_ADDRESS_MIN_LEN, max_length=_ADDRESS_MAX_LEN),
+    country: str = Query("MY", min_length=2, max_length=2),
+    _user: Dict = Depends(get_current_user),
+):
+    """Resolve a free-text address → lat/lng via Nominatim.
+
+    Used by the penghantaran page to auto-locate the outlet from the
+    registered location_address on first visit. Cached identically to
+    geocode_postcode to stay within Nominatim's rate limits.
+    """
+    query = q.strip()
+    if len(query) < _ADDRESS_MIN_LEN:
+        raise HTTPException(status_code=400, detail="Alamat terlalu pendek")
+
+    key = f"ADDR:{country.upper()}:{query.lower()}"
+    cached = _cache_get(key)
+    if cached is not None:
+        return GeocodeResult(**cached)
+
+    headers = {"User-Agent": "BinaApp/1.0 (admin@binaapp.my)"}
+    params = {
+        "q": query,
+        "countrycodes": country.lower(),
+        "format": "json",
+        "limit": 1,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            resp = await http.get(
+                "https://nominatim.openstreetmap.org/search",
+                params=params,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Geocoder masa tamat")
+    except Exception as e:
+        logger.error(f"Nominatim address error: {e}")
+        raise HTTPException(status_code=502, detail="Geocoder unavailable")
+
+    if not data:
+        result = {"found": False, "lat": None, "lng": None, "display_name": None}
+    else:
+        first = data[0]
+        result = {
+            "found": True,
+            "lat": float(first["lat"]),
+            "lng": float(first["lon"]),
+            "display_name": first.get("display_name"),
+        }
+    _cache_put(key, result)
+    return GeocodeResult(**result)
+
+
+# =====================================================
+# Website info + outlet location pin
+# =====================================================
+class WebsiteOut(BaseModel):
+    id: str
+    name: str | None = None
+    business_name: str | None = None
+    location_address: str | None = None
+    lat: float | None = None
+    lng: float | None = None
+
+
+class WebsiteLocationIn(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
+
+
+class WebsiteLocationOut(BaseModel):
+    website_id: str
+    lat: float
+    lng: float
+
+
+@router.get("/website/{website_id}/info", response_model=WebsiteOut)
+async def get_website_info(
+    website_id: str,
+    supabase: Client = Depends(get_rls_supabase),
+):
+    """Return basic website info needed by the penghantaran page
+    (name, address, current outlet pin)."""
+    try:
+        res = (
+            supabase.table("websites")
+            .select("id,name,business_name,location_address,lat,lng")
+            .eq("id", website_id)
+            .single()
+            .execute()
+        )
+        d = res.data
+        if not d:
+            raise HTTPException(status_code=404, detail="Website not found")
+        return WebsiteOut(
+            id=str(d["id"]),
+            name=d.get("name"),
+            business_name=d.get("business_name"),
+            location_address=d.get("location_address"),
+            lat=d.get("lat"),
+            lng=d.get("lng"),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"get_website_info failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load website")
+
+
+@router.put("/website/{website_id}/location", response_model=WebsiteLocationOut)
+async def set_website_location(
+    website_id: str,
+    body: WebsiteLocationIn,
+    supabase: Client = Depends(get_rls_supabase),
+):
+    """Set the outlet pin location for the website. Used by penghantaran
+    page on first-run setup and the 'Tukar lokasi' action."""
+    try:
+        supabase.rpc(
+            "update_website_location",
+            {
+                "p_website_id": website_id,
+                "p_lat": body.lat,
+                "p_lng": body.lng,
+            },
+        ).execute()
+        return WebsiteLocationOut(website_id=website_id, lat=body.lat, lng=body.lng)
+    except HTTPException:
+        raise
+    except Exception as e:
+        msg = str(e)
+        if "forbidden" in msg.lower():
+            raise HTTPException(status_code=403, detail="Bukan website anda")
+        logger.error(f"set_website_location failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to set location")
