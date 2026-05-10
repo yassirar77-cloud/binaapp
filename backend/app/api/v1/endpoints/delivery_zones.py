@@ -4,11 +4,16 @@ Delivery Zones API — owner-side admin endpoints for /dashboard/penghantaran.
 These endpoints power the per-website zone manager. They sit alongside the
 legacy /delivery/zones/{website_id} endpoint, which is still used by the
 public customer flow. New owner UI MUST use these (/zones/...) routes.
+
+Patched:
+  - delete_zone now returns 404 if no row was deleted (RLS safety net).
+  - geocode_postcode validates 5-digit MY postcode format before hitting Nominatim.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +28,10 @@ from app.core.security import get_current_user
 
 router = APIRouter(prefix="/zones", tags=["Delivery Zones (Owner)"])
 bearer_scheme = HTTPBearer()
+
+# 5-digit Malaysian postcode pattern. Other countries can be supported later
+# by relaxing this regex per-country.
+_MY_POSTCODE_RE = re.compile(r"^\d{5}$")
 
 
 # =====================================================
@@ -103,6 +112,26 @@ class ZoneOut(BaseModel):
     updated_at: str
 
 
+def _row_to_zone_out(row: Dict[str, Any]) -> ZoneOut:
+    return ZoneOut(
+        id=str(row["id"]),
+        website_id=str(row["website_id"]),
+        name=row["name"],
+        color=row["color"],
+        fee_cents=row["fee_cents"],
+        min_order_cents=row["min_order_cents"],
+        polygon=row["polygon_geojson"],
+        schedule_json=row["schedule_json"],
+        estimated_delivery_min=row.get("estimated_delivery_min"),
+        max_simultaneous_orders=row.get("max_simultaneous_orders"),
+        customer_notes=row.get("customer_notes"),
+        active=row["active"],
+        area_m2=row.get("area_m2"),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
 # =====================================================
 # Endpoints
 # =====================================================
@@ -117,26 +146,7 @@ async def list_zones(
             "list_delivery_zones", {"p_website_id": website_id}
         ).execute()
         rows = res.data or []
-        return [
-            ZoneOut(
-                id=str(r["id"]),
-                website_id=str(r["website_id"]),
-                name=r["name"],
-                color=r["color"],
-                fee_cents=r["fee_cents"],
-                min_order_cents=r["min_order_cents"],
-                polygon=r["polygon_geojson"],
-                schedule_json=r["schedule_json"],
-                estimated_delivery_min=r.get("estimated_delivery_min"),
-                max_simultaneous_orders=r.get("max_simultaneous_orders"),
-                customer_notes=r.get("customer_notes"),
-                active=r["active"],
-                area_m2=r.get("area_m2"),
-                created_at=r["created_at"],
-                updated_at=r["updated_at"],
-            )
-            for r in rows
-        ]
+        return [_row_to_zone_out(r) for r in rows]
     except HTTPException:
         raise
     except Exception as e:
@@ -153,8 +163,10 @@ async def create_zone(
     """Create a new zone (polygon as GeoJSON)."""
     try:
         schedule = zone.schedule_json or {}
-        schedule_payload = {k: v.model_dump() if hasattr(v, "model_dump") else v
-                            for k, v in schedule.items()} or None
+        schedule_payload = {
+            k: v.model_dump() if hasattr(v, "model_dump") else v
+            for k, v in schedule.items()
+        } or None
 
         rpc_args = {
             "p_website_id": website_id,
@@ -181,23 +193,7 @@ async def create_zone(
         row = next((r for r in rows if str(r["id"]) == str(new_id)), None)
         if not row:
             raise HTTPException(status_code=500, detail="Inserted zone not visible")
-        return ZoneOut(
-            id=str(row["id"]),
-            website_id=str(row["website_id"]),
-            name=row["name"],
-            color=row["color"],
-            fee_cents=row["fee_cents"],
-            min_order_cents=row["min_order_cents"],
-            polygon=row["polygon_geojson"],
-            schedule_json=row["schedule_json"],
-            estimated_delivery_min=row.get("estimated_delivery_min"),
-            max_simultaneous_orders=row.get("max_simultaneous_orders"),
-            customer_notes=row.get("customer_notes"),
-            active=row["active"],
-            area_m2=row.get("area_m2"),
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
+        return _row_to_zone_out(row)
     except HTTPException:
         raise
     except Exception as e:
@@ -240,7 +236,13 @@ async def update_zone(
         supabase.rpc("update_delivery_zone", rpc_args).execute()
 
         # Resolve website_id from the zone, then read back via list RPC
-        meta = supabase.table("delivery_zones").select("website_id").eq("id", zone_id).single().execute()
+        meta = (
+            supabase.table("delivery_zones")
+            .select("website_id")
+            .eq("id", zone_id)
+            .single()
+            .execute()
+        )
         website_id = meta.data["website_id"]
         rows = supabase.rpc(
             "list_delivery_zones", {"p_website_id": website_id}
@@ -248,23 +250,7 @@ async def update_zone(
         row = next((r for r in rows if str(r["id"]) == str(zone_id)), None)
         if not row:
             raise HTTPException(status_code=404, detail="Zone not found")
-        return ZoneOut(
-            id=str(row["id"]),
-            website_id=str(row["website_id"]),
-            name=row["name"],
-            color=row["color"],
-            fee_cents=row["fee_cents"],
-            min_order_cents=row["min_order_cents"],
-            polygon=row["polygon_geojson"],
-            schedule_json=row["schedule_json"],
-            estimated_delivery_min=row.get("estimated_delivery_min"),
-            max_simultaneous_orders=row.get("max_simultaneous_orders"),
-            customer_notes=row.get("customer_notes"),
-            active=row["active"],
-            area_m2=row.get("area_m2"),
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
+        return _row_to_zone_out(row)
     except HTTPException:
         raise
     except Exception as e:
@@ -280,8 +266,17 @@ async def delete_zone(
     zone_id: str,
     supabase: Client = Depends(get_rls_supabase),
 ):
+    """Delete a zone. RLS ensures only the owner can delete; if no row was
+    affected we return 404 instead of a misleading 204."""
     try:
-        supabase.table("delivery_zones").delete().eq("id", zone_id).execute()
+        res = supabase.table("delivery_zones").delete().eq("id", zone_id).execute()
+        # supabase-py returns the deleted rows in res.data; empty list ⇒ nothing matched
+        if not res.data:
+            raise HTTPException(
+                status_code=404, detail="Zon tidak dijumpai atau bukan milik anda"
+            )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"delete_zone failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete zone: {e}")
@@ -304,13 +299,23 @@ async def test_point(
     website_id: str,
     lat: float = Query(..., ge=-90, le=90),
     lng: float = Query(..., ge=-180, le=180),
+    include_inactive: bool = Query(False),
     supabase: Client = Depends(get_rls_supabase),
 ):
-    """Return the smallest active zone covering (lat,lng), or covered=false."""
+    """Return the smallest zone covering (lat,lng), or covered=false.
+
+    By default only active zones are considered. Owner postcode test can pass
+    include_inactive=true to preview against draft zones.
+    """
     try:
         res = supabase.rpc(
             "find_zone_for_point",
-            {"p_website_id": website_id, "p_lat": lat, "p_lng": lng},
+            {
+                "p_website_id": website_id,
+                "p_lat": lat,
+                "p_lng": lng,
+                "p_only_active": not include_inactive,
+            },
         ).execute()
         rows = res.data or []
         if not rows:
@@ -334,6 +339,7 @@ async def test_point(
 # =====================================================
 _GEOCODE_CACHE: Dict[str, tuple[float, dict]] = {}
 _GEOCODE_TTL = 60 * 60 * 24 * 7  # 7 days
+_GEOCODE_CACHE_MAX = 5000  # hard cap to prevent unbounded growth
 
 
 class GeocodeResult(BaseModel):
@@ -343,22 +349,52 @@ class GeocodeResult(BaseModel):
     display_name: str | None = None
 
 
+def _cache_get(key: str) -> Optional[dict]:
+    entry = _GEOCODE_CACHE.get(key)
+    if not entry:
+        return None
+    ts, data = entry
+    if time.time() - ts >= _GEOCODE_TTL:
+        _GEOCODE_CACHE.pop(key, None)
+        return None
+    return data
+
+
+def _cache_put(key: str, data: dict) -> None:
+    if len(_GEOCODE_CACHE) >= _GEOCODE_CACHE_MAX:
+        # Evict oldest 10% to keep amortized cost low.
+        items = sorted(_GEOCODE_CACHE.items(), key=lambda kv: kv[1][0])
+        for k, _ in items[: max(1, _GEOCODE_CACHE_MAX // 10)]:
+            _GEOCODE_CACHE.pop(k, None)
+    _GEOCODE_CACHE[key] = (time.time(), data)
+
+
 @router.get("/geocode", response_model=GeocodeResult)
 async def geocode_postcode(
-    postcode: str = Query(..., min_length=3, max_length=10),
+    postcode: str = Query(..., min_length=5, max_length=5),
     country: str = Query("MY", min_length=2, max_length=2),
     _user: Dict = Depends(get_current_user),
 ):
-    """Resolve postcode → lat/lng via Nominatim. Caches in-process."""
-    key = f"{country.upper()}:{postcode.strip()}"
-    now = time.time()
-    cached = _GEOCODE_CACHE.get(key)
-    if cached and now - cached[0] < _GEOCODE_TTL:
-        return GeocodeResult(**cached[1])
+    """Resolve a 5-digit postcode → lat/lng via Nominatim. Caches in-process.
+
+    Postcode format is validated against /^\\d{5}$/ before hitting Nominatim
+    to defend the User-Agent's IP against rate-limiting from spammy / nonsense
+    inputs (e.g. ?postcode=KFC).
+    """
+    pc = postcode.strip()
+    if not _MY_POSTCODE_RE.match(pc):
+        raise HTTPException(
+            status_code=400, detail="Postcode mesti 5 digit"
+        )
+
+    key = f"{country.upper()}:{pc}"
+    cached = _cache_get(key)
+    if cached is not None:
+        return GeocodeResult(**cached)
 
     headers = {"User-Agent": "BinaApp/1.0 (admin@binaapp.my)"}
     params = {
-        "postalcode": postcode,
+        "postalcode": pc,
         "country": country,
         "format": "json",
         "limit": 1,
@@ -372,6 +408,8 @@ async def geocode_postcode(
             )
             resp.raise_for_status()
             data = resp.json()
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Geocoder masa tamat")
     except Exception as e:
         logger.error(f"Nominatim error: {e}")
         raise HTTPException(status_code=502, detail="Geocoder unavailable")
@@ -386,5 +424,5 @@ async def geocode_postcode(
             "lng": float(first["lon"]),
             "display_name": first.get("display_name"),
         }
-    _GEOCODE_CACHE[key] = (now, result)
+    _cache_put(key, result)
     return GeocodeResult(**result)
