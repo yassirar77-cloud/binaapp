@@ -1,0 +1,103 @@
+/* Component-scoped styles for the Urus Penghantaran page. */
+
+.penghantaran-root {
+  background: #0a0e1a;
+  color: #ffffff;
+  font-family: 'Geist', system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+/* Restaurant pin (lime dot + pulse) */
+.rest-pin-wrap {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+}
+.rest-pin-dot {
+  position: absolute;
+  inset: 6px;
+  border-radius: 9999px;
+  background: #c7ff3d;
+  box-shadow: 0 0 0 2px #0a0e1a;
+}
+.rest-pin-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: #c7ff3d;
+  opacity: 0.35;
+  animation: rest-pin-pulse 1.8s ease-out infinite;
+}
+@keyframes rest-pin-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+.postcode-pin-wrap {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6));
+}
+
+/* Zone hover pulse (applied to <path> by JS) */
+.zone-pulse {
+  animation: zone-pulse 1.2s ease-in-out infinite;
+}
+@keyframes zone-pulse {
+  0%,
+  100% {
+    stroke-width: 2;
+    fill-opacity: 0.35;
+  }
+  50% {
+    stroke-width: 4;
+    fill-opacity: 0.55;
+  }
+}
+
+/* Outlet picker cursor */
+.leaflet-container.outlet-picking,
+.outlet-picking .leaflet-container {
+  cursor: crosshair !important;
+}
+
+/* Modal inputs (scoped to penghantaran modal) */
+.modal-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  font-size: 14px;
+  font-family: 'Geist', system-ui, sans-serif;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.modal-input:focus {
+  border-color: rgba(199, 255, 61, 0.6);
+}
+.modal-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+.modal-input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+textarea.modal-input {
+  height: auto;
+  padding: 10px 12px;
+  resize: vertical;
+}
+.modal-input-sm {
+  height: 34px;
+  width: auto;
+  padding: 0 8px;
+  font-size: 13px;
+}

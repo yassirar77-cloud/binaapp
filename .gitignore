@@ -10,7 +10,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# lib/  # too broad — was catching frontend lib folders
 lib64/
 parts/
 sdist/
