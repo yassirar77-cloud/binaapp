@@ -1,8 +1,8 @@
 'use client';
 
 import { Settings, Trash2 } from 'lucide-react';
+import { formatDistance } from '../lib/polygon';
 import type { Zone } from '../lib/types';
-import { formatKm2, polygonAreaM2 } from '../lib/polygon';
 
 const DAY_SHORT: Array<{ key: keyof Zone['schedule_json']; label: string }> = [
   { key: 'mon', label: 'I' },
@@ -14,7 +14,7 @@ const DAY_SHORT: Array<{ key: keyof Zone['schedule_json']; label: string }> = [
   { key: 'sun', label: 'A' },
 ];
 
-export default function ZoneCard({
+export default function RingCard({
   zone,
   onHover,
   onEdit,
@@ -27,7 +27,12 @@ export default function ZoneCard({
   onDelete: (zone: Zone) => void;
   onToggleActive: (zone: Zone, active: boolean) => void;
 }) {
-  const km2 = formatKm2(zone.area_m2 ?? polygonAreaM2(zone.polygon));
+  const inner = zone.inner_radius_m ?? 0;
+  const outer = zone.outer_radius_m ?? 0;
+  const distanceLabel =
+    outer > 0
+      ? `${formatDistance(inner)}–${formatDistance(outer)}`
+      : '—';
   const fee = (zone.fee_cents / 100).toFixed(2);
   const minOrder = (zone.min_order_cents / 100).toFixed(0);
 
@@ -52,7 +57,7 @@ export default function ZoneCard({
               {zone.name}
             </div>
             <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-white/50 font-mono">
-              <span>{km2} km²</span>
+              <span>{distanceLabel}</span>
               <span aria-hidden>·</span>
               <span>RM {fee}</span>
               <span aria-hidden>·</span>
@@ -98,7 +103,7 @@ export default function ZoneCard({
             onClick={() => onEdit(zone)}
             className="p-1.5 rounded-md text-white/60 hover:text-white hover:bg-white/[0.06] transition"
             title="Tetapan"
-            aria-label={`Edit zon ${zone.name}`}
+            aria-label={`Edit ring ${zone.name}`}
           >
             <Settings size={15} strokeWidth={1.5} />
           </button>
@@ -107,7 +112,7 @@ export default function ZoneCard({
             onClick={() => onDelete(zone)}
             className="p-1.5 rounded-md text-white/60 hover:text-red-400 hover:bg-red-500/10 transition"
             title="Padam"
-            aria-label={`Padam zon ${zone.name}`}
+            aria-label={`Padam ring ${zone.name}`}
           >
             <Trash2 size={15} strokeWidth={1.5} />
           </button>

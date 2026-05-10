@@ -28,7 +28,7 @@ export default function PenghantaranPage() {
       }
       const { data, error: dbErr } = await supabase
         .from('websites')
-        .select('id, name, subdomain')
+        .select('id, name, business_name, subdomain, location_address, lat, lng')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
       if (cancelled) return;
@@ -37,14 +37,14 @@ export default function PenghantaranPage() {
         setLoading(false);
         return;
       }
-      const mapped: Outlet[] = (data ?? []).map((w: any) => ({
+      const mapped: Outlet[] = (data ?? []).map((w: { id: string; name?: string | null; business_name?: string | null; subdomain?: string | null; location_address?: string | null; lat?: number | null; lng?: number | null }) => ({
         id: w.id,
-        name: w.name || 'Outlet',
+        name: w.business_name || w.name || 'Outlet',
         subdomain: w.subdomain || '',
-        // websites doesn't currently store lat/lng — left null and the map
-        // falls back to KL center with a hint toast.
-        lat: null,
-        lng: null,
+        lat: w.lat ?? null,
+        lng: w.lng ?? null,
+        location_address: w.location_address ?? null,
+        business_name: w.business_name ?? null,
       }));
       setOutlets(mapped);
       setLoading(false);

@@ -2,7 +2,7 @@
 
 import { ChevronDown, Store } from 'lucide-react';
 import type { Outlet, Zone } from '../lib/types';
-import { formatKm2, polygonAreaM2 } from '../lib/polygon';
+import { formatDistance } from '../lib/polygon';
 
 export default function TopBar({
   outlets,
@@ -20,15 +20,15 @@ export default function TopBar({
     zones.length > 0
       ? zones.reduce((sum, z) => sum + z.fee_cents, 0) / zones.length
       : 0;
-  const totalAreaM2 = zones.reduce(
-    (sum, z) => sum + (z.area_m2 ?? polygonAreaM2(z.polygon)),
+  const maxOuterM = zones.reduce(
+    (m, z) => Math.max(m, z.outer_radius_m ?? 0),
     0,
   );
 
   const stats: Array<{ label: string; value: string }> = [
-    { label: 'Zon Aktif', value: String(activeCount) },
+    { label: 'Ring Aktif', value: String(activeCount) },
     { label: 'Yuran Purata', value: `RM ${(avgFeeCents / 100).toFixed(2)}` },
-    { label: 'Liputan', value: `${formatKm2(totalAreaM2)} km²` },
+    { label: 'Liputan Maks', value: maxOuterM > 0 ? formatDistance(maxOuterM) : '—' },
   ];
 
   return (

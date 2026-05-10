@@ -4,9 +4,9 @@
 //   Leaflet: [lat, lng]
 // All conversions go through these helpers — never inline a swap elsewhere.
 
-import area from '@turf/area';
-import kinks from '@turf/kinks';
-import { polygon as turfPolygon } from '@turf/helpers';
+import circle from '@turf/circle';
+import distance from '@turf/distance';
+import { point } from '@turf/helpers';
 import type { GeoJSONPolygon } from './types';
 
 /**
@@ -16,7 +16,6 @@ import type { GeoJSONPolygon } from './types';
 export function geoJSONToLatLngs(p: GeoJSONPolygon): [number, number][] {
   const ring = p?.coordinates?.[0];
   if (!Array.isArray(ring) || ring.length === 0) return [];
-  // GeoJSON closes by repeating first point; Leaflet doesn't want that.
   const last = ring.length - 1;
   const closed =
     ring.length >= 2 &&
@@ -26,55 +25,36 @@ export function geoJSONToLatLngs(p: GeoJSONPolygon): [number, number][] {
   return usable.map(([lng, lat]) => [lat, lng] as [number, number]);
 }
 
-/**
- * Convert Leaflet [lat, lng] vertices to a closed GeoJSON Polygon.
- * Adds the closing duplicate vertex automatically.
- */
-export function latLngsToGeoJSON(latlngs: [number, number][]): GeoJSONPolygon {
-  if (latlngs.length < 3) {
-    throw new Error('Polygon needs at least 3 vertices');
-  }
-  const ring = latlngs.map(([lat, lng]) => [lng, lat]);
-  // Close the ring
-  const first = ring[0];
-  const last = ring[ring.length - 1];
-  if (first[0] !== last[0] || first[1] !== last[1]) {
-    ring.push([first[0], first[1]]);
-  }
-  return {
-    type: 'Polygon',
-    coordinates: [ring],
-  };
+// ---------- Concentric ring helpers ----------
+
+/** 64-vertex GeoJSON polygon approximating a circle of given radius. */
+export function ringToPolygon(
+  centerLat: number,
+  centerLng: number,
+  radiusM: number,
+): GeoJSONPolygon {
+  const c = circle([centerLng, centerLat], radiusM / 1000, {
+    steps: 64,
+    units: 'kilometers',
+  });
+  return c.geometry as GeoJSONPolygon;
 }
 
-/** True if the polygon's outer ring self-intersects. */
-export function polygonHasSelfIntersection(p: GeoJSONPolygon): boolean {
-  try {
-    const feat = turfPolygon(p.coordinates);
-    const intersections = kinks(feat);
-    return (intersections.features?.length ?? 0) > 0;
-  } catch {
-    // turf throws on degenerate input; treat as invalid (which is a kind of bad geometry)
-    return true;
-  }
+/** Great-circle distance in meters between two lat/lng points. */
+export function distanceMeters(
+  aLat: number,
+  aLng: number,
+  bLat: number,
+  bLng: number,
+): number {
+  const a = point([aLng, aLat]);
+  const b = point([bLng, bLat]);
+  return distance(a, b, { units: 'meters' });
 }
 
-/** Surface area in square meters (great-circle aware via turf). */
-export function polygonAreaM2(p: GeoJSONPolygon): number {
-  try {
-    const feat = turfPolygon(p.coordinates);
-    return area(feat);
-  } catch {
-    return 0;
-  }
-}
-
-/** Format square meters as "X.X km²" or "X m²" for very small zones. */
-export function formatKm2(m2: number | null | undefined): string {
-  if (!m2 || m2 <= 0) return '0 km²';
-  if (m2 < 10_000) return `${Math.round(m2)} m²`;
-  const km2 = m2 / 1_000_000;
-  if (km2 < 0.1) return `${km2.toFixed(2)} km²`;
-  if (km2 < 10) return `${km2.toFixed(1)} km²`;
-  return `${Math.round(km2)} km²`;
+/** Format meters as "3 km" or "500 m" for ring labels. */
+export function formatDistance(m: number): string {
+  if (m < 1000) return `${Math.round(m)} m`;
+  const km = m / 1000;
+  return Number.isInteger(km) ? `${km} km` : `${km.toFixed(1)} km`;
 }

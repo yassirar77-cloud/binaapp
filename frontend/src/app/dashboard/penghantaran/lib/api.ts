@@ -142,6 +142,56 @@ export async function geocodePostcode(
   };
 }
 
+export async function geocodeAddress(
+  query: string,
+  country = 'MY',
+): Promise<GeocodeHit | GeocodeMiss> {
+  const trimmed = query.trim();
+  if (trimmed.length < 4) return { found: false };
+  const params = new URLSearchParams({ q: trimmed, country });
+  const res = await authFetch<{
+    found: boolean;
+    lat: number | null;
+    lng: number | null;
+    display_name: string | null;
+  }>(`/api/v1/zones/geocode-address?${params.toString()}`);
+  if (!res.found || res.lat == null || res.lng == null) {
+    return { found: false };
+  }
+  return {
+    found: true,
+    lat: res.lat,
+    lng: res.lng,
+    display_name: res.display_name,
+  };
+}
+
+// ----- Outlet (website) info + location pin -----
+
+export interface OutletInfo {
+  id: string;
+  name: string | null;
+  business_name: string | null;
+  location_address: string | null;
+  lat: number | null;
+  lng: number | null;
+}
+
+export function getOutletInfo(websiteId: string): Promise<OutletInfo> {
+  return authFetch<OutletInfo>(`/api/v1/zones/website/${websiteId}/info`);
+}
+
+export function setOutletLocation(
+  websiteId: string,
+  lat: number,
+  lng: number,
+): Promise<{ website_id: string; lat: number; lng: number }> {
+  return authFetch(`/api/v1/zones/website/${websiteId}/location`, {
+    method: 'PUT',
+    body: JSON.stringify({ lat, lng }),
+  });
+}
+
 // ----- Utility for building ZoneInput from a GeoJSON polygon + form draft -----
 
 export function buildZoneInput(

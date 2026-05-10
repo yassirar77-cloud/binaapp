@@ -60,9 +60,9 @@
   }
 }
 
-/* Drawing cursor */
-.leaflet-container.drawing,
-.drawing .leaflet-container {
+/* Outlet picker cursor */
+.leaflet-container.outlet-picking,
+.outlet-picking .leaflet-container {
   cursor: crosshair !important;
 }
 

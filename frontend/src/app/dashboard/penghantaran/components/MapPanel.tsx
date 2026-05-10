@@ -1,23 +1,22 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { Map as LeafletMap, Marker, Polygon, Polyline, CircleMarker } from 'leaflet';
+import type { Map as LeafletMap, Marker, Polygon } from 'leaflet';
 import {
   DEFAULT_CENTER,
   DEFAULT_ZOOM,
   TILE_ATTRIBUTION,
   TILE_URL,
 } from '../lib/constants';
-import { geoJSONToLatLngs, latLngsToGeoJSON } from '../lib/polygon';
-import type { GeoJSONPolygon, Outlet, Zone } from '../lib/types';
+import { geoJSONToLatLngs } from '../lib/polygon';
+import type { Outlet, Zone } from '../lib/types';
 
 export interface MapPanelProps {
   outlet: Outlet | null;
   zones: Zone[];
   hoveredZoneId: string | null;
-  isDrawing: boolean;
-  onDrawComplete: (polygon: GeoJSONPolygon) => void;
-  onDrawCancel: () => void;
+  outletPickerMode: boolean;
+  onOutletPick: (lat: number, lng: number) => void;
   postcodePin: { lat: number; lng: number } | null;
 }
 
@@ -25,9 +24,8 @@ export default function MapPanel({
   outlet,
   zones,
   hoveredZoneId,
-  isDrawing,
-  onDrawComplete,
-  onDrawCancel,
+  outletPickerMode,
+  onOutletPick,
   postcodePin,
 }: MapPanelProps) {
   const mapRef = useRef<LeafletMap | null>(null);
@@ -36,11 +34,6 @@ export default function MapPanel({
   const outletPinRef = useRef<Marker | null>(null);
   const postcodePinRef = useRef<Marker | null>(null);
 
-  // Drawing state
-  const drawVerticesRef = useRef<[number, number][]>([]);
-  const drawPolylineRef = useRef<Polyline | null>(null);
-  const drawDotsRef = useRef<CircleMarker[]>([]);
-
   const [LRef, setLRef] = useState<typeof import('leaflet') | null>(null);
 
   // Init Leaflet (client-side only)
@@ -48,7 +41,6 @@ export default function MapPanel({
     let cancelled = false;
     (async () => {
       const L = (await import('leaflet')).default;
-      // CSS — only inject once
       if (typeof document !== 'undefined' && !document.getElementById('leaflet-css')) {
         const link = document.createElement('link');
         link.id = 'leaflet-css';
@@ -108,7 +100,7 @@ export default function MapPanel({
     );
   }, [LRef, outlet]);
 
-  // Render zones
+  // Render zones (each zone's polygon is already a 64-vertex ring approximation)
   useEffect(() => {
     if (!LRef || !mapRef.current) return;
     const L = LRef;
@@ -129,7 +121,14 @@ export default function MapPanel({
         opacity: z.active ? 1 : 0.6,
         dashArray: z.active ? undefined : '6,4',
       }).addTo(map);
-      poly.bindTooltip(z.name, { sticky: true, direction: 'top' });
+      const radiusLabel =
+        z.outer_radius_m != null
+          ? ` · ${(z.outer_radius_m / 1000).toFixed(1)} km`
+          : '';
+      poly.bindTooltip(`${z.name}${radiusLabel}`, {
+        sticky: true,
+        direction: 'top',
+      });
       next.set(z.id, poly);
     }
     polygonsRef.current = next;
@@ -138,7 +137,7 @@ export default function MapPanel({
   // Hover sync
   useEffect(() => {
     polygonsRef.current.forEach((poly, id) => {
-      const el = (poly as any).getElement?.() as SVGElement | null;
+      const el = (poly as unknown as { getElement?: () => SVGElement | null }).getElement?.();
       if (!el) return;
       if (id === hoveredZoneId) {
         el.classList.add('zone-pulse');
@@ -171,80 +170,31 @@ export default function MapPanel({
     });
   }, [LRef, postcodePin]);
 
-  // ---------------------------------------------------------------
-  // Drawing flow
-  // ---------------------------------------------------------------
+  // Outlet picker — single click drops the pin via callback
   useEffect(() => {
     if (!LRef || !mapRef.current) return;
-    const L = LRef;
     const map = mapRef.current;
-    if (!isDrawing) {
-      // cleanup any in-progress drawing
-      drawVerticesRef.current = [];
-      drawPolylineRef.current?.remove();
-      drawPolylineRef.current = null;
-      drawDotsRef.current.forEach((d) => d.remove());
-      drawDotsRef.current = [];
-      if (containerRef.current) {
-        containerRef.current.classList.remove('drawing');
-      }
-      map.doubleClickZoom.enable();
-      return;
-    }
-
     if (containerRef.current) {
-      containerRef.current.classList.add('drawing');
+      containerRef.current.classList.toggle('outlet-picking', outletPickerMode);
     }
-    map.doubleClickZoom.disable();
+    if (!outletPickerMode) return;
 
-    const redrawPolyline = () => {
-      drawPolylineRef.current?.remove();
-      if (drawVerticesRef.current.length >= 2) {
-        drawPolylineRef.current = L.polyline(drawVerticesRef.current, {
-          color: '#C7FF3D',
-          weight: 2,
-          dashArray: '4,4',
-        }).addTo(map);
-      }
+    const handleClick = (e: { latlng: { lat: number; lng: number } }) => {
+      onOutletPick(e.latlng.lat, e.latlng.lng);
     };
-
-    const handleClick = (e: any) => {
-      const pt: [number, number] = [e.latlng.lat, e.latlng.lng];
-      drawVerticesRef.current = [...drawVerticesRef.current, pt];
-      const dot = L.circleMarker(pt, {
-        radius: 5,
-        color: '#C7FF3D',
-        fillColor: '#0a0e1a',
-        fillOpacity: 1,
-        weight: 2,
-      }).addTo(map);
-      drawDotsRef.current.push(dot);
-      redrawPolyline();
-    };
-
-    const handleDoubleClick = () => {
-      const v = drawVerticesRef.current;
-      if (v.length < 3) return;
-      const polygon = latLngsToGeoJSON(v);
-      onDrawComplete(polygon);
-    };
-
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onDrawCancel();
-      }
-    };
-
     map.on('click', handleClick);
-    map.on('dblclick', handleDoubleClick);
-    window.addEventListener('keydown', handleKey);
-
     return () => {
       map.off('click', handleClick);
-      map.off('dblclick', handleDoubleClick);
-      window.removeEventListener('keydown', handleKey);
     };
-  }, [LRef, isDrawing, onDrawComplete, onDrawCancel]);
+  }, [LRef, outletPickerMode, onOutletPick]);
+
+  // Recenter when outlet location changes (after a pick)
+  useEffect(() => {
+    if (!mapRef.current || !outlet?.lat || !outlet?.lng) return;
+    mapRef.current.setView([outlet.lat, outlet.lng], DEFAULT_ZOOM, {
+      animate: true,
+    });
+  }, [outlet?.lat, outlet?.lng]);
 
   return (
     <div className="relative h-full w-full">
@@ -253,13 +203,10 @@ export default function MapPanel({
         className="h-full w-full bg-[#0f1424]"
         aria-label="Peta zon penghantaran"
       />
-      {isDrawing && (
+      {outletPickerMode && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[1000] px-4 py-2.5 rounded-lg bg-[#0a0e1a]/95 border border-white/[0.16] shadow-xl">
           <div className="font-geist text-xs text-white">
-            Klik untuk lukis sempadan ·{' '}
-            <span className="font-mono text-[#C7FF3D]">double-click</span> untuk
-            selesai ·{' '}
-            <span className="font-mono text-white/70">ESC</span> untuk batal
+            Klik pada peta untuk tetapkan lokasi kedai
           </div>
         </div>
       )}

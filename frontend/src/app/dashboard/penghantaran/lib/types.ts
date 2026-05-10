@@ -32,9 +32,10 @@ export interface Outlet {
   id: string;            // websites.id
   name: string;          // websites.business_name || websites.name
   subdomain: string;
-  lat: number | null;    // websites.lat (column not yet added; falls back to KL)
-  lng: number | null;    // websites.lng (column not yet added)
+  lat: number | null;    // websites.lat
+  lng: number | null;    // websites.lng
   location_address?: string | null;
+  business_name?: string | null;
 }
 
 // ----- Zone -----
@@ -53,6 +54,8 @@ export interface Zone {
   customer_notes: string | null;
   active: boolean;
   area_m2: number | null;
+  inner_radius_m: number | null;
+  outer_radius_m: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -69,6 +72,8 @@ export interface ZoneInput {
   max_simultaneous_orders?: number;
   customer_notes?: string | null;
   active?: boolean;
+  inner_radius_m?: number | null;
+  outer_radius_m?: number | null;
 }
 
 // ----- Postcode test -----
