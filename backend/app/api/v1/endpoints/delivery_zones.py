@@ -5,29 +5,31 @@ These endpoints power the per-website zone manager. They sit alongside the
 legacy /delivery/zones/{website_id} endpoint, which is still used by the
 public customer flow. New owner UI MUST use these (/zones/...) routes.
 
-Patched:
-  - delete_zone now returns 404 if no row was deleted (RLS safety net).
-  - geocode_postcode validates 5-digit MY postcode format before hitting Nominatim.
+Auth pattern: this codebase issues custom JWTs (signed with the backend's
+JWT_SECRET_KEY), so Supabase RLS via client.postgrest.auth(token) does not
+work — Supabase rejects the signature with PGRST301. We instead verify the
+JWT in FastAPI via get_current_user, query Supabase via the service-role
+client (bypasses RLS), and check ownership in Python before each operation.
+The 3 mutating RPCs accept p_user_id explicitly because auth.uid() returns
+NULL when called via service-role.
 """
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field
-from supabase import Client, create_client
+from supabase import Client
 
 from app.core.security import get_current_user
+from app.core.supabase import get_supabase_client
 
 router = APIRouter(prefix="/zones", tags=["Delivery Zones (Owner)"])
-bearer_scheme = HTTPBearer()
 
 # 5-digit Malaysian postcode pattern. Other countries can be supported later
 # by relaxing this regex per-country.
@@ -35,25 +37,46 @@ _MY_POSTCODE_RE = re.compile(r"^\d{5}$")
 
 
 # =====================================================
-# RLS-aware Supabase client
+# Ownership helpers — service-role queries can read anything, so we verify
+# ownership in Python before mutations or info reads.
 # =====================================================
-def _rls_client(token: str) -> Client:
-    url = os.getenv("SUPABASE_URL", "")
-    anon = os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_KEY") or ""
-    if not url or not anon:
-        raise HTTPException(
-            status_code=500,
-            detail="Supabase not configured (SUPABASE_URL / SUPABASE_ANON_KEY)",
-        )
-    client = create_client(url, anon)
-    client.postgrest.auth(token)
-    return client
+def _verify_website_ownership(
+    supabase: Client, website_id: str, user_id: str
+) -> None:
+    """Raise HTTPException(403) if the website does not belong to user_id."""
+    res = (
+        supabase.table("websites")
+        .select("id")
+        .eq("id", website_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=403, detail="Bukan website anda")
 
 
-def get_rls_supabase(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-) -> Client:
-    return _rls_client(credentials.credentials)
+def _verify_zone_ownership(
+    supabase: Client, zone_id: str, user_id: str
+) -> str:
+    """Verify ownership and return the zone's website_id.
+
+    Raises 404 if the zone doesn't exist, 403 if it belongs to someone else.
+    Two queries instead of a Postgrest join for compatibility across
+    supabase-py versions.
+    """
+    z = (
+        supabase.table("delivery_zones")
+        .select("website_id")
+        .eq("id", zone_id)
+        .limit(1)
+        .execute()
+    )
+    if not z.data:
+        raise HTTPException(status_code=404, detail="Zon tidak dijumpai")
+    website_id = z.data[0]["website_id"]
+    _verify_website_ownership(supabase, website_id, user_id)
+    return website_id
 
 
 # =====================================================
@@ -146,9 +169,11 @@ def _row_to_zone_out(row: Dict[str, Any]) -> ZoneOut:
 @router.get("/website/{website_id}", response_model=List[ZoneOut])
 async def list_zones(
     website_id: str,
-    supabase: Client = Depends(get_rls_supabase),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase_client),
 ):
-    """List all zones for a website (RLS restricts to owner)."""
+    """List all zones for a website. Ownership verified in Python."""
+    _verify_website_ownership(supabase, website_id, current_user["sub"])
     try:
         res = supabase.rpc(
             "list_delivery_zones", {"p_website_id": website_id}
@@ -166,9 +191,12 @@ async def list_zones(
 async def create_zone(
     website_id: str,
     zone: ZoneIn,
-    supabase: Client = Depends(get_rls_supabase),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase_client),
 ):
     """Create a new zone (polygon as GeoJSON)."""
+    user_id = current_user["sub"]
+    _verify_website_ownership(supabase, website_id, user_id)
     try:
         schedule = zone.schedule_json or {}
         schedule_payload = {
@@ -177,6 +205,7 @@ async def create_zone(
         } or None
 
         rpc_args = {
+            "p_user_id": user_id,
             "p_website_id": website_id,
             "p_name": zone.name,
             "p_color": zone.color,
@@ -218,9 +247,12 @@ async def create_zone(
 async def update_zone(
     zone_id: str,
     patch: ZonePatch,
-    supabase: Client = Depends(get_rls_supabase),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase_client),
 ):
     """Partial update of a zone."""
+    user_id = current_user["sub"]
+    website_id = _verify_zone_ownership(supabase, zone_id, user_id)
     try:
         polygon_geojson = json.dumps(patch.polygon) if patch.polygon else None
         schedule_payload = None
@@ -231,6 +263,7 @@ async def update_zone(
             }
 
         rpc_args = {
+            "p_user_id": user_id,
             "p_zone_id": zone_id,
             "p_name": patch.name,
             "p_color": patch.color,
@@ -247,15 +280,6 @@ async def update_zone(
         }
         supabase.rpc("update_delivery_zone", rpc_args).execute()
 
-        # Resolve website_id from the zone, then read back via list RPC
-        meta = (
-            supabase.table("delivery_zones")
-            .select("website_id")
-            .eq("id", zone_id)
-            .single()
-            .execute()
-        )
-        website_id = meta.data["website_id"]
         rows = supabase.rpc(
             "list_delivery_zones", {"p_website_id": website_id}
         ).execute().data or []
@@ -276,16 +300,16 @@ async def update_zone(
 @router.delete("/{zone_id}", status_code=204)
 async def delete_zone(
     zone_id: str,
-    supabase: Client = Depends(get_rls_supabase),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase_client),
 ):
-    """Delete a zone. RLS ensures only the owner can delete; if no row was
-    affected we return 404 instead of a misleading 204."""
+    """Delete a zone after verifying ownership."""
+    _verify_zone_ownership(supabase, zone_id, current_user["sub"])
     try:
         res = supabase.table("delivery_zones").delete().eq("id", zone_id).execute()
-        # supabase-py returns the deleted rows in res.data; empty list ⇒ nothing matched
         if not res.data:
             raise HTTPException(
-                status_code=404, detail="Zon tidak dijumpai atau bukan milik anda"
+                status_code=404, detail="Zon tidak dijumpai"
             )
     except HTTPException:
         raise
@@ -312,13 +336,15 @@ async def test_point(
     lat: float = Query(..., ge=-90, le=90),
     lng: float = Query(..., ge=-180, le=180),
     include_inactive: bool = Query(False),
-    supabase: Client = Depends(get_rls_supabase),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase_client),
 ):
     """Return the smallest zone covering (lat,lng), or covered=false.
 
     By default only active zones are considered. Owner postcode test can pass
     include_inactive=true to preview against draft zones.
     """
+    _verify_website_ownership(supabase, website_id, current_user["sub"])
     try:
         res = supabase.rpc(
             "find_zone_for_point",
@@ -532,10 +558,12 @@ class WebsiteLocationOut(BaseModel):
 @router.get("/website/{website_id}/info", response_model=WebsiteOut)
 async def get_website_info(
     website_id: str,
-    supabase: Client = Depends(get_rls_supabase),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase_client),
 ):
     """Return basic website info needed by the penghantaran page
     (name, address, current outlet pin)."""
+    _verify_website_ownership(supabase, website_id, current_user["sub"])
     try:
         res = (
             supabase.table("websites")
@@ -566,14 +594,18 @@ async def get_website_info(
 async def set_website_location(
     website_id: str,
     body: WebsiteLocationIn,
-    supabase: Client = Depends(get_rls_supabase),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase_client),
 ):
     """Set the outlet pin location for the website. Used by penghantaran
     page on first-run setup and the 'Tukar lokasi' action."""
+    user_id = current_user["sub"]
+    _verify_website_ownership(supabase, website_id, user_id)
     try:
         supabase.rpc(
             "update_website_location",
             {
+                "p_user_id": user_id,
                 "p_website_id": website_id,
                 "p_lat": body.lat,
                 "p_lng": body.lng,
