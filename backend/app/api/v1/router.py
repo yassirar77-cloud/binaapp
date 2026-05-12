@@ -5,7 +5,7 @@ Combines all API endpoints
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers
+from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live
 
 api_router = APIRouter()
 
@@ -16,6 +16,7 @@ api_router.include_router(payments.router, prefix="/payments", tags=["Payments"]
 api_router.include_router(templates.router, prefix="/templates", tags=["Templates"])
 api_router.include_router(delivery.router, tags=["Delivery System"])
 api_router.include_router(delivery_zones.router, tags=["Delivery Zones (Owner)"])
+api_router.include_router(penghantar_live.router, tags=["Penghantar Live (Owner)"])
 api_router.include_router(menu_delivery.router, prefix="/menu", tags=["Menu Management"])
 api_router.include_router(chat.router, prefix="/chat", tags=["Chat System"])
 api_router.include_router(subscription.router, prefix="/subscription", tags=["Subscription Management"])

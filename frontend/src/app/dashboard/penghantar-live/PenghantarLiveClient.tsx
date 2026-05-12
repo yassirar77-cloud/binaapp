@@ -1,0 +1,360 @@
+'use client';
+
+// Penghantar Live — main client wrapper.
+// Desktop layout: TopBar (sticky) + 320px left column (Orders top, Riders bottom)
+// + MapView fills the rest. Mobile bottom-sheet variant lands in a later commit.
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getActiveOrders, getRiders, getZones } from './lib/api';
+import type { ActiveOrder, LiteZone, LiveRider, Outlet } from './lib/types';
+import TopBar from './components/TopBar';
+import OrdersPanel from './components/OrdersPanel';
+import RidersPanel from './components/RidersPanel';
+import MapView, { type MapViewHandle } from './components/MapView';
+import OrderDetailPanel from './components/OrderDetailPanel';
+import RiderDetailPanel from './components/RiderDetailPanel';
+import MapControls from './components/MapControls';
+import MapLegend from './components/MapLegend';
+import StuckBanner from './components/StuckBanner';
+import ReassignModal from './components/ReassignModal';
+import CancelModal from './components/CancelModal';
+import { computeStuckOrderIds } from './lib/stuck';
+import { subscribeToRiders } from './lib/realtime';
+import { useIsMobile } from './lib/useIsMobile';
+import MobileBottomSheet from './components/MobileBottomSheet';
+
+interface Props {
+  outlets: Outlet[];
+}
+
+const POLL_INTERVAL_MS = 15_000;
+
+export default function PenghantarLiveClient({ outlets }: Props) {
+  const [selectedOutletId, setSelectedOutletId] = useState<string | null>(
+    outlets[0]?.id ?? null,
+  );
+  const [orders, setOrders] = useState<ActiveOrder[]>([]);
+  const [riders, setRiders] = useState<LiveRider[]>([]);
+  const [zones, setZones] = useState<LiteZone[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Mutually-exclusive selection
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [selectedRiderId, setSelectedRiderId] = useState<string | null>(null);
+  const [hoveredOrderId, setHoveredOrderId] = useState<string | null>(null);
+  const [hoveredRiderId, setHoveredRiderId] = useState<string | null>(null);
+
+  // Visibility toggles (wired via MapControls).
+  const [showZones, setShowZones] = useState(true);
+  const [showOfflineRiders, setShowOfflineRiders] = useState(false);
+
+  // Imperative handle to MapView for zoom + center buttons.
+  const mapApi = useRef<MapViewHandle>(null);
+
+  // Modal state — only one open at a time, both keyed to selectedOrder.
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+
+  // Realtime channel up-state. When true we pause polling (Supabase pushes
+  // rider updates directly); when false we fall back to setInterval.
+  const [realtimeUp, setRealtimeUp] = useState(false);
+
+  // Debounce burst-rate realtime events (rider apps ping ~every 5s). Collapse
+  // any cluster within 800ms into one refetch.
+  const debouncedRefetchTimer = useRef<number | null>(null);
+
+  const isMobile = useIsMobile();
+
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Orders + riders refetch — runs on outlet change and every 15s.
+  const refetchLive = useCallback(async (websiteId: string) => {
+    try {
+      const [o, r] = await Promise.all([
+        getActiveOrders(websiteId),
+        getRiders(websiteId),
+      ]);
+      if (!mountedRef.current) return;
+      setOrders(o);
+      setRiders(r);
+      setError(null);
+    } catch (e) {
+      if (!mountedRef.current) return;
+      setError(e instanceof Error ? e.message : 'Ralat tidak diketahui');
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
+  }, []);
+
+  // Zones change rarely — fetch once per outlet, not in the poll loop.
+  // TODO v2: refetch zones on owner edit signal (websocket or focus listener).
+  const refetchZones = useCallback(async (websiteId: string) => {
+    try {
+      const z = await getZones(websiteId);
+      if (mountedRef.current) setZones(z);
+    } catch {
+      // Zone overlay is non-critical; failing to load it shouldn't blow up
+      // the page. The error toast for live data covers the broader UX.
+      if (mountedRef.current) setZones([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedOutletId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    refetchLive(selectedOutletId);
+    refetchZones(selectedOutletId);
+  }, [selectedOutletId, refetchLive, refetchZones]);
+
+  // Realtime subscription — flips realtimeUp; debounced refetch on change.
+  useEffect(() => {
+    if (!selectedOutletId) return;
+    const fire = () => {
+      if (debouncedRefetchTimer.current) {
+        window.clearTimeout(debouncedRefetchTimer.current);
+      }
+      debouncedRefetchTimer.current = window.setTimeout(() => {
+        refetchLive(selectedOutletId);
+      }, 800);
+    };
+    const handle = subscribeToRiders(selectedOutletId, fire, (status) => {
+      setRealtimeUp(status === 'subscribed');
+    });
+    return () => {
+      handle.unsubscribe();
+      if (debouncedRefetchTimer.current) {
+        window.clearTimeout(debouncedRefetchTimer.current);
+        debouncedRefetchTimer.current = null;
+      }
+      setRealtimeUp(false);
+    };
+  }, [selectedOutletId, refetchLive]);
+
+  // 15s polling fallback — pauses when realtime is up.
+  useEffect(() => {
+    if (!selectedOutletId) return;
+    if (realtimeUp) return;
+    const id = window.setInterval(
+      () => refetchLive(selectedOutletId),
+      POLL_INTERVAL_MS,
+    );
+    return () => window.clearInterval(id);
+  }, [selectedOutletId, refetchLive, realtimeUp]);
+
+  // Reset selection on outlet change.
+  useEffect(() => {
+    setSelectedOrderId(null);
+    setSelectedRiderId(null);
+  }, [selectedOutletId]);
+
+  const handleOrderSelect = useCallback((id: string) => {
+    setSelectedOrderId((prev) => (prev === id ? null : id));
+    setSelectedRiderId(null);
+  }, []);
+  const handleRiderSelect = useCallback((id: string) => {
+    setSelectedRiderId((prev) => (prev === id ? null : id));
+    setSelectedOrderId(null);
+  }, []);
+
+  // Selected outlet as an Outlet object for MapView.
+  const selectedOutlet = useMemo(
+    () => outlets.find((o) => o.id === selectedOutletId) ?? null,
+    [outlets, selectedOutletId],
+  );
+
+  // Resolved selection objects for the detail panels.
+  const selectedOrder = useMemo(
+    () => (selectedOrderId ? orders.find((o) => o.id === selectedOrderId) ?? null : null),
+    [orders, selectedOrderId],
+  );
+  const selectedRider = useMemo(
+    () => (selectedRiderId ? riders.find((r) => r.id === selectedRiderId) ?? null : null),
+    [riders, selectedRiderId],
+  );
+
+  // If a selected order/rider disappears from the live feed (delivered or went
+  // offline beyond stale threshold), drop the selection automatically so the
+  // panel doesn't hang showing stale snapshot data.
+  useEffect(() => {
+    if (selectedOrderId && !selectedOrder) setSelectedOrderId(null);
+  }, [selectedOrderId, selectedOrder]);
+  useEffect(() => {
+    if (selectedRiderId && !selectedRider) setSelectedRiderId(null);
+  }, [selectedRiderId, selectedRider]);
+
+  // Stuck order set — recomputed each render so it reacts to time passing
+  // on the next poll/realtime tick. (Pure function over orders + riders.)
+  const stuckOrderIds = useMemo(
+    () => computeStuckOrderIds(orders, riders),
+    [orders, riders],
+  );
+  const firstStuckOrderId = useMemo(
+    () => (stuckOrderIds.size > 0 ? stuckOrderIds.values().next().value ?? null : null),
+    [stuckOrderIds],
+  );
+
+  if (outlets.length === 0) {
+    return (
+      <div className="min-h-screen bg-[#0a0e1a] text-white p-8">
+        <h1 className="text-xl font-semibold">Tiada outlet</h1>
+        <p className="mt-2 text-white/60">
+          Daftarkan outlet anda dahulu sebelum menggunakan halaman ini.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-screen flex flex-col bg-[#0a0e1a]">
+      <TopBar
+        outlets={outlets}
+        selectedOutletId={selectedOutletId}
+        onOutletChange={setSelectedOutletId}
+        orders={orders}
+        riders={riders}
+        stuckCount={stuckOrderIds.size}
+      />
+
+      <div className="flex-1 min-h-0 flex">
+        {/* Desktop left column — 320px; replaced by MobileBottomSheet under md. */}
+        <aside className="hidden md:flex w-[320px] shrink-0 flex-col border-r border-white/[0.06]">
+          <div className="flex-1 min-h-0">
+            <OrdersPanel
+              orders={orders}
+              selectedId={selectedOrderId}
+              stuckOrderIds={stuckOrderIds}
+              onSelect={handleOrderSelect}
+              onHover={setHoveredOrderId}
+            />
+          </div>
+          <div className="flex-1 min-h-0">
+            <RidersPanel
+              riders={riders}
+              selectedId={selectedRiderId}
+              showOffline={showOfflineRiders}
+              onSelect={handleRiderSelect}
+              onHover={setHoveredRiderId}
+            />
+          </div>
+        </aside>
+
+        <main className="flex-1 min-w-0 relative bg-[#0a0e1a]">
+          <MapView
+            ref={mapApi}
+            outlet={selectedOutlet}
+            orders={orders}
+            riders={riders}
+            zones={zones}
+            showZones={showZones}
+            showOfflineRiders={showOfflineRiders}
+            stuckOrderIds={stuckOrderIds}
+            selectedOrderId={selectedOrderId}
+            selectedRiderId={selectedRiderId}
+            hoveredOrderId={hoveredOrderId}
+            hoveredRiderId={hoveredRiderId}
+            onOrderSelect={handleOrderSelect}
+            onRiderSelect={handleRiderSelect}
+          />
+
+          <StuckBanner
+            count={stuckOrderIds.size}
+            firstStuckOrderId={firstStuckOrderId}
+            onSelectStuck={handleOrderSelect}
+          />
+
+          <MapLegend />
+
+          <MapControls
+            showZones={showZones}
+            showOfflineRiders={showOfflineRiders}
+            onZoomIn={() => mapApi.current?.zoomIn()}
+            onZoomOut={() => mapApi.current?.zoomOut()}
+            onCenterOnOutlet={() => mapApi.current?.centerOnOutlet()}
+            onToggleZones={() => setShowZones((v) => !v)}
+            onToggleOfflineRiders={() => setShowOfflineRiders((v) => !v)}
+          />
+
+          {/* Non-blocking status overlays */}
+          {loading && (
+            <div className="absolute top-3 left-3 z-[1000] px-3 py-1.5 rounded-lg bg-[#0a0e1a]/90 border border-white/[0.08] text-xs font-mono text-white/60">
+              Memuatkan…
+            </div>
+          )}
+          {error && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] px-3 py-1.5 rounded-lg bg-red-400/10 border border-red-400/30 text-xs font-geist text-red-300">
+              {error}
+            </div>
+          )}
+        </main>
+
+        {/* Right detail panel — slides in when an order or rider is selected.
+            Modal openings are wired in commit 6; placeholders for now. */}
+        {selectedOrder && (
+          <OrderDetailPanel
+            order={selectedOrder}
+            variant={isMobile ? 'mobile' : 'desktop'}
+            onClose={() => setSelectedOrderId(null)}
+            onReassignClick={() => setReassignOpen(true)}
+            onCancelClick={() => setCancelOpen(true)}
+          />
+        )}
+        {selectedRider && !selectedOrder && (
+          <RiderDetailPanel
+            rider={selectedRider}
+            variant={isMobile ? 'mobile' : 'desktop'}
+            onClose={() => setSelectedRiderId(null)}
+            onActiveOrderClick={(orderId) => handleOrderSelect(orderId)}
+          />
+        )}
+      </div>
+
+      {/* Mobile-only bottom sheet — hidden when a detail modal is open so it
+          doesn't poke through under the full-screen panel. */}
+      {isMobile && !selectedOrder && !selectedRider && (
+        <MobileBottomSheet
+          orders={orders}
+          riders={riders}
+          selectedOrderId={selectedOrderId}
+          selectedRiderId={selectedRiderId}
+          stuckOrderIds={stuckOrderIds}
+          showOffline={showOfflineRiders}
+          onSelectOrder={handleOrderSelect}
+          onSelectRider={handleRiderSelect}
+        />
+      )}
+
+      {selectedOrder && reassignOpen && (
+        <ReassignModal
+          order={selectedOrder}
+          riders={riders}
+          onClose={() => setReassignOpen(false)}
+          onSuccess={() => {
+            setReassignOpen(false);
+            if (selectedOutletId) refetchLive(selectedOutletId);
+          }}
+        />
+      )}
+      {selectedOrder && cancelOpen && (
+        <CancelModal
+          order={selectedOrder}
+          onClose={() => setCancelOpen(false)}
+          onSuccess={() => {
+            setCancelOpen(false);
+            setSelectedOrderId(null); // order leaves the active list
+            if (selectedOutletId) refetchLive(selectedOutletId);
+          }}
+        />
+      )}
+    </div>
+  );
+}

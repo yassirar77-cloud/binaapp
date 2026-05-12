@@ -307,7 +307,7 @@ export default function DashboardPage() {
       description: 'Pantau lokasi penghantar secara real-time.',
       meta: { dotColor: '#22C08F', label: '0 penghantar', pulse: true },
       hue: '#22C08F',
-      href: '/riders',
+      href: '/dashboard/penghantar-live',
     },
     {
       icon: <Sparkles size={20} />,
