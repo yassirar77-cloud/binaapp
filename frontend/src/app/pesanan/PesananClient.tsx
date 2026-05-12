@@ -28,6 +28,7 @@ import TabBar from './components/TabBar';
 import FilterBar from './components/FilterBar';
 import OrderCard from './components/OrderCard';
 import EmptyState from './components/EmptyState';
+import OrderDetailPanel from './components/OrderDetailPanel';
 
 export default function PesananClient() {
   const router = useRouter();
@@ -56,6 +57,8 @@ export default function PesananClient() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   /** Order id currently being accepted via API (to disable buttons inline). */
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  /** Order id currently being marked completed via API. */
+  const [completingId, setCompletingId] = useState<string | null>(null);
 
   // ----- Bookkeeping -----
   const mountedRef = useRef(true);
@@ -266,6 +269,64 @@ export default function PesananClient() {
     console.log('[Pesanan] TODO: open RiderPickerDropdown (Phase 7)', order.id);
   }, []);
 
+  const handleMarkCompleted = useCallback(
+    async (order: Order) => {
+      setCompletingId(order.id);
+      try {
+        await updateOrderStatus(order.id, 'completed');
+        toast.success(`Pesanan #${order.order_number} ditandakan selesai`);
+        await refreshOrders();
+      } catch (e) {
+        toast.error(
+          e instanceof Error && e.message
+            ? e.message
+            : 'Gagal kemaskini status. Sila cuba lagi.',
+        );
+      } finally {
+        if (mountedRef.current) setCompletingId(null);
+      }
+    },
+    [refreshOrders],
+  );
+
+  const handleClosePanel = useCallback(() => setSelectedOrderId(null), []);
+
+  // Selected order object — null when no selection or when the selected order
+  // disappears from the feed (e.g. status filtered out by a tab change is OK,
+  // but a deleted/missing order should drop selection so the panel doesn't
+  // hang showing stale data).
+  const selectedOrder = useMemo(
+    () =>
+      selectedOrderId
+        ? orders.find((o) => o.id === selectedOrderId) ?? null
+        : null,
+    [orders, selectedOrderId],
+  );
+  const selectedRider = useMemo(
+    () =>
+      selectedOrder?.rider_id
+        ? riderById.get(selectedOrder.rider_id) ?? null
+        : null,
+    [selectedOrder, riderById],
+  );
+
+  // Drop stale selection when the underlying order vanishes from refetch.
+  useEffect(() => {
+    if (selectedOrderId && !selectedOrder) {
+      setSelectedOrderId(null);
+    }
+  }, [selectedOrderId, selectedOrder]);
+
+  // ESC closes the panel.
+  useEffect(() => {
+    if (!selectedOrderId) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedOrderId(null);
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [selectedOrderId]);
+
   // ----- Manual refresh from buttons -----
   const handleRefresh = useCallback(async () => {
     await refreshOrders();
@@ -305,36 +366,67 @@ export default function PesananClient() {
         onRefresh={handleRefresh}
       />
 
-      {/* Content surface — order cards. Detail panel arrives in Phase 6. */}
-      <main className="flex-1 min-h-0 px-4 lg:px-6 py-6">
-        <div className="max-w-4xl mx-auto">
-          {loading && orders.length === 0 ? (
-            <div className="flex items-center justify-center py-20">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white/40" />
-            </div>
-          ) : filteredOrders.length === 0 ? (
-            <EmptyState variant={hasAnyOrders ? 'no-match' : 'no-orders'} />
-          ) : (
-            <div className="space-y-2">
-              {filteredOrders.map((o) => (
-                <OrderCard
-                  key={o.id}
-                  order={o}
-                  website={websiteById.get(o.website_id) ?? null}
-                  riderPhone={
-                    o.rider_id ? riderById.get(o.rider_id)?.phone ?? null : null
-                  }
-                  selected={selectedOrderId === o.id}
-                  acceptingId={acceptingId}
-                  onSelect={handleSelectOrder}
-                  onAccept={handleAcceptOrder}
-                  onReject={handleRejectOrder}
-                  onPickRider={handlePickRider}
-                />
-              ))}
-            </div>
-          )}
+      {/* Content surface — cards left, detail panel right (when an order is
+          selected). Mobile-polish for the panel ships in Phase 10; for now the
+          cards column hides on small viewports while the panel is open so we
+          don't end up with two competing scroll surfaces. */}
+      <main className="flex-1 min-h-0 flex">
+        <div
+          className={[
+            'flex-1 min-w-0 overflow-y-auto px-4 lg:px-6 py-6',
+            selectedOrder ? 'hidden md:block' : '',
+          ].join(' ')}
+          // Click on empty cards-area background (not bubbled from a card)
+          // closes the detail panel.
+          onClick={(e) => {
+            if (e.target === e.currentTarget && selectedOrder) {
+              handleClosePanel();
+            }
+          }}
+        >
+          <div className="max-w-4xl mx-auto">
+            {loading && orders.length === 0 ? (
+              <div className="flex items-center justify-center py-20">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white/40" />
+              </div>
+            ) : filteredOrders.length === 0 ? (
+              <EmptyState variant={hasAnyOrders ? 'no-match' : 'no-orders'} />
+            ) : (
+              <div className="space-y-2">
+                {filteredOrders.map((o) => (
+                  <OrderCard
+                    key={o.id}
+                    order={o}
+                    website={websiteById.get(o.website_id) ?? null}
+                    riderPhone={
+                      o.rider_id ? riderById.get(o.rider_id)?.phone ?? null : null
+                    }
+                    selected={selectedOrderId === o.id}
+                    acceptingId={acceptingId}
+                    onSelect={handleSelectOrder}
+                    onAccept={handleAcceptOrder}
+                    onReject={handleRejectOrder}
+                    onPickRider={handlePickRider}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
+
+        {selectedOrder ? (
+          <OrderDetailPanel
+            order={selectedOrder}
+            rider={selectedRider}
+            acceptingId={acceptingId}
+            completingId={completingId}
+            onClose={handleClosePanel}
+            onAccept={handleAcceptOrder}
+            onReject={handleRejectOrder}
+            onPickRider={handlePickRider}
+            onMarkCompleted={handleMarkCompleted}
+          />
+        ) : null}
       </main>
     </div>
   );
