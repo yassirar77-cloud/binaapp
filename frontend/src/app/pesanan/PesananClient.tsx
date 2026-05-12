@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import { getCurrentUser } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import {
+  assignRider,
   getOrders,
   getRidersForWebsites,
   getWebsites,
@@ -59,6 +60,11 @@ export default function PesananClient() {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   /** Order id currently being marked completed via API. */
   const [completingId, setCompletingId] = useState<string | null>(null);
+  /** Order id whose RiderPickerDropdown is open. At most one open at a time;
+   *  consumers (OrderCard / OrderDetailPanel) decide where to anchor. */
+  const [ridersPickerOpenFor, setRidersPickerOpenFor] = useState<string | null>(
+    null,
+  );
 
   // ----- Bookkeeping -----
   const mountedRef = useRef(true);
@@ -265,9 +271,40 @@ export default function PesananClient() {
   }, []);
 
   const handlePickRider = useCallback((order: Order) => {
-    // TODO(Phase 7): open RiderPickerDropdown anchored to this button.
-    console.log('[Pesanan] TODO: open RiderPickerDropdown (Phase 7)', order.id);
+    setRidersPickerOpenFor((prev) => (prev === order.id ? null : order.id));
   }, []);
+
+  const handleClosePicker = useCallback(() => {
+    setRidersPickerOpenFor(null);
+  }, []);
+
+  /** Returns true on success so the picker can decide whether to clear its
+   *  per-row spinner. On success we close the picker + toast + refetch. */
+  const handleAssignRider = useCallback(
+    async (orderId: string, rider: Rider): Promise<boolean> => {
+      const order = orders.find((o) => o.id === orderId);
+      const orderNumber = order?.order_number ?? '';
+      try {
+        await assignRider(orderId, rider.id);
+        setRidersPickerOpenFor(null);
+        toast.success(
+          orderNumber
+            ? `Rider ${rider.name} ditugaskan ke pesanan #${orderNumber}`
+            : `Rider ${rider.name} ditugaskan`,
+        );
+        await refreshOrders();
+        return true;
+      } catch (e) {
+        toast.error(
+          e instanceof Error && e.message
+            ? e.message
+            : 'Gagal menetapkan rider. Sila cuba lagi.',
+        );
+        return false;
+      }
+    },
+    [orders, refreshOrders],
+  );
 
   const handleMarkCompleted = useCallback(
     async (order: Order) => {
@@ -316,6 +353,15 @@ export default function PesananClient() {
       setSelectedOrderId(null);
     }
   }, [selectedOrderId, selectedOrder]);
+
+  // Drop stale picker when the picker's order vanishes OR leaves 'confirmed'.
+  useEffect(() => {
+    if (!ridersPickerOpenFor) return;
+    const o = orders.find((x) => x.id === ridersPickerOpenFor);
+    if (!o || o.status !== 'confirmed') {
+      setRidersPickerOpenFor(null);
+    }
+  }, [orders, ridersPickerOpenFor]);
 
   // ESC closes the panel.
   useEffect(() => {
@@ -403,10 +449,14 @@ export default function PesananClient() {
                     }
                     selected={selectedOrderId === o.id}
                     acceptingId={acceptingId}
+                    pickerOpen={ridersPickerOpenFor === o.id}
+                    allRiders={riders}
                     onSelect={handleSelectOrder}
                     onAccept={handleAcceptOrder}
                     onReject={handleRejectOrder}
                     onPickRider={handlePickRider}
+                    onClosePicker={handleClosePicker}
+                    onAssignRider={handleAssignRider}
                   />
                 ))}
               </div>
@@ -420,11 +470,15 @@ export default function PesananClient() {
             rider={selectedRider}
             acceptingId={acceptingId}
             completingId={completingId}
+            pickerOpen={ridersPickerOpenFor === selectedOrder.id}
+            allRiders={riders}
             onClose={handleClosePanel}
             onAccept={handleAcceptOrder}
             onReject={handleRejectOrder}
             onPickRider={handlePickRider}
             onMarkCompleted={handleMarkCompleted}
+            onClosePicker={handleClosePicker}
+            onAssignRider={handleAssignRider}
           />
         ) : null}
       </main>

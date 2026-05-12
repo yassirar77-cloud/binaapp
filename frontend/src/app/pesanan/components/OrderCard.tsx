@@ -13,10 +13,11 @@
 
 import { ChevronRight, MessageCircle } from 'lucide-react';
 import type { KeyboardEvent, MouseEvent } from 'react';
-import type { Order, Website } from '../lib/types';
+import type { Order, Rider, Website } from '../lib/types';
 import { statusMeta } from '../lib/constants';
 import { relTime } from '../lib/relTime';
 import StatusDot from './StatusDot';
+import RiderPickerDropdown from './RiderPickerDropdown';
 
 interface Props {
   order: Order;
@@ -25,10 +26,14 @@ interface Props {
   riderPhone?: string | null;
   selected: boolean;
   acceptingId: string | null;
+  pickerOpen: boolean;
+  allRiders: Rider[];
   onSelect: (order: Order) => void;
   onAccept: (order: Order) => void;
   onReject: (order: Order) => void;
   onPickRider: (order: Order) => void;
+  onClosePicker: () => void;
+  onAssignRider: (orderId: string, rider: Rider) => Promise<boolean>;
 }
 
 function waUrl(phone: string, name: string, shop: string, orderNumber: string) {
@@ -48,10 +53,14 @@ export default function OrderCard({
   riderPhone,
   selected,
   acceptingId,
+  pickerOpen,
+  allRiders,
   onSelect,
   onAccept,
   onReject,
   onPickRider,
+  onClosePicker,
+  onAssignRider,
 }: Props) {
   const meta = statusMeta(order.status);
   const itemCount = order.items?.length ?? 0;
@@ -137,13 +146,31 @@ export default function OrderCard({
         )}
 
         {order.status === 'confirmed' && (
-          <button
-            type="button"
-            onClick={() => onPickRider(order)}
-            className="inline-flex items-center justify-center h-9 min-h-[44px] sm:min-h-0 px-3 rounded-lg bg-[#C7FF3D] hover:bg-[#d8ff6b] active:bg-[#b5e633] text-[#0B0B15] font-geist text-xs font-semibold transition-colors"
-          >
-            Pilih Rider
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              // Stop the picker's document-level mousedown outside-click
+              // handler from firing on the same gesture that opens it.
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => onPickRider(order)}
+              aria-haspopup="dialog"
+              aria-expanded={pickerOpen}
+              className="inline-flex items-center justify-center h-9 min-h-[44px] sm:min-h-0 px-3 rounded-lg bg-[#C7FF3D] hover:bg-[#d8ff6b] active:bg-[#b5e633] text-[#0B0B15] font-geist text-xs font-semibold transition-colors"
+            >
+              Pilih Rider
+            </button>
+            {pickerOpen ? (
+              <RiderPickerDropdown
+                orderId={order.id}
+                websiteId={order.website_id}
+                allRiders={allRiders}
+                placement="below"
+                align="right"
+                onClose={onClosePicker}
+                onAssign={onAssignRider}
+              />
+            ) : null}
+          </div>
         )}
 
         {(order.status === 'preparing' || order.status === 'ready') && (

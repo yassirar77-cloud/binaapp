@@ -21,17 +21,22 @@ import StatusPill from './StatusPill';
 import Timeline from './Timeline';
 import CustomerInfoCard from './CustomerInfoCard';
 import RiderInfoCard from './RiderInfoCard';
+import RiderPickerDropdown from './RiderPickerDropdown';
 
 interface Props {
   order: Order;
   rider: Rider | null;
   acceptingId: string | null;
   completingId: string | null;
+  pickerOpen: boolean;
+  allRiders: Rider[];
   onClose: () => void;
   onAccept: (order: Order) => void;
   onReject: (order: Order) => void;
   onPickRider: (order: Order) => void;
   onMarkCompleted: (order: Order) => void;
+  onClosePicker: () => void;
+  onAssignRider: (orderId: string, rider: Rider) => Promise<boolean>;
 }
 
 const LIME = '#C7FF3D';
@@ -49,11 +54,15 @@ export default function OrderDetailPanel({
   rider,
   acceptingId,
   completingId,
+  pickerOpen,
+  allRiders,
   onClose,
   onAccept,
   onReject,
   onPickRider,
   onMarkCompleted,
+  onClosePicker,
+  onAssignRider,
 }: Props) {
   const meta = statusMeta(order.status);
   const accepting = acceptingId === order.id;
@@ -204,13 +213,31 @@ export default function OrderDetailPanel({
         )}
 
         {order.status === 'confirmed' && (
-          <button
-            type="button"
-            onClick={() => onPickRider(order)}
-            className="w-full inline-flex items-center justify-center h-11 px-3 rounded-lg bg-[#C7FF3D] hover:bg-[#d8ff6b] active:bg-[#b5e633] text-[#0B0B15] font-geist text-sm font-semibold transition-colors"
-          >
-            Pilih Rider
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              // Stop the picker's document-level mousedown outside-click
+              // handler from firing on the same gesture that opens it.
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => onPickRider(order)}
+              aria-haspopup="dialog"
+              aria-expanded={pickerOpen}
+              className="w-full inline-flex items-center justify-center h-11 px-3 rounded-lg bg-[#C7FF3D] hover:bg-[#d8ff6b] active:bg-[#b5e633] text-[#0B0B15] font-geist text-sm font-semibold transition-colors"
+            >
+              Pilih Rider
+            </button>
+            {pickerOpen ? (
+              <RiderPickerDropdown
+                orderId={order.id}
+                websiteId={order.website_id}
+                allRiders={allRiders}
+                placement="above"
+                align="right"
+                onClose={onClosePicker}
+                onAssign={onAssignRider}
+              />
+            ) : null}
+          </div>
         )}
 
         {(order.status === 'preparing' ||
