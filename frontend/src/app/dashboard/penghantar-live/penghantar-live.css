@@ -1,6 +1,93 @@
 /* Penghantar Live — page-scoped styles.
  *
- * Animations and component-specific styles (slide-in panels, stuck-marker
- * pulse, outlet pulse) are added in later commits. Tailwind handles layout,
- * spacing, and most visual primitives.
+ * Slide-in panel animations and stuck-marker pulse land in later commits.
+ * The page reuses the .rest-pin-* outlet pulse classes from penghantaran;
+ * we redeclare them here so the live page is self-contained when penghantaran
+ * isn't mounted.
  */
+
+/* ----- Outlet pin (lime dot + pulse) ----- */
+.rest-pin-wrap {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+}
+.rest-pin-dot {
+  position: absolute;
+  inset: 6px;
+  border-radius: 9999px;
+  background: #c7ff3d;
+  box-shadow: 0 0 0 2px #0a0e1a;
+}
+.rest-pin-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: #c7ff3d;
+  opacity: 0.35;
+  animation: phl-outlet-pulse 1.8s ease-out infinite;
+}
+@keyframes phl-outlet-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+/* ----- Rider marker ----- */
+.phl-rider-marker {
+  background: transparent;
+  border: none;
+}
+.phl-rider-pin {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 9999px;
+  background: var(--phl-rider-color, #34d399);
+  box-shadow: 0 0 0 2px #0a0e1a, 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+.phl-rider-dot {
+  position: absolute;
+  inset: -3px;
+  border-radius: 9999px;
+  border: 1px solid var(--phl-rider-color, #34d399);
+  opacity: 0;
+}
+.phl-rider-marker.phl-hover .phl-rider-pin {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 5px rgba(255, 255, 255, 0.2);
+}
+
+/* ----- Delivery destination pin ----- */
+.phl-dest-pin {
+  background: transparent;
+  border: none;
+}
+.phl-dest-dot {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 2px #0a0e1a, 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.15s ease-out;
+}
+.phl-dest-pin.phl-hover .phl-dest-dot {
+  transform: scale(1.35);
+  box-shadow: 0 0 0 2px #ffffff, 0 0 0 5px rgba(255, 255, 255, 0.2);
+}
+
+/* ----- Route polyline hover ----- */
+.phl-route-hover {
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.4));
+  stroke-width: 3 !important;
+}

@@ -127,6 +127,25 @@ export interface LiveRider {
   today_deliveries: number;
 }
 
+// ----- Zone (subset reused for map overlay only) -----
+// Full zone model lives in /dashboard/penghantaran. We only need polygon +
+// styling fields to draw the overlay; the rest is owned by the zones page.
+
+export interface GeoJSONPolygon {
+  type: 'Polygon';
+  coordinates: number[][][];
+}
+
+export interface LiteZone {
+  id: string;
+  name: string;
+  color: string;
+  polygon: GeoJSONPolygon;
+  active: boolean;
+  inner_radius_m: number | null;
+  outer_radius_m: number | null;
+}
+
 // ----- UI tiers computed from is_online + last_location_update freshness -----
 
 export type RiderPresence = 'online' | 'online_stale_gps' | 'offline';

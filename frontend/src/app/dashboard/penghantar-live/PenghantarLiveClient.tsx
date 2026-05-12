@@ -2,14 +2,15 @@
 
 // Penghantar Live — main client wrapper.
 // Desktop layout: TopBar (sticky) + 320px left column (Orders top, Riders bottom)
-// + map fills the rest. Mobile bottom-sheet variant lands in a later commit.
+// + MapView fills the rest. Mobile bottom-sheet variant lands in a later commit.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { getActiveOrders, getRiders } from './lib/api';
-import type { ActiveOrder, LiveRider, Outlet } from './lib/types';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getActiveOrders, getRiders, getZones } from './lib/api';
+import type { ActiveOrder, LiteZone, LiveRider, Outlet } from './lib/types';
 import TopBar from './components/TopBar';
 import OrdersPanel from './components/OrdersPanel';
 import RidersPanel from './components/RidersPanel';
+import MapView from './components/MapView';
 
 interface Props {
   outlets: Outlet[];
@@ -23,18 +24,18 @@ export default function PenghantarLiveClient({ outlets }: Props) {
   );
   const [orders, setOrders] = useState<ActiveOrder[]>([]);
   const [riders, setRiders] = useState<LiveRider[]>([]);
+  const [zones, setZones] = useState<LiteZone[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Mutually-exclusive selection: picking an order clears rider selection
-  // and vice versa. Hover state powers the map↔panel highlight.
+  // Mutually-exclusive selection
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [selectedRiderId, setSelectedRiderId] = useState<string | null>(null);
   const [hoveredOrderId, setHoveredOrderId] = useState<string | null>(null);
   const [hoveredRiderId, setHoveredRiderId] = useState<string | null>(null);
 
-  // Visibility toggles wired in commit 5 (MapControls). Defaults: zones on,
-  // offline riders hidden.
+  // Visibility toggles wired in commit 5 (MapControls).
+  const [showZones] = useState(true);
   const [showOfflineRiders] = useState(false);
 
   const mountedRef = useRef(true);
@@ -45,7 +46,8 @@ export default function PenghantarLiveClient({ outlets }: Props) {
     };
   }, []);
 
-  const refetch = useCallback(async (websiteId: string) => {
+  // Orders + riders refetch — runs on outlet change and every 15s.
+  const refetchLive = useCallback(async (websiteId: string) => {
     try {
       const [o, r] = await Promise.all([
         getActiveOrders(websiteId),
@@ -63,38 +65,56 @@ export default function PenghantarLiveClient({ outlets }: Props) {
     }
   }, []);
 
+  // Zones change rarely — fetch once per outlet, not in the poll loop.
+  const refetchZones = useCallback(async (websiteId: string) => {
+    try {
+      const z = await getZones(websiteId);
+      if (mountedRef.current) setZones(z);
+    } catch {
+      // Zone overlay is non-critical; failing to load it shouldn't blow up
+      // the page. The error toast for live data covers the broader UX.
+      if (mountedRef.current) setZones([]);
+    }
+  }, []);
+
   useEffect(() => {
     if (!selectedOutletId) {
       setLoading(false);
       return;
     }
     setLoading(true);
-    refetch(selectedOutletId);
+    refetchLive(selectedOutletId);
+    refetchZones(selectedOutletId);
     const id = window.setInterval(
-      () => refetch(selectedOutletId),
+      () => refetchLive(selectedOutletId),
       POLL_INTERVAL_MS,
     );
     return () => window.clearInterval(id);
-  }, [selectedOutletId, refetch]);
+  }, [selectedOutletId, refetchLive, refetchZones]);
 
-  // Reset selection on outlet change to avoid pointing at a stale order/rider.
+  // Reset selection on outlet change.
   useEffect(() => {
     setSelectedOrderId(null);
     setSelectedRiderId(null);
   }, [selectedOutletId]);
 
-  const handleOrderSelect = (id: string) => {
+  const handleOrderSelect = useCallback((id: string) => {
     setSelectedOrderId((prev) => (prev === id ? null : id));
     setSelectedRiderId(null);
-  };
-  const handleRiderSelect = (id: string) => {
+  }, []);
+  const handleRiderSelect = useCallback((id: string) => {
     setSelectedRiderId((prev) => (prev === id ? null : id));
     setSelectedOrderId(null);
-  };
+  }, []);
 
-  // Stuck order set lands in commit 5 (lib/stuck.ts). Empty for now so the
-  // TopBar shows "Tersangkut: 0" and OrderCard never shows the red ring.
-  const stuckOrderIds: ReadonlySet<string> = new Set();
+  // Selected outlet as an Outlet object for MapView.
+  const selectedOutlet = useMemo(
+    () => outlets.find((o) => o.id === selectedOutletId) ?? null,
+    [outlets, selectedOutletId],
+  );
+
+  // Stuck order set lands in commit 5.
+  const stuckOrderIds: ReadonlySet<string> = useMemo(() => new Set(), []);
 
   if (outlets.length === 0) {
     return (
@@ -119,7 +139,7 @@ export default function PenghantarLiveClient({ outlets }: Props) {
       />
 
       <div className="flex-1 min-h-0 flex">
-        {/* Left column — 320px on desktop, hidden under sm */}
+        {/* Left column — 320px on desktop, hidden under md (mobile UI in commit 8) */}
         <aside className="hidden md:flex w-[320px] shrink-0 flex-col border-r border-white/[0.06]">
           <div className="flex-1 min-h-0">
             <OrdersPanel
@@ -141,18 +161,32 @@ export default function PenghantarLiveClient({ outlets }: Props) {
           </div>
         </aside>
 
-        {/* Map area — placeholder until commit 3 lands MapView */}
-        <main className="flex-1 min-w-0 relative bg-[#0a0e1a] flex items-center justify-center">
-          {loading ? (
-            <p className="text-white/40 text-sm font-geist">Memuatkan…</p>
-          ) : error ? (
-            <p className="text-red-400 text-sm font-geist">{error}</p>
-          ) : (
-            <p className="text-white/30 text-xs font-mono uppercase tracking-wider">
-              Peta dipasang dalam commit seterusnya
-              {hoveredOrderId ? ` · order ${hoveredOrderId.slice(0, 6)}` : ''}
-              {hoveredRiderId ? ` · rider ${hoveredRiderId.slice(0, 6)}` : ''}
-            </p>
+        <main className="flex-1 min-w-0 relative bg-[#0a0e1a]">
+          <MapView
+            outlet={selectedOutlet}
+            orders={orders}
+            riders={riders}
+            zones={zones}
+            showZones={showZones}
+            showOfflineRiders={showOfflineRiders}
+            selectedOrderId={selectedOrderId}
+            selectedRiderId={selectedRiderId}
+            hoveredOrderId={hoveredOrderId}
+            hoveredRiderId={hoveredRiderId}
+            onOrderSelect={handleOrderSelect}
+            onRiderSelect={handleRiderSelect}
+          />
+
+          {/* Non-blocking status overlays */}
+          {loading && (
+            <div className="absolute top-3 left-3 z-[1000] px-3 py-1.5 rounded-lg bg-[#0a0e1a]/90 border border-white/[0.08] text-xs font-mono text-white/60">
+              Memuatkan…
+            </div>
+          )}
+          {error && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[1000] px-3 py-1.5 rounded-lg bg-red-400/10 border border-red-400/30 text-xs font-geist text-red-300">
+              {error}
+            </div>
           )}
         </main>
       </div>

@@ -4,7 +4,7 @@
 // from the API when available.
 
 import { supabase, ensureValidToken } from '@/lib/supabase';
-import type { ActiveOrder, LiveRider } from './types';
+import type { ActiveOrder, LiteZone, LiveRider } from './types';
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
@@ -56,6 +56,13 @@ export function getActiveOrders(websiteId: string): Promise<ActiveOrder[]> {
 
 export function getRiders(websiteId: string): Promise<LiveRider[]> {
   return authFetch<LiveRider[]>(`/api/v1/live/website/${websiteId}/riders`);
+}
+
+/** Fetch delivery zones for overlay rendering. Reuses the /zones endpoint
+ *  owned by /dashboard/penghantaran — we only consume the subset of fields
+ *  declared in LiteZone. */
+export function getZones(websiteId: string): Promise<LiteZone[]> {
+  return authFetch<LiteZone[]>(`/api/v1/zones/website/${websiteId}`);
 }
 
 /** Reassign or unassign (newRiderId=null) the rider on an order. 204 No Content. */
