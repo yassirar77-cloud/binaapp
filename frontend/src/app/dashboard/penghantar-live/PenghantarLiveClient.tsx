@@ -19,6 +19,7 @@ import StuckBanner from './components/StuckBanner';
 import ReassignModal from './components/ReassignModal';
 import CancelModal from './components/CancelModal';
 import { computeStuckOrderIds } from './lib/stuck';
+import { subscribeToRiders } from './lib/realtime';
 
 interface Props {
   outlets: Outlet[];
@@ -52,6 +53,14 @@ export default function PenghantarLiveClient({ outlets }: Props) {
   // Modal state — only one open at a time, both keyed to selectedOrder.
   const [reassignOpen, setReassignOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+
+  // Realtime channel up-state. When true we pause polling (Supabase pushes
+  // rider updates directly); when false we fall back to setInterval.
+  const [realtimeUp, setRealtimeUp] = useState(false);
+
+  // Debounce burst-rate realtime events (rider apps ping ~every 5s). Collapse
+  // any cluster within 800ms into one refetch.
+  const debouncedRefetchTimer = useRef<number | null>(null);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -101,12 +110,42 @@ export default function PenghantarLiveClient({ outlets }: Props) {
     setLoading(true);
     refetchLive(selectedOutletId);
     refetchZones(selectedOutletId);
+  }, [selectedOutletId, refetchLive, refetchZones]);
+
+  // Realtime subscription — flips realtimeUp; debounced refetch on change.
+  useEffect(() => {
+    if (!selectedOutletId) return;
+    const fire = () => {
+      if (debouncedRefetchTimer.current) {
+        window.clearTimeout(debouncedRefetchTimer.current);
+      }
+      debouncedRefetchTimer.current = window.setTimeout(() => {
+        refetchLive(selectedOutletId);
+      }, 800);
+    };
+    const handle = subscribeToRiders(selectedOutletId, fire, (status) => {
+      setRealtimeUp(status === 'subscribed');
+    });
+    return () => {
+      handle.unsubscribe();
+      if (debouncedRefetchTimer.current) {
+        window.clearTimeout(debouncedRefetchTimer.current);
+        debouncedRefetchTimer.current = null;
+      }
+      setRealtimeUp(false);
+    };
+  }, [selectedOutletId, refetchLive]);
+
+  // 15s polling fallback — pauses when realtime is up.
+  useEffect(() => {
+    if (!selectedOutletId) return;
+    if (realtimeUp) return;
     const id = window.setInterval(
       () => refetchLive(selectedOutletId),
       POLL_INTERVAL_MS,
     );
     return () => window.clearInterval(id);
-  }, [selectedOutletId, refetchLive, refetchZones]);
+  }, [selectedOutletId, refetchLive, realtimeUp]);
 
   // Reset selection on outlet change.
   useEffect(() => {
