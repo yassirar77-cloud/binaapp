@@ -1,0 +1,39 @@
+/* /pesanan — local styles. Slide-in animation, status pulse, and a few
+   utilities used by the order card list. Keep this lean; prefer Tailwind
+   utilities for one-offs. */
+
+@keyframes pesanan-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+.pesanan-live-dot {
+  animation: pesanan-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes pesanan-slide-in-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.pesanan-slide-in {
+  animation: pesanan-slide-in-right 220ms ease-out;
+}
+
+@keyframes pesanan-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.pesanan-fade-in {
+  animation: pesanan-fade-in 200ms ease-out;
+}
+
+/* Tabs row — horizontal scroll on small screens without showing the bar. */
+.pesanan-tabs-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.pesanan-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
