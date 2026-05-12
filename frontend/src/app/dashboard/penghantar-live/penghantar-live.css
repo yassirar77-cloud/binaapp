@@ -134,3 +134,23 @@
     box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.18);
   }
 }
+
+/* ----- Mobile bottom-sheet height transition ----- */
+.phl-mobile-sheet {
+  transition: height 0.22s ease-out;
+}
+
+/* ----- Mobile detail modal slide up from bottom ----- */
+.phl-mobile-modal {
+  animation: phl-slide-up 0.22s ease-out;
+}
+@keyframes phl-slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0.7;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

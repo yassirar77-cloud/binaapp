@@ -66,7 +66,20 @@ export default function TopBar({
           )}
         </div>
 
-        <div className="grid grid-cols-3 gap-3 sm:gap-6">
+        {/* Compact mobile stat: single line, hides on md+. */}
+        <div className="md:hidden flex items-center gap-2">
+          <span className="font-mono text-[11px] tracking-wide text-white/50">
+            {inProgress} dalam perjalanan
+          </span>
+          {stuckCount > 0 && (
+            <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full font-mono text-[10px] tracking-wide text-red-300 bg-red-400/10 ring-1 ring-red-400/20">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
+              {stuckCount}
+            </span>
+          )}
+        </div>
+
+        <div className="hidden md:grid grid-cols-3 gap-3 sm:gap-6">
           {stats.map((s) => (
             <div key={s.label} className="text-right">
               <div className="font-mono text-[10px] tracking-wider uppercase text-white/50">

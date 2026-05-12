@@ -43,11 +43,13 @@ function cleanPhone(raw: string | null | undefined): string {
 
 export default function OrderDetailPanel({
   order,
+  variant = 'desktop',
   onClose,
   onReassignClick,
   onCancelClick,
 }: {
   order: ActiveOrder;
+  variant?: 'desktop' | 'mobile';
   onClose: () => void;
   onReassignClick: () => void;
   onCancelClick: () => void;
@@ -62,7 +64,11 @@ export default function OrderDetailPanel({
 
   return (
     <aside
-      className="phl-detail-panel flex flex-col h-full w-[360px] shrink-0 border-l border-white/[0.08] bg-[#0a0e1a]"
+      className={
+        variant === 'mobile'
+          ? 'phl-mobile-modal fixed inset-0 z-[1500] flex flex-col bg-[#0a0e1a]'
+          : 'phl-detail-panel flex flex-col h-full w-[360px] shrink-0 border-l border-white/[0.08] bg-[#0a0e1a]'
+      }
       aria-label="Maklumat pesanan"
     >
       <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-3 border-b border-white/[0.06]">

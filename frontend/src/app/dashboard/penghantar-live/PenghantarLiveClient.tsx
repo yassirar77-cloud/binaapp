@@ -20,6 +20,8 @@ import ReassignModal from './components/ReassignModal';
 import CancelModal from './components/CancelModal';
 import { computeStuckOrderIds } from './lib/stuck';
 import { subscribeToRiders } from './lib/realtime';
+import { useIsMobile } from './lib/useIsMobile';
+import MobileBottomSheet from './components/MobileBottomSheet';
 
 interface Props {
   outlets: Outlet[];
@@ -61,6 +63,8 @@ export default function PenghantarLiveClient({ outlets }: Props) {
   // Debounce burst-rate realtime events (rider apps ping ~every 5s). Collapse
   // any cluster within 800ms into one refetch.
   const debouncedRefetchTimer = useRef<number | null>(null);
+
+  const isMobile = useIsMobile();
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -222,7 +226,7 @@ export default function PenghantarLiveClient({ outlets }: Props) {
       />
 
       <div className="flex-1 min-h-0 flex">
-        {/* Left column — 320px on desktop, hidden under md (mobile UI in commit 8) */}
+        {/* Desktop left column — 320px; replaced by MobileBottomSheet under md. */}
         <aside className="hidden md:flex w-[320px] shrink-0 flex-col border-r border-white/[0.06]">
           <div className="flex-1 min-h-0">
             <OrdersPanel
@@ -298,6 +302,7 @@ export default function PenghantarLiveClient({ outlets }: Props) {
         {selectedOrder && (
           <OrderDetailPanel
             order={selectedOrder}
+            variant={isMobile ? 'mobile' : 'desktop'}
             onClose={() => setSelectedOrderId(null)}
             onReassignClick={() => setReassignOpen(true)}
             onCancelClick={() => setCancelOpen(true)}
@@ -306,11 +311,27 @@ export default function PenghantarLiveClient({ outlets }: Props) {
         {selectedRider && !selectedOrder && (
           <RiderDetailPanel
             rider={selectedRider}
+            variant={isMobile ? 'mobile' : 'desktop'}
             onClose={() => setSelectedRiderId(null)}
             onActiveOrderClick={(orderId) => handleOrderSelect(orderId)}
           />
         )}
       </div>
+
+      {/* Mobile-only bottom sheet — hidden when a detail modal is open so it
+          doesn't poke through under the full-screen panel. */}
+      {isMobile && !selectedOrder && !selectedRider && (
+        <MobileBottomSheet
+          orders={orders}
+          riders={riders}
+          selectedOrderId={selectedOrderId}
+          selectedRiderId={selectedRiderId}
+          stuckOrderIds={stuckOrderIds}
+          showOffline={showOfflineRiders}
+          onSelectOrder={handleOrderSelect}
+          onSelectRider={handleRiderSelect}
+        />
+      )}
 
       {selectedOrder && reassignOpen && (
         <ReassignModal
