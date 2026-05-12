@@ -11,8 +11,9 @@
 // Hover/select sync with the left panels is handled via the hoveredOrderId /
 // hoveredRiderId / selectedOrderId / selectedRiderId props.
 //
-// We reuse geoJSONToLatLngs from penghantaran/lib/polygon to avoid duplicating
-// the GeoJSON ↔ Leaflet coordinate flip.
+// Zones are passed in as a prop; PenghantarLiveClient owns the fetch and
+// re-fetches once per outlet change.
+// TODO v2: refetch zones on owner edit signal (websocket or focus listener).
 
 import { useEffect, useRef, useState } from 'react';
 import type {
@@ -21,7 +22,7 @@ import type {
   Polygon,
   Polyline,
 } from 'leaflet';
-import { geoJSONToLatLngs } from '../../penghantaran/lib/polygon';
+import { geoJSONToLatLngs } from '../lib/polygon';
 import {
   DEFAULT_CENTER,
   DEFAULT_ZOOM,

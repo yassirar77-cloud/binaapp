@@ -66,6 +66,7 @@ export default function PenghantarLiveClient({ outlets }: Props) {
   }, []);
 
   // Zones change rarely — fetch once per outlet, not in the poll loop.
+  // TODO v2: refetch zones on owner edit signal (websocket or focus listener).
   const refetchZones = useCallback(async (websiteId: string) => {
     try {
       const z = await getZones(websiteId);
