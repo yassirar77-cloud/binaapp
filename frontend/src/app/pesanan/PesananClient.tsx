@@ -9,7 +9,10 @@
 // detail panel land in subsequent phases.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { getCurrentUser } from '@/lib/supabase';
+import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import { getOrders, getRidersForWebsites, getWebsites } from './lib/api';
 import type {
   DateRange,
@@ -24,6 +27,8 @@ import TabBar from './components/TabBar';
 import FilterBar from './components/FilterBar';
 
 export default function PesananClient() {
+  const router = useRouter();
+
   // ----- Data -----
   const [orders, setOrders] = useState<Order[]>([]);
   const [websites, setWebsites] = useState<Website[]>([]);
@@ -32,6 +37,7 @@ export default function PesananClient() {
   const [, setRiders] = useState<Rider[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [userName, setUserName] = useState('Pengguna');
 
   // ----- Filter state -----
   const [selectedWebsiteId, setSelectedWebsiteId] = useState<string | 'all'>('all');
@@ -71,6 +77,34 @@ export default function PesananClient() {
       return null;
     }
   }, []);
+
+  // Resolve display name for DashboardHeader once on mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const user = await getCurrentUser();
+        if (cancelled || !user) return;
+        const u = user as { user_metadata?: { full_name?: string }; email?: string };
+        setUserName(
+          u.user_metadata?.full_name || u.email?.split('@')[0] || 'Pengguna',
+        );
+      } catch {
+        // Silent: header just keeps the default name.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('binaapp_token');
+      localStorage.removeItem('binaapp_user');
+    }
+    router.push('/');
+  }, [router]);
 
   // Initial load — websites + orders + riders.
   useEffect(() => {
@@ -139,6 +173,11 @@ export default function PesananClient() {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#0a0e1a] text-white">
+      <DashboardHeader
+        userName={userName}
+        newOrdersCount={pendingCount}
+        onLogout={handleLogout}
+      />
       <TopBar
         websites={websites}
         selectedWebsiteId={selectedWebsiteId}

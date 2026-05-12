@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getCurrentUser, getStoredToken } from '@/lib/supabase';
 import PesananClient from './PesananClient';
+import '@/components/dashboard-new/dashboard.css';
 import './pesanan.css';
 
 export default function PesananPage() {
