@@ -1,0 +1,6 @@
+/* Penghantar Live — page-scoped styles.
+ *
+ * Animations and component-specific styles (slide-in panels, stuck-marker
+ * pulse, outlet pulse) are added in later commits. Tailwind handles layout,
+ * spacing, and most visual primitives.
+ */
