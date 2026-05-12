@@ -11,6 +11,8 @@ import TopBar from './components/TopBar';
 import OrdersPanel from './components/OrdersPanel';
 import RidersPanel from './components/RidersPanel';
 import MapView from './components/MapView';
+import OrderDetailPanel from './components/OrderDetailPanel';
+import RiderDetailPanel from './components/RiderDetailPanel';
 
 interface Props {
   outlets: Outlet[];
@@ -114,6 +116,26 @@ export default function PenghantarLiveClient({ outlets }: Props) {
     [outlets, selectedOutletId],
   );
 
+  // Resolved selection objects for the detail panels.
+  const selectedOrder = useMemo(
+    () => (selectedOrderId ? orders.find((o) => o.id === selectedOrderId) ?? null : null),
+    [orders, selectedOrderId],
+  );
+  const selectedRider = useMemo(
+    () => (selectedRiderId ? riders.find((r) => r.id === selectedRiderId) ?? null : null),
+    [riders, selectedRiderId],
+  );
+
+  // If a selected order/rider disappears from the live feed (delivered or went
+  // offline beyond stale threshold), drop the selection automatically so the
+  // panel doesn't hang showing stale snapshot data.
+  useEffect(() => {
+    if (selectedOrderId && !selectedOrder) setSelectedOrderId(null);
+  }, [selectedOrderId, selectedOrder]);
+  useEffect(() => {
+    if (selectedRiderId && !selectedRider) setSelectedRiderId(null);
+  }, [selectedRiderId, selectedRider]);
+
   // Stuck order set lands in commit 5.
   const stuckOrderIds: ReadonlySet<string> = useMemo(() => new Set(), []);
 
@@ -190,6 +212,28 @@ export default function PenghantarLiveClient({ outlets }: Props) {
             </div>
           )}
         </main>
+
+        {/* Right detail panel — slides in when an order or rider is selected.
+            Modal openings are wired in commit 6; placeholders for now. */}
+        {selectedOrder && (
+          <OrderDetailPanel
+            order={selectedOrder}
+            onClose={() => setSelectedOrderId(null)}
+            onReassignClick={() => {
+              /* TODO: open ReassignModal — wired in commit 6 */
+            }}
+            onCancelClick={() => {
+              /* TODO: open CancelModal — wired in commit 6 */
+            }}
+          />
+        )}
+        {selectedRider && !selectedOrder && (
+          <RiderDetailPanel
+            rider={selectedRider}
+            onClose={() => setSelectedRiderId(null)}
+            onActiveOrderClick={(orderId) => handleOrderSelect(orderId)}
+          />
+        )}
       </div>
     </div>
   );

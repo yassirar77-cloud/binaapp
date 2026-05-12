@@ -285,6 +285,11 @@ export default function MapView({
     const L = LRef;
     const map = mapRef.current;
 
+    // The detail panel mounts/unmounts simultaneously and shifts the map
+    // container width. Refresh Leaflet's cached size after the slide-in
+    // animation settles (CSS animation is 220ms).
+    window.setTimeout(() => map.invalidateSize(), 240);
+
     if (selectedOrderId) {
       const o = orders.find((x) => x.id === selectedOrderId);
       if (!o) return;

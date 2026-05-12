@@ -91,3 +91,18 @@
   filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.4));
   stroke-width: 3 !important;
 }
+
+/* ----- Detail panel slide-in ----- */
+.phl-detail-panel {
+  animation: phl-slide-in 0.22s ease-out;
+}
+@keyframes phl-slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
