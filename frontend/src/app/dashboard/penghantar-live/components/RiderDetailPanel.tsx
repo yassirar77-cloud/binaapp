@@ -7,6 +7,7 @@
 // this PR; rendered disabled with a TODO.
 
 import { Bike, Hash, Package, Phone, X } from 'lucide-react';
+import toast from 'react-hot-toast';
 import type { LiveRider } from '../lib/types';
 import { computeRiderPresence } from '../lib/types';
 
@@ -165,12 +166,18 @@ export default function RiderDetailPanel({
             Mesej rider (WhatsApp)
           </ActionLink>
         )}
-        {/* TODO: wire to PUT /api/v1/delivery/riders/{id}/status when add to lib/api.ts */}
+        {/* TODO v2: wire to PUT /api/v1/delivery/riders/{id}/status when added
+            to lib/api.ts. For now we surface the action so owners discover it
+            and redirect them to the existing Penghantar page. */}
         <button
           type="button"
-          disabled
-          title="Belum tersedia di halaman ini"
-          className="w-full inline-flex items-center justify-center h-11 px-3 rounded-lg text-sm font-geist font-medium bg-white/[0.03] text-white/30 ring-1 ring-white/[0.06] cursor-not-allowed"
+          onClick={() =>
+            toast(
+              'Akan datang dalam v2. Untuk sekarang, rider boleh set offline dari Penghantar page.',
+              { duration: 5000 },
+            )
+          }
+          className="w-full inline-flex items-center justify-center h-11 px-3 rounded-lg text-sm font-geist font-medium bg-white/[0.06] text-white hover:bg-white/[0.10] ring-1 ring-white/[0.08] transition"
         >
           Tetapkan offline
         </button>
