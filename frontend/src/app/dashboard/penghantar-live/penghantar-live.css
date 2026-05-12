@@ -106,3 +106,31 @@
     opacity: 1;
   }
 }
+
+/* ----- Stuck destination pin (red pulse ring) ----- */
+.phl-dest-pin.phl-stuck .phl-dest-dot {
+  background: #ef4444 !important;
+  animation: phl-stuck-ring 1.2s ease-out infinite;
+  box-shadow: 0 0 0 2px #0a0e1a, 0 0 0 4px rgba(239, 68, 68, 0.5);
+}
+@keyframes phl-stuck-ring {
+  0% {
+    box-shadow: 0 0 0 2px #0a0e1a, 0 0 0 4px rgba(239, 68, 68, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 2px #0a0e1a, 0 0 0 12px rgba(239, 68, 68, 0);
+  }
+}
+
+/* ----- Stuck banner pulse ----- */
+.phl-stuck-banner {
+  animation: phl-stuck-banner-pulse 1.6s ease-in-out infinite;
+}
+@keyframes phl-stuck-banner-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.18);
+  }
+}

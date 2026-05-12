@@ -15,7 +15,13 @@
 // re-fetches once per outlet change.
 // TODO v2: refetch zones on owner edit signal (websocket or focus listener).
 
-import { useEffect, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import type {
   Map as LeafletMap,
   Marker,
@@ -44,12 +50,19 @@ interface Props {
   zones: LiteZone[];
   showZones: boolean;
   showOfflineRiders: boolean;
+  stuckOrderIds: ReadonlySet<string>;
   selectedOrderId: string | null;
   selectedRiderId: string | null;
   hoveredOrderId: string | null;
   hoveredRiderId: string | null;
   onOrderSelect: (orderId: string) => void;
   onRiderSelect: (riderId: string) => void;
+}
+
+export interface MapViewHandle {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  centerOnOutlet: () => void;
 }
 
 // ---- DivIcon HTML for riders ----
@@ -73,20 +86,21 @@ function riderIconHtml(presence: ReturnType<typeof computeRiderPresence>, stale:
   `;
 }
 
-export default function MapView({
+const MapView = forwardRef<MapViewHandle, Props>(function MapView({
   outlet,
   orders,
   riders,
   zones,
   showZones,
   showOfflineRiders,
+  stuckOrderIds,
   selectedOrderId,
   selectedRiderId,
   hoveredOrderId,
   hoveredRiderId,
   onOrderSelect,
   onRiderSelect,
-}: Props) {
+}, ref) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const outletPinRef = useRef<Marker | null>(null);
@@ -339,6 +353,26 @@ export default function MapView({
     });
   }, [hoveredOrderId]);
 
+  useImperativeHandle(ref, () => ({
+    zoomIn: () => mapRef.current?.zoomIn(),
+    zoomOut: () => mapRef.current?.zoomOut(),
+    centerOnOutlet: () => {
+      if (!mapRef.current || !outlet?.lat || !outlet?.lng) return;
+      mapRef.current.setView([outlet.lat, outlet.lng], DEFAULT_ZOOM, {
+        animate: true,
+      });
+    },
+  }), [outlet?.lat, outlet?.lng]);
+
+  // Stuck markers — toggle CSS class on the order's destination pin.
+  useEffect(() => {
+    deliveryPinsRef.current.forEach((m, id) => {
+      const el = m.getElement();
+      if (!el) return;
+      el.classList.toggle('phl-stuck', stuckOrderIds.has(id));
+    });
+  }, [stuckOrderIds, orders]);
+
   return (
     <div className="relative h-full w-full">
       <div
@@ -348,4 +382,6 @@ export default function MapView({
       />
     </div>
   );
-}
+});
+
+export default MapView;

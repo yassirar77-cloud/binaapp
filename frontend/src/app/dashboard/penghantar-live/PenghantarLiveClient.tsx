@@ -10,9 +10,13 @@ import type { ActiveOrder, LiteZone, LiveRider, Outlet } from './lib/types';
 import TopBar from './components/TopBar';
 import OrdersPanel from './components/OrdersPanel';
 import RidersPanel from './components/RidersPanel';
-import MapView from './components/MapView';
+import MapView, { type MapViewHandle } from './components/MapView';
 import OrderDetailPanel from './components/OrderDetailPanel';
 import RiderDetailPanel from './components/RiderDetailPanel';
+import MapControls from './components/MapControls';
+import MapLegend from './components/MapLegend';
+import StuckBanner from './components/StuckBanner';
+import { computeStuckOrderIds } from './lib/stuck';
 
 interface Props {
   outlets: Outlet[];
@@ -36,9 +40,12 @@ export default function PenghantarLiveClient({ outlets }: Props) {
   const [hoveredOrderId, setHoveredOrderId] = useState<string | null>(null);
   const [hoveredRiderId, setHoveredRiderId] = useState<string | null>(null);
 
-  // Visibility toggles wired in commit 5 (MapControls).
-  const [showZones] = useState(true);
-  const [showOfflineRiders] = useState(false);
+  // Visibility toggles (wired via MapControls).
+  const [showZones, setShowZones] = useState(true);
+  const [showOfflineRiders, setShowOfflineRiders] = useState(false);
+
+  // Imperative handle to MapView for zoom + center buttons.
+  const mapApi = useRef<MapViewHandle>(null);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -136,8 +143,16 @@ export default function PenghantarLiveClient({ outlets }: Props) {
     if (selectedRiderId && !selectedRider) setSelectedRiderId(null);
   }, [selectedRiderId, selectedRider]);
 
-  // Stuck order set lands in commit 5.
-  const stuckOrderIds: ReadonlySet<string> = useMemo(() => new Set(), []);
+  // Stuck order set — recomputed each render so it reacts to time passing
+  // on the next poll/realtime tick. (Pure function over orders + riders.)
+  const stuckOrderIds = useMemo(
+    () => computeStuckOrderIds(orders, riders),
+    [orders, riders],
+  );
+  const firstStuckOrderId = useMemo(
+    () => (stuckOrderIds.size > 0 ? stuckOrderIds.values().next().value ?? null : null),
+    [stuckOrderIds],
+  );
 
   if (outlets.length === 0) {
     return (
@@ -186,18 +201,38 @@ export default function PenghantarLiveClient({ outlets }: Props) {
 
         <main className="flex-1 min-w-0 relative bg-[#0a0e1a]">
           <MapView
+            ref={mapApi}
             outlet={selectedOutlet}
             orders={orders}
             riders={riders}
             zones={zones}
             showZones={showZones}
             showOfflineRiders={showOfflineRiders}
+            stuckOrderIds={stuckOrderIds}
             selectedOrderId={selectedOrderId}
             selectedRiderId={selectedRiderId}
             hoveredOrderId={hoveredOrderId}
             hoveredRiderId={hoveredRiderId}
             onOrderSelect={handleOrderSelect}
             onRiderSelect={handleRiderSelect}
+          />
+
+          <StuckBanner
+            count={stuckOrderIds.size}
+            firstStuckOrderId={firstStuckOrderId}
+            onSelectStuck={handleOrderSelect}
+          />
+
+          <MapLegend />
+
+          <MapControls
+            showZones={showZones}
+            showOfflineRiders={showOfflineRiders}
+            onZoomIn={() => mapApi.current?.zoomIn()}
+            onZoomOut={() => mapApi.current?.zoomOut()}
+            onCenterOnOutlet={() => mapApi.current?.centerOnOutlet()}
+            onToggleZones={() => setShowZones((v) => !v)}
+            onToggleOfflineRiders={() => setShowOfflineRiders((v) => !v)}
           />
 
           {/* Non-blocking status overlays */}
