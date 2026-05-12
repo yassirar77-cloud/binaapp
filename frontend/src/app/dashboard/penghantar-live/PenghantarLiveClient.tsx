@@ -16,6 +16,8 @@ import RiderDetailPanel from './components/RiderDetailPanel';
 import MapControls from './components/MapControls';
 import MapLegend from './components/MapLegend';
 import StuckBanner from './components/StuckBanner';
+import ReassignModal from './components/ReassignModal';
+import CancelModal from './components/CancelModal';
 import { computeStuckOrderIds } from './lib/stuck';
 
 interface Props {
@@ -46,6 +48,10 @@ export default function PenghantarLiveClient({ outlets }: Props) {
 
   // Imperative handle to MapView for zoom + center buttons.
   const mapApi = useRef<MapViewHandle>(null);
+
+  // Modal state — only one open at a time, both keyed to selectedOrder.
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -254,12 +260,8 @@ export default function PenghantarLiveClient({ outlets }: Props) {
           <OrderDetailPanel
             order={selectedOrder}
             onClose={() => setSelectedOrderId(null)}
-            onReassignClick={() => {
-              /* TODO: open ReassignModal — wired in commit 6 */
-            }}
-            onCancelClick={() => {
-              /* TODO: open CancelModal — wired in commit 6 */
-            }}
+            onReassignClick={() => setReassignOpen(true)}
+            onCancelClick={() => setCancelOpen(true)}
           />
         )}
         {selectedRider && !selectedOrder && (
@@ -270,6 +272,29 @@ export default function PenghantarLiveClient({ outlets }: Props) {
           />
         )}
       </div>
+
+      {selectedOrder && reassignOpen && (
+        <ReassignModal
+          order={selectedOrder}
+          riders={riders}
+          onClose={() => setReassignOpen(false)}
+          onSuccess={() => {
+            setReassignOpen(false);
+            if (selectedOutletId) refetchLive(selectedOutletId);
+          }}
+        />
+      )}
+      {selectedOrder && cancelOpen && (
+        <CancelModal
+          order={selectedOrder}
+          onClose={() => setCancelOpen(false)}
+          onSuccess={() => {
+            setCancelOpen(false);
+            setSelectedOrderId(null); // order leaves the active list
+            if (selectedOutletId) refetchLive(selectedOutletId);
+          }}
+        />
+      )}
     </div>
   );
 }
