@@ -993,6 +993,13 @@ async def verify_payment(
     must own the website that the message's conversation belongs to.
     """
     try:
+        # Validate UUID up-front so a malformed path param returns a clean 404
+        # instead of a Postgres `22P02` leak from the DB layer.
+        try:
+            uuid.UUID(message_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=404, detail="Mesej tidak dijumpai")
+
         supabase = get_supabase()
         user_id = current_user.get("sub") or current_user.get("id")
         if not user_id:
