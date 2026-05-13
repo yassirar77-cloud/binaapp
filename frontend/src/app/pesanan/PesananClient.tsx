@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import { getCurrentUser } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import {
+  ApiError,
   assignRider,
   getOrders,
   getRidersForWebsites,
@@ -83,25 +84,58 @@ export default function PesananClient() {
     };
   }, []);
 
+  // ----- Toast + error helpers -----
+  //
+  // Centralized so all toast calls go through one duration policy + 401 +
+  // network-failure handling. Success: 3s. Error: 5s. 401 → /login.
+  // Network failures map to a friendly Malay message regardless of the
+  // upstream throw text.
+
+  const reportSuccess = useCallback((msg: string) => {
+    toast.success(msg, { duration: 3000 });
+  }, []);
+
+  /** Toast an error and, on 401, kick to /login. `silent` suppresses the toast
+   *  but still triggers the 401 redirect — used by background polling so we
+   *  don't spam users while their network is flaky. */
+  const reportError = useCallback(
+    (e: unknown, fallback: string, opts: { silent?: boolean } = {}) => {
+      if (e instanceof ApiError && e.status === 401) {
+        router.push('/login');
+        return;
+      }
+      if (opts.silent) return;
+      const msg =
+        e instanceof ApiError && e.status === 0
+          ? 'Tiada sambungan. Periksa internet anda.'
+          : e instanceof Error && e.message
+            ? e.message
+            : fallback;
+      toast.error(msg, { duration: 5000 });
+    },
+    [router],
+  );
+
   // ----- Refresh logic -----
 
-  const refreshOrders = useCallback(async (): Promise<Order[] | null> => {
-    try {
-      const o = await getOrders();
-      if (!mountedRef.current) return null;
-      setOrders(o);
-      setLastRefresh(new Date());
-      return o;
-    } catch (e) {
-      if (!mountedRef.current) return null;
-      toast.error(
-        e instanceof Error && e.message
-          ? e.message
-          : 'Gagal hubungi backend. Sila refresh halaman.',
-      );
-      return null;
-    }
-  }, []);
+  const refreshOrders = useCallback(
+    async (refreshOpts: { silent?: boolean } = {}): Promise<Order[] | null> => {
+      try {
+        const o = await getOrders();
+        if (!mountedRef.current) return null;
+        setOrders(o);
+        setLastRefresh(new Date());
+        return o;
+      } catch (e) {
+        if (!mountedRef.current) return null;
+        reportError(e, 'Gagal muat semula pesanan. Sila cuba lagi.', {
+          silent: refreshOpts.silent,
+        });
+        return null;
+      }
+    },
+    [reportError],
+  );
 
   // Resolve display name for DashboardHeader once on mount.
   useEffect(() => {
@@ -151,11 +185,7 @@ export default function PesananClient() {
         setLastRefresh(new Date());
       } catch (e) {
         if (cancelled) return;
-        toast.error(
-          e instanceof Error && e.message
-            ? e.message
-            : 'Gagal hubungi backend. Sila refresh halaman.',
-        );
+        reportError(e, 'Gagal muat pesanan. Sila refresh halaman.');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -163,12 +193,13 @@ export default function PesananClient() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reportError]);
 
-  // Polling — 30s after the initial load completes.
+  // Background polling — 30s. Silent on toast (no spam during flaky network)
+  // but 401 still redirects so a dead session forces re-auth.
   useEffect(() => {
     const id = window.setInterval(() => {
-      void refreshOrders();
+      void refreshOrders({ silent: true });
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [refreshOrders]);
@@ -254,19 +285,18 @@ export default function PesananClient() {
       setAcceptingId(order.id);
       try {
         await updateOrderStatus(order.id, 'confirmed', 'Pesanan disahkan oleh pemilik');
-        toast.success(`Pesanan #${order.order_number} diterima`);
+        reportSuccess(`Pesanan #${order.order_number} diterima`);
         await refreshOrders();
       } catch (e) {
-        toast.error(
-          e instanceof Error && e.message
-            ? e.message
-            : 'Gagal kemaskini status. Sila cuba lagi.',
+        reportError(
+          e,
+          `Gagal terima pesanan #${order.order_number}. Sila cuba lagi.`,
         );
       } finally {
         if (mountedRef.current) setAcceptingId(null);
       }
     },
-    [refreshOrders],
+    [refreshOrders, reportSuccess, reportError],
   );
 
   const handleRejectOrder = useCallback((order: Order) => {
@@ -287,20 +317,19 @@ export default function PesananClient() {
           'cancelled',
           `Pesanan ditolak: ${reason}`,
         );
-        toast.success(`Pesanan #${order.order_number} ditolak`);
+        reportSuccess(`Pesanan #${order.order_number} ditolak`);
         setRejectModalFor(null);
         await refreshOrders();
         return true;
       } catch (e) {
-        toast.error(
-          e instanceof Error && e.message
-            ? e.message
-            : 'Gagal menolak pesanan. Sila cuba lagi.',
+        reportError(
+          e,
+          `Gagal tolak pesanan #${order.order_number}. Sila cuba lagi.`,
         );
         return false;
       }
     },
-    [refreshOrders],
+    [refreshOrders, reportSuccess, reportError],
   );
 
   const handlePickRider = useCallback((order: Order) => {
@@ -320,7 +349,7 @@ export default function PesananClient() {
       try {
         await assignRider(orderId, rider.id);
         setRidersPickerOpenFor(null);
-        toast.success(
+        reportSuccess(
           orderNumber
             ? `Rider ${rider.name} ditugaskan ke pesanan #${orderNumber}`
             : `Rider ${rider.name} ditugaskan`,
@@ -328,15 +357,16 @@ export default function PesananClient() {
         await refreshOrders();
         return true;
       } catch (e) {
-        toast.error(
-          e instanceof Error && e.message
-            ? e.message
-            : 'Gagal menetapkan rider. Sila cuba lagi.',
+        reportError(
+          e,
+          orderNumber
+            ? `Gagal tetapkan rider untuk pesanan #${orderNumber}. Sila cuba lagi.`
+            : 'Gagal tetapkan rider. Sila cuba lagi.',
         );
         return false;
       }
     },
-    [orders, refreshOrders],
+    [orders, refreshOrders, reportSuccess, reportError],
   );
 
   const handleMarkCompleted = useCallback(
@@ -344,19 +374,18 @@ export default function PesananClient() {
       setCompletingId(order.id);
       try {
         await updateOrderStatus(order.id, 'completed');
-        toast.success(`Pesanan #${order.order_number} ditandakan selesai`);
+        reportSuccess(`Pesanan #${order.order_number} ditandakan selesai`);
         await refreshOrders();
       } catch (e) {
-        toast.error(
-          e instanceof Error && e.message
-            ? e.message
-            : 'Gagal kemaskini status. Sila cuba lagi.',
+        reportError(
+          e,
+          `Gagal kemaskini pesanan #${order.order_number}. Sila cuba lagi.`,
         );
       } finally {
         if (mountedRef.current) setCompletingId(null);
       }
     },
-    [refreshOrders],
+    [refreshOrders, reportSuccess, reportError],
   );
 
   const handleClosePanel = useCallback(() => setSelectedOrderId(null), []);

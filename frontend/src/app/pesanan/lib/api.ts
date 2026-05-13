@@ -17,19 +17,40 @@ async function getToken(): Promise<string> {
     const { data } = await supabase.auth.getSession();
     if (data.session?.access_token) return data.session.access_token;
   }
-  throw new Error('Tidak log masuk');
+  throw new ApiError('Tidak log masuk', 401);
+}
+
+/** Thrown by authFetch with the HTTP status attached. Use `status === 0` to
+ *  identify network failures (fetch threw before getting a response). */
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
 }
 
 async function authFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const token = await getToken();
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...opts,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(opts.headers || {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...opts,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...(opts.headers || {}),
+      },
+    });
+  } catch (e) {
+    // fetch only throws on network failures (DNS, CORS, offline). Map to a
+    // status-0 ApiError so callers can distinguish from server errors.
+    throw new ApiError(
+      e instanceof Error ? e.message : 'Network error',
+      0,
+    );
+  }
 
   if (res.status === 204) {
     return null as unknown as T;
@@ -43,7 +64,7 @@ async function authFetch<T>(path: string, opts: RequestInit = {}): Promise<T> {
     } catch {
       /* ignore */
     }
-    throw new Error(detail || `HTTP ${res.status}`);
+    throw new ApiError(detail || `HTTP ${res.status}`, res.status);
   }
 
   return (await res.json()) as T;
