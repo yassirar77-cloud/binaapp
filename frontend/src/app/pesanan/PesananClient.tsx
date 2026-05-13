@@ -30,6 +30,7 @@ import FilterBar from './components/FilterBar';
 import OrderCard from './components/OrderCard';
 import EmptyState from './components/EmptyState';
 import OrderDetailPanel from './components/OrderDetailPanel';
+import RejectModal from './components/RejectModal';
 
 export default function PesananClient() {
   const router = useRouter();
@@ -65,6 +66,9 @@ export default function PesananClient() {
   const [ridersPickerOpenFor, setRidersPickerOpenFor] = useState<string | null>(
     null,
   );
+  /** Order whose RejectModal is open. Stored as the full Order object so the
+   *  modal can render even if the order momentarily disappears mid-refetch. */
+  const [rejectModalFor, setRejectModalFor] = useState<Order | null>(null);
 
   // ----- Bookkeeping -----
   const mountedRef = useRef(true);
@@ -266,9 +270,38 @@ export default function PesananClient() {
   );
 
   const handleRejectOrder = useCallback((order: Order) => {
-    // TODO(Phase 8): open RejectModal with reason textarea + validation.
-    console.log('[Pesanan] TODO: open RejectModal (Phase 8)', order.id);
+    setRejectModalFor(order);
   }, []);
+
+  const handleCloseRejectModal = useCallback(() => {
+    setRejectModalFor(null);
+  }, []);
+
+  /** Returns true on success so the modal closes itself, false on failure
+   *  so it stays open + clears its submitting state. */
+  const handleConfirmReject = useCallback(
+    async (order: Order, reason: string): Promise<boolean> => {
+      try {
+        await updateOrderStatus(
+          order.id,
+          'cancelled',
+          `Pesanan ditolak: ${reason}`,
+        );
+        toast.success(`Pesanan #${order.order_number} ditolak`);
+        setRejectModalFor(null);
+        await refreshOrders();
+        return true;
+      } catch (e) {
+        toast.error(
+          e instanceof Error && e.message
+            ? e.message
+            : 'Gagal menolak pesanan. Sila cuba lagi.',
+        );
+        return false;
+      }
+    },
+    [refreshOrders],
+  );
 
   const handlePickRider = useCallback((order: Order) => {
     setRidersPickerOpenFor((prev) => (prev === order.id ? null : order.id));
@@ -482,6 +515,14 @@ export default function PesananClient() {
           />
         ) : null}
       </main>
+
+      {rejectModalFor ? (
+        <RejectModal
+          order={rejectModalFor}
+          onClose={handleCloseRejectModal}
+          onConfirm={handleConfirmReject}
+        />
+      ) : null}
     </div>
   );
 }
