@@ -9,6 +9,7 @@ import type { Conversation, TabKey, Website } from '../lib/types';
 import WebsiteFilterPills from './WebsiteFilterPills';
 import SearchBar from './SearchBar';
 import TabBar from './TabBar';
+import ConversationRow from './ConversationRow';
 import EmptyState from './EmptyState';
 
 interface Props {
@@ -76,13 +77,23 @@ export default function ConversationListPanel({
           <div className="flex items-center justify-center py-16">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white/40" />
           </div>
-        ) : !hasAny ? (
-          <EmptyState variant="no-convs" />
+        ) : filteredConversations.length === 0 ? (
+          <EmptyState variant={hasAny ? 'no-match' : 'no-convs'} />
         ) : (
-          // Phase 6 will replace this placeholder with ConversationRow rendering.
-          <div className="px-3 py-4 font-mono text-[11px] text-white/40">
-            {filteredConversations.length} of {conversations.length} (rows in
-            Phase 6)
+          <div>
+            {filteredConversations.map((c) => (
+              <ConversationRow
+                key={c.id}
+                conv={c}
+                websiteLabel={
+                  c.website_name ||
+                  websiteLabelById.get(c.website_id) ||
+                  'Outlet'
+                }
+                selected={selectedConversationId === c.id}
+                onSelect={onSelectConversation}
+              />
+            ))}
           </div>
         )}
       </div>
