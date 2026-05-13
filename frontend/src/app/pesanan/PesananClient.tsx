@@ -2,7 +2,7 @@
 
 // /pesanan — main client wrapper.
 // Owns data + filter state, renders the chrome (DashboardHeader / TopBar /
-// TabBar / FilterBar) and the card list. The detail panel lands in Phase 6.
+// TabBar / FilterBar) and the card list + detail panel + modals.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -41,8 +41,6 @@ export default function PesananClient() {
   // ----- Data -----
   const [orders, setOrders] = useState<Order[]>([]);
   const [websites, setWebsites] = useState<Website[]>([]);
-  // Riders are fetched but not consumed by the chrome; the picker will read
-  // from this state in Phase 7.
   const [riders, setRiders] = useState<Rider[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -58,7 +56,7 @@ export default function PesananClient() {
   const [dateRange, setDateRange] = useState<DateRange>('today');
 
   // ----- Selection state -----
-  /** Selected card; detail panel plugs into this in Phase 6. */
+  /** Selected card → drives the detail panel + click-outside close. */
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   /** Order id currently being accepted via API (to disable buttons inline). */
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
@@ -584,7 +582,7 @@ export default function PesananClient() {
  *  - yesterday  : midnight yesterday → midnight today (24h window)
  *  - 7days      : now − 7d → +∞
  *  - 30days     : now − 30d → +∞
- *  - custom     : open range (no custom picker yet — Phase 12 follow-up). */
+ *  - custom     : open range (no custom picker yet — followup PR). */
 function dateRangeBounds(
   range: DateRange,
   now: number,
