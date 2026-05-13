@@ -1,8 +1,8 @@
 'use client';
 
 // /chat — main client wrapper. Owns conversation + filter state, polls every
-// 30s, and renders DashboardHeader / TopBar / ConversationListPanel with a
-// placeholder right panel (the real ChatPanelWrapper lands in Phase 7).
+// 30s, and renders DashboardHeader / TopBar / ConversationListPanel +
+// ChatPanelWrapper for the selected conversation.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -11,15 +11,17 @@ import { getCurrentUser } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import {
   ApiError,
+  closeConversation,
   getConversations,
   getWebsites,
 } from './lib/api';
-import type { Conversation, TabKey, Website } from './lib/types';
+import type { Conversation, Message, TabKey, Website } from './lib/types';
 import { POLL_INTERVAL_MS, SEARCH_DEBOUNCE_MS, TABS } from './lib/constants';
 import { useIsMobile } from './lib/useIsMobile';
 import TopBar from './components/TopBar';
 import ConversationListPanel from './components/ConversationListPanel';
-import EmptyState from './components/EmptyState';
+import ChatPanelWrapper from './components/ChatPanelWrapper';
+import EmptyState, { type EmptyStateStat } from './components/EmptyState';
 import './chat.css';
 
 export default function ChatClient() {
@@ -41,6 +43,9 @@ export default function ChatClient() {
 
   // ----- Selection -----
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  // Phase 9 wires the modal; Phase 7 only captures the trigger so we can prove
+  // the BinaChat -> ChatClient callback path is connected end-to-end.
+  const [verifyModalForMessage, setVerifyModalForMessage] = useState<Message | null>(null);
 
   const isMobile = useIsMobile();
 
@@ -58,6 +63,10 @@ export default function ChatClient() {
   }, []);
 
   // ----- Toasts -----
+  const reportSuccess = useCallback((msg: string) => {
+    toast.success(msg, { duration: 3000 });
+  }, []);
+
   const reportError = useCallback(
     (e: unknown, fallback: string, opts: { silent?: boolean } = {}) => {
       if (e instanceof ApiError && e.status === 401) {
@@ -281,6 +290,99 @@ export default function ChatClient() {
     await refreshConversations();
   }, [refreshConversations]);
 
+  const handleCopyPhone = useCallback(
+    async (phone: string) => {
+      try {
+        if (navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(phone);
+          reportSuccess('Nombor telefon disalin');
+        } else {
+          toast('Salinan tidak tersedia', { duration: 3000 });
+        }
+      } catch {
+        toast.error('Gagal salin nombor', { duration: 3000 });
+      }
+    },
+    [reportSuccess],
+  );
+
+  const handleCloseConversation = useCallback(
+    async (id: string) => {
+      try {
+        await closeConversation(id);
+        reportSuccess('Chat ditutup');
+        await refreshConversations();
+      } catch (e) {
+        reportError(e, 'Gagal tutup chat. Sila cuba lagi.');
+      }
+    },
+    [refreshConversations, reportSuccess, reportError],
+  );
+
+  // Phase 7 stub: BinaChat fires this with the payment message id. Phase 9
+  // resolves the id to a Message and renders <VerifyPaymentModal/>. For now
+  // we surface a toast so it's obvious the wiring is live in QA.
+  const handleVerifyPayment = useCallback(
+    (messageId: string) => {
+      // Find the message in the active conversation's preview window.
+      const conv = conversations.find((c) => c.id === selectedConversationId);
+      const msg =
+        conv?.chat_messages?.find((m) => m.id === messageId) ??
+        ({ id: messageId } as Message);
+      setVerifyModalForMessage(msg);
+      toast('Modal pengesahan akan dipasang dalam Phase 9', { duration: 3000 });
+    },
+    [conversations, selectedConversationId],
+  );
+
+  // Owner display name passed to BinaChat (shown to customer + rider as the
+  // sender of owner messages). Prefer the first website's business_name —
+  // matches the legacy OwnerChatDashboard fallback chain.
+  const ownerName = useMemo(() => {
+    const first = websites[0];
+    return (
+      first?.business_name || first?.name || userName || 'Pemilik Kedai'
+    );
+  }, [websites, userName]);
+
+  // Stats for the no-selection empty state. "Payment pending" is an
+  // approximation — only the last 10 messages per conversation come back in
+  // the preview window, so older pending proofs aren't counted. Good enough
+  // for an at-a-glance number; a precise count would need a dedicated query.
+  const noSelectionStats: EmptyStateStat[] = useMemo(() => {
+    let activeOrders = 0;
+    let paymentPending = 0;
+    for (const c of conversations) {
+      if (c.order_id && c.status === 'active') activeOrders++;
+      const msgs = c.chat_messages ?? [];
+      for (const m of msgs) {
+        if (
+          m.message_type === 'payment' &&
+          m.metadata?.status === 'pending_verification'
+        ) {
+          paymentPending++;
+        }
+      }
+    }
+    return [
+      {
+        label: 'Belum dibaca',
+        value: unreadTotal,
+        tone: unreadTotal > 0 ? 'accent' : 'normal',
+      },
+      {
+        label: 'Pesanan aktif',
+        value: activeOrders,
+        tone: 'normal',
+      },
+      {
+        label: 'Bayaran perlu sah',
+        value: paymentPending,
+        tone: paymentPending > 0 ? 'alert' : 'normal',
+      },
+    ];
+  }, [conversations, unreadTotal]);
+
   // ----- Layout -----
   // Mobile two-screen pattern: when a conversation is selected, the list is
   // hidden and only the right panel shows (with a back affordance handled by
@@ -329,55 +431,25 @@ export default function ChatClient() {
             isMobile && !showRightOnMobile ? 'hidden md:flex' : 'flex',
           ].join(' ')}
         >
-          {/* Phase 7 will swap this placeholder for ChatPanelWrapper. */}
           {selectedConversation ? (
-            <PlaceholderChatPanel
-              title={selectedConversation.customer_name || 'Pelanggan'}
+            <ChatPanelWrapper
+              conv={selectedConversation}
+              ownerName={ownerName}
+              websiteLabel={
+                websiteLabelById.get(selectedConversation.website_id) ||
+                'Outlet'
+              }
               isMobile={isMobile}
               onBack={handleBackToList}
+              onCopyPhone={handleCopyPhone}
+              onCloseConversation={handleCloseConversation}
+              onVerifyPayment={handleVerifyPayment}
             />
           ) : (
-            <EmptyState variant="no-selection" />
+            <EmptyState variant="no-selection" stats={noSelectionStats} />
           )}
         </section>
       </main>
-    </div>
-  );
-}
-
-// ----- Temporary placeholder (Phase 7 replaces this) -----
-
-function PlaceholderChatPanel({
-  title,
-  isMobile,
-  onBack,
-}: {
-  title: string;
-  isMobile: boolean;
-  onBack: () => void;
-}) {
-  return (
-    <div className="h-full w-full flex flex-col">
-      <div className="px-4 py-3 border-b border-white/[0.06] flex items-center gap-3">
-        {isMobile && (
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/70"
-            aria-label="Kembali"
-          >
-            ←
-          </button>
-        )}
-        <div className="font-geist text-sm font-medium text-white truncate">
-          {title}
-        </div>
-      </div>
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center text-white/40 font-geist text-xs px-6">
-          Chat panel akan dipasang dalam Phase 7.
-        </div>
-      </div>
     </div>
   );
 }
