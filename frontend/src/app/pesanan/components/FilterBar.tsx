@@ -1,6 +1,6 @@
 'use client';
 
-import { CalendarDays, ChevronDown, RefreshCw, Search, Store } from 'lucide-react';
+import { CalendarDays, ChevronDown, RefreshCw, Search, SlidersHorizontal, Store } from 'lucide-react';
 import type { DateRange, Website } from '../lib/types';
 import { DATE_RANGE_LABELS } from '../lib/constants';
 
@@ -14,6 +14,9 @@ interface Props {
   onWebsiteChange: (id: string | 'all') => void;
   loading: boolean;
   onRefresh: () => void;
+  /** Open the mobile filter sheet (date + outlet). Only invoked on the
+   *  small-screen button; desktop renders the inline selects instead. */
+  onOpenFilterModal: () => void;
 }
 
 export default function FilterBar({
@@ -26,11 +29,18 @@ export default function FilterBar({
   onWebsiteChange,
   loading,
   onRefresh,
+  onOpenFilterModal,
 }: Props) {
+  // Active when filters diverge from defaults; used to show a dot on the
+  // mobile Filter button so users can see at a glance whether anything is
+  // narrowing the list.
+  const filtersActive =
+    dateRange !== 'today' ||
+    (selectedWebsiteId !== 'all' && websites.length > 1);
   return (
     <div className="w-full px-4 lg:px-6 py-3 border-b border-white/[0.06] bg-[#0a0e1a]">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-        {/* Search */}
+      <div className="flex items-center gap-2">
+        {/* Search (full-width on mobile, capped on sm+) */}
         <div className="relative flex-1 min-w-0 sm:max-w-md">
           <Search
             size={14}
@@ -46,8 +56,21 @@ export default function FilterBar({
           />
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Date range */}
+        {/* Mobile: single "Penapis" sheet trigger replaces the inline selects. */}
+        <button
+          type="button"
+          onClick={onOpenFilterModal}
+          aria-label="Penapis"
+          className="relative md:hidden inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/70 hover:text-white hover:bg-white/[0.08] transition-colors"
+        >
+          <SlidersHorizontal size={14} strokeWidth={1.5} />
+          {filtersActive ? (
+            <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-[#C7FF3D] ring-2 ring-[#0a0e1a]" />
+          ) : null}
+        </button>
+
+        {/* Desktop: inline date + outlet selects. */}
+        <div className="hidden md:flex items-center gap-2 shrink-0">
           <div className="relative">
             <CalendarDays
               size={14}
@@ -75,7 +98,7 @@ export default function FilterBar({
           {/* Outlet filter (shown only when owner has 2+ outlets — for single
               outlet it duplicates the TopBar selector). */}
           {websites.length > 1 && (
-            <div className="relative hidden md:block">
+            <div className="relative">
               <Store
                 size={14}
                 strokeWidth={1.5}

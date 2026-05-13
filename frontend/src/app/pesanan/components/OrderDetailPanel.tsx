@@ -30,6 +30,9 @@ interface Props {
   completingId: string | null;
   pickerOpen: boolean;
   allRiders: Rider[];
+  /** desktop = inline flex item, slide-in from right.
+   *  mobile  = fixed overlay + backdrop, slide-up from bottom. */
+  variant: 'desktop' | 'mobile';
   onClose: () => void;
   onAccept: (order: Order) => void;
   onReject: (order: Order) => void;
@@ -56,6 +59,7 @@ export default function OrderDetailPanel({
   completingId,
   pickerOpen,
   allRiders,
+  variant,
   onClose,
   onAccept,
   onReject,
@@ -72,14 +76,28 @@ export default function OrderDetailPanel({
       ? extractCancellationReason(order.notes)
       : null;
 
-  return (
+  // Wrapper differs by variant; the inner header / body / footer JSX is the
+  // same, so we build it once below and inject into the right wrapper.
+  const isMobile = variant === 'mobile';
+
+  const panelClasses = isMobile
+    ? 'pesanan-slide-up absolute inset-x-0 bottom-0 top-14 bg-[#0d1120] rounded-t-2xl shadow-2xl shadow-black/50 flex flex-col min-h-0'
+    : 'pesanan-slide-in w-[420px] shrink-0 flex flex-col bg-[#0d1120] border-l border-white/[0.08] min-h-0';
+
+  const panel = (
     <aside
-      className="pesanan-slide-in w-full md:w-[420px] shrink-0 flex flex-col bg-[#0d1120] md:border-l border-white/[0.08] min-h-0"
+      className={panelClasses}
       role="dialog"
       aria-label={`Butiran pesanan ${order.order_number}`}
+      // On mobile the wrapper backdrop closes on click; stop propagation so
+      // clicks inside the panel itself don't close it.
+      onMouseDown={isMobile ? (e) => e.stopPropagation() : undefined}
     >
       {/* Header */}
-      <div className="shrink-0 px-5 pt-5 pb-4 border-b border-white/[0.06]">
+      <div className="shrink-0 px-5 pt-3 sm:pt-5 pb-4 border-b border-white/[0.06]">
+        {isMobile ? (
+          <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/15" />
+        ) : null}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="font-mono font-bold text-lg text-white tracking-tight truncate">
@@ -270,4 +288,19 @@ export default function OrderDetailPanel({
       </div>
     </aside>
   );
+
+  // Mobile wraps the panel in a fixed backdrop overlay so it floats on top of
+  // the cards list (which stays mounted underneath). Backdrop click closes.
+  if (isMobile) {
+    return (
+      <div
+        className="pesanan-fade-in fixed inset-0 z-[55] bg-black/55 backdrop-blur-sm"
+        role="presentation"
+        onMouseDown={onClose}
+      >
+        {panel}
+      </div>
+    );
+  }
+  return panel;
 }

@@ -103,6 +103,11 @@ export default function OrderCard({
           >
             {meta.short}
           </span>
+          {/* Mobile-only inline total — the dedicated items/total column
+              hides under sm, but RM stays useful at-a-glance. */}
+          <span className="sm:hidden ml-auto font-mono text-[11px] font-semibold text-[#C7FF3D] shrink-0">
+            RM {order.total_amount.toFixed(2)}
+          </span>
         </div>
         <div className="text-xs text-white/60 truncate font-geist">
           {order.customer_name}
@@ -245,7 +250,7 @@ export default function OrderCard({
       <ChevronRight
         size={16}
         strokeWidth={1.5}
-        className="text-white/30 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="hidden sm:block text-white/30 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
       />
     </div>
   );

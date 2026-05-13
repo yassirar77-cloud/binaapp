@@ -32,6 +32,8 @@ import OrderCard from './components/OrderCard';
 import EmptyState from './components/EmptyState';
 import OrderDetailPanel from './components/OrderDetailPanel';
 import RejectModal from './components/RejectModal';
+import FilterModal from './components/FilterModal';
+import { useIsMobile } from './lib/useIsMobile';
 
 export default function PesananClient() {
   const router = useRouter();
@@ -70,6 +72,10 @@ export default function PesananClient() {
   /** Order whose RejectModal is open. Stored as the full Order object so the
    *  modal can render even if the order momentarily disappears mid-refetch. */
   const [rejectModalFor, setRejectModalFor] = useState<Order | null>(null);
+  /** Mobile filter sheet open state. */
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
+
+  const isMobile = useIsMobile();
 
   // ----- Bookkeeping -----
   const mountedRef = useRef(true);
@@ -447,21 +453,25 @@ export default function PesananClient() {
         newOrdersCount={pendingCount}
         onLogout={handleLogout}
       />
-      <TopBar
-        websites={websites}
-        selectedWebsiteId={selectedWebsiteId}
-        onWebsiteChange={setSelectedWebsiteId}
-        orders={orders}
-        pendingCount={pendingCount}
-        loading={loading}
-        onRefresh={handleRefresh}
-      />
-      <TabBar
-        tab={tab}
-        onTabChange={setTab}
-        orders={orders}
-        lastRefresh={lastRefresh}
-      />
+      {/* Sticky chrome: TopBar + TabBar stay glued below DashboardHeader (h-14)
+          while the cards list scrolls underneath. FilterBar scrolls away. */}
+      <div className="sticky top-14 z-20 bg-[#0a0e1a]/95 backdrop-blur-sm">
+        <TopBar
+          websites={websites}
+          selectedWebsiteId={selectedWebsiteId}
+          onWebsiteChange={setSelectedWebsiteId}
+          orders={orders}
+          pendingCount={pendingCount}
+          loading={loading}
+          onRefresh={handleRefresh}
+        />
+        <TabBar
+          tab={tab}
+          onTabChange={setTab}
+          orders={orders}
+          lastRefresh={lastRefresh}
+        />
+      </div>
       <FilterBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -472,18 +482,16 @@ export default function PesananClient() {
         onWebsiteChange={setSelectedWebsiteId}
         loading={loading}
         onRefresh={handleRefresh}
+        onOpenFilterModal={() => setFilterModalOpen(true)}
       />
 
-      {/* Content surface — cards left, detail panel right (when an order is
-          selected). Mobile-polish for the panel ships in Phase 10; for now the
-          cards column hides on small viewports while the panel is open so we
-          don't end up with two competing scroll surfaces. */}
+      {/* Content surface — cards on the left, detail panel on the right when
+          an order is selected. On mobile (variant='mobile') the panel renders
+          as a fixed overlay so the cards column stays mounted underneath the
+          backdrop and doesn't need to be hidden. */}
       <main className="flex-1 min-h-0 flex">
         <div
-          className={[
-            'flex-1 min-w-0 overflow-y-auto px-4 lg:px-6 py-6',
-            selectedOrder ? 'hidden md:block' : '',
-          ].join(' ')}
+          className="flex-1 min-w-0 overflow-y-auto px-4 lg:px-6 py-6"
           // Click on empty cards-area background (not bubbled from a card)
           // closes the detail panel.
           onClick={(e) => {
@@ -534,6 +542,7 @@ export default function PesananClient() {
             completingId={completingId}
             pickerOpen={ridersPickerOpenFor === selectedOrder.id}
             allRiders={riders}
+            variant={isMobile ? 'mobile' : 'desktop'}
             onClose={handleClosePanel}
             onAccept={handleAcceptOrder}
             onReject={handleRejectOrder}
@@ -550,6 +559,20 @@ export default function PesananClient() {
           order={rejectModalFor}
           onClose={handleCloseRejectModal}
           onConfirm={handleConfirmReject}
+        />
+      ) : null}
+
+      {filterModalOpen ? (
+        <FilterModal
+          websites={websites}
+          dateRange={dateRange}
+          selectedWebsiteId={selectedWebsiteId}
+          onClose={() => setFilterModalOpen(false)}
+          onApply={({ dateRange: nextRange, selectedWebsiteId: nextWebsite }) => {
+            setDateRange(nextRange);
+            setSelectedWebsiteId(nextWebsite);
+            setFilterModalOpen(false);
+          }}
         />
       ) : null}
     </div>

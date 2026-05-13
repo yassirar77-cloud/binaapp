@@ -12,6 +12,7 @@
 import { Bike, Phone } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Rider } from '../lib/types';
+import { useIsMobile } from '../lib/useIsMobile';
 
 interface Props {
   orderId: string;
@@ -60,6 +61,7 @@ export default function RiderPickerDropdown({
 }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const isMobile = useIsMobile();
 
   // Filter to riders owned by the order's outlet, then sort.
   const riders = useMemo(
@@ -67,8 +69,9 @@ export default function RiderPickerDropdown({
     [allRiders, websiteId],
   );
 
-  // ESC + outside click. mousedown (not click) so we close before a card
-  // body click handler fires under the popover.
+  // ESC + outside click. On desktop, mousedown (not click) so we close before
+  // a card body click handler fires under the popover. On mobile we rely on
+  // the explicit backdrop's onMouseDown — outside-click logic is the same.
   useEffect(() => {
     const onDocMouse = (e: MouseEvent) => {
       if (!ref.current) return;
@@ -96,23 +99,35 @@ export default function RiderPickerDropdown({
     // Success: parent unmounts the picker; no need to clear state.
   };
 
-  const posClasses = [
+  // Desktop: anchored popover next to the trigger.
+  // Mobile: full-width bottom sheet with backdrop.
+  const desktopPosClasses = [
     'absolute z-30 w-[300px] max-w-[90vw]',
     placement === 'above' ? 'bottom-full mb-2' : 'top-full mt-2',
     align === 'right' ? 'right-0' : 'left-0',
   ].join(' ');
 
-  return (
+  // z stack: OrderDetailPanel mobile sits at z-[55]. The picker has to layer
+  // above it since the trigger lives inside the panel footer.
+  const sheetClasses = isMobile
+    ? 'pesanan-slide-up fixed inset-x-0 bottom-0 z-[59] rounded-t-2xl bg-[#11152a] ring-1 ring-white/[0.1] shadow-2xl shadow-black/50 overflow-hidden max-h-[80vh] flex flex-col'
+    : `${desktopPosClasses} pesanan-fade-in rounded-xl bg-[#11152a] ring-1 ring-white/[0.1] shadow-2xl shadow-black/40 overflow-hidden`;
+
+  const sheet = (
     <div
       ref={ref}
       role="dialog"
       aria-label="Pilih rider"
-      className={`${posClasses} pesanan-fade-in rounded-xl bg-[#11152a] ring-1 ring-white/[0.1] shadow-2xl shadow-black/40 overflow-hidden`}
+      className={sheetClasses}
       // Stop bubbling so the parent card / cards-container doesn't treat this
       // as a select / close-panel click.
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="px-3 py-2.5 border-b border-white/[0.06] flex items-center justify-between">
+      {/* Mobile grabber. */}
+      {isMobile ? (
+        <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-white/15 shrink-0" />
+      ) : null}
+      <div className="px-3 py-2.5 border-b border-white/[0.06] flex items-center justify-between shrink-0">
         <span className="font-mono text-[10px] uppercase tracking-wider text-white/50">
           Pilih Rider
         </span>
@@ -131,7 +146,7 @@ export default function RiderPickerDropdown({
           </div>
         </div>
       ) : (
-        <ul className="max-h-[320px] overflow-y-auto py-1">
+        <ul className={`${isMobile ? 'flex-1' : 'max-h-[320px]'} overflow-y-auto py-1`}>
           {riders.map((r) => {
             const busy = assigningId === r.id;
             const disabled = !!assigningId && !busy;
@@ -202,4 +217,19 @@ export default function RiderPickerDropdown({
       )}
     </div>
   );
+
+  // Mobile wraps the sheet in a backdrop overlay. Backdrop click closes; the
+  // sheet itself stops propagation on click already.
+  if (isMobile) {
+    return (
+      <div
+        className="pesanan-fade-in fixed inset-0 z-[58] bg-black/55 backdrop-blur-sm"
+        role="presentation"
+        onMouseDown={onClose}
+      >
+        {sheet}
+      </div>
+    );
+  }
+  return sheet;
 }

@@ -48,10 +48,10 @@ export default function TopBar({
   ];
 
   return (
-    <div className="w-full px-4 lg:px-6 py-4 border-b border-white/[0.08] bg-[#0a0e1a]/95 backdrop-blur-sm sticky top-14 z-20">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <h1 className="font-geist font-semibold text-lg sm:text-xl text-white tracking-[-0.02em] shrink-0">
+    <div className="w-full px-4 lg:px-6 py-3 sm:py-4 border-b border-white/[0.08]">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <h1 className="font-geist font-semibold text-base sm:text-xl text-white tracking-[-0.02em] shrink-0">
             Pesanan
           </h1>
           {websites.length > 0 && (
@@ -59,12 +59,12 @@ export default function TopBar({
               <Store
                 size={14}
                 strokeWidth={1.5}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50 pointer-events-none"
+                className="absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-white/50 pointer-events-none"
               />
               <select
                 value={selectedWebsiteId}
                 onChange={(e) => onWebsiteChange(e.target.value)}
-                className="appearance-none h-10 pl-9 pr-9 max-w-[240px] truncate rounded-lg bg-white/[0.04] border border-white/[0.08] text-sm text-white font-geist focus:outline-none focus:border-white/[0.16]"
+                className="appearance-none h-9 sm:h-10 pl-8 sm:pl-9 pr-7 sm:pr-9 max-w-[140px] sm:max-w-[240px] truncate rounded-lg bg-white/[0.04] border border-white/[0.08] text-xs sm:text-sm text-white font-geist focus:outline-none focus:border-white/[0.16]"
               >
                 <option value="all" className="bg-[#161623]">
                   Semua outlet
@@ -84,18 +84,24 @@ export default function TopBar({
           )}
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Compact mobile stat: single line, hides on md+. */}
-          <div className="md:hidden flex items-center gap-2">
-            <span className="font-mono text-[11px] tracking-wide text-white/50">
-              {todayCount} hari ini
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          {/* Mobile: single most-important stat = pending count badge.
+              Always shown (0 reads as "0 baru"); amber tone when > 0. */}
+          <div className="md:hidden">
+            <span
+              className={`inline-flex items-center gap-1 h-6 px-2 rounded-full font-mono text-[10px] tracking-wide ring-1 ${
+                pendingCount > 0
+                  ? 'text-amber-300 bg-amber-400/10 ring-amber-400/20'
+                  : 'text-white/50 bg-white/[0.04] ring-white/[0.08]'
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  pendingCount > 0 ? 'bg-amber-400' : 'bg-white/40'
+                }`}
+              />
+              {pendingCount} baru
             </span>
-            {pendingCount > 0 && (
-              <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full font-mono text-[10px] tracking-wide text-amber-300 bg-amber-400/10 ring-1 ring-amber-400/20">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                {pendingCount}
-              </span>
-            )}
           </div>
 
           <div className="hidden md:grid grid-cols-3 gap-6">
@@ -115,15 +121,16 @@ export default function TopBar({
             ))}
           </div>
 
-          <div className="flex items-center gap-1.5 ml-2">
+          <div className="flex items-center gap-1.5 sm:ml-2">
             <button
               type="button"
               aria-label="Notifikasi"
-              className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/70 hover:text-white hover:bg-white/[0.08] transition-colors"
+              className="relative inline-flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/70 hover:text-white hover:bg-white/[0.08] transition-colors"
             >
-              <Bell size={16} strokeWidth={1.5} />
+              <Bell size={14} strokeWidth={1.5} className="sm:hidden" />
+              <Bell size={16} strokeWidth={1.5} className="hidden sm:block" />
               {pendingCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-amber-400 ring-2 ring-[#0a0e1a]" />
+                <span className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 h-2 w-2 rounded-full bg-amber-400 ring-2 ring-[#0a0e1a]" />
               )}
             </button>
             <button
@@ -131,12 +138,17 @@ export default function TopBar({
               onClick={onRefresh}
               disabled={loading}
               aria-label="Refresh"
-              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/70 hover:text-white hover:bg-white/[0.08] transition-colors disabled:opacity-50"
+              className="inline-flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/70 hover:text-white hover:bg-white/[0.08] transition-colors disabled:opacity-50"
             >
+              <RefreshCw
+                size={14}
+                strokeWidth={1.5}
+                className={`sm:hidden ${loading ? 'animate-spin' : ''}`}
+              />
               <RefreshCw
                 size={16}
                 strokeWidth={1.5}
-                className={loading ? 'animate-spin' : ''}
+                className={`hidden sm:block ${loading ? 'animate-spin' : ''}`}
               />
             </button>
           </div>

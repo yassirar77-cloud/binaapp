@@ -81,7 +81,7 @@ export default function RejectModal({ order, onClose, onConfirm }: Props) {
         aria-modal="true"
         aria-labelledby="reject-modal-title"
         onMouseDown={(e) => e.stopPropagation()}
-        className="pesanan-modal-in w-full max-w-[480px] rounded-xl bg-[#161623] ring-1 ring-white/[0.08] shadow-2xl shadow-black/50 overflow-hidden flex flex-col max-h-[calc(100vh-2rem)]"
+        className="pesanan-modal-in w-full max-w-[calc(100vw-2rem)] sm:max-w-[480px] rounded-xl bg-[#161623] ring-1 ring-white/[0.08] shadow-2xl shadow-black/50 overflow-hidden flex flex-col max-h-[calc(100vh-2rem)]"
       >
         {/* Header */}
         <div className="shrink-0 flex items-start justify-between gap-3 px-5 pt-5 pb-3">

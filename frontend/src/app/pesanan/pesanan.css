@@ -38,6 +38,18 @@
   animation: pesanan-modal-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Mobile bottom-sheet entry: slide up from below the fold. Same easing as
+   the desktop side-panel slide so the family feels consistent across
+   viewports. */
+@keyframes pesanan-slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.pesanan-slide-up {
+  animation: pesanan-slide-up 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 /* Tabs row — horizontal scroll on small screens without showing the bar. */
 .pesanan-tabs-scroll {
   scrollbar-width: none;
