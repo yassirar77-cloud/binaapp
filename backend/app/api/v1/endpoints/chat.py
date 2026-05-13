@@ -511,8 +511,23 @@ async def get_conversation(conversation_id: str):
             # Older deployments may not have chat_participants table
             logger.warning(f"[Chat] Participants unavailable (table missing?): {part_err}")
 
+        # Attach delivery order status (used by /chat frontend to gate the rider
+        # map to in-transit orders only). Best-effort: a missing order or table
+        # mustn't break the conversation fetch.
+        conv_payload = dict(conv.data)
+        order_id_for_status = conv_payload.get("order_id")
+        if order_id_for_status:
+            try:
+                order_res = supabase.table("delivery_orders").select("status").eq(
+                    "id", order_id_for_status
+                ).limit(1).execute()
+                if order_res.data:
+                    conv_payload["order_status"] = order_res.data[0].get("status")
+            except Exception as order_err:
+                logger.warning(f"[Chat] order_status lookup failed: {order_err}")
+
         return {
-            "conversation": conv.data,
+            "conversation": conv_payload,
             "messages": messages_data,
             "participants": participants_data
         }
@@ -964,6 +979,107 @@ async def mark_messages_read(request: MarkReadRequest):
 
     except Exception as e:
         logger.error(f"[Chat] Failed to mark messages read: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/messages/{message_id}/verify-payment")
+async def verify_payment(
+    message_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Owner verifies a payment proof message.
+
+    Ownership chain: message -> conversation -> website -> user. The caller
+    must own the website that the message's conversation belongs to.
+    """
+    try:
+        supabase = get_supabase()
+        user_id = current_user.get("sub") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="User ID not found in token")
+
+        # 1. Fetch the message
+        msg_res = supabase.table("chat_messages").select("*").eq("id", message_id).execute()
+        if not msg_res.data:
+            raise HTTPException(status_code=404, detail="Mesej tidak dijumpai")
+        msg = msg_res.data[0]
+
+        if msg.get("message_type") != "payment":
+            raise HTTPException(status_code=400, detail="Mesej ini bukan bukti pembayaran")
+
+        # 2. Verify ownership: message -> conversation -> website -> user
+        conv_res = supabase.table("chat_conversations").select("website_id, order_id").eq(
+            "id", msg["conversation_id"]
+        ).execute()
+        if not conv_res.data:
+            raise HTTPException(status_code=404, detail="Perbualan tidak dijumpai")
+
+        website_id = conv_res.data[0].get("website_id")
+        web_res = supabase.table("websites").select("user_id").eq("id", website_id).execute()
+        if not web_res.data or web_res.data[0].get("user_id") != user_id:
+            raise HTTPException(status_code=403, detail="Tidak dibenarkan")
+
+        # 3. Idempotency: don't re-verify
+        metadata = msg.get("metadata") or {}
+        if metadata.get("status") == "verified":
+            raise HTTPException(status_code=400, detail="Pembayaran sudah disahkan")
+
+        # 4. Update message metadata
+        verified_at = datetime.utcnow().isoformat()
+        metadata["status"] = "verified"
+        metadata["verified_at"] = verified_at
+        metadata["verified_by"] = user_id
+
+        supabase.table("chat_messages").update({"metadata": metadata}).eq(
+            "id", message_id
+        ).execute()
+
+        # 5. Insert a system message so both customer + rider see it in the thread
+        order_id = conv_res.data[0].get("order_id") or metadata.get("order_id")
+        system_text = "Pembayaran disahkan oleh pemilik"
+        if order_id:
+            system_text = f"{system_text} untuk pesanan #{str(order_id)[:8]}"
+
+        sys_row = {
+            "id": str(uuid.uuid4()),
+            "conversation_id": msg["conversation_id"],
+            "sender_type": "system",
+            "sender_name": "Sistem",
+            "message_type": "system",
+            "message_text": system_text,
+            "metadata": {"verified_message_id": message_id},
+            "is_read": False,
+            "created_at": datetime.utcnow().isoformat(),
+        }
+        try:
+            _insert_with_column_fallback(supabase, "chat_messages", sys_row)
+        except Exception as sys_err:
+            # Verification still succeeded; the chat just lacks a system message.
+            logger.warning(f"[Chat] verify-payment: system message insert failed: {sys_err}")
+
+        # 6. Broadcast to all participants so customer + rider see the flip live
+        try:
+            await manager.send_to_conversation(
+                msg["conversation_id"],
+                {
+                    "type": "payment_verified",
+                    "message_id": message_id,
+                    "metadata": metadata,
+                },
+            )
+        except Exception as ws_err:
+            logger.warning(f"[Chat] verify-payment: broadcast failed: {ws_err}")
+
+        return {
+            "success": True,
+            "message_id": message_id,
+            "verified_at": verified_at,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Chat] verify-payment failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
