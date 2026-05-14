@@ -72,7 +72,7 @@ export default function ChatHeader({
   const hasOrder = !!conv.order_id;
 
   return (
-    <div className="bg-[#161623] border-b border-white/[0.08]">
+    <div className="relative z-20 bg-[#161623] border-b border-white/[0.08]">
       <div className="flex items-center gap-3 px-3 sm:px-4 py-2.5">
         {isMobile && (
           <button
@@ -145,7 +145,7 @@ export default function ChatHeader({
             {menuOpen && (
               <div
                 role="menu"
-                className="absolute right-0 top-full mt-1.5 z-30 w-48 rounded-lg border border-white/[0.08] bg-[#161623] shadow-xl chat-fade-in"
+                className="absolute right-0 top-full mt-1.5 z-50 w-48 max-w-[calc(100vw-1.5rem)] rounded-lg border border-white/[0.08] bg-[#161623] shadow-xl chat-fade-in"
               >
                 {hasOrder && (
                   <Link

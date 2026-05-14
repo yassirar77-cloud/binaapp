@@ -56,7 +56,7 @@ export default function ConversationListPanel({
   return (
     <aside
       className={[
-        'flex flex-col h-full min-h-0 bg-white/[0.02]',
+        'relative z-10 flex flex-col h-full min-h-0 bg-white/[0.02]',
         className,
       ].join(' ')}
     >

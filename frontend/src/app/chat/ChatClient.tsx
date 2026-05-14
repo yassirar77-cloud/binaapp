@@ -426,7 +426,7 @@ export default function ChatClient() {
     <div className="min-h-screen flex flex-col bg-[#0a0e1a] text-white">
       <DashboardHeader userName={userName} onLogout={handleLogout} />
 
-      <div className="sticky top-14 z-20 bg-[#0a0e1a]/95 backdrop-blur-sm">
+      <div className="sticky top-14 z-30 bg-[#0a0e1a]/95 backdrop-blur-sm">
         <TopBar
           unreadTotal={unreadTotal}
           loading={loading}
