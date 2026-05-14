@@ -1,0 +1,57 @@
+/* /chat — local styles. Mirrors /pesanan/pesanan.css for design-family
+   consistency: same live-dot pulse, same slide-in easing, same scroll-hide
+   for tab rows. */
+
+@keyframes chat-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+.chat-live-dot {
+  animation: chat-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes chat-slide-in-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.chat-slide-in {
+  animation: chat-slide-in-right 220ms ease-out;
+}
+
+@keyframes chat-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.chat-fade-in {
+  animation: chat-fade-in 200ms ease-out;
+}
+
+@keyframes chat-modal-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.chat-modal-in {
+  animation: chat-modal-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes chat-slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.chat-slide-up {
+  animation: chat-slide-up 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Horizontal-scroll rows (tabs, pills) — hide scrollbar entirely. */
+.chat-hscroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.chat-hscroll::-webkit-scrollbar {
+  display: none;
+}

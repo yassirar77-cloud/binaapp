@@ -74,6 +74,10 @@ interface BinaChatProps {
     showMap?: boolean;
     onClose?: () => void;
     className?: string;
+    hideHeader?: boolean;
+    mapVisibility?: 'always' | 'in-transit-only' | 'never';
+    orderStatus?: string;
+    onVerifyPayment?: (messageId: string) => void;
 }
 
 const getMessageText = (msg: Message): string =>
@@ -100,7 +104,11 @@ export default function BinaChat({
     orderId,
     showMap = true,
     onClose,
-    className = ''
+    className = '',
+    hideHeader = false,
+    mapVisibility = 'always',
+    orderStatus,
+    onVerifyPayment
 }: BinaChatProps) {
     // State
     const [messages, setMessages] = useState<Message[]>([]);
@@ -215,6 +223,15 @@ export default function BinaChat({
                         // Reload participants
                         loadMessages();
                         break;
+
+                    case 'payment_verified': {
+                        setMessages((prev) => prev.map(m =>
+                            m.id === data.message_id
+                                ? { ...m, metadata: { ...m.metadata, ...data.metadata } }
+                                : m
+                        ));
+                        break;
+                    }
 
                     case 'pong':
                         // Keep-alive response
@@ -340,8 +357,16 @@ export default function BinaChat({
         };
     }, [loadMessages, connectWebSocket]);
 
+    const shouldRenderMap = (() => {
+        if (mapVisibility === 'never') return false;
+        if (mapVisibility === 'in-transit-only') {
+            return showMap && !!orderId && (orderStatus === 'picked_up' || orderStatus === 'delivering');
+        }
+        return showMap;
+    })();
+
     useEffect(() => {
-        if (showMap) {
+        if (shouldRenderMap) {
             initMap();
         }
         return () => {
@@ -350,7 +375,7 @@ export default function BinaChat({
                 mapRef.current = null;
             }
         };
-    }, [showMap, initMap]);
+    }, [shouldRenderMap, initMap]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -559,8 +584,21 @@ export default function BinaChat({
                                         <span className="animate-pulse">&#9202;</span> Menunggu pengesahan
                                     </div>
                                 )}
+                                {msg.metadata?.status === 'pending_verification' && userType === 'owner' && onVerifyPayment && (
+                                    <button
+                                        onClick={() => onVerifyPayment(msg.id)}
+                                        className="mt-2 w-full bg-lime-500 hover:bg-lime-400 text-black font-semibold text-sm rounded-lg px-3 py-2 transition-colors"
+                                    >
+                                        Sahkan Pembayaran
+                                    </button>
+                                )}
                                 {msg.metadata?.status === 'verified' && (
-                                    <div className="text-xs text-green-400 mt-2">&#9989; Disahkan</div>
+                                    <div className="text-xs text-green-400 mt-2">
+                                        &#9989; Disahkan oleh pemilik
+                                        {msg.metadata?.verified_at && (
+                                            <> &middot; {new Date(msg.metadata.verified_at).toLocaleTimeString('ms-MY', { hour: '2-digit', minute: '2-digit' })}</>
+                                        )}
+                                    </div>
                                 )}
                             </div>
                         )}
@@ -628,6 +666,7 @@ export default function BinaChat({
     return (
         <div className={`flex flex-col h-full bg-white/[0.02] ${className}`}>
             {/* Header */}
+            {!hideHeader && (
             <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white px-4 py-3 flex items-center justify-between shadow-sm">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-xl">
@@ -668,9 +707,10 @@ export default function BinaChat({
                     )}
                 </div>
             </div>
+            )}
 
             {/* Map (collapsible) */}
-            {showMap && (
+            {shouldRenderMap && (
                 <div className={`bg-white/[0.04] border-b border-white/[0.06] transition-all duration-300 ${mapExpanded ? 'h-64' : 'h-32'}`}>
                     <div
                         ref={mapContainerRef}
