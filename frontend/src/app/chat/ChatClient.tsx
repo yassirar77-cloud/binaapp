@@ -14,6 +14,7 @@ import {
   closeConversation,
   getConversations,
   getWebsites,
+  verifyPayment,
 } from './lib/api';
 import type { Conversation, Message, TabKey, Website } from './lib/types';
 import { POLL_INTERVAL_MS, SEARCH_DEBOUNCE_MS, TABS } from './lib/constants';
@@ -22,6 +23,7 @@ import TopBar from './components/TopBar';
 import ConversationListPanel from './components/ConversationListPanel';
 import ChatPanelWrapper from './components/ChatPanelWrapper';
 import EmptyState, { type EmptyStateStat } from './components/EmptyState';
+import VerifyPaymentModal from './components/VerifyPaymentModal';
 import './chat.css';
 
 export default function ChatClient() {
@@ -43,8 +45,8 @@ export default function ChatClient() {
 
   // ----- Selection -----
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
-  // Phase 9 wires the modal; Phase 7 only captures the trigger so we can prove
-  // the BinaChat -> ChatClient callback path is connected end-to-end.
+  // Payment-verify modal target. BinaChat fires onVerifyPayment with a message
+  // id; we resolve it to a Message and render <VerifyPaymentModal/>. Null hides.
   const [verifyModalForMessage, setVerifyModalForMessage] = useState<Message | null>(null);
 
   const isMobile = useIsMobile();
@@ -319,20 +321,49 @@ export default function ChatClient() {
     [refreshConversations, reportSuccess, reportError],
   );
 
-  // Phase 7 stub: BinaChat fires this with the payment message id. Phase 9
-  // resolves the id to a Message and renders <VerifyPaymentModal/>. For now
-  // we surface a toast so it's obvious the wiring is live in QA.
+  // BinaChat fires this with the payment message id; we look it up in the
+  // selected conversation's preview window and open the modal. Fallback to a
+  // bare {id} stub if the message has scrolled out of the preview — the modal
+  // can still show order_id from metadata once it loads, and the verify call
+  // only needs the id.
   const handleVerifyPayment = useCallback(
     (messageId: string) => {
-      // Find the message in the active conversation's preview window.
       const conv = conversations.find((c) => c.id === selectedConversationId);
       const msg =
         conv?.chat_messages?.find((m) => m.id === messageId) ??
         ({ id: messageId } as Message);
       setVerifyModalForMessage(msg);
-      toast('Modal pengesahan akan dipasang dalam Phase 9', { duration: 3000 });
     },
     [conversations, selectedConversationId],
+  );
+
+  const handleCloseVerifyModal = useCallback(() => {
+    setVerifyModalForMessage(null);
+  }, []);
+
+  // Owner confirms the payment. On success: toast + close modal + refetch
+  // conversations so the verified state propagates everywhere. On failure:
+  // toast + return false so the modal stays open and the user can retry.
+  const handleConfirmVerify = useCallback(
+    async (messageId: string): Promise<boolean> => {
+      try {
+        await verifyPayment(messageId);
+        const orderTail =
+          verifyModalForMessage?.metadata?.order_id?.slice?.(-8);
+        reportSuccess(
+          orderTail
+            ? `Pembayaran disahkan untuk pesanan #${orderTail}`
+            : 'Pembayaran disahkan',
+        );
+        setVerifyModalForMessage(null);
+        void refreshConversations({ silent: true });
+        return true;
+      } catch (e) {
+        reportError(e, 'Gagal sahkan pembayaran. Sila cuba lagi.');
+        return false;
+      }
+    },
+    [verifyModalForMessage, refreshConversations, reportSuccess, reportError],
   );
 
   // Owner display name passed to BinaChat (shown to customer + rider as the
@@ -450,6 +481,12 @@ export default function ChatClient() {
           )}
         </section>
       </main>
+
+      <VerifyPaymentModal
+        message={verifyModalForMessage}
+        onConfirm={handleConfirmVerify}
+        onClose={handleCloseVerifyModal}
+      />
     </div>
   );
 }
