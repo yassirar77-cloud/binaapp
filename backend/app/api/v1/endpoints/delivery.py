@@ -9,7 +9,7 @@ from supabase import Client
 from typing import List, Optional
 from loguru import logger
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel
 import os
 from supabase import create_client
@@ -2879,10 +2879,13 @@ async def update_order_status_by_rider(
     Body:
     - status: New status (e.g., "picked_up", "delivering", "delivered")
     - notes: Optional notes
+    - payment_received: Optional bool — COD cash flag, set on `delivered`
+      transitions. None means "not provided" and leaves the column untouched.
     """
     try:
         new_status = status_update.get("status")
         notes = status_update.get("notes", "")
+        payment_received = status_update.get("payment_received")
 
         if not new_status:
             raise HTTPException(
@@ -2923,6 +2926,12 @@ async def update_order_status_by_rider(
         elif new_status == "completed":
             update_data["completed_at"] = now
 
+        # Only forward payment_received when the rider explicitly sent it;
+        # None means "not provided" and we leave the column alone (so a
+        # picked_up update doesn't clobber a previous delivered flag).
+        if payment_received is not None:
+            update_data["payment_received"] = payment_received
+
         updated_order = supabase.table("delivery_orders").update(update_data).eq(
             "id", order_id
         ).execute()
@@ -2959,6 +2968,43 @@ async def update_order_status_by_rider(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update order status: {str(e)}"
         )
+
+
+@router.get("/riders/{rider_id}/today")
+async def get_rider_today(rider_id: str):
+    """Today's stats — count + earnings for the Saya screen."""
+    try:
+        import uuid
+        try:
+            uuid.UUID(rider_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(404, "Penghantar tidak dijumpai")
+
+        supabase = get_supabase_client()
+        today_start = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).isoformat()
+        result = (
+            supabase.table('delivery_orders')
+            .select('delivery_fee, status, delivered_at')
+            .eq('rider_id', rider_id)
+            .gte('delivered_at', today_start)
+            .execute()
+        )
+
+        completed = [
+            o for o in (result.data or [])
+            if o.get('status') in ['delivered', 'completed']
+        ]
+        count = len(completed)
+        earnings = sum(float(o.get('delivery_fee', 0) or 0) for o in completed)
+
+        return {'count': count, 'earnings': f'{earnings:.2f}'}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"get_rider_today failed for {rider_id}: {e}")
+        return {'count': 0, 'earnings': '0.00'}
 
 
 # =====================================================

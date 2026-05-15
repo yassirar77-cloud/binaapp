@@ -1,0 +1,76 @@
+/* /rider — local styles. Mirrors /chat/chat.css and /pesanan/pesanan.css
+   for design-family consistency. Dark-navy + lime tokens are exposed as
+   CSS custom properties scoped to .rider-app so the rest of the dashboard
+   keeps its own theme. */
+
+.rider-app {
+  --rider-bg:        #0a0e1a;
+  --rider-surface:   #131826;
+  --rider-surface-2: #1a2032;
+  --rider-border:    rgba(255, 255, 255, 0.08);
+  --rider-border-2:  rgba(255, 255, 255, 0.14);
+  --rider-text:      #ffffff;
+  --rider-text-2:    #a5adbf;
+  --rider-muted:     #6b7280;
+  --rider-lime:      #C7FF3D;
+  --rider-lime-2:    #B5EE2A;
+  --rider-amber:     #FFB020;
+  --rider-red:       #FF5A5F;
+  --rider-green:     #22C08F;
+  --rider-violet:    #8F80FF;
+
+  background: var(--rider-bg);
+  color: var(--rider-text);
+  min-height: 100dvh;
+  font-family: var(--font-geist-sans, system-ui, -apple-system, sans-serif);
+}
+
+/* Bottom-nav + sticky CTA need to clear the iOS home indicator. */
+.rider-safe-pb {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0px);
+}
+
+@keyframes rider-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+.rider-live-dot {
+  animation: rider-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes rider-slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.rider-slide-up {
+  animation: rider-slide-up 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes rider-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.rider-fade-in {
+  animation: rider-fade-in 200ms ease-out;
+}
+
+@keyframes rider-modal-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.rider-modal-in {
+  animation: rider-modal-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Horizontal-scroll rows (filter tabs) — hide scrollbar entirely. */
+.rider-hscroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.rider-hscroll::-webkit-scrollbar {
+  display: none;
+}
