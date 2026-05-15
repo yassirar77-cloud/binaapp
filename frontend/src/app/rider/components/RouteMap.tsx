@@ -6,11 +6,13 @@
 // TODO: Replace the straight polyline with real road routing via
 // OpenRouteService or Mapbox Directions in a followup PR.
 //
-// Leaflet is imported dynamically so the rider PWA's first paint stays
-// small; the CSS is also lazy-imported here so it doesn't leak into
-// other routes.
+// Leaflet is imported dynamically (not statically) because it touches
+// `window` at module top level — a static import would crash Next's
+// prerender step for /rider. The `import type` below is purely for
+// types; it compiles away to nothing.
 
 import { useEffect, useRef, useState } from 'react';
+import type * as Leaflet from 'leaflet';
 import { Maximize2, Minimize2 } from 'lucide-react';
 
 interface RouteMapProps {
@@ -60,10 +62,7 @@ export default function RouteMap({
 }: RouteMapProps) {
   const [expanded, setExpanded] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<unknown>(null);
-  const riderMarkerRef = useRef<unknown>(null);
-  const customerMarkerRef = useRef<unknown>(null);
-  const lineRef = useRef<unknown>(null);
+  const mapRef = useRef<Leaflet.Map | null>(null);
 
   // (Re)build the map when the container resizes (expand/collapse) or
   // when either endpoint changes. Cleanup tears down the Leaflet
@@ -76,96 +75,68 @@ export default function RouteMap({
     let cancelled = false;
 
     (async () => {
-      const L = (await import('leaflet')).default;
+      const L: typeof Leaflet = (await import('leaflet')).default;
       await import('leaflet/dist/leaflet.css');
       if (cancelled || !containerRef.current) return;
 
       // Tear down any prior instance so toggling expanded doesn't double
       // up tiles on the same DOM node.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const prior = mapRef.current as any;
-      if (prior?.remove) prior.remove();
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const map = (L as any).map(containerRef.current, {
+      const map = L.map(containerRef.current, {
         zoomControl: false,
         attributionControl: false,
       });
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (L as any)
-        .tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19,
-        })
-        .addTo(map);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+      }).addTo(map);
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const riderIcon = (L as any).divIcon({
+      const riderIcon = L.divIcon({
         html: RIDER_ICON_HTML,
         className: 'rider-marker',
         iconSize: [36, 36],
         iconAnchor: [18, 18],
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const customerIcon = (L as any).divIcon({
+      const customerIcon = L.divIcon({
         html: CUSTOMER_ICON_HTML,
         className: 'customer-marker',
         iconSize: [36, 36],
         iconAnchor: [18, 36],
       });
 
-      const customerLatLng: [number, number] = [customerLat, customerLng];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const customerMarker = (L as any)
-        .marker(customerLatLng, { icon: customerIcon })
-        .addTo(map);
-
-      let bounds: [number, number][] = [customerLatLng];
+      const customerLatLng: Leaflet.LatLngTuple = [customerLat, customerLng];
+      L.marker(customerLatLng, { icon: customerIcon }).addTo(map);
 
       if (riderLocation) {
-        const riderLatLng: [number, number] = [
+        const riderLatLng: Leaflet.LatLngTuple = [
           riderLocation.lat,
           riderLocation.lng,
         ];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const riderMarker = (L as any)
-          .marker(riderLatLng, { icon: riderIcon })
-          .addTo(map);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const line = (L as any)
-          .polyline([riderLatLng, customerLatLng], {
-            color: '#C7FF3D',
-            weight: 3,
-            opacity: 0.8,
-            dashArray: '8 8',
-          })
-          .addTo(map);
-        riderMarkerRef.current = riderMarker;
-        lineRef.current = line;
-        bounds = [riderLatLng, customerLatLng];
-      }
-
-      customerMarkerRef.current = customerMarker;
-      mapRef.current = map;
-
-      if (bounds.length > 1) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (map as any).fitBounds(bounds, { padding: [30, 30] });
+        L.marker(riderLatLng, { icon: riderIcon }).addTo(map);
+        L.polyline([riderLatLng, customerLatLng], {
+          color: '#C7FF3D',
+          weight: 3,
+          opacity: 0.8,
+          dashArray: '8 8',
+        }).addTo(map);
+        map.fitBounds([riderLatLng, customerLatLng], { padding: [30, 30] });
       } else {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (map as any).setView(customerLatLng, 15);
+        map.setView(customerLatLng, 15);
       }
+
+      mapRef.current = map;
     })();
 
     return () => {
       cancelled = true;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const m = mapRef.current as any;
-      if (m?.remove) m.remove();
-      mapRef.current = null;
-      riderMarkerRef.current = null;
-      customerMarkerRef.current = null;
-      lineRef.current = null;
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
     };
   }, [expanded, riderLocation, customerLat, customerLng]);
 
