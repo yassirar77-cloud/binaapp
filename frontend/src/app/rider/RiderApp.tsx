@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 
 import BottomNav from './components/BottomNav';
+import CODModal from './components/CODModal';
 import LoginScreen from './components/LoginScreen';
 import OrderDetailScreen from './components/OrderDetailScreen';
 import OrdersListScreen from './components/OrdersListScreen';
@@ -129,6 +130,10 @@ export default function RiderApp() {
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
+  // CODModal owns no state of its own; we just track which order id is
+  // currently confirming so the parent can resolve the latest snapshot
+  // from `orders` on each render.
+  const [codModalOrderId, setCodModalOrderId] = useState<string | null>(null);
   const online = useIsOnline();
 
   // GPS state is filled by Phase 10 (useGeolocation). For now show the
@@ -277,19 +282,42 @@ export default function RiderApp() {
   // advanceStatus(order, 'delivered', received) from the modal.
   const handleAdvance = useCallback(
     (order: RiderOrder, next: OrderStatus) => {
+      // Intercept the `delivering → delivered` step for COD orders so
+      // the rider can confirm cash collection. Online payments skip the
+      // modal and complete immediately.
       if (
         next === 'delivered' &&
         order.status === 'delivering' &&
         order.payment_method === 'cod'
       ) {
-        // TODO(phase-8): replace this with `setCodModalOrder(order)` and
-        // let the modal confirm + call advanceStatus(order, 'delivered',
-        // <bool>) on submit.
-        toast('Pengesahan tunai akan dipasang dalam Phase 8.', { icon: '💵' });
+        setCodModalOrderId(order.id);
+        return;
       }
       void advanceStatus(order, next);
     },
     [advanceStatus],
+  );
+
+  // CODModal confirm — threads the rider's cash-received decision into
+  // the same advanceStatus path so the optimistic-UI + rollback logic is
+  // shared. Closes on completion regardless of success (advanceStatus
+  // already toasts on failure).
+  const handleCodConfirm = useCallback(
+    async (received: boolean) => {
+      const target = codModalOrderId
+        ? orders.find((o) => o.id === codModalOrderId)
+        : null;
+      if (!target) {
+        setCodModalOrderId(null);
+        return;
+      }
+      await advanceStatus(target, 'delivered', received);
+      setCodModalOrderId(null);
+      if (!received) {
+        toast('Tandakan: tunai BELUM diterima.', { icon: '⚠️' });
+      }
+    },
+    [advanceStatus, codModalOrderId, orders],
   );
 
   const handleOpen = useCallback((order: RiderOrder) => {
@@ -325,6 +353,10 @@ export default function RiderApp() {
   // the detail screen without stale prop snapshots.
   const activeOrder = activeOrderId
     ? orders.find((o) => o.id === activeOrderId) ?? null
+    : null;
+
+  const codModalOrder = codModalOrderId
+    ? orders.find((o) => o.id === codModalOrderId) ?? null
     : null;
 
   // If the rider returns to detail after the order vanished (eg. server
@@ -392,6 +424,15 @@ export default function RiderApp() {
         <BottomNav
           active={navTab}
           onSelect={(t) => setRoute(t === 'profile' ? 'profile' : 'orders')}
+        />
+      )}
+
+      {codModalOrder && (
+        <CODModal
+          order={codModalOrder}
+          pending={pendingOrderId === codModalOrder.id}
+          onConfirm={handleCodConfirm}
+          onClose={() => setCodModalOrderId(null)}
         />
       )}
     </div>
