@@ -326,7 +326,7 @@ async def get_delivery_zones(
         # Get active delivery zones
         zones_response = supabase.table("delivery_zones").select("*").eq(
             "website_id", website_id
-        ).eq("is_active", True).order("sort_order").execute()
+        ).eq("active", True).order("sort_order").execute()
 
         # Get delivery settings
         settings_response = supabase.table("delivery_settings").select("*").eq(
@@ -364,7 +364,7 @@ async def check_delivery_coverage(
         # Get all active zones for this website
         response = supabase.table("delivery_zones").select("*").eq(
             "website_id", request.website_id
-        ).eq("is_active", True).execute()
+        ).eq("active", True).execute()
 
         if not response.data:
             return {
@@ -1924,7 +1924,7 @@ async def get_widget_config(
         # 3. Get first active delivery zone for default fee
         zone_response = supabase.table("delivery_zones").select(
             "zone_name, delivery_fee, minimum_order"
-        ).eq("website_id", website_id).eq("is_active", True).order("sort_order").limit(1).execute()
+        ).eq("website_id", website_id).eq("active", True).order("sort_order").limit(1).execute()
 
         first_zone = zone_response.data[0] if zone_response.data else None
 

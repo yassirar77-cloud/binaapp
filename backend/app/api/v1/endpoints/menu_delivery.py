@@ -418,7 +418,7 @@ async def get_delivery_zones(
         query = supabase.table("delivery_zones").select("*").eq("website_id", website_id)
 
         if active_only:
-            query = query.eq("is_active", True)
+            query = query.eq("active", True)
 
         result = query.order("sort_order").execute()
         return result.data
