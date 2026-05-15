@@ -1,8 +1,13 @@
 'use client';
 
-// OrderRow — single card in the orders list. Tap the body to open the
-// detail screen; the inline action button (when present) advances the
-// state machine without leaving the list.
+// OrderRow — single card in the orders list.
+//
+// Click semantics: the card body and the action pill are SIBLING buttons,
+// not nested. The original Phase-6 version used `<article role="button">`
+// with an inner `<button>` for the action pill — that's ARIA-prohibited
+// interactive nesting, and iOS Safari silently swallows the outer click
+// when an inner button exists (the action pill fires, the body tap does
+// nothing). The refactor below avoids the trap entirely.
 
 import { ChevronRight, Loader2, MapPin } from 'lucide-react';
 
@@ -27,53 +32,52 @@ export default function OrderRow({
   const action = ACTION_LABELS[order.status];
 
   return (
-    <article
-      role="button"
-      tabIndex={0}
-      onClick={() => onOpen(order)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onOpen(order);
-        }
-      }}
-      className="mx-4 mt-2.5 rounded-2xl bg-[var(--rider-surface)] border border-[var(--rider-border)] hover:border-[var(--rider-border-2)] p-3.5 flex items-center gap-3 cursor-pointer transition-colors"
+    <div
+      className="mx-4 mt-2.5 rounded-2xl bg-[var(--rider-surface)] border border-[var(--rider-border)] hover:border-[var(--rider-border-2)] flex items-stretch transition-colors"
+      style={{ touchAction: 'manipulation' }}
     >
-      {/* Status dot */}
-      <span
-        className="w-2 h-2 rounded-full shrink-0 mt-1.5 self-start"
-        style={{ backgroundColor: meta?.color ?? '#86869A' }}
-        aria-hidden
-      />
+      {/* Body button — the entire left + middle area is one click target
+          that opens the detail screen. */}
+      <button
+        type="button"
+        onClick={() => onOpen(order)}
+        aria-label={`Buka pesanan ${order.order_number}`}
+        className="flex-1 min-w-0 flex items-center gap-3 p-3.5 text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--rider-lime)] rounded-2xl"
+      >
+        {/* Status dot */}
+        <span
+          className="w-2 h-2 rounded-full shrink-0 mt-1.5 self-start"
+          style={{ backgroundColor: meta?.color ?? '#86869A' }}
+          aria-hidden
+        />
 
-      {/* Body */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 text-[var(--rider-muted)]">
-          <span className="font-mono text-[11px]">#{order.order_number}</span>
-          <span>·</span>
-          <span className="text-[11px]">{relTime(order.created_at)}</span>
+        {/* Body */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 text-[var(--rider-muted)]">
+            <span className="font-mono text-[11px]">#{order.order_number}</span>
+            <span>·</span>
+            <span className="text-[11px]">{relTime(order.created_at)}</span>
+          </div>
+          <p className="mt-0.5 text-[14px] font-semibold text-white truncate">
+            {order.customer_name}
+          </p>
+          <p className="mt-0.5 flex items-center gap-1 text-[12px] text-[var(--rider-text-2)] truncate">
+            <MapPin className="w-3 h-3 shrink-0" />
+            <span className="truncate">{order.delivery_address}</span>
+          </p>
         </div>
-        <p className="mt-0.5 text-[14px] font-semibold text-white truncate">
-          {order.customer_name}
-        </p>
-        <p className="mt-0.5 flex items-center gap-1 text-[12px] text-[var(--rider-text-2)] truncate">
-          <MapPin className="w-3 h-3 shrink-0" />
-          <span className="truncate">{order.delivery_address}</span>
-        </p>
-      </div>
+      </button>
 
-      {/* Right column */}
-      <div className="shrink-0 flex flex-col items-end gap-1.5">
+      {/* Right column — RM total + (optional) action pill. Sibling of the
+          body button, NOT nested inside it. */}
+      <div className="shrink-0 flex flex-col items-end justify-center gap-1.5 pr-3.5 py-3.5">
         <p className="font-mono text-[14px] font-semibold text-[var(--rider-lime)]">
           RM{order.total}
         </p>
         {action ? (
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onAdvance(order, action.nextStatus);
-            }}
+            onClick={() => onAdvance(order, action.nextStatus)}
             disabled={pending}
             className="h-8 px-3 rounded-full bg-[var(--rider-lime)] hover:bg-[var(--rider-lime-2)] text-black text-[12px] font-semibold flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
@@ -81,9 +85,16 @@ export default function OrderRow({
             {action.label}
           </button>
         ) : (
-          <ChevronRight className="w-5 h-5 text-[var(--rider-muted)]" />
+          <button
+            type="button"
+            onClick={() => onOpen(order)}
+            aria-label="Buka perincian"
+            className="text-[var(--rider-muted)] hover:text-white transition-colors"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
         )}
       </div>
-    </article>
+    </div>
   );
 }
