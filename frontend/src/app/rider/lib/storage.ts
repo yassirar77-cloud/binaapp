@@ -102,3 +102,13 @@ export const loadBatterySaverPref = () =>
   loadBool(KEY_PREF_BATTERY_SAVER, false);
 export const saveBatterySaverPref = (v: boolean) =>
   saveBool(KEY_PREF_BATTERY_SAVER, v);
+
+// Tracks whether we've shown the Phase-10 notification permission
+// prompt at least once. The decision (granted vs dismissed) is owned
+// by the browser's Notification.permission state, not this flag — we
+// just don't want to re-prompt every login.
+const KEY_NOTIFICATIONS_ASKED = 'rider_notifications_asked';
+export const wasNotificationAsked = () =>
+  loadBool(KEY_NOTIFICATIONS_ASKED, false);
+export const markNotificationAsked = () =>
+  saveBool(KEY_NOTIFICATIONS_ASKED, true);

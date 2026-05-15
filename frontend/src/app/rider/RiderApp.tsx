@@ -13,6 +13,7 @@ import toast from 'react-hot-toast';
 import BottomNav from './components/BottomNav';
 import CODModal from './components/CODModal';
 import LoginScreen from './components/LoginScreen';
+import NotificationPermissionPrompt from './components/NotificationPermissionPrompt';
 import OrderDetailScreen from './components/OrderDetailScreen';
 import OrdersListScreen from './components/OrdersListScreen';
 import ProfileScreen from './components/ProfileScreen';
@@ -20,19 +21,22 @@ import {
   ApiError,
   fetchRiderOrders,
   updateOrderStatus as apiUpdateStatus,
+  updateRiderLocation,
 } from './lib/api';
-import { FETCH_INTERVAL_MS } from './lib/constants';
+import { FETCH_INTERVAL_MS, GPS_INTERVAL_MS } from './lib/constants';
 import {
   clearRider,
   loadCachedOrders,
   loadRider,
+  markNotificationAsked,
   saveCachedOrders,
   saveRider,
   saveRiderPhone,
+  wasNotificationAsked,
 } from './lib/storage';
+import { useGeolocation } from './lib/useGeolocation';
 import { useIsOnline } from './lib/useIsOnline';
 import type {
-  GpsStatus,
   OrderStatus,
   Rider,
   RiderOrder,
@@ -136,11 +140,7 @@ export default function RiderApp() {
   // from `orders` on each render.
   const [codModalOrderId, setCodModalOrderId] = useState<string | null>(null);
   const online = useIsOnline();
-
-  // GPS state is filled by Phase 10 (useGeolocation). For now show the
-  // header dot as "inactive" — the layout is already wired.
-  const [gpsStatus] = useState<GpsStatus>('inactive');
-  const [lastGpsUpdate] = useState<Date | null>(null);
+  const [showNotifPrompt, setShowNotifPrompt] = useState(false);
 
   // Ref to the latest rider so the polling interval avoids re-binding on
   // every render.
@@ -148,6 +148,33 @@ export default function RiderApp() {
   useEffect(() => {
     riderRef.current = rider;
   }, [rider]);
+
+  // GPS pipeline. The `onLocation` callback is held by the hook in a
+  // ref, so this closure can read riderRef.current directly without
+  // forcing the watch handler to re-bind on every render. Demo mode +
+  // offline mode skip the network call to keep test sessions quiet.
+  const handleLocationFix = useCallback(
+    (lat: number, lng: number) => {
+      const r = riderRef.current;
+      if (!r || demoMode || !online) return;
+      // Fire and forget — failures are non-fatal and the next backup
+      // interval will retry. updateRiderLocation already swallows the
+      // ApiError surface by throwing; we drop it here on purpose.
+      void updateRiderLocation(r.id, lat, lng, activeOrderId ?? undefined)
+        .catch(() => {});
+    },
+    [activeOrderId, demoMode, online],
+  );
+
+  const {
+    status: gpsStatus,
+    currentLocation: riderLocation,
+    lastUpdate: lastGpsUpdate,
+  } = useGeolocation({
+    enabled: !!rider && route !== 'login',
+    intervalMs: GPS_INTERVAL_MS,
+    onLocation: handleLocationFix,
+  });
 
   // Hydrate rider session + cached orders from localStorage on mount.
   // Also flip into demo mode if the URL has ?demo=1 so reviewers can
@@ -219,6 +246,18 @@ export default function RiderApp() {
     if (rememberPhone) saveRiderPhone(rememberPhone);
     setRider(loggedIn);
     setRoute('orders');
+    // First-login notification prompt — only ask once per device. The
+    // browser's own permission state still gates re-prompts, but
+    // localStorage prevents the modal from re-appearing if the rider
+    // tapped "Tidak sekarang" earlier.
+    if (
+      typeof window !== 'undefined' &&
+      typeof Notification !== 'undefined' &&
+      Notification.permission === 'default' &&
+      !wasNotificationAsked()
+    ) {
+      setShowNotifPrompt(true);
+    }
   };
 
   // Core advance: optimistic flip, network call, rollback + toast on
@@ -400,7 +439,7 @@ export default function RiderApp() {
         <OrderDetailScreen
           order={activeOrder}
           pending={pendingOrderId === activeOrder.id}
-          riderLocation={null}
+          riderLocation={riderLocation}
           onBack={() => setRoute('orders')}
           onAdvance={handleAdvance}
         />
@@ -423,6 +462,18 @@ export default function RiderApp() {
           pending={pendingOrderId === codModalOrder.id}
           onConfirm={handleCodConfirm}
           onClose={() => setCodModalOrderId(null)}
+        />
+      )}
+
+      {showNotifPrompt && (
+        <NotificationPermissionPrompt
+          onResolve={(granted) => {
+            markNotificationAsked();
+            setShowNotifPrompt(false);
+            if (granted) {
+              toast.success('Notifikasi dibenarkan.');
+            }
+          }}
         />
       )}
     </div>
