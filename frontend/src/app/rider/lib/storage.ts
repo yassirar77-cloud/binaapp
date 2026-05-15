@@ -9,6 +9,13 @@ const KEY_RIDER_DATA = 'rider_data';
 const KEY_RIDER_PHONE = 'rider_phone';
 const KEY_CACHED_ORDERS = 'rider_cached_orders';
 
+// Phase-9 additions. Local-only flags surfaced through the profile
+// screen. Prefixed with `rider_pref_` to avoid colliding with other
+// `rider_*` keys that are part of the PWA contract.
+const KEY_PREF_ONLINE = 'rider_pref_online';
+const KEY_PREF_SOUND = 'rider_pref_sound';
+const KEY_PREF_BATTERY_SAVER = 'rider_pref_battery_saver';
+
 // Guards against SSR (Next.js renders this module on the server too).
 function hasWindow(): boolean {
   return typeof window !== 'undefined';
@@ -68,3 +75,30 @@ export function saveCachedOrders(orders: RiderOrder[]): void {
   if (!hasWindow()) return;
   localStorage.setItem(KEY_CACHED_ORDERS, JSON.stringify(orders));
 }
+
+// Boolean preferences with explicit defaults. Each helper falls back to
+// the default when localStorage is missing or unparseable so the UI
+// never sees `undefined`.
+
+function loadBool(key: string, fallback: boolean): boolean {
+  if (!hasWindow()) return fallback;
+  const raw = localStorage.getItem(key);
+  if (raw === null) return fallback;
+  return raw === '1' || raw === 'true';
+}
+
+function saveBool(key: string, value: boolean): void {
+  if (!hasWindow()) return;
+  localStorage.setItem(key, value ? '1' : '0');
+}
+
+export const loadOnlinePref = () => loadBool(KEY_PREF_ONLINE, true);
+export const saveOnlinePref = (v: boolean) => saveBool(KEY_PREF_ONLINE, v);
+
+export const loadSoundPref = () => loadBool(KEY_PREF_SOUND, true);
+export const saveSoundPref = (v: boolean) => saveBool(KEY_PREF_SOUND, v);
+
+export const loadBatterySaverPref = () =>
+  loadBool(KEY_PREF_BATTERY_SAVER, false);
+export const saveBatterySaverPref = (v: boolean) =>
+  saveBool(KEY_PREF_BATTERY_SAVER, v);

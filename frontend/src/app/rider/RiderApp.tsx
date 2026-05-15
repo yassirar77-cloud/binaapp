@@ -15,6 +15,7 @@ import CODModal from './components/CODModal';
 import LoginScreen from './components/LoginScreen';
 import OrderDetailScreen from './components/OrderDetailScreen';
 import OrdersListScreen from './components/OrdersListScreen';
+import ProfileScreen from './components/ProfileScreen';
 import {
   ApiError,
   fetchRiderOrders,
@@ -406,18 +407,7 @@ export default function RiderApp() {
       )}
 
       {route === 'profile' && rider && (
-        <div className="min-h-[100dvh] pb-20 px-5 py-8 text-[var(--rider-text-2)] rider-fade-in">
-          <p className="text-sm">
-            Skrin profil akan dipasang dalam Phase 9.
-          </p>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="mt-6 h-11 px-4 rounded-xl bg-[var(--rider-surface)] border border-[var(--rider-border)] text-[var(--rider-red)] text-sm"
-          >
-            Log Keluar
-          </button>
-        </div>
+        <ProfileScreen rider={rider} onLogout={handleLogout} />
       )}
 
       {rider && (route === 'orders' || route === 'profile') && (
