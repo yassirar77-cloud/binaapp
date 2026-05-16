@@ -3,18 +3,25 @@ BinaApp Delivery System API Endpoints
 Handles real-time food delivery and order tracking
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from supabase import Client
 from typing import List, Optional
 from loguru import logger
 from decimal import Decimal
+from uuid import UUID
 from datetime import datetime, timezone
 from pydantic import BaseModel
 import os
 from supabase import create_client
 import bcrypt
 
+from app.core.geocoder import (
+    ADDRESS_MAX_LEN,
+    ADDRESS_MIN_LEN,
+    GeocodeResult,
+    geocode_address as _geocode_address,
+)
 from app.core.supabase import get_supabase_client
 from app.core.security import get_current_user
 from app.models.delivery_schemas import (
@@ -390,6 +397,100 @@ async def check_delivery_coverage(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to check coverage: {str(e)}"
         )
+
+
+# =====================================================
+# PUBLIC RING-COVERAGE LOOKUP + GEOCODE PROXY
+#
+# These two endpoints power the anonymous customer checkout flow:
+#   1. Geocode the customer's typed address (if no GPS) → lat/lng.
+#   2. POST those lat/lng to /zones/{id}/cover → detect the covering ring.
+#
+# Both are public (no auth) by design — the customer is anonymous. The
+# owner-side equivalents in delivery_zones.py do the same thing behind
+# get_current_user + ownership verification.
+# =====================================================
+
+class CoveredZone(BaseModel):
+    """Ring info exposed to anonymous customers — only what the checkout UI
+    needs to render and to round-trip back into the order payload. Fees are
+    expressed in RM (Decimal, 2dp) so the frontend works in one currency
+    unit throughout."""
+    id: str
+    name: str
+    fee: Decimal
+    min_order: Decimal
+    color: str
+
+
+class ZoneCoverageResponse(BaseModel):
+    covered: bool
+    zone: Optional[CoveredZone] = None
+
+
+@router.get("/zones/{website_id}/cover", response_model=ZoneCoverageResponse)
+async def get_ring_coverage(
+    website_id: str,
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+    supabase: Client = Depends(get_supabase_client),
+):
+    """Return the smallest active ring covering (lat, lng), or covered=false.
+
+    **Public endpoint** — used by the customer checkout to auto-detect which
+    ring the delivery address falls into. No ownership check: the lookup is
+    keyed by the website_id from the public ordering URL, and the underlying
+    delivery_zones.find_zone_for_point RPC is granted to `anon`.
+    """
+    # Validate website_id before hitting the RPC — a malformed UUID from a
+    # bad ordering URL should 400, not bubble up as an opaque 500.
+    try:
+        UUID(website_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid website id")
+
+    try:
+        res = supabase.rpc(
+            "find_zone_for_point",
+            {
+                "p_website_id": website_id,
+                "p_lat": lat,
+                "p_lng": lng,
+                "p_only_active": True,
+            },
+        ).execute()
+        rows = res.data or []
+        if not rows:
+            return ZoneCoverageResponse(covered=False, zone=None)
+        r = rows[0]
+        return ZoneCoverageResponse(
+            covered=True,
+            zone=CoveredZone(
+                id=str(r["id"]),
+                name=r["name"],
+                fee=(Decimal(r["fee_cents"]) / Decimal(100)).quantize(Decimal("0.01")),
+                min_order=(Decimal(r["min_order_cents"]) / Decimal(100)).quantize(Decimal("0.01")),
+                color=r["color"],
+            ),
+        )
+    except Exception as e:
+        logger.error(f"get_ring_coverage failed for website {website_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to check coverage")
+
+
+@router.get("/geocode-address", response_model=GeocodeResult)
+async def geocode_address_public(
+    q: str = Query(..., min_length=ADDRESS_MIN_LEN, max_length=ADDRESS_MAX_LEN),
+    country: str = Query("MY", min_length=2, max_length=2),
+):
+    """Resolve a free-text address → lat/lng via Nominatim.
+
+    **Public endpoint** — used by the customer checkout when the customer
+    typed an address instead of using GPS. Shares the in-process cache +
+    User-Agent with the owner-auth-gated /zones/geocode-address route so
+    Nominatim sees a single coherent caller from this backend.
+    """
+    return await _geocode_address(q, country)
 
 
 # =====================================================
