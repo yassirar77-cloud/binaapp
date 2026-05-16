@@ -325,9 +325,24 @@ async def get_delivery_zones(
     supabase: Client = Depends(get_supabase_client)
 ):
     """
-    Get all delivery zones for a website with delivery settings
+    Get all delivery zones for a website with delivery settings.
 
-    **Public endpoint** - Used by customer ordering widget
+    **DEPRECATED** — kept for backward compatibility only. This endpoint
+    queries column names (`zone_name`, `delivery_fee`, `minimum_order`,
+    `estimated_time_min/max`, `is_active`) that migration 026 dropped
+    from `delivery_zones` when the ring-based schema landed. Pydantic
+    silently coerces the schema-mismatched rows to an empty list, so
+    callers receive `{"zones": [], "settings": ...}` rather than a 500.
+    Behavior is preserved deliberately — third-party widget embeds that
+    still hit this URL get graceful degradation rather than a hard break.
+
+    New callers MUST use the auto-detect coverage route instead:
+        GET /api/v1/delivery/zones/{website_id}/cover?lat=&lng=
+    which returns the smallest active ring covering the customer's
+    delivery coordinates. The customer checkout no longer renders a
+    zone dropdown — coverage is auto-resolved server-side.
+
+    **Public endpoint** - Used by customer ordering widget (legacy)
     """
     try:
         # Get active delivery zones
@@ -362,10 +377,22 @@ async def check_delivery_coverage(
     supabase: Client = Depends(get_supabase_client)
 ):
     """
-    Check if a location is within delivery coverage
+    Check if a location is within delivery coverage.
 
-    **Note:** Currently returns the first active zone.
-    In production, implement proper geofencing using PostGIS.
+    **DEPRECATED** — kept for backward compatibility only. The "first
+    active zone wins" heuristic predates the PostGIS ring system; it
+    cannot tell a customer at the outlet door apart from one 50 km away.
+    It also reads column names (`delivery_fee`, `estimated_time_min/max`,
+    `zone_name`) that no longer exist after migration 026, so any path
+    that does find an active row will KeyError out on the response
+    builder. In practice the table never has rows that satisfy the old
+    schema, so this endpoint returns `{"covered": False, ...}`. Behavior
+    is preserved deliberately for legacy widget callers.
+
+    New callers MUST use the proper PostGIS coverage route:
+        GET /api/v1/delivery/zones/{website_id}/cover?lat=&lng=
+    which runs `find_zone_for_point` and returns the smallest active
+    ring covering the supplied coordinates, or covered=false.
     """
     try:
         # Get all active zones for this website
