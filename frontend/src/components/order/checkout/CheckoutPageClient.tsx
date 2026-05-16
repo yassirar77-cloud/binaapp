@@ -9,19 +9,21 @@ import {
   useCartStore,
 } from '../cart-store'
 import {
-  fetchDeliveryZones,
+  CoverageError,
+  type CoveredZone,
+  fetchZoneCoverage,
+  geocodeAddress,
+  GeocodeError,
   placeOrder,
   PlaceOrderError,
-  ZoneFetchError,
-  type DeliveryZone,
   type OrderPaymentMethod,
 } from '../checkout-api'
 import { useCustomerStore } from '../customer-store'
 import { useRestaurant } from '../ThemeProvider'
 import { AddressSection, type AddressChoice } from './AddressSection'
 import { CheckoutHeader } from './CheckoutHeader'
+import { CoverageStatusSection } from './CoverageStatusSection'
 import { CustomerInfoSection } from './CustomerInfoSection'
-import { DeliveryZoneSection } from './DeliveryZoneSection'
 import { OrderSummaryAccordion } from './OrderSummaryAccordion'
 import { PaymentMethodSection } from './PaymentMethodSection'
 import { PlaceOrderCTA } from './PlaceOrderCTA'
@@ -72,11 +74,16 @@ export function CheckoutPageClient() {
   const [riderNotes, setRiderNotes] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<OrderPaymentMethod>('cod')
 
-  // Zones
-  const [zones, setZones] = useState<DeliveryZone[]>([])
-  const [zonesLoading, setZonesLoading] = useState(true)
-  const [zonesError, setZonesError] = useState<string | null>(null)
-  const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
+  // Coverage detection — the customer doesn't pick a ring. Whenever
+  // pickedLatLng changes (geolocation, "Semak alamat", saved-address
+  // auto-geocode), we hit /zones/{id}/cover and let the server tell us
+  // which ring covers them. detectedZone holds the resolved ring (with
+  // fee in RM) or null. coverageStatus drives the CoverageStatusSection
+  // display + the place-order CTA's enabled state.
+  type CoverageStatus = 'idle' | 'checking' | 'covered' | 'uncovered' | 'error'
+  const [coverageStatus, setCoverageStatus] = useState<CoverageStatus>('idle')
+  const [detectedZone, setDetectedZone] = useState<CoveredZone | null>(null)
+  const [coverageError, setCoverageError] = useState<string | null>(null)
 
   // Place-order state
   const [placing, setPlacing] = useState(false)
@@ -125,46 +132,122 @@ export function CheckoutPageClient() {
     }
   }, [hydrated, customer?.address])
 
-  // ---- Fetch delivery zones once.
+  // Generous client-side timeout for backend fetches. Render free-tier
+  // cold starts can take ~30s; we'd rather surface an error than leave
+  // coverageStatus stuck on 'checking' with the CTA permanently disabled.
+  const REQUEST_TIMEOUT_MS = 30_000
+
+  // ---- Auto-geocode the saved address. When the customer's chosen path
+  //      is 'saved' and we don't already have coords, resolve the saved
+  //      text through the backend Nominatim proxy so the coverage check
+  //      below can fire. The typed-address path uses an explicit "Semak
+  //      alamat" button instead (see AddressSection) to avoid hammering
+  //      Nominatim on every keystroke.
   useEffect(() => {
+    if (!hydrated) return
+    if (addressChoice !== 'saved') return
+    const saved = customer?.address?.trim()
+    if (!saved || saved.length < 4) return
+    if (pickedLatLng) return  // already geocoded
+
     let active = true
-    setZonesLoading(true)
-    setZonesError(null)
-    fetchDeliveryZones(restaurant.websiteId)
-      .then((next) => {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+    geocodeAddress(saved, controller.signal)
+      .then((hit) => {
         if (!active) return
-        setZones(next)
-        // Auto-select the only zone if there's just one.
-        if (next.length === 1) setSelectedZoneId(next[0].id)
+        if (hit.found && hit.lat != null && hit.lng != null) {
+          setPickedLatLng({ lat: hit.lat, lng: hit.lng })
+        } else {
+          // Couldn't resolve the saved string. Surface as "uncovered" so
+          // the customer is nudged toward "Tambah alamat baru".
+          setCoverageStatus('uncovered')
+          setDetectedZone(null)
+        }
       })
       .catch((err: unknown) => {
         if (!active) return
-        const msg =
-          err instanceof ZoneFetchError
-            ? err.message
-            : 'Tidak dapat memuatkan zon penghantaran.'
-        setZonesError(msg)
-      })
-      .finally(() => {
-        if (active) setZonesLoading(false)
+        // AbortError from useEffect cleanup is caught here too, but
+        // `active` is false by then so we won't reach this branch.
+        // A timeout-driven abort, however, leaves `active` true.
+        setCoverageStatus('error')
+        setCoverageError(
+          err instanceof DOMException && err.name === 'AbortError'
+            ? 'Permintaan masa tamat. Sila cuba lagi.'
+            : 'Tidak dapat menyemak alamat tersimpan. Sila cuba lagi.'
+        )
       })
     return () => {
       active = false
+      clearTimeout(timeoutId)
+      controller.abort()
     }
-  }, [restaurant.websiteId])
+  }, [hydrated, addressChoice, customer?.address, pickedLatLng])
+
+  // ---- Coverage check — fires whenever pickedLatLng changes.
+  //      No coords → idle. Coords set → checking → covered/uncovered/error.
+  //
+  //      Race handling: when pickedLatLng changes mid-flight (customer
+  //      hits "Semak alamat" right after geolocating), the cleanup runs
+  //      first — it aborts the in-flight request and flips `active` to
+  //      false. Any stale .then/.catch that still fires will bail on the
+  //      `active` guard, so the newer request always wins.
+  useEffect(() => {
+    if (!pickedLatLng) {
+      setCoverageStatus('idle')
+      setDetectedZone(null)
+      setCoverageError(null)
+      return
+    }
+    let active = true
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
+    setCoverageStatus('checking')
+    setCoverageError(null)
+    fetchZoneCoverage(
+      restaurant.websiteId,
+      pickedLatLng.lat,
+      pickedLatLng.lng,
+      controller.signal
+    )
+      .then((res) => {
+        if (!active) return
+        if (res.covered) {
+          setDetectedZone(res.zone)
+          setCoverageStatus('covered')
+        } else {
+          setDetectedZone(null)
+          setCoverageStatus('uncovered')
+        }
+      })
+      .catch((err: unknown) => {
+        if (!active) return
+        const isTimeout = err instanceof DOMException && err.name === 'AbortError'
+        const msg = isTimeout
+          ? 'Permintaan masa tamat. Sila cuba lagi.'
+          : err instanceof CoverageError || err instanceof GeocodeError
+            ? err.message
+            : 'Tidak dapat menyemak liputan. Sila cuba lagi.'
+        setCoverageError(msg)
+        setCoverageStatus('error')
+      })
+    return () => {
+      active = false
+      clearTimeout(timeoutId)
+      controller.abort()
+    }
+  }, [restaurant.websiteId, pickedLatLng])
 
   // ---- Money math.
   const subtotal = useMemo(() => cartTotal(cartItems), [cartItems])
   const discount = useMemo(() => cartDiscount(cartItems, promoCode), [cartItems, promoCode])
-  const selectedZone = useMemo(
-    () => zones.find((z) => z.id === selectedZoneId) ?? null,
-    [zones, selectedZoneId]
-  )
-  const deliveryFee = selectedZone?.fee ?? 0
+  const deliveryFee = detectedZone?.fee ?? 0
   const total = Math.max(0, subtotal - discount + deliveryFee)
   const minOrderShortfall =
-    selectedZone && selectedZone.minOrder > 0 && subtotal < selectedZone.minOrder
-      ? selectedZone.minOrder - subtotal
+    detectedZone && detectedZone.minOrder > 0 && subtotal < detectedZone.minOrder
+      ? detectedZone.minOrder - subtotal
       : 0
 
   // ---- Validity for the place-order CTA.
@@ -174,13 +257,17 @@ export function CheckoutPageClient() {
     !!customer?.phone &&
     !!customer?.name?.trim() &&
     resolvedAddress.trim().length >= 8 &&
-    !!selectedZoneId &&
+    coverageStatus === 'covered' &&
+    !!detectedZone &&
+    !!pickedLatLng &&
     minOrderShortfall === 0 &&
     paymentMethod === 'cod'
 
   // ---- Place the order.
   const handlePlace = async () => {
-    if (!valid || placing || !customer) return
+    // valid already requires coverageStatus==='covered', detectedZone, and
+    // pickedLatLng — narrow them here so the payload types are happy.
+    if (!valid || placing || !customer || !pickedLatLng || !detectedZone) return
     setPlacing(true)
     setPlaceError(null)
     try {
@@ -189,10 +276,12 @@ export function CheckoutPageClient() {
         customer_name: customer.name.trim(),
         customer_phone: customer.phone,
         delivery_address: resolvedAddress.trim(),
-        delivery_latitude: pickedLatLng?.lat,
-        delivery_longitude: pickedLatLng?.lng,
+        delivery_latitude: pickedLatLng.lat,
+        delivery_longitude: pickedLatLng.lng,
         delivery_notes: [kitchenNotes, riderNotes].filter(Boolean).join(' · '),
-        delivery_zone_id: selectedZoneId ?? undefined,
+        // Server ignores this and recomputes from lat/lng — we send it so
+        // the mismatch-telemetry warning doesn't fire on our own traffic.
+        delivery_zone_id: detectedZone.id,
         items: cartItems.map((c) => ({
           menu_item_id: c.id,
           quantity: c.qty,
@@ -251,7 +340,13 @@ export function CheckoutPageClient() {
         <AddressSection
           customer={customer}
           choice={addressChoice}
-          onChoiceChange={setAddressChoice}
+          onChoiceChange={(c) => {
+            setAddressChoice(c)
+            // Switching choice invalidates any coords we resolved for
+            // the previous choice's text. The relevant useEffect will
+            // re-geocode (saved) or wait for "Semak alamat" (new).
+            setPickedLatLng(null)
+          }}
           newAddressText={newAddressText}
           onNewAddressChange={(t) => {
             setNewAddressText(t)
@@ -264,13 +359,11 @@ export function CheckoutPageClient() {
           }}
         />
 
-        <DeliveryZoneSection
-          zones={zones}
-          selectedZoneId={selectedZoneId}
-          onSelect={setSelectedZoneId}
+        <CoverageStatusSection
+          status={coverageStatus}
+          zone={detectedZone}
           subtotal={subtotal}
-          loading={zonesLoading}
-          error={zonesError}
+          error={coverageError}
         />
 
         <PaymentMethodSection

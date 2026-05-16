@@ -1,87 +1,147 @@
 /**
  * API client for the checkout flow.
  *
- * Two endpoints today:
- *   - GET  /api/v1/delivery/zones/{website_id}    fetch zones + settings
- *   - POST /api/v1/delivery/orders                place an order
+ * Three endpoints today, all public (no auth):
+ *   - GET  /api/v1/delivery/geocode-address?q=          typed-address → lat/lng
+ *   - GET  /api/v1/delivery/zones/{website_id}/cover    lat/lng → covering ring
+ *   - POST /api/v1/delivery/orders                      place an order
  *
- * Both are public (no auth) — same model as the menu and customer-lookup
- * endpoints used by earlier PRs.
+ * The customer never picks a ring — coverage is auto-detected from the
+ * delivery coordinates server-side. The dropdown that used to live here
+ * is gone (PR: connect-delivery-zones); see CoverageStatusSection in the
+ * adjacent checkout/ folder for the new UI.
  */
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
 
-/* ----- Delivery zones --------------------------------------------------- */
-
-interface BackendZone {
-  id: string
-  website_id: string
-  zone_name: string
-  zone_polygon?: unknown
-  center_lat?: string | number | null
-  center_lng?: string | number | null
-  radius_km?: string | number | null
-  delivery_fee: string | number
-  minimum_order: string | number
-  estimated_time_min: number
-  estimated_time_max: number
-  is_active: boolean
-  sort_order: number
-}
-
-interface BackendZonesResponse {
-  zones: BackendZone[]
-  settings?: unknown
-}
-
-/** Normalized zone shape consumed by the UI. */
-export interface DeliveryZone {
-  id: string
-  name: string
-  fee: number
-  /** Minimum subtotal (RM) required to checkout in this zone. 0 = no minimum. */
-  minOrder: number
-  etaMin: number
-  etaMax: number
-}
-
 const num = (v: string | number | null | undefined): number =>
   typeof v === 'number' ? v : Number(v ?? 0) || 0
 
-function normalizeZone(raw: BackendZone): DeliveryZone {
-  return {
-    id: raw.id,
-    name: raw.zone_name,
-    fee: num(raw.delivery_fee),
-    minOrder: num(raw.minimum_order),
-    etaMin: raw.estimated_time_min ?? 0,
-    etaMax: raw.estimated_time_max ?? 0,
-  }
+/* ----- Ring coverage ---------------------------------------------------- */
+
+/** Ring info as returned by /zones/{id}/cover. Fees are in RM. */
+export interface CoveredZone {
+  id: string
+  name: string
+  fee: number
+  /** Minimum subtotal (RM) required to checkout in this ring. 0 = no minimum. */
+  minOrder: number
+  color: string
 }
 
-export class ZoneFetchError extends Error {
+export type CoverResponse =
+  | { covered: true; zone: CoveredZone }
+  | { covered: false }
+
+interface BackendCoveredZone {
+  id: string
+  name: string
+  fee: string | number
+  min_order: string | number
+  color: string
+}
+
+interface BackendCoverResponse {
+  covered: boolean
+  zone: BackendCoveredZone | null
+}
+
+export class CoverageError extends Error {
   constructor(
     message: string,
     public status: number
   ) {
     super(message)
-    this.name = 'ZoneFetchError'
+    this.name = 'CoverageError'
   }
 }
 
-export async function fetchDeliveryZones(websiteId: string): Promise<DeliveryZone[]> {
-  const url = `${API_BASE}/api/v1/delivery/zones/${encodeURIComponent(websiteId)}`
+export async function fetchZoneCoverage(
+  websiteId: string,
+  lat: number,
+  lng: number,
+  signal?: AbortSignal
+): Promise<CoverResponse> {
+  const url =
+    `${API_BASE}/api/v1/delivery/zones/${encodeURIComponent(websiteId)}/cover` +
+    `?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`
   const res = await fetch(url, {
     method: 'GET',
     headers: { Accept: 'application/json' },
     cache: 'no-store',
+    signal,
   })
   if (!res.ok) {
-    throw new ZoneFetchError(`Zone fetch failed (${res.status})`, res.status)
+    throw new CoverageError(`Coverage lookup failed (${res.status})`, res.status)
   }
-  const raw = (await res.json()) as BackendZonesResponse
-  return (raw.zones || []).map(normalizeZone)
+  const raw = (await res.json()) as BackendCoverResponse
+  if (!raw.covered || !raw.zone) {
+    return { covered: false }
+  }
+  return {
+    covered: true,
+    zone: {
+      id: raw.zone.id,
+      name: raw.zone.name,
+      fee: num(raw.zone.fee),
+      minOrder: num(raw.zone.min_order),
+      color: raw.zone.color,
+    },
+  }
+}
+
+/* ----- Address geocode -------------------------------------------------- */
+
+export interface GeocodeHit {
+  found: boolean
+  lat?: number
+  lng?: number
+  displayName?: string
+}
+
+interface BackendGeocodeResult {
+  found: boolean
+  lat: number | null
+  lng: number | null
+  display_name: string | null
+}
+
+export class GeocodeError extends Error {
+  constructor(
+    message: string,
+    public status: number
+  ) {
+    super(message)
+    this.name = 'GeocodeError'
+  }
+}
+
+export async function geocodeAddress(
+  q: string,
+  signal?: AbortSignal
+): Promise<GeocodeHit> {
+  const url =
+    `${API_BASE}/api/v1/delivery/geocode-address?q=${encodeURIComponent(q)}`
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+    signal,
+  })
+  if (!res.ok) {
+    throw new GeocodeError(`Geocode failed (${res.status})`, res.status)
+  }
+  const raw = (await res.json()) as BackendGeocodeResult
+  if (!raw.found || raw.lat == null || raw.lng == null) {
+    return { found: false }
+  }
+  return {
+    found: true,
+    lat: raw.lat,
+    lng: raw.lng,
+    displayName: raw.display_name ?? undefined,
+  }
 }
 
 /* ----- Order placement -------------------------------------------------- */
@@ -101,9 +161,17 @@ export interface PlaceOrderPayload {
   customer_phone: string
   customer_email?: string
   delivery_address: string
-  delivery_latitude?: number
-  delivery_longitude?: number
+  /** Required: server resolves the ring + fee from these. */
+  delivery_latitude: number
+  /** Required: server resolves the ring + fee from these. */
+  delivery_longitude: number
   delivery_notes?: string
+  /**
+   * The server ignores this field and recomputes the ring from
+   * delivery_latitude/longitude (closes the fee-spoofing hole). We still
+   * send the auto-detected id so the server's mismatch-telemetry warning
+   * doesn't fire for our own checkout.
+   */
   delivery_zone_id?: string
   items: OrderItemPayload[]
   payment_method: OrderPaymentMethod
