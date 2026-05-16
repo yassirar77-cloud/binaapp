@@ -3,6 +3,7 @@
 import { Check, Home, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Customer } from '../types'
+import { AddressGeocodeButton } from './AddressGeocodeButton'
 import { GeolocationHelper } from './GeolocationHelper'
 
 export type AddressChoice = 'saved' | 'new'
@@ -93,7 +94,12 @@ export function AddressSection({
             onChange={(e) => onNewAddressChange(e.target.value)}
             aria-label="Alamat penghantaran"
           />
-          {onGeolocated && <GeolocationHelper onResolved={onGeolocated} />}
+          {onGeolocated && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+              <GeolocationHelper onResolved={onGeolocated} />
+              <AddressGeocodeButton text={newAddressText} onResolved={onGeolocated} />
+            </div>
+          )}
         </div>
       )}
     </div>

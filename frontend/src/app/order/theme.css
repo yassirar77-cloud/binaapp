@@ -1452,6 +1452,17 @@
   gap: 6px;
   align-items: flex-start;
 }
+.order-flow .zone-covered {
+  padding: 10px 12px;
+  background: var(--ok-bg);
+  color: var(--ok);
+  border-radius: 8px;
+  font-size: 13px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.order-flow .zone-covered strong { font-weight: 600; }
 
 .order-flow .pay-radio {
   display: flex; align-items: center; gap: 12px;

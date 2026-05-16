@@ -3,18 +3,25 @@ BinaApp Delivery System API Endpoints
 Handles real-time food delivery and order tracking
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from supabase import Client
 from typing import List, Optional
 from loguru import logger
 from decimal import Decimal
+from uuid import UUID
 from datetime import datetime, timezone
 from pydantic import BaseModel
 import os
 from supabase import create_client
 import bcrypt
 
+from app.core.geocoder import (
+    ADDRESS_MAX_LEN,
+    ADDRESS_MIN_LEN,
+    GeocodeResult,
+    geocode_address as _geocode_address,
+)
 from app.core.supabase import get_supabase_client
 from app.core.security import get_current_user
 from app.models.delivery_schemas import (
@@ -318,9 +325,24 @@ async def get_delivery_zones(
     supabase: Client = Depends(get_supabase_client)
 ):
     """
-    Get all delivery zones for a website with delivery settings
+    Get all delivery zones for a website with delivery settings.
 
-    **Public endpoint** - Used by customer ordering widget
+    **DEPRECATED** — kept for backward compatibility only. This endpoint
+    queries column names (`zone_name`, `delivery_fee`, `minimum_order`,
+    `estimated_time_min/max`, `is_active`) that migration 026 dropped
+    from `delivery_zones` when the ring-based schema landed. Pydantic
+    silently coerces the schema-mismatched rows to an empty list, so
+    callers receive `{"zones": [], "settings": ...}` rather than a 500.
+    Behavior is preserved deliberately — third-party widget embeds that
+    still hit this URL get graceful degradation rather than a hard break.
+
+    New callers MUST use the auto-detect coverage route instead:
+        GET /api/v1/delivery/zones/{website_id}/cover?lat=&lng=
+    which returns the smallest active ring covering the customer's
+    delivery coordinates. The customer checkout no longer renders a
+    zone dropdown — coverage is auto-resolved server-side.
+
+    **Public endpoint** - Used by customer ordering widget (legacy)
     """
     try:
         # Get active delivery zones
@@ -355,10 +377,22 @@ async def check_delivery_coverage(
     supabase: Client = Depends(get_supabase_client)
 ):
     """
-    Check if a location is within delivery coverage
+    Check if a location is within delivery coverage.
 
-    **Note:** Currently returns the first active zone.
-    In production, implement proper geofencing using PostGIS.
+    **DEPRECATED** — kept for backward compatibility only. The "first
+    active zone wins" heuristic predates the PostGIS ring system; it
+    cannot tell a customer at the outlet door apart from one 50 km away.
+    It also reads column names (`delivery_fee`, `estimated_time_min/max`,
+    `zone_name`) that no longer exist after migration 026, so any path
+    that does find an active row will KeyError out on the response
+    builder. In practice the table never has rows that satisfy the old
+    schema, so this endpoint returns `{"covered": False, ...}`. Behavior
+    is preserved deliberately for legacy widget callers.
+
+    New callers MUST use the proper PostGIS coverage route:
+        GET /api/v1/delivery/zones/{website_id}/cover?lat=&lng=
+    which runs `find_zone_for_point` and returns the smallest active
+    ring covering the supplied coordinates, or covered=false.
     """
     try:
         # Get all active zones for this website
@@ -390,6 +424,100 @@ async def check_delivery_coverage(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to check coverage: {str(e)}"
         )
+
+
+# =====================================================
+# PUBLIC RING-COVERAGE LOOKUP + GEOCODE PROXY
+#
+# These two endpoints power the anonymous customer checkout flow:
+#   1. Geocode the customer's typed address (if no GPS) → lat/lng.
+#   2. POST those lat/lng to /zones/{id}/cover → detect the covering ring.
+#
+# Both are public (no auth) by design — the customer is anonymous. The
+# owner-side equivalents in delivery_zones.py do the same thing behind
+# get_current_user + ownership verification.
+# =====================================================
+
+class CoveredZone(BaseModel):
+    """Ring info exposed to anonymous customers — only what the checkout UI
+    needs to render and to round-trip back into the order payload. Fees are
+    expressed in RM (Decimal, 2dp) so the frontend works in one currency
+    unit throughout."""
+    id: str
+    name: str
+    fee: Decimal
+    min_order: Decimal
+    color: str
+
+
+class ZoneCoverageResponse(BaseModel):
+    covered: bool
+    zone: Optional[CoveredZone] = None
+
+
+@router.get("/zones/{website_id}/cover", response_model=ZoneCoverageResponse)
+async def get_ring_coverage(
+    website_id: str,
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+    supabase: Client = Depends(get_supabase_client),
+):
+    """Return the smallest active ring covering (lat, lng), or covered=false.
+
+    **Public endpoint** — used by the customer checkout to auto-detect which
+    ring the delivery address falls into. No ownership check: the lookup is
+    keyed by the website_id from the public ordering URL, and the underlying
+    delivery_zones.find_zone_for_point RPC is granted to `anon`.
+    """
+    # Validate website_id before hitting the RPC — a malformed UUID from a
+    # bad ordering URL should 400, not bubble up as an opaque 500.
+    try:
+        UUID(website_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid website id")
+
+    try:
+        res = supabase.rpc(
+            "find_zone_for_point",
+            {
+                "p_website_id": website_id,
+                "p_lat": lat,
+                "p_lng": lng,
+                "p_only_active": True,
+            },
+        ).execute()
+        rows = res.data or []
+        if not rows:
+            return ZoneCoverageResponse(covered=False, zone=None)
+        r = rows[0]
+        return ZoneCoverageResponse(
+            covered=True,
+            zone=CoveredZone(
+                id=str(r["id"]),
+                name=r["name"],
+                fee=(Decimal(r["fee_cents"]) / Decimal(100)).quantize(Decimal("0.01")),
+                min_order=(Decimal(r["min_order_cents"]) / Decimal(100)).quantize(Decimal("0.01")),
+                color=r["color"],
+            ),
+        )
+    except Exception as e:
+        logger.error(f"get_ring_coverage failed for website {website_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to check coverage")
+
+
+@router.get("/geocode-address", response_model=GeocodeResult)
+async def geocode_address_public(
+    q: str = Query(..., min_length=ADDRESS_MIN_LEN, max_length=ADDRESS_MAX_LEN),
+    country: str = Query("MY", min_length=2, max_length=2),
+):
+    """Resolve a free-text address → lat/lng via Nominatim.
+
+    **Public endpoint** — used by the customer checkout when the customer
+    typed an address instead of using GPS. Shares the in-process cache +
+    User-Agent with the owner-auth-gated /zones/geocode-address route so
+    Nominatim sees a single coherent caller from this backend.
+    """
+    return await _geocode_address(q, country)
 
 
 # =====================================================
@@ -567,23 +695,73 @@ async def create_order(
         # Create menu items lookup
         menu_items_map = {item['id']: item for item in items_response.data}
 
-        # 2. Get delivery zone for fee (optional for pickup orders)
-        zone = None
-        delivery_fee = 0.0
+        # 2. Resolve delivery zone server-side from the customer's
+        #    coordinates. The client-submitted order.delivery_zone_id is
+        #    IGNORED — the canonical ring is whichever one covers the
+        #    delivery point per find_zone_for_point. Two reasons:
+        #      a) Closes a fee-spoofing hole: customer could otherwise
+        #         submit any ring's id and inherit its (lower) fee.
+        #      b) Avoids reading the legacy column names (delivery_fee,
+        #         minimum_order, estimated_time_min) that migration 026
+        #         dropped from delivery_zones.
+        #
+        #    Delivery is the only flow supported in this PR — coordinates
+        #    are required unconditionally. Pickup is a separately scoped
+        #    feature for later.
+        if order.delivery_latitude is None or order.delivery_longitude is None:
+            logger.warning(
+                f"[Order] REJECTED: missing coordinates for website {order.website_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "MISSING_COORDINATES",
+                    "message": "Lokasi penghantaran diperlukan",
+                },
+            )
 
-        if order.delivery_zone_id:
-            zone_response = supabase.table("delivery_zones").select("*").eq(
-                "id", order.delivery_zone_id
-            ).execute()
+        lat = float(order.delivery_latitude)
+        lng = float(order.delivery_longitude)
 
-            if not zone_response.data:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Invalid delivery zone"
-                )
+        zone_lookup = supabase.rpc(
+            "find_zone_for_point",
+            {
+                "p_website_id": order.website_id,
+                "p_lat": lat,
+                "p_lng": lng,
+                "p_only_active": True,
+            },
+        ).execute()
+        zone_rows = zone_lookup.data or []
 
-            zone = zone_response.data[0]
-            delivery_fee = float(zone['delivery_fee'])
+        if not zone_rows:
+            logger.info(
+                f"[Order] OUT_OF_COVERAGE for website {order.website_id} "
+                f"at ({lat}, {lng})"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": "OUT_OF_COVERAGE",
+                    "message": "Maaf, lokasi anda di luar kawasan penghantaran",
+                },
+            )
+
+        zone = zone_rows[0]
+        zone_id = str(zone["id"])
+        delivery_fee = Decimal(zone["fee_cents"]) / Decimal(100)
+        min_order_rm = Decimal(zone["min_order_cents"]) / Decimal(100)
+        estimated_delivery_min = zone.get("estimated_delivery_min")
+
+        # Telemetry only: warn if the client submitted a zone_id and it
+        # doesn't match what the server resolved. Helps detect stale
+        # frontend caches or tampering. We ignore the submission either way.
+        if order.delivery_zone_id and order.delivery_zone_id != zone_id:
+            logger.warning(
+                f"[Order] delivery_zone_id mismatch: client submitted "
+                f"{order.delivery_zone_id}, server resolved {zone_id} for "
+                f"website {order.website_id} at ({lat}, {lng})"
+            )
 
         # 3. Calculate order totals
         subtotal = Decimal("0")
@@ -607,34 +785,36 @@ async def create_order(
                 "notes": item_create.notes
             })
 
-        # Check minimum order (only when delivery zone is provided)
-        if zone and subtotal < Decimal(str(zone.get('minimum_order', 0))):
+        # Minimum-order check against the server-resolved ring (in RM).
+        if subtotal < min_order_rm:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Minimum order is RM{zone['minimum_order']}"
+                detail=f"Minimum pesanan untuk zon ini ialah RM{min_order_rm:.2f}",
             )
 
-        total_amount = subtotal + Decimal(str(delivery_fee))
+        total_amount = subtotal + delivery_fee
 
-        # 4. Create order record (order_number auto-generated by trigger)
+        # 4. Create order record (order_number auto-generated by trigger).
+        #    delivery_zone_id, delivery_fee, estimated_delivery_time all
+        #    come from the server-resolved ring above — not the client.
         order_data = {
             "website_id": order.website_id,
             "customer_name": order.customer_name,
             "customer_phone": order.customer_phone,
             "customer_email": order.customer_email,
             "delivery_address": order.delivery_address,
-            "delivery_latitude": float(order.delivery_latitude) if order.delivery_latitude else None,
-            "delivery_longitude": float(order.delivery_longitude) if order.delivery_longitude else None,
+            "delivery_latitude": lat,
+            "delivery_longitude": lng,
             "delivery_notes": order.delivery_notes,
-            "delivery_zone_id": order.delivery_zone_id,
-            "delivery_fee": delivery_fee,
+            "delivery_zone_id": zone_id,
+            "delivery_fee": float(delivery_fee),
             "subtotal": float(subtotal),
             "total_amount": float(total_amount),
             "payment_method": order.payment_method.value,
             "payment_status": "pending",
             "status": "pending",
             "estimated_prep_time": 30,  # Default 30 minutes
-            "estimated_delivery_time": zone['estimated_time_min'] if zone else None
+            "estimated_delivery_time": estimated_delivery_min,
         }
 
         order_response = supabase.table("delivery_orders").insert(order_data).execute()

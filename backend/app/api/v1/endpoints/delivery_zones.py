@@ -16,24 +16,24 @@ NULL when called via service-role.
 from __future__ import annotations
 
 import json
-import re
-import time
 from typing import Any, Dict, List, Optional
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel, Field
 from supabase import Client
 
+from app.core.geocoder import (
+    ADDRESS_MAX_LEN,
+    ADDRESS_MIN_LEN,
+    GeocodeResult,
+    geocode_address as _geocode_address,
+    geocode_postcode as _geocode_postcode,
+)
 from app.core.security import get_current_user
 from app.core.supabase import get_supabase_client
 
 router = APIRouter(prefix="/zones", tags=["Delivery Zones (Owner)"])
-
-# 5-digit Malaysian postcode pattern. Other countries can be supported later
-# by relaxing this regex per-country.
-_MY_POSTCODE_RE = re.compile(r"^\d{5}$")
 
 
 # =====================================================
@@ -373,163 +373,33 @@ async def test_point(
 
 
 # =====================================================
-# Geocoder proxy (Nominatim) — server-side to obey TOS
+# Geocoder routes — thin owner-auth-gated wrappers around the shared
+# helpers in app.core.geocoder. The customer-facing public geocode lives
+# in delivery.py and calls into the same shared helpers (one User-Agent,
+# one cache, one process).
 # =====================================================
-_GEOCODE_CACHE: Dict[str, tuple[float, dict]] = {}
-_GEOCODE_TTL = 60 * 60 * 24 * 7  # 7 days
-_GEOCODE_CACHE_MAX = 5000  # hard cap to prevent unbounded growth
-
-
-class GeocodeResult(BaseModel):
-    found: bool
-    lat: float | None = None
-    lng: float | None = None
-    display_name: str | None = None
-
-
-def _cache_get(key: str) -> Optional[dict]:
-    entry = _GEOCODE_CACHE.get(key)
-    if not entry:
-        return None
-    ts, data = entry
-    if time.time() - ts >= _GEOCODE_TTL:
-        _GEOCODE_CACHE.pop(key, None)
-        return None
-    return data
-
-
-def _cache_put(key: str, data: dict) -> None:
-    if len(_GEOCODE_CACHE) >= _GEOCODE_CACHE_MAX:
-        # Evict oldest 10% to keep amortized cost low.
-        items = sorted(_GEOCODE_CACHE.items(), key=lambda kv: kv[1][0])
-        for k, _ in items[: max(1, _GEOCODE_CACHE_MAX // 10)]:
-            _GEOCODE_CACHE.pop(k, None)
-    _GEOCODE_CACHE[key] = (time.time(), data)
-
-
 @router.get("/geocode", response_model=GeocodeResult)
 async def geocode_postcode(
     postcode: str = Query(..., min_length=5, max_length=5),
     country: str = Query("MY", min_length=2, max_length=2),
     _user: Dict = Depends(get_current_user),
 ):
-    """Resolve a 5-digit postcode → lat/lng via Nominatim. Caches in-process.
-
-    Postcode format is validated against /^\\d{5}$/ before hitting Nominatim
-    to defend the User-Agent's IP against rate-limiting from spammy / nonsense
-    inputs (e.g. ?postcode=KFC).
-    """
-    pc = postcode.strip()
-    if not _MY_POSTCODE_RE.match(pc):
-        raise HTTPException(
-            status_code=400, detail="Postcode mesti 5 digit"
-        )
-
-    key = f"{country.upper()}:{pc}"
-    cached = _cache_get(key)
-    if cached is not None:
-        return GeocodeResult(**cached)
-
-    headers = {"User-Agent": "BinaApp/1.0 (admin@binaapp.my)"}
-    params = {
-        "postalcode": pc,
-        "country": country,
-        "format": "json",
-        "limit": 1,
-    }
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as http:
-            resp = await http.get(
-                "https://nominatim.openstreetmap.org/search",
-                params=params,
-                headers=headers,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Geocoder masa tamat")
-    except Exception as e:
-        logger.error(f"Nominatim error: {e}")
-        raise HTTPException(status_code=502, detail="Geocoder unavailable")
-
-    if not data:
-        result = {"found": False, "lat": None, "lng": None, "display_name": None}
-    else:
-        first = data[0]
-        result = {
-            "found": True,
-            "lat": float(first["lat"]),
-            "lng": float(first["lon"]),
-            "display_name": first.get("display_name"),
-        }
-    _cache_put(key, result)
-    return GeocodeResult(**result)
-
-
-# =====================================================
-# Free-text address geocoder — used for auto-locating outlets
-# from registered location_address. Same Nominatim proxy + cache as
-# postcode lookup, but accepts arbitrary text via Nominatim's `q=` param.
-# =====================================================
-_ADDRESS_MIN_LEN = 4
-_ADDRESS_MAX_LEN = 300
+    """Resolve a 5-digit postcode → lat/lng via Nominatim. Caches in-process."""
+    return await _geocode_postcode(postcode, country)
 
 
 @router.get("/geocode-address", response_model=GeocodeResult)
 async def geocode_address(
-    q: str = Query(..., min_length=_ADDRESS_MIN_LEN, max_length=_ADDRESS_MAX_LEN),
+    q: str = Query(..., min_length=ADDRESS_MIN_LEN, max_length=ADDRESS_MAX_LEN),
     country: str = Query("MY", min_length=2, max_length=2),
     _user: Dict = Depends(get_current_user),
 ):
     """Resolve a free-text address → lat/lng via Nominatim.
 
     Used by the penghantaran page to auto-locate the outlet from the
-    registered location_address on first visit. Cached identically to
-    geocode_postcode to stay within Nominatim's rate limits.
+    registered location_address on first visit.
     """
-    query = q.strip()
-    if len(query) < _ADDRESS_MIN_LEN:
-        raise HTTPException(status_code=400, detail="Alamat terlalu pendek")
-
-    key = f"ADDR:{country.upper()}:{query.lower()}"
-    cached = _cache_get(key)
-    if cached is not None:
-        return GeocodeResult(**cached)
-
-    headers = {"User-Agent": "BinaApp/1.0 (admin@binaapp.my)"}
-    params = {
-        "q": query,
-        "countrycodes": country.lower(),
-        "format": "json",
-        "limit": 1,
-    }
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as http:
-            resp = await http.get(
-                "https://nominatim.openstreetmap.org/search",
-                params=params,
-                headers=headers,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail="Geocoder masa tamat")
-    except Exception as e:
-        logger.error(f"Nominatim address error: {e}")
-        raise HTTPException(status_code=502, detail="Geocoder unavailable")
-
-    if not data:
-        result = {"found": False, "lat": None, "lng": None, "display_name": None}
-    else:
-        first = data[0]
-        result = {
-            "found": True,
-            "lat": float(first["lat"]),
-            "lng": float(first["lon"]),
-            "display_name": first.get("display_name"),
-        }
-    _cache_put(key, result)
-    return GeocodeResult(**result)
+    return await _geocode_address(q, country)
 
 
 # =====================================================
