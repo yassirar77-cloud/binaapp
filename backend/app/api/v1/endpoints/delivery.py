@@ -1582,14 +1582,38 @@ async def list_riders(
             )
 
         logger.info(f"[Rider LIST] user_id={user_id} website_id={website_id}")
-        logger.info(f"[Rider LIST] Querying riders for website_id: {website_id}")
 
-        # Include both website-specific riders AND shared riders (website_id IS NULL)
-        # This fixes the issue where riders become orphaned when website is deleted
-        query_filter = f"website_id.eq.{website_id},website_id.is.null"
+        # Riders are a shared pool across all outlets owned by the same account
+        # owner — any rider can be assigned to any of the owner's orders. So
+        # resolve the owner from the current outlet, then return every active
+        # rider belonging to ANY website owned by that same user. Mirrors the
+        # aggregation already done client-side in ProfileHub.
+        owner_websites = (
+            supabase.table("websites").select("id").eq("user_id", user_id).execute()
+        )
+        owner_website_ids = [w["id"] for w in (owner_websites.data or []) if w.get("id")]
+        logger.info(
+            f"[Rider LIST] Owner {user_id} owns {len(owner_website_ids)} websites"
+        )
+
+        # `website_id IS NULL` covers orphaned/shared riders (e.g. a rider whose
+        # original outlet was deleted). Keep them visible to the owner.
+        ids_csv = ",".join(owner_website_ids)
+        query_filter = (
+            f"website_id.in.({ids_csv}),website_id.is.null"
+            if owner_website_ids
+            else "website_id.is.null"
+        )
         logger.info(f"[Rider LIST] Query filter: {query_filter}")
 
-        resp = supabase.table("riders").select("*").or_(query_filter).order("created_at", desc=True).execute()
+        resp = (
+            supabase.table("riders")
+            .select("*")
+            .or_(query_filter)
+            .eq("is_active", True)
+            .order("created_at", desc=True)
+            .execute()
+        )
 
         logger.info(f"[Rider LIST] Found {len(resp.data or [])} riders")
         if resp.data:

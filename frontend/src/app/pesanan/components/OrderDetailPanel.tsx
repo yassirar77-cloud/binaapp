@@ -247,7 +247,6 @@ export default function OrderDetailPanel({
             {pickerOpen ? (
               <RiderPickerDropdown
                 orderId={order.id}
-                websiteId={order.website_id}
                 allRiders={allRiders}
                 placement="above"
                 align="right"
