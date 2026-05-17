@@ -40,7 +40,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from loguru import logger
 
 from app.core.config import settings
@@ -204,34 +204,40 @@ def repair_html(html: str) -> Tuple[str, Dict[str, Any]]:
 # Endpoint
 # ---------------------------------------------------------------------------
 
-def _bool_query(value: Optional[str]) -> Optional[bool]:
-    """Tri-state query-param parse: None / True / False. Lets us tell
-    'param absent' apart from 'param=false' (matters for the dry-run
-    default-on-bulk behavior)."""
-    if value is None:
-        return None
-    v = value.strip().lower()
-    if v in ("1", "true", "yes", "y", "on"):
-        return True
-    if v in ("0", "false", "no", "n", "off"):
-        return False
-    return None
-
-
 @router.post("/admin/repair-websites")
 async def repair_websites(
-    request: Request,
+    subdomain: Optional[str] = Query(
+        None,
+        description="Repair the single website with this subdomain.",
+    ),
+    website_id: Optional[str] = Query(
+        None,
+        description="Repair the single website with this id (UUID).",
+    ),
+    all_sites: bool = Query(
+        False,
+        alias="all",
+        description=(
+            "Repair every status=published website. Defaults to dry_run=true "
+            "unless dry_run is explicitly set to false (bulk must opt in to "
+            "writing). Aliased as `all` in the URL — `all_sites` internally "
+            "to avoid shadowing the Python builtin."
+        ),
+    ),
+    dry_run: Optional[bool] = Query(
+        None,
+        description=(
+            "Tri-state. Omit (None) to use the default for the chosen mode: "
+            "single-site mode defaults to FALSE (writes), all=true mode "
+            "defaults to TRUE (dry-run). Set explicitly to override."
+        ),
+    ),
     current_user: dict = Depends(get_current_user),
 ):
     """Repair stored HTML for one or more published websites.
 
-    Query parameters (exactly one of subdomain / website_id / all is required):
-      subdomain=<name>         single site by subdomain
-      website_id=<uuid>        single site by id
-      all=true                 all status=published websites
-      dry_run=true|false       explicit dry-run toggle (default: true when
-                               all=true, false otherwise — bulk must opt in
-                               to writing)
+    Exactly one of `subdomain`, `website_id`, or `all=true` is required.
+    Auth: requires role='admin' in public.users.
     """
     user_id = current_user.get("sub") or current_user.get("id")
     if not user_id:
@@ -250,13 +256,13 @@ async def repair_websites(
             detail="Admin role required for this operation.",
         )
 
-    qp = request.query_params
-    subdomain = (qp.get("subdomain") or "").strip().lower() or None
-    website_id = (qp.get("website_id") or "").strip() or None
-    all_flag = _bool_query(qp.get("all")) is True
-    explicit_dry_run = _bool_query(qp.get("dry_run"))
+    # Normalize string params: strip whitespace, lowercase subdomain, empty → None.
+    if subdomain is not None:
+        subdomain = subdomain.strip().lower() or None
+    if website_id is not None:
+        website_id = website_id.strip() or None
 
-    selectors = [bool(subdomain), bool(website_id), all_flag]
+    selectors = [bool(subdomain), bool(website_id), all_sites]
     if sum(selectors) == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -271,10 +277,13 @@ async def repair_websites(
     # Bulk dry-run-by-default: ?all=true writes only when dry_run is
     # *explicitly* false. Single-site defaults to write (dry_run=false)
     # so the trial-on-jiwa workflow doesn't need an extra param.
-    if all_flag:
-        dry_run = True if explicit_dry_run is None else explicit_dry_run
+    if all_sites:
+        dry_run_effective = True if dry_run is None else dry_run
     else:
-        dry_run = False if explicit_dry_run is None else explicit_dry_run
+        dry_run_effective = False if dry_run is None else dry_run
+    # Below this point the original variable name is preserved.
+    dry_run = dry_run_effective
+    all_flag = all_sites
 
     # Fetch target rows via the same REST pattern the existing admin
     # republish uses (see api/simple/publish.py:767). supabase_service.url
