@@ -127,6 +127,12 @@ class TemplateService:
         """
         Inject WhatsApp floating button into HTML
         """
+        # Skip if a floating WhatsApp button is already in the page.
+        # Re-injecting causes a duplicate that overlaps the contact section.
+        if 'id="whatsapp-button"' in html or "id='whatsapp-button'" in html:
+            logger.info("⏭️ Skipping WhatsApp button injection - already present")
+            return html
+
         # Clean phone number
         phone_clean = re.sub(r'[^\d+]', '', phone_number)
         if not phone_clean.startswith('+'):
@@ -3192,7 +3198,141 @@ function handleContactSubmit(e) {{
             else:
                 logger.warning("Delivery system requested but no menu_items and no website_id - skipping")
 
+        # Final layout safety pass - defensive CSS that survives AOS failures,
+        # broken contact-section HTML from AI truncation, and mixed-image menu grids.
+        html = self.apply_layout_safety_guard(html)
+
         return html
+
+    # CSS block applied to every generated/served website. Inline so it survives
+    # any external CSS that fails to load. Fixes three classes of bug that the
+    # AI-generated HTML keeps producing:
+    #   (a) data-aos elements that stay opacity:0 forever when AOS JS fails,
+    #   (b) heroes with min-h-screen + items-end + no <img> = huge blank top,
+    #   (c) menu cards with empty <img> placeholders rendering at uneven heights.
+    LAYOUT_SAFETY_CSS = """
+<!-- BinaApp Layout Safety Guard -->
+<style id="binaapp-layout-safety">
+/* (a) AOS fallback: if aos.js fails to load or the IntersectionObserver never fires,
+   content must NEVER stay permanently invisible. aos.css sets [data-aos]{opacity:0}
+   via html:not(.no-js) [data-aos^="fade"] (high specificity), so we use !important
+   to win. Once aos.js initialises and adds the `aos-initialized` html class
+   (see middleware/subdomain.py), we hand visibility control back to AOS. */
+html [data-aos] { opacity: 1 !important; transform: none !important; }
+html.aos-initialized [data-aos].aos-init:not(.aos-animate) {
+  opacity: 0 !important;
+  transition-property: opacity, transform;
+  transition-duration: 600ms;
+  transition-timing-function: ease-out;
+}
+html.aos-initialized [data-aos].aos-init.aos-animate {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+/* (b1) Bound non-hero section heights so AI-emitted min-h-screen / 100vh on content
+   sections doesn't push everything off-screen. */
+section:not([id="home"]):not([id="hero"]):not([id="laman-utama"]):not([id="page-order"]) {
+  min-height: auto;
+}
+section:not([id="home"]):not([id="hero"]):not([id="laman-utama"]):not([id="page-order"]).h-screen,
+section:not([id="home"]):not([id="hero"]):not([id="laman-utama"]):not([id="page-order"]).min-h-screen {
+  height: auto !important;
+  min-height: auto !important;
+}
+
+/* (b2) Hero with no image: AI emits min-h-screen + items-end thinking there'll be
+   a hero photo behind it, but when no image is supplied the section is 100vh of
+   blank space with content stuck at the bottom. Cap it and re-centre content.
+   :has() guards mean this only kicks in when there's truly no <img> AND no
+   inline background-image style on the hero or its descendants. */
+section[id="home"]:not(:has(img)):not(:has([style*="background-image"])),
+section[id="hero"]:not(:has(img)):not(:has([style*="background-image"])),
+section[id="laman-utama"]:not(:has(img)):not(:has([style*="background-image"])) {
+  min-height: 60vh !important;
+  height: auto !important;
+  align-items: center !important;
+}
+
+/* (c) Menu grid: equal-height cards. When AI mixes image-and-no-image items the
+   empty placeholder divs collapse and cards become uneven; flex columns plus
+   stretched rows keep them aligned. */
+section[id="menu"] .grid,
+section[id*="menu"] .grid {
+  align-items: stretch;
+  grid-auto-rows: 1fr;
+}
+section[id="menu"] .grid > div,
+section[id*="menu"] .grid > div {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+/* Fixed-height image area with placeholder background for cards without an <img>.
+   :has() falls back gracefully where unsupported - the explicit empty selector
+   covers Safari < 15.4 and older Chrome too. */
+section[id="menu"] .grid > div > div:first-child,
+section[id*="menu"] .grid > div > div:first-child {
+  min-height: 200px;
+  flex-shrink: 0;
+}
+section[id="menu"] .grid > div > div.overflow-hidden:first-child:empty,
+section[id*="menu"] .grid > div > div.overflow-hidden:first-child:not(:has(img)),
+section[id*="menu"] .grid > div > div.overflow-hidden:first-child:has(img[src=""]) {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  position: relative;
+}
+section[id="menu"] .grid > div > div.overflow-hidden:first-child:empty::after,
+section[id*="menu"] .grid > div > div.overflow-hidden:first-child:not(:has(img))::after {
+  content: "\\1F37D"; /* 🍽 - works without Font Awesome */
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+  color: rgba(255,255,255,0.85);
+}
+
+/* (b cont.) Floating WhatsApp button must always be fixed bottom-right, never
+   absorbed into the content flow even when the AI HTML it landed next to has
+   unclosed tags. */
+#whatsapp-button {
+  position: fixed !important;
+  bottom: 20px !important;
+  right: 20px !important;
+  z-index: 999 !important;
+}
+/* Inline contact WhatsApp icon: ensure the brand mark uses WhatsApp green so a
+   primary-tinted container doesn't look like a broken orange circle. */
+.fa-whatsapp, .fab.fa-whatsapp, .fa-brands.fa-whatsapp { color: #25D366; }
+</style>
+"""
+
+    def apply_layout_safety_guard(self, html: str) -> str:
+        """
+        Inject the layout safety CSS into <head>.
+
+        Idempotent: skips if already present (so middleware + generator can
+        both call this without double-injecting).
+
+        Fixes the three recurring layout bugs after the new AI design rolled out:
+        whitespace from broken AOS, broken WhatsApp button placement, uneven
+        menu cards. See LAYOUT_SAFETY_CSS for details.
+        """
+        if not html:
+            return html
+        if 'id="binaapp-layout-safety"' in html:
+            return html
+
+        css = self.LAYOUT_SAFETY_CSS
+
+        if "</head>" in html:
+            return html.replace("</head>", css + "\n</head>", 1)
+        if "<head>" in html:
+            return html.replace("<head>", "<head>\n" + css, 1)
+        # No <head> - prepend so it still applies as <style> in <body>.
+        return css + html
 
     def apply_image_safety_guard(
         self,
