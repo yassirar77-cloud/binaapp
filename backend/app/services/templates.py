@@ -1029,8 +1029,14 @@ function handleContactSubmit(e) {{
             logger.info("   ↩️  Tailwind already present in <head> — skipping duplicate injection")
         if has_fontawesome:
             logger.info("   ↩️  Font Awesome already present in <head> — skipping duplicate injection")
-        css_libraries = f'''
-{tailwind_tag}{fontawesome_tag}<!-- Leaflet Map for Rider Tracking -->
+        # NOTE: this MUST stay a plain triple-quoted string (not an f-string).
+        # The CSS block below has dozens of literal { ... } braces that an
+        # f-string parser would try to evaluate as Python expressions —
+        # crashing the whole module at import time. The conditional tailwind/
+        # fontawesome tags are prepended via concatenation instead. (Render
+        # caught the f-string mistake on deploy: SyntaxError invalid decimal
+        # literal at "@keyframes deliveryFloat { 0%,100%{...} }".)
+        css_libraries = "\n" + tailwind_tag + fontawesome_tag + '''<!-- Leaflet Map for Rider Tracking -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
