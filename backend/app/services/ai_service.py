@@ -2793,27 +2793,88 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         text = text.strip()
 
-        # Detect truncation (missing closing </html>) and record diagnostic info.
+        # Detect truncation. Two flavours, both treated as truncated:
+        #   (1) The response doesn't end with </html> — classic end-of-stream cut.
+        #   (2) The response DOES end with </html>, but the body has mid-document
+        #       unclosed tags — i.e. the model gracefully wrote </body></html> at
+        #       the tail but dropped one or more intermediate </section>/</div>
+        #       closers mid-body. This is the silent failure that put broken
+        #       sites in production: every boundary check passed, the page
+        #       looked valid, but the splice in inject_ordering_system inherited
+        #       unbalanced markup.
         # We still auto-close so the caller gets a renderable page, but we shout
         # about it so downstream can trigger a retry and flag the job.
-        if text and not text.rstrip().endswith('</html>'):
-            unclosed = self._find_unclosed_tags(text)
+        if text:
             tail = text[-200:]
-            self._last_extract_info = {
-                "was_truncated": True,
-                "unclosed_tags": unclosed,
-                "tail": tail,
-            }
-            logger.error(f"🚨 HTML TRUNCATED at {len(text)} chars")
-            logger.error(f"   Last 200 chars: {tail!r}")
-            logger.error(f"   Unclosed tags ({len(unclosed)}): {unclosed}")
+            ends_with_html = text.rstrip().endswith('</html>')
 
-            if '</body>' not in text:
-                text += '\n</body>\n</html>'
-            else:
-                text += '\n</html>'
+            # Two scans: stack on the raw text (for case 1), and stack on the
+            # text with trailing </body></html> stripped (for case 2). The
+            # forgiving "pop matching tag if present" loop in _find_unclosed_tags
+            # means trailing </body></html> would otherwise consume any
+            # intermediate unclosed tags by walking backwards through the stack,
+            # hiding case 2 entirely. Strip the wrapper closers first so what's
+            # left on the stack is genuine mid-body imbalance.
+            unclosed = self._find_unclosed_tags(text)
+            unclosed_body_raw = self._find_unclosed_tags(
+                self._strip_trailing_wrapper_closers(text)
+            )
+            # Stripping </body></html> for the re-scan leaves <body> and <html>
+            # openers on the stack; those are expected — filter them out so what
+            # remains is genuine mid-body imbalance (the testimonials <section>,
+            # the layout <div>, etc).
+            unclosed_body = [t for t in unclosed_body_raw if t not in ("html", "body")]
+
+            if not ends_with_html:
+                # Case 1: classic truncation.
+                self._last_extract_info = {
+                    "was_truncated": True,
+                    "unclosed_tags": unclosed,
+                    "tail": tail,
+                }
+                logger.error(f"🚨 HTML TRUNCATED at {len(text)} chars (no </html>)")
+                logger.error(f"   Last 200 chars: {tail!r}")
+                logger.error(f"   Unclosed tags ({len(unclosed)}): {unclosed}")
+                if '</body>' not in text:
+                    text += '\n</body>\n</html>'
+                else:
+                    text += '\n</html>'
+            elif unclosed_body:
+                # Case 2: silent mid-body imbalance — </html> present, but
+                # the body section is missing closers.
+                self._last_extract_info = {
+                    "was_truncated": True,
+                    "unclosed_tags": unclosed_body,
+                    "tail": tail,
+                }
+                logger.error(
+                    f"🚨 HTML UNBALANCED at {len(text)} chars (</html> present but "
+                    f"{len(unclosed_body)} mid-body tag(s) unclosed) — silent truncation"
+                )
+                logger.error(f"   Last 200 chars: {tail!r}")
+                logger.error(f"   Unclosed body tags: {unclosed_body}")
+                # No auto-close here — fixing the imbalance requires inserting
+                # closers BEFORE </body></html>, not appending after. Item 3
+                # handles that. For now we flag and let downstream see it.
 
         return text
+
+    @staticmethod
+    def _strip_trailing_wrapper_closers(text: str) -> str:
+        """Strip a trailing </body></html> (with optional whitespace) so a
+        re-scan of the remainder exposes mid-document tag imbalance that the
+        forgiving stack-pop loop in _find_unclosed_tags would otherwise hide
+        by consuming intermediate open tags. See Case 2 in _extract_html."""
+        stripped = text.rstrip()
+        # Drop trailing </html>
+        m = re.search(r'</\s*html\s*>\s*$', stripped, flags=re.IGNORECASE)
+        if m:
+            stripped = stripped[: m.start()].rstrip()
+        # Then drop trailing </body>
+        m = re.search(r'</\s*body\s*>\s*$', stripped, flags=re.IGNORECASE)
+        if m:
+            stripped = stripped[: m.start()].rstrip()
+        return stripped
 
     def _log_timing_breakdown(self, step_timings: Dict[str, float], total_time: float) -> None:
         """
