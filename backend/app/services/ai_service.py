@@ -2656,40 +2656,13 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"🟡 Qwen ❌ Exception: {e}")
         return None
 
-    # HTML tags that are self-closing / void in HTML5 — these never get stacked.
-    _VOID_HTML_TAGS = frozenset({
-        "area", "base", "br", "col", "embed", "hr", "img", "input",
-        "link", "meta", "param", "source", "track", "wbr",
-    })
-
+    # Balance helpers moved to app.utils.html_balance so the publish endpoints
+    # can reuse them (Item 5 / Option B of the truncation follow-up).
+    # Thin instance delegators kept for the existing call sites within this
+    # file — no external callers, so no signature compatibility concerns.
     def _find_unclosed_tags(self, html: str) -> List[str]:
-        """
-        Return the list of tag names still open at the end of the string.
-
-        Lightweight regex-based scan — not a full HTML parser, but good enough
-        to tell us which tags didn't get closed when the model got cut off.
-        Skips void tags and `<!-- ... -->` comments.
-        """
-        if not html:
-            return []
-        # Strip comments and doctype first so they don't confuse the scan
-        cleaned = re.sub(r"<!--.*?-->", "", html, flags=re.DOTALL)
-        cleaned = re.sub(r"<!DOCTYPE[^>]*>", "", cleaned, flags=re.IGNORECASE)
-        stack: List[str] = []
-        for m in re.finditer(r"<\s*(/?)\s*([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?(/?)>", cleaned):
-            is_close = m.group(1) == "/"
-            name = m.group(2).lower()
-            self_closing = m.group(3) == "/"
-            if name in self._VOID_HTML_TAGS or self_closing:
-                continue
-            if is_close:
-                # Pop matching tag if present (handle mild nesting errors gracefully)
-                if name in stack:
-                    while stack and stack.pop() != name:
-                        pass
-            else:
-                stack.append(name)
-        return stack
+        from app.utils.html_balance import find_unclosed_tags
+        return find_unclosed_tags(html)
 
     def _compress_prompt(self, prompt: str) -> str:
         """
@@ -2895,20 +2868,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
     @staticmethod
     def _strip_trailing_wrapper_closers(text: str) -> str:
-        """Strip a trailing </body></html> (with optional whitespace) so a
-        re-scan of the remainder exposes mid-document tag imbalance that the
-        forgiving stack-pop loop in _find_unclosed_tags would otherwise hide
-        by consuming intermediate open tags. See Case 2 in _extract_html."""
-        stripped = text.rstrip()
-        # Drop trailing </html>
-        m = re.search(r'</\s*html\s*>\s*$', stripped, flags=re.IGNORECASE)
-        if m:
-            stripped = stripped[: m.start()].rstrip()
-        # Then drop trailing </body>
-        m = re.search(r'</\s*body\s*>\s*$', stripped, flags=re.IGNORECASE)
-        if m:
-            stripped = stripped[: m.start()].rstrip()
-        return stripped
+        # Delegator — implementation lives in app.utils.html_balance.
+        from app.utils.html_balance import strip_trailing_wrapper_closers
+        return strip_trailing_wrapper_closers(text)
 
     def _log_timing_breakdown(self, step_timings: Dict[str, float], total_time: float) -> None:
         """

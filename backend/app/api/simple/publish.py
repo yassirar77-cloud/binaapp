@@ -7,7 +7,7 @@ IMPORTANT: This endpoint now requires authentication OR a valid user_id.
 - If no token, user_id from request body must be a valid UUID (not "demo-user")
 """
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, Request, status, Depends
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Dict, Any
 from loguru import logger
@@ -235,6 +235,7 @@ async def retry_with_backoff(func, max_retries=3, initial_delay=1.0):
 @router.post("/publish", response_model=PublishResponse)
 async def publish_website(
     request: PublishRequest,
+    http_request: Request,
     current_user: Optional[Dict[str, Any]] = Depends(get_optional_current_user)
 ):
     """
@@ -305,6 +306,32 @@ async def publish_website(
             )
 
         logger.info(f"✓ HTML content received: {len(html_content)} characters")
+
+        # HTML structural-integrity gate (Item 5 / Option B). Refuses to
+        # publish HTML with unclosed mid-body tags or missing </html>.
+        # Override with ?force=true (audit-logged).
+        from app.utils.html_balance import is_html_balanced
+        is_balanced, unbalanced = is_html_balanced(html_content)
+        force = (http_request.query_params.get("force") or "").lower() in ("1", "true", "yes")
+        if not is_balanced:
+            if force:
+                logger.warning(
+                    f"⚠️ PUBLISH OVERRIDE (?force=true) subdomain={request.subdomain} "
+                    f"user_id={user_id} unbalanced_tags={unbalanced} — proceeding anyway"
+                )
+            else:
+                logger.error(
+                    f"🛑 PUBLISH BLOCKED subdomain={request.subdomain} user_id={user_id} "
+                    f"unbalanced_tags={unbalanced}"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "error": "html_structure_invalid",
+                        "message": "Laman web ini ada masalah struktur HTML dan tidak boleh diterbitkan. Sila jana semula laman web anda.",
+                        "message_en": "This website has invalid HTML structure and cannot be published. Please regenerate the website.",
+                    }
+                )
 
         # CRITICAL: Check if subdomain is allowed BEFORE anything else
         logger.info("")
