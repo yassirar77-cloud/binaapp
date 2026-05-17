@@ -319,10 +319,22 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
     # AOS animation library JS injection
     # Some AI-generated websites load aos.css but not aos.js,
     # causing data-aos elements to stay invisible (opacity:0) forever.
+    # The AOS.init call also adds the `aos-initialized` class on <html> which
+    # the layout safety CSS below uses to gate its fallback rules.
     if 'aos.css' in html_content.lower() and 'aos.js' not in html_content.lower():
-        aos_script = '<script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>\n<script>if(typeof AOS!=="undefined"){AOS.init({once:true,duration:600});}</script>\n'
+        aos_script = '<script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>\n<script>if(typeof AOS!=="undefined"){document.documentElement.classList.add("aos-initialized");AOS.init({once:true,duration:600});}</script>\n'
         if '</body>' in html_content:
             html_content = html_content.replace('</body>', aos_script + '</body>', 1)
+
+    # Layout safety guard: inline CSS that survives AOS failures, caps non-hero
+    # section heights, equalises menu card heights, and pins the floating
+    # WhatsApp button to bottom-right even when surrounding tags are broken.
+    # This applies to ALREADY-PUBLISHED sites without requiring republish.
+    try:
+        from app.services.templates import template_service
+        html_content = template_service.apply_layout_safety_guard(html_content)
+    except Exception as e:
+        logger.warning(f"[Subdomain] Layout safety guard injection failed: {e}")
 
     return html_content
 
