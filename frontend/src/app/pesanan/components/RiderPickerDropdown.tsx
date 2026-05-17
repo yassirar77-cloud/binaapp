@@ -16,7 +16,6 @@ import { useIsMobile } from '../lib/useIsMobile';
 
 interface Props {
   orderId: string;
-  websiteId: string;
   allRiders: Rider[];
   /** Above the trigger (panel footer) or below it (card action area). */
   placement: 'above' | 'below';
@@ -52,7 +51,6 @@ function sortRiders(riders: Rider[]): Rider[] {
 
 export default function RiderPickerDropdown({
   orderId,
-  websiteId,
   allRiders,
   placement,
   align,
@@ -63,11 +61,10 @@ export default function RiderPickerDropdown({
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const isMobile = useIsMobile();
 
-  // Filter to riders owned by the order's outlet, then sort.
-  const riders = useMemo(
-    () => sortRiders(allRiders.filter((r) => r.website_id === websiteId)),
-    [allRiders, websiteId],
-  );
+  // Riders are a shared pool per account owner — any rider can take any
+  // outlet's order. Backend already scopes `allRiders` to the owner's full
+  // fleet, so don't re-narrow by the order's website_id here.
+  const riders = useMemo(() => sortRiders(allRiders), [allRiders]);
 
   // ESC + outside click. On desktop, mousedown (not click) so we close before
   // a card body click handler fires under the popover. On mobile we rely on

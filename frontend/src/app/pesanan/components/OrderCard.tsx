@@ -167,7 +167,6 @@ export default function OrderCard({
             {pickerOpen ? (
               <RiderPickerDropdown
                 orderId={order.id}
-                websiteId={order.website_id}
                 allRiders={allRiders}
                 placement="below"
                 align="right"

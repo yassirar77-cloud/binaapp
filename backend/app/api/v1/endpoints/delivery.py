@@ -1582,24 +1582,45 @@ async def list_riders(
             )
 
         logger.info(f"[Rider LIST] user_id={user_id} website_id={website_id}")
-        logger.info(f"[Rider LIST] Querying riders for website_id: {website_id}")
 
-        # Include both website-specific riders AND shared riders (website_id IS NULL)
-        # This fixes the issue where riders become orphaned when website is deleted
-        query_filter = f"website_id.eq.{website_id},website_id.is.null"
-        logger.info(f"[Rider LIST] Query filter: {query_filter}")
+        # Riders are a shared pool across all outlets owned by the same account
+        # owner — any rider can be assigned to any of the owner's orders. So
+        # resolve the owner from the current outlet, then return every active
+        # rider belonging to ANY website owned by that same user. Mirrors the
+        # aggregation already done client-side in ProfileHub.
+        owner_websites = (
+            supabase.table("websites").select("id").eq("user_id", user_id).execute()
+        )
+        owner_website_ids = [w["id"] for w in (owner_websites.data or []) if w.get("id")]
+        logger.info(
+            f"[Rider LIST] Owner {user_id} owns {len(owner_website_ids)} websites"
+        )
 
-        resp = supabase.table("riders").select("*").or_(query_filter).order("created_at", desc=True).execute()
-
-        logger.info(f"[Rider LIST] Found {len(resp.data or [])} riders")
-        if resp.data:
-            logger.info(f"[Rider LIST] Rider IDs: {[r.get('id', 'unknown') for r in resp.data]}")
-            logger.info(f"[Rider LIST] Rider names: {[r.get('name', 'unknown') for r in resp.data]}")
-            logger.info(f"[Rider LIST] Rider website_ids: {[r.get('website_id', 'NULL') for r in resp.data]}")
+        # Scope strictly to the owner's outlets. A rider with website_id IS NULL
+        # belongs to no account, so including it here would leak that rider into
+        # every other tenant's picker — multi-tenant safety, not just hygiene.
+        if not owner_website_ids:
+            riders_data: list = []
         else:
-            logger.warning(f"[Rider LIST] No riders found for website_id={website_id}")
+            resp = (
+                supabase.table("riders")
+                .select("*")
+                .in_("website_id", owner_website_ids)
+                .eq("is_active", True)
+                .order("created_at", desc=True)
+                .execute()
+            )
+            riders_data = resp.data or []
 
-        return [convert_db_row_to_dict(r) for r in (resp.data or [])]
+        logger.info(f"[Rider LIST] Found {len(riders_data)} riders")
+        if riders_data:
+            logger.info(f"[Rider LIST] Rider IDs: {[r.get('id', 'unknown') for r in riders_data]}")
+            logger.info(f"[Rider LIST] Rider names: {[r.get('name', 'unknown') for r in riders_data]}")
+            logger.info(f"[Rider LIST] Rider website_ids: {[r.get('website_id', 'NULL') for r in riders_data]}")
+        else:
+            logger.warning(f"[Rider LIST] No riders found for owner={user_id}")
+
+        return [convert_db_row_to_dict(r) for r in riders_data]
     except Exception as e:
         logger.error(f"[Rider LIST] Error listing riders: {e}")
         raise HTTPException(
