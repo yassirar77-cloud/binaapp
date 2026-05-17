@@ -392,11 +392,6 @@ class RiderBase(BaseModel):
     is_active: bool = True
 
 
-class RiderCreate(RiderBase):
-    website_id: Optional[str] = None  # Null for shared riders
-    password: str = Field(min_length=6)
-
-
 class RiderUpdate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
