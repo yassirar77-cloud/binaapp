@@ -125,3 +125,7 @@ marimo/_lsp/
 .pypirc
 .vercel
 .env*.local
+
+# Repair-endpoint verification fixtures — real customer HTML.
+# Never committed: contains live business names, phone numbers, addresses.
+tests/fixtures/*.html
