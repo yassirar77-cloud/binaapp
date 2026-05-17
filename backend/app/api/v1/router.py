@@ -6,6 +6,7 @@ Combines all API endpoints
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live
+from app.api.admin import repair as admin_repair
 
 api_router = APIRouter()
 
@@ -26,3 +27,7 @@ api_router.include_router(moderation.router, tags=["Image Moderation"])
 api_router.include_router(template_gallery.router, prefix="/templates", tags=["Template Gallery"])
 api_router.include_router(disputes.router, tags=["Dispute Resolution"])
 api_router.include_router(customers.router, tags=["Customer Lookup"])
+# Admin: structural repair of stored HTML (Item 5 follow-up). Endpoint
+# enforces role='admin' internally — mounted under the v1 prefix so the
+# full path is POST /api/v1/admin/repair-websites.
+api_router.include_router(admin_repair.router, tags=["Admin: Repair"])
