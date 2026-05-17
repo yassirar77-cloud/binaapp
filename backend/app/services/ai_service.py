@@ -2826,7 +2826,10 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             unclosed_body = [t for t in unclosed_body_raw if t not in ("html", "body")]
 
             if not ends_with_html:
-                # Case 1: classic truncation.
+                # Case 1: classic truncation. unclosed is the full stack from a
+                # forward scan, typically [..., 'html', 'body', 'div', 'section'].
+                # Emit closers innermost-first for everything between body and
+                # the end, then close </body></html> as the wrapper.
                 self._last_extract_info = {
                     "was_truncated": True,
                     "unclosed_tags": unclosed,
@@ -2835,13 +2838,26 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 logger.error(f"🚨 HTML TRUNCATED at {len(text)} chars (no </html>)")
                 logger.error(f"   Last 200 chars: {tail!r}")
                 logger.error(f"   Unclosed tags ({len(unclosed)}): {unclosed}")
+                # Inner-tag closers (everything except html/body, which the
+                # wrapper handles). reversed() = innermost-first.
+                inner_closers = "".join(
+                    f"</{t}>" for t in reversed(unclosed) if t not in ("html", "body")
+                )
                 if '</body>' not in text:
-                    text += '\n</body>\n</html>'
+                    text += "\n" + inner_closers + "\n</body>\n</html>"
                 else:
-                    text += '\n</html>'
+                    text += "\n" + inner_closers + "\n</html>"
+                if inner_closers:
+                    logger.info(
+                        f"   🔧 Auto-emitted {len(unclosed) - sum(1 for t in unclosed if t in ('html','body'))} "
+                        f"missing closer(s): {inner_closers}"
+                    )
             elif unclosed_body:
-                # Case 2: silent mid-body imbalance — </html> present, but
-                # the body section is missing closers.
+                # Case 2: silent mid-body imbalance — </html> present, but the
+                # body section is missing closers. Inserting closers AFTER
+                # </body></html> would just add stray markup outside the
+                # document; instead, splice them BEFORE the existing </body>
+                # (or before </html> if no </body>).
                 self._last_extract_info = {
                     "was_truncated": True,
                     "unclosed_tags": unclosed_body,
@@ -2853,9 +2869,27 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 )
                 logger.error(f"   Last 200 chars: {tail!r}")
                 logger.error(f"   Unclosed body tags: {unclosed_body}")
-                # No auto-close here — fixing the imbalance requires inserting
-                # closers BEFORE </body></html>, not appending after. Item 3
-                # handles that. For now we flag and let downstream see it.
+                # Innermost-first: reversed stack order. e.g. stack
+                # ['div', 'section'] → close </section> first, then </div>.
+                inner_closers = "".join(f"</{t}>" for t in reversed(unclosed_body))
+                # Splice before </body> (preferred) or </html> as fallback.
+                body_match = re.search(r'</\s*body\s*>', text, flags=re.IGNORECASE)
+                html_match = re.search(r'</\s*html\s*>', text, flags=re.IGNORECASE)
+                if body_match:
+                    insert_at = body_match.start()
+                    text = text[:insert_at] + inner_closers + "\n" + text[insert_at:]
+                    logger.info(
+                        f"   🔧 Inserted {len(unclosed_body)} closer(s) before </body>: {inner_closers}"
+                    )
+                elif html_match:
+                    insert_at = html_match.start()
+                    text = text[:insert_at] + inner_closers + "\n" + text[insert_at:]
+                    logger.info(
+                        f"   🔧 Inserted {len(unclosed_body)} closer(s) before </html>: {inner_closers}"
+                    )
+                # If neither match somehow (shouldn't happen — ends_with_html
+                # implied </html> exists), fall through unmodified; the flag
+                # is still set so downstream knows.
 
         return text
 
