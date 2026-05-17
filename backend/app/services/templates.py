@@ -1011,12 +1011,32 @@ function handleContactSubmit(e) {{
         logger.info(f"🛵 Injecting delivery system: {len(formatted_menu)} items, {len(formatted_zones)} zones, type: {business_type}")
 
         # STEP 1: Add Tailwind CSS and Font Awesome (CRITICAL!)
-        css_libraries = '''
-<!-- Tailwind CSS for Delivery System -->
-<script src="https://cdn.tailwindcss.com"></script>
-<!-- Font Awesome for Icons -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<!-- Leaflet Map for Rider Tracking -->
+        # Idempotent: the homepage template already loads Tailwind + Font Awesome
+        # (ai_service.py:2325 in the prompt, plus a guard at ai_service.py:3129).
+        # Injecting a second copy here loaded two Tailwind runtimes on one page,
+        # which caused unpredictable rendering on published sites.
+        has_tailwind = "cdn.tailwindcss.com" in html.lower()
+        has_fontawesome = "font-awesome/6.4.0" in html.lower()
+        tailwind_tag = "" if has_tailwind else (
+            '<!-- Tailwind CSS for Delivery System -->\n'
+            '<script src="https://cdn.tailwindcss.com"></script>\n'
+        )
+        fontawesome_tag = "" if has_fontawesome else (
+            '<!-- Font Awesome for Icons -->\n'
+            '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">\n'
+        )
+        if has_tailwind:
+            logger.info("   ↩️  Tailwind already present in <head> — skipping duplicate injection")
+        if has_fontawesome:
+            logger.info("   ↩️  Font Awesome already present in <head> — skipping duplicate injection")
+        # NOTE: this MUST stay a plain triple-quoted string (not an f-string).
+        # The CSS block below has dozens of literal { ... } braces that an
+        # f-string parser would try to evaluate as Python expressions —
+        # crashing the whole module at import time. The conditional tailwind/
+        # fontawesome tags are prepended via concatenation instead. (Render
+        # caught the f-string mistake on deploy: SyntaxError invalid decimal
+        # literal at "@keyframes deliveryFloat { 0%,100%{...} }".)
+        css_libraries = "\n" + tailwind_tag + fontawesome_tag + '''<!-- Leaflet Map for Rider Tracking -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>

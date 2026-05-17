@@ -561,6 +561,7 @@ async def get_website(
 @router.post("/{website_id}/publish", response_model=PublishResponse)
 async def publish_website(
     website_id: str,
+    http_request: Request,
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -607,6 +608,34 @@ async def publish_website(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Website has no content to publish"
             )
+
+        # HTML structural-integrity gate (Item 5 / Option B). Refuses to
+        # publish HTML with unclosed mid-body tags or missing </html>.
+        # Override with ?force=true (audit-logged).
+        from app.utils.html_balance import is_html_balanced
+        is_balanced, unbalanced = is_html_balanced(website["html_content"])
+        force = (http_request.query_params.get("force") or "").lower() in ("1", "true", "yes")
+        if not is_balanced:
+            subdomain = website.get("subdomain", "?")
+            user_sub = current_user.get("sub")
+            if force:
+                logger.warning(
+                    f"⚠️ PUBLISH OVERRIDE (?force=true) website_id={website_id} "
+                    f"subdomain={subdomain} user_id={user_sub} unbalanced_tags={unbalanced} — proceeding anyway"
+                )
+            else:
+                logger.error(
+                    f"🛑 PUBLISH BLOCKED website_id={website_id} subdomain={subdomain} "
+                    f"user_id={user_sub} unbalanced_tags={unbalanced}"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "error": "html_structure_invalid",
+                        "message": "Laman web ini ada masalah struktur HTML dan tidak boleh diterbitkan. Sila jana semula laman web anda.",
+                        "message_en": "This website has invalid HTML structure and cannot be published. Please regenerate the website.",
+                    }
+                )
 
         # Publish to Supabase Storage
         try:

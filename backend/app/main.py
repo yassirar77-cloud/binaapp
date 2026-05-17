@@ -2777,6 +2777,34 @@ async def publish_website(
     if len(subdomain) < 2:
         return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain too short (min 2 chars)"})
 
+    # HTML structural-integrity gate (Item 5 / Option B).
+    # Refuses to publish HTML with unclosed mid-body tags or missing </html>,
+    # which is the failure mode that put jiwa/huil/juio in production with
+    # broken layouts. Override with ?force=true (audit-logged).
+    from app.utils.html_balance import is_html_balanced
+    is_balanced, unbalanced = is_html_balanced(html_content)
+    force = (request.query_params.get("force") or "").lower() in ("1", "true", "yes")
+    if not is_balanced:
+        if force:
+            logger.warning(
+                f"⚠️ PUBLISH OVERRIDE (?force=true) subdomain={subdomain} "
+                f"user_id={user_id} unbalanced_tags={unbalanced} — proceeding anyway"
+            )
+        else:
+            logger.error(
+                f"🛑 PUBLISH BLOCKED subdomain={subdomain} user_id={user_id} "
+                f"unbalanced_tags={unbalanced}"
+            )
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "success": False,
+                    "error": "html_structure_invalid",
+                    "message": "Laman web ini ada masalah struktur HTML dan tidak boleh diterbitkan. Sila jana semula laman web anda.",
+                    "message_en": "This website has invalid HTML structure and cannot be published. Please regenerate the website.",
+                }
+            )
+
     try:
         # Ensure we have a stable website UUID for delivery widget + DB rows
         if not website_id:
