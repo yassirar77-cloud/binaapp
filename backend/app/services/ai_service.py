@@ -511,6 +511,18 @@ class AIService:
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_ANON_KEY")
 
+        # Per-call API-boundary state: set by every _call_<provider> method so
+        # generate_website / _call_qwen_with_truncation_retry can see whether
+        # the model hit its output cap (finish_reason ∈ {length, max_tokens}).
+        # Mirrors the _last_extract_info pattern below. NOT thread-safe — but
+        # neither is _last_extract_info; the service is awaited serially per
+        # request from FastAPI.
+        self._last_api_call: Dict = {
+            "provider": None,
+            "finish_reason": None,
+            "truncated": False,
+        }
+
         logger.info("=" * 80)
         logger.info("🚀 AI SERVICE - STRICT NO-PLACEHOLDER MODE")
         logger.info(f"   DeepSeek: {'✅ Ready' if self.deepseek_api_key else '❌ NOT SET'}")
@@ -2385,7 +2397,14 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         temperature: float = 0.2,
         model: Optional[str] = None,
     ) -> Optional[str]:
-        """Call DeepSeek API. Pass model=self.deepseek_model_pro for Expert (V4-Pro)."""
+        """Call DeepSeek API. Pass model=self.deepseek_model_pro for Expert (V4-Pro).
+
+        Surfaces the response's `finish_reason` on `self._last_api_call` so
+        upstream can detect an output-cap hit. DeepSeek's max_tokens here is
+        8000, the tightest of the three providers — most likely to truncate.
+        """
+        # Reset per-call API state — see _call_qwen for rationale.
+        self._last_api_call = {"provider": "deepseek", "finish_reason": None, "truncated": False}
         if not self.deepseek_api_key:
             logger.warning("❌ DEEPSEEK_API_KEY not configured")
             return None
@@ -2414,8 +2433,27 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     }
                 )
                 if r.status_code == 200:
-                    content = r.json()["choices"][0]["message"]["content"]
-                    logger.info(f"🔷 DeepSeek ✅ Generated {len(content)} characters")
+                    payload = r.json()
+                    choice = (payload.get("choices") or [{}])[0]
+                    content = (choice.get("message") or {}).get("content", "")
+                    finish_reason = choice.get("finish_reason") or "unknown"
+                    usage = payload.get("usage") or {}
+                    completion_tokens = usage.get("completion_tokens")
+                    logger.info(
+                        f"🔷 DeepSeek ✅ Generated {len(content)} chars "
+                        f"(finish_reason={finish_reason}, completion_tokens={completion_tokens})"
+                    )
+                    truncated_at_api = finish_reason in self._TRUNCATED_FINISH_REASONS
+                    self._last_api_call = {
+                        "provider": "deepseek",
+                        "finish_reason": finish_reason,
+                        "truncated": truncated_at_api,
+                    }
+                    if truncated_at_api:
+                        logger.error(
+                            f"🚨 DeepSeek hit output cap (finish_reason={finish_reason}, "
+                            f"max_tokens=8000). Response was truncated at generation time."
+                        )
                     return content
                 else:
                     try:
@@ -2438,7 +2476,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         model: Optional[str] = None,
         max_tokens: int = 12000,
     ) -> Optional[str]:
-        """Call ZhipuAI GLM API for HTML generation."""
+        """Call ZhipuAI GLM API for HTML generation.
+
+        Surfaces the response's `finish_reason` on `self._last_api_call` so
+        upstream can detect an output-cap hit. GLM is the production-default
+        HTML generator (USE_GLM_FOR_HTML=true), and was previously discarding
+        this signal — meaning a truncated homepage looked indistinguishable
+        from a successful one at this layer.
+        """
+        # Reset per-call API state — see _call_qwen for rationale.
+        self._last_api_call = {"provider": "glm", "finish_reason": None, "truncated": False}
         if not self.zai_api_key:
             logger.warning("❌ ZAI_API_KEY not configured")
             return None
@@ -2468,8 +2515,27 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     }
                 )
                 if r.status_code == 200:
-                    content = r.json()["choices"][0]["message"]["content"]
-                    logger.info(f"🟢 GLM ✅ Generated {len(content)} characters")
+                    payload = r.json()
+                    choice = (payload.get("choices") or [{}])[0]
+                    content = (choice.get("message") or {}).get("content", "")
+                    finish_reason = choice.get("finish_reason") or "unknown"
+                    usage = payload.get("usage") or {}
+                    completion_tokens = usage.get("completion_tokens")
+                    logger.info(
+                        f"🟢 GLM ✅ Generated {len(content)} chars "
+                        f"(finish_reason={finish_reason}, completion_tokens={completion_tokens})"
+                    )
+                    truncated_at_api = finish_reason in self._TRUNCATED_FINISH_REASONS
+                    self._last_api_call = {
+                        "provider": "glm",
+                        "finish_reason": finish_reason,
+                        "truncated": truncated_at_api,
+                    }
+                    if truncated_at_api:
+                        logger.error(
+                            f"🚨 GLM hit output cap (finish_reason={finish_reason}, "
+                            f"max_tokens={max_tokens}). Response was truncated at generation time."
+                        )
                     return content
                 else:
                     try:
@@ -2492,8 +2558,12 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
     # chars of HTML, enough for 15+ menu cards plus template structure.
     QWEN_HTML_MODEL = "qwen-plus-latest"
     QWEN_HTML_MAX_TOKENS = 12000
-    # Finish reason that DashScope returns when it hit max_tokens (vs. natural stop)
-    _QWEN_TRUNCATED_FINISH_REASONS = {"length", "max_tokens"}
+    # Finish reasons that mean the model hit its output cap (vs. natural stop).
+    # OpenAI-compatible providers (DashScope/Qwen, Z.ai/GLM, DeepSeek) all use
+    # either "length" or "max_tokens". Kept as one constant so every provider
+    # caller checks the same set.
+    _TRUNCATED_FINISH_REASONS = {"length", "max_tokens"}
+    _QWEN_TRUNCATED_FINISH_REASONS = _TRUNCATED_FINISH_REASONS  # back-compat alias
 
     async def _call_qwen(
         self,
@@ -2510,8 +2580,13 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             model: override model (defaults to QWEN_HTML_MODEL for HTML generation)
             max_tokens: override output cap (defaults to QWEN_HTML_MAX_TOKENS)
 
-        Also logs DashScope's `finish_reason` on truncation so upstream can react.
+        Also surfaces DashScope's `finish_reason` on `self._last_api_call` so
+        upstream (generate_website, _call_qwen_with_truncation_retry) can detect
+        an output-cap hit without parsing logs.
         """
+        # Reset per-call API state before every attempt — even early-return
+        # paths must not leak a stale "truncated=True" from a prior call.
+        self._last_api_call = {"provider": "qwen", "finish_reason": None, "truncated": False}
         if not self.qwen_api_key:
             logger.warning("❌ QWEN_API_KEY not configured")
             return None
@@ -2555,7 +2630,13 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                         f"🟡 Qwen ✅ Generated {len(content)} chars "
                         f"(finish_reason={finish_reason}, completion_tokens={completion_tokens})"
                     )
-                    if finish_reason in self._QWEN_TRUNCATED_FINISH_REASONS:
+                    truncated_at_api = finish_reason in self._TRUNCATED_FINISH_REASONS
+                    self._last_api_call = {
+                        "provider": "qwen",
+                        "finish_reason": finish_reason,
+                        "truncated": truncated_at_api,
+                    }
+                    if truncated_at_api:
                         logger.error(
                             f"🚨 Qwen hit output cap (finish_reason={finish_reason}, "
                             f"max_tokens={mt}). Response was truncated at generation time."
@@ -2774,10 +2855,14 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         }
 
         raw = await self._call_qwen(prompt, temperature=temperature)
+        # Capture API-boundary truncation BEFORE _extract_html runs (which resets
+        # _last_extract_info but not _last_api_call). Either signal counts.
+        api_truncated_first = bool(self._last_api_call.get("truncated")) if raw else False
         html = self._extract_html(raw) if raw else None
         first_info = dict(self._last_extract_info) if raw else {"was_truncated": False, "unclosed_tags": [], "tail": ""}
 
-        if not first_info.get("was_truncated"):
+        first_truncated = first_info.get("was_truncated") or api_truncated_first
+        if not first_truncated:
             return html, flags
 
         # First attempt truncated — retry once with a compressed prompt
@@ -2786,14 +2871,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         flags["unclosed_tags"] = first_info.get("unclosed_tags", [])
         logger.warning(
             f"🟠 HTML truncated on first attempt — retrying once with compressed prompt "
-            f"(unclosed={flags['unclosed_tags']})"
+            f"(unclosed={flags['unclosed_tags']}, api_truncated={api_truncated_first})"
         )
         compressed = self._compress_prompt(prompt)
         retry_raw = await self._call_qwen(compressed, temperature=temperature)
+        api_truncated_retry = bool(self._last_api_call.get("truncated")) if retry_raw else False
         retry_html = self._extract_html(retry_raw) if retry_raw else None
         retry_info = dict(self._last_extract_info) if retry_raw else {"was_truncated": True, "unclosed_tags": [], "tail": ""}
 
-        if retry_html and not retry_info.get("was_truncated"):
+        retry_truncated = retry_info.get("was_truncated") or api_truncated_retry
+        if retry_html and not retry_truncated:
             logger.info("✅ Retry succeeded with complete HTML")
             return retry_html, flags
 
@@ -4072,16 +4159,27 @@ IMPORTANT INSTRUCTIONS:
         with _timed_step("ai_html_generation", step_timings):
             html_raw = None
             used_qwen_retry = False
+            # API-boundary truncation flag from whichever provider actually
+            # produced the html_raw we end up using. Captured immediately after
+            # the successful call so a later provider's reset can't clobber it.
+            api_truncated_provider: Optional[str] = None
+            api_finish_reason: Optional[str] = None
 
             # GLM primary path (when enabled)
             if self.use_glm_for_html and self.zai_api_key:
                 html_raw = await self._call_glm(prompt)
+                if html_raw and self._last_api_call.get("truncated"):
+                    api_truncated_provider = self._last_api_call.get("provider")
+                    api_finish_reason = self._last_api_call.get("finish_reason")
 
             # DeepSeek fallback
             if not html_raw:
                 if self.use_glm_for_html and self.zai_api_key:
                     logger.warning("⚠️ GLM failed, trying DeepSeek...")
                 html_raw = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
+                if html_raw and self._last_api_call.get("truncated"):
+                    api_truncated_provider = self._last_api_call.get("provider")
+                    api_finish_reason = self._last_api_call.get("finish_reason")
 
             if not html_raw:
                 logger.warning("⚠️ DeepSeek failed, trying Qwen...")
@@ -4101,12 +4199,27 @@ IMPORTANT INSTRUCTIONS:
 
             await update_progress(75, "Processing generated HTML")
 
-            # DeepSeek path still needs extraction + truncation detection
+            # DeepSeek/GLM path still needs extraction + truncation detection
             if not used_qwen_retry:
                 html = self._extract_html(html)
                 if self._last_extract_info.get("was_truncated"):
                     truncation_flags["was_truncated"] = True
                     truncation_flags["unclosed_tags"] = self._last_extract_info.get("unclosed_tags", [])
+
+            # API-boundary signal: if the provider reported finish_reason=length
+            # but the post-hoc HTML scan didn't catch it (model gracefully closed
+            # </html> despite the cap hit), we still flag truncation. This is
+            # exactly the silent-failure mode that put broken sites in prod.
+            if api_truncated_provider and not truncation_flags["was_truncated"]:
+                logger.error(
+                    f"🚨 API-boundary truncation undetected by HTML scan — "
+                    f"provider={api_truncated_provider} finish_reason={api_finish_reason}. "
+                    f"Flagging was_truncated=True regardless."
+                )
+                truncation_flags["was_truncated"] = True
+                # Mark for manual review — there's no retry path here yet for
+                # GLM/DeepSeek (Item 4 deferred), so a human needs to look.
+                truncation_flags["needs_manual_review"] = True
 
         # Validate and retry once if the model ignored hard constraints
         # Compute wa_digits up-front — used by both validation (R7 image check)
