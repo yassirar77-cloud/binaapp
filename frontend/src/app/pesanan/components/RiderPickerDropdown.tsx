@@ -39,7 +39,9 @@ function initials(name: string): string {
     .toUpperCase() || '?';
 }
 
-/** Stable rider sort: online first (alpha asc), then offline (alpha asc). */
+/** Stable rider sort: online first (alpha asc), then offline (alpha asc).
+ *  Online status is a sort key only — never a filter. Offline riders MUST
+ *  remain in the list so the owner can assign and contact them manually. */
 function sortRiders(riders: Rider[]): Rider[] {
   const onl = riders.filter((r) => r.is_online);
   const off = riders.filter((r) => !r.is_online);

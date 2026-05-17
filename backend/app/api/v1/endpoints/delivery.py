@@ -2251,7 +2251,6 @@ async def get_website_orders(
 @router.get("/website/{website_id}/riders", response_model=List[RiderResponse])
 async def get_website_riders(
     website_id: str,
-    online_only: bool = False,
     current_user: dict = Depends(get_current_user),
     supabase: Client = Depends(get_supabase_client),
 ):
@@ -2260,6 +2259,10 @@ async def get_website_riders(
 
     SECURITY: Only website owners can access their riders.
     Phase 1: Returns basic rider info (no GPS).
+
+    Returns every active rider regardless of online/offline state — the owner
+    picker is informational and assigns manually. is_online stays on each row
+    as a UI badge, not a filter.
     """
     try:
         # SECURITY: Extract user_id from authenticated token
@@ -2279,9 +2282,6 @@ async def get_website_riders(
         query = supabase.table("riders").select("*").eq(
             "website_id", website_id
         ).eq("is_active", True).order("name")
-
-        if online_only:
-            query = query.eq("is_online", True)
 
         riders_response = query.execute()
         riders = [convert_db_row_to_dict(r) for r in (riders_response.data or [])]
