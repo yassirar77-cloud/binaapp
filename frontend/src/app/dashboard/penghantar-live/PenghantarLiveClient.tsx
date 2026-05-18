@@ -5,6 +5,9 @@
 // + MapView fills the rest. Mobile bottom-sheet variant lands in a later commit.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { getCurrentUser } from '@/lib/supabase';
+import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import { getActiveOrders, getRiders, getZones } from './lib/api';
 import type { ActiveOrder, LiteZone, LiveRider, Outlet } from './lib/types';
 import TopBar from './components/TopBar';
@@ -30,6 +33,8 @@ interface Props {
 const POLL_INTERVAL_MS = 15_000;
 
 export default function PenghantarLiveClient({ outlets }: Props) {
+  const router = useRouter();
+  const [userName, setUserName] = useState('Pengguna');
   const [selectedOutletId, setSelectedOutletId] = useState<string | null>(
     outlets[0]?.id ?? null,
   );
@@ -65,6 +70,37 @@ export default function PenghantarLiveClient({ outlets }: Props) {
   const debouncedRefetchTimer = useRef<number | null>(null);
 
   const isMobile = useIsMobile();
+
+  // Resolve display name for DashboardHeader once on mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const user = await getCurrentUser();
+        if (cancelled || !user) return;
+        const u = user as {
+          user_metadata?: { full_name?: string };
+          email?: string;
+        };
+        setUserName(
+          u.user_metadata?.full_name || u.email?.split('@')[0] || 'Pengguna',
+        );
+      } catch {
+        // Silent: header just keeps the default name.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('binaapp_token');
+      localStorage.removeItem('binaapp_user');
+    }
+    router.push('/');
+  }, [router]);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -205,17 +241,21 @@ export default function PenghantarLiveClient({ outlets }: Props) {
 
   if (outlets.length === 0) {
     return (
-      <div className="min-h-screen bg-[#0a0e1a] text-white p-8">
-        <h1 className="text-xl font-semibold">Tiada outlet</h1>
-        <p className="mt-2 text-white/60">
-          Daftarkan outlet anda dahulu sebelum menggunakan halaman ini.
-        </p>
+      <div className="min-h-screen flex flex-col bg-[#0a0e1a] text-white">
+        <DashboardHeader userName={userName} onLogout={handleLogout} />
+        <div className="flex-1 p-8">
+          <h1 className="text-xl font-semibold">Tiada outlet</h1>
+          <p className="mt-2 text-white/60">
+            Daftarkan outlet anda dahulu sebelum menggunakan halaman ini.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="h-screen flex flex-col bg-[#0a0e1a]">
+      <DashboardHeader userName={userName} onLogout={handleLogout} />
       <TopBar
         outlets={outlets}
         selectedOutletId={selectedOutletId}

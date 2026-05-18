@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { getCurrentUser } from '@/lib/supabase';
+import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import {
   createZone,
   deleteZone,
@@ -53,6 +56,8 @@ export default function PenghantaranClient({
 }: {
   outlets: Outlet[];
 }) {
+  const router = useRouter();
+  const [userName, setUserName] = useState('Pengguna');
   const [selectedOutletId, setSelectedOutletId] = useState<string | null>(
     outlets[0]?.id ?? null,
   );
@@ -166,6 +171,37 @@ export default function PenghantaranClient({
     const t = setTimeout(() => setPostcodePin(null), 30000);
     return () => clearTimeout(t);
   }, [postcodePin]);
+
+  // Resolve display name for DashboardHeader once on mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const user = await getCurrentUser();
+        if (cancelled || !user) return;
+        const u = user as {
+          user_metadata?: { full_name?: string };
+          email?: string;
+        };
+        setUserName(
+          u.user_metadata?.full_name || u.email?.split('@')[0] || 'Pengguna',
+        );
+      } catch {
+        // Silent: header just keeps the default name.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleLogout = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('binaapp_token');
+      localStorage.removeItem('binaapp_user');
+    }
+    router.push('/');
+  }, [router]);
 
   // ---------------- Outlet picker ----------------
   const handleToggleOutletPicker = useCallback(() => {
@@ -369,21 +405,24 @@ export default function PenghantaranClient({
   // ---------------- No-outlets state ----------------
   if (outlets.length === 0) {
     return (
-      <div className="penghantaran-root flex items-center justify-center px-6">
-        <div className="text-center max-w-sm">
-          <h2 className="font-geist font-semibold text-lg text-white">
-            Tambah outlet pertama anda
-          </h2>
-          <p className="mt-2 text-sm text-white/60">
-            Anda perlu sekurang-kurangnya satu website untuk menetapkan zon
-            penghantaran.
-          </p>
-          <a
-            href="/create"
-            className="inline-block mt-5 px-4 py-2.5 rounded-lg bg-[#C7FF3D] text-black font-geist font-semibold text-sm hover:brightness-110 transition"
-          >
-            Cipta Website
-          </a>
+      <div className="penghantaran-root flex flex-col min-h-screen">
+        <DashboardHeader userName={userName} onLogout={handleLogout} />
+        <div className="flex-1 flex items-center justify-center px-6">
+          <div className="text-center max-w-sm">
+            <h2 className="font-geist font-semibold text-lg text-white">
+              Tambah outlet pertama anda
+            </h2>
+            <p className="mt-2 text-sm text-white/60">
+              Anda perlu sekurang-kurangnya satu website untuk menetapkan zon
+              penghantaran.
+            </p>
+            <a
+              href="/create"
+              className="inline-block mt-5 px-4 py-2.5 rounded-lg bg-[#C7FF3D] text-black font-geist font-semibold text-sm hover:brightness-110 transition"
+            >
+              Cipta Website
+            </a>
+          </div>
         </div>
       </div>
     );
@@ -391,6 +430,7 @@ export default function PenghantaranClient({
 
   return (
     <div className="penghantaran-root flex flex-col h-screen overflow-hidden">
+      <DashboardHeader userName={userName} onLogout={handleLogout} />
       <TopBar
         outlets={outlets}
         selectedOutletId={selectedOutletId}
