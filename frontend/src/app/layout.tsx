@@ -18,6 +18,9 @@ export const metadata: Metadata = {
   title: 'BinaApp - AI Website Builder Malaysia',
   description: 'Bina website perniagaan dengan AI dalam 60 saat',
   manifest: '/manifest.json',
+  icons: {
+    apple: '/icons/icon-192x192.png',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
@@ -25,6 +28,11 @@ export const metadata: Metadata = {
   },
   formatDetection: {
     telephone: false,
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
+    'msapplication-TileColor': '#3b82f6',
+    'msapplication-tap-highlight': 'no',
   },
   openGraph: {
     type: 'website',
@@ -50,15 +58,7 @@ export default function RootLayout({
   return (
     <html lang="ms">
       <head>
-        {/* PWA Meta Tags */}
-        <link rel="manifest" href="/manifest.json" />
-        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="BinaApp" />
-        <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="msapplication-TileColor" content="#3b82f6" />
-        <meta name="msapplication-tap-highlight" content="no" />
+        {/* PWA tags emitted via `metadata` so /rider can override them — a hardcoded <link rel="manifest"> here would shadow the rider manifest in document order. */}
         {/* Early PWA install prompt capture - must run before React mounts */}
         <script
           dangerouslySetInnerHTML={{
