@@ -82,7 +82,9 @@ async def get_subscription_status_from_db(user_id: str) -> Dict[str, Any]:
         url = f"{settings.SUPABASE_URL}/rest/v1/subscriptions"
         params = {
             "user_id": f"eq.{user_id}",
-            "select": "id,user_id,tier,status,end_date,grace_period_end,locked_at,lock_reason,last_payment_reminder,auto_renew"
+            "select": "id,user_id,tier,status,end_date,grace_period_end,locked_at,lock_reason,last_payment_reminder,auto_renew",
+            "order": "current_period_end.desc.nullslast,end_date.desc.nullslast,created_at.desc",
+            "limit": "1",
         }
         headers = {
             "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,

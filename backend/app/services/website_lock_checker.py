@@ -142,11 +142,18 @@ class WebsiteLockChecker:
             if not user_id:
                 return None
 
-            # Now get the owner's subscription status
+            # Now get the owner's subscription status.
+            # Pick the most recent subscription row regardless of status — we
+            # explicitly want to see grace/expired/locked rows here so the
+            # fallback can serve the locked page when cron hasn't yet stamped
+            # website_lock_status. Filtering by status='active' would defeat
+            # the entire fallback.
             sub_url = f"{self.supabase_url}/rest/v1/subscriptions"
             sub_params = {
                 "user_id": f"eq.{user_id}",
-                "select": "status,end_date,grace_period_end"
+                "select": "status,end_date,grace_period_end",
+                "order": "current_period_end.desc.nullslast,end_date.desc.nullslast,created_at.desc",
+                "limit": "1",
             }
 
             async with httpx.AsyncClient(timeout=5.0) as client:
