@@ -27,6 +27,14 @@ export function PWAInstallPrompt({ appName = 'BinaApp', themeColor = '#3b82f6' }
   const [isStandalone, setIsStandalone] = useState(false);
 
   useEffect(() => {
+    // Honor recent dismissal up front so late prompt events (and the iOS
+    // timer) can't race past the check.
+    const dismissedRaw = localStorage.getItem('pwa-prompt-dismissed');
+    const sevenDays = 7 * 24 * 60 * 60 * 1000;
+    const isDismissed = !!(
+      dismissedRaw && Date.now() - parseInt(dismissedRaw, 10) < sevenDays
+    );
+
     // Check if already installed
     const standalone = window.matchMedia('(display-mode: standalone)').matches
       || (window.navigator as any).standalone === true;
@@ -39,6 +47,24 @@ export function PWAInstallPrompt({ appName = 'BinaApp', themeColor = '#3b82f6' }
     const isIPadOS = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
     const isIOSDevice = ios || isIPadOS;
     setIsIOS(isIOSDevice);
+
+    // Always keep `appinstalled` wired so we can clean up the deferred
+    // event and clear the dismissed flag once the user actually installs.
+    const handleInstalled = () => {
+      console.log('[PWA] App installed successfully');
+      setShowPrompt(false);
+      setDeferredPrompt(null);
+      window.__pwaInstallPrompt = null;
+      window.__pwaInstallPromptCaptured = false;
+      localStorage.removeItem('pwa-prompt-dismissed');
+    };
+    window.addEventListener('appinstalled', handleInstalled);
+
+    // If the user dismissed recently or already installed, don't show
+    // anything — but still clean up via `appinstalled` above.
+    if (isDismissed || standalone) {
+      return () => window.removeEventListener('appinstalled', handleInstalled);
+    }
 
     // Check if prompt was already captured globally (before React mounted)
     if (window.__pwaInstallPromptCaptured && window.__pwaInstallPrompt) {
@@ -67,25 +93,17 @@ export function PWAInstallPrompt({ appName = 'BinaApp', themeColor = '#3b82f6' }
     window.addEventListener('beforeinstallprompt', handleBeforeInstall);
     window.addEventListener('pwa-prompt-ready', handlePromptReady);
 
-    // Listen for successful install
-    const handleInstalled = () => {
-      console.log('[PWA] App installed successfully');
-      setShowPrompt(false);
-      setDeferredPrompt(null);
-      window.__pwaInstallPrompt = null;
-      window.__pwaInstallPromptCaptured = false;
-    };
-    window.addEventListener('appinstalled', handleInstalled);
-
     // Show iOS prompt after 3 seconds if not installed and not in standalone mode
-    if (isIOSDevice && !standalone) {
-      setTimeout(() => setShowPrompt(true), 3000);
+    let iosTimer: ReturnType<typeof setTimeout> | undefined;
+    if (isIOSDevice) {
+      iosTimer = setTimeout(() => setShowPrompt(true), 3000);
     }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
       window.removeEventListener('pwa-prompt-ready', handlePromptReady);
       window.removeEventListener('appinstalled', handleInstalled);
+      if (iosTimer) clearTimeout(iosTimer);
     };
   }, []);
 
@@ -109,21 +127,9 @@ export function PWAInstallPrompt({ appName = 'BinaApp', themeColor = '#3b82f6' }
 
   const handleDismiss = () => {
     setShowPrompt(false);
-    // Don't show again for 7 days
+    // Don't show again for 7 days (the mount effect re-evaluates next load)
     localStorage.setItem('pwa-prompt-dismissed', Date.now().toString());
   };
-
-  // Check if dismissed recently
-  useEffect(() => {
-    const dismissed = localStorage.getItem('pwa-prompt-dismissed');
-    if (dismissed) {
-      const dismissedTime = parseInt(dismissed);
-      const sevenDays = 7 * 24 * 60 * 60 * 1000;
-      if (Date.now() - dismissedTime < sevenDays) {
-        setShowPrompt(false);
-      }
-    }
-  }, []);
 
   // Don't show if already installed
   if (isStandalone || !showPrompt) return null;

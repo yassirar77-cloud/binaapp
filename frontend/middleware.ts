@@ -53,6 +53,12 @@ export async function middleware(req: NextRequest) {
     '/manifest.json',
     '/icons',
     '/order',        // Customer-facing delivery flow — must always be public
+    '/sw.js',        // PWA service worker (main) — must serve as JS, not redirect to HTML
+    '/rider',        // Rider PWA (page, /rider/manifest.json, /rider/sw.js, offline.html)
+    '/offline.html', // Main SW precaches this during install
+    '/rider-icon-',  // /rider-icon-192.png, /rider-icon-512.png (rider manifest icons)
+    '/brand',        // Logo/icon assets referenced from manifests
+    '/screenshots',  // PWA manifest screenshots
   ]
 
   const isComingSoonBypassPath = comingSoonBypassPaths.some(path =>
