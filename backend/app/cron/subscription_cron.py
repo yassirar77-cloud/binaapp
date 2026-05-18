@@ -16,6 +16,7 @@ This cron job handles the complete subscription lifecycle:
 - End of grace period: Update status to 'locked', lock all websites
 """
 
+import os
 import asyncio
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
@@ -54,6 +55,13 @@ class SubscriptionCronJob:
         }
         self.frontend_url = settings.FRONTEND_URL or settings.BASE_URL
         self.support_email = settings.SUPPORT_EMAIL or "support@binaapp.com"
+        # Dry-run gate. When true (the default), every mutating action is
+        # logged with a "[DRY-RUN]" prefix but no DB writes happen and no
+        # emails are sent. Flip SUBSCRIPTION_CRON_DRY_RUN to "false" in the
+        # cron service env to perform real writes.
+        self.dry_run = os.getenv(
+            "SUBSCRIPTION_CRON_DRY_RUN", "true"
+        ).strip().lower() in ("true", "1", "yes", "on")
 
     # =========================================================================
     # DATABASE HELPERS
@@ -83,6 +91,12 @@ class SubscriptionCronJob:
 
     async def _update_subscription(self, subscription_id: str, updates: Dict[str, Any]) -> bool:
         """Update a subscription record"""
+        if self.dry_run:
+            logger.info(
+                f"[DRY-RUN] would update subscription {subscription_id}: {updates}"
+            )
+            return True
+
         try:
             url = f"{self.supabase_url}/rest/v1/subscriptions"
             params = {"id": f"eq.{subscription_id}"}
@@ -116,6 +130,13 @@ class SubscriptionCronJob:
         email_address: str
     ) -> bool:
         """Log email to subscription_email_logs table"""
+        if self.dry_run:
+            logger.info(
+                f"[DRY-RUN] would log email_type={email_type} for "
+                f"user={user_id} sub={subscription_id} to={email_address}"
+            )
+            return True
+
         try:
             url = f"{self.supabase_url}/rest/v1/subscription_email_logs"
 
@@ -170,6 +191,15 @@ class SubscriptionCronJob:
 
     async def _lock_user_websites(self, user_id: str, lock_reason: str) -> int:
         """Lock all websites for a user"""
+        if self.dry_run:
+            websites = await self._list_user_websites(user_id)
+            for w in websites:
+                logger.info(
+                    f"[DRY-RUN] would lock website {w['id']} for user "
+                    f"{user_id} (reason={lock_reason})"
+                )
+            return len(websites)
+
         locked_count = 0
 
         try:
@@ -234,6 +264,45 @@ class SubscriptionCronJob:
         except Exception as e:
             logger.error(f"Error locking websites for user {user_id}: {e}")
             return 0
+
+    async def _list_user_websites(self, user_id: str) -> List[Dict[str, Any]]:
+        """Read-only helper used by the dry-run path of _lock_user_websites."""
+        try:
+            url = f"{self.supabase_url}/rest/v1/websites"
+            params = {"user_id": f"eq.{user_id}", "select": "id"}
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, headers=self.headers, params=params)
+            if response.status_code == 200:
+                return response.json()
+            return []
+        except Exception as e:
+            logger.error(f"Error listing websites for user {user_id}: {e}")
+            return []
+
+    async def _send_email(
+        self,
+        to_email: str,
+        subject: str,
+        html_content: str,
+        text_content: str,
+        *,
+        email_type: str = "",
+    ) -> bool:
+        """Send email, or log the intent if running dry. Returns True on
+        success / would-send so the caller's "did we send it" gating still
+        works during dry-run."""
+        if self.dry_run:
+            logger.info(
+                f"[DRY-RUN] would send email_type={email_type or 'unknown'} "
+                f"to={to_email} subject={subject!r}"
+            )
+            return True
+        return await email_service._send_email(
+            to_email=to_email,
+            subject=subject,
+            html_content=html_content,
+            text_content=text_content,
+        )
 
     def _get_user_info(self, subscription: Dict[str, Any]) -> tuple:
         """Extract user info from subscription record"""
@@ -305,11 +374,12 @@ class SubscriptionCronJob:
             )
 
             # Send email
-            sent = await email_service._send_email(
+            sent = await self._send_email(
                 to_email=email,
                 subject=template["subject"],
                 html_content=template["html"],
-                text_content=template["text"]
+                text_content=template["text"],
+                email_type="reminder_5_days",
             )
 
             if sent:
@@ -371,11 +441,12 @@ class SubscriptionCronJob:
                 support_email=self.support_email
             )
 
-            sent = await email_service._send_email(
+            sent = await self._send_email(
                 to_email=email,
                 subject=template["subject"],
                 html_content=template["html"],
-                text_content=template["text"]
+                text_content=template["text"],
+                email_type="reminder_3_days",
             )
 
             if sent:
@@ -440,11 +511,12 @@ class SubscriptionCronJob:
                         support_email=self.support_email
                     )
 
-                    sent = await email_service._send_email(
+                    sent = await self._send_email(
                         to_email=email,
                         subject=template["subject"],
                         html_content=template["html"],
-                        text_content=template["text"]
+                        text_content=template["text"],
+                        email_type="expired",
                     )
 
                     if sent:
@@ -533,11 +605,12 @@ class SubscriptionCronJob:
                 support_email=self.support_email
             )
 
-            sent = await email_service._send_email(
+            sent = await self._send_email(
                 to_email=email,
                 subject=template["subject"],
                 html_content=template["html"],
-                text_content=template["text"]
+                text_content=template["text"],
+                email_type="lock_warning",
             )
 
             if sent:
@@ -598,11 +671,12 @@ class SubscriptionCronJob:
                         support_email=self.support_email
                     )
 
-                    sent = await email_service._send_email(
+                    sent = await self._send_email(
                         to_email=email,
                         subject=template["subject"],
                         html_content=template["html"],
-                        text_content=template["text"]
+                        text_content=template["text"],
+                        email_type="locked",
                     )
 
                     if sent:
@@ -628,6 +702,9 @@ class SubscriptionCronJob:
         logger.info("=" * 60)
         logger.info("SUBSCRIPTION CRON JOB STARTED")
         logger.info(f"Time: {start_time.isoformat()}")
+        logger.info(
+            f"Mode: {'DRY-RUN (no writes, no emails)' if self.dry_run else 'LIVE'}"
+        )
         logger.info("=" * 60)
 
         results = {
