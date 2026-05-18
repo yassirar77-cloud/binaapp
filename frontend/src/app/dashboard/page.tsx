@@ -108,7 +108,8 @@ export default function DashboardPage() {
 
       setProjects(transformedProjects)
 
-      // Fetch plan limit for dashboard display (non-critical)
+      // Fetch plan limit for dashboard display (non-critical).
+      // See note below on the .returns<> override.
       try {
         const { data: planData } = await supabase
           .from('subscriptions')
@@ -117,13 +118,11 @@ export default function DashboardPage() {
           .eq('status', 'active')
           .order('created_at', { ascending: false })
           .limit(1)
+          .returns<{ subscription_plans: { websites_limit: number | null } | null }[]>()
           .single()
 
-        if (planData?.subscription_plans) {
-          const sp = planData.subscription_plans as any
-          const wl = Array.isArray(sp) ? sp[0]?.websites_limit : sp?.websites_limit
-          if (typeof wl === 'number') setPlanLimit(wl)
-        }
+        const wl = planData?.subscription_plans?.websites_limit
+        if (typeof wl === 'number') setPlanLimit(wl)
       } catch {
         // Non-critical — planLimit stays at default
       }
@@ -185,7 +184,11 @@ export default function DashboardPage() {
         .select('id', { count: 'exact', head: true })
         .eq('user_id', user.id)
 
-      // Get plan limit
+      // Get plan limit.
+      // supabase-js can't infer FK arity from the select string, so it
+      // defaults the joined relation to an array. The FK
+      // subscriptions.subscription_plan_id → subscription_plans.id is
+      // many-to-one, so the runtime shape is a single object (or null).
       const { data: subData } = await supabase
         .from('subscriptions')
         .select('subscription_plans(websites_limit)')
@@ -193,6 +196,7 @@ export default function DashboardPage() {
         .eq('status', 'active')
         .order('created_at', { ascending: false })
         .limit(1)
+        .returns<{ subscription_plans: { websites_limit: number | null } | null }[]>()
         .single()
 
       const limit = subData?.subscription_plans?.websites_limit ?? 1
