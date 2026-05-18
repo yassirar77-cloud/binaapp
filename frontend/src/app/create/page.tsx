@@ -424,6 +424,10 @@ export default function CreatePage() {
           .select('id', { count: 'exact', head: true })
           .eq('user_id', authUser.id)
 
+        // supabase-js can't infer FK arity from the select string, so it
+        // defaults the joined relation to an array. The FK
+        // subscriptions.subscription_plan_id → subscription_plans.id is
+        // many-to-one, so the runtime shape is a single object (or null).
         const { data: subData } = await supabase
           .from('subscriptions')
           .select('subscription_plans(websites_limit)')
@@ -431,6 +435,7 @@ export default function CreatePage() {
           .eq('status', 'active')
           .order('created_at', { ascending: false })
           .limit(1)
+          .returns<{ subscription_plans: { websites_limit: number | null } | null }[]>()
           .single()
 
         const limit = subData?.subscription_plans?.websites_limit ?? 1
