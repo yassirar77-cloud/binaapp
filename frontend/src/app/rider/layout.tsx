@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from 'next';
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister';
-import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 
 export const metadata: Metadata = {
   title: 'BinaApp Rider',
@@ -33,7 +32,6 @@ export default function RiderLayout({
     <>
       {children}
       <ServiceWorkerRegister swPath="/rider/sw.js" scope="/rider/" />
-      <PWAInstallPrompt appName="BinaApp Rider" themeColor="#ea580c" />
     </>
   );
 }
