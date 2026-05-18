@@ -68,26 +68,73 @@ class SubscriptionCronJob:
     # =========================================================================
 
     async def _fetch_subscriptions(self, filters: Dict[str, str]) -> List[Dict[str, Any]]:
-        """Fetch subscriptions from database with filters"""
+        """Fetch subscriptions from database with filters.
+
+        Profiles can't be embedded — public.subscriptions.user_id and
+        public.profiles.id both reference auth.users(id), so there's no FK
+        from subscriptions to profiles for PostgREST to follow (PGRST200).
+        Instead we fetch subscriptions plain, then bulk-fetch matching
+        profile rows and attach them onto each subscription under the same
+        "profiles" key so _get_user_info keeps working unchanged.
+        """
         try:
             url = f"{self.supabase_url}/rest/v1/subscriptions"
             params = {
-                "select": "id,user_id,tier,status,end_date,grace_period_end,locked_at,lock_reason,price,profiles(email,full_name)"
+                "select": "id,user_id,tier,status,end_date,grace_period_end,locked_at,lock_reason,price"
             }
             params.update(filters)
 
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(url, headers=self.headers, params=params)
 
-            if response.status_code == 200:
-                return response.json()
-            else:
+            if response.status_code != 200:
                 logger.error(f"Failed to fetch subscriptions: {response.status_code} - {response.text}")
                 return []
+
+            subscriptions = response.json()
+            if not subscriptions:
+                return []
+
+            user_ids = sorted({s["user_id"] for s in subscriptions if s.get("user_id")})
+            profiles_by_id = await self._fetch_profiles(user_ids) if user_ids else {}
+
+            for sub in subscriptions:
+                sub["profiles"] = profiles_by_id.get(sub.get("user_id"), {})
+
+            return subscriptions
 
         except Exception as e:
             logger.error(f"Error fetching subscriptions: {e}")
             return []
+
+    async def _fetch_profiles(self, user_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Bulk-fetch profiles for the given user ids, keyed by id.
+
+        Returns an empty dict on any failure so the caller still gets to
+        process subscriptions — the per-step methods already skip rows
+        without an email.
+        """
+        try:
+            url = f"{self.supabase_url}/rest/v1/profiles"
+            params = {
+                "id": f"in.({','.join(user_ids)})",
+                "select": "id,email,full_name",
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, headers=self.headers, params=params)
+
+            if response.status_code != 200:
+                logger.warning(
+                    f"Failed to fetch profiles for {len(user_ids)} users: "
+                    f"{response.status_code} - {response.text[:200]}"
+                )
+                return {}
+
+            return {row["id"]: row for row in response.json() if row.get("id")}
+
+        except Exception as e:
+            logger.error(f"Error fetching profiles: {e}")
+            return {}
 
     async def _update_subscription(self, subscription_id: str, updates: Dict[str, Any]) -> bool:
         """Update a subscription record"""
