@@ -499,7 +499,14 @@ async def _process_successful_payment(bill_code: str, tp_transaction_id: str = N
 
 
 async def _process_subscription_payment(user_id: str, metadata: dict, bill_code: str):
-    """Process a subscription or renewal payment."""
+    """Process a subscription or renewal payment.
+
+    Targets the user's most-recent subscription row regardless of status
+    (a renewing user is typically expired/grace/locked, not active), scopes
+    the PATCH to that single row's id, clears stale lock fields, and unlocks
+    any subscription-induced website_lock_status rows so public sites
+    resume serving.
+    """
     from datetime import datetime, timedelta
 
     plan = metadata.get("plan", "starter")
@@ -517,12 +524,19 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
 
         import httpx
 
-        # Get current subscription
+        # Get the user's most-recent subscription row (any status). A user
+        # paying to renew is normally expired/grace/locked — filtering to
+        # status=active here would miss them and we'd create a duplicate row.
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 url,
                 headers=headers,
-                params={"user_id": f"eq.{user_id}"}
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "select": "id,end_date,current_period_end",
+                    "order": "current_period_end.desc.nullslast,end_date.desc.nullslast,created_at.desc",
+                    "limit": "1",
+                },
             )
 
         existing_sub = response.json() if response.status_code == 200 else []
@@ -550,20 +564,29 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
             "end_date": new_end_date.isoformat(),
             "price": price,
             "toyyibpay_bill_code": bill_code,
-            "auto_renew": True
+            "auto_renew": True,
+            # Clear stale lock fields from any previous expired/grace/locked
+            # cycle. Without this, the row keeps grace_period_end / locked_at
+            # / lock_reason set after payment and readers misinterpret it.
+            "grace_period_end": None,
+            "locked_at": None,
+            "lock_reason": None,
         }
 
         async with httpx.AsyncClient() as client:
             if existing_sub:
-                # Update existing subscription
+                # Scope the PATCH to the single row we picked. The previous
+                # version patched every row matching user_id, which would
+                # overwrite unrelated historical rows for the same user.
+                subscription_id = existing_sub[0]["id"]
                 response = await client.patch(
                     url,
                     headers={**headers, "Prefer": "return=minimal"},
-                    params={"user_id": f"eq.{user_id}"},
+                    params={"id": f"eq.{subscription_id}"},
                     json=subscription_data
                 )
             else:
-                # Create new subscription
+                # No subscription row exists — insert a fresh active one.
                 subscription_data["user_id"] = user_id
                 response = await client.post(
                     url,
@@ -573,6 +596,38 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
 
         if response.status_code in [200, 201, 204]:
             logger.info(f"✅ Subscription updated for user {user_id}: {plan} until {new_end_date}")
+
+            # Clear subscription-induced website locks so the public-site
+            # middleware stops serving the locked page. Filtered by
+            # lock_reason=subscription_expired so future admin/abuse locks
+            # are never auto-cleared by a payment. Best-effort: a failure
+            # here must not abort the payment flow.
+            try:
+                lock_url = f"{settings.SUPABASE_URL}/rest/v1/website_lock_status"
+                async with httpx.AsyncClient() as client:
+                    unlock_resp = await client.patch(
+                        lock_url,
+                        headers={**headers, "Prefer": "return=minimal"},
+                        params={
+                            "user_id": f"eq.{user_id}",
+                            "lock_reason": "eq.subscription_expired",
+                        },
+                        json={
+                            "is_locked": False,
+                            "unlocked_at": datetime.utcnow().isoformat(),
+                            "unlocked_by": "payment",
+                            "updated_at": datetime.utcnow().isoformat(),
+                        },
+                    )
+                if unlock_resp.status_code in [200, 204]:
+                    logger.info(f"✅ Cleared subscription website locks for user {user_id}")
+                else:
+                    logger.warning(
+                        f"Could not clear website_lock_status for {user_id}: "
+                        f"{unlock_resp.status_code} {unlock_resp.text[:200]}"
+                    )
+            except Exception as unlock_err:
+                logger.warning(f"website_lock_status unlock failed for {user_id}: {unlock_err}")
 
             # Reset monthly usage counters for the new billing period
             billing_period = datetime.utcnow().strftime("%Y-%m")

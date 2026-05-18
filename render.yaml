@@ -52,3 +52,49 @@ services:
 
     healthCheckPath: /health
     autoDeploy: true  # Auto-deploy on git push
+
+  - type: cron
+    name: binaapp-subscription-cron
+    runtime: python
+    plan: starter
+    region: singapore
+    rootDir: backend
+
+    # Daily at 16:00 UTC = 00:00 Malaysia time (UTC+8) the next day
+    schedule: "0 16 * * *"
+
+    buildCommand: ./build.sh
+    startCommand: python cron_runner.py
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.7"
+
+      # Safety gate. Set to "false" in the Render dashboard once the first
+      # dry-run log has been reviewed.
+      - key: SUBSCRIPTION_CRON_DRY_RUN
+        value: "true"
+
+      # Supabase (shared with the web service)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+      # Email (used by reminder + lock notice templates)
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SUPPORT_EMAIL
+        sync: false
+
+      # App config (used to build payment URLs in emails)
+      - key: FRONTEND_URL
+        value: "https://binaapp.my"
+      - key: ENVIRONMENT
+        value: "production"
