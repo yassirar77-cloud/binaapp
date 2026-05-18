@@ -304,13 +304,14 @@ async def delete_zone(
     supabase: Client = Depends(get_supabase_client),
 ):
     """Delete a zone after verifying ownership."""
+    # _verify_zone_ownership already 404s if the row is missing. We don't
+    # re-check res.data here — supabase-py's DELETE may return an empty
+    # data list even on success depending on PostgREST Prefer header
+    # handling, which previously caused the API to 404 after a successful
+    # delete and left the UI list out of sync.
     _verify_zone_ownership(supabase, zone_id, current_user["sub"])
     try:
-        res = supabase.table("delivery_zones").delete().eq("id", zone_id).execute()
-        if not res.data:
-            raise HTTPException(
-                status_code=404, detail="Zon tidak dijumpai"
-            )
+        supabase.table("delivery_zones").delete().eq("id", zone_id).execute()
     except HTTPException:
         raise
     except Exception as e:
