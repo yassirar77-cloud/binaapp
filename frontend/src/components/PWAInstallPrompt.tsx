@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { usePathname } from 'next/navigation';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -15,12 +16,31 @@ declare global {
   }
 }
 
-interface Props {
-  appName?: string;
-  themeColor?: string;
+type AppContext = {
+  appName: string;
+  themeColor: string;
+  iconSrc: string;
+};
+
+function getAppContext(pathname: string | null): AppContext {
+  if (pathname && pathname.startsWith('/rider')) {
+    return {
+      appName: 'BinaApp Rider',
+      themeColor: '#ea580c',
+      iconSrc: '/rider-icon-192.png',
+    };
+  }
+  return {
+    appName: 'BinaApp',
+    themeColor: '#3b82f6',
+    iconSrc: '/icons/icon-192x192.png',
+  };
 }
 
-export function PWAInstallPrompt({ appName = 'BinaApp', themeColor = '#3b82f6' }: Props) {
+export function PWAInstallPrompt() {
+  const pathname = usePathname();
+  const { appName, themeColor, iconSrc } = getAppContext(pathname);
+
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
@@ -145,8 +165,8 @@ export function PWAInstallPrompt({ appName = 'BinaApp', themeColor = '#3b82f6' }
           className="px-4 py-3 text-white flex items-center gap-3"
           style={{ backgroundColor: themeColor }}
         >
-          <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center text-2xl">
-            📱
+          <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center overflow-hidden">
+            <img src={iconSrc} alt="" className="w-12 h-12 object-cover" />
           </div>
           <div className="flex-1">
             <div className="font-bold">Install {appName}</div>

@@ -83,7 +83,7 @@ export default function RootLayout({
           </AuthProvider>
         </Suspense>
         <ServiceWorkerRegister swPath="/sw.js" />
-        <PWAInstallPrompt appName="BinaApp" />
+        <PWAInstallPrompt />
         <ChatWidget />
         <Toaster
           position="top-right"
