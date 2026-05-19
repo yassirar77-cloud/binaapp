@@ -3000,6 +3000,60 @@ async def get_rider_location_history(
         )
 
 
+@router.put("/riders/{rider_id}/online")
+async def update_rider_online(
+    rider_id: str,
+    payload: dict,
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Set rider's online/offline availability.
+
+    Called by the rider PWA when the "Anda Online" toggle flips. Writes
+    `riders.is_online` — the same column the merchant "Pilih Rider"
+    picker reads. Public endpoint (no Supabase auth), matching the
+    rider-PWA pattern used by /riders/{rider_id}/location.
+
+    Body:
+    - is_online: bool
+    """
+    is_online = payload.get("is_online")
+    if not isinstance(is_online, bool):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="is_online (boolean) is required",
+        )
+
+    rider_response = supabase.table("riders").select("id, name, is_active").eq(
+        "id", rider_id
+    ).execute()
+    if not rider_response.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Rider not found",
+        )
+    if rider_response.data[0].get("is_active") is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Akaun rider tidak aktif.",
+        )
+
+    resp = supabase.table("riders").update({"is_online": is_online}).eq(
+        "id", rider_id
+    ).execute()
+    if not resp.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update rider online status",
+        )
+
+    logger.info(
+        f"✅ Rider {rider_response.data[0].get('name')} ({rider_id}) "
+        f"is_online={is_online}"
+    )
+    return {"success": True, "rider_id": rider_id, "is_online": is_online}
+
+
 @router.get("/riders/{rider_id}/orders")
 async def get_rider_orders(
     rider_id: str,

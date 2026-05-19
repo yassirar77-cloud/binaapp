@@ -29,7 +29,7 @@ import {
   Zap,
 } from 'lucide-react';
 
-import { fetchTodayStats } from '../lib/api';
+import { ApiError, fetchTodayStats, setRiderOnline } from '../lib/api';
 import {
   loadBatterySaverPref,
   loadOnlinePref,
@@ -89,19 +89,30 @@ export default function ProfileScreen({
     };
   }, [rider.id]);
 
-  const handleOnlineToggle = () => {
-    const next = !online;
+  const handleOnlineToggle = async () => {
+    const prev = online;
+    const next = !prev;
+    // Optimistic flip — feels instant and lets the merchant picker see the
+    // new state on its next fetch.
     setOnline(next);
     saveOnlinePref(next);
-    // TODO(post-merge): once the rider-callable status endpoint lands,
-    // PUT /api/v1/delivery/riders/{id}/status here. The owner-auth
-    // endpoint is not callable from the PWA.
-    toast(
-      next
-        ? 'Anda kini Online — boleh terima pesanan.'
-        : 'Anda kini Offline — tiada pesanan baru.',
-      { icon: next ? '🟢' : '⚫' },
-    );
+    try {
+      await setRiderOnline(rider.id, next);
+      toast(
+        next
+          ? 'Anda kini Online — boleh terima pesanan.'
+          : 'Anda kini Offline — tiada pesanan baru.',
+        { icon: next ? '🟢' : '⚫' },
+      );
+    } catch (e) {
+      setOnline(prev);
+      saveOnlinePref(prev);
+      const msg =
+        e instanceof ApiError && e.message
+          ? e.message
+          : 'Gagal kemas kini status. Sila cuba lagi.';
+      toast.error(msg);
+    }
   };
 
   const handleSoundToggle = () => {

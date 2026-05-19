@@ -336,9 +336,31 @@ export default function PesananClient() {
     [refreshOrders, reportSuccess, reportError],
   );
 
-  const handlePickRider = useCallback((order: Order) => {
-    setRidersPickerOpenFor((prev) => (prev === order.id ? null : order.id));
-  }, []);
+  // Refetch the owner's rider pool. Used when the "Pilih Rider" picker opens
+  // so it reflects current is_online state instead of whatever was cached at
+  // page load.
+  const refreshRiders = useCallback(async () => {
+    const ids = websites.map((w) => w.id);
+    if (ids.length === 0) return;
+    try {
+      const r = await getRidersForWebsites(ids);
+      if (mountedRef.current) setRiders(r);
+    } catch (e) {
+      // Silent — stale list is still useful, and the next picker open retries.
+      reportError(e, 'Gagal muat senarai rider.', { silent: true });
+    }
+  }, [websites, reportError]);
+
+  const handlePickRider = useCallback(
+    (order: Order) => {
+      setRidersPickerOpenFor((prev) => {
+        const next = prev === order.id ? null : order.id;
+        if (next) void refreshRiders();
+        return next;
+      });
+    },
+    [refreshRiders],
+  );
 
   const handleClosePicker = useCallback(() => {
     setRidersPickerOpenFor(null);

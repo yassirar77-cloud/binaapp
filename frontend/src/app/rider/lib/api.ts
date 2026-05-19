@@ -126,6 +126,22 @@ export async function updateOrderStatus(
   );
 }
 
+/** PUT /api/v1/delivery/riders/{rider_id}/online — flip the rider's
+ *  availability. The merchant "Pilih Rider" picker reads `riders.is_online`
+ *  written by this endpoint. */
+export async function setRiderOnline(
+  riderId: string,
+  isOnline: boolean,
+): Promise<void> {
+  await riderFetch<void>(
+    `/api/v1/delivery/riders/${riderId}/online`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ is_online: isOnline }),
+    },
+  );
+}
+
 /** PUT /api/v1/delivery/riders/{rider_id}/location — the periodic GPS ping
  *  (every 15s via useGeolocation). The optional order_id lets the backend
  *  associate the fix with an active delivery. */

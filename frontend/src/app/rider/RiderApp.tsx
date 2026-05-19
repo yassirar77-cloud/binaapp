@@ -20,6 +20,7 @@ import ProfileScreen from './components/ProfileScreen';
 import {
   ApiError,
   fetchRiderOrders,
+  setRiderOnline,
   updateOrderStatus as apiUpdateStatus,
   updateRiderLocation,
 } from './lib/api';
@@ -27,9 +28,11 @@ import { FETCH_INTERVAL_MS, GPS_INTERVAL_MS } from './lib/constants';
 import {
   clearRider,
   loadCachedOrders,
+  loadOnlinePref,
   loadRider,
   markNotificationAsked,
   saveCachedOrders,
+  saveOnlinePref,
   saveRider,
   saveRiderPhone,
   wasNotificationAsked,
@@ -203,6 +206,10 @@ export default function RiderApp() {
       setRoute('orders');
       const cached = loadCachedOrders();
       if (cached?.length) setOrders(cached);
+      // Resync availability to the backend so the merchant picker reflects
+      // whatever the rider last toggled. Fire-and-forget — a transient
+      // failure just leaves the column where the server already had it.
+      void setRiderOnline(saved.id, loadOnlinePref()).catch(() => {});
     } else {
       setRoute('login');
     }
@@ -246,6 +253,9 @@ export default function RiderApp() {
     if (rememberPhone) saveRiderPhone(rememberPhone);
     setRider(loggedIn);
     setRoute('orders');
+    // Push the persisted availability so the merchant picker sees this
+    // rider as online immediately after login.
+    void setRiderOnline(loggedIn.id, loadOnlinePref()).catch(() => {});
     // First-login notification prompt — only ask once per device. The
     // browser's own permission state still gates re-prompts, but
     // localStorage prevents the modal from re-appearing if the rider
@@ -377,6 +387,14 @@ export default function RiderApp() {
   };
 
   const handleLogout = useCallback(() => {
+    // Flip availability off before clearing the session so the merchant
+    // picker stops showing this rider as online. Fire-and-forget — the
+    // logout proceeds even if the call fails.
+    const r = riderRef.current;
+    if (r) {
+      void setRiderOnline(r.id, false).catch(() => {});
+    }
+    saveOnlinePref(false);
     clearRider();
     setRider(null);
     setOrders([]);
