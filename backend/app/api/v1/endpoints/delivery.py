@@ -119,6 +119,42 @@ def get_rider_admin_client(
     return get_supabase_rls_client(credentials)
 
 
+def get_service_role_client() -> Client:
+    """
+    Build a fresh service-role Supabase client per request.
+
+    Use this for any endpoint that must bypass RLS — the rider PWA has no
+    Supabase JWT (auth.uid() is NULL at PostgREST) and the merchant
+    "assign rider" write is a trusted backend operation. Both must hit a
+    service-role-authenticated client or RLS will silently match 0 rows.
+
+    Unlike `get_supabase_client()`, this:
+      - Never falls back to SUPABASE_ANON_KEY. If the service-role env var
+        is missing we 500 loudly so the misconfiguration is visible
+        instead of producing silent no-ops on writes.
+      - Does NOT use the cached process-wide singleton, so the key in use
+        is deterministic per request and there's no risk of inheriting an
+        anon-keyed client from a colder startup.
+    """
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+    service_key = (
+        os.getenv("SUPABASE_SERVICE_KEY")
+        or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        or ""
+    )
+    if not SUPABASE_URL or not service_key:
+        logger.error(
+            "[service role] SUPABASE_SERVICE_(ROLE_)KEY missing — RLS would "
+            "block writes by rider-PWA / merchant-picker endpoints and the "
+            "operation would silently no-op."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server is missing SUPABASE_SERVICE_ROLE_KEY",
+        )
+    return create_client(SUPABASE_URL, service_key)
+
+
 # =====================================================
 # UTILITY FUNCTIONS
 # =====================================================
@@ -2499,10 +2535,17 @@ async def delete_website_rider(
 async def assign_rider_to_order_public(
     order_id: str,
     payload: AssignRiderRequest,
-    supabase: Client = Depends(get_supabase_client),
+    supabase: Client = Depends(get_service_role_client),
 ):
     """
     Assign (or unassign) a rider to an order (public endpoint for simple dashboards).
+
+    Uses the service-role client: the `delivery_orders` UPDATE policy is
+    `USING (website_id IN (SELECT id FROM websites WHERE user_id = auth.uid()))`,
+    and this endpoint does NOT thread the merchant's JWT through to
+    PostgREST. Without service role the UPDATE would match zero rows and
+    the assignment would silently no-op — exactly the failure mode we
+    saw on the picker side.
 
     Allows riders that:
     - Belong to the same website as the order
@@ -2589,10 +2632,36 @@ async def assign_rider_to_order_public(
         ).execute()
 
         if not updated.data:
+            logger.error(
+                f"[assign rider] UPDATE matched 0 rows for order_id={order_id}. "
+                f"RLS blocked the write (service-role key not in effect) or the "
+                f"row vanished mid-request."
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to assign rider"
+                detail="Update affected 0 rows (RLS or missing row)"
             )
+
+        # Confirm the value we asked for actually landed. A successful UPDATE
+        # with stale RLS plumbing could otherwise return the previous row.
+        persisted_rider = updated.data[0].get("rider_id")
+        if rider_id is None:
+            mismatch = persisted_rider is not None
+        else:
+            mismatch = str(persisted_rider) != str(rider_id)
+        if mismatch:
+            logger.error(
+                f"[assign rider] persisted rider_id={persisted_rider} but client "
+                f"sent {rider_id} for order_id={order_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Persisted rider_id did not match requested value",
+            )
+        logger.info(
+            f"[assign rider] order_id={order_id} rider_id={persisted_rider} "
+            f"status={updated.data[0].get('status')}"
+        )
 
         # Add to status history
         try:
@@ -2832,7 +2901,7 @@ async def update_rider_location(
     rider_id: str,
     location: RiderLocationUpdate,
     order_id: Optional[str] = None,
-    supabase: Client = Depends(get_supabase_client),
+    supabase: Client = Depends(get_service_role_client),
 ):
     """
     Update rider's GPS location (Phase 2).
@@ -2928,7 +2997,7 @@ async def update_rider_location(
 @router.get("/riders/{rider_id}/location")
 async def get_rider_location(
     rider_id: str,
-    supabase: Client = Depends(get_supabase_client),
+    supabase: Client = Depends(get_service_role_client),
 ):
     """
     Get rider's current GPS location (Phase 2).
@@ -2971,7 +3040,7 @@ async def get_rider_location(
 async def get_rider_location_history(
     rider_id: str,
     limit: int = 50,
-    supabase: Client = Depends(get_supabase_client),
+    supabase: Client = Depends(get_service_role_client),
 ):
     """
     Get rider's GPS location history (Phase 2).
@@ -3004,6 +3073,7 @@ async def get_rider_location_history(
 async def update_rider_online(
     rider_id: str,
     payload: dict,
+    supabase: Client = Depends(get_service_role_client),
 ):
     """
     Set rider's online/offline availability.
@@ -3012,12 +3082,8 @@ async def update_rider_online(
     `riders.is_online` — the same column the merchant "Pilih Rider"
     picker reads.
 
-    The rider PWA has no Supabase JWT, so `auth.uid()` would be NULL and
-    the `riders` RLS UPDATE policy would silently match zero rows. We
-    therefore use the service-role client explicitly (not via the
-    fallback path in `get_supabase_client`) and 500 loudly if the service
-    role key is not configured — better than a green toggle hiding a
-    silent no-op.
+    Uses the service-role client because the rider PWA has no Supabase
+    JWT; without it the RLS policy on `riders` matches zero rows.
 
     Body:
     - is_online: bool
@@ -3029,24 +3095,7 @@ async def update_rider_online(
             detail="is_online (boolean) is required",
         )
 
-    SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-    service_key = (
-        os.getenv("SUPABASE_SERVICE_KEY")
-        or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        or ""
-    )
-    if not SUPABASE_URL or not service_key:
-        logger.error(
-            "[rider online] SUPABASE_SERVICE_(ROLE_)KEY missing — RLS would "
-            "block this UPDATE and the toggle would silently no-op."
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Server is missing SUPABASE_SERVICE_ROLE_KEY",
-        )
-    sb: Client = create_client(SUPABASE_URL, service_key)
-
-    pre = sb.table("riders").select("id, name, is_active, is_online").eq(
+    pre = supabase.table("riders").select("id, name, is_active, is_online").eq(
         "id", rider_id
     ).execute()
     if not pre.data:
@@ -3062,7 +3111,7 @@ async def update_rider_online(
             detail="Akaun rider tidak aktif.",
         )
 
-    resp = sb.table("riders").update({"is_online": is_online}).eq(
+    resp = supabase.table("riders").update({"is_online": is_online}).eq(
         "id", rider_id
     ).execute()
     if not resp.data:
@@ -3102,7 +3151,7 @@ async def update_rider_online(
 async def get_rider_orders(
     rider_id: str,
     status_filter: Optional[str] = None,
-    supabase: Client = Depends(get_supabase_client),
+    supabase: Client = Depends(get_service_role_client),
 ):
     """
     Get orders assigned to a specific rider (Phase 2).
@@ -3167,7 +3216,7 @@ async def update_order_status_by_rider(
     rider_id: str,
     order_id: str,
     status_update: dict,
-    supabase: Client = Depends(get_supabase_client),
+    supabase: Client = Depends(get_service_role_client),
 ):
     """
     Update order status by rider (Phase 2).
@@ -3235,6 +3284,27 @@ async def update_order_status_by_rider(
             "id", order_id
         ).execute()
 
+        if not updated_order.data:
+            logger.error(
+                f"[rider status] UPDATE matched 0 rows for order_id={order_id} "
+                f"rider_id={rider_id}. RLS blocked the write or the row vanished."
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Update affected 0 rows (RLS or missing row)",
+            )
+
+        persisted_status = updated_order.data[0].get("status")
+        if persisted_status != new_status:
+            logger.error(
+                f"[rider status] persisted status={persisted_status} but client "
+                f"sent {new_status} for order_id={order_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Persisted status did not match requested value",
+            )
+
         # Log to order history
         history_entry = {
             "order_id": order_id,
@@ -3270,7 +3340,10 @@ async def update_order_status_by_rider(
 
 
 @router.get("/riders/{rider_id}/today")
-async def get_rider_today(rider_id: str):
+async def get_rider_today(
+    rider_id: str,
+    supabase: Client = Depends(get_service_role_client),
+):
     """Today's stats — count + earnings for the Saya screen."""
     try:
         import uuid
@@ -3279,7 +3352,6 @@ async def get_rider_today(rider_id: str):
         except (ValueError, AttributeError):
             raise HTTPException(404, "Penghantar tidak dijumpai")
 
-        supabase = get_supabase_client()
         today_start = datetime.now(timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
         ).isoformat()
@@ -3407,7 +3479,7 @@ class RiderLoginRequest(BaseModel):
 @router.post("/riders/login")
 async def rider_login(
     credentials: RiderLoginRequest,
-    supabase: Client = Depends(get_supabase_client),
+    supabase: Client = Depends(get_service_role_client),
 ):
     """
     Authenticate rider using phone number and password.
