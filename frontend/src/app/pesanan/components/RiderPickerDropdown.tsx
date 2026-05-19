@@ -117,8 +117,13 @@ export default function RiderPickerDropdown({
       aria-label="Pilih rider"
       className={sheetClasses}
       // Stop bubbling so the parent card / cards-container doesn't treat this
-      // as a select / close-panel click.
+      // as a select / close-panel click. onMouseDown also has to stop so that
+      // on mobile the backdrop's onMouseDown={onClose} doesn't fire before the
+      // tapped rider <button>'s onClick — synthetic mousedown bubbles from the
+      // button up through this sheet to the backdrop, and without this the
+      // picker would close on every tap and the assign call would never run.
       onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
     >
       {/* Mobile grabber. */}
       {isMobile ? (
