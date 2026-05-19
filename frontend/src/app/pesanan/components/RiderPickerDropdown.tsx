@@ -67,8 +67,9 @@ export default function RiderPickerDropdown({
   const riders = useMemo(() => sortRiders(allRiders), [allRiders]);
 
   // ESC + outside click. On desktop, mousedown (not click) so we close before
-  // a card body click handler fires under the popover. On mobile we rely on
-  // the explicit backdrop's onMouseDown — outside-click logic is the same.
+  // a card body click handler fires under the popover. On mobile the explicit
+  // backdrop's onMouseDown handles outside-click; the sheet itself stops
+  // mousedown propagation below so taps on rider rows don't bubble up to it.
   useEffect(() => {
     const onDocMouse = (e: MouseEvent) => {
       if (!ref.current) return;
@@ -117,8 +118,11 @@ export default function RiderPickerDropdown({
       aria-label="Pilih rider"
       className={sheetClasses}
       // Stop bubbling so the parent card / cards-container doesn't treat this
-      // as a select / close-panel click.
+      // as a select / close-panel click. mousedown also stops because the
+      // mobile backdrop closes on mousedown — without this, tapping a rider
+      // row would bubble up and close the sheet before the click landed.
       onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
     >
       {/* Mobile grabber. */}
       {isMobile ? (
