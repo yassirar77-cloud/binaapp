@@ -761,6 +761,11 @@
     grid-row: 2 / 3 !important;
   }
   .menu-row .menu-row-trash {
+    /* Pin to col 3 explicitly. Without this the trash button (definite row,
+     * auto column) is placed in phase 2 of grid auto-placement, claiming
+     * col 1 — which pushes the name input into the 32px col 3 and crushes
+     * it to a single clipped letter on phones. */
+    grid-column: 3 / 4 !important;
     grid-row: 1 / 3 !important;
   }
 }
