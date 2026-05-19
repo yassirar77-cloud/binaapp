@@ -207,9 +207,14 @@ export default function RiderApp() {
       const cached = loadCachedOrders();
       if (cached?.length) setOrders(cached);
       // Resync availability to the backend so the merchant picker reflects
-      // whatever the rider last toggled. Fire-and-forget — a transient
-      // failure just leaves the column where the server already had it.
-      void setRiderOnline(saved.id, loadOnlinePref()).catch(() => {});
+      // whatever the rider last toggled. A transient failure just leaves
+      // the column where the server already had it — log loudly so a
+      // misconfigured backend (e.g. missing service-role key) is visible
+      // in the rider's DevTools console.
+      void setRiderOnline(saved.id, loadOnlinePref()).catch((e) => {
+        // eslint-disable-next-line no-console
+        console.error('[rider] resync online status failed:', e);
+      });
     } else {
       setRoute('login');
     }
@@ -254,8 +259,13 @@ export default function RiderApp() {
     setRider(loggedIn);
     setRoute('orders');
     // Push the persisted availability so the merchant picker sees this
-    // rider as online immediately after login.
-    void setRiderOnline(loggedIn.id, loadOnlinePref()).catch(() => {});
+    // rider as online immediately after login. Log loudly on failure so a
+    // backend misconfiguration (RLS / missing service-role key) shows up
+    // in the rider's DevTools console rather than silently no-opping.
+    void setRiderOnline(loggedIn.id, loadOnlinePref()).catch((e) => {
+      // eslint-disable-next-line no-console
+      console.error('[rider] post-login online sync failed:', e);
+    });
     // First-login notification prompt — only ask once per device. The
     // browser's own permission state still gates re-prompts, but
     // localStorage prevents the modal from re-appearing if the rider

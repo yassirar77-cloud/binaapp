@@ -126,20 +126,42 @@ export async function updateOrderStatus(
   );
 }
 
+interface RiderOnlineResponse {
+  success: boolean;
+  rider_id: string;
+  is_online: boolean;
+}
+
 /** PUT /api/v1/delivery/riders/{rider_id}/online — flip the rider's
  *  availability. The merchant "Pilih Rider" picker reads `riders.is_online`
- *  written by this endpoint. */
+ *  written by this endpoint.
+ *
+ *  Returns the value actually persisted by the server (read back from the
+ *  UPDATE response). If the server's value doesn't match what we asked for,
+ *  the endpoint already 500s — but if anything goes wrong client-side, the
+ *  caller can compare `resp.is_online` against the requested value to detect
+ *  a no-op. */
 export async function setRiderOnline(
   riderId: string,
   isOnline: boolean,
-): Promise<void> {
-  await riderFetch<void>(
+): Promise<boolean> {
+  const resp = await riderFetch<RiderOnlineResponse>(
     `/api/v1/delivery/riders/${riderId}/online`,
     {
       method: 'PUT',
       body: JSON.stringify({ is_online: isOnline }),
     },
   );
+  if (!resp || typeof resp.is_online !== 'boolean') {
+    throw new ApiError('Server did not confirm online status', 0);
+  }
+  if (resp.is_online !== isOnline) {
+    throw new ApiError(
+      `Server persisted is_online=${resp.is_online}, expected ${isOnline}`,
+      0,
+    );
+  }
+  return resp.is_online;
 }
 
 /** PUT /api/v1/delivery/riders/{rider_id}/location — the periodic GPS ping

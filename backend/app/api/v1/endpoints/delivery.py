@@ -3004,15 +3004,20 @@ async def get_rider_location_history(
 async def update_rider_online(
     rider_id: str,
     payload: dict,
-    supabase: Client = Depends(get_supabase_client),
 ):
     """
     Set rider's online/offline availability.
 
     Called by the rider PWA when the "Anda Online" toggle flips. Writes
     `riders.is_online` — the same column the merchant "Pilih Rider"
-    picker reads. Public endpoint (no Supabase auth), matching the
-    rider-PWA pattern used by /riders/{rider_id}/location.
+    picker reads.
+
+    The rider PWA has no Supabase JWT, so `auth.uid()` would be NULL and
+    the `riders` RLS UPDATE policy would silently match zero rows. We
+    therefore use the service-role client explicitly (not via the
+    fallback path in `get_supabase_client`) and 500 loudly if the service
+    role key is not configured — better than a green toggle hiding a
+    silent no-op.
 
     Body:
     - is_online: bool
@@ -3024,34 +3029,73 @@ async def update_rider_online(
             detail="is_online (boolean) is required",
         )
 
-    rider_response = supabase.table("riders").select("id, name, is_active").eq(
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+    service_key = (
+        os.getenv("SUPABASE_SERVICE_KEY")
+        or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        or ""
+    )
+    if not SUPABASE_URL or not service_key:
+        logger.error(
+            "[rider online] SUPABASE_SERVICE_(ROLE_)KEY missing — RLS would "
+            "block this UPDATE and the toggle would silently no-op."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server is missing SUPABASE_SERVICE_ROLE_KEY",
+        )
+    sb: Client = create_client(SUPABASE_URL, service_key)
+
+    pre = sb.table("riders").select("id, name, is_active, is_online").eq(
         "id", rider_id
     ).execute()
-    if not rider_response.data:
+    if not pre.data:
+        logger.warning(f"[rider online] rider_id={rider_id} not found in riders")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Rider not found",
         )
-    if rider_response.data[0].get("is_active") is False:
+    rider = pre.data[0]
+    if rider.get("is_active") is False:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Akaun rider tidak aktif.",
         )
 
-    resp = supabase.table("riders").update({"is_online": is_online}).eq(
+    resp = sb.table("riders").update({"is_online": is_online}).eq(
         "id", rider_id
     ).execute()
     if not resp.data:
+        logger.error(
+            f"[rider online] UPDATE matched 0 rows for rider_id={rider_id}. "
+            f"This usually means RLS blocked the write (service-role key not "
+            f"in effect) or the row vanished mid-request."
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update rider online status",
+            detail="Update affected 0 rows (RLS or missing row)",
+        )
+
+    persisted = resp.data[0].get("is_online")
+    if persisted is not is_online:
+        logger.error(
+            f"[rider online] persisted is_online={persisted} but client sent "
+            f"{is_online} for rider_id={rider_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Persisted value did not match requested value",
         )
 
     logger.info(
-        f"✅ Rider {rider_response.data[0].get('name')} ({rider_id}) "
-        f"is_online={is_online}"
+        f"[rider online] rider={rider.get('name')} id={rider_id} "
+        f"was={rider.get('is_online')} now={persisted}"
     )
-    return {"success": True, "rider_id": rider_id, "is_online": is_online}
+    return {
+        "success": True,
+        "rider_id": rider_id,
+        "is_online": persisted,
+    }
 
 
 @router.get("/riders/{rider_id}/orders")

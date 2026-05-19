@@ -352,14 +352,18 @@ export default function PesananClient() {
   }, [websites, reportError]);
 
   const handlePickRider = useCallback(
-    (order: Order) => {
-      setRidersPickerOpenFor((prev) => {
-        const next = prev === order.id ? null : order.id;
-        if (next) void refreshRiders();
-        return next;
-      });
+    async (order: Order) => {
+      // Toggle closed if it's already open for this order.
+      if (ridersPickerOpenFor === order.id) {
+        setRidersPickerOpenFor(null);
+        return;
+      }
+      // Otherwise refetch FIRST so the picker opens with current is_online,
+      // never a stale page-load snapshot.
+      await refreshRiders();
+      if (mountedRef.current) setRidersPickerOpenFor(order.id);
     },
-    [refreshRiders],
+    [ridersPickerOpenFor, refreshRiders],
   );
 
   const handleClosePicker = useCallback(() => {
