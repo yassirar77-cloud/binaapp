@@ -564,7 +564,7 @@ export default function CreatePage() {
         setLimitModalData({
           resourceType: 'website',
           currentUsage: data.current_usage || 0,
-          limit: data.limit || 1,
+          limit: data.limit ?? 0,
           canBuyAddon: data.can_buy_addon || false,
           addonPrice: data.addon_price
         })
@@ -795,7 +795,7 @@ export default function CreatePage() {
           setLimitModalData({
             resourceType: 'website',
             currentUsage: errorData.current_usage || 0,
-            limit: errorData.limit || 1,
+            limit: errorData.limit ?? 0,
             canBuyAddon: errorData.can_buy_addon || false,
             addonPrice: errorData.addon_price
           })
@@ -1110,7 +1110,7 @@ export default function CreatePage() {
           setLimitModalData({
             resourceType: 'website',
             currentUsage: errorData.current_usage || 0,
-            limit: errorData.limit || 1,
+            limit: errorData.limit ?? 0,
             canBuyAddon: errorData.can_buy_addon || false,
             addonPrice: errorData.addon_price
           })

@@ -16,8 +16,8 @@ export interface WebsiteItem {
 
 interface WebsitesSectionProps {
   websites: WebsiteItem[]
-  /** Total allowed by plan */
-  planLimit?: number
+  /** Total allowed by plan. null = unlimited; undefined = not loaded. */
+  planLimit?: number | null
   /** Which website ID is in delete-confirm state */
   deleteConfirmId: string | null
   /** Which website ID is currently being deleted */
@@ -51,9 +51,11 @@ export default function WebsitesSection({
           <h2 className="font-geist font-semibold text-lg text-white tracking-[-0.02em] m-0">
             Website Saya
           </h2>
-          {planLimit != null && (
+          {planLimit !== undefined && (
             <p className="font-geist text-[13px] text-ink-400 mt-0.5 mb-0">
-              {websites.length} daripada {planLimit} dibenarkan
+              {planLimit === null
+                ? `${websites.length} website · Tanpa had`
+                : `${websites.length} daripada ${planLimit} dibenarkan`}
             </p>
           )}
         </div>

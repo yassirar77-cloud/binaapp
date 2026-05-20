@@ -33,7 +33,8 @@ export interface CommissionData {
 
 export interface WebsitesData {
   active: number
-  limit: number
+  /** Plan limit; null = unlimited. */
+  limit: number | null
   planName: string
   onCreateNew?: () => void
   onUpgradePlan?: () => void
@@ -189,7 +190,8 @@ function CommissionCard({ data }: { data: CommissionData }): ReactElement {
 /* ── Websites stat ── */
 
 function WebsitesCard({ data }: { data: WebsitesData }): ReactElement {
-  const pips = Array.from({ length: data.limit }, (_, i) => i)
+  const isUnlimited = data.limit === null
+  const pips = isUnlimited ? [] : Array.from({ length: data.limit as number }, (_, i) => i)
 
   return (
     <StatCard
@@ -198,7 +200,7 @@ function WebsitesCard({ data }: { data: WebsitesData }): ReactElement {
         <span className="flex items-baseline gap-2">
           <span className="text-[56px] tracking-[-0.045em]">{data.active}</span>
           <span className="font-geist-mono text-sm text-ink-400 font-medium">
-            / {data.limit}
+            / {isUnlimited ? '∞' : data.limit}
           </span>
         </span>
       }

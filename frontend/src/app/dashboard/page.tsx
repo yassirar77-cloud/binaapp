@@ -14,7 +14,7 @@ import { supabase, getStoredToken, getCurrentUser } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import { SubscriptionExpiredBanner } from '@/components/SubscriptionExpiredBanner'
 import { LimitReachedModal } from '@/components/LimitReachedModal'
-import { canCreateWebsite } from '@/lib/quota'
+import { canCreateWebsite, getWebsiteLimit } from '@/lib/quota'
 // New dashboard components
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader'
 import DashboardGreeting from '@/components/dashboard-new/DashboardGreeting'
@@ -57,7 +57,7 @@ export default function DashboardPage() {
     canBuyAddon: false,
     addonPrice: 0
   })
-  const [planLimit, setPlanLimit] = useState(1)
+  const [planLimit, setPlanLimit] = useState<number | null>(null)
 
   useEffect(() => {
     loadProjects()
@@ -109,23 +109,12 @@ export default function DashboardPage() {
 
       setProjects(transformedProjects)
 
-      // Fetch plan limit for dashboard display (non-critical).
-      // See note below on the .returns<> override.
+      // Fetch plan limit for display widgets (non-critical).
       try {
-        const { data: planData } = await supabase
-          .from('subscriptions')
-          .select('subscription_plans(websites_limit)')
-          .eq('user_id', currentUser.id)
-          .eq('status', 'active')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .returns<{ subscription_plans: { websites_limit: number | null } | null }[]>()
-          .single()
-
-        const wl = planData?.subscription_plans?.websites_limit
-        if (typeof wl === 'number') setPlanLimit(wl)
+        const { limit } = await getWebsiteLimit(currentUser.id)
+        setPlanLimit(limit)
       } catch {
-        // Non-critical — planLimit stays at default
+        // Non-critical — planLimit stays at null (treated as unknown/unlimited)
       }
     } catch (err: any) {
       console.error('Load projects error:', err)

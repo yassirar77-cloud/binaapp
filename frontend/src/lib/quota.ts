@@ -39,33 +39,9 @@ export async function canCreateWebsite(userId: string): Promise<WebsiteQuota> {
     .eq('user_id', userId)
   const currentUsage = count ?? 0
 
-  // supabase-js can't infer FK arity from the select string, so it defaults
-  // the joined relation to an array. The FK subscriptions.subscription_plan_id
-  // → subscription_plans.id is many-to-one, so the runtime shape is a single
-  // object (or null).
-  const { data: subRows } = await supabase
-    .from('subscriptions')
-    .select('subscription_plans(plan_name,websites_limit)')
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .returns<{ subscription_plans: { plan_name: string | null; websites_limit: number | null } | null }[]>()
+  const { limit, planName, hasActiveSubscription } = await getWebsiteLimit(userId)
 
-  const subRow = (subRows ?? [])[0]
-  const planRow = subRow?.subscription_plans ?? null
-  const planName = planRow?.plan_name ?? null
-
-  let limit: number | null
-  if (planRow && planRow.websites_limit !== undefined) {
-    limit = planRow.websites_limit
-  } else if (planName && planName in PLAN_WEBSITE_LIMITS) {
-    limit = PLAN_WEBSITE_LIMITS[planName]
-  } else if (subRow) {
-    // Active subscription with unknown plan — fail open and warn.
-    console.warn('[quota] active subscription with unknown plan; failing open', { subRow })
-    return { allowed: true, currentUsage, limit: null, addonCredits: 0, planName }
-  } else {
+  if (!hasActiveSubscription) {
     // No active subscription — backend will return 403; surface that here.
     return { allowed: false, currentUsage, limit: 0, addonCredits: 0, planName: null }
   }
@@ -95,4 +71,53 @@ export async function canCreateWebsite(userId: string): Promise<WebsiteQuota> {
     addonCredits,
     planName,
   }
+}
+
+/**
+ * Fetch just the plan-level website limit for the user (no counts, no addons).
+ * Used for the dashboard display widgets. Ordering matches the backend
+ * (websites.py:97) so frontend and backend pick the same active subscription
+ * row when a user has multiple (e.g. legacy Starter + current Pro).
+ */
+export async function getWebsiteLimit(userId: string): Promise<{
+  limit: number | null
+  planName: string | null
+  hasActiveSubscription: boolean
+}> {
+  if (!supabase) {
+    return { limit: null, planName: null, hasActiveSubscription: false }
+  }
+
+  // supabase-js can't infer FK arity from the select string, so it defaults
+  // the joined relation to an array. The FK subscriptions.subscription_plan_id
+  // → subscription_plans.id is many-to-one, so the runtime shape is a single
+  // object (or null).
+  const { data: subRows } = await supabase
+    .from('subscriptions')
+    .select('subscription_plans(plan_name,websites_limit)')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .order('current_period_end', { ascending: false, nullsFirst: false })
+    .order('end_date', { ascending: false, nullsFirst: false })
+    .limit(1)
+    .returns<{ subscription_plans: { plan_name: string | null; websites_limit: number | null } | null }[]>()
+
+  const subRow = (subRows ?? [])[0]
+  const planRow = subRow?.subscription_plans ?? null
+  const planName = planRow?.plan_name ?? null
+
+  let limit: number | null
+  if (planRow && planRow.websites_limit !== undefined) {
+    limit = planRow.websites_limit
+  } else if (planName && planName in PLAN_WEBSITE_LIMITS) {
+    limit = PLAN_WEBSITE_LIMITS[planName]
+  } else if (subRow) {
+    // Active subscription with unknown plan — treat as unlimited and warn.
+    console.warn('[quota] active subscription with unknown plan; failing open', { subRow })
+    limit = null
+  } else {
+    limit = null
+  }
+
+  return { limit, planName, hasActiveSubscription: !!subRow }
 }
