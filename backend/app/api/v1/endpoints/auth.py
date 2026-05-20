@@ -10,7 +10,6 @@ from app.models.schemas import (
     UserCreate,
     UserLogin,
     UserResponse,
-    SubscriptionTier
 )
 from app.services.supabase_client import supabase_service
 from app.core.security import create_access_token, get_current_user, decode_token_for_refresh
@@ -80,18 +79,11 @@ async def register(user_data: UserCreate):
             }
         )
 
-        # STEP 4: Initialize free subscription
-        # TODO(billing): this creates a row with plan_id=NULL. Migration 025 added
-        # a 'free' plan in subscription_plans; we should look up its plan_id here
-        # and set it on the new subscription so future free users join the new
-        # plan automatically. Until that's done, the migration's backfill UPDATE
-        # has to be re-run periodically (or moved into a trigger). Backend gates
-        # still work via the helper in services/plan_features.py, which fails
-        # closed when plan_id is NULL.
-        await supabase_service.update_subscription(user_id, {
-            'tier': SubscriptionTier.FREE,
-            'status': 'active'
-        })
+        # Subscription row is created by the on_auth_user_created trigger
+        # (migration 035), which inserts an active 'free' subscription with
+        # plan_id resolved at trigger time. /auth/register no longer writes
+        # to public.subscriptions — keeping it in two places risked race
+        # conditions and divergent defaults.
 
         logger.info(f"✅ User registered successfully: {user_email}")
 
