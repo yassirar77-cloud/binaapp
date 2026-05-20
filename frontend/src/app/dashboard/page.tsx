@@ -14,6 +14,7 @@ import { supabase, getStoredToken, getCurrentUser } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import { SubscriptionExpiredBanner } from '@/components/SubscriptionExpiredBanner'
 import { LimitReachedModal } from '@/components/LimitReachedModal'
+import { canCreateWebsite, getWebsiteLimit } from '@/lib/quota'
 // New dashboard components
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader'
 import DashboardGreeting from '@/components/dashboard-new/DashboardGreeting'
@@ -56,7 +57,7 @@ export default function DashboardPage() {
     canBuyAddon: false,
     addonPrice: 0
   })
-  const [planLimit, setPlanLimit] = useState(1)
+  const [planLimit, setPlanLimit] = useState<number | null>(null)
 
   useEffect(() => {
     loadProjects()
@@ -108,23 +109,12 @@ export default function DashboardPage() {
 
       setProjects(transformedProjects)
 
-      // Fetch plan limit for dashboard display (non-critical).
-      // See note below on the .returns<> override.
+      // Fetch plan limit for display widgets (non-critical).
       try {
-        const { data: planData } = await supabase
-          .from('subscriptions')
-          .select('subscription_plans(websites_limit)')
-          .eq('user_id', currentUser.id)
-          .eq('status', 'active')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .returns<{ subscription_plans: { websites_limit: number | null } | null }[]>()
-          .single()
-
-        const wl = planData?.subscription_plans?.websites_limit
-        if (typeof wl === 'number') setPlanLimit(wl)
+        const { limit } = await getWebsiteLimit(currentUser.id)
+        setPlanLimit(limit)
       } catch {
-        // Non-critical — planLimit stays at default
+        // Non-critical — planLimit stays at null (treated as unknown/unlimited)
       }
     } catch (err: any) {
       console.error('Load projects error:', err)
@@ -178,61 +168,19 @@ export default function DashboardPage() {
     }
 
     try {
-      // Count actual websites (source of truth)
-      const { count: actualCount } = await supabase
-        .from('websites')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-
-      // Get plan limit.
-      // supabase-js can't infer FK arity from the select string, so it
-      // defaults the joined relation to an array. The FK
-      // subscriptions.subscription_plan_id → subscription_plans.id is
-      // many-to-one, so the runtime shape is a single object (or null).
-      const { data: subData } = await supabase
-        .from('subscriptions')
-        .select('subscription_plans(websites_limit)')
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .returns<{ subscription_plans: { websites_limit: number | null } | null }[]>()
-        .single()
-
-      const limit = subData?.subscription_plans?.websites_limit ?? 1
-
-      // Unlimited plan
-      if (limit === null) {
+      const quota = await canCreateWebsite(user.id)
+      if (quota.allowed) {
         router.push('/create')
         return
       }
-
-      // Get addon credits
-      const { data: addons } = await supabase
-        .from('addon_purchases')
-        .select('quantity_remaining')
-        .eq('user_id', user.id)
-        .eq('addon_type', 'website')
-        .eq('status', 'active')
-        .gt('quantity_remaining', 0)
-
-      const addonCredits = (addons || []).reduce((sum: number, a: any) => sum + a.quantity_remaining, 0)
-      const totalAllowed = limit + addonCredits
-
-      if ((actualCount ?? 0) >= totalAllowed) {
-        setLimitModalData({
-          resourceType: 'website',
-          currentUsage: actualCount ?? 0,
-          limit: limit,
-          canBuyAddon: true,
-          addonPrice: 5
-        })
-        setShowLimitModal(true)
-        return // DO NOT navigate to /create
-      }
-
-      // Safe to proceed
-      router.push('/create')
+      setLimitModalData({
+        resourceType: 'website',
+        currentUsage: quota.currentUsage,
+        limit: quota.limit ?? 0,
+        canBuyAddon: true,
+        addonPrice: 5,
+      })
+      setShowLimitModal(true)
     } catch (err) {
       console.error('Limit check failed:', err)
       router.push('/create') // Fail open (backend will still block)

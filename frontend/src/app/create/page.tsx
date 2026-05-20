@@ -15,6 +15,7 @@ import { AddonPurchaseModal } from '@/components/AddonPurchaseModal'
 import { LimitReachedModal } from '@/components/LimitReachedModal'
 import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
 import { supabase, signOut as customSignOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
+import { canCreateWebsite } from '@/lib/quota'
 import { User } from '@supabase/supabase-js'
 import { checkImageSafety } from '@/utils/imageModeration'
 import toast from 'react-hot-toast'
@@ -419,53 +420,18 @@ export default function CreatePage() {
         const { data: { user: authUser } } = await supabase.auth.getUser()
         if (!authUser) return
 
-        const { count } = await supabase
-          .from('websites')
-          .select('id', { count: 'exact', head: true })
-          .eq('user_id', authUser.id)
+        const quota = await canCreateWebsite(authUser.id)
+        if (quota.allowed) return
 
-        // supabase-js can't infer FK arity from the select string, so it
-        // defaults the joined relation to an array. The FK
-        // subscriptions.subscription_plan_id → subscription_plans.id is
-        // many-to-one, so the runtime shape is a single object (or null).
-        const { data: subData } = await supabase
-          .from('subscriptions')
-          .select('subscription_plans(websites_limit)')
-          .eq('user_id', authUser.id)
-          .eq('status', 'active')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .returns<{ subscription_plans: { websites_limit: number | null } | null }[]>()
-          .single()
-
-        const limit = subData?.subscription_plans?.websites_limit ?? 1
-
-        // Unlimited plan
-        if (limit === null) return
-
-        // Get addon credits
-        const { data: addons } = await supabase
-          .from('addon_purchases')
-          .select('quantity_remaining')
-          .eq('user_id', authUser.id)
-          .eq('addon_type', 'website')
-          .eq('status', 'active')
-          .gt('quantity_remaining', 0)
-
-        const addonCredits = (addons || []).reduce((sum: number, a: any) => sum + a.quantity_remaining, 0)
-        const totalAllowed = limit + addonCredits
-
-        if ((count ?? 0) >= totalAllowed) {
-          setIsAtLimit(true)
-          setLimitModalData({
-            resourceType: 'website',
-            currentUsage: count ?? 0,
-            limit: limit,
-            canBuyAddon: true,
-            addonPrice: 5
-          })
-          setShowLimitModal(true)
-        }
+        setIsAtLimit(true)
+        setLimitModalData({
+          resourceType: 'website',
+          currentUsage: quota.currentUsage,
+          limit: quota.limit ?? 0,
+          canBuyAddon: true,
+          addonPrice: 5,
+        })
+        setShowLimitModal(true)
       } catch (err) {
         console.error('[Create] Direct limit check failed:', err)
       }
@@ -598,7 +564,7 @@ export default function CreatePage() {
         setLimitModalData({
           resourceType: 'website',
           currentUsage: data.current_usage || 0,
-          limit: data.limit || 1,
+          limit: data.limit ?? 0,
           canBuyAddon: data.can_buy_addon || false,
           addonPrice: data.addon_price
         })
@@ -829,7 +795,7 @@ export default function CreatePage() {
           setLimitModalData({
             resourceType: 'website',
             currentUsage: errorData.current_usage || 0,
-            limit: errorData.limit || 1,
+            limit: errorData.limit ?? 0,
             canBuyAddon: errorData.can_buy_addon || false,
             addonPrice: errorData.addon_price
           })
@@ -1144,7 +1110,7 @@ export default function CreatePage() {
           setLimitModalData({
             resourceType: 'website',
             currentUsage: errorData.current_usage || 0,
-            limit: errorData.limit || 1,
+            limit: errorData.limit ?? 0,
             canBuyAddon: errorData.can_buy_addon || false,
             addonPrice: errorData.addon_price
           })
