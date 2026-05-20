@@ -9,7 +9,7 @@ interface LimitReachedModalProps {
   onClose: () => void;
   resourceType: 'website' | 'menu_item' | 'ai_hero' | 'ai_image' | 'zone' | 'rider';
   currentUsage: number;
-  limit: number;
+  limit: number | null;
   canBuyAddon: boolean;
   addonPrice?: number;
   onUpgrade?: (tier: string) => void;
@@ -181,7 +181,7 @@ export function LimitReachedModal({
           <h2>Had Tercapai</h2>
           <p>
             Anda telah mencapai had {resource.nameMalay} pelan anda
-            <span className="usage-count">({currentUsage}/{limit})</span>
+            <span className="usage-count">({currentUsage}/{limit ?? 'tanpa had'})</span>
           </p>
         </div>
 

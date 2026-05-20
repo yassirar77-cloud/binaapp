@@ -14,7 +14,7 @@ import { supabase, getStoredToken, getCurrentUser } from '@/lib/supabase'
 import { User } from '@supabase/supabase-js'
 import { SubscriptionExpiredBanner } from '@/components/SubscriptionExpiredBanner'
 import { LimitReachedModal } from '@/components/LimitReachedModal'
-import { canCreateWebsite, getWebsiteLimit } from '@/lib/quota'
+import { checkCreateWebsiteAllowed, getWebsiteLimit } from '@/lib/quota'
 // New dashboard components
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader'
 import DashboardGreeting from '@/components/dashboard-new/DashboardGreeting'
@@ -50,8 +50,14 @@ export default function DashboardPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [showLimitModal, setShowLimitModal] = useState(false)
-  const [limitModalData, setLimitModalData] = useState({
-    resourceType: 'website' as 'website' | 'menu_item' | 'ai_hero' | 'ai_image' | 'zone' | 'rider',
+  const [limitModalData, setLimitModalData] = useState<{
+    resourceType: 'website' | 'menu_item' | 'ai_hero' | 'ai_image' | 'zone' | 'rider'
+    currentUsage: number
+    limit: number | null
+    canBuyAddon: boolean
+    addonPrice: number
+  }>({
+    resourceType: 'website',
     currentUsage: 0,
     limit: 0,
     canBuyAddon: false,
@@ -162,23 +168,29 @@ export default function DashboardPage() {
   }
 
   const handleCreateWebsiteClick = async () => {
-    if (!supabase || !user) {
+    if (!user) {
       router.push('/create')
       return
     }
 
     try {
-      const quota = await canCreateWebsite(user.id)
-      if (quota.allowed) {
+      const quota = await checkCreateWebsiteAllowed()
+      if (quota.requiresRenewal) {
+        router.push('/dashboard/billing')
+        return
+      }
+      // Treat unlimited / unknown-limit / allowed the same: let them proceed.
+      // Backend will still enforce on the actual create POST.
+      if (quota.allowed || quota.unlimited || quota.limit === null) {
         router.push('/create')
         return
       }
       setLimitModalData({
         resourceType: 'website',
         currentUsage: quota.currentUsage,
-        limit: quota.limit ?? 0,
-        canBuyAddon: true,
-        addonPrice: 5,
+        limit: quota.limit,
+        canBuyAddon: quota.canBuyAddon,
+        addonPrice: quota.addonPrice ?? 5,
       })
       setShowLimitModal(true)
     } catch (err) {

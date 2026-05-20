@@ -1,13 +1,16 @@
 /**
- * Website creation quota — single source of truth for client-side checks.
+ * Website creation quota.
  *
- * Used by the dashboard "Bina Website" button and the /create page so they
- * agree on whether the user is over their plan limit. The backend
- * (backend/app/api/v1/endpoints/websites.py) is the authoritative enforcer;
- * this helper mirrors its logic to avoid showing a wrong "Had Tercapai"
- * modal for unlimited (Pro) users.
+ * The gating check goes through the backend (checkCreateWebsiteAllowed)
+ * because the frontend supabase client has no user session — signIn
+ * issues a custom JWT, so RLS-protected reads on `subscriptions` return
+ * 0 rows and we can't tell "unlimited PRO" from "no row visible".
+ *
+ * getWebsiteLimit / canCreateWebsite remain for the cosmetic dashboard
+ * widget; they must not be used to gate navigation.
  */
-import { supabase } from '@/lib/supabase'
+import { supabase, getApiAuthToken } from '@/lib/supabase'
+import { API_BASE_URL } from '@/lib/env'
 
 // Mirror of subscription_plans.websites_limit in DB
 // (backend/migrations/005_subscription_management.sql).
@@ -42,8 +45,11 @@ export async function canCreateWebsite(userId: string): Promise<WebsiteQuota> {
   const { limit, planName, hasActiveSubscription } = await getWebsiteLimit(userId)
 
   if (!hasActiveSubscription) {
-    // No active subscription — backend will return 403; surface that here.
-    return { allowed: false, currentUsage, limit: 0, addonCredits: 0, planName: null }
+    // Either genuinely no subscription, or the anon client can't see the
+    // row (RLS — see file header). Don't synthesize limit: 0 here, that
+    // produces "X/0" in the modal. Leave limit null and let callers
+    // decide; gating should go through checkCreateWebsiteAllowed.
+    return { allowed: false, currentUsage, limit: null, addonCredits: 0, planName: null }
   }
 
   if (limit === null) {
@@ -120,4 +126,57 @@ export async function getWebsiteLimit(userId: string): Promise<{
   }
 
   return { limit, planName, hasActiveSubscription: !!subRow }
+}
+
+export interface CreateWebsiteCheck {
+  allowed: boolean
+  currentUsage: number
+  limit: number | null // null = unlimited / unknown
+  unlimited: boolean
+  canBuyAddon: boolean
+  addonPrice?: number
+  requiresRenewal: boolean
+}
+
+/**
+ * Authoritative gating check via the backend (service role; sees RLS-hidden
+ * rows; knows about admin bypass, grace period, expiry). Use this anywhere
+ * we'd otherwise open the "Had Tercapai" modal. On transport failure we
+ * fail open — the create POST will still 403 if the user genuinely can't.
+ */
+export async function checkCreateWebsiteAllowed(): Promise<CreateWebsiteCheck> {
+  const failOpen: CreateWebsiteCheck = {
+    allowed: true,
+    currentUsage: 0,
+    limit: null,
+    unlimited: true,
+    canBuyAddon: false,
+    requiresRenewal: false,
+  }
+  try {
+    const token = await getApiAuthToken()
+    if (!token) return failOpen
+    const res = await fetch(`${API_BASE_URL}/api/v1/subscription/check-limit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ action: 'create_website' }),
+    })
+    if (!res.ok) return failOpen
+    const d = await res.json()
+    const limit = d.limit ?? null
+    return {
+      allowed: !!d.allowed,
+      currentUsage: d.current_usage ?? 0,
+      limit,
+      unlimited: !!d.unlimited || limit === null,
+      canBuyAddon: !!d.can_buy_addon,
+      addonPrice: d.addon_price ?? undefined,
+      requiresRenewal: !!d.requires_renewal,
+    }
+  } catch {
+    return failOpen
+  }
 }
