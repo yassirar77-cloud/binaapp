@@ -117,7 +117,11 @@ async def generate_website(
 
         # Handle unlimited plans (websites_limit = None) and admin bypass.
         if websites_limit is not None and not _is_admin_bypass:
-            # 3. Check addon credits
+            # 3. Check addon credits. Schema (migrations 015 + 024) has
+            #    quantity + quantity_used; available = quantity - quantity_used.
+            #    PostgREST can't express arithmetic in URL filters, so we
+            #    fetch all active rows and filter in code (same pattern as
+            #    subscription_service.get_available_addon_credits).
             async with _httpx.AsyncClient() as _client:
                 _addon_resp = await _client.get(
                     f"{_base_url}/rest/v1/addon_purchases",
@@ -126,12 +130,16 @@ async def generate_website(
                         "user_id": f"eq.{user_id}",
                         "addon_type": "eq.website",
                         "status": "eq.active",
-                        "quantity_remaining": "gt.0",
-                        "select": "id,quantity_remaining"
+                        "select": "id,quantity,quantity_used"
                     }
                 )
-            _addon_data = _addon_resp.json() if _addon_resp.status_code == 200 else []
-            addon_credits = sum(a["quantity_remaining"] for a in _addon_data)
+            _addon_rows = _addon_resp.json() if _addon_resp.status_code == 200 else []
+            _addon_data = [
+                {**r, "available": max(0, (r.get("quantity") or 0) - (r.get("quantity_used") or 0))}
+                for r in _addon_rows
+            ]
+            _addon_data = [r for r in _addon_data if r["available"] > 0]
+            addon_credits = sum(r["available"] for r in _addon_data)
 
             total_allowed = websites_limit + addon_credits
 
@@ -153,17 +161,25 @@ async def generate_website(
                     }
                 )
 
-            # 5. If using addon credit, deduct one immediately (before generation starts)
+            # 5. If using addon credit, deduct one immediately (before generation starts).
+            #    Increment quantity_used; flip status to 'depleted' when fully consumed.
             if actual_count >= websites_limit and addon_credits > 0:
                 _addon_to_use = _addon_data[0]
+                _prev_qty_used = _addon_to_use.get("quantity_used") or 0
+                _new_qty_used = _prev_qty_used + 1
+                _new_status = "depleted" if _new_qty_used >= (_addon_to_use.get("quantity") or 0) else "active"
                 async with _httpx.AsyncClient() as _client:
                     await _client.patch(
                         f"{_base_url}/rest/v1/addon_purchases",
                         headers={**_svc_headers, "Prefer": "return=minimal"},
                         params={"id": f"eq.{_addon_to_use['id']}"},
-                        json={"quantity_remaining": _addon_to_use["quantity_remaining"] - 1}
+                        json={"quantity_used": _new_qty_used, "status": _new_status}
                     )
-                _addon_deducted = {"id": _addon_to_use["id"], "quantity_remaining": _addon_to_use["quantity_remaining"]}
+                _addon_deducted = {
+                    "id": _addon_to_use["id"],
+                    "prev_quantity_used": _prev_qty_used,
+                    "prev_status": _addon_to_use.get("status", "active"),
+                }
                 logger.info(f"[ADDON USED] user={user_id} addon_id={_addon_to_use['id']}")
 
         # ============================================================
@@ -309,7 +325,10 @@ async def generate_website(
                         f"{_base_url}/rest/v1/addon_purchases",
                         headers={**_svc_headers, "Prefer": "return=minimal"},
                         params={"id": f"eq.{_addon_deducted['id']}"},
-                        json={"quantity_remaining": _addon_deducted["quantity_remaining"]}
+                        json={
+                            "quantity_used": _addon_deducted["prev_quantity_used"],
+                            "status": _addon_deducted["prev_status"],
+                        }
                     )
                 logger.info(f"[ADDON ROLLBACK] Restored addon credit {_addon_deducted['id']} for user {user_id}")
             except Exception as rollback_err:
@@ -328,7 +347,10 @@ async def generate_website(
                         f"{_base_url}/rest/v1/addon_purchases",
                         headers={**_svc_headers, "Prefer": "return=minimal"},
                         params={"id": f"eq.{_addon_deducted['id']}"},
-                        json={"quantity_remaining": _addon_deducted["quantity_remaining"]}
+                        json={
+                            "quantity_used": _addon_deducted["prev_quantity_used"],
+                            "status": _addon_deducted["prev_status"],
+                        }
                     )
                 logger.info(f"[ADDON ROLLBACK] Restored addon credit {_addon_deducted['id']} for user {user_id}")
             except Exception as rollback_err:

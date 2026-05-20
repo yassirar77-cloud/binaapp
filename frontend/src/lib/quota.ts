@@ -56,16 +56,19 @@ export async function canCreateWebsite(userId: string): Promise<WebsiteQuota> {
     return { allowed: true, currentUsage, limit: null, addonCredits: 0, planName }
   }
 
+  // Schema (migrations 015 + 024) has quantity + quantity_used.
+  // available = quantity - quantity_used; we filter in code rather than
+  // by URL because PostgREST can't express arithmetic in filters.
   const { data: addons } = await supabase
     .from('addon_purchases')
-    .select('quantity_remaining')
+    .select('quantity,quantity_used')
     .eq('user_id', userId)
     .eq('addon_type', 'website')
     .eq('status', 'active')
-    .gt('quantity_remaining', 0)
 
   const addonCredits = (addons || []).reduce(
-    (s: number, a: { quantity_remaining: number | null }) => s + (a.quantity_remaining ?? 0),
+    (s: number, a: { quantity: number | null; quantity_used: number | null }) =>
+      s + Math.max(0, (a.quantity ?? 0) - (a.quantity_used ?? 0)),
     0,
   )
   const totalAllowed = limit + addonCredits
