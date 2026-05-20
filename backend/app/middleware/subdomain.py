@@ -465,6 +465,10 @@ async def subdomain_middleware(request: Request, call_next):
                 from datetime import datetime
 
                 recovery_id = str(uuid.uuid4())
+                # Creates an orphan row (user_id is NULL by default). Must only be
+                # claimable via backend/app/api/simple/publish.py, which enforces
+                # check_limit on the claiming user (issue #656). Do not add code
+                # paths that assign user_id here without going through publish.
                 recovery_data = {
                     "id": recovery_id,
                     "subdomain": subdomain,

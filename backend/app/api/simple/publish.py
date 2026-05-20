@@ -364,7 +364,13 @@ async def publish_website(
         logger.info("✓ Subdomain format valid")
 
         # Check if subdomain is already taken and handle ownership
+        # is_republish drives UPDATE-vs-INSERT on the websites row.
+        # is_orphan_claim means: row already exists but is unowned (user_id NULL);
+        # we still UPDATE the existing row, but the publish counts toward the
+        # user's quota (check_limit + increment_usage) because it's adding a
+        # website to this user's account for the first time.
         is_republish = False
+        is_orphan_claim = False
         existing_website = None
         project_id = None
 
@@ -383,27 +389,37 @@ async def publish_website(
                     existing_user_id = existing_website.get("user_id")
                     logger.info(f"   Database record found. Owner: {existing_user_id}")
 
-                    # Case 1: User owns this website - allow republish
+                    # Case 1: User owns this website - genuine republish
                     if existing_user_id == user_id:
                         logger.info(f"✅ User owns this website - allowing republish")
                         is_republish = True
                         project_id = existing_website.get("id")
 
-                    # Case 2: Check if the owner is an orphaned/random UUID
-                    # An orphaned UUID is one that doesn't match any real user in auth.users
-                    # We can detect this by checking if it's a valid UUID but user can't access it
-                    elif current_user:
-                        # If authenticated user is trying to publish to a subdomain owned by different user
-                        # Check if that user_id looks like a random UUID (orphaned website)
-                        # For now, allow authenticated users to claim ANY existing subdomain
-                        # since orphaned websites were created with random UUIDs
-                        logger.info(f"🔄 Authenticated user claiming orphaned website")
-                        logger.info(f"   Old user_id: {existing_user_id}")
+                    # Case 2: Orphan row (user_id NULL) - authenticated user may claim it,
+                    # but the claim counts toward their quota. We reuse the row id so
+                    # storage/db stay consistent, but check_limit must run before the
+                    # UPDATE that sets user_id (see issue #656).
+                    elif existing_user_id is None and current_user:
+                        logger.info(f"🔄 Authenticated user claiming orphan website (user_id was NULL)")
                         logger.info(f"   New user_id: {user_id}")
                         is_republish = True
+                        is_orphan_claim = True
                         project_id = existing_website.get("id")
+
+                    # Case 3: Subdomain owned by a different (real) user - takeover attempt.
+                    # Never silently transfer ownership between users.
+                    elif current_user:
+                        logger.warning(
+                            f"⛔ Takeover attempt blocked: subdomain '{request.subdomain}' "
+                            f"owned by user {existing_user_id}, requested by {user_id}"
+                        )
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail=f"Subdomain '{request.subdomain}' sudah digunakan oleh pengguna lain. Sila pilih yang lain."
+                        )
+
+                    # Case 4: Unauthenticated request for a taken subdomain
                     else:
-                        # Unauthenticated user cannot claim existing subdomain
                         logger.warning(f"⚠️ Subdomain owned by another user: {request.subdomain}")
                         raise HTTPException(
                             status_code=status.HTTP_400_BAD_REQUEST,
@@ -432,9 +448,11 @@ async def publish_website(
             project_id = str(uuid.uuid4())
         logger.info(f"✓ Project ID: {project_id} ({'existing' if is_republish else 'new'})")
 
-        # CRITICAL: Check subscription limit for authenticated users ONLY for NEW websites
-        # Republishing existing websites should always be allowed (user already owns them)
-        if current_user and not is_republish:
+        # CRITICAL: Check subscription limit for authenticated users on any publish
+        # that adds a website to their account. Genuine republishes (user already
+        # owns the row) are exempt; orphan claims (user_id was NULL) are NOT — they
+        # add to the user's website count and must pass check_limit (issue #656).
+        if current_user and (not is_republish or is_orphan_claim):
             logger.info("")
             logger.info("🔒 SUBSCRIPTION CHECK: Verifying website limit for NEW website...")
             limit_result = await subscription_service.check_limit(user_id, "create_website")
@@ -561,9 +579,10 @@ async def publish_website(
             db_result = await retry_with_backoff(save_metadata, max_retries=3, initial_delay=1.0)
             logger.info(f"✅ Database record saved successfully: {project_id}")
 
-            # CRITICAL: Track usage for authenticated users ONLY for NEW websites
-            # Republishing should NOT increment usage (user is updating, not creating)
-            if current_user and not is_republish:
+            # CRITICAL: Track usage for any publish that adds a website to the
+            # user's account. Orphan claims count as adds (issue #656); genuine
+            # republishes do not.
+            if current_user and (not is_republish or is_orphan_claim):
                 try:
                     if limit_result and limit_result.get("using_addon"):
                         await subscription_service.use_addon_credit(user_id, "website")
