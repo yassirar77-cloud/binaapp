@@ -384,7 +384,24 @@ export async function signUp(
 }
 
 /**
- * Sign in a user via backend API
+ * Sign in a user via backend API.
+ *
+ * NOTE: this issues a custom backend JWT (signed with JWT_SECRET_KEY, not
+ * the Supabase JWT secret) and stores it in localStorage. It does NOT
+ * call `supabase.auth.setSession()`, so the supabase-js client stays on
+ * the anon role for the lifetime of the session: `auth.uid()` is NULL
+ * and any client read of an RLS-protected table whose policy depends on
+ * `auth.uid() = user_id` will return 0 rows.
+ *
+ * Practical consequence: do NOT gate UI on `supabase.from(<rls table>)`
+ * reads — they will look like "no row" even when the row exists. Route
+ * those checks through the backend API (service role) instead. The
+ * "Had Tercapai (60/0)" PRO-user bug was caused by exactly this pattern
+ * reading the `subscriptions` table; see lib/quota.ts.
+ *
+ * Fixing this for real means either setting a Supabase session at login
+ * (issue Supabase-signed JWTs) or migrating every RLS-protected client
+ * read to a backend endpoint. Out of scope for this diff.
  */
 export async function signIn(email: string, password: string) {
   const response = await fetch(`${API_BASE}/api/v1/login`, {

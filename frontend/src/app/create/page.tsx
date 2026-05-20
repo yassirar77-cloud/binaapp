@@ -15,7 +15,7 @@ import { AddonPurchaseModal } from '@/components/AddonPurchaseModal'
 import { LimitReachedModal } from '@/components/LimitReachedModal'
 import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
 import { supabase, signOut as customSignOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
-import { canCreateWebsite } from '@/lib/quota'
+import { checkCreateWebsiteAllowed } from '@/lib/quota'
 import { User } from '@supabase/supabase-js'
 import { checkImageSafety } from '@/utils/imageModeration'
 import toast from 'react-hot-toast'
@@ -170,7 +170,7 @@ export default function CreatePage() {
   const [limitModalData, setLimitModalData] = useState<{
     resourceType: 'website' | 'menu_item' | 'ai_hero' | 'ai_image' | 'zone' | 'rider';
     currentUsage: number;
-    limit: number;
+    limit: number | null;
     canBuyAddon: boolean;
     addonPrice?: number;
   } | null>(null)
@@ -412,24 +412,25 @@ export default function CreatePage() {
     checkUser()
   }, [])
 
-  // Check website limit on page load using direct Supabase count (source of truth)
+  // Check website limit on page load via the backend (service role; sees
+  // RLS-hidden rows). The frontend supabase anon client can't be trusted
+  // for this — see lib/supabase.ts signIn() note.
   useEffect(() => {
     const checkLimit = async () => {
-      if (!supabase) return
       try {
-        const { data: { user: authUser } } = await supabase.auth.getUser()
-        if (!authUser) return
-
-        const quota = await canCreateWebsite(authUser.id)
-        if (quota.allowed) return
+        const quota = await checkCreateWebsiteAllowed()
+        if (quota.allowed || quota.unlimited || quota.limit === null) return
+        // requiresRenewal handled elsewhere by SubscriptionExpiredBanner;
+        // don't show the "X/0" limit modal for it.
+        if (quota.requiresRenewal) return
 
         setIsAtLimit(true)
         setLimitModalData({
           resourceType: 'website',
           currentUsage: quota.currentUsage,
-          limit: quota.limit ?? 0,
-          canBuyAddon: true,
-          addonPrice: 5,
+          limit: quota.limit,
+          canBuyAddon: quota.canBuyAddon,
+          addonPrice: quota.addonPrice ?? 5,
         })
         setShowLimitModal(true)
       } catch (err) {
