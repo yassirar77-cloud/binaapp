@@ -349,10 +349,42 @@ class SubscriptionService:
             if existing_record:
                 # Update with actual counts for persistent resources
                 # Keep AI usage from the tracking table (those reset each billing period)
-                existing_record["websites_count"] = actual_counts["websites_count"]
-                existing_record["menu_items_count"] = actual_counts["menu_items_count"]
+                #
+                # G.1 self-healing: when the persisted websites_count or
+                # menu_items_count disagrees with reality (e.g. because the
+                # frontend dashboard deletes go around the backend's
+                # decrement_usage; see frontend/src/app/dashboard/page.tsx),
+                # persist the correction so direct-SQL readers (admin tools,
+                # diagnostics, future code paths) see the same value the
+                # helper returns. Best-effort — limit gating already uses
+                # the actual count via the in-memory override below, so
+                # PATCH failure here is non-fatal.
+                drifted = (
+                    existing_record.get("websites_count")   != actual_counts["websites_count"]
+                    or existing_record.get("menu_items_count") != actual_counts["menu_items_count"]
+                )
+                existing_record["websites_count"]       = actual_counts["websites_count"]
+                existing_record["menu_items_count"]     = actual_counts["menu_items_count"]
                 existing_record["delivery_zones_count"] = actual_counts["delivery_zones_count"]
-                existing_record["riders_count"] = actual_counts["riders_count"]
+                existing_record["riders_count"]         = actual_counts["riders_count"]
+                if drifted:
+                    try:
+                        async with httpx.AsyncClient() as client:
+                            await client.patch(
+                                url,
+                                headers={**self.headers, "Prefer": "return=minimal"},
+                                params={
+                                    "user_id":        f"eq.{user_id}",
+                                    "billing_period": f"eq.{billing_period}",
+                                },
+                                json={
+                                    "websites_count":   actual_counts["websites_count"],
+                                    "menu_items_count": actual_counts["menu_items_count"],
+                                    "updated_at":       datetime.utcnow().isoformat(),
+                                },
+                            )
+                    except Exception as drift_persist_err:
+                        logger.warning(f"[USAGE DRIFT PERSIST] {drift_persist_err}")
                 return existing_record
 
             # Create new record with actual counts + explicit defaults for
