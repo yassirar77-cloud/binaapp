@@ -27,3 +27,30 @@ export interface Addon {
   description: string;
   price: number;
 }
+
+export interface UsageData {
+  used: number;
+  limit: number | null;
+  percentage: number;
+  unlimited: boolean;
+  addon_credits: number;
+}
+
+export interface UsageResponse {
+  plan: {
+    name: string;
+    status: string;
+    days_remaining: number;
+    end_date: string | null;
+    is_expired: boolean;
+  };
+  usage: {
+    websites?: UsageData;
+    menu_items?: UsageData;
+    ai_hero?: UsageData;
+    ai_images?: UsageData;
+    delivery_zones?: UsageData;
+    riders?: UsageData;
+  };
+  addon_prices?: Record<string, number>;
+}

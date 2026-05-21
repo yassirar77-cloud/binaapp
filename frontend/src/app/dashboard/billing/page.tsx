@@ -6,7 +6,8 @@ import { backupAuthState, getStoredToken } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import BillingSubnav from './components/BillingSubnav';
 import CurrentPlanBanner from './components/CurrentPlanBanner';
-import type { Addon, Plan, SubscriptionStatus } from './types';
+import UsageHeroCards from './components/UsageHeroCards';
+import type { Addon, Plan, SubscriptionStatus, UsageResponse } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -17,6 +18,7 @@ export default function BillingPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [addons, setAddons] = useState<Addon[]>([]);
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
+  const [usage, setUsage] = useState<UsageResponse | null>(null);
   const [processing, setProcessing] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<string | null>(null);
 
@@ -29,12 +31,12 @@ export default function BillingPage() {
         return;
       }
 
-      const [plansRes, statusRes, addonsRes] = await Promise.all([
+      const authHeaders = { Authorization: `Bearer ${token}` };
+      const [plansRes, statusRes, addonsRes, usageRes] = await Promise.all([
         fetch(`${API_URL}/api/v1/subscription/plans`),
-        fetch(`${API_URL}/api/v1/subscription/status`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        fetch(`${API_URL}/api/v1/subscription/status`, { headers: authHeaders }),
         fetch(`${API_URL}/api/v1/subscription/addons/available`),
+        fetch(`${API_URL}/api/v1/subscription/usage`, { headers: authHeaders }),
       ]);
 
       if (plansRes.ok) {
@@ -47,6 +49,9 @@ export default function BillingPage() {
       if (addonsRes.ok) {
         const data = await addonsRes.json();
         setAddons(data.addons || []);
+      }
+      if (usageRes.ok) {
+        setUsage(await usageRes.json());
       }
     } catch (error) {
       console.error('Error fetching billing data:', error);
@@ -187,7 +192,6 @@ export default function BillingPage() {
   }
 
   const placeholderSections: { id: string; title: string; commit: string }[] = [
-    { id: 'sec-penggunaan', title: 'Penggunaan bulan ini', commit: 'commit 4' },
     { id: 'sec-pelan', title: 'Pilih pelan', commit: 'commit 5' },
     { id: 'sec-tambahan', title: 'Tambahan À la carte', commit: 'commit 6' },
     { id: 'sec-sejarah', title: 'Sejarah pembayaran', commit: 'commit 7' },
@@ -227,6 +231,10 @@ export default function BillingPage() {
               <CurrentPlanBanner subscription={subscription} plans={plans} />
             </section>
           )}
+
+          <section id="sec-penggunaan" className="scroll-mt-32">
+            <UsageHeroCards usage={usage} />
+          </section>
 
           {/* Remaining section placeholders — each filled by a subsequent commit. */}
           {placeholderSections.map((s) => (
