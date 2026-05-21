@@ -13,9 +13,16 @@ import type { MetadataRoute } from 'next';
  * cross-linked via the `alternates.languages` field — this is the
  * sitemap-level hreflang signal that complements the
  * <link rel="alternate" hreflang=…> tags emitted by each page's
- * Metadata.alternates.languages. Google and Bing both read either
- * signal, but emitting both is the recommended belt-and-suspenders
- * approach for international SEO.
+ * Metadata.alternates.languages.
+ *
+ * Known limitation on this project (Next.js 14.1.0): the
+ * `alternates.languages` field on sitemap entries is silently
+ * ignored — the `<xhtml:link>` hreflang tags inside `<url>` were
+ * added in Next 14.2 (release notes). The per-page
+ * `<link rel="alternate" hreflang>` tags in HTML <head> are still
+ * the primary SEO signal and work correctly. The field is left in
+ * the sitemap config so the second signal lights up automatically
+ * when the project upgrades to Next 14.2+.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = 'https://binaapp.my';

@@ -15,6 +15,12 @@ import { AuthProvider } from '@/components/AuthProvider'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
+  // Production origin — drives absolute URL generation for Metadata
+  // fields like canonical and alternates.languages on child routes.
+  // Without this Next.js emits relative URLs in <link rel="canonical">
+  // and <link rel="alternate" hreflang> tags, which work but are a
+  // weaker SEO signal than absolute URLs.
+  metadataBase: new URL('https://binaapp.my'),
   title: 'BinaApp - AI Website Builder Malaysia',
   description: 'Bina website perniagaan dengan AI dalam 60 saat',
   manifest: '/manifest.json',
