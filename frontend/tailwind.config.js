@@ -73,6 +73,8 @@ module.exports = {
         card: '0 1px 3px rgba(11,11,21,0.08), 0 8px 24px rgba(11,11,21,0.06)',
         lift: '0 12px 32px rgba(11,11,21,0.12)',
         glow: '0 0 0 4px rgba(79,61,255,0.18)',
+        'glow-brand': '0 0 0 1px #4F3DFF, 0 8px 32px rgba(79,61,255,0.35)',
+        'glow-volt': '0 0 0 1px #A8E81C, 0 10px 28px rgba(199,255,61,0.45)',
       },
       borderRadius: {
         xl2: '1.25rem',
