@@ -102,15 +102,18 @@ export function LegalTOC({
     <ol className="space-y-1 text-sm">
       {items.map((item) => {
         const isActive = activeId === item.id;
+        const baseFocus =
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-1';
         return (
           <li key={item.id}>
             <a
               href={`#${item.id}`}
               onClick={onItemClick}
+              aria-current={isActive ? 'location' : undefined}
               className={
                 isActive
-                  ? 'block rounded-md bg-brand-50 px-3 py-2 text-brand-700 font-medium border-l-2 border-brand-500 -ml-0.5 transition'
-                  : 'block rounded-md px-3 py-2 text-ink-600 hover:text-ink-900 hover:bg-ink-100 transition'
+                  ? `block rounded-md bg-brand-50 px-3 py-2 text-brand-700 font-medium border-l-2 border-brand-500 -ml-0.5 transition ${baseFocus}`
+                  : `block rounded-md px-3 py-2 text-ink-600 hover:text-ink-900 hover:bg-ink-100 transition ${baseFocus}`
               }
             >
               {item.title}
@@ -124,7 +127,7 @@ export function LegalTOC({
   return (
     <>
       {/* Desktop sidebar */}
-      <nav aria-label={label} className="hidden lg:block">
+      <nav aria-label={label} className="hidden lg:block print:hidden">
         <div className="rounded-xl border border-ink-200 bg-white p-4 max-h-[calc(100vh-6rem)] overflow-y-auto">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-ink-500 mb-3 px-3">
             {label}
@@ -137,7 +140,7 @@ export function LegalTOC({
       <button
         type="button"
         onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full bg-brand-500 px-4 py-3 text-sm font-semibold text-white shadow-lift hover:bg-brand-600 transition"
+        className="lg:hidden print:hidden fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full bg-brand-500 px-4 py-3 text-sm font-semibold text-white shadow-lift hover:bg-brand-600 transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-300"
         aria-label={mobileLabels.open}
       >
         <List className="h-4 w-4" aria-hidden="true" />
@@ -159,7 +162,7 @@ export function LegalTOC({
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
-                className="rounded-md p-1.5 text-ink-500 hover:text-ink-900 hover:bg-ink-100"
+                className="rounded-md p-1.5 text-ink-500 hover:text-ink-900 hover:bg-ink-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
                 aria-label={mobileLabels.close}
               >
                 <X className="h-5 w-5" aria-hidden="true" />

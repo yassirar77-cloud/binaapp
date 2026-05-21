@@ -44,7 +44,7 @@ export function LegalSection({
       >
         <a
           href={`#${section.id}`}
-          className="no-underline hover:underline decoration-brand-300 underline-offset-4"
+          className="no-underline hover:underline decoration-brand-300 underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 rounded print:no-underline"
           aria-label={`${anchorLabelPrefix} ${section.title}`}
         >
           {section.title}

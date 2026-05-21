@@ -48,7 +48,7 @@ export function LegalLanguageToggle({
 
   return (
     <div
-      className="inline-flex items-center rounded-full bg-ink-100 p-1 text-sm"
+      className="inline-flex items-center rounded-full bg-ink-100 p-1 text-sm print:hidden"
       role="group"
       aria-label={ariaLabel}
     >
@@ -58,8 +58,8 @@ export function LegalLanguageToggle({
         aria-current={current === 'bm' ? 'page' : undefined}
         className={
           current === 'bm'
-            ? 'rounded-full bg-white px-3 py-1 font-semibold text-ink-900 shadow-soft transition'
-            : 'rounded-full px-3 py-1 text-ink-600 hover:text-ink-900 transition'
+            ? 'rounded-full bg-white px-3 py-1 font-semibold text-ink-900 shadow-soft transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400'
+            : 'rounded-full px-3 py-1 text-ink-600 hover:text-ink-900 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400'
         }
       >
         BM
@@ -69,8 +69,8 @@ export function LegalLanguageToggle({
         aria-current={current === 'en' ? 'page' : undefined}
         className={
           current === 'en'
-            ? 'rounded-full bg-white px-3 py-1 font-semibold text-ink-900 shadow-soft transition'
-            : 'rounded-full px-3 py-1 text-ink-600 hover:text-ink-900 transition'
+            ? 'rounded-full bg-white px-3 py-1 font-semibold text-ink-900 shadow-soft transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400'
+            : 'rounded-full px-3 py-1 text-ink-600 hover:text-ink-900 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400'
         }
       >
         EN

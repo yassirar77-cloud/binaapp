@@ -55,22 +55,27 @@ export function LegalChangelog({ entries, title, labels: l = DEFAULT_LABELS }: P
 
       {hasOlder && (
         <>
-          {showOlder && (
-            <div className="mt-6 pt-6 border-t border-ink-100 space-y-6">
-              {older.map((entry) => (
-                <ChangelogVersion
-                  key={entry.version}
-                  entry={entry}
-                  highlight={false}
-                  versionLabel={l.versionLabel}
-                />
-              ))}
-            </div>
-          )}
+          {/* Older versions are always in the DOM (screen readers, print,
+              and search engines see them) but hidden by default on screen
+              behind the toggle. `print:block` ensures the printed PDF
+              shows the full version history regardless of toggle state. */}
+          <div
+            id="changelog-older"
+            className={`mt-6 pt-6 border-t border-ink-100 space-y-6 ${showOlder ? '' : 'hidden'} print:block`}
+          >
+            {older.map((entry) => (
+              <ChangelogVersion
+                key={entry.version}
+                entry={entry}
+                highlight={false}
+                versionLabel={l.versionLabel}
+              />
+            ))}
+          </div>
           <button
             type="button"
             onClick={() => setShowOlder((v) => !v)}
-            className="mt-4 inline-flex items-center gap-1.5 text-sm text-brand-500 hover:text-brand-600 font-medium"
+            className="mt-4 inline-flex items-center gap-1.5 text-sm text-brand-500 hover:text-brand-600 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-1 rounded print:hidden"
             aria-expanded={showOlder}
             aria-controls="changelog-older"
           >

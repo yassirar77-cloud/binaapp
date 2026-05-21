@@ -51,16 +51,16 @@ export function LegalDocument({
     docType === 'terms' && 'businessModelCallout' in doc;
 
   return (
-    <div className="bg-ink-050 min-h-screen">
+    <div className="bg-ink-050 min-h-screen scroll-smooth print:bg-white">
       {/* Skip to content link for keyboard users */}
       <a
         href="#legal-main"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded focus:bg-brand-500 focus:px-3 focus:py-2 focus:text-sm focus:text-white"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded focus:bg-brand-500 focus:px-3 focus:py-2 focus:text-sm focus:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
       >
         {labels.skipToContent}
       </a>
 
-      <article className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+      <article className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 lg:py-12 print:max-w-none print:py-4">
         <header className="mx-auto max-w-3xl">
           <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
             <h1 className="text-3xl sm:text-4xl font-bold text-ink-900 tracking-tight">
@@ -80,8 +80,8 @@ export function LegalDocument({
           />
         </header>
 
-        <div className="mt-10 grid grid-cols-1 lg:grid-cols-[1fr_18rem] gap-8 lg:gap-12">
-          <main id="legal-main" className="mx-auto w-full max-w-3xl lg:mx-0">
+        <div className="mt-10 grid grid-cols-1 lg:grid-cols-[1fr_18rem] gap-8 lg:gap-12 print:block">
+          <main id="legal-main" className="mx-auto w-full max-w-3xl lg:mx-0 print:max-w-none">
             {/* Executive summary callout */}
             <section
               id="ringkasan"
@@ -162,7 +162,7 @@ export function LegalDocument({
                   {labels.dpoLabel}:{' '}
                   <a
                     href={`mailto:${doc.contact.dpoEmail}`}
-                    className="text-brand-500 hover:text-brand-600 underline underline-offset-2"
+                    className="text-brand-500 hover:text-brand-600 underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-1 rounded-sm"
                   >
                     {doc.contact.dpoEmail}
                   </a>
@@ -171,9 +171,14 @@ export function LegalDocument({
             </footer>
           </main>
 
-          {/* TOC sidebar slot — rendered in commit 3 */}
+          {/* TOC sidebar slot — interactive client component injected
+              by the page route (LegalTOC). Hidden in print output so the
+              PDF/printed page is a single column of pure content. */}
           {toc && (
-            <aside className="hidden lg:block" aria-label={labels.tocAriaLabel}>
+            <aside
+              className="hidden lg:block print:hidden"
+              aria-label={labels.tocAriaLabel}
+            >
               <div className="sticky top-8">{toc}</div>
             </aside>
           )}

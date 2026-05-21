@@ -116,7 +116,7 @@ function renderInline(text: string): React.ReactNode[] {
         <a
           key={key++}
           href={linkUrl}
-          className="text-brand-500 hover:text-brand-600 underline underline-offset-2"
+          className="text-brand-500 hover:text-brand-600 underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-1 rounded-sm break-words"
           {...(isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
         >
           {linkText}
