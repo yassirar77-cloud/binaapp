@@ -1,6 +1,6 @@
 'use client'
 
-import { CreditCard, Wallet } from 'lucide-react'
+import { Wallet } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { OrderPaymentMethod } from '../checkout-api'
 
@@ -11,21 +11,14 @@ interface PaymentMethodSectionProps {
 }
 
 /**
- * Section 4 — payment method radios. v1 ships with COD active and
- * Online (FPX/ToyyibPay) **disabled** because the backend POST /orders
- * endpoint does not yet call ToyyibPay's create_bill — selecting it
- * today would create an unpaid order with no payment gateway redirect.
+ * Section 4 — payment method.
  *
- * The Online radio is rendered (per design) with a clear "Akan datang"
- * pill so the customer understands the option exists but is on its way.
- *
- * TODO(payment): Wire ToyyibPay create_bill into POST /api/v1/delivery
- *                /orders so `payment_method: "online"` returns a
- *                payment_url, then flip `disabled` to false on the
- *                Online radio below.
- *
- * TODO(payment): Add eWallet (Touch n Go / Boost / GrabPay) and Card
- *                (Visa / Mastercard) payment methods in a future PR.
+ * BinaApp does not process food-order payments. Customers pay the
+ * restaurant directly: cash to the rider on delivery (COD), or by
+ * scanning the merchant's own bank/DuitNow QR shown on the
+ * merchant's restaurant site. Neither flow involves a BinaApp
+ * payment gateway redirect from this checkout, so this section
+ * shows COD as the single selectable option.
  */
 export function PaymentMethodSection({
   selected,
@@ -52,26 +45,6 @@ export function PaymentMethodSection({
         <div className="body">
           <div className="nm">Bayar tunai semasa hantar</div>
           <div className="nt">Sediakan duit pas — paling popular</div>
-        </div>
-        <div className="radio-circle" />
-      </button>
-
-      <button
-        type="button"
-        className={cn('pay-radio', selected === 'online' && 'active')}
-        onClick={() => undefined}
-        disabled
-        aria-disabled="true"
-        title="Pembayaran online akan tersedia tidak lama lagi"
-      >
-        <div className="ic-wrap">
-          <CreditCard size={18} strokeWidth={2} aria-hidden="true" />
-        </div>
-        <div className="body">
-          <div className="nm">
-            Online banking (FPX) <span className="soon-badge">Akan datang</span>
-          </div>
-          <div className="nt">Maybank, CIMB, Public Bank…</div>
         </div>
         <div className="radio-circle" />
       </button>

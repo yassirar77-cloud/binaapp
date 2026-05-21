@@ -146,8 +146,12 @@ export async function geocodeAddress(
 
 /* ----- Order placement -------------------------------------------------- */
 
-/** Maps to the backend `PaymentMethod` enum (cod | online | ewallet). */
-export type OrderPaymentMethod = 'cod' | 'online' | 'ewallet'
+/**
+ * BinaApp does not process customer food-order payments. The customer
+ * checkout flow only ever submits `cod`; the backend's broader
+ * PaymentMethod enum is irrelevant on the customer side.
+ */
+export type OrderPaymentMethod = 'cod'
 
 export interface OrderItemPayload {
   menu_item_id: string
@@ -190,12 +194,6 @@ export interface PlacedOrder {
   created_at: string
   /** Conversation ID from the order-creation flow — useful for chat in PR 6+. */
   conversation_id?: string | null
-  /**
-   * Future field. Today the backend does NOT return a payment_url for
-   * `online` payment_method — ToyyibPay create_bill is not wired into
-   * POST /orders yet. See TODO(payment) in PaymentMethodSection.
-   */
-  payment_url?: string | null
 }
 
 export class PlaceOrderError extends Error {
@@ -254,6 +252,5 @@ export async function placeOrder(payload: PlaceOrderPayload): Promise<PlacedOrde
     total_amount: num(raw.total_amount),
     created_at: raw.created_at,
     conversation_id: raw.conversation_id ?? null,
-    payment_url: raw.payment_url ?? null,
   }
 }

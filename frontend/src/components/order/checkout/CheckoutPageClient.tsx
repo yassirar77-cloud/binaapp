@@ -43,7 +43,8 @@ import { PlaceOrderCTA } from './PlaceOrderCTA'
  * Toggles a `checkout-route` class on `.order-flow` so the page
  * background flips to var(--bg-soft) per the design.
  *
- * Order placement (COD only for v1 — see PaymentMethodSection):
+ * Order placement (COD only — BinaApp does not process customer food
+ * payments. See PaymentMethodSection.):
  *   1. POST /api/v1/delivery/orders with the normalized payload.
  *   2. On success, clear the cart and replace the route with
  *      /order/tracking/{order_number}.
