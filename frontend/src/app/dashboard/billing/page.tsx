@@ -7,9 +7,10 @@ import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import AddonsGrid from './components/AddonsGrid';
 import BillingSubnav from './components/BillingSubnav';
 import CurrentPlanBanner from './components/CurrentPlanBanner';
+import PaymentHistoryPreview from './components/PaymentHistoryPreview';
 import PlanCards from './components/PlanCards';
 import UsageHeroCards from './components/UsageHeroCards';
-import type { Addon, Plan, SubscriptionStatus, UsageResponse } from './types';
+import type { Addon, Plan, SubscriptionStatus, Transaction, UsageResponse } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -21,6 +22,7 @@ export default function BillingPage() {
   const [addons, setAddons] = useState<Addon[]>([]);
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [usage, setUsage] = useState<UsageResponse | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [processing, setProcessing] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState<string | null>(null);
 
@@ -34,11 +36,12 @@ export default function BillingPage() {
       }
 
       const authHeaders = { Authorization: `Bearer ${token}` };
-      const [plansRes, statusRes, addonsRes, usageRes] = await Promise.all([
+      const [plansRes, statusRes, addonsRes, usageRes, txRes] = await Promise.all([
         fetch(`${API_URL}/api/v1/subscription/plans`),
         fetch(`${API_URL}/api/v1/subscription/status`, { headers: authHeaders }),
         fetch(`${API_URL}/api/v1/subscription/addons/available`),
         fetch(`${API_URL}/api/v1/subscription/usage`, { headers: authHeaders }),
+        fetch(`${API_URL}/api/v1/subscription/transactions?limit=8`, { headers: authHeaders }),
       ]);
 
       if (plansRes.ok) {
@@ -54,6 +57,10 @@ export default function BillingPage() {
       }
       if (usageRes.ok) {
         setUsage(await usageRes.json());
+      }
+      if (txRes.ok) {
+        const data = await txRes.json();
+        setTransactions(data.transactions || []);
       }
     } catch (error) {
       console.error('Error fetching billing data:', error);
@@ -194,7 +201,6 @@ export default function BillingPage() {
   }
 
   const placeholderSections: { id: string; title: string; commit: string }[] = [
-    { id: 'sec-sejarah', title: 'Sejarah pembayaran', commit: 'commit 7' },
     { id: 'sec-kaedah', title: 'Kaedah pembayaran', commit: 'commit 8' },
   ];
 
@@ -252,6 +258,10 @@ export default function BillingPage() {
               processing={processing}
               onBuy={handleBuyAddon}
             />
+          </section>
+
+          <section id="sec-sejarah" className="scroll-mt-32">
+            <PaymentHistoryPreview transactions={transactions} />
           </section>
 
           {/* Remaining section placeholders — each filled by a subsequent commit. */}

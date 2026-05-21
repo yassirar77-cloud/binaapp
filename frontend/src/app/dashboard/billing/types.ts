@@ -36,6 +36,18 @@ export interface UsageData {
   addon_credits: number;
 }
 
+export interface Transaction {
+  transaction_id: string;
+  transaction_type: string;
+  item_description: string;
+  amount: number;
+  payment_status: string;
+  created_at: string;
+  toyyibpay_bill_code?: string;
+  invoice_number?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface UsageResponse {
   plan: {
     name: string;
