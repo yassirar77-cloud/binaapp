@@ -595,7 +595,7 @@ class SubscriptionService:
             addon_credits = await self.get_available_addon_credits(user_id, addon_type)
             addon_count = addon_credits.get(addon_type, 0)
 
-            if addon_count > 0:
+            if current < limit + addon_count:
                 return {
                     "allowed": True,
                     "current_usage": current,

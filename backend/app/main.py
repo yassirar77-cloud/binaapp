@@ -42,6 +42,7 @@ from app.core.config import settings
 from app.middleware.subscription_guard import subscription_check_middleware
 from app.api.v1.endpoints import subscription_status
 from app.services.subscription_service import subscription_service as sub_service
+from app.services.supabase_client import supabase_service
 
 # Email polling system
 from app.api.v1.endpoints.email_polling import router as email_polling_router
@@ -2227,29 +2228,116 @@ MANDATORY REQUIREMENTS:
             }
         )
 
-    # Check subscription website limit before spending AI resources
+    # Subscription website limit — hard count from source-of-truth (websites
+    # table). Mirrors backend/app/api/v1/endpoints/websites.py:67-183 so both
+    # generation entry points enforce independently.
+    #
+    # TODO: race condition — concurrent /generate/start calls all see the
+    # same actual_count. Same race exists in /api/v1/websites/generate. Will
+    # need DB-level enforcement (CHECK constraint or row lock) to close.
+    # Tracked in master plan Phase 3.
     if user_id and user_id != "anonymous":
-        try:
-            gen_limit = await sub_service.check_limit(user_id, "create_website")
-            if not gen_limit.get("allowed"):
-                logger.warning(f"🚫 Website limit reached at generate/start for user {user_id}")
+        _is_admin_bypass = await sub_service._is_admin(user_id)
+        if _is_admin_bypass:
+            logger.info(f"[LIMIT CHECK generate/start] admin bypass for user={user_id}")
+        else:
+            _base_url = settings.SUPABASE_URL
+            _svc_headers = supabase_service.headers
+
+            # 1. Count actual websites owned by this user
+            async with httpx.AsyncClient() as _client:
+                _count_resp = await _client.get(
+                    f"{_base_url}/rest/v1/websites",
+                    headers={**_svc_headers, "Prefer": "count=exact"},
+                    params={"user_id": f"eq.{user_id}", "select": "id"}
+                )
+            actual_count = 0
+            if _count_resp.status_code == 200:
+                _cr = _count_resp.headers.get("content-range", "")
+                if "/" in _cr:
+                    try:
+                        actual_count = int(_cr.split("/")[1])
+                    except (ValueError, IndexError):
+                        actual_count = len(_count_resp.json())
+                else:
+                    actual_count = len(_count_resp.json())
+
+            # 2. Active subscription + plan limit
+            async with httpx.AsyncClient() as _client:
+                _sub_resp = await _client.get(
+                    f"{_base_url}/rest/v1/subscriptions",
+                    headers=_svc_headers,
+                    params={
+                        "user_id": f"eq.{user_id}",
+                        "status": "eq.active",
+                        "select": "plan_id,subscription_plans(websites_limit,plan_name)",
+                        "order": "current_period_end.desc.nullslast,end_date.desc.nullslast",
+                        "limit": "1"
+                    }
+                )
+
+            if _sub_resp.status_code != 200 or not _sub_resp.json():
                 return JSONResponse(
                     status_code=403,
                     content={
                         "success": False,
-                        "error": "subscription_limit_reached",
-                        "message": gen_limit.get("message", "Had website dicapai. Upgrade plan atau beli addon."),
-                        "current_usage": gen_limit.get("current_usage"),
-                        "limit": gen_limit.get("limit"),
-                        "can_buy_addon": gen_limit.get("can_buy_addon", False),
-                        "addon_type": gen_limit.get("addon_type"),
-                        "addon_price": gen_limit.get("addon_price"),
-                        "upgrade_url": "/dashboard/billing"
+                        "error": "no_active_subscription",
+                        "message": "Tiada langganan aktif. Sila subscribe dahulu.",
                     }
                 )
-        except Exception as e:
-            logger.warning(f"⚠️ Subscription limit check at generate/start failed: {e}")
-            # Don't block generation on check failure - publish endpoint will enforce
+
+            _sub_data = _sub_resp.json()[0]
+            websites_limit = _sub_data["subscription_plans"]["websites_limit"]
+            plan_name = _sub_data["subscription_plans"]["plan_name"]
+
+            # 3. Addon credits (None websites_limit = unlimited plan, skip)
+            if websites_limit is not None:
+                async with httpx.AsyncClient() as _client:
+                    _addon_resp = await _client.get(
+                        f"{_base_url}/rest/v1/addon_purchases",
+                        headers=_svc_headers,
+                        params={
+                            "user_id": f"eq.{user_id}",
+                            "addon_type": "eq.website",
+                            "status": "eq.active",
+                            "select": "id,quantity,quantity_used"
+                        }
+                    )
+                _addon_rows = _addon_resp.json() if _addon_resp.status_code == 200 else []
+                addon_credits = sum(
+                    max(0, (r.get("quantity") or 0) - (r.get("quantity_used") or 0))
+                    for r in _addon_rows
+                )
+                total_allowed = websites_limit + addon_credits
+
+                logger.info(
+                    f"[LIMIT CHECK generate/start] user={user_id} actual={actual_count} "
+                    f"plan_limit={websites_limit} addon_credits={addon_credits} "
+                    f"total_allowed={total_allowed}"
+                )
+
+                # 4. Block if at or over cap
+                if actual_count >= total_allowed:
+                    logger.warning(
+                        f"[LIMIT BLOCKED generate/start] user={user_id} "
+                        f"({actual_count}/{total_allowed})"
+                    )
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "success": False,
+                            "error": "subscription_limit_reached",
+                            "message": f"Had website dicapai ({actual_count}/{total_allowed}). Upgrade plan atau beli addon tambahan.",
+                            "current_usage": actual_count,
+                            "limit": websites_limit,
+                            "addon_credits": addon_credits,
+                            "total_allowed": total_allowed,
+                            "plan": plan_name,
+                            "can_buy_addon": True,
+                            "addon_type": "website",
+                            "upgrade_url": "/dashboard/billing"
+                        }
+                    )
 
     # Generate job ID
     job_id = str(uuid.uuid4())
