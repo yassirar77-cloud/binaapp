@@ -4,36 +4,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { backupAuthState, getStoredToken } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
-
-export interface Plan {
-  plan_name: string;
-  display_name: string;
-  price: number;
-  websites_limit: number | null;
-  menu_items_limit: number | null;
-  ai_hero_limit: number | null;
-  ai_images_limit: number | null;
-  delivery_zones_limit: number | null;
-  riders_limit: number | null;
-  feature_list: string[];
-}
-
-export interface SubscriptionStatus {
-  plan_name: string;
-  status: string;
-  start_date: string | null;
-  end_date: string | null;
-  days_remaining: number;
-  auto_renew: boolean;
-  is_expired: boolean;
-}
-
-export interface Addon {
-  type: string;
-  name: string;
-  description: string;
-  price: number;
-}
+import BillingSubnav from './components/BillingSubnav';
+import CurrentPlanBanner from './components/CurrentPlanBanner';
+import type { Addon, Plan, SubscriptionStatus } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -213,8 +186,7 @@ export default function BillingPage() {
     );
   }
 
-  const sections: { id: string; title: string; commit: string }[] = [
-    { id: 'sec-bil', title: 'Pelan Semasa', commit: 'commit 3' },
+  const placeholderSections: { id: string; title: string; commit: string }[] = [
     { id: 'sec-penggunaan', title: 'Penggunaan bulan ini', commit: 'commit 4' },
     { id: 'sec-pelan', title: 'Pilih pelan', commit: 'commit 5' },
     { id: 'sec-tambahan', title: 'Tambahan À la carte', commit: 'commit 6' },
@@ -248,8 +220,16 @@ export default function BillingPage() {
             </p>
           </header>
 
-          {/* Section placeholders — each filled by a subsequent commit. */}
-          {sections.map((s) => (
+          <BillingSubnav />
+
+          {subscription && (
+            <section id="sec-bil" className="scroll-mt-32">
+              <CurrentPlanBanner subscription={subscription} plans={plans} />
+            </section>
+          )}
+
+          {/* Remaining section placeholders — each filled by a subsequent commit. */}
+          {placeholderSections.map((s) => (
             <section key={s.id} id={s.id} className="scroll-mt-32">
               <div className="rounded-[20px] border border-dashed border-ink-200 bg-white px-6 py-10 text-center">
                 <div className="font-geist-mono text-[10px] uppercase tracking-[0.14em] text-ink-400">
