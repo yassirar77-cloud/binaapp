@@ -2,23 +2,36 @@ import React from 'react';
 import type { PolicySection } from '@/lib/legal/policy-content-bm';
 import type { TermsSection } from '@/lib/legal/terms-content-bm';
 import { LegalMarkdown } from './LegalMarkdown';
+import { LegalAIVendorTable } from './LegalAIVendorTable';
+import { LegalRetentionTable } from './LegalRetentionTable';
+import { LegalTierTable } from './LegalTierTable';
+import { LegalAddonTable } from './LegalAddonTable';
+import { LegalQuotaTable } from './LegalQuotaTable';
+import { LegalThirdPartyTable } from './LegalThirdPartyTable';
 
 type LegalSectionProps = {
   section: PolicySection | TermsSection;
+  /** Localized anchor-link aria-label, e.g. "Link to section:" / "Pautan ke seksyen:". */
+  anchorLabelPrefix?: string;
 };
 
 /**
  * Renders one numbered section of a legal document: anchored heading,
  * narrative content (via LegalMarkdown), and any structured tables
- * attached to the section. Table rendering is added in commit 2 — for
- * now this component only handles the section title and prose so the
- * base document layout can land first.
+ * attached to the section.
  *
  * The `id` on the wrapping <section> is the same string used in the
  * BM source-of-truth file so URL anchors like /polisi-privasi#ai-features
  * jump to the right place in both languages.
+ *
+ * Tables are detected with `in` checks — both PolicySection and
+ * TermsSection are unions of optional table fields, so TypeScript
+ * needs the guard to narrow before accessing each one.
  */
-export function LegalSection({ section }: LegalSectionProps) {
+export function LegalSection({
+  section,
+  anchorLabelPrefix = 'Link to section:',
+}: LegalSectionProps) {
   return (
     <section
       id={section.id}
@@ -32,15 +45,34 @@ export function LegalSection({ section }: LegalSectionProps) {
         <a
           href={`#${section.id}`}
           className="no-underline hover:underline decoration-brand-300 underline-offset-4"
-          aria-label={`Pautan ke seksyen: ${section.title}`}
+          aria-label={`${anchorLabelPrefix} ${section.title}`}
         >
           {section.title}
         </a>
       </h2>
       <LegalMarkdown content={section.content} />
-      {/* Tables (aiVendorTable, retentionTable, tierTable, addonTable,
-          quotaTable, thirdPartyTable) are rendered in commit 2 once
-          the dedicated table components land. */}
+
+      {/* PolicySection-shaped tables */}
+      {'aiVendorTable' in section && section.aiVendorTable && (
+        <LegalAIVendorTable rows={section.aiVendorTable} />
+      )}
+      {'retentionTable' in section && section.retentionTable && (
+        <LegalRetentionTable rows={section.retentionTable} />
+      )}
+
+      {/* TermsSection-shaped tables */}
+      {'tierTable' in section && section.tierTable && (
+        <LegalTierTable rows={section.tierTable} />
+      )}
+      {'addonTable' in section && section.addonTable && (
+        <LegalAddonTable rows={section.addonTable} />
+      )}
+      {'quotaTable' in section && section.quotaTable && (
+        <LegalQuotaTable rows={section.quotaTable} />
+      )}
+      {'thirdPartyTable' in section && section.thirdPartyTable && (
+        <LegalThirdPartyTable rows={section.thirdPartyTable} />
+      )}
     </section>
   );
 }
