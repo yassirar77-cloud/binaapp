@@ -148,7 +148,7 @@ function RegisterPageContent() {
               <span className="font-geist text-sm text-ink-300">
                 Saya telah membaca dan bersetuju dengan{' '}
                 <a
-                  href="/privacy-policy"
+                  href="/polisi-privasi"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-brand-300 hover:text-brand-200 transition-colors"
@@ -157,7 +157,7 @@ function RegisterPageContent() {
                 </a>
                 {' '}dan{' '}
                 <a
-                  href="/terms-of-service"
+                  href="/terma-perkhidmatan"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-brand-300 hover:text-brand-200 transition-colors"
