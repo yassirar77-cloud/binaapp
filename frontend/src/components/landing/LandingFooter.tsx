@@ -12,8 +12,11 @@ const linkGroups = [
   {
     title: 'Undang-undang',
     links: [
-      { label: 'Polisi Privasi', href: '/privacy-policy' },
-      { label: 'Terma Perkhidmatan', href: '/terms-of-service' },
+      // BM labels point at BM canonical routes (Step 2d Option C).
+      // Each legal page has an in-page BM/EN language toggle so EN
+      // readers can switch without needing a separate footer link.
+      { label: 'Polisi Privasi', href: '/polisi-privasi' },
+      { label: 'Terma Perkhidmatan', href: '/terma-perkhidmatan' },
     ],
   },
   {
