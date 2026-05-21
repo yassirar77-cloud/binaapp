@@ -1,46 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { getStoredToken, backupAuthState } from '@/lib/supabase';
-import { UsageWidget } from '@/components/UsageWidget';
-import './billing.css';
+import { backupAuthState, getStoredToken } from '@/lib/supabase';
+import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 
-// Mobile collapsible usage section
-function MobileUsageSection({
-  onUpgradeClick,
-  onRenewClick
-}: {
-  onUpgradeClick: () => void;
-  onRenewClick: () => void;
-}) {
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  return (
-    <div className="mobile-usage-section">
-      <button
-        className="mobile-usage-toggle"
-        onClick={() => setIsExpanded(!isExpanded)}
-        aria-expanded={isExpanded}
-      >
-        <span className="toggle-icon">{isExpanded ? '▼' : '▶'}</span>
-        <span className="toggle-text">Penggunaan Anda</span>
-        <span className="toggle-hint">{isExpanded ? 'Tutup' : 'Lihat'}</span>
-      </button>
-      {isExpanded && (
-        <div className="mobile-usage-content">
-          <UsageWidget
-            onUpgradeClick={onUpgradeClick}
-            onRenewClick={onRenewClick}
-            compact={true}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface Plan {
+export interface Plan {
   plan_name: string;
   display_name: string;
   price: number;
@@ -53,15 +18,17 @@ interface Plan {
   feature_list: string[];
 }
 
-interface SubscriptionStatus {
+export interface SubscriptionStatus {
   plan_name: string;
   status: string;
-  days_remaining: number;
+  start_date: string | null;
   end_date: string | null;
+  days_remaining: number;
+  auto_renew: boolean;
   is_expired: boolean;
 }
 
-interface Addon {
+export interface Addon {
   type: string;
   name: string;
   description: string;
@@ -78,124 +45,107 @@ export default function BillingPage() {
   const [addons, setAddons] = useState<Addon[]>([]);
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [processing, setProcessing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'plans' | 'addons' | 'history'>('plans');
   const [paymentMessage, setPaymentMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchData();
-
-    // Check if returning from payment
-    const paymentStatus = searchParams.get('payment');
-    if (paymentStatus === 'success') {
-      setPaymentMessage('Pembayaran berjaya! Data telah dikemaskini.');
-      // Clear the URL parameter without reload
-      const newUrl = window.location.pathname;
-      window.history.replaceState({}, '', newUrl);
-
-      // Clear message after 5 seconds
-      setTimeout(() => setPaymentMessage(null), 5000);
-    }
-  }, [searchParams]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const token = getStoredToken();
-
       if (!token) {
         router.push('/login');
         return;
       }
 
-      // Fetch all data in parallel
       const [plansRes, statusRes, addonsRes] = await Promise.all([
         fetch(`${API_URL}/api/v1/subscription/plans`),
         fetch(`${API_URL}/api/v1/subscription/status`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch(`${API_URL}/api/v1/subscription/addons/available`)
+        fetch(`${API_URL}/api/v1/subscription/addons/available`),
       ]);
 
       if (plansRes.ok) {
-        const plansData = await plansRes.json();
-        setPlans(plansData.plans || []);
+        const data = await plansRes.json();
+        setPlans(data.plans || []);
       }
-
       if (statusRes.ok) {
-        const statusData = await statusRes.json();
-        setSubscription(statusData);
+        setSubscription(await statusRes.json());
       }
-
       if (addonsRes.ok) {
-        const addonsData = await addonsRes.json();
-        setAddons(addonsData.addons || []);
+        const data = await addonsRes.json();
+        setAddons(data.addons || []);
       }
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('Error fetching billing data:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
 
-  const handleUpgrade = async (tier: string) => {
-    if (processing) return;
-    setProcessing(true);
+  useEffect(() => {
+    fetchData();
 
-    try {
-      const token = getStoredToken();
-      const response = await fetch(`${API_URL}/api/v1/subscription/upgrade`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ new_plan: tier, prorate: false })
-      });
-
-      const data = await response.json();
-
-      if (data.success && data.payment_url) {
-        localStorage.setItem('pending_tier', tier);
-        localStorage.setItem('pending_bill_code', data.bill_code);
-        // Backup auth state before external redirect
-        backupAuthState();
-        window.location.href = data.payment_url;
-      } else {
-        alert('Ralat: ' + (data.detail?.message || data.detail || 'Gagal memproses'));
-      }
-    } catch (error) {
-      console.error('Upgrade error:', error);
-      alert('Ralat semasa memproses naik taraf');
-    } finally {
-      setProcessing(false);
+    if (searchParams.get('payment') === 'success') {
+      setPaymentMessage('Pembayaran berjaya! Data telah dikemaskini.');
+      window.history.replaceState({}, '', window.location.pathname);
+      const t = setTimeout(() => setPaymentMessage(null), 5000);
+      return () => clearTimeout(t);
     }
-  };
+  }, [fetchData, searchParams]);
 
-  const handleRenew = async () => {
+  const handleUpgrade = useCallback(
+    async (tier: string) => {
+      if (processing) return;
+      setProcessing(true);
+      try {
+        const token = getStoredToken();
+        const res = await fetch(`${API_URL}/api/v1/subscription/upgrade`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ new_plan: tier, prorate: false }),
+        });
+        const data = await res.json();
+        if (data.success && data.payment_url) {
+          localStorage.setItem('pending_tier', tier);
+          localStorage.setItem('pending_bill_code', data.bill_code);
+          backupAuthState();
+          window.location.href = data.payment_url;
+        } else {
+          alert('Ralat: ' + (data.detail?.message || data.detail || 'Gagal memproses'));
+        }
+      } catch (error) {
+        console.error('Upgrade error:', error);
+        alert('Ralat semasa memproses naik taraf');
+      } finally {
+        setProcessing(false);
+      }
+    },
+    [processing]
+  );
+
+  const handleRenew = useCallback(async () => {
     if (processing) return;
     setProcessing(true);
-
     try {
       const token = getStoredToken();
-      const response = await fetch(`${API_URL}/api/v1/subscription/renew`, {
+      const res = await fetch(`${API_URL}/api/v1/subscription/renew`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
       });
-
-      const data = await response.json();
-
+      const data = await res.json();
       if (data.success && data.auto_confirmed) {
-        // Free plan renewal — auto-confirmed, no payment needed
         setPaymentMessage(data.message || 'Pembaharuan percuma berjaya!');
-        fetchData(); // Refresh subscription status
+        fetchData();
         setTimeout(() => setPaymentMessage(null), 5000);
       } else if (data.success && data.payment_url) {
         localStorage.setItem('pending_renewal', 'true');
         localStorage.setItem('pending_bill_code', data.bill_code);
-        // Backup auth state before external redirect
         backupAuthState();
         window.location.href = data.payment_url;
       } else {
@@ -207,267 +157,116 @@ export default function BillingPage() {
     } finally {
       setProcessing(false);
     }
-  };
+  }, [processing, fetchData]);
 
-  const handleBuyAddon = async (addonType: string, quantity: number = 1) => {
-    if (processing) return;
-    setProcessing(true);
-
-    try {
-      const token = getStoredToken();
-      const response = await fetch(`${API_URL}/api/v1/subscription/addons/purchase`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ addon_type: addonType, quantity })
-      });
-
-      const data = await response.json();
-
-      if (data.success && data.payment_url) {
-        localStorage.setItem('pending_addon_type', addonType);
-        localStorage.setItem('pending_bill_code', data.bill_code);
-        // Backup auth state before external redirect
-        backupAuthState();
-        window.location.href = data.payment_url;
-      } else {
-        alert('Ralat: ' + (data.detail || 'Gagal memproses'));
+  const handleBuyAddon = useCallback(
+    async (addonType: string, quantity = 1) => {
+      if (processing) return;
+      setProcessing(true);
+      try {
+        const token = getStoredToken();
+        const res = await fetch(`${API_URL}/api/v1/subscription/addons/purchase`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ addon_type: addonType, quantity }),
+        });
+        const data = await res.json();
+        if (data.success && data.payment_url) {
+          localStorage.setItem('pending_addon_type', addonType);
+          localStorage.setItem('pending_bill_code', data.bill_code);
+          backupAuthState();
+          window.location.href = data.payment_url;
+        } else {
+          alert('Ralat: ' + (data.detail || 'Gagal memproses'));
+        }
+      } catch (error) {
+        console.error('Addon purchase error:', error);
+        alert('Ralat semasa memproses pembelian');
+      } finally {
+        setProcessing(false);
       }
-    } catch (error) {
-      console.error('Addon purchase error:', error);
-      alert('Ralat semasa memproses pembelian');
-    } finally {
-      setProcessing(false);
+    },
+    [processing]
+  );
+
+  const handleLogout = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('binaapp_token');
+      localStorage.removeItem('binaapp_user');
     }
-  };
-
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return '-';
-    return new Date(dateStr).toLocaleDateString('ms-MY', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
-    });
-  };
-
-  const formatLimit = (limit: number | null) => {
-    if (limit === null) return 'Tanpa had';
-    if (limit === 0) return 'Tidak tersedia';
-    return limit.toString();
-  };
+    router.push('/');
+  }, [router]);
 
   if (loading) {
     return (
-      <div className="billing-page">
-        <div className="loading-container">
-          <div className="spinner" />
-          <p>Memuatkan...</p>
-        </div>
-      </div>
+      <>
+        <DashboardHeader onLogout={handleLogout} />
+        <main className="min-h-screen bg-ink-050 flex items-center justify-center">
+          <div className="font-geist-mono text-xs uppercase tracking-[0.14em] text-ink-400">
+            Memuatkan…
+          </div>
+        </main>
+      </>
     );
   }
 
+  const sections: { id: string; title: string; commit: string }[] = [
+    { id: 'sec-bil', title: 'Pelan Semasa', commit: 'commit 3' },
+    { id: 'sec-penggunaan', title: 'Penggunaan bulan ini', commit: 'commit 4' },
+    { id: 'sec-pelan', title: 'Pilih pelan', commit: 'commit 5' },
+    { id: 'sec-tambahan', title: 'Tambahan À la carte', commit: 'commit 6' },
+    { id: 'sec-sejarah', title: 'Sejarah pembayaran', commit: 'commit 7' },
+    { id: 'sec-kaedah', title: 'Kaedah pembayaran', commit: 'commit 8' },
+  ];
+
   return (
-    <div className="billing-page">
-      <div className="billing-header">
-        <button className="back-btn" onClick={() => router.push('/dashboard')}>
-          &larr; Kembali
-        </button>
-        <h1>Pengurusan Langganan</h1>
-      </div>
-
-      {/* Payment Success Message */}
-      {paymentMessage && (
-        <div className="payment-success-banner">
-          <span className="success-icon">&#x2713;</span>
-          {paymentMessage}
-        </div>
-      )}
-
-      {/* Current Subscription Status */}
-      <div className="current-subscription">
-        <div className="subscription-info">
-          <div className="plan-badge-large">
-            {subscription?.plan_name?.toUpperCase() || 'STARTER'}
-          </div>
-          <div className="subscription-details">
-            <p className="status">
-              Status: <span className={subscription?.is_expired ? 'expired' : 'active'}>
-                {subscription?.is_expired ? 'Tamat' : 'Aktif'}
-              </span>
-            </p>
-            {subscription?.end_date && (
-              <p className="expiry">
-                Tamat: <strong>{formatDate(subscription.end_date)}</strong>
-                {!subscription.is_expired && subscription.days_remaining <= 7 && (
-                  <span className="days-warning"> ({subscription.days_remaining} hari lagi)</span>
-                )}
-              </p>
-            )}
-          </div>
-          {(subscription?.is_expired || (subscription?.days_remaining || 0) <= 7) && (
-            <button
-              className="renew-btn-large"
-              onClick={handleRenew}
-              disabled={processing}
+    <>
+      <DashboardHeader onLogout={handleLogout} />
+      <main className="min-h-screen bg-ink-050 font-geist text-ink-900">
+        <div className="mx-auto max-w-[1440px] px-4 py-8 sm:px-7 sm:py-10 flex flex-col gap-9">
+          {paymentMessage && (
+            <div
+              role="status"
+              className="rounded-xl2 bg-ok-500 text-white px-5 py-4 text-sm font-medium shadow-card"
             >
-              {processing ? 'Memproses...' : 'Perbaharui Sekarang'}
-            </button>
+              ✓ {paymentMessage}
+            </div>
           )}
-        </div>
-      </div>
 
-      {/* Tabs */}
-      <div className="billing-tabs">
-        <button
-          className={`tab ${activeTab === 'plans' ? 'active' : ''}`}
-          onClick={() => setActiveTab('plans')}
-        >
-          Pelan Langganan
-        </button>
-        <button
-          className={`tab ${activeTab === 'addons' ? 'active' : ''}`}
-          onClick={() => setActiveTab('addons')}
-        >
-          Addon
-        </button>
-        <button
-          className={`tab ${activeTab === 'history' ? 'active' : ''}`}
-          onClick={() => router.push('/dashboard/transactions')}
-        >
-          Sejarah Transaksi
-        </button>
-      </div>
+          <header>
+            <div className="font-geist-mono text-[10px] uppercase tracking-[0.14em] text-ink-400">
+              Akaun <span className="text-ink-300">/</span> Bil &amp; Langganan
+            </div>
+            <h1 className="mt-1 text-[26px] font-bold tracking-[-0.035em] leading-tight text-ink-900">
+              Bil &amp; Langganan
+            </h1>
+            <p className="mt-1 text-[13px] text-ink-500">
+              Uruskan pelan, lihat penggunaan, dan muat turun resit dari sini.
+            </p>
+          </header>
 
-      {/* Mobile Usage Section - visible only on smaller screens */}
-      <MobileUsageSection
-        onUpgradeClick={() => setActiveTab('plans')}
-        onRenewClick={handleRenew}
-      />
-
-      {/* Plans Tab */}
-      {activeTab === 'plans' && (
-        <div className="plans-grid">
-          {plans.map((plan) => {
-            const isCurrentPlan = plan.plan_name === subscription?.plan_name;
-            const canUpgrade = !isCurrentPlan &&
-              (plan.plan_name === 'basic' && subscription?.plan_name === 'starter') ||
-              (plan.plan_name === 'pro');
-
-            return (
-              <div
-                key={plan.plan_name}
-                className={`plan-card ${plan.plan_name} ${isCurrentPlan ? 'current' : ''}`}
-              >
-                {plan.plan_name === 'basic' && (
-                  <div className="popular-badge">Paling Popular</div>
-                )}
-                <div className="plan-header">
-                  <h3>{plan.display_name}</h3>
-                  <div className="plan-price">
-                    <span className="currency">RM</span>
-                    <span className="amount">{plan.price}</span>
-                    <span className="period">/bulan</span>
-                  </div>
+          {/* Section placeholders — each filled by a subsequent commit. */}
+          {sections.map((s) => (
+            <section key={s.id} id={s.id} className="scroll-mt-32">
+              <div className="rounded-[20px] border border-dashed border-ink-200 bg-white px-6 py-10 text-center">
+                <div className="font-geist-mono text-[10px] uppercase tracking-[0.14em] text-ink-400">
+                  {s.commit}
                 </div>
-
-                <div className="plan-limits">
-                  <div className="limit-item">
-                    <span className="label">Laman Web</span>
-                    <span className="value">{formatLimit(plan.websites_limit)}</span>
-                  </div>
-                  <div className="limit-item">
-                    <span className="label">Item Menu</span>
-                    <span className="value">{formatLimit(plan.menu_items_limit)}</span>
-                  </div>
-                  <div className="limit-item">
-                    <span className="label">AI Hero/bulan</span>
-                    <span className="value">{formatLimit(plan.ai_hero_limit)}</span>
-                  </div>
-                  <div className="limit-item">
-                    <span className="label">Imej AI/bulan</span>
-                    <span className="value">{formatLimit(plan.ai_images_limit)}</span>
-                  </div>
-                  <div className="limit-item">
-                    <span className="label">Zon Penghantaran</span>
-                    <span className="value">{formatLimit(plan.delivery_zones_limit)}</span>
-                  </div>
-                  <div className="limit-item">
-                    <span className="label">Rider</span>
-                    <span className="value">{formatLimit(plan.riders_limit)}</span>
-                  </div>
-                </div>
-
-                <ul className="plan-features">
-                  {plan.feature_list?.map((feature, i) => (
-                    <li key={i}>
-                      <span className="check">&#x2713;</span>
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-
-                <div className="plan-action">
-                  {isCurrentPlan ? (
-                    <div className="current-plan-badge">Pelan Semasa</div>
-                  ) : canUpgrade ? (
-                    <button
-                      className="upgrade-btn"
-                      onClick={() => handleUpgrade(plan.plan_name)}
-                      disabled={processing}
-                    >
-                      {processing ? 'Memproses...' : 'Naik Taraf'}
-                    </button>
-                  ) : (
-                    <button className="upgrade-btn disabled" disabled>
-                      Tidak Tersedia
-                    </button>
-                  )}
-                </div>
+                <div className="mt-2 text-[15px] font-semibold text-ink-600">{s.title}</div>
               </div>
-            );
-          })}
-        </div>
-      )}
+            </section>
+          ))}
 
-      {/* Addons Tab */}
-      {activeTab === 'addons' && (
-        <div className="addons-section">
-          <p className="addons-intro">
-            Tambah kredit tambahan apabila anda mencapai had pelan anda.
-            Kredit addon tidak akan tamat tempoh.
-          </p>
-          <div className="addons-grid">
-            {addons.map((addon) => (
-              <div key={addon.type} className="addon-card">
-                <div className="addon-info">
-                  <h4>{addon.name}</h4>
-                  <p className="addon-description">{addon.description}</p>
-                  <p className="addon-price">RM {addon.price.toFixed(2)}</p>
-                </div>
-                <button
-                  className="buy-addon-btn"
-                  onClick={() => handleBuyAddon(addon.type)}
-                  disabled={processing}
-                >
-                  {processing ? '...' : 'Beli'}
-                </button>
-              </div>
-            ))}
+          {/* Data preview to confirm fetches still work — temporary, removed by commit 5. */}
+          <div className="font-geist-mono text-[10px] uppercase tracking-[0.1em] text-ink-300">
+            data loaded: {plans.length} plans · subscription={subscription?.plan_name ?? 'none'} · {addons.length} addons
+            {processing && ' · processing'}
           </div>
         </div>
-      )}
-
-      {/* Usage Widget Sidebar */}
-      <div className="billing-sidebar">
-        <UsageWidget
-          onUpgradeClick={() => setActiveTab('plans')}
-          onRenewClick={handleRenew}
-          compact={true}
-        />
-      </div>
-    </div>
+      </main>
+    </>
   );
 }
