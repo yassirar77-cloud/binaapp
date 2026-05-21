@@ -14,6 +14,11 @@ export default function EditWebsitePage() {
   const [saving, setSaving] = useState(false);
   const [website, setWebsite] = useState<any>(null);
   const [htmlContent, setHtmlContent] = useState('');
+  // Per-website analytics opt-out (migration 038). Default to true so a
+  // website created before this column existed (NULL in older rows) keeps
+  // analytics on until the merchant explicitly opts out.
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(true);
+  const [analyticsToggling, setAnalyticsToggling] = useState(false);
 
   useEffect(() => {
     loadWebsite();
@@ -31,12 +36,39 @@ export default function EditWebsitePage() {
 
       setWebsite(data);
       setHtmlContent(data.html_content || '');
+      setAnalyticsEnabled(data.analytics_enabled !== false);
     } catch (error) {
       console.error('Error loading website:', error);
       alert('Website tidak dijumpai');
       router.push('/dashboard');
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Immediate-save toggle. Optimistically flips local state, persists to
+  // Supabase, reverts on error. Separate from the Simpan button so the
+  // privacy choice isn't held hostage by unsaved HTML edits.
+  async function toggleAnalytics(next: boolean) {
+    if (analyticsToggling) return;
+    const previous = analyticsEnabled;
+    setAnalyticsEnabled(next);
+    setAnalyticsToggling(true);
+    try {
+      const { error } = await supabase
+        .from('websites')
+        .update({
+          analytics_enabled: next,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', websiteId);
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error toggling analytics:', error);
+      alert('Ralat menyimpan tetapan analitis. Sila cuba lagi.');
+      setAnalyticsEnabled(previous);
+    } finally {
+      setAnalyticsToggling(false);
     }
   }
 
@@ -107,8 +139,30 @@ export default function EditWebsitePage() {
         </div>
       </div>
 
+      {/* Privacy toggle — immediate-save, separate from HTML save */}
+      <div className="bg-white border-b px-4 py-3 flex items-start gap-3">
+        <label className="flex items-center gap-2 shrink-0 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={analyticsEnabled}
+            disabled={analyticsToggling}
+            onChange={(e) => toggleAnalytics(e.target.checked)}
+            className="w-4 h-4 accent-blue-600 cursor-pointer disabled:cursor-wait"
+          />
+          <span className="text-sm font-medium text-gray-900">
+            Aktifkan analitis pelawat
+          </span>
+        </label>
+        <p className="text-xs text-gray-500 leading-relaxed pt-0.5">
+          Track page views, devices, dan referrers untuk laman web ini. Tiada
+          data dijual atau dikongsi dengan pihak ketiga. Matikan untuk
+          membuang skrip pengesanan BinaApp dari HTML laman web ini.
+          {analyticsToggling && <span className="ml-2 text-gray-400">(menyimpan…)</span>}
+        </p>
+      </div>
+
       {/* Editor */}
-      <div className="flex h-[calc(100vh-60px)]">
+      <div className="flex h-[calc(100vh-108px)]">
         {/* Code Editor */}
         <div className="w-1/2 border-r">
           <textarea
