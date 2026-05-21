@@ -8,7 +8,9 @@ import AddonsGrid from './components/AddonsGrid';
 import BillingSubnav from './components/BillingSubnav';
 import CurrentPlanBanner from './components/CurrentPlanBanner';
 import PaymentHistoryPreview from './components/PaymentHistoryPreview';
+import PaymentMethodPanel from './components/PaymentMethodPanel';
 import PlanCards from './components/PlanCards';
+import SupportFooter from './components/SupportFooter';
 import UsageHeroCards from './components/UsageHeroCards';
 import type { Addon, Plan, SubscriptionStatus, Transaction, UsageResponse } from './types';
 
@@ -200,10 +202,6 @@ export default function BillingPage() {
     );
   }
 
-  const placeholderSections: { id: string; title: string; commit: string }[] = [
-    { id: 'sec-kaedah', title: 'Kaedah pembayaran', commit: 'commit 8' },
-  ];
-
   return (
     <>
       <DashboardHeader onLogout={handleLogout} />
@@ -264,17 +262,11 @@ export default function BillingPage() {
             <PaymentHistoryPreview transactions={transactions} />
           </section>
 
-          {/* Remaining section placeholders — each filled by a subsequent commit. */}
-          {placeholderSections.map((s) => (
-            <section key={s.id} id={s.id} className="scroll-mt-32">
-              <div className="rounded-[20px] border border-dashed border-ink-200 bg-white px-6 py-10 text-center">
-                <div className="font-geist-mono text-[10px] uppercase tracking-[0.14em] text-ink-400">
-                  {s.commit}
-                </div>
-                <div className="mt-2 text-[15px] font-semibold text-ink-600">{s.title}</div>
-              </div>
-            </section>
-          ))}
+          <section id="sec-kaedah" className="scroll-mt-32">
+            <PaymentMethodPanel />
+          </section>
+
+          <SupportFooter />
         </div>
       </main>
     </>
