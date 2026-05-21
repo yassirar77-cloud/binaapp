@@ -5,12 +5,32 @@ Uses Claude AI to automatically respond to customer support emails
 import os
 import re
 import json
+import hashlib
 import httpx
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime, timedelta
 from decimal import Decimal
 from loguru import logger
+
+
+def _sanitize_email_for_ai(email: str) -> str:
+    """Hash the local part of an email so the address is not sent verbatim
+    to a third-party AI provider, while keeping the domain visible so the
+    model can still reason about sender context (e.g. free webmail vs.
+    corporate vs. .gov.my).
+
+    customer@gmail.com  ->  <hash:a3b8c9d1>@gmail.com
+
+    Returns the input unchanged if it does not parse as `local@domain`.
+    """
+    if not email or "@" not in email:
+        return email
+    local, _, domain = email.partition("@")
+    if not local or not domain:
+        return email
+    local_hash = hashlib.sha256(local.encode("utf-8")).hexdigest()[:8]
+    return f"<hash:{local_hash}>@{domain}"
 
 try:
     import anthropic
@@ -201,7 +221,10 @@ class AIEmailSupportService:
         category = self._detect_category(content_lower)
 
         try:
-            # Use Claude to analyze the email
+            # Use Claude to analyze the email. We hash the local part of the
+            # sender address before it leaves our infrastructure — the model
+            # only needs the domain to make a useful sentiment/urgency call.
+            sender_for_ai = _sanitize_email_for_ai(sender_email)
             analysis_prompt = f"""Analyze this customer support email and provide a JSON response with the following fields:
 - sentiment: one of "positive", "neutral", "negative", "angry"
 - urgency: one of "low", "normal", "high", "urgent"
@@ -209,7 +232,7 @@ class AIEmailSupportService:
 - summary: a brief 1-2 sentence summary of what the customer needs
 
 Email Subject: {subject}
-Email From: {sender_email}
+Email From: {sender_for_ai}
 Email Content:
 {email_content}
 
