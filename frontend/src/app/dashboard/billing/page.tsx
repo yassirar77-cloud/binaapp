@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { backupAuthState, getStoredToken } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
+import AddonsGrid from './components/AddonsGrid';
 import BillingSubnav from './components/BillingSubnav';
 import CurrentPlanBanner from './components/CurrentPlanBanner';
 import PlanCards from './components/PlanCards';
@@ -193,7 +194,6 @@ export default function BillingPage() {
   }
 
   const placeholderSections: { id: string; title: string; commit: string }[] = [
-    { id: 'sec-tambahan', title: 'Tambahan À la carte', commit: 'commit 6' },
     { id: 'sec-sejarah', title: 'Sejarah pembayaran', commit: 'commit 7' },
     { id: 'sec-kaedah', title: 'Kaedah pembayaran', commit: 'commit 8' },
   ];
@@ -242,6 +242,15 @@ export default function BillingPage() {
               subscription={subscription}
               processing={processing}
               onUpgrade={handleUpgrade}
+            />
+          </section>
+
+          <section id="sec-tambahan" className="scroll-mt-32">
+            <AddonsGrid
+              addons={addons}
+              usage={usage}
+              processing={processing}
+              onBuy={handleBuyAddon}
             />
           </section>
 
