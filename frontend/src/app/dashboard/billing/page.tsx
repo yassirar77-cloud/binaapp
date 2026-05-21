@@ -6,6 +6,7 @@ import { backupAuthState, getStoredToken } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import BillingSubnav from './components/BillingSubnav';
 import CurrentPlanBanner from './components/CurrentPlanBanner';
+import PlanCards from './components/PlanCards';
 import UsageHeroCards from './components/UsageHeroCards';
 import type { Addon, Plan, SubscriptionStatus, UsageResponse } from './types';
 
@@ -192,7 +193,6 @@ export default function BillingPage() {
   }
 
   const placeholderSections: { id: string; title: string; commit: string }[] = [
-    { id: 'sec-pelan', title: 'Pilih pelan', commit: 'commit 5' },
     { id: 'sec-tambahan', title: 'Tambahan À la carte', commit: 'commit 6' },
     { id: 'sec-sejarah', title: 'Sejarah pembayaran', commit: 'commit 7' },
     { id: 'sec-kaedah', title: 'Kaedah pembayaran', commit: 'commit 8' },
@@ -236,6 +236,15 @@ export default function BillingPage() {
             <UsageHeroCards usage={usage} />
           </section>
 
+          <section id="sec-pelan" className="scroll-mt-32">
+            <PlanCards
+              plans={plans}
+              subscription={subscription}
+              processing={processing}
+              onUpgrade={handleUpgrade}
+            />
+          </section>
+
           {/* Remaining section placeholders — each filled by a subsequent commit. */}
           {placeholderSections.map((s) => (
             <section key={s.id} id={s.id} className="scroll-mt-32">
@@ -247,12 +256,6 @@ export default function BillingPage() {
               </div>
             </section>
           ))}
-
-          {/* Data preview to confirm fetches still work — temporary, removed by commit 5. */}
-          <div className="font-geist-mono text-[10px] uppercase tracking-[0.1em] text-ink-300">
-            data loaded: {plans.length} plans · subscription={subscription?.plan_name ?? 'none'} · {addons.length} addons
-            {processing && ' · processing'}
-          </div>
         </div>
       </main>
     </>
