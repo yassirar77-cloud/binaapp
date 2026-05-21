@@ -503,10 +503,6 @@ class AIService:
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
         self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
         self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-reasoner")
-        self.zai_api_key = os.getenv("ZAI_API_KEY")
-        self.zai_base_url = os.getenv("ZAI_BASE_URL", "https://api.z.ai/api/paas/v4")
-        self.zai_model = os.getenv("ZAI_MODEL", "glm-4.7")
-        self.use_glm_for_html = os.getenv("USE_GLM_FOR_HTML", "true").lower() == "true"
         self.stability_api_key = os.getenv("STABILITY_API_KEY")
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_ANON_KEY")
@@ -527,7 +523,6 @@ class AIService:
         logger.info("🚀 AI SERVICE - STRICT NO-PLACEHOLDER MODE")
         logger.info(f"   DeepSeek: {'✅ Ready' if self.deepseek_api_key else '❌ NOT SET'}")
         logger.info(f"   Qwen: {'✅ Ready' if self.qwen_api_key else '❌ NOT SET'}")
-        logger.info(f"   GLM: {'✅ Ready' if self.zai_api_key and self.use_glm_for_html else '❌ NOT SET'}")
         logger.info(f"   Stability AI: {'✅ Ready' if self.stability_api_key and STABILITY_AVAILABLE else '❌ NOT SET'}")
         logger.info(f"   Supabase Storage: {'✅ Ready' if self.supabase_url and self.supabase_key else '❌ NOT SET'}")
         logger.info("   Mode: Real images only, no placeholders allowed")
@@ -2469,88 +2464,6 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"🔷 DeepSeek ❌ Exception: {e}")
         return None
 
-    async def _call_glm(
-        self,
-        prompt: str,
-        temperature: float = 0.7,
-        model: Optional[str] = None,
-        max_tokens: int = 12000,
-    ) -> Optional[str]:
-        """Call ZhipuAI GLM API for HTML generation.
-
-        Surfaces the response's `finish_reason` on `self._last_api_call` so
-        upstream can detect an output-cap hit. GLM is the production-default
-        HTML generator (USE_GLM_FOR_HTML=true), and was previously discarding
-        this signal — meaning a truncated homepage looked indistinguishable
-        from a successful one at this layer.
-        """
-        # Reset per-call API state — see _call_qwen for rationale.
-        self._last_api_call = {"provider": "glm", "finish_reason": None, "truncated": False}
-        if not self.zai_api_key:
-            logger.warning("❌ ZAI_API_KEY not configured")
-            return None
-
-        chosen_model = model or self.zai_model
-        try:
-            logger.info(f"🟢 Calling GLM API ({chosen_model})... (prompt length: {len(prompt)} chars)")
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                r = await client.post(
-                    f"{self.zai_base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.zai_api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": chosen_model,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML.",
-                            },
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                        "thinking": {"type": "disabled"},
-                    }
-                )
-                if r.status_code == 200:
-                    payload = r.json()
-                    choice = (payload.get("choices") or [{}])[0]
-                    content = (choice.get("message") or {}).get("content", "")
-                    finish_reason = choice.get("finish_reason") or "unknown"
-                    usage = payload.get("usage") or {}
-                    completion_tokens = usage.get("completion_tokens")
-                    logger.info(
-                        f"🟢 GLM ✅ Generated {len(content)} chars "
-                        f"(finish_reason={finish_reason}, completion_tokens={completion_tokens})"
-                    )
-                    truncated_at_api = finish_reason in self._TRUNCATED_FINISH_REASONS
-                    self._last_api_call = {
-                        "provider": "glm",
-                        "finish_reason": finish_reason,
-                        "truncated": truncated_at_api,
-                    }
-                    if truncated_at_api:
-                        logger.error(
-                            f"🚨 GLM hit output cap (finish_reason={finish_reason}, "
-                            f"max_tokens={max_tokens}). Response was truncated at generation time."
-                        )
-                    return content
-                else:
-                    try:
-                        error_body = r.text[:500]
-                    except Exception:
-                        error_body = "(unable to read response)"
-                    logger.error(f"🟢 GLM ❌ Status {r.status_code}: {error_body}")
-        except httpx.TimeoutException as e:
-            logger.error(f"🟢 GLM ❌ Timeout after 120s: {e}")
-        except httpx.ConnectError as e:
-            logger.error(f"🟢 GLM ❌ Connection error: {e}")
-        except Exception as e:
-            logger.error(f"🟢 GLM ❌ Exception: {e}")
-        return None
-
     # Default Qwen config for HTML generation.
     # qwen-plus-latest is used for HTML because it has a higher output-token cap
     # than qwen-max (qwen-max tops out at ~8K output on DashScope compatible mode,
@@ -2559,9 +2472,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
     QWEN_HTML_MODEL = "qwen-plus-latest"
     QWEN_HTML_MAX_TOKENS = 12000
     # Finish reasons that mean the model hit its output cap (vs. natural stop).
-    # OpenAI-compatible providers (DashScope/Qwen, Z.ai/GLM, DeepSeek) all use
-    # either "length" or "max_tokens". Kept as one constant so every provider
-    # caller checks the same set.
+    # OpenAI-compatible providers (DashScope/Qwen, DeepSeek) all use either
+    # "length" or "max_tokens". Kept as one constant so every provider caller
+    # checks the same set.
     _TRUNCATED_FINISH_REASONS = {"length", "max_tokens"}
     _QWEN_TRUNCATED_FINISH_REASONS = _TRUNCATED_FINISH_REASONS  # back-compat alias
 
@@ -4222,21 +4135,11 @@ IMPORTANT INSTRUCTIONS:
             api_truncated_provider: Optional[str] = None
             api_finish_reason: Optional[str] = None
 
-            # GLM primary path (when enabled)
-            if self.use_glm_for_html and self.zai_api_key:
-                html_raw = await self._call_glm(prompt)
-                if html_raw and self._last_api_call.get("truncated"):
-                    api_truncated_provider = self._last_api_call.get("provider")
-                    api_finish_reason = self._last_api_call.get("finish_reason")
-
-            # DeepSeek fallback
-            if not html_raw:
-                if self.use_glm_for_html and self.zai_api_key:
-                    logger.warning("⚠️ GLM failed, trying DeepSeek...")
-                html_raw = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
-                if html_raw and self._last_api_call.get("truncated"):
-                    api_truncated_provider = self._last_api_call.get("provider")
-                    api_finish_reason = self._last_api_call.get("finish_reason")
+            # DeepSeek primary path
+            html_raw = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
+            if html_raw and self._last_api_call.get("truncated"):
+                api_truncated_provider = self._last_api_call.get("provider")
+                api_finish_reason = self._last_api_call.get("finish_reason")
 
             if not html_raw:
                 logger.warning("⚠️ DeepSeek failed, trying Qwen...")
@@ -4256,7 +4159,7 @@ IMPORTANT INSTRUCTIONS:
 
             await update_progress(75, "Processing generated HTML")
 
-            # DeepSeek/GLM path still needs extraction + truncation detection
+            # DeepSeek path still needs extraction + truncation detection
             if not used_qwen_retry:
                 html = self._extract_html(html)
                 if self._last_extract_info.get("was_truncated"):
@@ -4275,7 +4178,7 @@ IMPORTANT INSTRUCTIONS:
                 )
                 truncation_flags["was_truncated"] = True
                 # Mark for manual review — there's no retry path here yet for
-                # GLM/DeepSeek (Item 4 deferred), so a human needs to look.
+                # DeepSeek (Item 4 deferred), so a human needs to look.
                 truncation_flags["needs_manual_review"] = True
 
         # Validate and retry once if the model ignored hard constraints
@@ -4431,21 +4334,16 @@ IMPORTANT INSTRUCTIONS:
                 color_mode=color_mode,
             )
 
-            # GLM primary path (when enabled)
+            # Preferred AI path
             html = None
-            if self.use_glm_for_html and self.zai_api_key:
-                html = await self._call_glm(prompt)
-
-            # Fallback to preferred AI if GLM disabled or failed
-            if not html:
-                if ai_pref == "deepseek":
-                    html = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
-                    if not html:
-                        html = await self._call_qwen(prompt)
-                else:
+            if ai_pref == "deepseek":
+                html = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
+                if not html:
                     html = await self._call_qwen(prompt)
-                    if not html:
-                        html = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
+            else:
+                html = await self._call_qwen(prompt)
+                if not html:
+                    html = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
 
             if html:
                 html = self._extract_html(html)
