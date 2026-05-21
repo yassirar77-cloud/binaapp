@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request, BackgroundTasks, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse
+from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List
@@ -537,6 +537,93 @@ async def _has_white_label(user_id: Optional[str]) -> bool:
     except Exception as e:
         logger.warning(f"[attribution] white_label lookup failed for {user_id}: {e}")
         return False
+
+
+# ---------------------------------------------------------------------------
+# Per-website analytics opt-out (migration 038)
+# ---------------------------------------------------------------------------
+# Merchants can disable the BinaApp first-party visitor tracker per website
+# via the websites.analytics_enabled column. Enforcement happens at two
+# layers: the publish boundary strips the analytics <script> block before
+# the row is persisted, and the /api/analytics/track endpoint rejects any
+# event whose project_id resolves to a disabled site.
+#
+# Both helpers fail OPEN (return True / leave behaviour unchanged) on any
+# DB error — analytics is opt-out, not opt-in, so a Supabase hiccup must
+# not silently disable a merchant's analytics or silently leak data they
+# opted out of. The strip helper is idempotent (no-op when the block is
+# absent).
+_ANALYTICS_BLOCK_RE = re.compile(
+    r"<!--\s*BinaApp Analytics\s*-->\s*<script>.*?</script>\s*",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _strip_analytics_block(html: str) -> str:
+    """Remove the BinaApp analytics <script> block from generated HTML.
+
+    Idempotent — returns the input unchanged when the block is absent.
+    Matches the marker comment injected by run_website_generation,
+    generate_simple, and generate_style_variation.
+    """
+    if not html or "BinaApp Analytics" not in html:
+        return html
+    return _ANALYTICS_BLOCK_RE.sub("", html)
+
+
+def _website_analytics_enabled(website_id: Optional[str]) -> bool:
+    """Look up websites.analytics_enabled by website UUID.
+
+    Returns True (analytics on) when the row is missing, the column does
+    not exist yet (migration 038 not run), or any other lookup error
+    occurs — fail-open so a DB hiccup never silently disables a
+    merchant's analytics or silently leaks data they opted out of.
+    """
+    if not website_id or not supabase:
+        return True
+    try:
+        resp = (
+            supabase.table("websites")
+            .select("analytics_enabled")
+            .eq("id", website_id)
+            .limit(1)
+            .execute()
+        )
+        if not resp.data:
+            return True
+        # Treat None / missing column as enabled (default true at DB level)
+        return resp.data[0].get("analytics_enabled", True) is not False
+    except Exception as e:
+        logger.warning(f"[analytics] website_id lookup failed for {website_id}: {e}")
+        return True
+
+
+def _website_analytics_enabled_by_hostname(hostname: Optional[str]) -> bool:
+    """Look up websites.analytics_enabled by hostname (subdomain or full host).
+
+    Used by the /api/analytics/track endpoint where the request payload's
+    project_id is a hostname rather than a UUID. Accepts either the bare
+    subdomain (`mybistro`) or the full host (`mybistro.binaapp.my`).
+    Fail-open on any lookup error, same as the UUID variant.
+    """
+    if not hostname or not supabase:
+        return True
+    # Strip a trailing `.binaapp.my` so a bare-subdomain match still works
+    subdomain = hostname.split(".")[0] if "." in hostname else hostname
+    try:
+        resp = (
+            supabase.table("websites")
+            .select("analytics_enabled")
+            .eq("subdomain", subdomain)
+            .limit(1)
+            .execute()
+        )
+        if not resp.data:
+            return True
+        return resp.data[0].get("analytics_enabled", True) is not False
+    except Exception as e:
+        logger.warning(f"[analytics] hostname lookup failed for {hostname}: {e}")
+        return True
 
 
 async def run_website_generation(job_id: str, description: str, language: str, user_id: str):
@@ -2497,6 +2584,15 @@ async def track_pageview(request: TrackEventRequest, req: Request):
     if not supabase:
         return {"success": False, "error": "Database not connected"}
 
+    # Per-website analytics opt-out (migration 038): defensive runtime
+    # check for any HTML that was published before the strip-at-publish
+    # path existed, or that bypasses the publish endpoint. Silent 204 so
+    # the visitor's browser doesn't see an error spike. Fail-open on
+    # lookup failure — the strip-at-publish path is the primary control,
+    # this endpoint is just a safety net.
+    if not _website_analytics_enabled_by_hostname(request.project_id):
+        return Response(status_code=204)
+
     try:
         # Get visitor info from request
         ip_address = req.client.host if req.client else "unknown"
@@ -3065,6 +3161,20 @@ async def publish_website(
 
         # Ensure HTML uses the database record website_id
         html_content = fix_website_id_in_html(html_content, website_id)
+
+        # Per-website analytics opt-out (migration 038): if the merchant
+        # has toggled analytics off for this website, strip the
+        # <!-- BinaApp Analytics --> <script> block before saving so the
+        # tracker never reaches the visitor's browser. New websites have
+        # analytics_enabled=true by default so this is a no-op for them.
+        if not _website_analytics_enabled(website_id):
+            stripped = _strip_analytics_block(html_content)
+            if stripped != html_content:
+                logger.info(
+                    f"📊 Analytics disabled for website {website_id} — stripped "
+                    f"tracking block ({len(html_content) - len(stripped)} chars removed)"
+                )
+                html_content = stripped
 
         # REPLACE PLACEHOLDERS WITH ACTUAL USER DATA
         html_content = replace_template_placeholders(html_content, body)
