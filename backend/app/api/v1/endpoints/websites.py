@@ -1309,7 +1309,10 @@ async def sync_storage_and_database():
                 if not website_id:
                     website_id = str(uuid.uuid4())
 
-                # Create the record
+                # Create the record.
+                # Creates orphan row (user_id=NULL). Must only be claimable via
+                # simple/publish.py with check_limit enforcement
+                # (Phase 3 Mini-Goal 1, issue #656).
                 website_data = {
                     "id": website_id,
                     "subdomain": subdomain,
@@ -1597,7 +1600,10 @@ async def fix_orphaned_data():
                 # Skip UUID-like folders and placeholders
                 if name and not (len(name) == 36 and name.count("-") == 4) and name != ".emptyFolderPlaceholder":
                     if name not in db_subdomains:
-                        # This is an orphaned website - create DB record
+                        # This is an orphaned website - create DB record.
+                        # Creates orphan row (user_id=NULL). Must only be claimable via
+                        # simple/publish.py with check_limit enforcement
+                        # (Phase 3 Mini-Goal 1, issue #656).
                         website_id = str(uuid.uuid4())
                         website_data = {
                             "id": website_id,
