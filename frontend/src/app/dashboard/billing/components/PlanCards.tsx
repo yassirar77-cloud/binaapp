@@ -240,7 +240,12 @@ function CTA({
 }
 
 export default function PlanCards({ plans, subscription, processing, onUpgrade }: Props) {
-  const renderable = plans.filter((p) => {
+  // Exclude `free` — it's the default state, not an upgrade target.
+  // Source of truth: backend rejects it in subscription.py:187 (valid_plans = ["starter","basic","pro"]).
+  // Free users see their plan via CurrentPlanBanner above this section.
+  const upgradable = plans.filter((p) => p.plan_name !== 'free');
+
+  const renderable = upgradable.filter((p) => {
     if (!p.plan_name || !p.display_name || p.price === null || p.price === undefined) {
       console.warn(
         `[PlanCards] Plan missing required field(s); hiding card. Got: ${JSON.stringify({
@@ -254,7 +259,10 @@ export default function PlanCards({ plans, subscription, processing, onUpgrade }
     return true;
   });
 
-  if (renderable.length === 0) return null;
+  if (renderable.length === 0) {
+    console.warn('[PlanCards] No upgradable plans to render after filtering `free` and invalid rows.');
+    return null;
+  }
 
   // Sort by PLAN_ORDER so cards appear Starter → Basic → Pro regardless of API order.
   // Unknown plans fall to the end.
