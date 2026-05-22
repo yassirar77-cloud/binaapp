@@ -3,7 +3,7 @@ Template Service
 Handles website type detection and feature injection
 """
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from loguru import logger
 import re
 import json
@@ -18,6 +18,54 @@ from app.services.business_types import (
     get_order_config,
 )
 from app.services.menu_validator import log_menu_flow
+from app.services.widget_catalogue import WIDGETS, WidgetSpec
+
+
+def _find_widget_slot(html: str, widget: WidgetSpec) -> Optional[str]:
+    """Return the slot id present in `html`, or None if no slot was emitted.
+
+    Checks the widget's canonical `slot_id` first, then aliases. The
+    injection layer uses this to decide whether to do an inline
+    replacement (preferred — the AI placed the widget in a semantically
+    correct location) or fall back to the legacy floating/append style.
+    """
+    if not html or not widget:
+        return None
+    candidates = [widget.slot_id, *widget.aliases]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        # Match id="x" OR id='x' on a div. Cheaper than full HTML parse,
+        # and matches the same pattern the prompt instructs the AI to
+        # emit.
+        if (
+            f'id="{candidate}"' in html
+            or f"id='{candidate}'" in html
+        ):
+            return candidate
+    return None
+
+
+def _inject_into_slot(html: str, slot_id: str, inner_html: str) -> str:
+    """Replace the contents of `<div id="slot_id">…</div>` with `inner_html`.
+
+    Falls back to leaving the html untouched if the slot can't be matched
+    (e.g. AI emitted a self-closing tag). The caller should then use the
+    legacy injection path.
+    """
+    if not slot_id or not html:
+        return html
+    # Match either quoting style. `.*?` is non-greedy so we don't span
+    # across other elements.
+    pattern = re.compile(
+        rf'(<div[^>]*\bid=["\']{re.escape(slot_id)}["\'][^>]*>).*?(</div>)',
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not pattern.search(html):
+        return html
+    return pattern.sub(lambda m: m.group(1) + inner_html + m.group(2), html, count=1)
+
+
 
 
 class TemplateService:
@@ -122,11 +170,18 @@ class TemplateService:
         self,
         html: str,
         phone_number: str,
-        default_message: str = "Hi, I'm interested in your services"
+        default_message: str = "Hi, I'm interested in your services",
+        theme_tokens: Optional[Dict[str, str]] = None,
     ) -> str:
         """
-        Inject WhatsApp floating button into HTML
+        Inject WhatsApp floating button into HTML.
+
+        `theme_tokens` is accepted for API parity with the other widget
+        injectors. WhatsApp keeps the brand green (#25D366) regardless —
+        users recognise it and changing the colour reduces conversions.
+        Parameter is reserved for future ring/glow accent overrides.
         """
+        _ = theme_tokens  # currently unused; see docstring above
         # Skip if a floating WhatsApp button is already in the page.
         # Re-injecting causes a duplicate that overlaps the contact section.
         if 'id="whatsapp-button"' in html or "id='whatsapp-button'" in html:
@@ -182,20 +237,24 @@ class TemplateService:
     def inject_google_maps(
         self,
         html: str,
-        address: str
+        address: str,
+        theme_tokens: Optional[Dict[str, str]] = None,
     ) -> str:
         """
-        Inject Google Maps embed into HTML
-        """
-        # Encode address for URL
-        address_encoded = address.replace(' ', '+')
+        Inject Google Maps embed into HTML.
 
-        maps_html = f"""
-<!-- Google Maps Section -->
-<section id="location" style="padding:60px 20px;background:#f9fafb;">
-  <div style="max-width:1200px;margin:0 auto;">
-    <h2 style="text-align:center;font-size:2.5rem;margin-bottom:1rem;color:#1f2937;">📍 Our Location</h2>
-    <p style="text-align:center;color:#6b7280;margin-bottom:2rem;">{address}</p>
+        If the AI emitted a designated `binaapp-maps-slot` div, the embed
+        is rendered there (correct semantic position). Otherwise we fall
+        back to appending a full section before </body>.
+        """
+        address_encoded = address.replace(' ', '+')
+        tokens = theme_tokens or {}
+        heading_color = tokens.get("primary", "#1f2937")
+
+        # Inner contents (no outer <section> — caller decides container)
+        maps_inner = f"""
+  <div style="max-width:1200px;margin:0 auto;padding:60px 20px;">
+    <h2 style="text-align:center;font-size:2.5rem;margin-bottom:1rem;color:{heading_color};">📍 {address}</h2>
     <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.1);">
       <iframe
         src="https://www.google.com/maps?q={address_encoded}&output=embed"
@@ -207,15 +266,26 @@ class TemplateService:
       </iframe>
     </div>
   </div>
-</section>
 """
 
-        # Inject before closing body tag
+        # Slot-aware path: replace the AI-emitted placeholder if present.
+        widget = WIDGETS.get("maps")
+        slot_id = _find_widget_slot(html, widget) if widget else None
+        if slot_id:
+            new_html = _inject_into_slot(html, slot_id, maps_inner)
+            if new_html != html:
+                logger.info(f"✅ Google Maps injected into AI-emitted slot '{slot_id}'")
+                return new_html
+
+        # Legacy/fallback: append a full section before </body>.
+        maps_html = (
+            f'\n<!-- Google Maps Section -->\n'
+            f'<section id="location" style="background:#f9fafb;">{maps_inner}</section>\n'
+        )
         if "</body>" in html:
             html = html.replace("</body>", maps_html + "\n</body>")
         else:
             html += maps_html
-
         return html
 
     def inject_shopping_cart(self, html: str) -> str:
@@ -351,10 +421,33 @@ updateCartUI();
 
         return html
 
-    def inject_contact_form(self, html: str, email: str = "") -> str:
+    def inject_contact_form(
+        self,
+        html: str,
+        email: str = "",
+        theme_tokens: Optional[Dict[str, str]] = None,
+    ) -> str:
         """
-        Inject contact form into HTML
+        Inject contact form into HTML.
+
+        Uses the AI-emitted `binaapp-contact-slot` when present, otherwise
+        falls back to appending a full section before </body>.
+        Submit button colour follows the extracted site palette so it
+        doesn't clash with the AI-chosen design.
         """
+        tokens = theme_tokens or {}
+        primary = tokens.get("primary", "#3b82f6")
+        accent = tokens.get("accent", primary)
+
+        widget = WIDGETS.get("contact")
+        slot_id = _find_widget_slot(html, widget) if widget else None
+        if slot_id:
+            slot_form_inner = self._build_contact_form_inner(email, primary, accent, container=False)
+            new_html = _inject_into_slot(html, slot_id, slot_form_inner)
+            if new_html != html:
+                logger.info(f"✅ Contact form injected into AI-emitted slot '{slot_id}'")
+                return new_html
+
         form_html = f"""
 <!-- Contact Form Section -->
 <section id="contact" style="padding:60px 20px;background:#ffffff;">
@@ -434,6 +527,74 @@ function handleContactSubmit(e) {{
             html += form_html
 
         return html
+
+    def _build_contact_form_inner(
+        self,
+        email: str,
+        primary: str,
+        accent: str,
+        container: bool = True,
+    ) -> str:
+        """Render the contact form HTML used by both the slot and the
+        legacy fallback path. When `container=False`, the outer <section>
+        is omitted so the caller (slot injection) can sit it inside its
+        own <div>.
+        """
+        form = f"""
+    <form id="contact-form" onsubmit="return handleContactSubmit(event)"
+          style="background:#f9fafb;padding:30px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.05);max-width:600px;margin:0 auto;">
+      <div style="margin-bottom:20px;">
+        <label style="display:block;margin-bottom:8px;font-weight:600;color:#374151;">Name</label>
+        <input type="text" name="name" required
+               style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:8px;font-size:1rem;">
+      </div>
+      <div style="margin-bottom:20px;">
+        <label style="display:block;margin-bottom:8px;font-weight:600;color:#374151;">Email</label>
+        <input type="email" name="email" required
+               style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:8px;font-size:1rem;">
+      </div>
+      <div style="margin-bottom:20px;">
+        <label style="display:block;margin-bottom:8px;font-weight:600;color:#374151;">Message</label>
+        <textarea name="message" rows="5" required
+                  style="width:100%;padding:12px;border:2px solid #e5e7eb;border-radius:8px;font-size:1rem;resize:vertical;"></textarea>
+      </div>
+      <button type="submit"
+              style="width:100%;padding:15px;background:linear-gradient(135deg,{primary},{accent});
+              color:white;border:none;border-radius:8px;font-size:1.1rem;font-weight:bold;cursor:pointer;">
+        Send Message
+      </button>
+    </form>
+<script>
+function handleContactSubmit(e) {{
+  e.preventDefault();
+  const form = e.target;
+  const formData = new FormData(form);
+  const name = formData.get('name');
+  const message = formData.get('message');
+  const waButton = document.querySelector('a[href*="wa.me"]');
+  if (waButton) {{
+    const phoneMatch = waButton.href.match(/wa.me\\/([^?]+)/);
+    if (phoneMatch) {{
+      const text = `Contact: ${{name}}%0A%0A${{message}}`;
+      window.open(`https://wa.me/${{phoneMatch[1]}}?text=${{text}}`, '_blank');
+    }}
+  }} else if ("{email}") {{
+    window.location.href = `mailto:{email}?subject=Contact from ${{name}}&body=${{message}}`;
+  }}
+  form.reset();
+  alert('Thank you! We will get back to you soon.');
+  return false;
+}}
+</script>
+"""
+        if container:
+            return (
+                f'<section id="contact" style="padding:60px 20px;background:#ffffff;">'
+                f'<h2 style="text-align:center;font-size:2.5rem;margin-bottom:1rem;color:{primary};">📬 Contact Us</h2>'
+                f'{form}'
+                f'</section>'
+            )
+        return form
 
     def inject_qr_code(self, html: str, url: str) -> str:
         """
@@ -2990,24 +3151,36 @@ function handleContactSubmit(e) {{
         primary_color: str = "#ea580c",
         business_type: str = None,
         description: str = "",
-        language: str = "ms"
+        language: str = "ms",
+        theme_tokens: Optional[Dict[str, str]] = None,
     ) -> str:
         """
         Inject BinaApp Delivery Widget
-        Shows floating button for ordering based on business type
+        Shows floating button for ordering based on business type.
+
+        If `theme_tokens` is provided and contains a primary colour, it
+        overrides the explicit `primary_color` argument — the AI-chosen
+        site palette wins over the caller's default so the floating
+        button blends into the design. The widget JS reads
+        `data-primary-color` to skin its CTA.
 
         Args:
             html: Website HTML
             website_id: Website UUID
             whatsapp_number: WhatsApp number for orders
-            primary_color: Brand color (hex)
-            business_type: Type of business (food, clothing, services, general)
+            primary_color: Fallback brand colour
+            business_type: Type of business
             description: Business description for auto-detection
             language: "ms" or "en"
+            theme_tokens: Extracted theme tokens (primary/accent/surface)
 
         Returns:
             HTML with delivery widget injected
         """
+        # Theme inheritance: prefer the AI's palette over the hard-coded
+        # orange so the floating button doesn't fight the hero.
+        tokens = theme_tokens or {}
+        primary_color = tokens.get("primary", primary_color) or primary_color
         # Skip if delivery widget already present (avoid duplicate buttons)
         if "delivery-widget.js" in html or "binaapp-widget" in html:
             return html
@@ -3054,16 +3227,24 @@ function handleContactSubmit(e) {{
         self,
         html: str,
         website_id: str,
-        api_url: str = "https://binaapp-backend.onrender.com"
+        api_url: str = "https://binaapp-backend.onrender.com",
+        theme_tokens: Optional[Dict[str, str]] = None,
     ) -> str:
         """
         Inject BinaApp Chat Widget for customer-owner communication
-        Shows floating chat button on restaurant websites
+        Shows floating chat button on restaurant websites.
+
+        `theme_tokens` is passed through to the widget as a CSS variable
+        on document.documentElement (via inline style) so the widget JS
+        can pick it up. We avoid passing it as a data-attribute because
+        chat-widget.js predates this contract and a missing dataset key
+        falls back to the brand blue, which is the desired default.
 
         Args:
             html: Website HTML
             website_id: Website UUID
             api_url: Backend API URL
+            theme_tokens: Extracted theme tokens (primary/accent/surface)
 
         Returns:
             HTML with chat widget injected
@@ -3073,9 +3254,20 @@ function handleContactSubmit(e) {{
             logger.info(f"⏭️ Skipping chat widget injection - chat-widget.js already present for website {website_id}")
             return html
 
+        tokens = theme_tokens or {}
+        primary = tokens.get("primary")
+        # When we have a theme primary, expose it as --binaapp-chat-primary
+        # so future chat-widget.js revs can inherit it without a redeploy.
+        theme_var_block = (
+            f'<style>:root {{ --binaapp-chat-primary: {primary}; }}</style>'
+            if primary
+            else ''
+        )
+
         # Chat widget script tag
         chat_widget = f'''
 <!-- BinaApp Chat Widget - Customer to Owner Chat -->
+{theme_var_block}
 <script src="{api_url}/static/widgets/chat-widget.js"
         data-website-id="{website_id}"
         data-api-url="{api_url}"></script>'''
@@ -3101,10 +3293,14 @@ function handleContactSubmit(e) {{
         """
         logger.info(f"Injecting integrations: {features}")
 
+        # Pull theme tokens once — they're shared across all widget calls
+        # below so widgets inherit the AI-chosen palette.
+        theme_tokens = user_data.get("theme_tokens") or {}
+
         # Check if delivery widget is enabled (mutually exclusive with legacy delivery UI)
         # Widget is enabled when: website_id exists AND delivery features are requested
         delivery_widget_enabled = bool(
-            user_data.get("website_id") and 
+            user_data.get("website_id") and
             ("delivery_system" in features or user_data.get("delivery"))
         )
 
@@ -3113,12 +3309,13 @@ function handleContactSubmit(e) {{
             html = self.inject_whatsapp_button(
                 html,
                 user_data["phone"],
-                user_data.get("whatsapp_message", "Hi, I'm interested")
+                user_data.get("whatsapp_message", "Hi, I'm interested"),
+                theme_tokens=theme_tokens,
             )
 
         # Google Maps
         if "maps" in features and user_data.get("address"):
-            html = self.inject_google_maps(html, user_data["address"])
+            html = self.inject_google_maps(html, user_data["address"], theme_tokens=theme_tokens)
 
         # Shopping Cart
         if "cart" in features:
@@ -3135,7 +3332,9 @@ function handleContactSubmit(e) {{
 
         # Contact Form
         if "contact" in features:
-            html = self.inject_contact_form(html, user_data.get("email", ""))
+            html = self.inject_contact_form(
+                html, user_data.get("email", ""), theme_tokens=theme_tokens
+            )
 
         # QR Code - Inject BEFORE delivery system so it ends up inside page-home div
         # SKIP if widget is enabled (widget has its own flow)
@@ -3213,7 +3412,8 @@ function handleContactSubmit(e) {{
                     html,
                     website_id,
                     whatsapp,
-                    primary_color
+                    primary_color,
+                    theme_tokens=theme_tokens,
                 )
             else:
                 logger.warning("Delivery system requested but no menu_items and no website_id - skipping")

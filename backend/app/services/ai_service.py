@@ -17,6 +17,11 @@ from typing import Optional, List, Dict, Tuple, Callable, Awaitable
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
 from app.services.business_types import get_business_config, detect_business_type, get_design_type
 from app.services.design_system import DesignSystem
+from app.services.widget_catalogue import (
+    WidgetSpec,
+    widgets_for_request,
+    build_prompt_context_block,
+)
 from difflib import SequenceMatcher
 import cloudinary
 import cloudinary.uploader
@@ -47,6 +52,54 @@ def _timed_step(step_name: str, timings: Dict[str, float]):
         # sum the durations rather than overwriting.
         timings[step_name] = round(timings.get(step_name, 0.0) + elapsed, 3)
         logger.info(f"⏱️  {step_name}: {elapsed:.2f}s")
+
+
+# Patterns for extracting theme tokens out of the generated HTML, so the
+# injected widgets can inherit the site's palette via CSS variables. We
+# look in three places (in order): explicit --primary / --primary-color
+# CSS variables, Tailwind `colors: { primary: '...' }` blocks, and named
+# `--bg-color` / `--surface-color` from our own _build_strict_prompt
+# preamble. First match wins.
+_THEME_PRIMARY_PATTERNS = [
+    re.compile(r"--primary-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
+    re.compile(r"--primary\s*:\s*(#[0-9a-fA-F]{3,8})"),
+    re.compile(r"primary\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
+]
+_THEME_ACCENT_PATTERNS = [
+    re.compile(r"--accent-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
+    re.compile(r"--accent\s*:\s*(#[0-9a-fA-F]{3,8})"),
+    re.compile(r"accent\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
+]
+_THEME_SURFACE_PATTERNS = [
+    re.compile(r"--surface-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
+    re.compile(r"--bg-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
+]
+
+
+def extract_theme_tokens(html: str) -> Dict[str, str]:
+    """Pull primary / accent / surface colours out of generated HTML.
+
+    Best-effort: returns whatever it can find. Callers should treat
+    missing keys as "fall back to widget default". Used by the injection
+    layer so widgets inherit the AI-chosen palette instead of hard-coding
+    the orange/green defaults.
+    """
+    if not html:
+        return {}
+
+    tokens: Dict[str, str] = {}
+    for label, patterns in (
+        ("primary", _THEME_PRIMARY_PATTERNS),
+        ("accent", _THEME_ACCENT_PATTERNS),
+        ("surface", _THEME_SURFACE_PATTERNS),
+    ):
+        for pattern in patterns:
+            match = pattern.search(html)
+            if match:
+                tokens[label] = match.group(1)
+                break
+    return tokens
+
 
 # Import Stability AI service
 try:
@@ -2147,6 +2200,10 @@ Generate prompts now:"""
         image_choice: str = "upload",
         include_ecommerce: bool = False,
         color_mode: str = "light",
+        include_whatsapp: bool = True,
+        include_maps: bool = False,
+        include_contact_form: bool = True,
+        include_chat: bool = True,
     ) -> str:
         """Build STRICT prompt with premium design system"""
         biz_type = self._detect_type(desc)
@@ -2317,6 +2374,22 @@ LIGHT MODE STYLING:
 - Stronger shadows: shadow-2xl
 - Bolder buttons: px-10 py-4 text-lg font-bold uppercase tracking-wider"""
 
+        # ---- WIDGET CONTEXT (E from spec — design AROUND injected widgets) ----
+        # Tells the AI which floating/inline widgets will be stitched on
+        # after generation, so it can leave room and emit optional slot
+        # divs for inline ones (maps, contact form, pesanan).
+        injected_widgets = widgets_for_request(
+            include_whatsapp=include_whatsapp,
+            include_maps=include_maps,
+            include_ecommerce=include_ecommerce,
+            include_contact=include_contact_form,
+            include_chat=include_chat,
+        )
+        widget_context_block = build_prompt_context_block(
+            injected_widgets,
+            primary_color=palette.get("primary"),
+        )
+
         # ---- ASSEMBLE PROMPT ----
         return f"""Generate a COMPLETE production-ready HTML website.
 
@@ -2357,6 +2430,8 @@ body {{ background-color: var(--bg-color); }}
 ===== {layout} =====
 
 ===== {image_section} =====
+
+{widget_context_block}
 
 ===== CONTENT RULES =====
 ABSOLUTELY FORBIDDEN:
@@ -4036,6 +4111,8 @@ IMPORTANT RULES:
             image_choice=image_choice,  # CRITICAL: Pass image_choice to prompt builder
             include_ecommerce=request.include_ecommerce,  # CRITICAL: Pass delivery mode flag
             color_mode=color_mode,
+            include_whatsapp=request.include_whatsapp,
+            include_maps=request.include_maps,
         )
 
         # Add image URLs to prompt with STRONG emphasis
@@ -4332,6 +4409,9 @@ IMPORTANT INSTRUCTIONS:
                 whatsapp_number=request.whatsapp_number,
                 location_address=request.location_address,
                 color_mode=color_mode,
+                include_whatsapp=request.include_whatsapp,
+                include_maps=request.include_maps,
+                include_ecommerce=request.include_ecommerce,
             )
 
             # Preferred AI path

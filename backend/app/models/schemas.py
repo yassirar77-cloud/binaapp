@@ -117,6 +117,11 @@ class WebsiteResponse(BaseModel):
     published_at: Optional[datetime] = None
     html_content: Optional[str] = None
     preview_url: Optional[str] = None
+    # AI prompt persistence (migration 039) — surfaced so the dashboard
+    # can show "regenerated N times" and pre-fill the regenerate textarea
+    # with the user's last description.
+    description: Optional[str] = None
+    generation_count: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -133,6 +138,21 @@ class WebsiteListResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Regenerate request: PATCH body for /websites/{id}/regenerate.
+# All fields optional — when description is omitted the endpoint reuses
+# the persisted one stored on the websites row.
+class WebsiteRegenerateRequest(BaseModel):
+    description: Optional[str] = Field(
+        default=None,
+        min_length=10,
+        max_length=5000,
+        description=(
+            "Updated natural-language prompt. If omitted, the previously "
+            "stored description on the website row is reused."
+        ),
+    )
 
 
 # AI Generation Schemas

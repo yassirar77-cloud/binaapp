@@ -97,6 +97,14 @@ CREATE TABLE IF NOT EXISTS public.websites (
     sections TEXT[],
     integrations TEXT[],
 
+    -- AI prompt persistence (migration 039)
+    -- description: original/last natural-language prompt sent to DeepSeek;
+    --              reused by the regenerate endpoint so users can iterate
+    --              without redoing subdomain/business-name/etc.
+    -- generation_count: incremented every time HTML is (re)generated.
+    description TEXT,
+    generation_count INTEGER NOT NULL DEFAULT 0,
+
     -- Integration Settings
     include_whatsapp BOOLEAN DEFAULT false,
     whatsapp_number TEXT,

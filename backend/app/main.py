@@ -2161,6 +2161,16 @@ async def run_generation_task(
                 user_data["payment"] = payment
                 logger.info(f"💳 Payment config: COD={payment.get('cod')}, QR={payment.get('qr')}, QR Image={'Yes' if payment.get('qr_image') else 'No'}")
 
+            # Extract palette from the AI-generated HTML once and pass to
+            # the integration layer so widgets inherit the site's theme
+            # instead of falling back to hard-coded brand defaults.
+            try:
+                from app.services.ai_service import extract_theme_tokens
+                user_data["theme_tokens"] = extract_theme_tokens(html)
+            except Exception as _theme_err:
+                logger.warning(f"⚠️ Theme token extraction failed: {_theme_err}")
+                user_data["theme_tokens"] = {}
+
             # Always call inject_integrations so ALL selected features are injected
             # (WhatsApp, Google Maps, Contact Form, Chat Widget, and Delivery if enabled).
             # Previously this was gated on delivery only, which caused the chat widget
