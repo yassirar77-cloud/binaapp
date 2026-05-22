@@ -4,6 +4,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase, getCurrentUser, getStoredToken } from '@/lib/supabase';
 import { buildRegenerateWarning } from '@/lib/regenerateWarning';
+import {
+  STYLE_CHIPS,
+  applyStyleChip,
+  chipIsStillApplied,
+  type StyleChipId,
+} from '@/lib/regenerateStyleChips';
 import AIEditor from './AIEditor';
 
 // Backend API URL
@@ -49,6 +55,11 @@ export default function EditorPage() {
   // Checkbox tick state inside the modal. Reset every time the modal is
   // opened so a previous "I understand" tick can't carry over.
   const [acknowledgeReplace, setAcknowledgeReplace] = useState(false);
+  // Currently-selected style hint chip. Single-select (radio behaviour).
+  // null = no chip active. Not persisted — purely a UI helper for
+  // composing the next regenerate prompt. The textarea remains the
+  // source of truth for what actually gets sent to the backend.
+  const [selectedChipId, setSelectedChipId] = useState<StyleChipId | null>(null);
 
   useEffect(() => {
     loadWebsite();
@@ -417,6 +428,33 @@ export default function EditorPage() {
           )}
 
           <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+            Pilih gaya (pilihan)
+          </label>
+          <StyleChipRow
+            chips={STYLE_CHIPS}
+            selectedChipId={selectedChipId}
+            disabled={regenerating}
+            onSelect={(nextId) => {
+              // Compute effective previous: if the user edited the text
+              // such that the modifier text isn't verbatim any more, we
+              // pass `null` as previous so we don't strip a substring
+              // the user no longer recognises.
+              const effectivePrev = chipIsStillApplied(
+                pendingDescription,
+                selectedChipId
+              )
+                ? selectedChipId
+                : null;
+              const finalNext =
+                nextId === selectedChipId ? null : nextId; // re-tap = clear
+              setPendingDescription((current) =>
+                applyStyleChip(current, effectivePrev, finalNext)
+              );
+              setSelectedChipId(finalNext);
+            }}
+          />
+
+          <label className="block text-xs font-semibold text-gray-700 mb-1.5 mt-3">
             Penerangan baru{' '}
             <span className="font-normal text-gray-400">
               (kosongkan untuk guna semula yang asal)
@@ -424,7 +462,19 @@ export default function EditorPage() {
           </label>
           <textarea
             value={pendingDescription}
-            onChange={(e) => setPendingDescription(e.target.value)}
+            data-testid="regenerate-description-textarea"
+            onChange={(e) => {
+              const next = e.target.value;
+              setPendingDescription(next);
+              // De-highlight the chip if the user has edited the
+              // modifier text in a way that no longer matches verbatim.
+              if (
+                selectedChipId &&
+                !chipIsStillApplied(next, selectedChipId)
+              ) {
+                setSelectedChipId(null);
+              }
+            }}
             disabled={regenerating}
             rows={3}
             maxLength={5000}
@@ -526,6 +576,72 @@ export default function EditorPage() {
           💡 Untuk pengalaman terbaik, gunakan komputer atau tablet dalam mod landscape
         </p>
       </div>
+    </div>
+  );
+}
+
+interface StyleChipRowProps {
+  chips: readonly {
+    id: StyleChipId;
+    icon: string;
+    label: string;
+  }[];
+  selectedChipId: StyleChipId | null;
+  disabled: boolean;
+  onSelect: (chipId: StyleChipId) => void;
+}
+
+/**
+ * Horizontal row of style hint chips above the regenerate textarea.
+ * Single-select (radio behaviour). Tapping the active chip clears it.
+ * On mobile the row scrolls horizontally; on desktop it wraps.
+ */
+function StyleChipRow({
+  chips,
+  selectedChipId,
+  disabled,
+  onSelect,
+}: StyleChipRowProps) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Gaya regenerate"
+      className="flex flex-nowrap md:flex-wrap items-center gap-2 mb-1 overflow-x-auto md:overflow-visible -mx-1 px-1 pb-1"
+    >
+      {chips.map((chip) => {
+        const active = chip.id === selectedChipId;
+        return (
+          <button
+            key={chip.id}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            aria-pressed={active}
+            aria-label={chip.label}
+            data-testid={`style-chip-${chip.id}`}
+            data-active={active ? 'true' : 'false'}
+            disabled={disabled}
+            onClick={() => onSelect(chip.id)}
+            className={[
+              'shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-full',
+              'text-xs font-medium whitespace-nowrap transition-colors',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-1',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
+              active
+                ? 'bg-purple-600 text-white border border-purple-600 hover:bg-purple-700'
+                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50',
+            ].join(' ')}
+          >
+            <span aria-hidden="true">{chip.icon}</span>
+            <span>{chip.label}</span>
+            {active && (
+              <span aria-hidden="true" className="ml-0.5">
+                ✓
+              </span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
