@@ -2149,7 +2149,11 @@ async def run_generation_task(
                 "description": description,  # For business type detection
                 "menu_items": menu_items,
                 "delivery_zones": delivery_zones,
-                "website_id": generated_website_id  # CRITICAL: Required for delivery widget
+                "website_id": generated_website_id,  # CRITICAL: Required for delivery widget
+                # First-time generation — the simple/publish path doesn't
+                # increment generation_count anywhere, so this is always 1.
+                # Threaded into slot-aware injectors for log aggregation.
+                "generation_count": 1,
             }
 
             # Add delivery config

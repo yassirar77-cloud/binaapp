@@ -239,9 +239,76 @@ The AI now:
   regenerate endpoint: schema validation, 404, 403 ownership, 409
   in-flight, 400 missing description, 403 quota, owner success path,
   stored-description reuse.
+- `backend/tests/test_template_slot_logging.py` — 9 tests covering the
+  `[slot_lookup]` log emissions (level routing, optional kwarg
+  threading, one log per injector call).
 
 Run with:
 
 ```
-cd backend && python -m pytest tests/test_widget_catalogue.py tests/test_websites_regenerate.py
+cd backend && python -m pytest tests/test_widget_catalogue.py \
+  tests/test_websites_regenerate.py tests/test_template_slot_logging.py
 ```
+
+---
+
+## Slot emission rate — observability
+
+Each call into `inject_google_maps()` and `inject_contact_form()` emits
+a single tagged log line via `_log_slot_lookup()`:
+
+```
+[slot_lookup] widget=<widget_id> slot_found=<bool> website_id=<id_or_-> generation_count=<n_or_->
+```
+
+- **Level**: `INFO` when `slot_found=True` (the AI honored our prompt and
+  emitted a `binaapp-<x>-slot` div, so we replaced inner contents
+  semantically), `DEBUG` when `False` (the AI ignored the slot and we
+  fell back to the legacy append-before-`</body>` path — common case, so
+  kept off INFO to avoid noise).
+- **Tag**: `[slot_lookup]` is unique in the codebase; safe to filter on.
+- **website_id / generation_count**: rendered as `-` when not threaded
+  through. Threaded today from `main.py` (legacy `/api/publish` flow,
+  `generation_count=1`). The `/api/v1/websites/generate` and
+  `/regenerate` flows don't call the slot-aware injectors — they only
+  inject delivery + chat widgets, neither of which uses slots — so no
+  `[slot_lookup]` lines appear from those paths.
+
+### Reading slot emission rate from logs
+
+Render.com (where the backend ships) provides full-text log search. No
+new infra needed; the table-backed alternative was rejected because
+emission rate is a low-cardinality observability metric, not application
+state.
+
+The aggregation is a two-pass shell query on a downloaded log slice
+(Render dashboard → "Download logs"):
+
+```sql
+-- Conceptually: count INFO (slot found) vs DEBUG (slot missed) per widget.
+-- Run as awk over the downloaded log file:
+--
+-- awk '/\[slot_lookup\]/ {
+--   match($0, /widget=([a-z]+)/, w);
+--   match($0, /slot_found=(True|False)/, f);
+--   key = w[1] "," f[1];
+--   count[key]++;
+-- } END {
+--   for (k in count) print k, count[k];
+-- }' render-logs.txt
+--
+-- Expected output:
+--   maps,True 142
+--   maps,False 58
+--   contact,True 167
+--   contact,False 33
+--
+-- Slot emission rate per widget = True / (True + False).
+-- Below ~50% on a widget means the AI is ignoring our prompt for that
+-- slot id; revisit the prompt block in widget_catalogue.py.
+```
+
+If/when log query needs to be programmatic (alerts, weekly digest),
+promote this to a `widget_slot_metrics` table written from
+`_log_slot_lookup` and aggregated via a periodic job — but only at that
+point, not preemptively.
