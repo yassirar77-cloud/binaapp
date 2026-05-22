@@ -81,6 +81,15 @@ function LoginPageContent() {
             required
           />
 
+          <div className="flex justify-end -mt-2">
+            <Link
+              href="/lupa-password"
+              className="font-geist text-sm text-brand-300 hover:text-brand-200 font-medium transition-colors"
+            >
+              Lupa kata laluan?
+            </Link>
+          </div>
+
           <button
             type="submit"
             disabled={loading}
