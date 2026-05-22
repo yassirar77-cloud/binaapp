@@ -11,11 +11,13 @@ import uuid
 
 from app.models.schemas import (
     WebsiteGenerationRequest,
+    WebsiteRegenerateRequest,
     WebsiteResponse,
     WebsiteListResponse,
     PublishRequest,
     PublishResponse,
-    WebsiteStatus
+    WebsiteStatus,
+    Language,
 )
 from app.services.supabase_client import supabase_service
 from app.core.supabase import get_supabase_client
@@ -271,6 +273,11 @@ async def generate_website(
             "location_address": request.location_address,
             "include_ecommerce": request.include_ecommerce,
             "contact_email": request.contact_email,
+            # Persist the description so regenerate can reuse it without
+            # making the user retype subdomain/business name/etc. Counter
+            # starts at 1 to reflect this initial generation.
+            "description": request.description,
+            "generation_count": 1,
             "created_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat()
         }
@@ -405,6 +412,16 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
         html_content = ai_response.html_content
         integrations = ai_response.integrations_included
 
+        # Extract palette from the AI-generated HTML once and reuse for
+        # every widget injection below. Widgets that accept theme_tokens
+        # will inherit primary/accent instead of using hard-coded
+        # defaults. Empty dict if extraction finds nothing — widgets
+        # then fall back to their existing defaults.
+        from app.services.ai_service import extract_theme_tokens
+        theme_tokens = extract_theme_tokens(html_content)
+        if theme_tokens:
+            logger.info(f"🎨 Extracted theme tokens from AI HTML: {theme_tokens}")
+
         # Step 2: Inject delivery widget if needed
         logger.info(f"⏱️  Step 2/4: Processing delivery widget...")
         if request.include_ecommerce:
@@ -421,7 +438,8 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
                 primary_color="#ea580c",  # Default orange color
                 business_type=request.business_type,
                 description=request.description,
-                language=request.language.value if hasattr(request, 'language') and request.language else "ms"
+                language=request.language.value if hasattr(request, 'language') and request.language else "ms",
+                theme_tokens=theme_tokens,
             )
 
             # Update integrations list to include delivery
@@ -436,7 +454,8 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
         html_content = template_service.inject_chat_widget(
             html=html_content,
             website_id=website_id,
-            api_url="https://binaapp-backend.onrender.com"
+            api_url="https://binaapp-backend.onrender.com",
+            theme_tokens=theme_tokens,
         )
         logger.info(f"✅ Step 3/4: Chat widget injected successfully")
 
@@ -567,7 +586,9 @@ async def get_website(
             updated_at=datetime.fromisoformat(website["updated_at"]) if website.get("updated_at") else None,
             published_at=datetime.fromisoformat(website["published_at"]) if website.get("published_at") else None,
             html_content=website.get("html_content"),
-            preview_url=website.get("preview_url")
+            preview_url=website.get("preview_url"),
+            description=website.get("description"),
+            generation_count=website.get("generation_count"),
         )
 
     except HTTPException:
@@ -578,6 +599,166 @@ async def get_website(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve website"
         )
+
+
+@router.patch("/{website_id}/regenerate", response_model=WebsiteResponse)
+async def regenerate_website(
+    website_id: str,
+    request: WebsiteRegenerateRequest,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Re-run AI generation for an existing website, optionally with a new
+    description prompt. The subdomain, business name, integration
+    settings, and other metadata are preserved.
+
+    Auth: only the website owner (or admin) may regenerate.
+    Quota: counts as one `generate_ai_hero` use, same as initial create.
+           Uses the existing addon-credit flow.
+    Flow:  marks the website as `generating`, kicks off the background
+           AI task, returns 202 immediately. The frontend polls
+           GET /{website_id} until status flips back to `draft`.
+    """
+    user_id = current_user.get("sub")
+
+    # 1. Load + ownership check
+    website = await supabase_service.get_website(website_id)
+    if not website:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Website not found",
+        )
+    if website["user_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to regenerate this website",
+        )
+
+    # 2. Don't allow regenerate while another generation is in flight —
+    # avoids double-billing and double-writing html_content.
+    if website.get("status") == WebsiteStatus.GENERATING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A generation is already in progress for this website. Please wait until it completes.",
+        )
+
+    # 3. Resolve description: explicit override wins, otherwise reuse
+    # the persisted one. If neither exists (legacy row with no stored
+    # description), refuse — the user must provide one.
+    new_description = request.description or website.get("description")
+    if not new_description or len(new_description.strip()) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "description_required",
+                "message": (
+                    "This website has no saved description. "
+                    "Please provide a description to regenerate."
+                ),
+            },
+        )
+
+    # 4. Quota enforcement — regenerate calls the AI just like create, so
+    # it must respect the same `generate_ai_hero` limit. We deliberately
+    # use the same helper the create flow uses (subscription_service.
+    # check_limit) so any future quota changes apply uniformly. This is
+    # the same path that catches the "addon credit available" case.
+    hero_check = await subscription_service.check_limit(user_id, "generate_ai_hero")
+    if not hero_check.get("allowed"):
+        logger.warning(
+            f"[REGENERATE] AI hero limit reached for user {user_id} on website {website_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "LIMIT_REACHED",
+                "message": hero_check.get("message", "Had AI hero tercapai."),
+                "upgrade_options": hero_check.get("can_buy_addon", False),
+                "current_usage": hero_check.get("current_usage"),
+                "limit": hero_check.get("limit"),
+            },
+        )
+
+    # 5. Optimistically flag the website as generating + persist the new
+    # description. If the background task fails, the except block in
+    # generate_website_content marks status=failed.
+    prev_count = website.get("generation_count") or 0
+    update_payload = {
+        "status": WebsiteStatus.GENERATING,
+        "description": new_description,
+        "generation_count": prev_count + 1,
+        "error_message": None,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    update_ok = await supabase_service.update_website(website_id, update_payload)
+    if not update_ok:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to mark website as regenerating",
+        )
+
+    # 6. Reconstitute a WebsiteGenerationRequest from the saved row so we
+    # can hand it to the same background task the create flow uses. This
+    # keeps the generation pipeline single-sourced — any improvements
+    # (e.g. widget catalogue, theme tokens) apply to regenerate too.
+    language_value = website.get("language") or "ms"
+    try:
+        language_enum = Language(language_value)
+    except ValueError:
+        language_enum = Language.MALAY
+
+    ai_request = WebsiteGenerationRequest(
+        description=new_description,
+        language=language_enum,
+        business_name=website["business_name"],
+        business_type=website.get("business_type"),
+        subdomain=website["subdomain"],
+        include_whatsapp=bool(website.get("include_whatsapp")),
+        whatsapp_number=website.get("whatsapp_number"),
+        include_maps=bool(website.get("include_maps")),
+        location_address=website.get("location_address"),
+        include_ecommerce=bool(website.get("include_ecommerce")),
+        contact_email=website.get("contact_email"),
+        # Regenerate doesn't currently support re-uploading images. The
+        # AI will fall back to its image pool / Stability AI just like a
+        # fresh generation with image_choice='none'/'ai'. A future
+        # iteration can re-attach the original uploads if we persist
+        # them on the websites row.
+        uploaded_images=[],
+    )
+
+    background_tasks.add_task(
+        generate_website_content,
+        website_id,
+        ai_request,
+        user_id,
+    )
+
+    logger.info(
+        f"[REGENERATE] Started regeneration #{prev_count + 1} for website {website_id} "
+        f"by user {user_id}"
+    )
+
+    subdomain = website.get("subdomain")
+    full_url = f"https://{subdomain}{settings.SUBDOMAIN_SUFFIX}" if subdomain else None
+    return WebsiteResponse(
+        id=website_id,
+        user_id=user_id,
+        business_name=website.get("business_name"),
+        subdomain=subdomain,
+        full_url=full_url,
+        status=WebsiteStatus.GENERATING,
+        created_at=datetime.fromisoformat(website["created_at"])
+        if website.get("created_at")
+        else datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+        published_at=datetime.fromisoformat(website["published_at"])
+        if website.get("published_at")
+        else None,
+        html_content=None,
+        preview_url=website.get("preview_url"),
+    )
 
 
 @router.post("/{website_id}/publish", response_model=PublishResponse)
