@@ -10,6 +10,13 @@ import {
   chipIsStillApplied,
   type StyleChipId,
 } from '@/lib/regenerateStyleChips';
+import {
+  REGENERATE_POLL_INTERVAL_MS,
+  REGENERATE_POLL_AUTO_REFRESH_DELAY_MS,
+  REGENERATE_TIMEOUT_MESSAGE,
+  pickRegenerateLoadingMessage,
+  resolvePollTimeoutMs,
+} from '@/lib/regeneratePollMessages';
 import AIEditor from './AIEditor';
 
 // Backend API URL
@@ -47,6 +54,10 @@ export default function EditorPage() {
   const [regenerating, setRegenerating] = useState(false);
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  // Elapsed ms since the current regenerate started. Drives the
+  // progressive loading message (0-60s / 60-120s / 120-180s / 180-240s).
+  // 0 when not regenerating.
+  const [regenerateElapsedMs, setRegenerateElapsedMs] = useState(0);
   // Count of menu_items with image_url for this website — drives the
   // image-aware warning + acknowledge checkbox inside the confirm modal.
   // Defaults to 0 (= soft warning, no checkbox) until the fetch resolves
@@ -300,18 +311,58 @@ export default function EditorPage() {
 
       // Poll GET /:id until status leaves 'generating'. Backend marks
       // the row as 'generating' immediately and flips to 'draft' (or
-      // 'failed') when the background AI task finishes. Cap at ~5min
-      // so a stuck job doesn't loop forever.
-      const maxAttempts = 100; // 100 * 3s = 5 minutes
-      let attempt = 0;
+      // 'failed') when the background AI task finishes. Timeout sized
+      // to backend budget (210s) + buffer; configurable via
+      // NEXT_PUBLIC_REGENERATE_POLL_TIMEOUT_MS — see
+      // lib/regeneratePollMessages.ts.
+      const pollTimeoutMs = resolvePollTimeoutMs();
+      const pollStart = Date.now();
+      setRegenerateElapsedMs(0);
+
+      // Settle the regenerate UI to "not loading anymore" and clear
+      // the elapsed tick. Used both by the success path and the
+      // timeout path so we never leak a tick interval.
+      const stopRegenerating = (tickHandle: ReturnType<typeof setInterval>) => {
+        clearInterval(tickHandle);
+        setRegenerating(false);
+        setRegenerateElapsedMs(0);
+      };
+
+      // Tick the elapsed counter so the progressive loading message
+      // updates without waiting for the next poll response.
+      const tick = setInterval(() => {
+        setRegenerateElapsedMs(Date.now() - pollStart);
+      }, 1000);
+
       const poll = setInterval(async () => {
-        attempt += 1;
-        if (attempt > maxAttempts) {
+        if (Date.now() - pollStart >= pollTimeoutMs) {
           clearInterval(poll);
-          setRegenerating(false);
-          setRegenerateError(
-            'Regenerate mengambil masa terlalu lama. Sila refresh halaman.'
-          );
+          stopRegenerating(tick);
+          setRegenerateError(REGENERATE_TIMEOUT_MESSAGE);
+          // One more probe after a short delay — the backend may have
+          // committed the result between our last poll and the timeout.
+          // Best-effort: failures are swallowed (user can still refresh).
+          setTimeout(async () => {
+            try {
+              const resp = await fetch(`${API_BASE}/api/v1/websites/${id}`, {
+                headers: { Authorization: `Bearer ${customToken}` },
+              });
+              if (!resp.ok) return;
+              const data = await resp.json();
+              if (data.status && data.status !== 'generating') {
+                setWebsite(data);
+                setHtml(data.html_content || '');
+                setPendingDescription('');
+                setRegenerateError(
+                  data.status === 'failed'
+                    ? 'Regenerate gagal. AI tidak dapat menjana laman web. Sila cuba lagi.'
+                    : null
+                );
+              }
+            } catch (refreshErr) {
+              console.warn('Post-timeout refresh failed:', refreshErr);
+            }
+          }, REGENERATE_POLL_AUTO_REFRESH_DELAY_MS);
           return;
         }
         try {
@@ -325,7 +376,7 @@ export default function EditorPage() {
           setWebsite(data);
           setHtml(data.html_content || '');
           setPendingDescription('');
-          setRegenerating(false);
+          stopRegenerating(tick);
           if (data.status === 'failed') {
             setRegenerateError(
               'Regenerate gagal. AI tidak dapat menjana laman web. Sila cuba lagi.'
@@ -334,7 +385,7 @@ export default function EditorPage() {
         } catch (pollErr) {
           console.warn('Poll error:', pollErr);
         }
-      }, 3000);
+      }, REGENERATE_POLL_INTERVAL_MS);
     } catch (e) {
       console.error('Regenerate error:', e);
       setRegenerateError('Ralat regenerate. Sila cuba lagi.');
@@ -508,8 +559,13 @@ export default function EditorPage() {
               {regenerating ? '⏳ Regenerating…' : '🪄 Regenerate Website'}
             </button>
             {regenerating && (
-              <span className="text-xs text-gray-500">
-                AI sedang menjana laman web baru. Ini mengambil 1–3 minit.
+              <span
+                className="text-xs text-gray-500"
+                role="status"
+                aria-live="polite"
+                data-testid="regenerate-progress-message"
+              >
+                {pickRegenerateLoadingMessage(regenerateElapsedMs)}
               </span>
             )}
           </div>
