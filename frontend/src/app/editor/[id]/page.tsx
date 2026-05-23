@@ -1,8 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { supabase, getCurrentUser, getStoredToken } from '@/lib/supabase';
+import { buildRegenerateWarning } from '@/lib/regenerateWarning';
+import {
+  STYLE_CHIPS,
+  applyStyleChip,
+  chipIsStillApplied,
+  type StyleChipId,
+} from '@/lib/regenerateStyleChips';
 import AIEditor from './AIEditor';
 
 // Backend API URL
@@ -40,10 +47,49 @@ export default function EditorPage() {
   const [regenerating, setRegenerating] = useState(false);
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  // Count of menu_items with image_url for this website — drives the
+  // image-aware warning + acknowledge checkbox inside the confirm modal.
+  // Defaults to 0 (= soft warning, no checkbox) until the fetch resolves
+  // so an in-flight count doesn't pop the strong warning incorrectly.
+  const [uploadedImageCount, setUploadedImageCount] = useState(0);
+  // Checkbox tick state inside the modal. Reset every time the modal is
+  // opened so a previous "I understand" tick can't carry over.
+  const [acknowledgeReplace, setAcknowledgeReplace] = useState(false);
+  // Currently-selected style hint chip. Single-select (radio behaviour).
+  // null = no chip active. Not persisted — purely a UI helper for
+  // composing the next regenerate prompt. The textarea remains the
+  // source of truth for what actually gets sent to the backend.
+  const [selectedChipId, setSelectedChipId] = useState<StyleChipId | null>(null);
 
   useEffect(() => {
     loadWebsite();
+    loadUploadedImageCount();
   }, [id]);
+
+  // Fetch the number of menu_items with a non-empty image_url for this
+  // website. Used by the regenerate confirm modal to decide whether to
+  // show the strong "photos will be replaced" warning. Failures are
+  // swallowed (count stays at 0) — falling back to the soft warning is
+  // safer than blocking the modal entirely.
+  async function loadUploadedImageCount() {
+    try {
+      const url = `${API_BASE}/api/v1/websites/${id}/menu-items`;
+      const customToken = getStoredToken();
+      const headers: Record<string, string> = {};
+      if (customToken) headers['Authorization'] = `Bearer ${customToken}`;
+      const resp = await fetch(url, { headers });
+      if (!resp.ok) return;
+      const items = await resp.json();
+      if (!Array.isArray(items)) return;
+      const count = items.filter(
+        (it: { image_url?: string | null }) =>
+          typeof it?.image_url === 'string' && it.image_url.trim().length > 0
+      ).length;
+      setUploadedImageCount(count);
+    } catch (err) {
+      console.warn('Failed to fetch uploaded image count:', err);
+    }
+  }
 
   async function loadWebsite() {
     try {
@@ -382,6 +428,33 @@ export default function EditorPage() {
           )}
 
           <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+            Pilih gaya (pilihan)
+          </label>
+          <StyleChipRow
+            chips={STYLE_CHIPS}
+            selectedChipId={selectedChipId}
+            disabled={regenerating}
+            onSelect={(nextId) => {
+              // Compute effective previous: if the user edited the text
+              // such that the modifier text isn't verbatim any more, we
+              // pass `null` as previous so we don't strip a substring
+              // the user no longer recognises.
+              const effectivePrev = chipIsStillApplied(
+                pendingDescription,
+                selectedChipId
+              )
+                ? selectedChipId
+                : null;
+              const finalNext =
+                nextId === selectedChipId ? null : nextId; // re-tap = clear
+              setPendingDescription((current) =>
+                applyStyleChip(current, effectivePrev, finalNext)
+              );
+              setSelectedChipId(finalNext);
+            }}
+          />
+
+          <label className="block text-xs font-semibold text-gray-700 mb-1.5 mt-3">
             Penerangan baru{' '}
             <span className="font-normal text-gray-400">
               (kosongkan untuk guna semula yang asal)
@@ -389,7 +462,19 @@ export default function EditorPage() {
           </label>
           <textarea
             value={pendingDescription}
-            onChange={(e) => setPendingDescription(e.target.value)}
+            data-testid="regenerate-description-textarea"
+            onChange={(e) => {
+              const next = e.target.value;
+              setPendingDescription(next);
+              // De-highlight the chip if the user has edited the
+              // modifier text in a way that no longer matches verbatim.
+              if (
+                selectedChipId &&
+                !chipIsStillApplied(next, selectedChipId)
+              ) {
+                setSelectedChipId(null);
+              }
+            }}
             disabled={regenerating}
             rows={3}
             maxLength={5000}
@@ -410,7 +495,10 @@ export default function EditorPage() {
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={() => setShowRegenerateConfirm(true)}
+              onClick={() => {
+                setAcknowledgeReplace(false);
+                setShowRegenerateConfirm(true);
+              }}
               disabled={
                 regenerating ||
                 (!website?.description && pendingDescription.trim().length < 10)
@@ -429,43 +517,16 @@ export default function EditorPage() {
 
         {/* Regenerate confirm modal */}
         {showRegenerateConfirm && (
-          <div
-            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-            onClick={() => setShowRegenerateConfirm(false)}
-          >
-            <div
-              className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className="text-lg font-bold text-gray-900 mb-2">
-                Sahkan regenerate?
-              </h3>
-              <p className="text-sm text-gray-600 mb-4">
-                HTML semasa akan{' '}
-                <strong className="text-red-600">digantikan sepenuhnya</strong>{' '}
-                dengan versi baru daripada AI. Edit manual yang anda buat akan
-                hilang. Ini juga menggunakan satu kredit AI hero dari plan
-                langganan anda.
-              </p>
-              <div className="flex justify-end gap-2">
-                <button
-                  onClick={() => setShowRegenerateConfirm(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  Batal
-                </button>
-                <button
-                  onClick={() => {
-                    setShowRegenerateConfirm(false);
-                    regenerateWebsite();
-                  }}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700"
-                >
-                  Ya, regenerate
-                </button>
-              </div>
-            </div>
-          </div>
+          <RegenerateConfirmModal
+            uploadedImageCount={uploadedImageCount}
+            acknowledgeReplace={acknowledgeReplace}
+            onAcknowledgeChange={setAcknowledgeReplace}
+            onCancel={() => setShowRegenerateConfirm(false)}
+            onConfirm={() => {
+              setShowRegenerateConfirm(false);
+              regenerateWebsite();
+            }}
+          />
         )}
 
         {/* AI Editor Section */}
@@ -514,6 +575,175 @@ export default function EditorPage() {
         <p className="text-sm text-yellow-800">
           💡 Untuk pengalaman terbaik, gunakan komputer atau tablet dalam mod landscape
         </p>
+      </div>
+    </div>
+  );
+}
+
+interface StyleChipRowProps {
+  chips: readonly {
+    id: StyleChipId;
+    icon: string;
+    label: string;
+  }[];
+  selectedChipId: StyleChipId | null;
+  disabled: boolean;
+  onSelect: (chipId: StyleChipId) => void;
+}
+
+/**
+ * Horizontal row of style hint chips above the regenerate textarea.
+ * Single-select (radio behaviour). Tapping the active chip clears it.
+ * On mobile the row scrolls horizontally; on desktop it wraps.
+ */
+function StyleChipRow({
+  chips,
+  selectedChipId,
+  disabled,
+  onSelect,
+}: StyleChipRowProps) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Gaya regenerate"
+      className="flex flex-nowrap md:flex-wrap items-center gap-2 mb-1 overflow-x-auto md:overflow-visible -mx-1 px-1 pb-1"
+    >
+      {chips.map((chip) => {
+        const active = chip.id === selectedChipId;
+        return (
+          <button
+            key={chip.id}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            aria-pressed={active}
+            aria-label={chip.label}
+            data-testid={`style-chip-${chip.id}`}
+            data-active={active ? 'true' : 'false'}
+            disabled={disabled}
+            onClick={() => onSelect(chip.id)}
+            className={[
+              'shrink-0 inline-flex items-center gap-1 h-8 px-3 rounded-full',
+              'text-xs font-medium whitespace-nowrap transition-colors',
+              'focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-1',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
+              active
+                ? 'bg-purple-600 text-white border border-purple-600 hover:bg-purple-700'
+                : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50',
+            ].join(' ')}
+          >
+            <span aria-hidden="true">{chip.icon}</span>
+            <span>{chip.label}</span>
+            {active && (
+              <span aria-hidden="true" className="ml-0.5">
+                ✓
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+interface RegenerateConfirmModalProps {
+  uploadedImageCount: number;
+  acknowledgeReplace: boolean;
+  onAcknowledgeChange: (next: boolean) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+function RegenerateConfirmModal({
+  uploadedImageCount,
+  acknowledgeReplace,
+  onAcknowledgeChange,
+  onCancel,
+  onConfirm,
+}: RegenerateConfirmModalProps) {
+  const warning = useMemo(
+    () => buildRegenerateWarning(uploadedImageCount),
+    [uploadedImageCount]
+  );
+  const confirmDisabled = warning.requiresAcknowledge && !acknowledgeReplace;
+  // Screen-reader announcement for the disabled state — without it the
+  // button just goes silent when the checkbox is unticked.
+  const disabledReason =
+    confirmDisabled
+      ? 'Tick the acknowledgement checkbox to enable this button.'
+      : '';
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="regenerate-confirm-title"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3
+          id="regenerate-confirm-title"
+          className="text-lg font-bold text-gray-900 mb-2"
+        >
+          {warning.headline}
+        </h3>
+        <p
+          className={`text-sm mb-4 ${
+            warning.hasUploadedImages ? 'text-red-700' : 'text-gray-600'
+          }`}
+        >
+          {warning.body}
+        </p>
+
+        {warning.requiresAcknowledge && (
+          <label className="flex items-start gap-2 mb-4 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={acknowledgeReplace}
+              onChange={(e) => onAcknowledgeChange(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+              aria-describedby="regenerate-ack-help"
+            />
+            <span
+              id="regenerate-ack-help"
+              className="text-sm text-gray-800"
+            >
+              {warning.checkboxLabel}
+            </span>
+          </label>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Batal
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={confirmDisabled}
+            aria-disabled={confirmDisabled}
+            aria-describedby={confirmDisabled ? 'regenerate-confirm-help' : undefined}
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Ya, regenerate
+          </button>
+        </div>
+        {confirmDisabled && (
+          <p
+            id="regenerate-confirm-help"
+            className="sr-only"
+            role="status"
+            aria-live="polite"
+          >
+            {disabledReason}
+          </p>
+        )}
       </div>
     </div>
   );

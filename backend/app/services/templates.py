@@ -46,6 +46,32 @@ def _find_widget_slot(html: str, widget: WidgetSpec) -> Optional[str]:
     return None
 
 
+def _log_slot_lookup(
+    widget_id: str,
+    slot_found: bool,
+    website_id: Optional[str] = None,
+    generation_count: Optional[int] = None,
+) -> None:
+    """Emit a single tagged line per slot lookup so we can aggregate the
+    AI's slot-emission rate (slot_found=True) vs. the legacy fallback
+    (slot_found=False) from log search.
+
+    Tag `[slot_lookup]` is unique in the codebase; Render's log search
+    can group on it. INFO when the AI emitted the slot (the interesting
+    case), DEBUG when it didn't (the common-but-noisy case).
+    """
+    site = website_id or "-"
+    gen = generation_count if generation_count is not None else "-"
+    line = (
+        f"[slot_lookup] widget={widget_id} slot_found={slot_found} "
+        f"website_id={site} generation_count={gen}"
+    )
+    if slot_found:
+        logger.info(line)
+    else:
+        logger.debug(line)
+
+
 def _inject_into_slot(html: str, slot_id: str, inner_html: str) -> str:
     """Replace the contents of `<div id="slot_id">…</div>` with `inner_html`.
 
@@ -239,6 +265,8 @@ class TemplateService:
         html: str,
         address: str,
         theme_tokens: Optional[Dict[str, str]] = None,
+        website_id: Optional[str] = None,
+        generation_count: Optional[int] = None,
     ) -> str:
         """
         Inject Google Maps embed into HTML.
@@ -246,6 +274,10 @@ class TemplateService:
         If the AI emitted a designated `binaapp-maps-slot` div, the embed
         is rendered there (correct semantic position). Otherwise we fall
         back to appending a full section before </body>.
+
+        `website_id` and `generation_count` are passed through to slot-
+        lookup logging only — they don't affect injection behaviour. Both
+        are optional so existing callers keep working.
         """
         address_encoded = address.replace(' ', '+')
         tokens = theme_tokens or {}
@@ -271,6 +303,12 @@ class TemplateService:
         # Slot-aware path: replace the AI-emitted placeholder if present.
         widget = WIDGETS.get("maps")
         slot_id = _find_widget_slot(html, widget) if widget else None
+        _log_slot_lookup(
+            "maps",
+            slot_found=bool(slot_id),
+            website_id=website_id,
+            generation_count=generation_count,
+        )
         if slot_id:
             new_html = _inject_into_slot(html, slot_id, maps_inner)
             if new_html != html:
@@ -426,6 +464,8 @@ updateCartUI();
         html: str,
         email: str = "",
         theme_tokens: Optional[Dict[str, str]] = None,
+        website_id: Optional[str] = None,
+        generation_count: Optional[int] = None,
     ) -> str:
         """
         Inject contact form into HTML.
@@ -434,6 +474,9 @@ updateCartUI();
         falls back to appending a full section before </body>.
         Submit button colour follows the extracted site palette so it
         doesn't clash with the AI-chosen design.
+
+        `website_id` and `generation_count` are passed through to slot-
+        lookup logging only — they don't affect injection behaviour.
         """
         tokens = theme_tokens or {}
         primary = tokens.get("primary", "#3b82f6")
@@ -441,6 +484,12 @@ updateCartUI();
 
         widget = WIDGETS.get("contact")
         slot_id = _find_widget_slot(html, widget) if widget else None
+        _log_slot_lookup(
+            "contact",
+            slot_found=bool(slot_id),
+            website_id=website_id,
+            generation_count=generation_count,
+        )
         if slot_id:
             slot_form_inner = self._build_contact_form_inner(email, primary, accent, container=False)
             new_html = _inject_into_slot(html, slot_id, slot_form_inner)
@@ -3297,6 +3346,12 @@ function handleContactSubmit(e) {{
         # below so widgets inherit the AI-chosen palette.
         theme_tokens = user_data.get("theme_tokens") or {}
 
+        # Threaded into slot-aware injectors so per-website slot emission
+        # rates can be aggregated from logs. Optional — None values are
+        # rendered as "-" in the log line.
+        website_id_for_log = user_data.get("website_id")
+        generation_count_for_log = user_data.get("generation_count")
+
         # Check if delivery widget is enabled (mutually exclusive with legacy delivery UI)
         # Widget is enabled when: website_id exists AND delivery features are requested
         delivery_widget_enabled = bool(
@@ -3315,7 +3370,13 @@ function handleContactSubmit(e) {{
 
         # Google Maps
         if "maps" in features and user_data.get("address"):
-            html = self.inject_google_maps(html, user_data["address"], theme_tokens=theme_tokens)
+            html = self.inject_google_maps(
+                html,
+                user_data["address"],
+                theme_tokens=theme_tokens,
+                website_id=website_id_for_log,
+                generation_count=generation_count_for_log,
+            )
 
         # Shopping Cart
         if "cart" in features:
@@ -3333,7 +3394,11 @@ function handleContactSubmit(e) {{
         # Contact Form
         if "contact" in features:
             html = self.inject_contact_form(
-                html, user_data.get("email", ""), theme_tokens=theme_tokens
+                html,
+                user_data.get("email", ""),
+                theme_tokens=theme_tokens,
+                website_id=website_id_for_log,
+                generation_count=generation_count_for_log,
             )
 
         # QR Code - Inject BEFORE delivery system so it ends up inside page-home div
