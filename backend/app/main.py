@@ -3050,6 +3050,21 @@ async def publish_website(
     if len(subdomain) < 2:
         return JSONResponse(status_code=400, content={"success": False, "error": "Subdomain too short (min 2 chars)"})
 
+    # HTML auto-repair (PR #668) runs before the structural-integrity gate.
+    # html5lib re-emits balanced HTML so the validator only fires for
+    # genuinely catastrophic input. Disable with HTML_AUTO_REPAIR_ENABLED=0.
+    from app.services.html_repair import repair_html
+    html_content, _repair_info = repair_html(html_content, context=subdomain)
+    if _repair_info.get("skipped"):
+        logger.info(
+            f"🔧 HTML repair skipped for {subdomain}: "
+            f"{_repair_info.get('skipped_reason')}"
+        )
+    else:
+        logger.info(
+            f"🔧 HTML repair report for {subdomain}: {_repair_info}"
+        )
+
     # HTML structural-integrity gate (Item 5 / Option B).
     # Refuses to publish HTML with unclosed mid-body tags or missing </html>,
     # which is the failure mode that put jiwa/huil/juio in production with
