@@ -355,7 +355,7 @@ export default function DashboardPage() {
         deletingId={deleting}
         onCreateNew={handleCreateWebsiteClick}
         onView={(w) => window.open(`https://${w.subdomain}`, '_blank')}
-        onEdit={(w) => router.push(`/edit/${w.id}`)}
+        onEdit={(w) => router.push(`/editor/${w.id}`)}
         onDelete={(id) => setDeleteConfirm(id)}
         onDeleteConfirm={(id) => handleDelete(id)}
         onDeleteCancel={() => setDeleteConfirm(null)}
@@ -390,7 +390,7 @@ export default function DashboardPage() {
           deletingId={deleting}
           onCreateNew={handleCreateWebsiteClick}
           onView={(w) => window.open(`https://${w.subdomain}`, '_blank')}
-          onEdit={(w) => router.push(`/edit/${w.id}`)}
+          onEdit={(w) => router.push(`/editor/${w.id}`)}
           onDelete={(id) => setDeleteConfirm(id)}
           onDeleteConfirm={(id) => handleDelete(id)}
           onDeleteCancel={() => setDeleteConfirm(null)}
