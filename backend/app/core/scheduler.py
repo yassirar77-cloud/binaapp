@@ -3,6 +3,7 @@ Background Task Scheduler for BinaApp
 Uses APScheduler to run periodic tasks like email polling
 """
 import asyncio
+import os
 from datetime import datetime
 from typing import Optional, Dict, Any
 from loguru import logger
@@ -347,3 +348,181 @@ async def start_email_polling():
 def stop_email_polling():
     """Helper function to stop email polling on application shutdown"""
     email_polling_scheduler.shutdown()
+
+
+# ============================================================
+# Stuck-generation sweeper
+# ============================================================
+#
+# Watches for websites stuck on status='generating' when the background
+# task that owned them has gone silent (worker restart, OOM, etc.).
+# Mirrors EmailPollingScheduler's lifecycle so main.py can start/stop
+# it the same way.
+
+_STUCK_SWEEP_INTERVAL_DEFAULT_SECONDS = 300  # 5 minutes
+
+
+def _stuck_sweep_interval_seconds() -> int:
+    """Resolve the sweep interval from env, with a 5-minute floor."""
+    raw = os.getenv("STUCK_SWEEP_INTERVAL_SECONDS")
+    if not raw:
+        return _STUCK_SWEEP_INTERVAL_DEFAULT_SECONDS
+    try:
+        value = int(float(raw))
+    except (TypeError, ValueError):
+        return _STUCK_SWEEP_INTERVAL_DEFAULT_SECONDS
+    # Don't allow values that would hammer Supabase. 60s floor is plenty
+    # tight given the 5-minute stuck threshold.
+    return max(60, value)
+
+
+class StuckGenerationScheduler:
+    """APScheduler wrapper around `sweep_stuck_generations`.
+
+    Runs every STUCK_SWEEP_INTERVAL_SECONDS (default 300s). On each tick
+    it queries Supabase for websites stuck on 'generating' with a stale
+    heartbeat AND stale updated_at, and flips them to 'failed' with an
+    explanatory error_message.
+    """
+
+    JOB_ID = "stuck_generation_sweep_job"
+
+    def __init__(self) -> None:
+        self.scheduler: Optional[Any] = None
+        self._is_running = False
+        self._started_at: Optional[datetime] = None
+        self._last_job_run: Optional[datetime] = None
+        self._job_run_count = 0
+        self._consecutive_failures = 0
+        self._last_flipped_count = 0
+        self._create_scheduler()
+
+    def _create_scheduler(self) -> None:
+        if not APSCHEDULER_AVAILABLE:
+            return
+        try:
+            self.scheduler = AsyncIOScheduler(
+                jobstores={"default": MemoryJobStore()},
+                executors={"default": AsyncIOExecutor()},
+                job_defaults={
+                    "coalesce": True,
+                    "max_instances": 1,
+                    "misfire_grace_time": 60,
+                },
+                timezone="UTC",
+            )
+        except Exception as e:
+            logger.error(f"Failed to create stuck-sweep scheduler: {e}")
+            self.scheduler = None
+
+    def is_available(self) -> bool:
+        return APSCHEDULER_AVAILABLE and self.scheduler is not None
+
+    @property
+    def is_running(self) -> bool:
+        return (
+            self._is_running
+            and self.scheduler is not None
+            and self.scheduler.running
+        )
+
+    async def _sweep_job(self) -> None:
+        # Local import keeps the module import graph clean (this file
+        # is imported very early on startup, before Supabase is wired).
+        from app.services.generation_heartbeat import sweep_stuck_generations
+
+        self._last_job_run = datetime.utcnow()
+        self._job_run_count += 1
+        try:
+            result = await sweep_stuck_generations()
+            self._last_flipped_count = int(result.get("count") or 0)
+            self._consecutive_failures = 0
+            if self._last_flipped_count > 0:
+                logger.warning(
+                    f"[stuck-sweep] job #{self._job_run_count} flipped "
+                    f"{self._last_flipped_count} stuck website(s) to "
+                    f"failed: {result.get('ids')}"
+                )
+            else:
+                logger.debug(
+                    f"[stuck-sweep] job #{self._job_run_count} clean — "
+                    f"no stuck rows"
+                )
+        except Exception as e:
+            self._consecutive_failures += 1
+            logger.error(
+                f"[stuck-sweep] job #{self._job_run_count} errored: {e} "
+                f"(consecutive failures: {self._consecutive_failures})"
+            )
+
+    def start(self) -> bool:
+        if not APSCHEDULER_AVAILABLE:
+            logger.warning(
+                "[stuck-sweep] APScheduler not installed — sweeper disabled"
+            )
+            return False
+        if self.is_running:
+            return True
+        if self.scheduler is None:
+            self._create_scheduler()
+        if not self.is_available():
+            return False
+        try:
+            interval = _stuck_sweep_interval_seconds()
+            self.scheduler.add_job(
+                self._sweep_job,
+                trigger=IntervalTrigger(seconds=interval),
+                id=self.JOB_ID,
+                name="Stuck Generation Sweep",
+                replace_existing=True,
+            )
+            self.scheduler.start()
+            self._is_running = True
+            self._started_at = datetime.utcnow()
+            self._consecutive_failures = 0
+            logger.info(
+                f"[stuck-sweep] scheduler started (interval: {interval}s)"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"[stuck-sweep] failed to start: {e}")
+            self._create_scheduler()
+            return False
+
+    def shutdown(self) -> None:
+        if self.scheduler and self.scheduler.running:
+            try:
+                self.scheduler.shutdown(wait=False)
+                logger.info("[stuck-sweep] scheduler shutdown complete")
+            except Exception as e:
+                logger.error(f"[stuck-sweep] error during shutdown: {e}")
+        self._is_running = False
+
+    def get_status(self) -> Dict[str, Any]:
+        return {
+            "scheduler_available": self.is_available(),
+            "is_running": self.is_running,
+            "started_at": self._started_at.isoformat()
+            if self._started_at
+            else None,
+            "last_job_run": self._last_job_run.isoformat()
+            if self._last_job_run
+            else None,
+            "job_run_count": self._job_run_count,
+            "consecutive_failures": self._consecutive_failures,
+            "last_flipped_count": self._last_flipped_count,
+            "interval_seconds": _stuck_sweep_interval_seconds(),
+        }
+
+
+stuck_generation_scheduler = StuckGenerationScheduler()
+
+
+def start_stuck_generation_sweeper() -> bool:
+    """Startup helper — mirrors start_email_polling."""
+    return stuck_generation_scheduler.start()
+
+
+def stop_stuck_generation_sweeper() -> None:
+    """Shutdown helper — mirrors stop_email_polling."""
+    stuck_generation_scheduler.shutdown()
