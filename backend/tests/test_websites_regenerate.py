@@ -365,100 +365,22 @@ class TestGenerationCountIncrementsOnlyOnSuccess:
             assert "generation_count" not in payload
 
 
-class TestAITimeoutRetry:
-    """generate_website's bounded-retry path: primary times out → fall
-    back to Qwen on a shorter budget → succeed or surface TimeoutError."""
+class TestAITimeoutDeepSeekOnly:
+    """generate_website's timeout contract on the DeepSeek-only path.
+
+    The legacy DeepSeek → Qwen fallback was removed: on primary
+    timeout the function raises asyncio.TimeoutError straight up so the
+    endpoint surfaces "AI generation timed out" without burning the
+    user's quota (quota bump is gated behind a successful return)."""
 
     @pytest.mark.asyncio
-    async def test_primary_timeout_falls_back_to_qwen(self, monkeypatch):
+    async def test_deepseek_timeout_raises_timeout_error(self, monkeypatch):
         import asyncio
         from app.services import ai_service as ai_service_module
         from app.models.schemas import WebsiteGenerationRequest, Language
 
-        monkeypatch.setenv("AI_TIMEOUT_RETRY_ENABLED", "true")
-
-        svc = ai_service_module.AIService()
-
-        # Primary hangs forever; the wait_for budget makes it raise
-        # TimeoutError. Fallback returns valid HTML inside the budget.
-        async def slow_deepseek(*args, **kwargs):
-            await asyncio.sleep(10)
-            return "should never reach here"
-
-        async def quick_qwen(prompt, *args, **kwargs):
-            return "<html><body>fallback ok</body></html>", {
-                "was_truncated": False,
-                "truncation_retries": 0,
-                "needs_manual_review": False,
-                "unclosed_tags": [],
-            }
-
-        # Shrink budgets so the test doesn't actually wait 120s.
         monkeypatch.setattr(
             ai_service_module, "AI_PRIMARY_TIMEOUT_SECONDS", 0.05
-        )
-        monkeypatch.setattr(
-            ai_service_module, "AI_FALLBACK_TIMEOUT_SECONDS", 5.0
-        )
-
-        with (
-            patch.object(svc, "_call_deepseek", side_effect=slow_deepseek),
-            patch.object(
-                svc, "_call_qwen_with_truncation_retry", side_effect=quick_qwen
-            ),
-            # Stub the rest of the pipeline so the test stays focused on
-            # the timeout retry contract.
-            patch.object(
-                svc, "_build_strict_prompt", return_value="<prompt>"
-            ),
-            patch.object(svc, "_fix_placeholders", side_effect=lambda h, *a, **k: h),
-            patch.object(svc, "_fix_menu_item_images", side_effect=lambda h, *a, **k: h),
-            patch.object(svc, "_fix_broken_image_urls", side_effect=lambda h, *a, **k: h),
-            patch.object(
-                svc, "_validate_generated_html", return_value=[]
-            ),
-        ):
-            request = WebsiteGenerationRequest(
-                description="a kedai roti in shah alam",
-                language=Language.MALAY,
-                business_name="Kedai Roti",
-                business_type="bakery",
-                subdomain="kedairoti",
-                include_whatsapp=False,
-                include_maps=False,
-                include_ecommerce=False,
-            )
-            response = await svc.generate_website(request, image_choice="none")
-
-        assert response.html_content
-        assert "fallback ok" in response.html_content
-
-    @pytest.mark.asyncio
-    async def test_disabled_flag_skips_wait_for_wrapper(self, monkeypatch):
-        # When AI_TIMEOUT_RETRY_ENABLED=false, the primary call runs
-        # without a wait_for ceiling — same behaviour as before the
-        # post-PR665 hardening. Rollback safety net.
-        from app.services import ai_service as ai_service_module
-
-        monkeypatch.setenv("AI_TIMEOUT_RETRY_ENABLED", "false")
-        assert ai_service_module._ai_timeout_retry_enabled() is False
-        monkeypatch.setenv("AI_TIMEOUT_RETRY_ENABLED", "true")
-        assert ai_service_module._ai_timeout_retry_enabled() is True
-        monkeypatch.setenv("AI_TIMEOUT_RETRY_ENABLED", "FALSE")
-        assert ai_service_module._ai_timeout_retry_enabled() is False
-
-    @pytest.mark.asyncio
-    async def test_both_models_timeout_raises_timeout_error(self, monkeypatch):
-        import asyncio
-        from app.services import ai_service as ai_service_module
-        from app.models.schemas import WebsiteGenerationRequest, Language
-
-        monkeypatch.setenv("AI_TIMEOUT_RETRY_ENABLED", "true")
-        monkeypatch.setattr(
-            ai_service_module, "AI_PRIMARY_TIMEOUT_SECONDS", 0.05
-        )
-        monkeypatch.setattr(
-            ai_service_module, "AI_FALLBACK_TIMEOUT_SECONDS", 0.05
         )
 
         svc = ai_service_module.AIService()
@@ -468,7 +390,6 @@ class TestAITimeoutRetry:
 
         with (
             patch.object(svc, "_call_deepseek", side_effect=hang),
-            patch.object(svc, "_call_qwen_with_truncation_retry", side_effect=hang),
             patch.object(svc, "_build_strict_prompt", return_value="<prompt>"),
         ):
             request = WebsiteGenerationRequest(
@@ -483,3 +404,51 @@ class TestAITimeoutRetry:
             )
             with pytest.raises(asyncio.TimeoutError):
                 await svc.generate_website(request, image_choice="none")
+
+    @pytest.mark.asyncio
+    async def test_qwen_fallback_helper_is_not_called(self, monkeypatch):
+        """Regression guard for the DeepSeek-only refactor: even if
+        DeepSeek returns None/empty, we must not silently fall through
+        to `_call_qwen_with_truncation_retry`."""
+        import asyncio
+        from app.services import ai_service as ai_service_module
+        from app.models.schemas import WebsiteGenerationRequest, Language
+
+        monkeypatch.setattr(
+            ai_service_module, "AI_PRIMARY_TIMEOUT_SECONDS", 5.0
+        )
+
+        svc = ai_service_module.AIService()
+
+        async def empty_deepseek(*args, **kwargs):
+            return None
+
+        qwen_should_never_be_called = AsyncMock(
+            side_effect=AssertionError("Qwen fallback must not be reached")
+        )
+
+        with (
+            patch.object(svc, "_call_deepseek", side_effect=empty_deepseek),
+            patch.object(
+                svc,
+                "_call_qwen_with_truncation_retry",
+                qwen_should_never_be_called,
+            ),
+            patch.object(svc, "_build_strict_prompt", return_value="<prompt>"),
+        ):
+            request = WebsiteGenerationRequest(
+                description="a kedai roti in shah alam",
+                language=Language.MALAY,
+                business_name="Kedai Roti",
+                business_type="bakery",
+                subdomain="kedairoti",
+                include_whatsapp=False,
+                include_maps=False,
+                include_ecommerce=False,
+            )
+            with pytest.raises(Exception) as exc_info:
+                await svc.generate_website(request, image_choice="none")
+            # The empty DeepSeek result triggers the generic "Failed to
+            # generate website" path, not the Qwen fallback.
+            assert "Failed to generate website" in str(exc_info.value)
+        qwen_should_never_be_called.assert_not_awaited()
