@@ -277,6 +277,22 @@ async def startup_event():
     except Exception as e:
         logger.error(f"📧 Failed to start email polling service: {e}")
 
+    # Stuck-generation sweeper (Layer 2 of stuck-generating safety net).
+    # Watches for websites that get stranded on status='generating' when
+    # the worker that owned the background task dies. Independent of
+    # email polling — must not be skipped by the same env flag.
+    try:
+        from app.core.scheduler import start_stuck_generation_sweeper
+
+        if start_stuck_generation_sweeper():
+            logger.info("🩺 Stuck-generation sweeper started")
+        else:
+            logger.warning(
+                "🩺 Stuck-generation sweeper not started (APScheduler unavailable?)"
+            )
+    except Exception as e:
+        logger.error(f"🩺 Failed to start stuck-generation sweeper: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -290,6 +306,14 @@ async def shutdown_event():
         logger.info("📧 Email polling service stopped")
     except Exception as e:
         logger.error(f"📧 Error stopping email polling service: {e}")
+
+    # Stop stuck-generation sweeper
+    try:
+        from app.core.scheduler import stop_stuck_generation_sweeper
+        stop_stuck_generation_sweeper()
+        logger.info("🩺 Stuck-generation sweeper stopped")
+    except Exception as e:
+        logger.error(f"🩺 Error stopping stuck-generation sweeper: {e}")
 
     logger.info("🛑 BinaApp API shutdown complete")
 

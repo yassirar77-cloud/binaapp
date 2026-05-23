@@ -375,6 +375,17 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
     Background task to generate website content using AI
     """
     import asyncio
+    from app.services.generation_heartbeat import (
+        clear_heartbeat,
+        heartbeat_loop,
+    )
+
+    # Heartbeat task runs alongside the AI call so the stuck-generation
+    # sweeper (core/scheduler.py) can tell the difference between "still
+    # working" and "worker died". Cancelled + cleared in the finally
+    # block — never left dangling. Heartbeat write failures must not
+    # kill generation: they're logged and swallowed inside the helper.
+    heartbeat_task = asyncio.create_task(heartbeat_loop(website_id))
 
     try:
         logger.info(f"🚀 Starting website generation for {website_id}")
@@ -508,6 +519,23 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
             "error_message": str(e),
             "updated_at": datetime.utcnow().isoformat()
         })
+
+    finally:
+        # Stop the heartbeat regardless of which branch ran. Swallow
+        # cleanup errors so a slow Supabase response on the way out
+        # can't surface as an unhandled background-task exception.
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        try:
+            await clear_heartbeat(website_id)
+        except Exception as cleanup_err:
+            logger.warning(
+                f"[heartbeat] post-generation clear failed for "
+                f"{website_id}: {cleanup_err}"
+            )
 
 
 @router.get("/", response_model=List[WebsiteListResponse])

@@ -7,6 +7,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live
 from app.api.admin import repair as admin_repair
+from app.api.admin import unstick_generation as admin_unstick
 
 api_router = APIRouter()
 
@@ -31,3 +32,8 @@ api_router.include_router(customers.router, tags=["Customer Lookup"])
 # enforces role='admin' internally — mounted under the v1 prefix so the
 # full path is POST /api/v1/admin/repair-websites.
 api_router.include_router(admin_repair.router, tags=["Admin: Repair"])
+# Admin: manual escape hatch for websites stuck on status='generating'.
+# Path is POST /api/v1/admin/websites/{id}/unstick-generation. The
+# scheduled sweeper in core/scheduler.py handles the common case
+# automatically; this endpoint is for the long tail.
+api_router.include_router(admin_unstick.router, tags=["Admin: Unstick"])
