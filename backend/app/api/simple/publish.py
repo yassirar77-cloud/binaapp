@@ -541,6 +541,11 @@ async def publish_website(
         async def save_metadata():
             # Helper function to INSERT a new record
             async def do_insert():
+                # Migration 039 added websites.description + generation_count
+                # to power the editor's regenerate flow. Persist the prompt
+                # (when supplied) so the editor can offer "leave blank to
+                # reuse the original"; counter starts at 1 to reflect this
+                # initial generation.
                 project_data = {
                     "id": project_id,
                     "user_id": request.user_id,
@@ -552,8 +557,11 @@ async def publish_website(
                     "public_url": public_url,
                     "published_at": datetime.utcnow().isoformat(),
                     "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat()
+                    "updated_at": datetime.utcnow().isoformat(),
+                    "generation_count": 1
                 }
+                if request.description:
+                    project_data["description"] = request.description
                 logger.info(f"   Inserting new record with columns: {list(project_data.keys())}")
                 result = await supabase_service.create_website(project_data)
                 if not result:

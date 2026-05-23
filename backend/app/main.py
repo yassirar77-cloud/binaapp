@@ -3213,7 +3213,17 @@ async def publish_website(
         if supabase:
             try:
                 logger.info(f"💾 Creating database record for website: {website_id}")
-                supabase.table("websites").upsert({
+                # Migration 039 added websites.description + generation_count
+                # to power the editor's regenerate flow. We persist them here
+                # so a website created via the production /create → /api/publish
+                # path lands with the same data shape as one created via
+                # /api/v1/websites. description is only written when the
+                # frontend actually sends one — republishes that omit it
+                # must not null out the previously-stored prompt.
+                # generation_count is only set on initial create (=1);
+                # republishes leave it untouched so the regenerate counter
+                # in the editor stays accurate.
+                upsert_payload = {
                     "id": website_id,
                     "user_id": user_id,
                     "name": project_name,
@@ -3223,7 +3233,15 @@ async def publish_website(
                     "public_url": published_url,
                     "html_content": html_content,
                     "updated_at": datetime.now().isoformat()
-                }, on_conflict="id").execute()
+                }
+                _description = body.get("description")
+                if _description:
+                    upsert_payload["description"] = _description
+                if is_new_website:
+                    upsert_payload["generation_count"] = 1
+                supabase.table("websites").upsert(
+                    upsert_payload, on_conflict="id"
+                ).execute()
                 logger.info(f"✅ Database record created/updated: {website_id}")
 
                 # CRITICAL: Sync usage_tracking after new website creation

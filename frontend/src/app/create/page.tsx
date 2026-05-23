@@ -1079,6 +1079,11 @@ export default function CreatePage() {
           project_name: projectName,
           user_id: user?.id || 'demo-user',
           website_id: websiteId,
+          // Persist the original AI prompt so the editor's regenerate
+          // flow can reuse it (migration 039). Without this the websites
+          // row lands with description=null and the editor can't offer
+          // "leave blank to reuse" — see PR for description-persistence-bug.
+          description: description,
           features: selectedFeatures,
           delivery: selectedFeatures.deliverySystem ? {
             area: deliveryArea,
