@@ -46,6 +46,12 @@ cloudinary==1.36.0
 # Templating
 jinja2
 
+# HTML auto-repair (PR #668): runs before publish validator to re-emit
+# balanced HTML for malformed AI output. html5lib gives the best HTML5
+# spec compliance for the "permissive parse + re-serialize" repair flow.
+beautifulsoup4>=4.12.0
+html5lib>=1.1
+
 # Logging
 loguru
 
