@@ -199,14 +199,16 @@ class TestRegenerateEndpointAccess:
         assert resp.json()["status"] == "generating"
         # Quota was consumed via check_limit (same path as create).
         patches["check_limit"].assert_awaited_once()
-        # Persisted description + bumped counter.
+        # Persisted description, but generation_count is NOT bumped here
+        # anymore — that move-on-success is the whole point of the
+        # post-PR665 hardening fix. The background task does the bump.
         patches["update_website"].assert_awaited()
         update_call_kwargs = patches["update_website"].await_args.args[1]
         assert (
             update_call_kwargs["description"]
             == "completely new vibe — modern minimalist"
         )
-        assert update_call_kwargs["generation_count"] == 2  # prev was 1
+        assert "generation_count" not in update_call_kwargs
 
     def test_stored_description_reused_when_body_empty(
         self, client, auth_headers, test_user_id, patches
@@ -228,4 +230,256 @@ class TestRegenerateEndpointAccess:
         assert resp.status_code == 200, resp.text
         update_payload = patches["update_website"].await_args.args[1]
         assert update_payload["description"] == "the original prompt from create"
-        assert update_payload["generation_count"] == 4
+        # Same rule: counter only bumps inside the background task on
+        # success, never in the synchronous PATCH.
+        assert "generation_count" not in update_payload
+
+
+class TestGenerationCountIncrementsOnlyOnSuccess:
+    """The background task — generate_website_content — owns the
+    generation_count bump. These tests pin that contract: the counter
+    moves on success and stays put on failure (timeout or otherwise),
+    so a flaky AI provider can't burn the user's quota."""
+
+    @pytest.fixture
+    def patched_supabase(self):
+        """Patch supabase_service so we can inspect every update_website call
+        the background task makes."""
+        with (
+            patch(
+                "app.api.v1.endpoints.websites.supabase_service.get_website",
+                new=AsyncMock(),
+            ) as get_website,
+            patch(
+                "app.api.v1.endpoints.websites.supabase_service.update_website",
+                new=AsyncMock(return_value=True),
+            ) as update_website,
+            patch(
+                "app.api.v1.endpoints.websites.subscription_service.increment_usage",
+                new=AsyncMock(),
+            ),
+        ):
+            yield {"get_website": get_website, "update_website": update_website}
+
+    def _build_request(self):
+        from app.models.schemas import WebsiteGenerationRequest, Language
+
+        return WebsiteGenerationRequest(
+            description="a kedai bakery in shah alam selling kek lapis and roti",
+            language=Language.MALAY,
+            business_name="Kek Lapis Sarawak",
+            business_type="bakery",
+            subdomain="keklapis",
+            include_whatsapp=True,
+            whatsapp_number="+60123456789",
+            include_maps=False,
+            include_ecommerce=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_success_bumps_generation_count_by_one(self, patched_supabase):
+        from app.api.v1.endpoints import websites as websites_module
+        from app.models.schemas import AIGenerationResponse
+
+        patched_supabase["get_website"].return_value = {
+            "id": "ws-1",
+            "generation_count": 4,
+        }
+        fake_response = AIGenerationResponse(
+            html_content="<html><body>generated</body></html>",
+            css_content=None,
+            js_content=None,
+            meta_title="Kek Lapis Sarawak",
+            meta_description="Kek lapis traditional",
+            sections=["Header", "Hero"],
+            integrations_included=["WhatsApp"],
+            ai_images_count=0,
+        )
+        with patch.object(
+            websites_module.ai_service,
+            "generate_website",
+            new=AsyncMock(return_value=fake_response),
+        ):
+            await websites_module.generate_website_content(
+                "ws-1", self._build_request(), user_id="user-1"
+            )
+
+        # The success update must include generation_count = prev + 1.
+        success_calls = [
+            call.args[1]
+            for call in patched_supabase["update_website"].await_args_list
+            if call.args[1].get("status") == "draft"
+        ]
+        assert success_calls, "expected at least one success update"
+        assert success_calls[-1]["generation_count"] == 5
+        assert success_calls[-1].get("error_message") is None
+
+    @pytest.mark.asyncio
+    async def test_timeout_does_not_bump_generation_count(self, patched_supabase):
+        import asyncio
+        from app.api.v1.endpoints import websites as websites_module
+
+        # Background task hits the endpoint-level wait_for ceiling. The
+        # except block must mark status=failed WITHOUT touching the
+        # counter — the user gets a free retry, not a billed failure.
+        with patch.object(
+            websites_module.ai_service,
+            "generate_website",
+            new=AsyncMock(side_effect=asyncio.TimeoutError()),
+        ):
+            await websites_module.generate_website_content(
+                "ws-1", self._build_request(), user_id="user-1"
+            )
+
+        all_payloads = [
+            call.args[1] for call in patched_supabase["update_website"].await_args_list
+        ]
+        # Every update made during the failure path must omit generation_count.
+        for payload in all_payloads:
+            assert "generation_count" not in payload, (
+                f"failure path must not bump generation_count, got {payload}"
+            )
+        # And at least one update must have flipped status to failed.
+        statuses = [p.get("status") for p in all_payloads]
+        assert "failed" in statuses
+
+    @pytest.mark.asyncio
+    async def test_generic_exception_does_not_bump_generation_count(
+        self, patched_supabase
+    ):
+        from app.api.v1.endpoints import websites as websites_module
+
+        with patch.object(
+            websites_module.ai_service,
+            "generate_website",
+            new=AsyncMock(side_effect=Exception("provider 500")),
+        ):
+            await websites_module.generate_website_content(
+                "ws-1", self._build_request(), user_id="user-1"
+            )
+
+        all_payloads = [
+            call.args[1] for call in patched_supabase["update_website"].await_args_list
+        ]
+        for payload in all_payloads:
+            assert "generation_count" not in payload
+
+
+class TestAITimeoutRetry:
+    """generate_website's bounded-retry path: primary times out → fall
+    back to Qwen on a shorter budget → succeed or surface TimeoutError."""
+
+    @pytest.mark.asyncio
+    async def test_primary_timeout_falls_back_to_qwen(self, monkeypatch):
+        import asyncio
+        from app.services import ai_service as ai_service_module
+        from app.models.schemas import WebsiteGenerationRequest, Language
+
+        monkeypatch.setenv("AI_TIMEOUT_RETRY_ENABLED", "true")
+
+        svc = ai_service_module.AIService()
+
+        # Primary hangs forever; the wait_for budget makes it raise
+        # TimeoutError. Fallback returns valid HTML inside the budget.
+        async def slow_deepseek(*args, **kwargs):
+            await asyncio.sleep(10)
+            return "should never reach here"
+
+        async def quick_qwen(prompt, *args, **kwargs):
+            return "<html><body>fallback ok</body></html>", {
+                "was_truncated": False,
+                "truncation_retries": 0,
+                "needs_manual_review": False,
+                "unclosed_tags": [],
+            }
+
+        # Shrink budgets so the test doesn't actually wait 120s.
+        monkeypatch.setattr(
+            ai_service_module, "AI_PRIMARY_TIMEOUT_SECONDS", 0.05
+        )
+        monkeypatch.setattr(
+            ai_service_module, "AI_FALLBACK_TIMEOUT_SECONDS", 5.0
+        )
+
+        with (
+            patch.object(svc, "_call_deepseek", side_effect=slow_deepseek),
+            patch.object(
+                svc, "_call_qwen_with_truncation_retry", side_effect=quick_qwen
+            ),
+            # Stub the rest of the pipeline so the test stays focused on
+            # the timeout retry contract.
+            patch.object(
+                svc, "_build_strict_prompt", return_value="<prompt>"
+            ),
+            patch.object(svc, "_fix_placeholders", side_effect=lambda h, *a, **k: h),
+            patch.object(svc, "_fix_menu_item_images", side_effect=lambda h, *a, **k: h),
+            patch.object(svc, "_fix_broken_image_urls", side_effect=lambda h, *a, **k: h),
+            patch.object(
+                svc, "_validate_generated_html", return_value=[]
+            ),
+        ):
+            request = WebsiteGenerationRequest(
+                description="a kedai roti in shah alam",
+                language=Language.MALAY,
+                business_name="Kedai Roti",
+                business_type="bakery",
+                subdomain="kedairoti",
+                include_whatsapp=False,
+                include_maps=False,
+                include_ecommerce=False,
+            )
+            response = await svc.generate_website(request, image_choice="none")
+
+        assert response.html_content
+        assert "fallback ok" in response.html_content
+
+    @pytest.mark.asyncio
+    async def test_disabled_flag_skips_wait_for_wrapper(self, monkeypatch):
+        # When AI_TIMEOUT_RETRY_ENABLED=false, the primary call runs
+        # without a wait_for ceiling — same behaviour as before the
+        # post-PR665 hardening. Rollback safety net.
+        from app.services import ai_service as ai_service_module
+
+        monkeypatch.setenv("AI_TIMEOUT_RETRY_ENABLED", "false")
+        assert ai_service_module._ai_timeout_retry_enabled() is False
+        monkeypatch.setenv("AI_TIMEOUT_RETRY_ENABLED", "true")
+        assert ai_service_module._ai_timeout_retry_enabled() is True
+        monkeypatch.setenv("AI_TIMEOUT_RETRY_ENABLED", "FALSE")
+        assert ai_service_module._ai_timeout_retry_enabled() is False
+
+    @pytest.mark.asyncio
+    async def test_both_models_timeout_raises_timeout_error(self, monkeypatch):
+        import asyncio
+        from app.services import ai_service as ai_service_module
+        from app.models.schemas import WebsiteGenerationRequest, Language
+
+        monkeypatch.setenv("AI_TIMEOUT_RETRY_ENABLED", "true")
+        monkeypatch.setattr(
+            ai_service_module, "AI_PRIMARY_TIMEOUT_SECONDS", 0.05
+        )
+        monkeypatch.setattr(
+            ai_service_module, "AI_FALLBACK_TIMEOUT_SECONDS", 0.05
+        )
+
+        svc = ai_service_module.AIService()
+
+        async def hang(*args, **kwargs):
+            await asyncio.sleep(10)
+
+        with (
+            patch.object(svc, "_call_deepseek", side_effect=hang),
+            patch.object(svc, "_call_qwen_with_truncation_retry", side_effect=hang),
+            patch.object(svc, "_build_strict_prompt", return_value="<prompt>"),
+        ):
+            request = WebsiteGenerationRequest(
+                description="a kedai roti in shah alam",
+                language=Language.MALAY,
+                business_name="Kedai Roti",
+                business_type="bakery",
+                subdomain="kedairoti",
+                include_whatsapp=False,
+                include_maps=False,
+                include_ecommerce=False,
+            )
+            with pytest.raises(asyncio.TimeoutError):
+                await svc.generate_website(request, image_choice="none")

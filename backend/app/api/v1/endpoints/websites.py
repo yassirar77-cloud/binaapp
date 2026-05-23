@@ -275,9 +275,11 @@ async def generate_website(
             "contact_email": request.contact_email,
             # Persist the description so regenerate can reuse it without
             # making the user retype subdomain/business name/etc. Counter
-            # starts at 1 to reflect this initial generation.
+            # starts at 0 and is incremented to 1 by the background task
+            # AFTER the AI generation succeeds — see post-PR665 hardening,
+            # otherwise an AI timeout would still burn the user's quota.
             "description": request.description,
-            "generation_count": 1,
+            "generation_count": 0,
             "created_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat()
         }
@@ -461,6 +463,14 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
 
         # Step 4: Update database
         logger.info(f"⏱️  Step 4/4: Updating database...")
+        # Bump generation_count atomically with the success update so a
+        # failed AI run can't burn the user's regenerate quota. We re-read
+        # the row to get the canonical current value rather than trusting
+        # an in-memory count — if two regenerates raced, the optimistic
+        # WHERE clause on update_website (id=eq) makes "last write wins"
+        # safe enough; both succeed and the final count reflects both.
+        current = await supabase_service.get_website(website_id)
+        prev_count = (current or {}).get("generation_count") or 0
         update_data = {
             "html_content": html_content,
             "status": WebsiteStatus.DRAFT,
@@ -468,6 +478,8 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
             "meta_description": ai_response.meta_description,
             "sections": ai_response.sections,
             "integrations": integrations,
+            "generation_count": prev_count + 1,
+            "error_message": None,
             "updated_at": datetime.utcnow().isoformat()
         }
 
@@ -681,13 +693,13 @@ async def regenerate_website(
         )
 
     # 5. Optimistically flag the website as generating + persist the new
-    # description. If the background task fails, the except block in
-    # generate_website_content marks status=failed.
-    prev_count = website.get("generation_count") or 0
+    # description. generation_count is deliberately NOT bumped here —
+    # post-PR665 hardening moved that bump into the background task on
+    # success so a timeout/failure doesn't burn the user's quota. The
+    # counter increment lives in generate_website_content's Step 4 update.
     update_payload = {
         "status": WebsiteStatus.GENERATING,
         "description": new_description,
-        "generation_count": prev_count + 1,
         "error_message": None,
         "updated_at": datetime.utcnow().isoformat(),
     }
@@ -697,6 +709,7 @@ async def regenerate_website(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to mark website as regenerating",
         )
+    prev_count = website.get("generation_count") or 0
 
     # 6. Reconstitute a WebsiteGenerationRequest from the saved row so we
     # can hand it to the same background task the create flow uses. This
