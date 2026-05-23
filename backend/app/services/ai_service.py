@@ -27,24 +27,12 @@ import cloudinary
 import cloudinary.uploader
 
 
-# Feature flag for the Qwen copywriting-improvement pass (see generate_website).
-# Defaults to False: the call was measured at ~110s/gen in production with no
-# measurable user-facing benefit (diagnosis/optimization-audit, 2026-04-18).
-# Set ENABLE_QWEN_IMPROVE=true in Render env to re-enable without a redeploy.
-ENABLE_QWEN_IMPROVE = os.getenv("ENABLE_QWEN_IMPROVE", "false").lower() == "true"
-
-
-def _ai_timeout_retry_enabled() -> bool:
-    """Read at call time so tests can monkey-patch the env without re-importing."""
-    return os.getenv("AI_TIMEOUT_RETRY_ENABLED", "true").lower() == "true"
-
-
-# Per-attempt budgets for the timeout-retry path in generate_website /
-# generate_multi_style. The primary attempt gets the larger budget; the
-# fallback retry is intentionally shorter so the total still fits inside
-# the endpoint's 180s wait_for ceiling with margin for image/post-processing.
+# Per-call timeout for the DeepSeek primary generation in
+# generate_website / generate_multi_style. Bounded by asyncio.wait_for
+# so a hung provider can't burn the entire endpoint budget. On timeout
+# we raise asyncio.TimeoutError directly — the legacy Qwen fallback path
+# was removed (DeepSeek-only as of this branch).
 AI_PRIMARY_TIMEOUT_SECONDS = float(os.getenv("AI_PRIMARY_TIMEOUT_SECONDS", "120"))
-AI_FALLBACK_TIMEOUT_SECONDS = float(os.getenv("AI_FALLBACK_TIMEOUT_SECONDS", "90"))
 
 
 @contextmanager
@@ -4217,91 +4205,38 @@ IMPORTANT INSTRUCTIONS:
         }
 
         with _timed_step("ai_html_generation", step_timings):
-            html_raw = None
-            used_qwen_retry = False
-            primary_timed_out = False
-            # API-boundary truncation flag from whichever provider actually
-            # produced the html_raw we end up using. Captured immediately after
-            # the successful call so a later provider's reset can't clobber it.
+            # API-boundary truncation flag from the DeepSeek call.
             api_truncated_provider: Optional[str] = None
             api_finish_reason: Optional[str] = None
 
-            # DeepSeek primary path.
-            # When AI_TIMEOUT_RETRY_ENABLED=true (default), the primary call
-            # is bounded by AI_PRIMARY_TIMEOUT_SECONDS so a hung provider
-            # doesn't burn the entire 180s endpoint budget and leave no time
-            # for the Qwen fallback. The httpx.AsyncClient inside
-            # _call_deepseek has its own 120s ceiling, but that only catches
-            # socket-level stalls — wait_for catches everything (queue
-            # latency, slow-roll responses, etc).
-            retry_enabled = _ai_timeout_retry_enabled()
-            try:
-                if retry_enabled:
-                    html_raw = await asyncio.wait_for(
-                        self._call_deepseek(prompt, model=self.deepseek_model_pro),
-                        timeout=AI_PRIMARY_TIMEOUT_SECONDS,
-                    )
-                else:
-                    html_raw = await self._call_deepseek(prompt, model=self.deepseek_model_pro)
-            except asyncio.TimeoutError:
-                primary_timed_out = True
-                logger.info(
-                    f"⏰ Primary AI timed out, retrying with fallback model "
-                    f"(budget={AI_PRIMARY_TIMEOUT_SECONDS}s)"
-                )
+            # DeepSeek primary path — DeepSeek-only as of the
+            # deepseek-only-no-qwen branch. Bounded by
+            # AI_PRIMARY_TIMEOUT_SECONDS so a hung provider doesn't burn
+            # the entire endpoint budget. On timeout we raise
+            # asyncio.TimeoutError straight up; the endpoint's existing
+            # handler turns that into the user-facing "AI generation
+            # timed out" message.
+            html_raw = await asyncio.wait_for(
+                self._call_deepseek(prompt, model=self.deepseek_model_pro),
+                timeout=AI_PRIMARY_TIMEOUT_SECONDS,
+            )
 
             if html_raw and self._last_api_call.get("truncated"):
                 api_truncated_provider = self._last_api_call.get("provider")
                 api_finish_reason = self._last_api_call.get("finish_reason")
 
             if not html_raw:
-                if not primary_timed_out:
-                    logger.warning("⚠️ DeepSeek failed, trying Qwen...")
-                await update_progress(60, "Trying backup AI model")
-                # Use the retry-on-truncation wrapper for Qwen — Qwen is where the
-                # 31997-char truncation originated in production. This wrapper
-                # already calls _extract_html internally, so html is final.
-                #
-                # If primary timed out and retry is enabled, bound the
-                # fallback too — if Qwen also hangs we surface the original
-                # "AI generation timed out" error instead of stalling for
-                # another 240s of httpx timeout.
-                try:
-                    if retry_enabled and primary_timed_out:
-                        html, qwen_flags = await asyncio.wait_for(
-                            self._call_qwen_with_truncation_retry(prompt),
-                            timeout=AI_FALLBACK_TIMEOUT_SECONDS,
-                        )
-                    else:
-                        html, qwen_flags = await self._call_qwen_with_truncation_retry(prompt)
-                except asyncio.TimeoutError:
-                    logger.error(
-                        f"⏰ Fallback Qwen also timed out after {AI_FALLBACK_TIMEOUT_SECONDS}s — "
-                        f"failing generation"
-                    )
-                    # Re-raise as asyncio.TimeoutError so the endpoint's
-                    # existing TimeoutError handler produces the user-facing
-                    # "AI generation timed out after 180 seconds" message.
-                    raise
-                if html and primary_timed_out:
-                    logger.info("✅ Fallback model succeeded after primary timeout")
-                truncation_flags.update(qwen_flags)
-                used_qwen_retry = True
-            else:
-                html = html_raw
-
-            if not html:
-                logger.error("❌ Both AIs failed to generate")
+                logger.error("❌ DeepSeek failed to generate")
                 raise Exception("Failed to generate website")
+
+            html = html_raw
 
             await update_progress(75, "Processing generated HTML")
 
-            # DeepSeek path still needs extraction + truncation detection
-            if not used_qwen_retry:
-                html = self._extract_html(html)
-                if self._last_extract_info.get("was_truncated"):
-                    truncation_flags["was_truncated"] = True
-                    truncation_flags["unclosed_tags"] = self._last_extract_info.get("unclosed_tags", [])
+            html = self._extract_html(html)
+            if self._last_extract_info.get("was_truncated"):
+                truncation_flags["was_truncated"] = True
+                truncation_flags["unclosed_tags"] = self._last_extract_info.get("unclosed_tags", [])
 
             # API-boundary signal: if the provider reported finish_reason=length
             # but the post-hoc HTML scan didn't catch it (model gracefully closed
@@ -4374,19 +4309,6 @@ IMPORTANT INSTRUCTIONS:
                     if retry_html:
                         html = retry_html
 
-        # STEP 3: Improve content with Qwen.
-        # _improve_with_qwen call gated behind ENABLE_QWEN_IMPROVE flag 2026-04-18
-        # — measured 110s/gen cost with no measurable user-facing benefit.
-        # Function preserved in _improve_with_qwen in case we want to re-enable
-        # behind the flag. See audit on branch diagnosis/optimization-audit.
-        if ENABLE_QWEN_IMPROVE and html:
-            logger.info(f"🟡 STEP 3: Qwen improving content... [{time.time() - start_time:.1f}s elapsed]")
-            with _timed_step("qwen_improve", step_timings):
-                html = await self._improve_with_qwen(html, request.description)
-                # Extract HTML again to remove Qwen's explanation text
-                if html:
-                    html = self._extract_html(html)
-
         # Fix any remaining issues
         with _timed_step("image_matching", step_timings):
             html = self._fix_placeholders(html, request.business_name, request.description, wa_digits=wa_digits)
@@ -4449,9 +4371,9 @@ IMPORTANT INSTRUCTIONS:
 
         results = {}
 
-        for style, ai_pref in [("modern", "deepseek"), ("minimal", "qwen"), ("bold", "deepseek")]:
+        for style in ("modern", "minimal", "bold"):
             logger.info(f"\n--- Generating {style.upper()} style ---")
-            
+
             # Get language from request
             language = request.language.value if hasattr(request, 'language') and request.language else "ms"
 
@@ -4474,72 +4396,23 @@ IMPORTANT INSTRUCTIONS:
                 include_ecommerce=request.include_ecommerce,
             )
 
-            # Preferred AI path. Mirror generate_website's bounded-retry
-            # pattern so a hung primary doesn't burn the whole multi-style
-            # budget on a single style and leave nothing for the other two.
+            # DeepSeek-only path. The legacy Qwen fallback was removed
+            # on the deepseek-only-no-qwen branch. wait_for still bounds
+            # the call so a hung style doesn't burn the budget for the
+            # other two — but on timeout we simply skip the style rather
+            # than retrying with another provider.
             html = None
-            retry_enabled = _ai_timeout_retry_enabled()
-            primary_timed_out = False
-
-            async def _bounded(coro, *, budget: float):
-                if retry_enabled:
-                    return await asyncio.wait_for(coro, timeout=budget)
-                return await coro
-
-            if ai_pref == "deepseek":
-                try:
-                    html = await _bounded(
-                        self._call_deepseek(prompt, model=self.deepseek_model_pro),
-                        budget=AI_PRIMARY_TIMEOUT_SECONDS,
-                    )
-                except asyncio.TimeoutError:
-                    primary_timed_out = True
-                    logger.info(
-                        f"⏰ Primary AI timed out, retrying with fallback model "
-                        f"(style={style}, budget={AI_PRIMARY_TIMEOUT_SECONDS}s)"
-                    )
-                if not html:
-                    try:
-                        html = await _bounded(
-                            self._call_qwen(prompt),
-                            budget=AI_FALLBACK_TIMEOUT_SECONDS if primary_timed_out else AI_PRIMARY_TIMEOUT_SECONDS,
-                        )
-                        if html and primary_timed_out:
-                            logger.info(
-                                f"✅ Fallback model succeeded after primary timeout (style={style})"
-                            )
-                    except asyncio.TimeoutError:
-                        logger.error(
-                            f"⏰ Fallback Qwen also timed out (style={style}) — skipping this style"
-                        )
-                        html = None
-            else:
-                try:
-                    html = await _bounded(
-                        self._call_qwen(prompt),
-                        budget=AI_PRIMARY_TIMEOUT_SECONDS,
-                    )
-                except asyncio.TimeoutError:
-                    primary_timed_out = True
-                    logger.info(
-                        f"⏰ Primary AI timed out, retrying with fallback model "
-                        f"(style={style}, budget={AI_PRIMARY_TIMEOUT_SECONDS}s)"
-                    )
-                if not html:
-                    try:
-                        html = await _bounded(
-                            self._call_deepseek(prompt, model=self.deepseek_model_pro),
-                            budget=AI_FALLBACK_TIMEOUT_SECONDS if primary_timed_out else AI_PRIMARY_TIMEOUT_SECONDS,
-                        )
-                        if html and primary_timed_out:
-                            logger.info(
-                                f"✅ Fallback model succeeded after primary timeout (style={style})"
-                            )
-                    except asyncio.TimeoutError:
-                        logger.error(
-                            f"⏰ Fallback DeepSeek also timed out (style={style}) — skipping this style"
-                        )
-                        html = None
+            try:
+                html = await asyncio.wait_for(
+                    self._call_deepseek(prompt, model=self.deepseek_model_pro),
+                    timeout=AI_PRIMARY_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                logger.error(
+                    f"⏰ DeepSeek timed out (style={style}, "
+                    f"budget={AI_PRIMARY_TIMEOUT_SECONDS}s) — skipping this style"
+                )
+                html = None
 
             if html:
                 html = self._extract_html(html)
