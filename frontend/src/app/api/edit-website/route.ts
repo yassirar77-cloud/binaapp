@@ -32,10 +32,22 @@ export async function POST(request: NextRequest) {
     console.log(`🤖 AI Edit: Instruction: ${instruction}`);
     console.log(`🤖 AI Edit: HTML provided: ${html ? 'yes' : 'no (using template)'}`);
 
+    // Forward the caller's auth token — /api/edit-html now requires it.
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader) {
+      return NextResponse.json(
+        { error: 'Unauthorized', success: false },
+        { status: 401 }
+      );
+    }
+
     // Call backend to edit with AI
     const response = await fetch(`${API_URL}/api/edit-html`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: authHeader,
+      },
       body: JSON.stringify({ html: htmlToEdit, instruction }),
     });
 

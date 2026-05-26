@@ -4266,8 +4266,16 @@ CREATE POLICY "Allow all chat_messages" ON public.chat_messages FOR ALL USING (t
 # ==================== AI-POWERED HTML EDITOR ENDPOINT ====================
 
 @app.post("/api/edit-html")
-async def edit_html(request: Request):
-    """AI-powered HTML editing using DeepSeek"""
+async def edit_html(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """AI-powered HTML editing using DeepSeek.
+
+    Requires a valid auth token (custom backend JWT or Supabase JWT) —
+    the editor's "AI Assistant" quick-edit path calls this, so it must
+    be gated the same way the regenerate endpoint is.
+    """
     try:
         body = await request.json()
     except Exception as e:
