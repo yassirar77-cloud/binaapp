@@ -1,11 +1,20 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4, A5, letter
+import asyncio
 import io
-import httpx
 import uuid
+
+import httpx
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from pydantic import BaseModel
+from reportlab.lib.pagesizes import A4, A5, letter
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
+
 from app.core.config import settings
+
+# Photo upload limits (mirrored on the frontend)
+MAX_PHOTO_BYTES = 5 * 1024 * 1024  # 5 MB
+ALLOWED_PHOTO_MIMES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
+PHOTO_BUCKET = "menu-photos"
 
 router = APIRouter()
 
@@ -178,6 +187,47 @@ def _group_items(items: list[MenuItem]) -> list[tuple[str, list[MenuItem]]]:
     return groups
 
 
+@router.post("/menu-photo")
+async def upload_menu_photo(file: UploadFile = File(...)):
+    """Upload a per-item photo to Supabase Storage and return the public URL."""
+    mime = (file.content_type or "").lower()
+    if mime not in ALLOWED_PHOTO_MIMES:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, or WebP images are accepted")
+
+    contents = await file.read()
+    if len(contents) > MAX_PHOTO_BYTES:
+        raise HTTPException(status_code=413, detail="Image must be 5MB or smaller")
+    if not contents:
+        raise HTTPException(status_code=400, detail="Empty upload")
+
+    ext = "jpg" if mime in ("image/jpeg", "image/jpg") else mime.split("/")[-1]
+    filename = f"item_{uuid.uuid4()}.{ext}"
+    url = f"{settings.SUPABASE_URL}/storage/v1/object/{PHOTO_BUCKET}/{filename}"
+    headers = {
+        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": mime,
+    }
+    async with httpx.AsyncClient() as client:
+        r = await client.post(url, headers=headers, content=contents, timeout=30.0)
+    if r.status_code not in (200, 201):
+        raise HTTPException(status_code=500, detail=f"Upload failed: {r.text}")
+
+    public_url = f"{settings.SUPABASE_URL}/storage/v1/object/public/{PHOTO_BUCKET}/{filename}"
+    return {"success": True, "photo_url": public_url}
+
+
+async def _fetch_photo(client: httpx.AsyncClient, url: str) -> bytes | None:
+    """Fetch a photo for the PDF. Swallow failures — text-only row is the fallback."""
+    try:
+        r = await client.get(url, timeout=10.0)
+        if r.status_code == 200 and r.content:
+            return r.content
+    except Exception:
+        return None
+    return None
+
+
 @router.post("/generate-menu")
 async def generate_menu(request: MenuRequest):
     try:
@@ -244,6 +294,17 @@ async def generate_menu(request: MenuRequest):
 
         groups = _group_items(request.items)
 
+        # Pre-fetch all photo bytes in parallel; failures degrade to text-only rows.
+        photo_urls = list({it.photo_url for it in request.items if it.photo_url})
+        photo_bytes: dict[str, bytes | None] = {}
+        if photo_urls:
+            async with httpx.AsyncClient() as _client:
+                results = await asyncio.gather(*[_fetch_photo(_client, u) for u in photo_urls])
+            photo_bytes = dict(zip(photo_urls, results))
+
+        PHOTO_SIZE = 50  # pt — print-safe thumbnail
+        PHOTO_GAP = 12
+
         for cat_id, group_items in groups:
             label = CATEGORY_LABELS.get(cat_id, "")
             if label:
@@ -258,12 +319,34 @@ async def generate_menu(request: MenuRequest):
                 y -= 22
 
             for item in group_items:
-                ensure_space(50 if item.description else 36)
+                has_photo = bool(item.photo_url and photo_bytes.get(item.photo_url))
+                text_left = inner_left + (PHOTO_SIZE + PHOTO_GAP) if has_photo else inner_left
+                text_h = 30 if item.description else 22
+                row_h = max(text_h, PHOTO_SIZE + 4) if has_photo else text_h
+                ensure_space(row_h + 12)
+
+                # Photo (drawn first so text sits on top of any anti-alias edge)
+                if has_photo:
+                    try:
+                        img = ImageReader(io.BytesIO(photo_bytes[item.photo_url]))  # type: ignore[arg-type]
+                        c.drawImage(
+                            img,
+                            inner_left,
+                            y - PHOTO_SIZE + 12,
+                            width=PHOTO_SIZE,
+                            height=PHOTO_SIZE,
+                            preserveAspectRatio=True,
+                            mask="auto",
+                        )
+                    except Exception:
+                        # Corrupt/unsupported decode — fall back to text-only
+                        has_photo = False
+                        text_left = inner_left
 
                 # Name (ink, bold)
                 c.setFillColorRGB(*ink)
                 c.setFont(font_bold, 14)
-                c.drawString(inner_left, y, item.name)
+                c.drawString(text_left, y, item.name)
 
                 # Price (accent, bold, right-aligned)
                 c.setFillColorRGB(*accent)
@@ -274,10 +357,9 @@ async def generate_menu(request: MenuRequest):
                 if item.description:
                     c.setFillColorRGB(*muted)
                     c.setFont(font_italic, 10)
-                    c.drawString(inner_left, y - 14, item.description)
-                    y -= 30
-                else:
-                    y -= 22
+                    c.drawString(text_left, y - 14, item.description)
+
+                y -= row_h
 
                 # Separator
                 c.setStrokeColorRGB(*rule)

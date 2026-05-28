@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo, useState, type FormEvent } from 'react'
-import { Trash2, Check, Plus, FileDown, Loader2 } from 'lucide-react'
+import { useMemo, useRef, useState, type FormEvent } from 'react'
+import { Trash2, Check, Plus, FileDown, Loader2, ImagePlus, X } from 'lucide-react'
 import { API_BASE_URL } from '@/lib/env'
 
 type CategoryId = 'makanan-berat' | 'minuman' | 'roti-snack' | 'pencuci-mulut'
@@ -12,7 +12,11 @@ interface MenuItem {
   price: string
   description: string
   cat: CategoryId
+  photo_url: string
 }
+
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024 // 5 MB
+const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp']
 
 interface CategoryDef {
   id: CategoryId
@@ -78,6 +82,8 @@ export default function MenuDesigner() {
   const [activeTab, setActiveTab] = useState<'all' | CategoryId>('all')
   const [loading, setLoading] = useState(false)
   const [pdfUrl, setPdfUrl] = useState('')
+  const [uploadingIds, setUploadingIds] = useState<Set<string>>(new Set())
+  const fileInputs = useRef<Record<string, HTMLInputElement | null>>({})
 
   // form state
   const [formName, setFormName] = useState('')
@@ -109,7 +115,10 @@ export default function MenuDesigner() {
     const name = formName.trim()
     const price = formPrice.trim()
     if (!name || !price) return
-    setItems(prev => [...prev, { id: uid(), name, price, description: formDesc.trim(), cat: formCat }])
+    setItems(prev => [
+      ...prev,
+      { id: uid(), name, price, description: formDesc.trim(), cat: formCat, photo_url: '' },
+    ])
     setFormName('')
     setFormPrice('')
     setFormDesc('')
@@ -117,6 +126,46 @@ export default function MenuDesigner() {
 
   function removeItem(id: string) {
     setItems(prev => prev.filter(i => i.id !== id))
+  }
+
+  function setPhotoUrl(itemId: string, photo_url: string) {
+    setItems(prev => prev.map(it => (it.id === itemId ? { ...it, photo_url } : it)))
+  }
+
+  function markUploading(itemId: string, on: boolean) {
+    setUploadingIds(prev => {
+      const next = new Set(prev)
+      if (on) next.add(itemId)
+      else next.delete(itemId)
+      return next
+    })
+  }
+
+  async function uploadPhoto(itemId: string, file: File) {
+    if (!ALLOWED_PHOTO_TYPES.includes(file.type)) {
+      alert('Format gambar tidak disokong. Gunakan JPEG, PNG, atau WebP.')
+      return
+    }
+    if (file.size > MAX_PHOTO_BYTES) {
+      alert(`Saiz gambar melebihi ${MAX_PHOTO_BYTES / 1024 / 1024}MB.`)
+      return
+    }
+    markUploading(itemId, true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch(`${API_BASE_URL}/api/menu-photo`, { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok || !data.success || !data.photo_url) {
+        throw new Error(data.detail || data.error || `HTTP ${res.status}`)
+      }
+      setPhotoUrl(itemId, data.photo_url)
+    } catch (err) {
+      console.error(err)
+      alert('Gagal muat naik gambar. Cuba lagi.')
+    } finally {
+      markUploading(itemId, false)
+    }
   }
 
   async function generateMenu() {
@@ -128,6 +177,10 @@ export default function MenuDesigner() {
       alert('Sila tambah sekurang-kurangnya satu item menu.')
       return
     }
+    if (uploadingIds.size > 0) {
+      alert('Sila tunggu muat naik gambar selesai sebelum menjana PDF.')
+      return
+    }
 
     setLoading(true)
     setPdfUrl('')
@@ -137,11 +190,12 @@ export default function MenuDesigner() {
       const payload = {
         business_name: businessName,
         subtitle,
-        items: items.map(({ name, price, description, cat }) => ({
+        items: items.map(({ name, price, description, cat, photo_url }) => ({
           name,
           price,
           description,
           cat,
+          photo_url,
         })),
         size: backendSize,
         style: themeId,
@@ -320,35 +374,80 @@ export default function MenuDesigner() {
                 </div>
               ) : (
                 <ul className="space-y-2">
-                  {filtered.map(item => (
-                    <li
-                      key={item.id}
-                      className="group flex items-start gap-3 rounded-xl border border-ink-100 bg-white p-3 transition hover:border-ink-200 hover:shadow-sm"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="truncate text-sm font-semibold text-ink-900">{item.name}</span>
-                          <span className="rounded-md bg-ink-100 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-ink-600">
-                            {catLabel(item.cat)}
-                          </span>
-                        </div>
-                        {item.description && (
-                          <p className="mt-1 line-clamp-2 text-xs text-ink-500">{item.description}</p>
-                        )}
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <div className="font-mono text-sm font-semibold text-ink-900">{fmtPrice(item.price)}</div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeItem(item.id)}
-                        aria-label="Buang item"
-                        className="shrink-0 rounded-md p-1.5 text-ink-400 transition hover:bg-err-400/10 hover:text-err-500"
+                  {filtered.map(item => {
+                    const uploading = uploadingIds.has(item.id)
+                    return (
+                      <li
+                        key={item.id}
+                        className="group flex items-start gap-3 rounded-xl border border-ink-100 bg-white p-3 transition hover:border-ink-200 hover:shadow-sm"
                       >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </li>
-                  ))}
+                        <div className="relative shrink-0">
+                          <input
+                            ref={el => {
+                              fileInputs.current[item.id] = el
+                            }}
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            className="hidden"
+                            onChange={e => {
+                              const f = e.target.files?.[0]
+                              if (f) uploadPhoto(item.id, f)
+                              e.target.value = ''
+                            }}
+                          />
+                          {item.photo_url ? (
+                            <div className="relative h-12 w-12 overflow-hidden rounded-md ring-1 ring-ink-100">
+                              <img src={item.photo_url} alt="" className="h-full w-full object-cover" />
+                              <button
+                                type="button"
+                                onClick={() => setPhotoUrl(item.id, '')}
+                                aria-label="Buang gambar"
+                                className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-ink-900 text-white shadow"
+                              >
+                                <X className="h-2.5 w-2.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={uploading}
+                              onClick={() => fileInputs.current[item.id]?.click()}
+                              aria-label="Muat naik gambar"
+                              className="flex h-12 w-12 items-center justify-center rounded-md border border-dashed border-ink-200 text-ink-400 transition hover:border-ink-300 hover:text-ink-600 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {uploading ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <ImagePlus className="h-4 w-4" />
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="truncate text-sm font-semibold text-ink-900">{item.name}</span>
+                            <span className="rounded-md bg-ink-100 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-ink-600">
+                              {catLabel(item.cat)}
+                            </span>
+                          </div>
+                          {item.description && (
+                            <p className="mt-1 line-clamp-2 text-xs text-ink-500">{item.description}</p>
+                          )}
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="font-mono text-sm font-semibold text-ink-900">{fmtPrice(item.price)}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeItem(item.id)}
+                          aria-label="Buang item"
+                          className="shrink-0 rounded-md p-1.5 text-ink-400 transition hover:bg-err-400/10 hover:text-err-500"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
 
@@ -408,13 +507,18 @@ export default function MenuDesigner() {
             <button
               type="button"
               onClick={generateMenu}
-              disabled={loading}
+              disabled={loading || uploadingIds.size > 0}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-500 px-6 py-4 text-base font-semibold text-white shadow-lg shadow-brand-500/20 transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? (
                 <>
                   <Loader2 className="h-5 w-5 animate-spin" />
                   Menjana PDF…
+                </>
+              ) : uploadingIds.size > 0 ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Menunggu muat naik gambar…
                 </>
               ) : (
                 <>
@@ -548,6 +652,13 @@ function MenuPreview({
                 <ul className="space-y-1.5">
                   {list.map(item => (
                     <li key={item.id} className="flex items-baseline gap-2">
+                      {item.photo_url && (
+                        <img
+                          src={item.photo_url}
+                          alt=""
+                          className="h-[clamp(14px,2.4vw,22px)] w-[clamp(14px,2.4vw,22px)] shrink-0 self-center rounded object-cover ring-1 ring-black/5"
+                        />
+                      )}
                       <span
                         className="text-[clamp(10px,1.6vw,14px)] font-semibold"
                         style={{ color: theme.ink }}
