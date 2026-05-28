@@ -34,6 +34,7 @@ from app.api.v1.endpoints.menu_delivery import router as menu_delivery_router
 from app.api.v1.endpoints.health import router as health_router
 from app.api.v1.router import api_router as v1_router
 from app.api.chatbot import router as chatbot_router
+from app.api.menu_designer import router as menu_designer_router
 from app.services.templates import template_service
 from app.core.security import get_current_user
 from app.core.config import settings
@@ -124,6 +125,7 @@ app.include_router(health_router, tags=["Health"])  # Health check endpoints
 app.include_router(chatbot_router, tags=["Chatbot"])  # Customer support chatbot
 app.include_router(subscription_status.router, prefix="/api/v1", tags=["Subscription"])  # Subscription status endpoints
 app.include_router(email_polling_router, prefix="/api/v1", tags=["Email Polling"])  # Email polling admin endpoints
+app.include_router(menu_designer_router, prefix="/api", tags=["Menu Designer"])  # POST /api/generate-menu
 
 # V2 component-recipe pipeline (Phase 1 — test endpoint only)
 from app.api.v2.generate_test import router as v2_generate_test_router
