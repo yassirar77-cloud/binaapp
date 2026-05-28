@@ -60,6 +60,11 @@ function uid() {
   return Math.random().toString(36).slice(2, 10)
 }
 
+function fmtPrice(p: string) {
+  const n = parseFloat(p.replace(',', '.'))
+  return isNaN(n) ? `RM${p}` : `RM${n.toFixed(2)}`
+}
+
 function catLabel(id: CategoryId) {
   return CATEGORIES.find(c => c.id === id)?.label ?? ''
 }
@@ -127,18 +132,19 @@ export default function MenuDesigner() {
     setLoading(true)
     setPdfUrl('')
     try {
-      // NOTE: backend currently accepts A4 | A5 | banner. Letter is UI-only this
-      // phase and maps to A4 for the PDF generator (closest dimensions).
-      // Theme is also UI/preview-only — backend rendering is unchanged.
-      // Phase 2: wire size=Letter and theme into reportlab.
-      const backendSize =
-        size === 'Letter' ? 'A4' : size === 'Banner' ? 'banner' : size
+      const backendSize = size === 'Banner' ? 'banner' : size
 
       const payload = {
         business_name: businessName,
-        items: items.map(({ name, price, description }) => ({ name, price, description })),
+        subtitle,
+        items: items.map(({ name, price, description, cat }) => ({
+          name,
+          price,
+          description,
+          cat,
+        })),
         size: backendSize,
-        style: 'modern',
+        style: themeId,
       }
 
       const res = await fetch(`${API_BASE_URL}/api/generate-menu`, {
@@ -331,7 +337,7 @@ export default function MenuDesigner() {
                         )}
                       </div>
                       <div className="shrink-0 text-right">
-                        <div className="font-mono text-sm font-semibold text-ink-900">RM{item.price}</div>
+                        <div className="font-mono text-sm font-semibold text-ink-900">{fmtPrice(item.price)}</div>
                       </div>
                       <button
                         type="button"
@@ -556,7 +562,7 @@ function MenuPreview({
                         className="text-[clamp(10px,1.6vw,14px)] font-semibold tabular-nums"
                         style={{ color: theme.accent }}
                       >
-                        RM{item.price}
+                        {fmtPrice(item.price)}
                       </span>
                     </li>
                   ))}
