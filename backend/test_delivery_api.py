@@ -6,7 +6,6 @@ Tests the delivery system with real Supabase data
 
 import os
 import sys
-import json
 from decimal import Decimal
 
 # Add app to path
@@ -208,7 +207,7 @@ def test_create_order():
 
         supabase.table("order_items").insert(order_items_data).execute()
 
-        print(f"✅ Order created successfully!")
+        print("✅ Order created successfully!")
         print(f"   Order Number: {order_number}")
         print(f"   Customer: {created_order['customer_name']}")
         print(f"   Items: {len(order_items_data)} items")
@@ -269,7 +268,7 @@ def test_track_order(order_number):
             print(f"      - {item['item_name']} x{item['quantity']} = RM{item['total_price']}")
 
         if history_response.data:
-            print(f"\n   Status History:")
+            print("\n   Status History:")
             for history in history_response.data:
                 print(f"      - {history['status']} ({history['created_at']})")
 
@@ -285,7 +284,7 @@ def main():
     print("🛵 BinaApp Delivery System - API Tests")
     print("="*60)
     print(f"Website ID: {WEBSITE_ID}")
-    print(f"Subdomain: khulafa")
+    print("Subdomain: khulafa")
 
     results = {
         "Supabase Connection": False,

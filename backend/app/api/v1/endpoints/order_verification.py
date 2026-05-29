@@ -3,9 +3,6 @@ BinaApp AI Order Verification API Endpoints
 Verify delivery orders using AI vision analysis.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
-from typing import Optional, List
-from loguru import logger
 
 from app.core.security import get_current_user
 from app.services.ai_order_verifier import ai_order_verifier

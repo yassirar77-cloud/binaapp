@@ -4,11 +4,9 @@ Handles screenshot generation and export functionality
 """
 
 from fastapi import APIRouter, HTTPException, status, Response
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from loguru import logger
-from io import BytesIO
 
 from app.services.screenshot_service import screenshot_service
 
@@ -118,7 +116,7 @@ async def generate_thumbnail(request: ThumbnailRequest):
             content=thumbnail_bytes,
             media_type="image/png",
             headers={
-                "Content-Disposition": f"inline; filename=thumbnail.png"
+                "Content-Disposition": "inline; filename=thumbnail.png"
             }
         )
 
@@ -241,7 +239,7 @@ async def screenshot_health():
     """
     try:
         # Check if Playwright is available
-        from playwright.async_api import async_playwright
+        from playwright.async_api import async_playwright  # noqa: F401  (import is the availability probe)
 
         # Try to initialize browser
         if not screenshot_service.browser:

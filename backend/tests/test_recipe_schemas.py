@@ -8,12 +8,8 @@ import pytest
 from app.schemas.recipe import (
     DesignBrief,
     PageRecipe,
-    SectionSpec,
-    SectionType,
     StyleDNA,
-    FeatureFlags,
     resolve_component_name,
-    VALID_VARIANTS,
 )
 from app.schemas.style_dna import get_style_dna, STYLE_DNAS
 

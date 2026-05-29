@@ -66,7 +66,7 @@ class StorageService:
             # Also provide fallback proxy URL for API access
             proxy_url = f"{settings.BACKEND_URL}/api/preview/{user_id}/{subdomain}"
 
-            logger.info(f"Website uploaded successfully!")
+            logger.info("Website uploaded successfully!")
             logger.info(f"  Subdomain URL: {subdomain_url}")
             logger.info(f"  Fallback URL: {proxy_url}")
 

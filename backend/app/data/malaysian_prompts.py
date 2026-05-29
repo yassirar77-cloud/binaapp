@@ -253,13 +253,13 @@ def get_hero_prompt(business_name: str, business_type: str, description: str = "
         return f"Beautiful Malaysian restaurant exterior or interior, warm lighting, {business_name} signage concept, welcoming atmosphere, professional photography"
 
     if "salon" in business_lower or "beauty" in business_lower:
-        return f"Elegant beauty salon interior, modern design, mirrors, styling stations, professional atmosphere, interior photography"
+        return "Elegant beauty salon interior, modern design, mirrors, styling stations, professional atmosphere, interior photography"
 
     if "fashion" in business_lower or "boutique" in business_lower:
-        return f"Stylish Malaysian fashion boutique interior, clothing displays, elegant design, retail photography"
+        return "Stylish Malaysian fashion boutique interior, clothing displays, elegant design, retail photography"
 
     if "cafe" in business_lower or "coffee" in business_lower:
-        return f"Cozy Malaysian cafe interior, coffee bar, comfortable seating, warm lighting, interior photography"
+        return "Cozy Malaysian cafe interior, coffee bar, comfortable seating, warm lighting, interior photography"
 
     return f"Professional business establishment, {business_type}, modern design, welcoming atmosphere, commercial photography"
 

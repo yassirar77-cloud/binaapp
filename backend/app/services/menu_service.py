@@ -8,10 +8,8 @@ SCENARIO C: User doesn't enable delivery → No menu needed
 
 This service ensures deliveryMenuData is NEVER empty when delivery is enabled.
 """
-import os
 import logging
-from typing import List, Dict, Optional, Any
-import re
+from typing import List, Dict, Optional
 
 from app.services.menu_validator import is_valid_item_name, is_valid_price, log_menu_flow
 from app.services.business_types import detect_business_type, detect_item_category, get_business_config

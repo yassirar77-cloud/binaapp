@@ -19,11 +19,9 @@ Usage:
     python test_email_polling.py --test connection
     python test_email_polling.py --test poll
 """
-import os
 import sys
 import asyncio
 import argparse
-from datetime import datetime
 from pathlib import Path
 
 # Add parent directory to path for imports

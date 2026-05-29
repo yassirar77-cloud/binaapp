@@ -4,7 +4,6 @@ Referral code generation, application, and statistics.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from loguru import logger
 
 from app.core.security import get_current_user
 from app.services.referral_service import referral_service

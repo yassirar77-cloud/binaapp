@@ -2,7 +2,6 @@
 AI Email Support Service for BinaApp
 Uses Claude AI to automatically respond to customer support emails
 """
-import os
 import re
 import json
 import hashlib
@@ -10,7 +9,6 @@ import httpx
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime, timedelta
-from decimal import Decimal
 from loguru import logger
 
 
@@ -283,7 +281,7 @@ Respond ONLY with valid JSON, no other text."""
             # Check for business inquiry categories (partnership, investment, media)
             is_business_inquiry = category in self.BUSINESS_INQUIRY_CATEGORIES
             if is_business_inquiry:
-                escalation_reasons.append(f"Business inquiry - requires admin attention")
+                escalation_reasons.append("Business inquiry - requires admin attention")
                 should_escalate = True
 
             return {
@@ -606,7 +604,7 @@ Write a helpful, professional response in the same language the customer used (E
             if result:
                 logger.info(f"Admin notified about escalation for thread {thread_id}")
             else:
-                logger.error(f"Failed to notify admin about escalation")
+                logger.error("Failed to notify admin about escalation")
 
             return result
 
@@ -694,7 +692,7 @@ Write a helpful, professional response in the same language the customer used (E
             if result:
                 logger.info(f"Business inquiry forwarded to admin for thread {thread_id}")
             else:
-                logger.error(f"Failed to forward business inquiry to admin")
+                logger.error("Failed to forward business inquiry to admin")
 
             return result
 

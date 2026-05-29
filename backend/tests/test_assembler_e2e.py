@@ -3,7 +3,6 @@ Phase 1 — Step 4/5 E2E test: hand-crafted Khulafa Bistro Design Brief
 → recipe_builder → html_renderer → valid HTML output.
 """
 
-import pytest
 from app.schemas.recipe import DesignBrief
 from app.services.recipe_builder import build_recipe
 from app.services.html_renderer import render_html

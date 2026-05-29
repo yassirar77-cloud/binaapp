@@ -5,7 +5,6 @@ Ensures real images and real content - NO placeholders allowed
 
 import os
 import httpx
-import random
 import uuid
 import asyncio
 import time
@@ -15,10 +14,9 @@ from contextlib import contextmanager
 from loguru import logger
 from typing import Optional, List, Dict, Tuple, Callable, Awaitable
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
-from app.services.business_types import get_business_config, detect_business_type, get_design_type
+from app.services.business_types import detect_business_type, get_design_type
 from app.services.design_system import DesignSystem
 from app.services.widget_catalogue import (
-    WidgetSpec,
     widgets_for_request,
     build_prompt_context_block,
 )
@@ -107,8 +105,8 @@ try:
     from app.services.stability_service import (
         generate_malaysian_image,
         save_image_to_storage,
-        get_malaysian_prompt,
-        MALAYSIAN_PROMPTS
+        get_malaysian_prompt,  # noqa: F401  (re-exported / availability guard)
+        MALAYSIAN_PROMPTS,  # noqa: F401  (re-exported / availability guard)
     )
     STABILITY_AVAILABLE = True
 except ImportError:
@@ -1073,7 +1071,7 @@ Respond ONLY with valid JSON, no other text."""
                             logger.info(f"✅ Image analyzed: {analysis.get('suggested_name')} - {analysis.get('category')}")
                             return analysis
                         except json_module.JSONDecodeError:
-                            logger.warning(f"⚠️ Could not parse Qwen-VL response as JSON")
+                            logger.warning("⚠️ Could not parse Qwen-VL response as JSON")
                     else:
                         logger.warning(f"⚠️ Qwen-VL failed: {response.status_code}")
             
@@ -1450,7 +1448,7 @@ Respond ONLY with valid JSON, no other text."""
                 # Unknown dish - generate description using AI
                 detailed_description = await self._generate_food_description(food_name)
                 if not detailed_description:
-                    logger.warning(f"⚠️ Failed to generate description, using generic fallback")
+                    logger.warning("⚠️ Failed to generate description, using generic fallback")
                     detailed_description = malaysian_prompt or f"{food_name}, professional food photography, high quality, realistic"
                 else:
                     logger.info(f"📝 AI Description: {detailed_description[:100]}...")
@@ -1531,7 +1529,7 @@ Format: Just the image description, no explanations."""
                         if response.status_code == 200:
                             result = response.json()
                             description = result["choices"][0]["message"]["content"].strip()
-                            logger.info(f"✅ DeepSeek generated description")
+                            logger.info("✅ DeepSeek generated description")
                             return description
                         else:
                             logger.warning(f"DeepSeek failed: {response.status_code}")
@@ -1563,7 +1561,7 @@ Format: Just the image description, no explanations."""
                         if response.status_code == 200:
                             result = response.json()
                             description = result["choices"][0]["message"]["content"].strip()
-                            logger.info(f"✅ Qwen generated description")
+                            logger.info("✅ Qwen generated description")
                             return description
                         else:
                             logger.warning(f"Qwen failed: {response.status_code}")
@@ -1836,7 +1834,7 @@ Format: Just the image description, no explanations."""
 
         # GENERIC FALLBACK - use business type
         else:
-            business_type = request.business_type if hasattr(self, 'request') else "product"
+            business_type = self.request.business_type if hasattr(self, 'request') else "product"
             return [
                 f"Professional product photo, {business_type}, clean white background, studio lighting",
                 f"Premium {business_type} showcase, commercial photography, professional presentation",
@@ -1948,7 +1946,7 @@ Generate prompts now:"""
         if len(dishes_found) >= 4:
             logger.info(f"🍽️ Found {len(dishes_found)} Malaysian dishes in description")
             return {
-                "hero": f"Malaysian restaurant interior, traditional food stall, authentic atmosphere, food photography, welcoming ambiance",
+                "hero": "Malaysian restaurant interior, traditional food stall, authentic atmosphere, food photography, welcoming ambiance",
                 "image1": dishes_found[0][1] + ", professional food photography, high quality, appetizing",
                 "image2": dishes_found[1][1] + ", professional food photography, high quality, delicious",
                 "image3": dishes_found[2][1] + ", professional food photography, high quality, authentic",
@@ -3381,7 +3379,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             new_img_tag = img_tag.replace('<img', f'<img src="{fallback_url}"', 1)
             html = html.replace(img_tag, new_img_tag, 1)
             fixed_count += 1
-            logger.info(f"   🔄 Added missing src to img tag")
+            logger.info("   🔄 Added missing src to img tag")
 
         if fixed_count > 0:
             logger.info(f"✅ Fixed {fixed_count} broken/missing image URLs")
@@ -3861,7 +3859,7 @@ IMPORTANT RULES:
         await update_progress(80, "Finalizing website")
 
         total_time = time.time() - start_time
-        logger.info(f"✅ Template generation complete")
+        logger.info("✅ Template generation complete")
         logger.info(f"   Final size: {len(final_html)} characters")
         logger.info(f"   ⏱️  Total time: {total_time:.1f}s")
 
@@ -3978,7 +3976,7 @@ IMPORTANT RULES:
                 # ===================================================================
                 # PARALLEL IMAGE GENERATION - Generate ALL images at the same time
                 # ===================================================================
-                logger.info(f"🎨 Generating ALL images in PARALLEL (hero + 4 products)...")
+                logger.info("🎨 Generating ALL images in PARALLEL (hero + 4 products)...")
 
                 # Create tasks for parallel execution using AI-generated prompts
                 image_tasks = [

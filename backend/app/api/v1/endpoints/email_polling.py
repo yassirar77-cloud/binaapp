@@ -3,7 +3,6 @@ Email Polling API Endpoints
 Admin endpoints to control and monitor the email polling service
 """
 from datetime import datetime
-from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from loguru import logger

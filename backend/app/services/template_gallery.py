@@ -8,7 +8,7 @@ Templates are NOT HTML files - they are design instructions that guide
 the AI to produce websites with specific visual styles.
 """
 
-from typing import Optional, List, Dict
+from typing import Optional, Dict
 
 
 TEMPLATES: Dict[str, dict] = {

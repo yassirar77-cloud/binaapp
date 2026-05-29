@@ -14,7 +14,6 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
 from loguru import logger
 import re
-import os
 from pathlib import Path
 from typing import Optional
 

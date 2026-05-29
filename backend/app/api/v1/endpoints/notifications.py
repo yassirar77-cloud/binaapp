@@ -5,7 +5,6 @@ In-app notifications and web push subscription management.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, Dict
-from loguru import logger
 
 from app.core.security import get_current_user
 from app.services.notification_service import notification_service

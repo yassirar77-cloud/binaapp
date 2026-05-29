@@ -3,8 +3,8 @@ AI Website Health API Endpoints
 Handles website scanning, fix generation, and fix application.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPBearer
 from loguru import logger
 
 from app.core.security import get_current_user

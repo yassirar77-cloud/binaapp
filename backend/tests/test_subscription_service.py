@@ -4,7 +4,6 @@ Tests for subscription_service.py — tier limits, pricing, billing period, invo
 
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
-from datetime import datetime
 
 
 class TestTierConfiguration:

@@ -26,13 +26,11 @@ report makes the gaps visible; humans decide whether to write a migration.
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import sys
-from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Iterable, List, Set, Tuple
+from typing import Dict, List, Set, Tuple
 
 import httpx
 

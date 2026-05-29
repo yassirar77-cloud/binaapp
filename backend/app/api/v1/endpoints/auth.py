@@ -9,7 +9,6 @@ from loguru import logger
 from app.models.schemas import (
     UserCreate,
     UserLogin,
-    UserResponse,
 )
 from app.services.supabase_client import supabase_service
 from app.core.security import create_access_token, get_current_user, decode_token_for_refresh

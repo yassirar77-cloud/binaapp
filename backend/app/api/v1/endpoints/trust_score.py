@@ -3,7 +3,6 @@ BinaApp User Trust Score API Endpoints
 Trust score retrieval, level checking, and admin recalculation.
 """
 from fastapi import APIRouter, Depends, HTTPException
-from loguru import logger
 
 from app.core.security import get_current_user
 from app.services.trust_score_service import trust_score_service

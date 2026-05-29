@@ -5,7 +5,6 @@ Webhook endpoint management, testing, and delivery logs.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, List
-from loguru import logger
 
 from app.core.security import get_current_user
 from app.services.webhook_service import webhook_service, WEBHOOK_EVENTS

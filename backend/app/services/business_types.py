@@ -12,8 +12,7 @@ Business Types:
 - general: General stores, other businesses (Produk, Lain-lain)
 """
 
-from typing import Dict, List, Tuple
-import re
+from typing import Dict, List
 import logging
 
 logger = logging.getLogger(__name__)

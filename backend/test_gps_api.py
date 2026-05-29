@@ -32,7 +32,7 @@ def simulate_rider_movement(steps=20, delay=5):
         steps: Number of GPS updates to send
         delay: Seconds between updates
     """
-    print(f"🛵 Starting GPS tracking simulation")
+    print("🛵 Starting GPS tracking simulation")
     print(f"📍 Route: ({START_LAT}, {START_LNG}) → ({END_LAT}, {END_LNG})")
     print(f"⏱️  {steps} updates, {delay}s interval\n")
 
@@ -82,7 +82,7 @@ def get_current_location():
         response = requests.get(f"{API_BASE_URL}/riders/{RIDER_ID}/location")
         if response.status_code == 200:
             data = response.json()
-            print(f"\n📍 Current Location:")
+            print("\n📍 Current Location:")
             print(f"   Rider: {data.get('rider_name')}")
             print(f"   Lat: {data.get('latitude')}")
             print(f"   Lng: {data.get('longitude')}")

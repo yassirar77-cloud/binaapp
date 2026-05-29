@@ -3,7 +3,7 @@ Template Service
 Handles website type detection and feature injection
 """
 
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Optional
 from loguru import logger
 import re
 import json
@@ -11,7 +11,6 @@ import json
 from app.services.business_types import (
     detect_business_type,
     get_business_config,
-    get_categories_for_business_type,
     detect_item_category,
     generate_category_buttons_html,
     get_delivery_button_label,
@@ -3189,7 +3188,7 @@ function handleContactSubmit(e) {{
         else:
             html += script
 
-        logger.info(f"✅ Delivery system injected successfully")
+        logger.info("✅ Delivery system injected successfully")
         return html
 
     def inject_delivery_widget(

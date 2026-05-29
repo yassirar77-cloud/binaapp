@@ -7,7 +7,7 @@ tests run instantly and have no external dependencies.
 """
 
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, AsyncMock
 
 from app.models.schemas import WebsiteRegenerateRequest
 
@@ -410,7 +410,6 @@ class TestAITimeoutDeepSeekOnly:
         """Regression guard for the DeepSeek-only refactor: even if
         DeepSeek returns None/empty, we must not silently fall through
         to `_call_qwen_with_truncation_retry`."""
-        import asyncio
         from app.services import ai_service as ai_service_module
         from app.models.schemas import WebsiteGenerationRequest, Language
 

@@ -55,7 +55,7 @@ def test_imap_connection():
         status, messages = imap.select("INBOX")
         if status == "OK":
             total_messages = int(messages[0])
-            print(f"    INBOX selected successfully")
+            print("    INBOX selected successfully")
             print(f"    Total messages in INBOX: {total_messages}")
         else:
             print(f"    Failed to select INBOX: {status}")
@@ -71,7 +71,7 @@ def test_imap_connection():
 
             # Step 6: List unread email subjects (up to 10)
             if unread_count > 0:
-                print(f"\n[6] Listing unread emails (showing up to 10):")
+                print("\n[6] Listing unread emails (showing up to 10):")
                 print("-" * 50)
 
                 for idx, email_id in enumerate(unread_ids[:10], 1):
@@ -121,9 +121,9 @@ def test_imap_connection():
         print("TEST RESULT: SUCCESS")
         print("=" * 60)
         print("\nSummary:")
-        print(f"  - Connection: OK")
-        print(f"  - Authentication: OK")
-        print(f"  - INBOX Access: OK")
+        print("  - Connection: OK")
+        print("  - Authentication: OK")
+        print("  - INBOX Access: OK")
         print(f"  - Total Messages: {total_messages}")
         print(f"  - Unread Messages: {unread_count}")
         print("=" * 60)

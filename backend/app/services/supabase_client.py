@@ -271,11 +271,11 @@ class SupabaseService:
                 print(f"❌ [DB INSERT] Table: {table}, Data keys: {list(data.keys())}")
                 # Check for common issues
                 if "violates row-level security" in error_text.lower():
-                    print(f"❌ [DB INSERT] RLS VIOLATION - Check user_id and auth token")
+                    print("❌ [DB INSERT] RLS VIOLATION - Check user_id and auth token")
                 if "violates foreign key constraint" in error_text.lower():
-                    print(f"❌ [DB INSERT] FOREIGN KEY ERROR - user_id may not exist in auth.users")
+                    print("❌ [DB INSERT] FOREIGN KEY ERROR - user_id may not exist in auth.users")
                 if "duplicate key" in error_text.lower():
-                    print(f"❌ [DB INSERT] DUPLICATE KEY - Record already exists")
+                    print("❌ [DB INSERT] DUPLICATE KEY - Record already exists")
                 return None
         except Exception as e:
             print(f"❌ [DB INSERT] Exception: {str(e)}")
@@ -554,18 +554,18 @@ class SupabaseService:
             if conversation_ids:
                 result = await self.delete_by_ids("chat_messages", "conversation_id", conversation_ids)
                 deleted_tables.append(f"chat_messages ({result.get('deleted', 0)} records)")
-            print(f"[Delete Cascade] Deleted chat messages")
+            print("[Delete Cascade] Deleted chat messages")
 
             # STEP 3: Delete chat conversations
             await self.delete_from_table("chat_conversations", "website_id", website_id)
             deleted_tables.append("chat_conversations")
-            print(f"[Delete Cascade] Deleted chat conversations")
+            print("[Delete Cascade] Deleted chat conversations")
 
             # STEP 4: Delete rider locations (child of riders)
             if rider_ids:
                 result = await self.delete_by_ids("rider_locations", "rider_id", rider_ids)
                 deleted_tables.append(f"rider_locations ({result.get('deleted', 0)} records)")
-            print(f"[Delete Cascade] Deleted rider locations")
+            print("[Delete Cascade] Deleted rider locations")
 
             # STEP 5: Delete order items (child of delivery_orders)
             # First get order IDs
@@ -573,45 +573,45 @@ class SupabaseService:
             if order_ids:
                 result = await self.delete_by_ids("order_items", "order_id", order_ids)
                 deleted_tables.append(f"order_items ({result.get('deleted', 0)} records)")
-            print(f"[Delete Cascade] Deleted order items")
+            print("[Delete Cascade] Deleted order items")
 
             # STEP 5.5: Nullify rider_id on delivery_orders BEFORE deleting them
             # This prevents FK constraint errors when deleting riders later
             await self.nullify_column_by_website("delivery_orders", "rider_id", website_id)
-            print(f"[Delete Cascade] Nullified rider_id on delivery_orders")
+            print("[Delete Cascade] Nullified rider_id on delivery_orders")
 
             # STEP 6: Delete delivery orders
             result = await self.delete_from_table("delivery_orders", "website_id", website_id)
             if not result.get("success"):
                 print(f"⚠️ [Delete Cascade] Warning: delivery_orders deletion may have failed: {result}")
             deleted_tables.append("delivery_orders")
-            print(f"[Delete Cascade] Deleted delivery orders")
+            print("[Delete Cascade] Deleted delivery orders")
 
             # STEP 7: Delete menu items
             await self.delete_from_table("menu_items", "website_id", website_id)
             deleted_tables.append("menu_items")
-            print(f"[Delete Cascade] Deleted menu items")
+            print("[Delete Cascade] Deleted menu items")
 
             # STEP 8: Delete menu categories
             await self.delete_from_table("menu_categories", "website_id", website_id)
             deleted_tables.append("menu_categories")
-            print(f"[Delete Cascade] Deleted menu categories")
+            print("[Delete Cascade] Deleted menu categories")
 
             # STEP 9: Delete delivery zones
             await self.delete_from_table("delivery_zones", "website_id", website_id)
             deleted_tables.append("delivery_zones")
-            print(f"[Delete Cascade] Deleted delivery zones")
+            print("[Delete Cascade] Deleted delivery zones")
 
             # STEP 10: Delete delivery settings
             await self.delete_from_table("delivery_settings", "website_id", website_id)
             deleted_tables.append("delivery_settings")
-            print(f"[Delete Cascade] Deleted delivery settings")
+            print("[Delete Cascade] Deleted delivery settings")
 
             # STEP 11: Delete riders - CRITICAL for website deletion
             rider_result = await self.delete_from_table("riders", "website_id", website_id)
             if not rider_result.get("success"):
                 # If riders can't be deleted, try setting website_id to NULL instead
-                print(f"⚠️ [Delete Cascade] Riders delete failed, trying to nullify website_id")
+                print("⚠️ [Delete Cascade] Riders delete failed, trying to nullify website_id")
                 nullify_result = await self.nullify_column_by_ids("riders", "website_id", "id", rider_ids)
                 if not nullify_result.get("success"):
                     print(f"❌ [Delete Cascade] Cannot delete or nullify riders: {rider_result}")
@@ -621,12 +621,12 @@ class SupabaseService:
                         "deleted_tables": deleted_tables
                     }
             deleted_tables.append("riders")
-            print(f"[Delete Cascade] Deleted/nullified riders")
+            print("[Delete Cascade] Deleted/nullified riders")
 
             # STEP 12: Delete generation jobs
             await self.delete_from_table("generation_jobs", "website_id", website_id)
             deleted_tables.append("generation_jobs")
-            print(f"[Delete Cascade] Deleted generation jobs")
+            print("[Delete Cascade] Deleted generation jobs")
 
             # STEP 13: FINALLY delete the website itself
             url = f"{self.url}/rest/v1/websites"

@@ -9,7 +9,6 @@ import pytest
 from app.services.widget_catalogue import (
     SLOT_PREFIX,
     WIDGETS,
-    WidgetSpec,
     build_prompt_context_block,
     get_widget,
     widgets_for_request,

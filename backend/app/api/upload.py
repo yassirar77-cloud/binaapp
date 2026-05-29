@@ -3,12 +3,10 @@ File Upload API
 Handles image and document uploads to Cloudinary
 """
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from typing import List, Optional
-import httpx
+from typing import List
 import os
 import cloudinary
 import cloudinary.uploader
-from app.core.config import settings
 import logging
 
 logger = logging.getLogger(__name__)

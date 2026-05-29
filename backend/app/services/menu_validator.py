@@ -10,7 +10,7 @@ businesses instead of using the user's actual uploaded items.
 """
 import re
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 

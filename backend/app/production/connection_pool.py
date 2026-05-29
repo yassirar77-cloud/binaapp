@@ -19,7 +19,7 @@ Usage:
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 import httpx
 from loguru import logger

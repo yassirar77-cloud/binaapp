@@ -351,7 +351,7 @@ class MetricsCollector:
                 cumulative = 0
                 for bucket, count in sorted(buckets.items()):
                     cumulative += count
-                    bucket_label = f'+Inf' if bucket == float("inf") else str(bucket)
+                    bucket_label = '+Inf' if bucket == float("inf") else str(bucket)
                     if labels:
                         full_labels = label_str[:-1] + f',le="{bucket_label}"' + "}"
                     else:

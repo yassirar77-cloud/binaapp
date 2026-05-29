@@ -11,7 +11,6 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-import httpx
 from loguru import logger
 from openai import AsyncOpenAI
 

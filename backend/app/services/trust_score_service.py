@@ -5,7 +5,7 @@ Affects credit multiplier in disputes.
 """
 import httpx
 from datetime import datetime
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 from loguru import logger
 
 from app.core.config import settings

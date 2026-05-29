@@ -5,9 +5,6 @@ Tests key API workflows through the FastAPI TestClient.
 All external services (Supabase, Stripe, AI) are mocked.
 """
 
-import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
-from fastapi.testclient import TestClient
 
 
 class TestHealthEndpoints:

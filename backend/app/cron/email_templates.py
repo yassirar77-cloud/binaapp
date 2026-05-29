@@ -12,7 +12,7 @@ Templates:
 - UNLOCKED_NOTICE: Account has been unlocked after payment
 """
 
-from typing import Dict, Any
+from typing import Dict
 
 
 def get_base_styles() -> str:

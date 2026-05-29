@@ -40,18 +40,18 @@ class ToyyibPayService:
         # Validate callback URL: must include /v1/ in path to match actual route
         if self.callback_url and "/api/payments/" in self.callback_url and "/api/v1/payments/" not in self.callback_url:
             corrected = self.callback_url.replace("/api/payments/", "/api/v1/payments/")
-            logger.warning(f"⚠️ ToyyibPay callback URL is missing /v1/ prefix!")
+            logger.warning("⚠️ ToyyibPay callback URL is missing /v1/ prefix!")
             logger.warning(f"   Configured: {self.callback_url}")
             logger.warning(f"   Corrected:  {corrected}")
-            logger.warning(f"   Fix TOYYIBPAY_CALLBACK_URL in your .env to include /api/v1/payments/...")
+            logger.warning("   Fix TOYYIBPAY_CALLBACK_URL in your .env to include /api/v1/payments/...")
             self.callback_url = corrected
 
         # Validate callback URL is not pointing to localhost in non-debug mode
         if self.callback_url and ("localhost" in self.callback_url or "127.0.0.1" in self.callback_url):
             logger.error(f"🚨 ToyyibPay callback URL points to localhost: {self.callback_url}")
-            logger.error(f"   ToyyibPay cannot reach localhost! Set TOYYIBPAY_CALLBACK_URL or BACKEND_URL to your public URL.")
+            logger.error("   ToyyibPay cannot reach localhost! Set TOYYIBPAY_CALLBACK_URL or BACKEND_URL to your public URL.")
 
-        logger.info(f"ToyyibPay URLs configured:")
+        logger.info("ToyyibPay URLs configured:")
         logger.info(f"  - Callback URL: {self.callback_url}")
         logger.info(f"  - Return URL: {self.return_url}")
 
@@ -159,7 +159,7 @@ class ToyyibPayService:
             # Convert amount to cents (ToyyibPay expects amount in cents)
             amount_in_cents = int(bill_amount * 100)
 
-            logger.info(f"📤 Creating ToyyibPay bill:")
+            logger.info("📤 Creating ToyyibPay bill:")
             logger.info(f"   Bill Name: {cleaned_bill_name}")
             logger.info(f"   Amount: RM{bill_amount} ({amount_in_cents} cents)")
             logger.info(f"   Email: {bill_email}")
@@ -204,7 +204,7 @@ class ToyyibPayService:
 
             # Check if response is HTML (error page)
             if response.text.strip().startswith('<!') or response.text.strip().startswith('<html'):
-                logger.error(f"❌ ToyyibPay returned HTML instead of JSON. Likely invalid credentials or endpoint.")
+                logger.error("❌ ToyyibPay returned HTML instead of JSON. Likely invalid credentials or endpoint.")
                 logger.error(f"❌ Full HTML response: {response.text[:1000]}")
                 return {
                     'success': False,
@@ -414,7 +414,7 @@ class ToyyibPayService:
 
             # Check for HTML error response
             if response.text.strip().startswith('<!') or response.text.strip().startswith('<html'):
-                logger.error(f"❌ ToyyibPay returned HTML for getBillTransactions")
+                logger.error("❌ ToyyibPay returned HTML for getBillTransactions")
                 return {
                     'success': False,
                     'error': 'Invalid response from payment gateway'

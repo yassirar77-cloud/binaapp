@@ -11,16 +11,13 @@ Returns detailed subscription status including:
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
+from typing import Dict, Any
 from loguru import logger
 
 from app.core.security import get_current_user
 from app.middleware.subscription_guard import (
     get_subscription_status_from_db,
-    SubscriptionStatus,
 )
-from app.services.subscription_service import subscription_service
 
 
 router = APIRouter(prefix="/subscription", tags=["Subscription Status"])

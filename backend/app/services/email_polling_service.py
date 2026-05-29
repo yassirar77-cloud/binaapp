@@ -4,12 +4,12 @@ Polls IMAP inbox (Zoho Mail) for new support emails and processes them with AI
 """
 import asyncio
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any, List, Set
 from loguru import logger
 
 try:
-    from imap_tools import MailBox, MailMessage, AND, OR
+    from imap_tools import MailBox, MailMessage, AND, OR  # noqa: F401  (availability guard / re-export)
     IMAP_TOOLS_AVAILABLE = True
 except ImportError:
     IMAP_TOOLS_AVAILABLE = False
@@ -24,7 +24,6 @@ except ImportError:
 
 from app.core.config import settings
 from app.services.ai_email_support import ai_email_support
-from app.services.supabase_client import get_supabase_client
 
 # Timeout for IMAP operations (seconds)
 IMAP_TIMEOUT = 30

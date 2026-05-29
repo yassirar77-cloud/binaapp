@@ -15,8 +15,8 @@ from app.services.ai_service import ai_service
 from app.services.templates import template_service
 from app.services.screenshot_service import screenshot_service
 from app.services.job_service import job_service, JobStatus
-from app.services.business_types import detect_business_type, detect_item_category, get_business_config, get_categories_for_business_type
-from app.services.menu_validator import validate_and_extract_menu_items, log_menu_flow
+from app.services.business_types import detect_business_type, detect_item_category
+from app.services.menu_validator import log_menu_flow
 from app.services.menu_service import get_menu_items, create_default_delivery_zones
 from app.models.schemas import WebsiteGenerationRequest, Language
 from app.utils.content_moderation import is_content_allowed, log_blocked_attempt
@@ -925,7 +925,7 @@ async def generate_website(request: SimpleGenerateRequest):
                     if deepseek_html:
                         deepseek_html = await add_template_animation(deepseek_html, request.template_id)
 
-            logger.info(f"✓ Dual generation complete")
+            logger.info("✓ Dual generation complete")
 
             return DualGenerateResponse(
                 qwen_html=qwen_html,
