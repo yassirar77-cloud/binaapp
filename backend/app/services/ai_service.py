@@ -4516,13 +4516,7 @@ IMPORTANT INSTRUCTIONS:
                 # This replaces Unsplash URLs with Cloudinary URLs from Stability AI
                 style_ai_images = 0
                 if not (request.uploaded_images and len(request.uploaded_images) > 0):
-                    _food_budget = (
-                        None if max_ai_images is None
-                        else max(0, max_ai_images - ai_images_generated)
-                    )
-                    html, style_ai_images = await self._generate_ai_food_images(
-                        html, max_images=_food_budget
-                    )
+                    html, style_ai_images = await self._generate_ai_food_images(html)
 
                 # FINAL SAFETY NET: Fix any remaining broken/empty image URLs
                 html = self._fix_broken_image_urls(html, request.description)
