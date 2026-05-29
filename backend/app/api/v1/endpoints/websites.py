@@ -393,11 +393,35 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
         logger.info(f"   Language: {request.language}")
         logger.info(f"   Include E-commerce: {request.include_ecommerce}")
 
+        # Determine the user's remaining AI-image quota so the build hard-caps
+        # food-image generation and never overshoots the plan limit. None = no
+        # cap (unlimited plan, anonymous build, or quota lookup failed → fail
+        # open to preserve prior behaviour; the post-build increment still runs).
+        max_ai_images = None
+        if user_id:
+            try:
+                img_check = await subscription_service.check_limit(user_id, "generate_ai_image")
+                if img_check.get("unlimited"):
+                    max_ai_images = None
+                elif not img_check.get("allowed"):
+                    max_ai_images = 0
+                else:
+                    remaining = img_check.get("remaining")
+                    if remaining is None:
+                        limit = img_check.get("limit") or 0
+                        current = img_check.get("current_usage") or 0
+                        remaining = (limit - current) + img_check.get("addon_credits", 0)
+                    max_ai_images = max(0, int(remaining))
+                logger.info(f"🎯 AI image budget for user {user_id}: {max_ai_images}")
+            except Exception as quota_err:
+                logger.warning(f"⚠️ Could not determine AI image budget, leaving uncapped: {quota_err}")
+                max_ai_images = None
+
         # Step 1: Generate HTML using AI with timeout (3 minutes max)
         logger.info(f"⏱️  Step 1/4: Calling AI generation service (max 180s timeout)...")
         try:
             ai_response = await asyncio.wait_for(
-                ai_service.generate_website(request),
+                ai_service.generate_website(request, max_ai_images=max_ai_images),
                 timeout=180.0  # 3 minutes timeout for entire AI generation
             )
             logger.info(f"✅ Step 1/4: AI generation completed - {len(ai_response.html_content)} chars generated")

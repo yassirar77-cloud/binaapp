@@ -3105,13 +3105,18 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         logger.info("✅ No duplicate product/service images found")
         return html
 
-    async def _generate_ai_food_images(self, html: str) -> tuple:
+    async def _generate_ai_food_images(self, html: str, max_images: Optional[int] = None) -> tuple:
         """
         Replace Unsplash food images with AI-generated images
 
         - Scans HTML for Malaysian food items
         - Generates AI images using DeepSeek/Qwen → Stability AI → Cloudinary pipeline
         - Replaces Unsplash URLs with Cloudinary URLs
+
+        Args:
+            max_images: Optional hard cap on how many food images to generate
+                (the caller's remaining AI-image quota). None means no cap.
+                When 0 or less, no food images are generated.
 
         Returns tuple of (html_with_ai_images, count_of_images_generated)
         """
@@ -3163,6 +3168,22 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         if not food_items_found:
             logger.info("   ℹ️ No Malaysian food items found that need AI generation")
             return html, 0
+
+        # Hard-cap food image generation to the caller's remaining AI-image
+        # quota so a single build never overshoots the user's plan limit.
+        if max_images is not None:
+            if max_images <= 0:
+                logger.info(
+                    f"   🚫 AI image quota exhausted — skipping all "
+                    f"{len(food_items_found)} food image(s)"
+                )
+                return html, 0
+            if len(food_items_found) > max_images:
+                logger.info(
+                    f"   ✂️ Capping food images to remaining quota: "
+                    f"{max_images} of {len(food_items_found)}"
+                )
+                food_items_found = food_items_found[:max_images]
 
         logger.info(f"   🍽️ Found {len(food_items_found)} food items to generate:")
         for name, _ in food_items_found:
@@ -3851,12 +3872,18 @@ IMPORTANT RULES:
         request: WebsiteGenerationRequest,
         style: Optional[str] = None,
         image_choice: str = "upload",  # NEW: none, upload, or ai
-        progress_callback: Optional[Callable[[int, str], Awaitable[None]]] = None  # NEW: callback for progress updates
+        progress_callback: Optional[Callable[[int, str], Awaitable[None]]] = None,  # NEW: callback for progress updates
+        max_ai_images: Optional[int] = None  # NEW: hard cap on AI images (caller's remaining quota)
     ) -> AIGenerationResponse:
         """Generate website with Stability AI + Cloudinary + DeepSeek + Qwen
 
         Args:
             progress_callback: Optional async callback(progress_percent, status_message)
+            max_ai_images: Optional hard cap on the number of AI images this build
+                may generate (the user's remaining AI-image quota). None means no
+                cap. Food image generation is capped to whatever budget remains
+                after any hero/gallery images already generated this build, so a
+                single build never overshoots the plan limit.
         """
 
         import time
@@ -4039,7 +4066,13 @@ IMPORTANT RULES:
                         # Post-processing: inject images if needed
                         if not (request.uploaded_images and len(request.uploaded_images) > 0):
                             with _timed_step("ai_food_images", step_timings):
-                                template_html, food_images_count = await self._generate_ai_food_images(template_html)
+                                _food_budget = (
+                                    None if max_ai_images is None
+                                    else max(0, max_ai_images - ai_images_generated)
+                                )
+                                template_html, food_images_count = await self._generate_ai_food_images(
+                                    template_html, max_images=_food_budget
+                                )
                                 ai_images_generated += food_images_count
                         with _timed_step("final_cleanup", step_timings):
                             template_html = self._fix_broken_image_urls(template_html, request.description)
@@ -4319,7 +4352,13 @@ IMPORTANT INSTRUCTIONS:
         # Never override user-provided images.
         if not (request.uploaded_images and len(request.uploaded_images) > 0):
             with _timed_step("ai_food_images", step_timings):
-                html, food_images_count = await self._generate_ai_food_images(html)
+                _food_budget = (
+                    None if max_ai_images is None
+                    else max(0, max_ai_images - ai_images_generated)
+                )
+                html, food_images_count = await self._generate_ai_food_images(
+                    html, max_images=_food_budget
+                )
                 ai_images_generated += food_images_count
 
         # FINAL SAFETY NET: Fix any remaining broken/empty image URLs
@@ -4477,7 +4516,13 @@ IMPORTANT INSTRUCTIONS:
                 # This replaces Unsplash URLs with Cloudinary URLs from Stability AI
                 style_ai_images = 0
                 if not (request.uploaded_images and len(request.uploaded_images) > 0):
-                    html, style_ai_images = await self._generate_ai_food_images(html)
+                    _food_budget = (
+                        None if max_ai_images is None
+                        else max(0, max_ai_images - ai_images_generated)
+                    )
+                    html, style_ai_images = await self._generate_ai_food_images(
+                        html, max_images=_food_budget
+                    )
 
                 # FINAL SAFETY NET: Fix any remaining broken/empty image URLs
                 html = self._fix_broken_image_urls(html, request.description)
