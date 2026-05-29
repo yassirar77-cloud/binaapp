@@ -5,7 +5,7 @@ Generates referral codes, validates usage, awards credits.
 import httpx
 import secrets
 import string
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from loguru import logger
 
 from app.core.config import settings
@@ -131,8 +131,8 @@ class ReferralService:
                 )
 
                 # Award credits to both parties
-                await self._award_credit(referrer_id, self.referrer_credit, f"Bonus rujukan - rakan baru mendaftar")
-                await self._award_credit(referred_user_id, self.referred_credit, f"Bonus pendaftaran dengan kod rujukan")
+                await self._award_credit(referrer_id, self.referrer_credit, "Bonus rujukan - rakan baru mendaftar")
+                await self._award_credit(referred_user_id, self.referred_credit, "Bonus pendaftaran dengan kod rujukan")
 
             return {
                 "success": True,

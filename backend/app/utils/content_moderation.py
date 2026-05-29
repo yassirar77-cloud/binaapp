@@ -133,7 +133,7 @@ def log_blocked_attempt(
         logger.warning(f"IP: {ip_address}")
     if user_id:
         logger.warning(f"User ID: {user_id}")
-    logger.warning(f"Description (first 500 chars):")
+    logger.warning("Description (first 500 chars):")
     logger.warning(description[:500])
     logger.warning("=" * 80)
 

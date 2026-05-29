@@ -25,7 +25,7 @@ Usage:
 import asyncio
 import signal
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Union
 
 from loguru import logger

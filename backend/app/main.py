@@ -1,14 +1,13 @@
-from fastapi import FastAPI, Request, BackgroundTasks, UploadFile, File, Depends
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse, HTMLResponse, Response
+from fastapi.responses import JSONResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional
 import httpx
 import os
 import logging
 from pathlib import Path
-import base64
 import re
 import cloudinary
 import cloudinary.uploader
@@ -16,16 +15,13 @@ from datetime import datetime, timedelta, date
 from collections import defaultdict
 from user_agents import parse as parse_user_agent
 import hashlib
-from supabase import create_client, Client
 from urllib.parse import urlparse
 import uuid
 import asyncio
 import json
 from app.data.malaysian_prompts import (
     get_smart_stability_prompt,
-    get_hero_prompt,
-    get_fallback_image,
-    MALAYSIAN_FOOD_PROMPTS
+    get_fallback_image
 )
 from app.services.ai_service import AIService
 from app.models.schemas import WebsiteGenerationRequest, Language
@@ -96,7 +92,7 @@ def init_supabase():
         # Test connection by making a simple query
         try:
             test = client.table("websites").select("id").limit(1).execute()
-            logger.info(f"✅ Supabase connection verified! Websites table accessible.")
+            logger.info("✅ Supabase connection verified! Websites table accessible.")
         except Exception as test_error:
             logger.warning(f"⚠️ Websites table test failed (might not exist yet): {test_error}")
 
@@ -912,14 +908,14 @@ async def get_generation_status(job_id: str):
         if job.get("styles"):
             try:
                 styles = json.loads(job["styles"]) if isinstance(job["styles"], str) else job["styles"]
-            except:
+            except Exception:
                 styles = None
 
         # Try to get variants from job
         if job.get("variants"):
             try:
                 variants = json.loads(job["variants"]) if isinstance(job["variants"], str) else job["variants"]
-            except:
+            except Exception:
                 variants = None
 
         # CRITICAL FIX: If we have HTML but no variants/styles, create a single variant
@@ -992,7 +988,7 @@ def get_stock_images(desc: str) -> dict:
     keyword = image_keywords.get(business_type, 'business')
 
     return {
-        'hero': f'https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=1200&h=600&fit=crop',
+        'hero': 'https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=1200&h=600&fit=crop',
         'gallery': [
             f'https://source.unsplash.com/600x400/?{keyword},1',
             f'https://source.unsplash.com/600x400/?{keyword},2',
@@ -1060,8 +1056,8 @@ def get_image_prompts_by_business_type(description: str) -> dict:
     else:
         business_name = description.split(',')[0].strip()[:30]
         return {
-            "hero": f"Professional business interior, modern office, welcoming atmosphere, commercial space",
-            "gallery": f"Professional service and products, quality business, commercial photography"
+            "hero": "Professional business interior, modern office, welcoming atmosphere, commercial space",
+            "gallery": "Professional service and products, quality business, commercial photography"
         }
 
 
@@ -1242,8 +1238,8 @@ async def generate_all_images(desc: str) -> Optional[dict]:
         logger.warning("⚠️  Gallery - using hero as fallback for all slots")
 
     logger.info("=" * 60)
-    logger.info(f"🎨 IMAGE GENERATION COMPLETE")
-    logger.info(f"   Generated: 1 hero + 1 gallery (reused 3x)")
+    logger.info("🎨 IMAGE GENERATION COMPLETE")
+    logger.info("   Generated: 1 hero + 1 gallery (reused 3x)")
     logger.info(f"   Total time: {asyncio.get_event_loop().time() - start_time:.1f}s")
     logger.info("=" * 60)
 
@@ -1867,7 +1863,7 @@ async def run_generation_task(
 
     try:
         # Step 1: Update to 20%
-        logger.info(f"📊 Updating progress to 20%")
+        logger.info("📊 Updating progress to 20%")
         if supabase:
             result_20 = supabase.table("generation_jobs").update({
                 "progress": 20,
@@ -2009,7 +2005,7 @@ async def run_generation_task(
                 logger.warning(f"⚠️ WhatsApp sanitization failed (continuing): {wa_err}")
 
         # Step 3: Update progress to 92% after AI generation and customizations
-        logger.info(f"📊 Updating progress to 92% - applying customizations")
+        logger.info("📊 Updating progress to 92% - applying customizations")
         if supabase:
             result_92 = supabase.table("generation_jobs").update({
                 "progress": 92,
@@ -2211,7 +2207,7 @@ async def run_generation_task(
             logger.warning(f"⚠️ Integration injection skipped due to error: {inject_err}")
 
         # Step 4: Update progress to 95% - delivery system injected
-        logger.info(f"📊 Updating progress to 95% - delivery system processed")
+        logger.info("📊 Updating progress to 95% - delivery system processed")
         if supabase:
             result_95 = supabase.table("generation_jobs").update({
                 "progress": 95,
@@ -2289,7 +2285,7 @@ async def run_generation_task(
                     else:
                         logger.error(f"❌ VERIFICATION FAILED: Could not read back job {job_id}")
                 else:
-                    logger.error(f"❌ Supabase update returned empty - job might not exist!")
+                    logger.error("❌ Supabase update returned empty - job might not exist!")
                     logger.error(f"   job_id: {job_id}")
                     logger.error(f"   result.data: {result.data}")
 
@@ -2298,7 +2294,7 @@ async def run_generation_task(
                 import traceback
                 logger.error(traceback.format_exc())
         else:
-            logger.warning(f"⚠️ Supabase not available - job completed but not saved")
+            logger.warning("⚠️ Supabase not available - job completed but not saved")
 
     except Exception as e:
         logger.error(f"❌ TASK FAILED: {job_id} - {str(e)}")
@@ -2313,7 +2309,7 @@ async def run_generation_task(
                     "error": str(e)[:500],
                     "updated_at": datetime.now().isoformat()
                 }).eq("job_id", job_id).execute()
-                logger.info(f"❌ Job marked FAILED in Supabase")
+                logger.info("❌ Job marked FAILED in Supabase")
             except Exception as e2:
                 logger.error(f"❌ Could not save failure: {e2}")
 
@@ -2567,7 +2563,7 @@ MANDATORY REQUIREMENTS:
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat()
             }).execute()
-            logger.info(f"✅ Job created in database")
+            logger.info("✅ Job created in database")
         except Exception as db_error:
             logger.error(f"❌ Failed to create job: {db_error}")
             return JSONResponse(status_code=500, content={
@@ -2738,7 +2734,7 @@ async def get_project_analytics(project_id: str, days: int = 30):
                 # Extract domain from referrer
                 try:
                     domain = urlparse(ref).netloc or "Direct"
-                except:
+                except Exception:
                     domain = ref[:50]
                 referrer_counts[domain] = referrer_counts.get(domain, 0) + 1
 
@@ -3598,14 +3594,14 @@ async def serve_published_site(subdomain: str):
         result = supabase.table("websites").select("html_code").eq("subdomain", subdomain).eq("is_published", True).execute()
 
         if result.data and result.data[0].get("html_code"):
-            logger.info(f"✅ Serving from database")
+            logger.info("✅ Serving from database")
             return HTMLResponse(content=result.data[0]["html_code"])
 
         # Fallback: get from storage
         file_path = f"{subdomain}/index.html"
         try:
             html_bytes = supabase.storage.from_("websites").download(file_path)
-            logger.info(f"✅ Serving from storage")
+            logger.info("✅ Serving from storage")
             return HTMLResponse(content=html_bytes.decode('utf-8'))
         except Exception as storage_error:
             logger.warning(f"⚠️ Storage download failed: {storage_error}")
@@ -4038,7 +4034,7 @@ async def create_chat_conversation(request: Request):
                     "created_at": datetime.now().isoformat()
                 }
                 supabase.table("chat_messages").insert(message_data).execute()
-                logger.info(f"✅ [Chat] Initial message added")
+                logger.info("✅ [Chat] Initial message added")
 
             return {
                 "success": True,
@@ -4288,7 +4284,7 @@ async def edit_html(
     instruction = body.get("instruction", "")
 
     logger.info("=" * 50)
-    logger.info(f"🤖 AI EDIT REQUEST")
+    logger.info("🤖 AI EDIT REQUEST")
     logger.info(f"   Instruction: {instruction}")
     logger.info(f"   HTML length: {len(html)} chars")
     logger.info("=" * 50)

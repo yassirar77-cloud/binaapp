@@ -160,7 +160,7 @@ def check_http_endpoint(name: str, url: str, expected_status: int = 200) -> Chec
         return CheckResult(
             name=name,
             status=Status.CRITICAL,
-            message=f"Connection failed",
+            message="Connection failed",
             details={'url': url, 'error': str(e)[:100]}
         )
     except Exception as e:
@@ -526,7 +526,7 @@ def print_report(report: HealthReport, verbose: bool = False) -> None:
     emoji = status_emoji.get(report.overall_status, "")
 
     print("\n" + "=" * 60)
-    print(f"  BINAAPP HEALTH CHECK REPORT")
+    print("  BINAAPP HEALTH CHECK REPORT")
     print("=" * 60)
     print(f"  Timestamp: {report.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"  Overall:   {emoji} {report.overall_status.value.upper()}")

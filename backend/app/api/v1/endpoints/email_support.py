@@ -13,7 +13,6 @@ from loguru import logger
 from app.core.security import get_current_user
 from app.core.config import settings
 from app.services.ai_email_support import ai_email_support
-from app.services.email_service import email_service
 
 router = APIRouter()
 

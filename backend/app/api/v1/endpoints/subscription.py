@@ -3,8 +3,8 @@ Subscription Management Endpoints
 Handles subscription status, usage tracking, limits, transactions, and addons
 """
 
-from fastapi import APIRouter, HTTPException, status, Depends, Request
-from typing import Optional, List
+from fastapi import APIRouter, HTTPException, status, Depends
+from typing import Optional
 from pydantic import BaseModel
 from datetime import datetime
 from loguru import logger
@@ -1008,7 +1008,7 @@ async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
                     current_end_dt = datetime.fromisoformat(current_end.replace("Z", "+00:00"))
                     if current_end_dt > datetime.utcnow().replace(tzinfo=current_end_dt.tzinfo):
                         end_date = (current_end_dt + timedelta(days=30)).isoformat()
-                except:
+                except Exception:
                     pass
 
             resp = await client.patch(

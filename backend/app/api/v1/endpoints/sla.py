@@ -3,8 +3,6 @@ BinaApp AI SLA System API Endpoints
 Service Level Agreement monitoring and breach tracking.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import Optional
-from loguru import logger
 
 from app.core.security import get_current_user
 from app.services.ai_sla_service import sla_service

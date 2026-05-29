@@ -8,7 +8,6 @@ Covers:
 - Route configuration completeness
 """
 
-import pytest
 from app.middleware.subscription_guard import (
     SubscriptionStatus,
     PROTECTED_ROUTE_PREFIXES,

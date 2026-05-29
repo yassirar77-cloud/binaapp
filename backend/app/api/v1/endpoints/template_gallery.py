@@ -7,7 +7,6 @@ pre-made website templates and categories.
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 
 from app.services.template_gallery import (
     get_all_templates,

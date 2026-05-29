@@ -19,7 +19,7 @@ This cron job handles the complete subscription lifecycle:
 import os
 import asyncio
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from loguru import logger
 import httpx
 

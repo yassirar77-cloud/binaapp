@@ -1,5 +1,4 @@
 """Generate the Khulafa Bistro V2 preview HTML."""
-import json
 import sys
 sys.path.insert(0, ".")
 

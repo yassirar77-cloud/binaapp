@@ -19,12 +19,10 @@ from app.models.dispute_schemas import (
     DisputeCreate,
     DisputeResponse,
     DisputeListResponse,
-    DisputeStatusUpdate,
     DisputeResolve,
     OwnerResponse,
     DisputeMessageCreate,
     DisputeMessageResponse,
-    DisputeStatusHistoryResponse,
     DisputeSummary,
 )
 from app.services.dispute_service import dispute_ai_service

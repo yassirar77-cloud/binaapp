@@ -156,7 +156,7 @@ class MessageCreate(BaseModel):
 
 def get_supabase():
     """Get Supabase client"""
-    from supabase import create_client, Client
+    from supabase import create_client
 
     SUPABASE_URL = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY = (
@@ -357,7 +357,7 @@ async def create_conversation(request: CreateConversationRequest):
         # =====================================================
         # GUARD 1: Reject null/empty website IDs
         if not request.website_id or not request.website_id.strip():
-            logger.warning(f"[Chat] REJECTED: Conversation creation with empty website_id")
+            logger.warning("[Chat] REJECTED: Conversation creation with empty website_id")
             raise HTTPException(
                 status_code=400,
                 detail={
@@ -441,7 +441,7 @@ async def create_conversation(request: CreateConversationRequest):
                 "is_online": True,
                 "created_at": datetime.utcnow().isoformat()
             }).execute()
-            logger.info(f"[Chat] Added customer participant")
+            logger.info("[Chat] Added customer participant")
         except Exception as part_err:
             logger.warning(f"[Chat] Customer participant insert failed (non-critical): {part_err}")
 
@@ -454,7 +454,7 @@ async def create_conversation(request: CreateConversationRequest):
                 "is_online": False,
                 "created_at": datetime.utcnow().isoformat()
             }).execute()
-            logger.info(f"[Chat] Added owner participant")
+            logger.info("[Chat] Added owner participant")
         except Exception as part_err:
             logger.warning(f"[Chat] Owner participant insert failed (non-critical): {part_err}")
 

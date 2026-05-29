@@ -26,23 +26,15 @@ from app.core.supabase import get_supabase_client
 from app.core.security import get_current_user
 from app.models.delivery_schemas import (
     # Zones
-    DeliveryZoneResponse,
     ZonesWithSettingsResponse,
     CoverageCheckRequest,
     CoverageCheckResponse,
     # Menu
     MenuResponse,
     MenuItemResponse,
-    MenuCategoryResponse,
-    # Orders
     OrderCreate,
     OrderResponse,
-    OrderTrackingResponse,
-    OrderItemResponse,
-    OrderStatusHistoryResponse,
     OrderStatusUpdate,
-    RiderInfoResponse,
-    RiderLocationResponse,
     RiderLocationUpdate,
     RiderResponse,
     RiderCreateBusiness,
@@ -632,7 +624,7 @@ async def create_order(
         # =====================================================
         # GUARD 1: Reject null/empty website IDs
         if not order.website_id or not order.website_id.strip():
-            logger.warning(f"[Order] REJECTED: Order creation with empty website_id")
+            logger.warning("[Order] REJECTED: Order creation with empty website_id")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={
@@ -1149,7 +1141,7 @@ async def track_order(
                             "longitude": loc_response.data[0]["longitude"],
                             "recorded_at": loc_response.data[0]["recorded_at"]
                         }
-                        logger.info(f"[TRACK] Rider location from history found")
+                        logger.info("[TRACK] Rider location from history found")
             except Exception as rider_err:
                 logger.warning(f"[TRACK] Could not fetch rider info: {rider_err}")
                 # Continue without rider info
@@ -1666,12 +1658,12 @@ async def create_rider(
         password = data.pop("password", None)
         if password:
             data["password_hash"] = hash_password(password)
-            logger.info(f"[Rider CREATE] Creating rider with hashed password")
+            logger.info("[Rider CREATE] Creating rider with hashed password")
 
         resp = supabase.table("riders").insert(data).execute()
 
         if not resp.data:
-            logger.error(f"[Rider CREATE] Failed - no data returned from insert")
+            logger.error("[Rider CREATE] Failed - no data returned from insert")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create rider")
 
         created_rider = resp.data[0]
@@ -1682,9 +1674,9 @@ async def create_rider(
         # Immediately verify the rider exists by querying it back
         verify_resp = supabase.table("riders").select("*").eq("id", created_rider.get('id')).execute()
         if verify_resp.data:
-            logger.info(f"[Rider CREATE] ✅ Verification successful - rider exists in database")
+            logger.info("[Rider CREATE] ✅ Verification successful - rider exists in database")
         else:
-            logger.warning(f"[Rider CREATE] ⚠️ Verification failed - rider not found immediately after creation")
+            logger.warning("[Rider CREATE] ⚠️ Verification failed - rider not found immediately after creation")
 
         return convert_db_row_to_dict(created_rider)
     except HTTPException:
@@ -1929,7 +1921,7 @@ async def validate_widget_id(
 
     # GUARD 1: Reject null/empty IDs immediately
     if not website_id or website_id.strip() == '':
-        logger.warning(f"[Widget Validation] REJECTED: Empty website_id provided")
+        logger.warning("[Widget Validation] REJECTED: Empty website_id provided")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -2101,8 +2093,7 @@ async def get_widget_config(
     """
     from app.services.business_types import (
         detect_business_type,
-        get_business_config,
-        get_categories_for_business_type
+        get_business_config
     )
 
     try:
@@ -2340,7 +2331,7 @@ async def create_website_rider(
         password = data.pop("password", None)
         if password:
             data["password_hash"] = hash_password(password)
-            logger.info(f"Creating rider with hashed password")
+            logger.info("Creating rider with hashed password")
 
         resp = supabase.table("riders").insert(data).execute()
         if not resp.data:
@@ -3141,7 +3132,7 @@ async def update_order_status_by_rider(
         history_entry = {
             "order_id": order_id,
             "status": new_status,
-            "notes": notes or f"Updated by rider",
+            "notes": notes or "Updated by rider",
             "created_at": now
         }
 

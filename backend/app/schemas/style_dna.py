@@ -10,7 +10,7 @@ See docs/V2_ARCHITECTURE.md Section 12 Q5 for rationale & naming.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict
 
 

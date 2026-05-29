@@ -8,7 +8,7 @@ IMPORTANT: This endpoint now requires authentication OR a valid user_id.
 """
 
 from fastapi import APIRouter, HTTPException, Request, status, Depends
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Dict, Any
 from loguru import logger
 from datetime import datetime
@@ -151,12 +151,12 @@ def is_subdomain_allowed(subdomain: str) -> tuple[bool, str]:
 
     # Check for valid characters only
     if not re.match(r'^[a-z0-9-]+$', subdomain_lower):
-        logger.warning(f"❌ BLOCKED: Invalid characters")
+        logger.warning("❌ BLOCKED: Invalid characters")
         return False, "Hanya huruf kecil, nombor dan (-) dibenarkan / Only lowercase, numbers and hyphens"
 
     # Check if starts/ends with hyphen
     if subdomain_lower.startswith('-') or subdomain_lower.endswith('-'):
-        logger.warning(f"❌ BLOCKED: Starts/ends with hyphen")
+        logger.warning("❌ BLOCKED: Starts/ends with hyphen")
         return False, "Tidak boleh bermula/berakhir dengan (-) / Cannot start/end with hyphen"
 
     # Check blocked words - check both original AND normalized version
@@ -250,7 +250,7 @@ async def publish_website(
     """
     try:
         logger.info("=" * 80)
-        logger.info(f"🚀 PUBLISH REQUEST RECEIVED")
+        logger.info("🚀 PUBLISH REQUEST RECEIVED")
         logger.info(f"   Project: {request.project_name}")
         logger.info(f"   Subdomain: {request.subdomain}")
 
@@ -269,7 +269,7 @@ async def publish_website(
                 # CRITICAL FIX: Instead of generating random UUID, reject the request
                 # Random UUIDs create orphaned websites that don't appear in user's dashboard
                 logger.error(f"   ❌ Invalid user_id: '{user_id}' - authentication required")
-                logger.error(f"   ❌ Website would be orphaned if published with random UUID")
+                logger.error("   ❌ Website would be orphaned if published with random UUID")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Sila log masuk untuk menerbitkan website / Please log in to publish website",
@@ -279,7 +279,7 @@ async def publish_website(
             # Check if user_id is a valid UUID format
             try:
                 uuid.UUID(user_id)
-                logger.info(f"   User ID is valid UUID format ✅")
+                logger.info("   User ID is valid UUID format ✅")
             except ValueError:
                 logger.error(f"   ❌ Invalid user_id format: '{user_id}' - not a valid UUID")
                 raise HTTPException(
@@ -360,7 +360,7 @@ async def publish_website(
 
         if not is_allowed:
             logger.error("=" * 80)
-            logger.error(f"❌ SUBDOMAIN BLOCKED BY CONTENT POLICY")
+            logger.error("❌ SUBDOMAIN BLOCKED BY CONTENT POLICY")
             logger.error(f"   Requested subdomain: '{request.subdomain}'")
             logger.error(f"   Reason: {error_message}")
             logger.error("=" * 80)
@@ -411,7 +411,7 @@ async def publish_website(
 
                     if existing_user_id == user_id:
                         # Case 1: Genuine republish — requester already owns the row.
-                        logger.info(f"✅ User owns this website - allowing republish")
+                        logger.info("✅ User owns this website - allowing republish")
                         is_republish = True
                         project_id = existing_website.get("id")
                     elif existing_user_id is not None:
@@ -461,7 +461,7 @@ async def publish_website(
                 else:
                     # Website exists in storage but NOT in database - orphaned storage
                     # Allow authenticated user to claim it by creating a new DB record
-                    logger.info(f"🔄 Website exists in storage but not in database - will create record")
+                    logger.info("🔄 Website exists in storage but not in database - will create record")
                     if not current_user:
                         raise HTTPException(
                             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -605,13 +605,13 @@ async def publish_website(
                 logger.info(f"   Attempting UPDATE on existing record: {project_id}")
                 success = await supabase_service.update_website(project_id, update_data)
                 if success:
-                    logger.info(f"   ✅ Database update successful")
+                    logger.info("   ✅ Database update successful")
                     return {"id": project_id, "updated": True}
                 else:
                     # CRITICAL FIX: UPDATE failed (0 rows affected) - record may have been deleted
                     # Fall back to INSERT to ensure the database record is created
                     logger.warning(f"   ⚠️ UPDATE failed for {project_id} - falling back to INSERT")
-                    logger.warning(f"   This can happen when claiming orphaned storage or if record was deleted")
+                    logger.warning("   This can happen when claiming orphaned storage or if record was deleted")
                     return await do_insert()
             else:
                 # INSERT new record
@@ -639,7 +639,7 @@ async def publish_website(
             # CRITICAL FIX: DO NOT silently ignore database errors!
             # Without database record, website won't appear in dashboard
             logger.error(f"❌ CRITICAL: Failed to save database record: {e}")
-            logger.error(f"   Website uploaded to storage but NOT saved to database!")
+            logger.error("   Website uploaded to storage but NOT saved to database!")
             logger.error(f"   This means website will load at {public_url} but NOT appear in dashboard!")
             # Raise the error - this is a critical failure
             raise HTTPException(
@@ -648,7 +648,7 @@ async def publish_website(
             )
 
         logger.info("=" * 80)
-        logger.info(f"✅ WEBSITE PUBLISHED SUCCESSFULLY")
+        logger.info("✅ WEBSITE PUBLISHED SUCCESSFULLY")
         logger.info(f"   URL: {public_url}")
         logger.info(f"   Project ID: {project_id}")
         logger.info("=" * 80)

@@ -8,7 +8,6 @@ import json
 import re
 import uuid
 from datetime import datetime
-from typing import Optional
 from html.parser import HTMLParser
 
 import httpx

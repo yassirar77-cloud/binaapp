@@ -13,7 +13,6 @@ with empty-name rows for users who tap their phone but never order.
 """
 
 import re
-from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from supabase import Client
 from loguru import logger

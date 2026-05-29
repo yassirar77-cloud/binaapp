@@ -22,9 +22,8 @@ import html
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Pattern, Set, Union
+from typing import Any, Dict, Optional, Set
 
-from loguru import logger
 
 
 @dataclass

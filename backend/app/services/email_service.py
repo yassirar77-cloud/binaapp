@@ -472,7 +472,7 @@ class EmailService:
 
         return await self.send_admin_notification(
             subject="Pendaftaran Pengguna Baru",
-            message=f"Pengguna baru telah mendaftar di BinaApp.",
+            message="Pengguna baru telah mendaftar di BinaApp.",
             notification_type="success",
             details={
                 "Nama": user_name,

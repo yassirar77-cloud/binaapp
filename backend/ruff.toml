@@ -1,0 +1,16 @@
+# Lint policy for the BinaApp backend.
+#
+# The codebase intentionally relies on a couple of patterns that ruff's default
+# rules flag but that are deliberate here, so we ignore those two rules
+# project-wide rather than churn ~50 call sites:
+#
+#   E402  module-level import not at top of file
+#         — many modules do optional-dependency / availability imports inside
+#           try/except or after sys.path setup.
+#   F841  local variable assigned but never used
+#         — intermediate locals are kept for readability/debugging; auto-removing
+#           them risks dropping side-effecting calls.
+#
+# All other default rules remain enabled.
+[lint]
+ignore = ["E402", "F841"]

@@ -9,7 +9,7 @@ The renderer stitches them together with the nav, theme CSS, and scripts.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from app.schemas.recipe import PageRecipe, RenderedSection, NavConfig, ThemeTokens
 
@@ -1619,7 +1619,8 @@ def _gallery_full_width(p: Dict[str, Any]) -> str:
 
     # Block 1: full-bleed opening photo
     if img_idx < len(imgs):
-        img = imgs[img_idx]; img_idx += 1
+        img = imgs[img_idx]
+        img_idx += 1
         blocks.append(f"""        <!-- Full-bleed opening photo -->
         <div class="overflow-hidden rounded-2xl" style="max-height: 520px;">
             <img src="{_esc(img['url'])}" alt="{_esc(img['alt'])}"
@@ -1647,7 +1648,8 @@ def _gallery_full_width(p: Dict[str, Any]) -> str:
 
     # Block 4: half-width photo right + text left
     if img_idx < len(imgs) and len(paragraphs) > 1:
-        img = imgs[img_idx]; img_idx += 1
+        img = imgs[img_idx]
+        img_idx += 1
         para2 = paragraphs[1]
         blocks.append(f"""        <!-- Half-width photo right + text left -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
@@ -1662,7 +1664,8 @@ def _gallery_full_width(p: Dict[str, Any]) -> str:
 
     # Block 5: closing full-bleed photo + closing paragraph
     if img_idx < len(imgs):
-        img = imgs[img_idx]; img_idx += 1
+        img = imgs[img_idx]
+        img_idx += 1
         blocks.append(f"""        <!-- Closing full-bleed photo -->
         <div class="overflow-hidden rounded-2xl" style="max-height: 440px;">
             <img src="{_esc(img['url'])}" alt="{_esc(img['alt'])}"
@@ -1871,7 +1874,7 @@ def _contact_cards(p: Dict[str, Any]) -> str:
 {rows}
                 </div>"""
 
-    bg_style = f'background-image: url("{_esc(bg_url)}"); background-size: cover; background-position: center;' if bg_url else f'background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));'
+    bg_style = f'background-image: url("{_esc(bg_url)}"); background-size: cover; background-position: center;' if bg_url else 'background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));'
 
     return f"""        <div class="relative min-h-96 flex items-center justify-center rounded-2xl overflow-hidden py-16 px-4"
              style="{bg_style}">
@@ -2092,7 +2095,7 @@ def _testimonial_quote(p: Dict[str, Any]) -> str:
     r = reviews[0] if reviews else {}
 
     stars = "".join(
-        f'<i class="fa-solid fa-star text-base" style="color: #F59E0B;"></i>'
+        '<i class="fa-solid fa-star text-base" style="color: #F59E0B;"></i>'
         for _ in range(r.get("rating", 5))
     )
     initial = r.get("avatar_fallback", r.get("name", "?")[0].upper())

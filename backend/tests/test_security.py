@@ -14,7 +14,7 @@ Covers:
 
 import pytest
 from datetime import timedelta
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 from jose import jwt
 from fastapi import HTTPException
 

@@ -28,11 +28,10 @@ Usage:
         )
 """
 
-from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, Generic, List, Optional, TypeVar, Union
+from typing import Any, Dict, Generic, List, Optional, TypeVar
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 

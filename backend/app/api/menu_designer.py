@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4, A5
-from reportlab.lib.utils import ImageReader
 import io
 import httpx
 import uuid

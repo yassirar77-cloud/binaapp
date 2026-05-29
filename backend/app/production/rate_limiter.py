@@ -16,7 +16,6 @@ Usage (additive - register in main.py after existing middleware):
 
 import asyncio
 import time
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Optional, Set
 from functools import lru_cache

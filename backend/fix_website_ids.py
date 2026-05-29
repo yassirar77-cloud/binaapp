@@ -113,7 +113,7 @@ async def fix_all_websites():
         logger.info(f"[{idx}/{len(websites)}] Processing: {subdomain} (ID: {website_id})")
 
         if not html_content:
-            logger.warning(f"  ⏭️  Skipped: No HTML content")
+            logger.warning("  ⏭️  Skipped: No HTML content")
             skipped_count += 1
             continue
 
@@ -126,7 +126,7 @@ async def fix_all_websites():
         found_uuids.discard(website_id)
 
         if not found_uuids:
-            logger.info(f"  ✅ Already correct (no wrong UUIDs found)")
+            logger.info("  ✅ Already correct (no wrong UUIDs found)")
             skipped_count += 1
             continue
 
@@ -148,7 +148,7 @@ async def fix_all_websites():
                 logger.info(f"  ✅ Fixed {replacements} reference(s) and updated database")
                 fixed_count += 1
             else:
-                logger.warning(f"  ⚠️  No fixable patterns found (UUIDs may be in other contexts)")
+                logger.warning("  ⚠️  No fixable patterns found (UUIDs may be in other contexts)")
                 skipped_count += 1
 
         except Exception as e:

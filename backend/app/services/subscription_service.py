@@ -450,7 +450,7 @@ class SubscriptionService:
                     "delivery_zones_count": actual_counts["delivery_zones_count"],
                     "riders_count": actual_counts["riders_count"]
                 }
-            except:
+            except Exception:
                 return {
                     "websites_count": 0,
                     "menu_items_count": 0,
@@ -936,7 +936,7 @@ class SubscriptionService:
                 end_dt = datetime.fromisoformat(current_end.replace("Z", "+00:00"))
                 if end_dt > now.replace(tzinfo=end_dt.tzinfo):
                     now = end_dt.replace(tzinfo=None)
-            except:
+            except Exception:
                 pass
 
         new_end_date = now + timedelta(days=30)

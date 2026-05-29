@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 # Import Malaysian prompts for re-export
 from app.data.malaysian_prompts import (
-    MALAYSIAN_FOOD_PROMPTS as MALAYSIAN_PROMPTS,
     get_smart_stability_prompt as get_malaysian_prompt,
 )
 

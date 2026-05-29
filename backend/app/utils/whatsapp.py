@@ -14,7 +14,6 @@ To enable real WhatsApp sending:
 """
 
 import os
-import requests
 from typing import Optional, List, Dict
 from loguru import logger
 
@@ -212,10 +211,10 @@ def notify_customer_status_update(
 
     status_messages = {
         "confirmed": f"✅ Pesanan #{order_number} telah disahkan!\n\n📝 Restoran sedang menyediakan makanan anda.",
-        "ready": f"🍽️ Makanan anda sudah siap!\n\n🛵 Menunggu rider untuk ambil pesanan.",
+        "ready": "🍽️ Makanan anda sudah siap!\n\n🛵 Menunggu rider untuk ambil pesanan.",
         "picked_up": f"📦 Rider telah ambil pesanan!\n\n🛵 {rider_name or 'Rider'} sedang dalam perjalanan ke lokasi anda.",
         "delivering": f"🚚 Pesanan dalam perjalanan!\n\n⏱️ Anggaran tiba: {eta_minutes or 15} minit\n🛵 Rider: {rider_name or 'Rider'}",
-        "delivered": f"✅ Pesanan telah dihantar!\n\n🎉 Selamat menikmati hidangan anda!\nTerima kasih kerana memesan! 🙏",
+        "delivered": "✅ Pesanan telah dihantar!\n\n🎉 Selamat menikmati hidangan anda!\nTerima kasih kerana memesan! 🙏",
         "cancelled": f"❌ Pesanan #{order_number} telah dibatalkan.\n\nJika ada pertanyaan, sila hubungi kami."
     }
 

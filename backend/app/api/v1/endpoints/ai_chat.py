@@ -3,13 +3,12 @@ AI Chatbot Support API Endpoints
 Handles AI-powered support conversations with vision capabilities.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from loguru import logger
 import uuid
-import os
 
 from app.core.security import get_current_user
 from app.services.ai_chatbot_service import chatbot_service

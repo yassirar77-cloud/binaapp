@@ -4,7 +4,7 @@ Handles subscriptions and payments
 """
 
 import stripe
-from typing import Dict, Optional
+from typing import Dict
 from loguru import logger
 
 from app.core.config import settings

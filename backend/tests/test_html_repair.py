@@ -12,7 +12,6 @@ import os
 import re
 from unittest.mock import patch
 
-import pytest
 
 from app.services.html_repair import repair_html
 from app.utils.html_balance import is_html_balanced

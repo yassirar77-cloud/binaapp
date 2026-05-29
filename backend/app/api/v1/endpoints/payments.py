@@ -20,7 +20,6 @@ class AddonPurchaseRequest(BaseModel):
 from app.models.schemas import (
     CheckoutSessionRequest,
     CheckoutSessionResponse,
-    SubscriptionPlan,
     SubscriptionTier
 )
 from app.services.payment_service import payment_service
@@ -411,7 +410,7 @@ async def _process_successful_payment(bill_code: str, tp_transaction_id: str = N
     - Subscription payments (new subscriptions, upgrades, renewals)
     - Addon purchases
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
     try:
         # Find the transaction by bill_code in the transactions table
@@ -552,7 +551,7 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
                     # If current subscription is still valid, extend from end date
                     if end_dt > now.replace(tzinfo=end_dt.tzinfo):
                         now = end_dt.replace(tzinfo=None)
-                except:
+                except Exception:
                     pass
 
         new_end_date = now + timedelta(days=30)
@@ -845,7 +844,7 @@ async def _process_legacy_addon_payment(bill_code: str, tp_transaction_id: str =
     All addon payments should go through the main _process_addon_payment flow.
     """
     logger.info(f"⚠️ Legacy addon payment handler called for bill_code: {bill_code}")
-    logger.info(f"   This is a no-op - addon_purchases table uses transaction_id, not bill_code")
+    logger.info("   This is a no-op - addon_purchases table uses transaction_id, not bill_code")
     # No-op - the main flow handles everything via transactions table
 
 
@@ -1124,7 +1123,7 @@ async def recover_pending_transactions(current_user: dict = Depends(get_current_
 
         # Case 1: Free plan renewal (amount = 0) — auto-confirm
         if amount == 0:
-            logger.info(f"  → Free transaction (RM 0.00), auto-confirming...")
+            logger.info("  → Free transaction (RM 0.00), auto-confirming...")
             try:
                 async with httpx.AsyncClient() as client:
                     patch_resp = await client.patch(
@@ -1166,7 +1165,7 @@ async def recover_pending_transactions(current_user: dict = Depends(get_current_
 
         # Case 2: No bill_code — can't verify with ToyyibPay
         if not bill_code:
-            logger.warning(f"  → No bill_code, skipping")
+            logger.warning("  → No bill_code, skipping")
             still_pending.append({"transaction_id": txn_id, "description": description, "reason": "no_bill_code"})
             continue
 
@@ -1330,7 +1329,7 @@ async def create_subscription_payment(
             elif user_data.get('full_name'):
                 customer_name = user_data.get('full_name')
 
-        logger.info(f"📝 Creating subscription payment:")
+        logger.info("📝 Creating subscription payment:")
         logger.info(f"   Tier: {tier}")
         logger.info(f"   Price: RM{price}")
         logger.info(f"   Email: {email}")
@@ -1466,7 +1465,7 @@ async def purchase_addon(
             elif user_data.get('full_name'):
                 customer_name = user_data.get('full_name')
 
-        logger.info(f"📝 Creating addon purchase:")
+        logger.info("📝 Creating addon purchase:")
         logger.info(f"   Addon: {addon_type} x{quantity}")
         logger.info(f"   Price: RM{total_price}")
         logger.info(f"   Email: {email}")

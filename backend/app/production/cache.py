@@ -31,7 +31,7 @@ import json
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, TypeVar, Union
+from typing import Any, Callable, Dict, Optional, TypeVar
 
 from loguru import logger
 

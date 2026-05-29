@@ -35,7 +35,15 @@ export default function sitemap(): MetadataRoute.Sitemap {
     },
   });
 
-  return [
+  // `alternates` on sitemap entries is only present in the Next 14.2+ type
+  // (this project targets 14.1.0 — see the note above). Build the entries with
+  // a forward-compatible local type, then assert back to the framework type so
+  // type-check passes on 14.1.0 and stays correct after a 14.2+ upgrade.
+  type SitemapEntryWithAlternates = MetadataRoute.Sitemap[number] & {
+    alternates?: { languages: Record<string, string> };
+  };
+
+  const entries: SitemapEntryWithAlternates[] = [
     {
       url: `${baseUrl}/`,
       lastModified: new Date(),
@@ -71,4 +79,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
       alternates: legalLanguages('/terma-perkhidmatan', '/terms-of-service'),
     },
   ];
+
+  return entries as MetadataRoute.Sitemap;
 }

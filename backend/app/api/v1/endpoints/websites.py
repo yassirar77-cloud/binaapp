@@ -14,7 +14,6 @@ from app.models.schemas import (
     WebsiteRegenerateRequest,
     WebsiteResponse,
     WebsiteListResponse,
-    PublishRequest,
     PublishResponse,
     WebsiteStatus,
     Language,
@@ -393,11 +392,35 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
         logger.info(f"   Language: {request.language}")
         logger.info(f"   Include E-commerce: {request.include_ecommerce}")
 
+        # Determine the user's remaining AI-image quota so the build hard-caps
+        # food-image generation and never overshoots the plan limit. None = no
+        # cap (unlimited plan, anonymous build, or quota lookup failed → fail
+        # open to preserve prior behaviour; the post-build increment still runs).
+        max_ai_images = None
+        if user_id:
+            try:
+                img_check = await subscription_service.check_limit(user_id, "generate_ai_image")
+                if img_check.get("unlimited"):
+                    max_ai_images = None
+                elif not img_check.get("allowed"):
+                    max_ai_images = 0
+                else:
+                    remaining = img_check.get("remaining")
+                    if remaining is None:
+                        limit = img_check.get("limit") or 0
+                        current = img_check.get("current_usage") or 0
+                        remaining = (limit - current) + img_check.get("addon_credits", 0)
+                    max_ai_images = max(0, int(remaining))
+                logger.info(f"🎯 AI image budget for user {user_id}: {max_ai_images}")
+            except Exception as quota_err:
+                logger.warning(f"⚠️ Could not determine AI image budget, leaving uncapped: {quota_err}")
+                max_ai_images = None
+
         # Step 1: Generate HTML using AI with timeout (3 minutes max)
-        logger.info(f"⏱️  Step 1/4: Calling AI generation service (max 180s timeout)...")
+        logger.info("⏱️  Step 1/4: Calling AI generation service (max 180s timeout)...")
         try:
             ai_response = await asyncio.wait_for(
-                ai_service.generate_website(request),
+                ai_service.generate_website(request, max_ai_images=max_ai_images),
                 timeout=180.0  # 3 minutes timeout for entire AI generation
             )
             logger.info(f"✅ Step 1/4: AI generation completed - {len(ai_response.html_content)} chars generated")
@@ -436,7 +459,7 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
             logger.info(f"🎨 Extracted theme tokens from AI HTML: {theme_tokens}")
 
         # Step 2: Inject delivery widget if needed
-        logger.info(f"⏱️  Step 2/4: Processing delivery widget...")
+        logger.info("⏱️  Step 2/4: Processing delivery widget...")
         if request.include_ecommerce:
             logger.info(f"🛒 Delivery mode enabled - injecting delivery widget for website {website_id}")
 
@@ -457,12 +480,12 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
 
             # Update integrations list to include delivery
             integrations = ["BinaApp Delivery", "WhatsApp Contact", "Mobile Responsive", "Cloudinary Images"]
-            logger.info(f"✅ Step 2/4: Delivery widget injected successfully")
+            logger.info("✅ Step 2/4: Delivery widget injected successfully")
         else:
-            logger.info(f"⏭️  Step 2/4: Delivery widget skipped (not enabled)")
+            logger.info("⏭️  Step 2/4: Delivery widget skipped (not enabled)")
 
         # Step 3: Inject chat widget
-        logger.info(f"⏱️  Step 3/4: Injecting chat widget...")
+        logger.info("⏱️  Step 3/4: Injecting chat widget...")
         template_service = TemplateService()
         html_content = template_service.inject_chat_widget(
             html=html_content,
@@ -470,10 +493,10 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
             api_url="https://binaapp-backend.onrender.com",
             theme_tokens=theme_tokens,
         )
-        logger.info(f"✅ Step 3/4: Chat widget injected successfully")
+        logger.info("✅ Step 3/4: Chat widget injected successfully")
 
         # Step 4: Update database
-        logger.info(f"⏱️  Step 4/4: Updating database...")
+        logger.info("⏱️  Step 4/4: Updating database...")
         # Bump generation_count atomically with the success update so a
         # failed AI run can't burn the user's regenerate quota. We re-read
         # the row to get the canonical current value rather than trusting
@@ -496,7 +519,7 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
 
         await supabase_service.update_website(website_id, update_data)
 
-        logger.info(f"✅ Step 4/4: Database updated successfully")
+        logger.info("✅ Step 4/4: Database updated successfully")
         logger.info(f"🎉 Website generation completed successfully: {website_id}")
 
     except asyncio.TimeoutError:
@@ -1061,7 +1084,7 @@ async def fix_website_widget(
 
         return {
             "success": True,
-            "message": f"Website HTML updated successfully",
+            "message": "Website HTML updated successfully",
             "website_id": website_id,
             "subdomain": website.get('subdomain'),
             "changed": True,
@@ -1236,7 +1259,7 @@ async def repair_website_delivery(website_id: str):
                     "changed": False
                 }
 
-        logger.info(f"❌ Delivery button missing or has wrong ID - INJECTING...")
+        logger.info("❌ Delivery button missing or has wrong ID - INJECTING...")
 
         # Detect business type and get appropriate button label
         business_type = detect_business_type(business_name)
@@ -1271,7 +1294,7 @@ async def repair_website_delivery(website_id: str):
 
         return {
             "success": True,
-            "message": f"Delivery button added successfully",
+            "message": "Delivery button added successfully",
             "website_id": website_id,
             "subdomain": subdomain,
             "changed": True,

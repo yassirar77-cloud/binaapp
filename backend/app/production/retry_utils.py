@@ -21,7 +21,7 @@ import functools
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Optional, Tuple, Type, TypeVar, Union
+from typing import Awaitable, Callable, Optional, Tuple, Type, TypeVar
 
 from loguru import logger
 

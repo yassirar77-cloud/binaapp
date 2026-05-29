@@ -3,7 +3,6 @@ Phase 1 — Step 4/5 E2E test: hand-crafted Khulafa Bistro Design Brief
 → recipe_builder → html_renderer → valid HTML output.
 """
 
-import pytest
 from app.schemas.recipe import DesignBrief
 from app.services.recipe_builder import build_recipe
 from app.services.html_renderer import render_html
@@ -242,7 +241,11 @@ class TestAssemblerE2E:
         assert "Rendang Burger" in html
         assert "WhatsApp Kami" in html
         assert "wa.me/60173228899" in html
-        assert "BinaApp" in html
+        # BinaApp attribution credit. Assert the link rather than the literal
+        # "BinaApp" text: the FooterBrand variant styles it as
+        # Bina<span>App</span>, so the brand name isn't a contiguous string.
+        # All footer variants link to binaapp.my.
+        assert "binaapp.my" in html
 
     def test_html_has_tailwind_and_animations(self):
         brief = DesignBrief(**KHULAFA_BRIEF)

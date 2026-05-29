@@ -5,7 +5,6 @@ Penalty management, appeals, and admin resolution.
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from loguru import logger
 
 from app.core.security import get_current_user
 from app.services.restaurant_penalty_service import restaurant_penalty_service

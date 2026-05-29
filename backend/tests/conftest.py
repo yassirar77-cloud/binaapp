@@ -10,7 +10,7 @@ Provides:
 
 import os
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timedelta
 
 # Set test environment variables BEFORE any app imports

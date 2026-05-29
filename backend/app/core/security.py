@@ -9,7 +9,6 @@ from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from loguru import logger
-import os
 
 from app.core.config import settings
 
@@ -60,7 +59,7 @@ def decode_access_token(token: str) -> Dict[str, Any]:
         )
         return payload
     except jwt.ExpiredSignatureError as e:
-        logger.info(f"Token expired - user needs to refresh or re-login")
+        logger.info("Token expired - user needs to refresh or re-login")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Session expired - please refresh or login again",

@@ -5,7 +5,6 @@ Loads environment variables and provides settings
 from pydantic_settings import BaseSettings
 from pydantic import Field, validator
 from typing import List, Optional
-import os
 
 class Settings(BaseSettings):
     """Application settings"""

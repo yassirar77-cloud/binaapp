@@ -6,10 +6,9 @@ Protected: Only yassirar77@gmail.com
 import httpx
 import csv
 import io
-from datetime import datetime, timedelta
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from typing import Optional
 from loguru import logger
 
 from app.core.security import get_current_user

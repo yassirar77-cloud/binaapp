@@ -574,7 +574,7 @@ if __name__ == "__main__":
             errors.append((vname, str(e)))
             print(f"  ✗ {vname} — ERROR: {e}")
 
-    print(f"\n  --- Style DNA animation test previews ---\n")
+    print("\n  --- Style DNA animation test previews ---\n")
     for dna_key in STYLE_DNA_TESTS:
         try:
             generate_style_dna_test(dna_key)

@@ -5,7 +5,7 @@ Uses mocked supabase_service to avoid real database calls.
 """
 
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 

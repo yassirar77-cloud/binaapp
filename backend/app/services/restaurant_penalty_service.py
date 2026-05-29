@@ -5,7 +5,7 @@ Penalty tiers: warning -> fine -> suspension -> permanent ban.
 """
 import httpx
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
+from typing import Dict, Optional, List
 from loguru import logger
 
 from app.core.config import settings
