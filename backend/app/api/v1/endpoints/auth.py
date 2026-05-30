@@ -23,14 +23,18 @@ async def register(user_data: UserCreate):
 
     Flow:
     1. Create auth user via Supabase Admin API (bypasses RLS)
-    2. Create user profile in public.users table
-    3. Initialize free subscription
-    4. Return JWT token
+    2. The handle_new_user Postgres trigger (migration 035) creates the
+       profiles row AND an active 'free' subscription automatically.
+    3. Return JWT token
 
-    If step 2 fails, the auth user is rolled back (deleted).
+    The backend does NOT insert into profiles itself. Doing so collided with
+    the trigger-created row on the primary key (409), which used to trigger a
+    rollback (auth user deleted) and surface as a 500 on signup.
     """
     try:
-        # STEP 1: Create user in Supabase Auth using Admin API
+        # STEP 1: Create user in Supabase Auth using Admin API.
+        # full_name is passed as user_metadata; the trigger reads
+        # raw_user_meta_data->>'full_name' to populate profiles.full_name.
         response = await supabase_service.create_user(
             email=user_data.email,
             password=user_data.password,
@@ -53,36 +57,21 @@ async def register(user_data: UserCreate):
                 detail="Failed to create user - no user ID returned"
             )
 
-        # STEP 2: Create user profile in public.users table
-        profile_result = await supabase_service.create_user_profile(
-            user_id=user_id,
-            email=user_email,
-            full_name=user_data.full_name,
-            role="customer"
-        )
+        # NOTE: the profiles row and the active 'free' subscription are both
+        # created by the on_auth_user_created trigger (migration 035). The
+        # backend no longer inserts into profiles — that INSERT collided with
+        # the trigger-created row on the primary key (409) and caused signup to
+        # 500. If we ever collect profile fields the trigger doesn't set (e.g.
+        # phone, business_name), do an UPDATE on profiles here — never an
+        # INSERT, which would conflict with the trigger-created row.
 
-        if not profile_result:
-            # ROLLBACK: Delete the auth user if profile creation fails
-            logger.error(f"Profile creation failed for {user_email}, rolling back auth user")
-            await supabase_service.delete_auth_user(user_id)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to create user profile"
-            )
-
-        # STEP 3: Create JWT token
+        # STEP 2: Create JWT token
         access_token = create_access_token(
             data={
                 "sub": user_id,
                 "email": user_email
             }
         )
-
-        # Subscription row is created by the on_auth_user_created trigger
-        # (migration 035), which inserts an active 'free' subscription with
-        # plan_id resolved at trigger time. /auth/register no longer writes
-        # to public.subscriptions — keeping it in two places risked race
-        # conditions and divergent defaults.
 
         logger.info(f"✅ User registered successfully: {user_email}")
 
