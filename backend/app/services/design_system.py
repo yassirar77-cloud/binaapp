@@ -328,7 +328,7 @@ COLOR_PALETTES = {
 
 LAYOUT_TEMPLATES = {
     "food": """LAYOUT STRUCTURE (Editorial style - MUST FOLLOW):
-1. HERO: Full-screen image with gradient overlay, business name centered at bottom, badge "Est. 2024 · Halal" above name, two CTA buttons
+1. HERO: Full-screen image with gradient overlay, business name centered at bottom, badge "Est. 2024 · Pengusaha Muslim" above name (never use "Halal" or "Halal Certified"), two CTA buttons
 2. ABOUT: Split section - image on left (rounded-2xl), story text on right with decorative accent
 3. FEATURED: Full-width spotlight of a signature dish/item with large image and description
 4. MENU/GALLERY: 3-column grid of menu items with hover card lift effect, staggered animations
@@ -427,7 +427,7 @@ HERO_VARIANTS = {
   <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
   <div class="relative z-10 flex items-end h-full pb-16 md:pb-20 px-6 md:px-16">
     <div class="max-w-2xl">
-      <span class="inline-flex px-4 py-1.5 rounded-full bg-primary/20 backdrop-blur-sm text-white text-sm font-medium mb-4">Est. 2024 · Halal Certified</span>
+      <span class="inline-flex px-4 py-1.5 rounded-full bg-primary/20 backdrop-blur-sm text-white text-sm font-medium mb-4">Est. 2024 · Pengusaha Muslim</span>
       <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold text-white leading-tight tracking-tight">BUSINESS_NAME</h1>
       <p class="text-lg md:text-xl text-white/80 mt-4 font-body">TAGLINE</p>
       <div class="flex flex-wrap gap-4 mt-8">

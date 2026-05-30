@@ -2316,14 +2316,28 @@ async def get_website_riders(
 async def create_website_rider(
     website_id: str,
     rider: RiderCreateBusiness,
-    supabase: Client = Depends(get_supabase_client),
+    current_user: dict = Depends(get_current_user),
+    supabase: Client = Depends(get_rider_admin_client),
 ):
     """
-    Create a rider for a website (public endpoint for simple integration).
+    Create a rider for a website (authenticated, owner-only).
 
-    Phase 1: No rider app auth required.
+    Requires a valid owner JWT and verifies the website belongs to the
+    caller before inserting — mirrors create_rider (/admin/websites/...).
     """
     try:
+        user_id = current_user.get("sub") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User ID not found in token")
+
+        website_check = supabase.table("websites").select("id").eq("id", website_id).eq("user_id", user_id).execute()
+        if not website_check.data:
+            logger.warning(f"[Rider CREATE] User {user_id} attempted to create rider for unauthorized website: {website_id}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You don't own this website"
+            )
+
         data = rider.dict()
         data["website_id"] = website_id
 
