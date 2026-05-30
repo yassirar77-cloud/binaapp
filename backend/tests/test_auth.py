@@ -22,7 +22,6 @@ class TestRegister:
         mock_supabase_service.create_user.return_value = {
             "user": {"id": "new-user-id", "email": "new@example.com"}
         }
-        mock_supabase_service.create_user_profile.return_value = True
 
         response = auth_client.post("/api/v1/register", json={
             "email": "new@example.com",
@@ -35,6 +34,9 @@ class TestRegister:
         assert data["access_token"]
         assert data["token_type"] == "bearer"
         assert data["user"]["email"] == "new@example.com"
+        # Profile + subscription are created by the DB trigger, not the backend.
+        mock_supabase_service.create_user_profile.assert_not_called()
+        mock_supabase_service.delete_auth_user.assert_not_called()
 
     def test_registration_fails_when_user_creation_fails(self, auth_client, mock_supabase_service):
         mock_supabase_service.create_user.return_value = None
@@ -47,20 +49,22 @@ class TestRegister:
 
         assert response.status_code == 400
 
-    def test_registration_rollback_on_profile_failure(self, auth_client, mock_supabase_service):
+    def test_registration_does_not_insert_profile_or_rollback(self, auth_client, mock_supabase_service):
+        # The handle_new_user trigger owns profile + subscription creation, so
+        # the backend must never insert a profile or roll back the auth user.
         mock_supabase_service.create_user.return_value = {
-            "user": {"id": "rollback-id", "email": "rollback@example.com"}
+            "user": {"id": "trigger-id", "email": "trigger@example.com"}
         }
-        mock_supabase_service.create_user_profile.return_value = None
 
         response = auth_client.post("/api/v1/register", json={
-            "email": "rollback@example.com",
+            "email": "trigger@example.com",
             "password": "securepass123",
-            "full_name": "Rollback User",
+            "full_name": "Trigger User",
         })
 
-        assert response.status_code == 500
-        mock_supabase_service.delete_auth_user.assert_awaited_once_with("rollback-id")
+        assert response.status_code == 201
+        mock_supabase_service.create_user_profile.assert_not_called()
+        mock_supabase_service.delete_auth_user.assert_not_called()
 
     def test_short_password_rejected(self, auth_client):
         response = auth_client.post("/api/v1/register", json={
