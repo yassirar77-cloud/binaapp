@@ -1932,6 +1932,126 @@ Generate prompts now:"""
         # Fallback - use specific prompts based on business type
         return self._get_fallback_prompts(description)
 
+    def _is_food_business(self, description: str) -> bool:
+        """True if the description looks like a food / restaurant business."""
+        desc_lower = description.lower()
+        return any(word in desc_lower for word in [
+            'nasi', 'mee', 'ayam', 'ikan', 'restoran', 'restaurant',
+            'kedai makan', 'warung', 'mamak', 'kandar', 'lemak', 'goreng',
+            'makanan', 'cafe', 'kafe', 'seafood', 'udang', 'ketam', 'sotong',
+            'food', 'masakan', 'catering', 'bakery', 'roti', 'kuih',
+        ])
+
+    def _fallback_item_names(self, description: str, n: int) -> list:
+        """Deterministic item-name fallback for when AI extraction fails.
+
+        Never raises; always returns exactly n non-empty, de-duplicated names.
+        Prefers real dishes named in the description, then pads with sensible
+        generic Malaysian dishes so a DeepSeek outage can never blank the
+        gallery (requirement: graceful degradation).
+        """
+        found = [d for d in self._extract_menu_items(description)
+                 if d and d != "hero image"]
+        generic = ["Nasi Lemak", "Ayam Goreng", "Mee Goreng", "Roti Canai",
+                   "Teh Tarik", "Nasi Goreng"]
+        names = []
+        for src_list in (found, generic):
+            for name in src_list:
+                title = str(name).strip().title()
+                if title and title not in names:
+                    names.append(title)
+                if len(names) >= n:
+                    break
+            if len(names) >= n:
+                break
+        i = 1
+        while len(names) < n:
+            names.append(f"Menu {i}")
+            i += 1
+        return names[:n]
+
+    async def extract_menu_item_names(self, description: str, n: int = 4) -> list:
+        """Extract EXACTLY n concise menu/dish names from the description.
+
+        One DeepSeek call. Degrades gracefully on missing key, API failure
+        (e.g. 402 Insufficient Balance), timeout, parse error, or bad count ->
+        falls back to _fallback_item_names() and never raises.
+        """
+        api_key = os.getenv("DEEPSEEK_API_KEY")
+        if not api_key:
+            logger.warning("🍽️ No DEEPSEEK_API_KEY - using fallback item names")
+            return self._fallback_item_names(description, n)
+
+        prompt = f"""From the business description below, list EXACTLY {n} menu/dish item names.
+
+BUSINESS DESCRIPTION:
+{description}
+
+STRICT RULES:
+1. Output ONLY real, orderable menu items (specific dishes/drinks/products).
+2. Each name must be concise - 1 to 4 words, the dish name itself.
+3. DO NOT include ambience/interior/atmosphere entries (e.g. "Suasana Kedai",
+   "Restaurant Interior", "Shop Ambience", "Dining Area"). Items only.
+4. DO NOT append the business name, branch, address, city, or location to any
+   name (e.g. NOT "Ikan Bakar Damansara" - just "Ikan Bakar").
+5. Use the language of the description (Bahasa Malaysia or English).
+6. If the description names specific dishes, use those exact dishes.
+
+OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
+["Name 1", "Name 2", "Name 3", "Name 4"]"""
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://api.deepseek.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.deepseek_model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 300,
+                        "temperature": 0.2,
+                    },
+                )
+            if response.status_code != 200:
+                logger.error(f"🍽️ Item-name extraction failed: {response.status_code} - using fallback")
+                return self._fallback_item_names(description, n)
+
+            content = response.json()["choices"][0]["message"]["content"]
+            match = re.search(r'\[[\s\S]*\]', content)
+            if not match:
+                logger.error("🍽️ Item-name extraction returned no JSON array - using fallback")
+                return self._fallback_item_names(description, n)
+
+            raw = json.loads(match.group())
+            banned = ["suasana", "interior", "ambience", "ambiance",
+                      "dining area", "exterior", "storefront", "atmosphere"]
+            names, seen = [], set()
+            for item in raw:
+                name = str(item).strip()
+                low = name.lower()
+                if not name or any(b in low for b in banned):
+                    continue  # requirement: forbid ambience/interior cards
+                if low in seen:
+                    continue
+                seen.add(low)
+                names.append(name)
+
+            if len(names) < n:
+                for extra in self._fallback_item_names(description, n):
+                    if extra.lower() not in seen:
+                        names.append(extra)
+                        seen.add(extra.lower())
+                    if len(names) >= n:
+                        break
+
+            return names[:n] if names else self._fallback_item_names(description, n)
+        except Exception as e:
+            logger.error(f"🍽️ Item-name extraction error: {e} - using fallback")
+            return self._fallback_item_names(description, n)
+
     def _get_malaysian_food_prompts(self, description: str) -> dict:
         """Generate Malaysian food-specific prompts using MALAYSIAN_FOOD_PROMPTS database"""
         desc_lower = description.lower()
@@ -1942,25 +2062,30 @@ Generate prompts now:"""
             if dish_name in desc_lower:
                 dishes_found.append((dish_name, prompt))
 
-        # If we found specific dishes, use them
-        if len(dishes_found) >= 4:
-            logger.info(f"🍽️ Found {len(dishes_found)} Malaysian dishes in description")
-            return {
-                "hero": "Malaysian restaurant interior, traditional food stall, authentic atmosphere, food photography, welcoming ambiance",
-                "image1": dishes_found[0][1] + ", professional food photography, high quality, appetizing",
-                "image2": dishes_found[1][1] + ", professional food photography, high quality, delicious",
-                "image3": dishes_found[2][1] + ", professional food photography, high quality, authentic",
-                "image4": dishes_found[3][1] + ", professional food photography, high quality, traditional"
-            }
-
-        # Default Malaysian food prompts - common dishes
-        logger.info("🍽️ Using default Malaysian food prompts")
+        # Use whatever specific dishes were found, then pad remaining slots with
+        # sensible defaults. (Previously this required >=4 EXACT matches or it
+        # dumped ALL slots to generic nasi kandar/lemak/mee goreng/roti canai -
+        # which is why e.g. a seafood menu got unrelated images.)
+        default_prompts = [
+            self.MALAYSIAN_FOOD_PROMPTS["nasi kandar"],
+            self.MALAYSIAN_FOOD_PROMPTS["nasi lemak"],
+            self.MALAYSIAN_FOOD_PROMPTS["mee goreng"],
+            self.MALAYSIAN_FOOD_PROMPTS["roti canai"],
+        ]
+        chosen = [p for _, p in dishes_found]
+        for d in default_prompts:
+            if len(chosen) >= 4:
+                break
+            if d not in chosen:
+                chosen.append(d)
+        chosen = (chosen + default_prompts)[:4]
+        logger.info(f"🍽️ Food prompts: {len(dishes_found)} specific dish(es) matched, padded to 4")
         return {
             "hero": "Malaysian restaurant interior, food stall with hanging menu, authentic atmosphere, people eating, warm lighting, food photography",
-            "image1": self.MALAYSIAN_FOOD_PROMPTS["nasi kandar"] + ", professional food photography, close-up, appetizing presentation",
-            "image2": self.MALAYSIAN_FOOD_PROMPTS["nasi lemak"] + ", professional food photography, banana leaf, traditional serving",
-            "image3": self.MALAYSIAN_FOOD_PROMPTS["mee goreng"] + ", professional food photography, wok-fried, steaming hot",
-            "image4": self.MALAYSIAN_FOOD_PROMPTS["roti canai"] + ", professional food photography, curry sauce, close-up"
+            "image1": chosen[0] + ", professional food photography, high quality, appetizing",
+            "image2": chosen[1] + ", professional food photography, high quality, delicious",
+            "image3": chosen[2] + ", professional food photography, high quality, authentic",
+            "image4": chosen[3] + ", professional food photography, high quality, traditional",
         }
 
     def _get_fallback_prompts(self, description: str) -> dict:
@@ -3986,34 +4111,50 @@ IMPORTANT RULES:
             logger.info("🎨 No user images - generating with Stability AI...")
 
             with _timed_step("stability_images", step_timings):
-                # STEP 0: Use AI to generate smart image prompts
-                logger.info(f"🧠 STEP 0: AI analyzing business type and generating smart prompts... [{time.time() - start_time:.1f}s elapsed]")
-                smart_prompts = await self.generate_smart_image_prompts(request.description)
-
-                hero_prompt = smart_prompts.get("hero", "")
-                product_prompt_1 = smart_prompts.get("image1", "")
-                product_prompt_2 = smart_prompts.get("image2", "")
-                product_prompt_3 = smart_prompts.get("image3", "")
-                product_prompt_4 = smart_prompts.get("image4", "")
+                # STEP 0: Decide the gallery items FIRST, then generate one
+                # image per item so names and images stay paired (fixes the
+                # invented-names + generic-mismatched-images bug).
+                is_food = self._is_food_business(request.description)
+                slot_names = []  # per-gallery item names (None on the non-food path)
+                if is_food:
+                    # A2: extract real dish names - one DeepSeek call, graceful fallback
+                    logger.info(f"🍽️ STEP 0: Extracting menu item names... [{time.time() - start_time:.1f}s elapsed]")
+                    slot_names = await self.extract_menu_item_names(request.description, n=4)
+                    # Hero is a banner/ambience shot - NEVER a menu card.
+                    hero_prompt = "Malaysian restaurant interior, food stall with hanging menu, authentic atmosphere, people eating, warm lighting, food photography"
+                    # B: one Stability image per item name. _generate_stability_image
+                    # already maps each prompt through _get_malaysian_prompt() (curated
+                    # prompt for known dishes, per-item :1673 fallback otherwise), so we
+                    # pass the raw item name and let that single mapping do the work.
+                    product_prompts = list(slot_names)
+                    logger.info(f"🍽️ Items: {', '.join(slot_names)}")
+                else:
+                    # Non-food: keep the existing smart-prompt path unchanged.
+                    logger.info(f"🧠 STEP 0: AI analyzing business type and generating smart prompts... [{time.time() - start_time:.1f}s elapsed]")
+                    smart_prompts = await self.generate_smart_image_prompts(request.description)
+                    hero_prompt = smart_prompts.get("hero", "")
+                    product_prompts = [
+                        smart_prompts.get("image1", ""),
+                        smart_prompts.get("image2", ""),
+                        smart_prompts.get("image3", ""),
+                        smart_prompts.get("image4", ""),
+                    ]
+                    slot_names = [None, None, None, None]
 
                 # STEP 1: Generate images with Stability AI
                 logger.info(f"🎨 STEP 1: Generating images with Stability AI using smart prompts... [{time.time() - start_time:.1f}s elapsed]")
                 logger.info(f"   Hero prompt: {hero_prompt[:60]}...")
-                logger.info(f"   Product 1: {product_prompt_1[:60]}...")
+                logger.info(f"   Item 1 prompt: {(product_prompts[0] if product_prompts else '')[:60]}...")
 
                 # ===================================================================
                 # PARALLEL IMAGE GENERATION - Generate ALL images at the same time
                 # ===================================================================
-                logger.info("🎨 Generating ALL images in PARALLEL (hero + 4 products)...")
+                logger.info("🎨 Generating ALL images in PARALLEL (hero + items)...")
 
-                # Create tasks for parallel execution using AI-generated prompts
-                image_tasks = [
-                    self._generate_stability_image(hero_prompt),  # Task 0: Hero
-                    self._generate_stability_image(product_prompt_1),  # Task 1: Product 1
-                    self._generate_stability_image(product_prompt_2),  # Task 2: Product 2
-                    self._generate_stability_image(product_prompt_3),  # Task 3: Product 3
-                    self._generate_stability_image(product_prompt_4),  # Task 4: Product 4
-                ]
+                # One image per item, plus the hero banner.
+                image_tasks = [self._generate_stability_image(hero_prompt)]
+                for _p in product_prompts:
+                    image_tasks.append(self._generate_stability_image(_p))
 
                 # Run ALL tasks in parallel (much faster than sequential)
                 parallel_start = time.time()
@@ -4037,34 +4178,35 @@ IMPORTANT RULES:
                     logger.warning(f"   ⚠️ Bug-2 pool fallback also failed: {fb_err}")
                     return None
 
-            slot_prompts = [hero_prompt, product_prompt_1, product_prompt_2, product_prompt_3, product_prompt_4]
-            hero_image     = _slot_image(results[0], slot_prompts[0])
-            product1_image = _slot_image(results[1], slot_prompts[1])
-            product2_image = _slot_image(results[2], slot_prompts[2])
-            product3_image = _slot_image(results[3], slot_prompts[3])
-            product4_image = _slot_image(results[4], slot_prompts[4])
+            slot_prompts = [hero_prompt] + product_prompts
 
-            # Build image_urls dict
+            # Hero slot (banner only).
+            hero_image = _slot_image(results[0], slot_prompts[0])
             if hero_image:
                 image_urls["hero"] = hero_image
-            if product1_image:
-                image_urls["gallery1"] = product1_image
-            if product2_image:
-                image_urls["gallery2"] = product2_image
-            if product3_image:
-                image_urls["gallery3"] = product3_image
-            if product4_image:
-                image_urls["gallery4"] = product4_image
+
+            # C: each gallery slot is bound to its item name (gallery{i}_name)
+            # so the HTML prompt receives (name, url) PAIRS, not a loose batch.
+            for _idx in range(len(product_prompts)):
+                _slot_no = _idx + 1
+                _img = _slot_image(results[_idx + 1], slot_prompts[_idx + 1])
+                if _img:
+                    image_urls[f"gallery{_slot_no}"] = _img
+                    _name = slot_names[_idx] if _idx < len(slot_names) else None
+                    if _name:
+                        image_urls[f"gallery{_slot_no}_name"] = _name
 
             # Log results — Stability success count, not slot-filled count
             # (fallback-filled slots don't count toward the AI usage billing).
             successful = sum(1 for r in results if r and not isinstance(r, Exception))
             failed = len(results) - successful
             ai_images_generated = successful  # Track for usage billing
+            _n_items = len([n for n in slot_names if n])
             logger.info(f"☁️ Parallel generation complete in {elapsed:.1f}s")
-            logger.info(f"   ✅ Stability successful: {successful}/5 images")
+            # Requirement: item/image counts visible in prod.
+            logger.info(f"🍽️ Items extracted: {_n_items}; images requested: {len(image_tasks)}; Stability successful: {successful}/{len(image_tasks)}")
             if failed > 0:
-                logger.warning(f"   ⚠️ Stability failed: {failed}/5 images (Bug-2 pool fallback applied)")
+                logger.warning(f"   ⚠️ Stability failed: {failed}/{len(image_tasks)} images (Bug-2 pool fallback applied)")
             logger.info(f"   Total URLs: {len(image_urls)} images ready for HTML generation")
             await update_progress(45, "AI images generated")
 
@@ -4250,9 +4392,11 @@ USE THESE EXACT IMAGE URLS IN THE HTML:
 IMPORTANT INSTRUCTIONS:
 1. Use these EXACT URLs in the img src attributes. Do NOT use placeholder or Unsplash URLs.
 2. Every gallery/product card MUST render an <img> whose src is one of the GALLERY/PRODUCT IMAGE URLs above, used in the order given. Do NOT replace them with CSS gradients, icons, emojis, or placeholder divs.
-3. Use the EXACT menu item titles shown above - DO NOT modify them.
-4. Write compelling descriptions in Malay for each dish, but keep the dish NAME/TITLE exactly as provided.
-5. Make sure ALL images with URLs are displayed in the menu/gallery section.
+3. Create EXACTLY {gallery_count} product/menu card(s) - one per GALLERY/PRODUCT IMAGE above. Do NOT invent extra cards, and do NOT reuse/duplicate an image across multiple cards.
+4. Do NOT create any card for ambience, interior, atmosphere, decor, or storefront. The hero/banner image is for the page header ONLY - never use it as a product/menu card (e.g. no "Suasana Kedai" card).
+5. Use the EXACT menu item titles shown above - DO NOT modify them, and do NOT append the business name or location to a title.
+6. Write compelling descriptions in Malay for each dish, but keep the dish NAME/TITLE exactly as provided.
+7. Make sure ALL images with URLs are displayed in the menu/gallery section.
 """
 
             prompt += image_instructions
