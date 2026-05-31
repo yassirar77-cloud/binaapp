@@ -2197,6 +2197,7 @@ Generate prompts now:"""
         whatsapp_number: Optional[str] = None,
         location_address: Optional[str] = None,
         image_choice: str = "upload",
+        images: Optional[dict] = None,  # generated images: {hero, gallery1..4}
         include_ecommerce: bool = False,
         color_mode: str = "light",
         include_whatsapp: bool = True,
@@ -2257,19 +2258,46 @@ Generate prompts now:"""
                     return img.get('name', '')
                 return ''
 
+            # Image-slot precedence (lowest → highest):
+            #   1. hardcoded self.IMAGES defaults (Unsplash placeholders)
+            #   2. generated `images` dict from generate_website
+            #      ({hero, gallery1..4} — real Cloudinary URLs OR _slot_image()
+            #      pool fallbacks). This is the core fix: previously the body
+            #      always used the Unsplash defaults, so the freshly generated
+            #      gallery URLs never reached the model and only the hero (wired
+            #      in separately below) survived.
+            #   3. user-uploaded images (named "hero" → hero, rest → gallery)
             hero = imgs["hero"]
-            gallery_start_index = 0
+            g1, g2, g3, g4 = imgs["gallery"][0], imgs["gallery"][1], imgs["gallery"][2], imgs["gallery"][3]
 
+            if images:
+                if images.get("hero"):
+                    hero = images["hero"]
+                if images.get("gallery1"):
+                    g1 = images["gallery1"]
+                if images.get("gallery2"):
+                    g2 = images["gallery2"]
+                if images.get("gallery3"):
+                    g3 = images["gallery3"]
+                if images.get("gallery4"):
+                    g4 = images["gallery4"]
+
+            gallery_start_index = 0
             if user_images and len(user_images) > 0:
                 first_img_name = get_name(user_images[0])
                 if first_img_name == 'Hero Image' or 'hero' in first_img_name.lower():
                     hero = get_url(user_images[0])
                     gallery_start_index = 1
-
-            g1 = get_url(user_images[gallery_start_index]) if user_images and len(user_images) > gallery_start_index else imgs["gallery"][0]
-            g2 = get_url(user_images[gallery_start_index + 1]) if user_images and len(user_images) > gallery_start_index + 1 else imgs["gallery"][1]
-            g3 = get_url(user_images[gallery_start_index + 2]) if user_images and len(user_images) > gallery_start_index + 2 else imgs["gallery"][2]
-            g4 = get_url(user_images[gallery_start_index + 3]) if user_images and len(user_images) > gallery_start_index + 3 else imgs["gallery"][3]
+                # Uploaded images fill gallery slots in order; slots without an
+                # upload keep whatever was resolved above (generated or default).
+                if len(user_images) > gallery_start_index:
+                    g1 = get_url(user_images[gallery_start_index])
+                if len(user_images) > gallery_start_index + 1:
+                    g2 = get_url(user_images[gallery_start_index + 1])
+                if len(user_images) > gallery_start_index + 2:
+                    g3 = get_url(user_images[gallery_start_index + 2])
+                if len(user_images) > gallery_start_index + 3:
+                    g4 = get_url(user_images[gallery_start_index + 3])
 
         # ---- LANGUAGE ----
         if language == "ms":
@@ -4141,13 +4169,17 @@ IMPORTANT RULES:
             whatsapp_number=request.whatsapp_number,
             location_address=request.location_address,
             image_choice=image_choice,  # CRITICAL: Pass image_choice to prompt builder
+            images=image_urls,  # CRITICAL: feed generated hero+gallery URLs into the body
             include_ecommerce=request.include_ecommerce,  # CRITICAL: Pass delivery mode flag
             color_mode=color_mode,
             include_whatsapp=request.include_whatsapp,
             include_maps=request.include_maps,
         )
 
-        # Add image URLs to prompt with STRONG emphasis
+        # Add image URLs to prompt with STRONG emphasis.
+        # gallery_count is logged right before the AI call (below) so prod
+        # shows how many gallery URLs were actually wired into the prompt.
+        gallery_count = 0
         if image_urls:
             # Build gallery section with dish names
             gallery_items = []
@@ -4168,6 +4200,8 @@ IMPORTANT RULES:
 - Generate description in Malay based on the title""")
                     else:
                         gallery_items.append(f"- Product/Gallery image {i}: {image_urls[key]}")
+
+            gallery_count = len(gallery_items)
 
             # Build structured menu items section
             menu_items_section = ""
@@ -4193,16 +4227,32 @@ EXAMPLES:
 ✅ CORRECT: Title is "Mee Goreng Mamak" → AI writes <h3>Mee Goreng Mamak</h3>
 """
 
+            # Explicit gallery block (Option A): list EVERY gallery/product
+            # slot URL — whatever _slot_image() put there, real Cloudinary OR
+            # pool fallback — so the model can never silently drop a slot to a
+            # CSS placeholder. Emitted even with no dish names (the
+            # AI-generation path), which is exactly the case that previously
+            # lost all four gallery images.
+            gallery_section = ""
+            if gallery_items:
+                gallery_section = (
+                    "GALLERY/PRODUCT IMAGES — USE THESE EXACT URLS "
+                    "(one per gallery/product card, in order):\n"
+                    + "\n".join(gallery_items)
+                )
+
             image_instructions = f"""
 USE THESE EXACT IMAGE URLS IN THE HTML:
 - Hero/Banner image: {image_urls.get('hero', 'generate appropriate image')}
+{gallery_section}
 {menu_items_section}
 
 IMPORTANT INSTRUCTIONS:
 1. Use these EXACT URLs in the img src attributes. Do NOT use placeholder or Unsplash URLs.
-2. Use the EXACT menu item titles shown above - DO NOT modify them.
-3. Write compelling descriptions in Malay for each dish, but keep the dish NAME/TITLE exactly as provided.
-4. Make sure ALL menu items with images are displayed in the menu/gallery section.
+2. Every gallery/product card MUST render an <img> whose src is one of the GALLERY/PRODUCT IMAGE URLs above, used in the order given. Do NOT replace them with CSS gradients, icons, emojis, or placeholder divs.
+3. Use the EXACT menu item titles shown above - DO NOT modify them.
+4. Write compelling descriptions in Malay for each dish, but keep the dish NAME/TITLE exactly as provided.
+5. Make sure ALL images with URLs are displayed in the menu/gallery section.
 """
 
             prompt += image_instructions
@@ -4224,6 +4274,13 @@ IMPORTANT INSTRUCTIONS:
 
         step_timings["prompt_build"] = round(time.time() - _prompt_build_started, 3)
         logger.info(f"⏱️  prompt_build: {step_timings['prompt_build']:.2f}s")
+
+        # Visibility: how many image URLs were actually wired into the prompt.
+        # If gallery drops below 4 here, the model never saw those slots.
+        logger.info(
+            f"🖼️ Image URLs wired into prompt: "
+            f"hero={'yes' if image_urls.get('hero') else 'no'} gallery={gallery_count}/4"
+        )
 
         await update_progress(55, "Calling AI to generate HTML")
         # Track truncation flags across the main AI call so they can be persisted
