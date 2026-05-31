@@ -33,6 +33,13 @@ import cloudinary.uploader
 AI_PRIMARY_TIMEOUT_SECONDS = float(os.getenv("AI_PRIMARY_TIMEOUT_SECONDS", "120"))
 
 
+# Per-call timeout for the optional Qwen copywriting refinement pass in
+# generate_website. Deliberately well under the 240s httpx client default so a
+# slow polish pass can never delay (or fail) an otherwise-working generation —
+# on timeout we ship the un-refined DeepSeek HTML.
+AI_QWEN_REFINE_TIMEOUT_SECONDS = float(os.getenv("AI_QWEN_REFINE_TIMEOUT_SECONDS", "60"))
+
+
 @contextmanager
 def _timed_step(step_name: str, timings: Dict[str, float]):
     """
@@ -4541,6 +4548,55 @@ IMPORTANT INSTRUCTIONS:
                     if retry_html:
                         html = retry_html
 
+        # ── Qwen copywriting refinement (polish pass) ─────────────────────────
+        # Runs AFTER DeepSeek has produced the HTML text but BEFORE the
+        # deterministic image-binding steps below (_fix_menu_item_images,
+        # _generate_ai_food_images, _fix_broken_image_urls). Those steps pair
+        # real menu names with matching images and inject Cloudinary URLs
+        # (commits 39c95e0 + ad0f4df); keeping them LAST guarantees Qwen can
+        # never clobber the name↔image pairs or the Cloudinary URLs.
+        #
+        # Non-blocking by design: bounded by its own short timeout and wrapped
+        # in try/except. If it's slow, errors, returns nothing, or returns a
+        # truncated / materially-shorter result, we ship the un-refined DeepSeek
+        # HTML. A polish pass must NEVER fail or delay a working generation.
+        if html:
+            with _timed_step("qwen_refine", step_timings):
+                original_html = html
+                refine_status = "skipped"
+                try:
+                    refined_raw = await asyncio.wait_for(
+                        self._improve_with_qwen(original_html, request.description),
+                        timeout=AI_QWEN_REFINE_TIMEOUT_SECONDS,
+                    )
+                    # _improve_with_qwen returns the SAME object on its own
+                    # internal None/error fallback — treat that as "skipped".
+                    if not refined_raw or refined_raw is original_html:
+                        refine_status = "skipped"
+                    else:
+                        # Same truncation gate we apply to primary output: the
+                        # API-boundary finish_reason flag from the Qwen call AND
+                        # the post-hoc HTML scan in _extract_html. Never publish
+                        # a truncated refinement.
+                        qwen_api_truncated = bool(self._last_api_call.get("truncated"))
+                        refined_html = self._extract_html(refined_raw)
+                        refined_truncated = bool(self._last_extract_info.get("was_truncated"))
+                        if not refined_html or qwen_api_truncated or refined_truncated:
+                            refine_status = "fallback (truncated)"
+                        elif len(refined_html) < len(original_html) * 0.9:
+                            # Materially shorter than the input — Qwen likely
+                            # dropped sections. Discard, keep the DeepSeek HTML.
+                            refine_status = "fallback (truncated)"
+                        else:
+                            html = refined_html
+                            refine_status = "success"
+                except asyncio.TimeoutError:
+                    refine_status = "fallback (error)"
+                except Exception as e:
+                    logger.warning(f"✨ Qwen refine raised — keeping DeepSeek HTML ({e})")
+                    refine_status = "fallback (error)"
+                logger.info(f"✨ Qwen refine: {refine_status}")
+
         # Fix any remaining issues
         with _timed_step("image_matching", step_timings):
             html = self._fix_placeholders(html, request.business_name, request.description, wa_digits=wa_digits)
@@ -4707,6 +4763,41 @@ IMPORTANT INSTRUCTIONS:
                         retry_html = self._extract_html(retry) if retry else None
                         if retry_html:
                             html = retry_html
+
+                # ── Qwen copywriting refinement (polish pass) ─────────────────
+                # AFTER DeepSeek HTML, BEFORE the deterministic image steps below
+                # (_fix_menu_item_images, _generate_ai_food_images,
+                # _fix_broken_image_urls) so Qwen can never clobber the
+                # name↔image pairs or Cloudinary URLs. Non-blocking: own short
+                # timeout + try/except, and a truncation/short-output gate. On
+                # anything other than a clean improvement we keep the DeepSeek
+                # HTML. (Mirrors generate_website.)
+                refine_status = "skipped"
+                original_html = html
+                try:
+                    refined_raw = await asyncio.wait_for(
+                        self._improve_with_qwen(original_html, request.description),
+                        timeout=AI_QWEN_REFINE_TIMEOUT_SECONDS,
+                    )
+                    if not refined_raw or refined_raw is original_html:
+                        refine_status = "skipped"
+                    else:
+                        qwen_api_truncated = bool(self._last_api_call.get("truncated"))
+                        refined_html = self._extract_html(refined_raw)
+                        refined_truncated = bool(self._last_extract_info.get("was_truncated"))
+                        if not refined_html or qwen_api_truncated or refined_truncated:
+                            refine_status = "fallback (truncated)"
+                        elif len(refined_html) < len(original_html) * 0.9:
+                            refine_status = "fallback (truncated)"
+                        else:
+                            html = refined_html
+                            refine_status = "success"
+                except asyncio.TimeoutError:
+                    refine_status = "fallback (error)"
+                except Exception as e:
+                    logger.warning(f"✨ Qwen refine raised ({style}) — keeping DeepSeek HTML ({e})")
+                    refine_status = "fallback (error)"
+                logger.info(f"✨ Qwen refine ({style}): {refine_status}")
 
                 html = self._fix_placeholders(html, request.business_name, request.description, wa_digits=wa_digits)
                 html = self._fix_menu_item_images(html, request.description)
