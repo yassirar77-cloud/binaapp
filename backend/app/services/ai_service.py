@@ -1583,16 +1583,27 @@ Format: Just the image description, no explanations."""
             logger.error(f"Error generating food description: {e}")
             return None
 
-    async def _generate_stability_image(self, prompt: str) -> Optional[str]:
-        """Generate image with Stability AI and upload to Cloudinary"""
+    async def _generate_stability_image(self, prompt: str, food: bool = True) -> Optional[str]:
+        """Generate image with Stability AI and upload to Cloudinary.
+
+        Args:
+            prompt: the image prompt seed.
+            food: when True (default, food path) the prompt is routed through
+                _get_malaysian_prompt() which maps known dish names to curated
+                food prompts and otherwise appends "Malaysian style, food
+                photography, appetizing". Non-food callers pass food=False to
+                skip that food-oriented mapping — the prompt is used verbatim —
+                so e.g. a toy-shop product isn't turned into a food photo.
+        """
         stability_key = os.getenv("STABILITY_API_KEY")
         if not stability_key:
             logger.warning("🎨 No STABILITY_API_KEY")
             return None
 
         try:
-            # Smart prompt for Malaysian context
-            smart_prompt = self._get_malaysian_prompt(prompt)
+            # Smart prompt for Malaysian context (food path only). Non-food
+            # callers pass the prompt through unchanged.
+            smart_prompt = self._get_malaysian_prompt(prompt) if food else prompt
             logger.info(f"🎨 Prompt: {smart_prompt[:80]}...")
 
             async with httpx.AsyncClient(timeout=60) as client:
@@ -2058,6 +2069,112 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         except Exception as e:
             logger.error(f"🍽️ Item-name extraction error: {e} - using fallback")
             return self._fallback_item_names(description, n)
+
+    def _fallback_category_names(self, description: str, n: int) -> list:
+        """Deterministic product-category fallback for the NON-food path.
+
+        Non-food sibling of _fallback_item_names. Never raises; always returns
+        exactly n non-empty, de-duplicated, banned-word-free category names so a
+        DeepSeek outage (e.g. 402 Insufficient Balance) can never blank the
+        gallery. Generic Malay retail categories that read sensibly for any
+        shop/service business.
+        """
+        generic = ["Produk Pilihan", "Koleksi Terbaru", "Tawaran Istimewa",
+                   "Barangan Popular", "Jualan Hangat", "Pilihan Utama"]
+        names = []
+        for name in generic:
+            if name not in names:
+                names.append(name)
+            if len(names) >= n:
+                break
+        i = 1
+        while len(names) < n:
+            names.append(f"Produk {i}")
+            i += 1
+        return names[:n]
+
+    async def extract_product_category_names(self, description: str, n: int = 4) -> list:
+        """Extract EXACTLY n concise product/category names for NON-food shops.
+
+        Non-food sibling of extract_menu_item_names. One DeepSeek call. Degrades
+        gracefully on missing key, API failure (e.g. 402 Insufficient Balance),
+        timeout, parse error, or bad count -> falls back to
+        _fallback_category_names() and never raises. Applies the same
+        banned-word filter as the food path so ambience/interior/storefront
+        shots never become product cards.
+        """
+        api_key = os.getenv("DEEPSEEK_API_KEY")
+        if not api_key:
+            logger.warning("🛍️ No DEEPSEEK_API_KEY - using fallback category names")
+            return self._fallback_category_names(description, n)
+
+        prompt = f"""From the business description below, list EXACTLY {n} concise product/category names sold by this business.
+
+BUSINESS DESCRIPTION:
+{description}
+
+STRICT RULES:
+1. Output ONLY real product types/categories this business sells (e.g. for a toy shop: "Mainan Edukatif", "Blok Binaan", "Mainan Lembut", "Permainan Papan").
+2. Each name must be concise - 1 to 4 words, the product/category itself.
+3. DO NOT include ambience/interior/atmosphere/storefront entries (e.g. "Suasana Kedai", "Shop Interior", "Storefront", "Dining Area"). Products only.
+4. DO NOT append the business name, branch, address, city, or location to any name.
+5. Use the language of the description (Bahasa Malaysia or English).
+6. If the description names specific products, use those exact products.
+
+OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
+["Name 1", "Name 2", "Name 3", "Name 4"]"""
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://api.deepseek.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.deepseek_model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 300,
+                        "temperature": 0.2,
+                    },
+                )
+            if response.status_code != 200:
+                logger.error(f"🛍️ Category-name extraction failed: {response.status_code} - using fallback")
+                return self._fallback_category_names(description, n)
+
+            content = response.json()["choices"][0]["message"]["content"]
+            match = re.search(r'\[[\s\S]*\]', content)
+            if not match:
+                logger.error("🛍️ Category-name extraction returned no JSON array - using fallback")
+                return self._fallback_category_names(description, n)
+
+            raw = json.loads(match.group())
+            banned = ["suasana", "interior", "ambience", "ambiance",
+                      "dining area", "exterior", "storefront", "atmosphere"]
+            names, seen = [], set()
+            for item in raw:
+                name = str(item).strip()
+                low = name.lower()
+                if not name or any(b in low for b in banned):
+                    continue  # requirement: forbid ambience/interior cards
+                if low in seen:
+                    continue
+                seen.add(low)
+                names.append(name)
+
+            if len(names) < n:
+                for extra in self._fallback_category_names(description, n):
+                    if extra.lower() not in seen:
+                        names.append(extra)
+                        seen.add(extra.lower())
+                    if len(names) >= n:
+                        break
+
+            return names[:n] if names else self._fallback_category_names(description, n)
+        except Exception as e:
+            logger.error(f"🛍️ Category-name extraction error: {e} - using fallback")
+            return self._fallback_category_names(description, n)
 
     def _get_malaysian_food_prompts(self, description: str) -> dict:
         """Generate Malaysian food-specific prompts using MALAYSIAN_FOOD_PROMPTS database"""
@@ -4136,17 +4253,30 @@ IMPORTANT RULES:
                     product_prompts = list(slot_names)
                     logger.info(f"🍽️ Items: {', '.join(slot_names)}")
                 else:
-                    # Non-food: keep the existing smart-prompt path unchanged.
-                    logger.info(f"🧠 STEP 0: AI analyzing business type and generating smart prompts... [{time.time() - start_time:.1f}s elapsed]")
-                    smart_prompts = await self.generate_smart_image_prompts(request.description)
-                    hero_prompt = smart_prompts.get("hero", "")
+                    # Non-food: mirror the food A2+B+C treatment so each gallery
+                    # card gets an image seeded by its OWN product-category name
+                    # (was: generic description-level prompts assigned
+                    # positionally → mismatched cards, e.g. action figures under
+                    # "Mainan Edukatif").
+                    # A2: extract real category names — one DeepSeek call,
+                    # graceful fallback, same banned-word filter as the food path.
+                    logger.info(f"🛍️ STEP 0: Extracting product category names... [{time.time() - start_time:.1f}s elapsed]")
+                    slot_names = await self.extract_product_category_names(request.description, n=4)
+                    # Human-readable business type for grounding the prompt; fall
+                    # back to a short description slice when detection is generic.
+                    _biz_type = detect_business_type(request.description)
+                    if _biz_type == "general":
+                        _biz_type = request.description[:50]
+                    # Hero stays a storefront/ambience banner — never a product card.
+                    hero_prompt = f"Professional storefront and interior for {_biz_type}, modern welcoming atmosphere, commercial photography"
+                    # B: one Stability image per category name, generated with
+                    # food=False (below) so _get_malaysian_prompt's food fallback
+                    # is bypassed — these prompts are used verbatim.
                     product_prompts = [
-                        smart_prompts.get("image1", ""),
-                        smart_prompts.get("image2", ""),
-                        smart_prompts.get("image3", ""),
-                        smart_prompts.get("image4", ""),
+                        f"Professional product photo of {name}, {_biz_type}, studio lighting, commercial photography"
+                        for name in slot_names
                     ]
-                    slot_names = [None, None, None, None]
+                    logger.info(f"🛍️ Categories: {', '.join(slot_names)}")
 
                 # STEP 1: Generate images with Stability AI
                 logger.info(f"🎨 STEP 1: Generating images with Stability AI using smart prompts... [{time.time() - start_time:.1f}s elapsed]")
@@ -4158,10 +4288,13 @@ IMPORTANT RULES:
                 # ===================================================================
                 logger.info("🎨 Generating ALL images in PARALLEL (hero + items)...")
 
-                # One image per item, plus the hero banner.
-                image_tasks = [self._generate_stability_image(hero_prompt)]
+                # One image per item, plus the hero banner. food=is_food: the
+                # food path keeps food=True (curated dish prompts, unchanged);
+                # the non-food path passes food=False so the per-category
+                # prompts above are sent to Stability verbatim.
+                image_tasks = [self._generate_stability_image(hero_prompt, food=is_food)]
                 for _p in product_prompts:
-                    image_tasks.append(self._generate_stability_image(_p))
+                    image_tasks.append(self._generate_stability_image(_p, food=is_food))
 
                 # Run ALL tasks in parallel (much faster than sequential)
                 parallel_start = time.time()
@@ -4210,8 +4343,12 @@ IMPORTANT RULES:
             ai_images_generated = successful  # Track for usage billing
             _n_items = len([n for n in slot_names if n])
             logger.info(f"☁️ Parallel generation complete in {elapsed:.1f}s")
-            # Requirement: item/image counts visible in prod.
-            logger.info(f"🍽️ Items extracted: {_n_items}; images requested: {len(image_tasks)}; Stability successful: {successful}/{len(image_tasks)}")
+            # Requirement: item/image counts visible in prod. Wording mirrors the
+            # path taken — dishes (food) vs product categories (non-food).
+            if is_food:
+                logger.info(f"🍽️ Items extracted: {_n_items}; images requested: {len(image_tasks)}; Stability successful: {successful}/{len(image_tasks)}")
+            else:
+                logger.info(f"🛍️ Category names extracted: {_n_items}; images requested: {len(image_tasks)}; Stability successful: {successful}/{len(image_tasks)}")
             if failed > 0:
                 logger.warning(f"   ⚠️ Stability failed: {failed}/{len(image_tasks)} images (Bug-2 pool fallback applied)")
             logger.info(f"   Total URLs: {len(image_urls)} images ready for HTML generation")
@@ -4330,7 +4467,15 @@ IMPORTANT RULES:
         # shows how many gallery URLs were actually wired into the prompt.
         gallery_count = 0
         if image_urls:
-            # Build gallery section with dish names
+            # Label wording is conditional on business type (decision 2): food
+            # businesses keep "Dish/Menu"; non-food shops use "Product". The
+            # food-path strings below are byte-identical to the previous code so
+            # food sites are unchanged.
+            _is_food_biz = self._is_food_business(request.description)
+            item_label = "Dish" if _is_food_biz else "Product"
+            section_label = "MENU ITEMS" if _is_food_biz else "PRODUCT ITEMS"
+            card_label = "menu card" if _is_food_biz else "product card"
+            # Build gallery section with item names
             gallery_items = []
             dish_names_list = []
             menu_items_structured = []
@@ -4341,7 +4486,7 @@ IMPORTANT RULES:
                 if key in image_urls:
                     dish_name = image_urls.get(name_key, '')
                     if dish_name:
-                        gallery_items.append(f"- Product/Gallery image {i}: {image_urls[key]} (Dish: {dish_name})")
+                        gallery_items.append(f"- Product/Gallery image {i}: {image_urls[key]} ({item_label}: {dish_name})")
                         dish_names_list.append(dish_name)
                         menu_items_structured.append(f"""ITEM {i}:
 - Image URL: {image_urls[key]}
@@ -4352,28 +4497,40 @@ IMPORTANT RULES:
 
             gallery_count = len(gallery_items)
 
-            # Build structured menu items section
+            # Build structured items section (wording conditional on business type)
             menu_items_section = ""
             if menu_items_structured:
+                if _is_food_biz:
+                    _prefix_rule = '3. DO NOT add prefixes like "Nasi Kandar" if not in the original title'
+                    _examples = (
+                        '❌ WRONG: Title is "Ayam Penyet" → AI writes <h3>Nasi Kandar Ayam Goreng</h3>\n'
+                        '✅ CORRECT: Title is "Ayam Penyet" → AI writes <h3>Ayam Penyet</h3>\n\n'
+                        '❌ WRONG: Title is "Mee Goreng Mamak" → AI writes <h3>Nasi Kandar Ikan Bakar</h3>\n'
+                        '✅ CORRECT: Title is "Mee Goreng Mamak" → AI writes <h3>Mee Goreng Mamak</h3>'
+                    )
+                else:
+                    _prefix_rule = '3. DO NOT add prefixes or swap the category for a different product type'
+                    _examples = (
+                        '❌ WRONG: Title is "Mainan Edukatif" → AI writes <h3>Action Figures</h3>\n'
+                        '✅ CORRECT: Title is "Mainan Edukatif" → AI writes <h3>Mainan Edukatif</h3>\n\n'
+                        '❌ WRONG: Title is "Blok Binaan" → AI writes <h3>Mainan Lembut</h3>\n'
+                        '✅ CORRECT: Title is "Blok Binaan" → AI writes <h3>Blok Binaan</h3>'
+                    )
                 menu_items_section = f"""
 
-MENU ITEMS - USE EXACTLY AS SPECIFIED:
+{section_label} - USE EXACTLY AS SPECIFIED:
 
 {chr(10).join(menu_items_structured)}
 
 CRITICAL RULES:
-1. The HTML <h3> for each menu card MUST contain the EXACT title text specified above
+1. The HTML <h3> for each {card_label} MUST contain the EXACT title text specified above
 2. DO NOT modify, translate, or change the title in any way
-3. DO NOT add prefixes like "Nasi Kandar" if not in the original title
+{_prefix_rule}
 4. ONLY generate the description in Malay - the title stays EXACTLY as written
 5. Copy-paste the title EXACTLY into your HTML <h3> tags
 
 EXAMPLES:
-❌ WRONG: Title is "Ayam Penyet" → AI writes <h3>Nasi Kandar Ayam Goreng</h3>
-✅ CORRECT: Title is "Ayam Penyet" → AI writes <h3>Ayam Penyet</h3>
-
-❌ WRONG: Title is "Mee Goreng Mamak" → AI writes <h3>Nasi Kandar Ikan Bakar</h3>
-✅ CORRECT: Title is "Mee Goreng Mamak" → AI writes <h3>Mee Goreng Mamak</h3>
+{_examples}
 """
 
             # Explicit gallery block (Option A): list EVERY gallery/product
