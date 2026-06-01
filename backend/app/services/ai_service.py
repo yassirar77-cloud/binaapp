@@ -1998,7 +1998,121 @@ Generate prompts now:"""
             i += 1
         return names[:n]
 
-    async def extract_menu_item_names(self, description: str, n: int = 4) -> list:
+    # Possessive / promo filler tokens that leak into extracted item names but
+    # don't change the dish/product identity. Stripped whole-word before dedup
+    # so "Nasi Kandar Saya" / "Saya Nasi Kandar" collapse onto "Nasi Kandar"
+    # ("saya" = Malay "my"). Conservative set — only words that are never a
+    # dish identity on their own.
+    _NAME_FILLER_TOKENS = frozenset({
+        "saya", "kami", "kita", "anda", "aku",
+        "my", "our", "your", "the",
+        "special", "istimewa", "original", "asli", "premium", "signature",
+    })
+    # Floor for how many gallery cards we render. If semantic dedup leaves fewer
+    # than this, we top up to the floor with DISTINCT generics; if it leaves more
+    # (>= floor) we keep all the real items up to n. Never pad with near-dupes.
+    _MIN_GALLERY_ITEMS = 3
+
+    @staticmethod
+    def _strip_name_punct(token: str) -> str:
+        return token.strip(".,;:!?\"'()[]")
+
+    def _clean_item_name(self, name: str, business_name: str = "") -> Tuple[str, frozenset]:
+        """Strip business-name + possessive/promo noise from one item name.
+
+        Returns (display_name, key_tokens):
+          - display_name keeps the original casing of the surviving tokens.
+          - key_tokens is a frozenset of the significant lowercased tokens, used
+            for semantic dedup.
+        The business name is removed only as a CONTIGUOUS prefix/suffix phrase
+        (never token-by-token) so a business literally named after its dish
+        (e.g. "Nasi Kandar Saya") can't nuke the dish words. If cleaning would
+        empty the name, the original is kept.
+        """
+        raw = (name or "").strip()
+        if not raw:
+            return "", frozenset()
+        tokens = raw.split()
+        low = [self._strip_name_punct(t.lower()) for t in tokens]
+
+        # Business-name phrase strip at prefix/suffix only (whole sequence).
+        btoks = [self._strip_name_punct(t) for t in (business_name or "").lower().split()]
+        btoks = [t for t in btoks if t]
+        if btoks and len(low) > len(btoks):
+            if low[:len(btoks)] == btoks:
+                tokens, low = tokens[len(btoks):], low[len(btoks):]
+            elif low[-len(btoks):] == btoks:
+                tokens, low = tokens[:-len(btoks)], low[:-len(btoks)]
+
+        # Filler strip (whole-word), but never strip ALL tokens away.
+        kept = [(t, lw) for t, lw in zip(tokens, low) if lw and lw not in self._NAME_FILLER_TOKENS]
+        if not kept:
+            kept = [(t, self._strip_name_punct(t.lower())) for t in raw.split()]
+
+        display = " ".join(t for t, _ in kept).strip()
+        key = frozenset(lw for _, lw in kept if lw)
+        if not key:
+            return raw, frozenset({raw.lower()})
+        return display, key
+
+    @staticmethod
+    def _keys_similar(k1: frozenset, k2: frozenset) -> bool:
+        """Two item-name token sets are 'the same item' if equal, one is a
+        subset of the other (e.g. "nasi kandar" ⊂ "nasi kandar penang"), or
+        they're a near-typo match (SequenceMatcher ≥ 0.85)."""
+        if not k1 or not k2:
+            return k1 == k2
+        if k1 == k2 or k1 <= k2 or k2 <= k1:
+            return True
+        return SequenceMatcher(None, " ".join(sorted(k1)), " ".join(sorted(k2))).ratio() >= 0.85
+
+    def _dedupe_item_names(self, names: list, business_name: str = "") -> list:
+        """Clean + semantically de-duplicate extracted item names.
+
+        Strips business-name/possessive noise from each name, then collapses
+        names that refer to the same item (subset or near-match), keeping the
+        cleanest representative (fewest tokens, then shortest). Returns the
+        unique display names in first-seen order. Does NOT pad — the caller
+        decides how to fill up to the floor.
+        """
+        groups: list = []  # each: [key_tokens, display_name]
+        for nm in names:
+            display, key = self._clean_item_name(nm, business_name)
+            if not display:
+                continue
+            hit = None
+            for g in groups:
+                if self._keys_similar(key, g[0]):
+                    hit = g
+                    break
+            if hit is None:
+                groups.append([key, display])
+            elif (len(key) < len(hit[0])) or (len(key) == len(hit[0]) and len(display) < len(hit[1])):
+                # Prefer the cleaner representative of the group.
+                hit[0], hit[1] = key, display
+        return [display for _, display in groups]
+
+    def _finalize_item_names(
+        self, unique: list, fallback_names: list, business_name: str, n: int
+    ) -> list:
+        """Cap the unique real items at n, then top up to the floor (3) with
+        DISTINCT generics only. Floor, not ceiling: if unique already has >=
+        floor items we keep them all (up to n) and add nothing."""
+        floor = min(self._MIN_GALLERY_ITEMS, n)
+        out = list(unique[:n])
+        keys = [self._clean_item_name(x, business_name)[1] for x in out]
+        if len(out) < floor:
+            for extra in fallback_names:
+                ed, ek = self._clean_item_name(extra, business_name)
+                if not ed or any(self._keys_similar(ek, k) for k in keys):
+                    continue
+                out.append(ed)
+                keys.append(ek)
+                if len(out) >= floor:
+                    break
+        return out
+
+    async def extract_menu_item_names(self, description: str, n: int = 4, business_name: str = "") -> list:
         """Extract EXACTLY n concise menu/dish names from the description.
 
         One DeepSeek call. Degrades gracefully on missing key, API failure
@@ -2010,18 +2124,20 @@ Generate prompts now:"""
             logger.warning("🍽️ No DEEPSEEK_API_KEY - using fallback item names")
             return self._fallback_item_names(description, n)
 
+        biz_line = f"\nBUSINESS NAME (never include this, or any part of it, in an item name): {business_name}\n" if business_name else ""
         prompt = f"""From the business description below, list EXACTLY {n} menu/dish item names.
 
 BUSINESS DESCRIPTION:
 {description}
-
+{biz_line}
 STRICT RULES:
 1. Output ONLY real, orderable menu items (specific dishes/drinks/products).
 2. Each name must be concise - 1 to 4 words, the dish name itself.
 3. DO NOT include ambience/interior/atmosphere entries (e.g. "Suasana Kedai",
    "Restaurant Interior", "Shop Ambience", "Dining Area"). Items only.
-4. DO NOT append the business name, branch, address, city, or location to any
-   name (e.g. NOT "Ikan Bakar Damansara" - just "Ikan Bakar").
+4. DO NOT append the business name, branch, address, city, location, or
+   possessives like "saya"/"kami" to any name (e.g. NOT "Ikan Bakar Damansara",
+   NOT "Nasi Kandar Saya" - just "Ikan Bakar", "Nasi Kandar").
 5. Use the language of the description (Bahasa Malaysia or English).
 6. If the description names specific dishes, use those exact dishes.
 
@@ -2056,26 +2172,24 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             raw = json.loads(match.group())
             banned = ["suasana", "interior", "ambience", "ambiance",
                       "dining area", "exterior", "storefront", "atmosphere"]
-            names, seen = [], set()
+            names = []
             for item in raw:
                 name = str(item).strip()
                 low = name.lower()
                 if not name or any(b in low for b in banned):
                     continue  # requirement: forbid ambience/interior cards
-                if low in seen:
-                    continue
-                seen.add(low)
                 names.append(name)
 
-            if len(names) < n:
-                for extra in self._fallback_item_names(description, n):
-                    if extra.lower() not in seen:
-                        names.append(extra)
-                        seen.add(extra.lower())
-                    if len(names) >= n:
-                        break
-
-            return names[:n] if names else self._fallback_item_names(description, n)
+            # Strip business-name/possessive/location noise and collapse
+            # semantically-similar names (the "Nasi Kandar / Saya Nasi Kandar /
+            # Nasi Kandar Penang" → one dish fix). Then floor-to-3 top-up with
+            # DISTINCT generics — never pad with near-dupes that collapse to the
+            # same image.
+            unique = self._dedupe_item_names(names, business_name)
+            result = self._finalize_item_names(
+                unique, self._fallback_item_names(description, n), business_name, n
+            )
+            return result if result else self._fallback_item_names(description, n)
         except Exception as e:
             logger.error(f"🍽️ Item-name extraction error: {e} - using fallback")
             return self._fallback_item_names(description, n)
@@ -2103,7 +2217,7 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             i += 1
         return names[:n]
 
-    async def extract_product_category_names(self, description: str, n: int = 4) -> list:
+    async def extract_product_category_names(self, description: str, n: int = 4, business_name: str = "") -> list:
         """Extract EXACTLY n concise product/category names for NON-food shops.
 
         Non-food sibling of extract_menu_item_names. One DeepSeek call. Degrades
@@ -2118,16 +2232,17 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             logger.warning("🛍️ No DEEPSEEK_API_KEY - using fallback category names")
             return self._fallback_category_names(description, n)
 
+        biz_line = f"\nBUSINESS NAME (never include this, or any part of it, in a product name): {business_name}\n" if business_name else ""
         prompt = f"""From the business description below, list EXACTLY {n} concise product/category names sold by this business.
 
 BUSINESS DESCRIPTION:
 {description}
-
+{biz_line}
 STRICT RULES:
 1. Output ONLY real product types/categories this business sells (e.g. for a toy shop: "Mainan Edukatif", "Blok Binaan", "Mainan Lembut", "Permainan Papan").
 2. Each name must be concise - 1 to 4 words, the product/category itself.
 3. DO NOT include ambience/interior/atmosphere/storefront entries (e.g. "Suasana Kedai", "Shop Interior", "Storefront", "Dining Area"). Products only.
-4. DO NOT append the business name, branch, address, city, or location to any name.
+4. DO NOT append the business name, branch, address, city, location, or possessives like "saya"/"kami" to any name.
 5. Use the language of the description (Bahasa Malaysia or English).
 6. If the description names specific products, use those exact products.
 
@@ -2162,26 +2277,20 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             raw = json.loads(match.group())
             banned = ["suasana", "interior", "ambience", "ambiance",
                       "dining area", "exterior", "storefront", "atmosphere"]
-            names, seen = [], set()
+            names = []
             for item in raw:
                 name = str(item).strip()
                 low = name.lower()
                 if not name or any(b in low for b in banned):
                     continue  # requirement: forbid ambience/interior cards
-                if low in seen:
-                    continue
-                seen.add(low)
                 names.append(name)
 
-            if len(names) < n:
-                for extra in self._fallback_category_names(description, n):
-                    if extra.lower() not in seen:
-                        names.append(extra)
-                        seen.add(extra.lower())
-                    if len(names) >= n:
-                        break
-
-            return names[:n] if names else self._fallback_category_names(description, n)
+            # Same strip + semantic-dedup + floor-to-3 top-up as the food path.
+            unique = self._dedupe_item_names(names, business_name)
+            result = self._finalize_item_names(
+                unique, self._fallback_category_names(description, n), business_name, n
+            )
+            return result if result else self._fallback_category_names(description, n)
         except Exception as e:
             logger.error(f"🛍️ Category-name extraction error: {e} - using fallback")
             return self._fallback_category_names(description, n)
@@ -4374,7 +4483,9 @@ IMPORTANT RULES:
                 if is_food:
                     # A2: extract real dish names - one DeepSeek call, graceful fallback
                     logger.info(f"🍽️ STEP 0: Extracting menu item names... [{time.time() - start_time:.1f}s elapsed]")
-                    slot_names = await self.extract_menu_item_names(request.description, n=4)
+                    slot_names = await self.extract_menu_item_names(
+                        request.description, n=4, business_name=request.business_name
+                    )
                     # Hero is a banner/ambience shot - NEVER a menu card.
                     hero_prompt = "Malaysian restaurant interior, food stall with hanging menu, authentic atmosphere, people eating, warm lighting, food photography"
                     # B: one Stability image per item name. _generate_stability_image
@@ -4392,7 +4503,9 @@ IMPORTANT RULES:
                     # A2: extract real category names — one DeepSeek call,
                     # graceful fallback, same banned-word filter as the food path.
                     logger.info(f"🛍️ STEP 0: Extracting product category names... [{time.time() - start_time:.1f}s elapsed]")
-                    slot_names = await self.extract_product_category_names(request.description, n=4)
+                    slot_names = await self.extract_product_category_names(
+                        request.description, n=4, business_name=request.business_name
+                    )
                     # Human-readable business type for grounding the prompt; fall
                     # back to a short description slice when detection is generic.
                     _biz_type = detect_business_type(request.description)
