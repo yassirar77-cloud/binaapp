@@ -10,6 +10,7 @@ import asyncio
 import time
 import json
 import re
+from collections import Counter
 from contextlib import contextmanager
 from loguru import logger
 from typing import Optional, List, Dict, Tuple, Callable, Awaitable
@@ -38,6 +39,15 @@ AI_PRIMARY_TIMEOUT_SECONDS = float(os.getenv("AI_PRIMARY_TIMEOUT_SECONDS", "120"
 # slow polish pass can never delay (or fail) an otherwise-working generation —
 # on timeout we ship the un-refined DeepSeek HTML.
 AI_QWEN_REFINE_TIMEOUT_SECONDS = float(os.getenv("AI_QWEN_REFINE_TIMEOUT_SECONDS", "60"))
+
+# Optional second Qwen pass that refines ONLY the CSS/visual styling of the
+# finished page (spacing, type scale, colour restraint, shadows, hierarchy)
+# while keeping all HTML structure, ids, JS, and image src byte-identical.
+# Ships dark: default OFF. Enable via env only against a verified-clean
+# baseline. Like the copy-refine pass it is non-blocking — bounded by its own
+# short timeout and falling back to the un-refined HTML on any failure.
+AI_QWEN_CSS_REFINE_ENABLED = os.getenv("AI_QWEN_CSS_REFINE_ENABLED", "false").strip().lower() in ("1", "true", "yes", "on")
+AI_QWEN_CSS_REFINE_TIMEOUT_SECONDS = float(os.getenv("AI_QWEN_CSS_REFINE_TIMEOUT_SECONDS", "60"))
 
 
 @contextmanager
@@ -2276,6 +2286,127 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         except Exception as e:
             logger.warning(f"🟡 Qwen copywriting failed ({e}) — falling back to original HTML")
             return html
+
+    async def _improve_css_with_qwen(self, html: str, description: str) -> str:
+        """Use Qwen to refine ONLY the CSS/visual styling of a finished page.
+
+        Sibling to _improve_with_qwen, but with the inverse invariant: the copy
+        pass freezes styling and edits text; this pass freezes text/structure
+        and edits styling. Qwen sees the real, finished selectors so it can make
+        targeted visual improvements (spacing rhythm, type scale, colour
+        restraint, shadow depth, hierarchy) rather than a from-scratch CSS split.
+
+        Returns the SAME object on any internal None/error so the caller's
+        identity check (`refined is original`) reads as "skipped". The caller is
+        responsible for the truncation/length/structure gates before publishing.
+        """
+        prompt = (
+            "Improve ONLY the visual styling of this finished HTML page for a Malaysian business.\n"
+            "You MAY edit: CSS inside <style>, inline style=\"\" values, Tailwind utility class\n"
+            "lists, the tailwind.config <script>, and CSS custom properties (--bg-color, etc.).\n"
+            "Improve: spacing/whitespace rhythm, type scale, colour restraint, shadow depth,\n"
+            "visual hierarchy, and alignment. Aim for a calmer, more professional look.\n\n"
+            "STRICT RULES — return the SAME page, identical except styling:\n"
+            "- Do NOT add, remove, reorder, or rename any HTML element, class NAME, or id.\n"
+            "- Do NOT change any visible TEXT, heading, label, or any attribute other than class/style.\n"
+            "- Do NOT modify, remove, or reorder any <script> logic (especially tailwind.config and any JS).\n"
+            "- Do NOT change any data-aos attributes.\n"
+            "- Do NOT remove or modify any <link> tags in <head> (Google Fonts, AOS CSS, Font Awesome).\n"
+            "- Do NOT change any src or href value (image URLs, WhatsApp wa.me links) — keep them byte-identical.\n"
+            "- Do NOT drop any section. Output the COMPLETE page from <!DOCTYPE html> to </html>.\n"
+            "- Editing which Tailwind utilities apply is allowed, but every author-defined class name\n"
+            "  that a <style> rule or the JS references MUST still be present on its element.\n"
+            "Output ONLY HTML.\n\n"
+            f"{html}"
+        )
+        try:
+            improved = await self._call_qwen(
+                prompt,
+                temperature=0.4,
+                max_tokens=self.QWEN_HTML_MAX_TOKENS,
+            )
+            if improved:
+                return improved
+            logger.warning("🎨 Qwen CSS refine returned None — falling back to original HTML")
+            return html
+        except Exception as e:
+            logger.warning(f"🎨 Qwen CSS refine failed ({e}) — falling back to original HTML")
+            return html
+
+    @staticmethod
+    def _hooked_selectors(html: str) -> frozenset:
+        """Class names that a <style> rule or the page JS *references*.
+
+        These are the names whose disappearance from the markup causes the
+        "unstyled section" failure mode. We collect references from:
+          - class selectors used in any <style> block (.foo, .foo:hover, .a.b)
+          - names referenced by JS via querySelector(All) / classList /
+            getElementsByClassName.
+        Note this reads what the CSS/JS *asks for*, not what the markup carries
+        — the caller intersects this with the classes actually applied on
+        elements so that stripping a class off an element is detectable.
+        Conservative by construction: anything we cannot confidently parse is
+        simply not added (so it cannot trigger a false "structure changed").
+        """
+        names: set = set()
+
+        # Class selectors inside <style> blocks. We deliberately ignore the
+        # cascade/combinators and just harvest every `.name` token.
+        for style_block in re.findall(r"<style[^>]*>(.*?)</style>", html, re.S | re.I):
+            for m in re.findall(r"\.(-?[_a-zA-Z][_a-zA-Z0-9-]*)", style_block):
+                names.add(m)
+
+        # JS hooks. Scan all <script> blocks for the common DOM lookups.
+        for script_block in re.findall(r"<script[^>]*>(.*?)</script>", html, re.S | re.I):
+            # querySelector('.x' or '#x') / querySelectorAll(...)
+            for q in re.findall(r"""querySelector(?:All)?\(\s*['"]([^'"]+)['"]""", script_block):
+                for m in re.findall(r"\.(-?[_a-zA-Z][_a-zA-Z0-9-]*)", q):
+                    names.add(m)
+            # classList.add/remove/toggle/contains('x'), getElementsByClassName('x')
+            for m in re.findall(
+                r"""(?:classList\.(?:add|remove|toggle|contains|replace)|getElementsByClassName)\(\s*['"]([^'"]+)['"]""",
+                script_block,
+            ):
+                for token in m.split():
+                    names.add(token)
+
+        return frozenset(names)
+
+    @staticmethod
+    def _applied_class_tokens(html: str) -> frozenset:
+        """Every class token actually applied via a class="..." attribute."""
+        tokens: set = set()
+        for attr in re.findall(r'\bclass\s*=\s*"([^"]*)"', html, re.I):
+            tokens.update(attr.split())
+        return frozenset(tokens)
+
+    def _structure_signature(self, html: str) -> dict:
+        """Deterministic structural fingerprint for before/after equivalence.
+
+        Invariant under any pure-styling edit (Tailwind utility churn, CSS rule
+        changes, custom-property tweaks) but breaks the instant real structure
+        is touched. Compared by the CSS-refine gate: any mismatch ⇒ discard
+        Qwen's version and keep the prior HTML.
+        """
+        return {
+            # Tag histogram — catches added/dropped/duplicated elements.
+            "tag_counts": Counter(
+                t.lower() for t in re.findall(r"<\s*([a-zA-Z][a-zA-Z0-9]*)", html)
+            ),
+            # id set — JS hooks and in-page anchor targets must be preserved.
+            "ids": frozenset(re.findall(r'\bid\s*=\s*"([^"]+)"', html)),
+            # Ordered img src sequence — defense-in-depth on image binding.
+            "img_srcs": tuple(re.findall(r'<img[^>]+src\s*=\s*"([^"]*)"', html, re.I)),
+            # href set — WhatsApp wa.me links and nav anchors must be preserved.
+            "hrefs": frozenset(re.findall(r'\bhref\s*=\s*"([^"]*)"', html)),
+            # Hooked classes still PRESENT on the markup: the intersection of
+            # names a <style> rule / the JS references with the class tokens
+            # actually applied to elements. Tailwind utility churn doesn't move
+            # this (utilities aren't hooked), but stripping a hooked class off
+            # an element — the unstyled-section mode — shrinks it and trips the
+            # gate.
+            "hooked_present": self._hooked_selectors(html) & self._applied_class_tokens(html),
+        }
 
     def get_fallback_images(self, description: str) -> Dict:
         """Get fallback stock images using comprehensive image matching"""
@@ -4753,6 +4884,56 @@ IMPORTANT INSTRUCTIONS:
                     logger.warning(f"✨ Qwen refine raised — keeping DeepSeek HTML ({e})")
                     refine_status = "fallback (error)"
                 logger.info(f"✨ Qwen refine: {refine_status}")
+
+        # STEP 3b: Qwen CSS/visual refinement — sibling to the copy-refine above.
+        # Runs on the SAME side of the image-binding boundary, so Cloudinary URLs
+        # and name↔image pairs are never in Qwen's input. Same non-blocking
+        # contract (own short timeout + truncation + length gates), PLUS a
+        # structure-equivalence gate: if Qwen alters element counts, ids, image
+        # srcs, hrefs, or drops a class a stylesheet/JS hooks onto, we discard its
+        # version and keep the prior HTML — the safety net against the
+        # "unstyled section" failure mode. Ships dark (flag default OFF).
+        if AI_QWEN_CSS_REFINE_ENABLED and html:
+            with _timed_step("qwen_css_refine", step_timings):
+                original_html = html
+                css_status = "skipped"
+                try:
+                    refined_raw = await asyncio.wait_for(
+                        self._improve_css_with_qwen(original_html, request.description),
+                        timeout=AI_QWEN_CSS_REFINE_TIMEOUT_SECONDS,
+                    )
+                    # _improve_css_with_qwen returns the SAME object on its own
+                    # internal None/error fallback — treat that as "skipped".
+                    if not refined_raw or refined_raw is original_html:
+                        css_status = "skipped"
+                    else:
+                        # Same truncation gates as the primary output and the
+                        # copy pass: API-boundary finish_reason flag plus the
+                        # post-hoc _extract_html scan. Never publish a truncated
+                        # refinement.
+                        qwen_api_truncated = bool(self._last_api_call.get("truncated"))
+                        refined_html = self._extract_html(refined_raw)
+                        refined_truncated = bool(self._last_extract_info.get("was_truncated"))
+                        if not refined_html or qwen_api_truncated or refined_truncated:
+                            css_status = "fallback (truncated)"
+                        elif len(refined_html) < len(original_html) * 0.9:
+                            # Materially shorter — Qwen likely dropped sections.
+                            css_status = "fallback (truncated)"
+                        elif (
+                            self._structure_signature(refined_html)
+                            != self._structure_signature(original_html)
+                        ):
+                            # Structure changed — discard, keep the prior HTML.
+                            css_status = "fallback (structure changed)"
+                        else:
+                            html = refined_html
+                            css_status = "success"
+                except asyncio.TimeoutError:
+                    css_status = "fallback (error)"
+                except Exception as e:
+                    logger.warning(f"🎨 Qwen CSS refine raised — keeping prior HTML ({e})")
+                    css_status = "fallback (error)"
+                logger.info(f"🎨 Qwen CSS refine: {css_status}")
 
         # Fix any remaining issues
         with _timed_step("image_matching", step_timings):
