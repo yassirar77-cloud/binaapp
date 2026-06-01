@@ -1,0 +1,26 @@
+# Pre-commit hooks for BinaApp.
+#
+# Primary purpose: stop API keys, tokens and other secrets from ever being
+# committed again (see SECURITY.md). Install once with:
+#
+#   pip install pre-commit
+#   pre-commit install
+#
+# Run against the whole repo at any time with:
+#
+#   pre-commit run --all-files
+#
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        name: Detect hardcoded secrets (gitleaks)
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Catch real .env files being staged (only *.example / templates allowed).
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace

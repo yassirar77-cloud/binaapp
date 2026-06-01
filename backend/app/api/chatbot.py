@@ -127,10 +127,10 @@ async def customer_support_chat(request: ChatRequest):
         ChatResponse with AI-generated reply
     """
 
-    # Debug: Show API key configuration status
+    # Debug: Show API key configuration status.
+    # SECURITY: never log any portion of the key itself — log bytes can leak
+    # secrets. A boolean "is it set?" is all that's safe to print.
     print(f"🔑 API Key configured: {bool(DEEPSEEK_API_KEY)}")
-    if DEEPSEEK_API_KEY:
-        print(f"🔑 Key preview: {DEEPSEEK_API_KEY[:10]}...")
 
     if not DEEPSEEK_API_KEY:
         print("❌ ERROR: No DEEPSEEK_API_KEY found in environment")
