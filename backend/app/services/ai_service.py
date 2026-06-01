@@ -2045,12 +2045,12 @@ Generate prompts now:"""
                 tokens, low = tokens[:-len(btoks)], low[:-len(btoks)]
 
         # Filler strip (whole-word), but never strip ALL tokens away.
-        kept = [(t, l) for t, l in zip(tokens, low) if l and l not in self._NAME_FILLER_TOKENS]
+        kept = [(t, lw) for t, lw in zip(tokens, low) if lw and lw not in self._NAME_FILLER_TOKENS]
         if not kept:
             kept = [(t, self._strip_name_punct(t.lower())) for t in raw.split()]
 
         display = " ".join(t for t, _ in kept).strip()
-        key = frozenset(l for _, l in kept if l)
+        key = frozenset(lw for _, lw in kept if lw)
         if not key:
             return raw, frozenset({raw.lower()})
         return display, key
