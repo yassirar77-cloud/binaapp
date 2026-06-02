@@ -656,6 +656,7 @@ tailwind.config = {{
         'surface': '{colors["surface"]}',
       }},
       fontFamily: {{
+        'sans': ['{fonts["body"]}', '{fonts["body_fallback"]}'],
         'heading': ['{fonts["heading"]}', '{fonts["heading_fallback"]}'],
         'body': ['{fonts["body"]}', '{fonts["body_fallback"]}'],
       }}
