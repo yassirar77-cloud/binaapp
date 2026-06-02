@@ -31,7 +31,16 @@ import cloudinary.uploader
 # so a hung provider can't burn the entire endpoint budget. On timeout
 # we raise asyncio.TimeoutError directly — the legacy Qwen fallback path
 # was removed (DeepSeek-only as of this branch).
-AI_PRIMARY_TIMEOUT_SECONDS = float(os.getenv("AI_PRIMARY_TIMEOUT_SECONDS", "120"))
+# Raised 120 -> 300 alongside the larger output cap below: a 24000-token
+# completion can legitimately take longer to stream than the old 8000 cap.
+AI_PRIMARY_TIMEOUT_SECONDS = float(os.getenv("AI_PRIMARY_TIMEOUT_SECONDS", "300"))
+
+# Output-token cap for DeepSeek HTML generation. deepseek-reasoner
+# (deepseek-v4-flash) tops out at 384K output tokens, so the previous
+# hardcoded 8000 was far below ceiling and the most common truncation cause.
+# 24000 ≈ 80-96K chars of HTML — comfortably covers a full multi-section page
+# with 15+ cards while staying well under the provider ceiling.
+AI_DEEPSEEK_MAX_TOKENS = int(os.getenv("AI_DEEPSEEK_MAX_TOKENS", "24000"))
 
 
 # Per-call timeout for the optional Qwen copywriting refinement pass in
@@ -3063,8 +3072,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         """Call DeepSeek API. Pass model=self.deepseek_model_pro for Expert (V4-Pro).
 
         Surfaces the response's `finish_reason` on `self._last_api_call` so
-        upstream can detect an output-cap hit. DeepSeek's max_tokens here is
-        8000, the tightest of the three providers — most likely to truncate.
+        upstream can detect an output-cap hit. max_tokens is
+        AI_DEEPSEEK_MAX_TOKENS (default 24000, overridable via env); well under
+        deepseek-reasoner's 384K output ceiling.
         """
         # Reset per-call API state — see _call_qwen for rationale.
         self._last_api_call = {"provider": "deepseek", "finish_reason": None, "truncated": False}
@@ -3075,7 +3085,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         chosen_model = model or self.deepseek_model
         try:
             logger.info(f"🔷 Calling DeepSeek API ({chosen_model})... (prompt length: {len(prompt)} chars)")
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=AI_PRIMARY_TIMEOUT_SECONDS + 30) as client:
                 r = await client.post(
                     f"{self.deepseek_base_url}/chat/completions",
                     headers={
@@ -3092,7 +3102,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": temperature,
-                        "max_tokens": 8000,
+                        "max_tokens": AI_DEEPSEEK_MAX_TOKENS,
                     }
                 )
                 if r.status_code == 200:
@@ -3106,6 +3116,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                         f"🔷 DeepSeek ✅ Generated {len(content)} chars "
                         f"(finish_reason={finish_reason}, completion_tokens={completion_tokens})"
                     )
+                    # Output-cap headroom: how close did this completion get to
+                    # the configured max? Makes truncation pressure visible in
+                    # prod even when finish_reason='stop' (a near-cap completion
+                    # is a signal the cap may need raising further).
+                    if completion_tokens is not None:
+                        _pct = completion_tokens / AI_DEEPSEEK_MAX_TOKENS * 100
+                        logger.info(
+                            f"🔷 DeepSeek output usage: {completion_tokens}/{AI_DEEPSEEK_MAX_TOKENS} "
+                            f"tokens ({_pct:.0f}% of cap)"
+                        )
                     truncated_at_api = finish_reason in self._TRUNCATED_FINISH_REASONS
                     self._last_api_call = {
                         "provider": "deepseek",
@@ -3115,7 +3135,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     if truncated_at_api:
                         logger.error(
                             f"🚨 DeepSeek hit output cap (finish_reason={finish_reason}, "
-                            f"max_tokens=8000). Response was truncated at generation time."
+                            f"max_tokens={AI_DEEPSEEK_MAX_TOKENS}). Response was truncated at generation time."
                         )
                     return content
                 else:
