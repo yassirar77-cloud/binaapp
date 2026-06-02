@@ -2720,7 +2720,18 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         except Exception as e:
             logger.error(f"DesignSystem error: {e}")
             # Fallback to basic values
-            fonts = {"cdn_link": "", "heading": "Inter", "body": "Inter", "heading_fallback": "sans-serif", "body_fallback": "sans-serif"}
+            fonts = {
+                "cdn_link": (
+                    '<link rel="preconnect" href="https://fonts.googleapis.com">\n'
+                    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
+                    '<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800'
+                    '&family=Mulish:wght@400;500;600;700&display=swap" rel="stylesheet">'
+                ),
+                "heading": "Plus Jakarta Sans",
+                "body": "Mulish",
+                "heading_fallback": "system-ui, sans-serif",
+                "body_fallback": "Helvetica Neue, sans-serif",
+            }
             palette = {"primary": "#3b82f6", "secondary": "#1e40af", "accent": "#dbeafe", "background": "#ffffff", "surface": "#ffffff", "text": "#0f172a", "text_muted": "#64748b"}
             layout = ""
             hero_variant = ""
@@ -2830,17 +2841,49 @@ Keep all text consistent in English throughout."""
 ✅ Use gradient backgrounds, Font Awesome icons, and text-only design
 ✅ Use colored placeholder divs with icons for cards: bg-gradient-to-br from-primary to-secondary with icon"""
         else:
+            # Build the gallery pool from the REAL resolved images, not a fixed
+            # set of four. Two bugs this prevents:
+            #   1. A phantom 4th slot: when fewer than four images were generated
+            #      /uploaded, the unfilled slots still held the hardcoded Unsplash
+            #      fallback, which rendered as an extra (often blank) card.
+            #   2. The same photo appearing twice across the page (service cards
+            #      reused in the gallery/portfolio section).
+            # When any real image exists we drop slots that still hold the
+            # hardcoded default; only when NOTHING real was provided do we keep
+            # the defaults (total image-generation failure fallback).
+            _defaults = imgs["gallery"]
+            _resolved = [g1, g2, g3, g4]
+            _has_real = bool(images) or bool(user_images)
+            if _has_real:
+                _gallery_pool = [u for u, d in zip(_resolved, _defaults) if u and u != d]
+                if not _gallery_pool:  # safety: real path but nothing matched
+                    _gallery_pool = [u for u in _resolved if u]
+            else:
+                _gallery_pool = [u for u in _resolved if u]
+            # De-duplicate by URL, preserving order, so a repeated URL can never
+            # produce two cards.
+            _seen = set()
+            _gallery_urls = []
+            for _u in _gallery_pool:
+                if _u not in _seen:
+                    _seen.add(_u)
+                    _gallery_urls.append(_u)
+            _n = len(_gallery_urls)
+            _gallery_lines = "\n".join(
+                f"- GALLERY IMAGE {_i}: {_u}" for _i, _u in enumerate(_gallery_urls, 1)
+            )
             image_section = f"""IMAGE MODE: USE EXACT URLS
 USE THESE EXACT IMAGE URLS (copy-paste exactly):
 - HERO IMAGE: {hero}
-- GALLERY IMAGE 1: {g1}
-- GALLERY IMAGE 2: {g2}
-- GALLERY IMAGE 3: {g3}
-- GALLERY IMAGE 4: {g4}
+{_gallery_lines}
 
 RULES:
 - Use ONLY the exact URLs provided above
 - Do NOT modify the URLs or use other sources
+- There are EXACTLY {_n} gallery image(s). Treat them as ONE shared image pool for the WHOLE page.
+- Use each image AT MOST ONCE across the entire page. NEVER show the same photo in two places (e.g. a service card and the gallery/portfolio).
+- Render EXACTLY {_n} image card(s) total. Do NOT pad with empty, placeholder, or duplicate cards.
+- If a section (such as a portfolio/gallery) cannot be filled with UNUSED images, OMIT that section entirely rather than reusing a photo.
 - Gallery images: h-48 or h-52 with object-cover
 - All gallery cards MUST be consistent in height"""
 
@@ -2924,7 +2967,7 @@ TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
 <style>
 html {{ scroll-behavior: smooth; }}
 :root {{ --bg-color: {palette['background']}; --surface-color: {palette['surface']}; --text-color: {palette['text']}; --text-muted-color: {palette['text_muted']}; }}
-body {{ background-color: var(--bg-color); }}
+body {{ background-color: var(--bg-color); font-family: '{fonts['body']}', {fonts['body_fallback']}; }}
 </style>
 
 ===== BEFORE </body> (MUST INCLUDE) =====
@@ -2948,9 +2991,11 @@ COLOUR — ONE dominant colour + ONE accent only:
 - Do NOT spread 3+ saturated colours across the page.
 - FORBIDDEN: purple/violet text or fills on a white or near-white background (low contrast, generic SaaS look).
 
-TYPOGRAPHY — fonts:
+TYPOGRAPHY — fonts (FONT LOCK, non-negotiable):
 - Do NOT use Inter or Roboto — they read as generic defaults.
-- Use the heading/body fonts provided in the HEAD section above. When pairing, use a characterful display face for headings and a clean neutral sans for body that is NOT Inter or Roboto.
+- Use ONLY the heading/body fonts provided in the HEAD section above.
+- Do NOT add any other <link> to fonts.googleapis.com — the only font <link> allowed is the one already in the HEAD section.
+- NEVER write font-family: Inter, Roboto, or system-ui anywhere — not in <style>, not in the Tailwind config, not in inline styles, not in class names. The page's base font is already set; do not override it.
 
 SPACING — strict 8px system:
 - Every margin, padding and gap is a multiple of 8px (8 / 16 / 24 / 32 / 48 / 64 / 96).
