@@ -2933,6 +2933,38 @@ body {{ background-color: var(--bg-color); }}
 
 ===== DESIGN SYSTEM =====
 
+===== ART DIRECTION (NON-NEGOTIABLE) =====
+TYPE SCALE — use a clear modular scale, never ad-hoc sizes. Keep a strict hierarchy, at most these five steps:
+- Display/hero: 48-72px (3rem-4.5rem), font-bold, tracking-tight, tight leading
+- H2 section heading: 32-40px (2rem-2.5rem), font-bold
+- H3 card/title: 20-24px (1.25rem-1.5rem), font-semibold
+- Body: 16-18px (1rem-1.125rem), leading-relaxed
+- Caption/meta: 13-14px, muted colour
+
+COLOUR — ONE dominant colour + ONE accent only:
+- Pick a single dominant brand colour for primary surfaces and CTAs.
+- Use exactly one accent colour for small highlights (badges, links, details).
+- Everything else stays neutral: background, surface, text, borders.
+- Do NOT spread 3+ saturated colours across the page.
+- FORBIDDEN: purple/violet text or fills on a white or near-white background (low contrast, generic SaaS look).
+
+TYPOGRAPHY — fonts:
+- Do NOT use Inter or Roboto — they read as generic defaults.
+- Use the heading/body fonts provided in the HEAD section above. When pairing, use a characterful display face for headings and a clean neutral sans for body that is NOT Inter or Roboto.
+
+SPACING — strict 8px system:
+- Every margin, padding and gap is a multiple of 8px (8 / 16 / 24 / 32 / 48 / 64 / 96).
+- Generous, consistent section rhythm — never cramped.
+
+DEPTH and SHADOWS:
+- Create depth with layered soft shadows (shadow-lg / shadow-xl), subtle borders, and slight elevation on hover.
+- Cards lift on hover. Avoid flat, borderless boxes that blend into the background.
+
+CARDS MUST STAY READABLE EVEN IF AN IMAGE FAILS:
+- Every card has its own solid surface background and padding. Never place text directly on an image without a background layer.
+- If a card image fails to load, the card must remain legible — real text colour on the surface, never white text on a white background.
+- Give every img a neutral background colour and a fixed aspect ratio so a missing image leaves a clean placeholder block instead of collapsed or overlapping layout.
+
 {typography}
 
 {design_patterns}
@@ -3060,7 +3092,10 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
     # than qwen-max (qwen-max tops out at ~8K output on DashScope compatible mode,
     # which is where the 31997-char truncation came from). 12000 tokens ≈ 40-48K
     # chars of HTML, enough for 15+ menu cards plus template structure.
-    QWEN_HTML_MODEL = "qwen-plus-latest"
+    # Overridable from the environment so the HTML model can be A/B-tested
+    # (e.g. qwen3.7-max vs qwen-plus) from Render without a redeploy.
+    # Default intentionally stays qwen-plus-latest until a swap is validated.
+    QWEN_HTML_MODEL = os.getenv("QWEN_HTML_MODEL", "qwen-plus-latest")
     QWEN_HTML_MAX_TOKENS = 12000
     # Finish reasons that mean the model hit its output cap (vs. natural stop).
     # OpenAI-compatible providers (DashScope/Qwen, DeepSeek) all use either
