@@ -570,10 +570,12 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
                 _plan_resp = await _pc.get(
                     f"{settings.SUPABASE_URL}/rest/v1/subscription_plans",
                     headers=headers,
-                    params={"plan_name": f"eq.{plan}", "select": "id", "limit": "1"},
+                    # subscription_plans PK is plan_id (NOT id) — see
+                    # backend/migrations/005_subscription_management.sql.
+                    params={"plan_name": f"eq.{plan}", "select": "plan_id", "limit": "1"},
                 )
             if _plan_resp.status_code == 200 and _plan_resp.json():
-                plan_id = _plan_resp.json()[0].get("id")
+                plan_id = _plan_resp.json()[0].get("plan_id")
                 logger.info(f"🔗 Resolved plan_id={plan_id} for plan '{plan}'")
             else:
                 logger.warning(
