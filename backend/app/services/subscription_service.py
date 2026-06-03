@@ -253,11 +253,20 @@ class SubscriptionService:
 
         try:
             async with httpx.AsyncClient() as client:
-                # Count websites
+                # Count websites.
+                # status=neq.pending_payment EXCLUDES pre-payment drafts: the
+                # generator persists generated HTML as a status='pending_payment'
+                # row so the work is never lost, but a draft must not consume the
+                # user's website slot (quota gates publishing, not saving). The
+                # draft flips to 'published' at publish time and starts counting.
                 response = await client.get(
                     f"{self.url}/rest/v1/websites",
                     headers={**self.headers, "Prefer": "count=exact"},
-                    params={"user_id": f"eq.{user_id}", "select": "id"}
+                    params={
+                        "user_id": f"eq.{user_id}",
+                        "status": "neq.pending_payment",
+                        "select": "id",
+                    }
                 )
                 if response.status_code == 200:
                     count_header = response.headers.get("content-range", "")
@@ -267,11 +276,16 @@ class SubscriptionService:
                         counts["websites_count"] = len(response.json())
 
                 # Count menu items, delivery zones, and riders across all user's websites
-                # First get user's website IDs
+                # First get user's website IDs (drafts excluded — their resources
+                # must not count against quota either).
                 websites_response = await client.get(
                     f"{self.url}/rest/v1/websites",
                     headers=self.headers,
-                    params={"user_id": f"eq.{user_id}", "select": "id"}
+                    params={
+                        "user_id": f"eq.{user_id}",
+                        "status": "neq.pending_payment",
+                        "select": "id",
+                    }
                 )
                 if websites_response.status_code == 200:
                     website_ids = [w["id"] for w in websites_response.json()]
