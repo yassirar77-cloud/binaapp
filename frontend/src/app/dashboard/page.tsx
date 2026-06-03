@@ -90,11 +90,16 @@ export default function DashboardPage() {
 
       setUser(currentUser as User)
 
-      // Fetch projects directly from Supabase
+      // Fetch projects directly from Supabase.
+      // Exclude status='pending_payment' drafts: the generator persists
+      // finished HTML as a pre-payment draft so work is never lost, but a
+      // user who hasn't paid shouldn't see a half-broken draft-<uuid> entry.
+      // It surfaces once the payment callback promotes it to 'published'.
       const { data, error: supabaseError } = await supabase
         .from('websites')
         .select('*')
         .eq('user_id', currentUser.id)
+        .neq('status', 'pending_payment')
         .order('created_at', { ascending: false })
 
       if (supabaseError) {

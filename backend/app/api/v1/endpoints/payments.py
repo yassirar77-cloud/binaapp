@@ -556,6 +556,33 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
 
         new_end_date = now + timedelta(days=30)
 
+        # Resolve plan_id from subscription_plans (plan_name == tier). The
+        # backend historically never wrote subscriptions.plan_id, so the
+        # can_publish_subdomain gate and the websites_limit quota joins — which
+        # embed subscription_plans VIA plan_id — resolved against NULL and
+        # behaved as if the user had no plan (public site served the upgrade
+        # paywall even after paying). Writing plan_id here links the row to its
+        # plan so those joins resolve. Best-effort: if the lookup fails we omit
+        # plan_id rather than block the payment.
+        plan_id = None
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as _pc:
+                _plan_resp = await _pc.get(
+                    f"{settings.SUPABASE_URL}/rest/v1/subscription_plans",
+                    headers=headers,
+                    params={"plan_name": f"eq.{plan}", "select": "id", "limit": "1"},
+                )
+            if _plan_resp.status_code == 200 and _plan_resp.json():
+                plan_id = _plan_resp.json()[0].get("id")
+                logger.info(f"🔗 Resolved plan_id={plan_id} for plan '{plan}'")
+            else:
+                logger.warning(
+                    f"⚠️ Could not resolve plan_id for plan '{plan}' "
+                    f"({_plan_resp.status_code}) — subscription will lack plan_id"
+                )
+        except Exception as _plan_err:
+            logger.warning(f"⚠️ plan_id lookup failed for plan '{plan}': {_plan_err}")
+
         subscription_data = {
             "tier": plan,
             "status": "active",
@@ -571,6 +598,8 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
             "locked_at": None,
             "lock_reason": None,
         }
+        if plan_id is not None:
+            subscription_data["plan_id"] = plan_id
 
         async with httpx.AsyncClient() as client:
             if existing_sub:
@@ -676,6 +705,19 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
                     json={"status": "published"}
                 )
             logger.info(f"✅ Re-enabled suspended websites for user {user_id}")
+
+            # Promote the user's pre-payment DRAFT to a live published site.
+            # The post-payment return flow never calls /api/publish, so without
+            # this the draft stayed status='pending_payment' with a draft-<uuid>
+            # subdomain and the public URL served the upgrade paywall even
+            # though the user just paid. This assigns a real subdomain, uploads
+            # to storage, and flips the row to published. Best-effort: a failure
+            # is logged inside the helper and never aborts the payment.
+            try:
+                from app.services.draft_promotion import promote_latest_draft_for_user
+                await promote_latest_draft_for_user(user_id)
+            except Exception as promo_err:
+                logger.warning(f"⚠️ Draft promotion after payment failed for {user_id}: {promo_err}")
         else:
             logger.error(f"❌ Failed to update subscription: {response.status_code}")
 
