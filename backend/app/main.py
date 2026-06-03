@@ -2013,6 +2013,16 @@ async def run_generation_task(
             }).eq("job_id", job_id).execute()
             logger.info(f"📊 Progress 92% update: {len(result_92.data) if result_92.data else 0} rows affected")
 
+        # website_id + business name are HOISTED here (out of the injection
+        # try below) so they are always defined for the draft-persist step
+        # even if integration injection raises partway through. The same
+        # generated_website_id is embedded into the widgets AND used as the
+        # primary key of the persisted draft `websites` row, so the delivery/
+        # chat widget validation resolves against a real row.
+        generated_website_id = str(uuid.uuid4())
+        actual_business_name = business_name or "Business"
+        logger.info(f"✅ Generated website_id for background job: {generated_website_id}")
+
         # Inject all selected integrations (delivery, WhatsApp, maps, contact, chat widget).
         try:
             delivery_cfg = delivery or None
@@ -2154,12 +2164,9 @@ async def run_generation_task(
             if delivery_cfg and delivery_cfg.get("phone"):
                 phone_number = delivery_cfg.get("phone")
 
-            # CRITICAL FIX: Generate website_id for delivery widget injection
-            # Without website_id, inject_ordering_system raises ValueError and skips delivery widget
-            import uuid
-            generated_website_id = str(uuid.uuid4())
-            logger.info(f"✅ Generated website_id for background job: {generated_website_id}")
-
+            # website_id for the delivery widget is generated_website_id, hoisted
+            # above so inject_ordering_system always receives a valid id (without
+            # it, injection raises ValueError and the delivery widget is skipped).
             user_data = {
                 "phone": phone_number,
                 "address": address or "",
@@ -2296,6 +2303,66 @@ async def run_generation_task(
         else:
             logger.warning("⚠️ Supabase not available - job completed but not saved")
 
+        # ── Persist the generated website as a pre-payment DRAFT ──────────────
+        # Previously this path stored HTML only in generation_jobs and minted a
+        # throwaway website_id purely for widget injection; the `websites` row
+        # was created later at publish, which is gated by quota + the free-tier
+        # can_publish_subdomain gate. For a brand-new free account that meant the
+        # finished site was NEVER written to `websites` — validate_widget_id
+        # rejected the widget id ("Website not found in database") and the work
+        # was lost if the user didn't pay. We now persist it immediately as a
+        # status='pending_payment' draft keyed on generated_website_id (the same
+        # id embedded in the widgets) and tied to the user, BYPASSING the website
+        # quota. Drafts are excluded from get_actual_resource_counts, and the
+        # publish path promotes this same row to 'published'. Upsert on id makes
+        # a re-run for the same id idempotent. user_id must be a real auth UUID
+        # (FK to auth.users) — anonymous/demo builds are not persisted.
+        _persist_uid = user_id if user_id not in (None, "", "anonymous", "demo-user", "guest") else None
+        if supabase and _persist_uid and generated_website_id and html:
+            try:
+                uuid.UUID(str(_persist_uid))  # FK requires a real auth.users UUID
+                draft_payload = {
+                    "id": generated_website_id,
+                    "user_id": _persist_uid,
+                    "business_name": actual_business_name or "Business",
+                    "name": actual_business_name or "Business",
+                    "subdomain": f"draft-{generated_website_id}",
+                    "status": "pending_payment",
+                    "html_content": html,
+                    "generation_count": 1,
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat(),
+                }
+                if description:
+                    draft_payload["description"] = description
+                supabase.table("websites").upsert(
+                    draft_payload, on_conflict="id"
+                ).execute()
+                logger.info(
+                    f"✅ [WEBSITES INSERT] draft persisted id={generated_website_id} "
+                    f"user_id={_persist_uid} status=pending_payment "
+                    f"html_chars={len(html)} job_id={job_id}"
+                )
+            except ValueError:
+                logger.info(
+                    f"⏭️ [WEBSITES INSERT] skipped draft persist — user_id not a UUID "
+                    f"(user_id={user_id}, job_id={job_id})"
+                )
+            except Exception as persist_err:
+                # Best-effort: a failed draft persist must not fail the job (the
+                # HTML is still in generation_jobs). Log with the reason so the
+                # write can be confirmed/diagnosed in Render logs.
+                logger.error(
+                    f"❌ [WEBSITES INSERT] FAILED to persist draft "
+                    f"id={generated_website_id} user_id={_persist_uid} "
+                    f"job_id={job_id}: {persist_err}"
+                )
+        elif not _persist_uid:
+            logger.info(
+                f"⏭️ [WEBSITES INSERT] skipped draft persist — no real user_id "
+                f"(user_id={user_id}, job_id={job_id})"
+            )
+
     except Exception as e:
         logger.error(f"❌ TASK FAILED: {job_id} - {str(e)}")
         import traceback
@@ -2430,6 +2497,42 @@ MANDATORY REQUIREMENTS:
             }
         )
 
+    # Idempotency / debounce — one build = one website row.
+    # In prod the UI fired two builds 6s apart for a single click (website_ids
+    # a70e8b69 + d9c3f3a4), each producing its own draft. If this user already
+    # has a generation_job created within DEBOUNCE_WINDOW_SECONDS, return that
+    # in-flight job instead of spawning a duplicate. Scoped to real users
+    # (anonymous share a single user_id, so debouncing them would collapse
+    # unrelated concurrent guests).
+    DEBOUNCE_WINDOW_SECONDS = 20
+    if supabase and user_id and user_id not in ("anonymous", "demo-user", "guest"):
+        try:
+            _cutoff = (datetime.now() - timedelta(seconds=DEBOUNCE_WINDOW_SECONDS)).isoformat()
+            _recent = (
+                supabase.table("generation_jobs")
+                .select("job_id, created_at, status")
+                .eq("user_id", user_id)
+                .gte("created_at", _cutoff)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if _recent.data:
+                _existing = _recent.data[0]
+                logger.warning(
+                    f"♻️ Debounce: returning in-flight job {_existing['job_id']} for "
+                    f"user {user_id} (created {_existing.get('created_at')}) instead of "
+                    f"starting a duplicate build"
+                )
+                return {
+                    "success": True,
+                    "job_id": _existing["job_id"],
+                    "status": _existing.get("status") or "processing",
+                    "deduplicated": True,
+                }
+        except Exception as _dedupe_err:
+            logger.warning(f"⚠️ Debounce check failed (continuing): {_dedupe_err}")
+
     # Subscription website limit — hard count from source-of-truth (websites
     # table). Mirrors backend/app/api/v1/endpoints/websites.py:67-183 so both
     # generation entry points enforce independently.
@@ -2446,12 +2549,18 @@ MANDATORY REQUIREMENTS:
             _base_url = settings.SUPABASE_URL
             _svc_headers = supabase_service.headers
 
-            # 1. Count actual websites owned by this user
+            # 1. Count actual websites owned by this user.
+            # status=neq.pending_payment excludes pre-payment drafts so a saved
+            # but unpublished draft never consumes the user's website slot.
             async with httpx.AsyncClient() as _client:
                 _count_resp = await _client.get(
                     f"{_base_url}/rest/v1/websites",
                     headers={**_svc_headers, "Prefer": "count=exact"},
-                    params={"user_id": f"eq.{user_id}", "select": "id"}
+                    params={
+                        "user_id": f"eq.{user_id}",
+                        "status": "neq.pending_payment",
+                        "select": "id",
+                    }
                 )
             actual_count = 0
             if _count_resp.status_code == 200:
@@ -2800,6 +2909,21 @@ async def get_realtime_analytics(project_id: str):
 
 # ==================== SUBDOMAIN PUBLISHING ENDPOINTS ====================
 
+def _extract_embedded_website_id(html: str) -> Optional[str]:
+    """Return the data-website-id a generated page was built with.
+
+    The generator injects the widgets with data-website-id="<uuid>" and
+    persists a matching pre-payment draft row under that id. The publish path
+    uses this to match the incoming HTML back to its draft so it can FLIP the
+    draft to published instead of inserting a duplicate row. Read BEFORE
+    fix_website_id_in_html rewrites the ids.
+    """
+    if not html:
+        return None
+    m = re.search(r'data-website-id=["\']([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})["\']', html)
+    return m.group(1) if m else None
+
+
 def fix_website_id_in_html(html: str, correct_website_id: str) -> str:
     """
     Ensure all website_id references in HTML use the database record ID.
@@ -3124,6 +3248,34 @@ async def publish_website(
         if not website_id:
             website_id = str(uuid.uuid4())
 
+        # Promote a pre-payment DRAFT instead of creating a second row.
+        # The generator persists finished HTML as a status='pending_payment'
+        # draft keyed on the website_id it embedded as data-website-id. The
+        # frontend mints a fresh random website_id for publish, so to FLIP the
+        # existing draft (rather than orphan it and insert a duplicate) we pull
+        # the embedded id back out of the HTML and reuse that row. Promotion is
+        # still a first publish, so it runs check_limit + increment_usage below
+        # (drafts are excluded from the quota count until they go live here).
+        is_promotion = False
+        if supabase and html_content and user_id and user_id not in ("anonymous", "demo-user", "guest"):
+            _embedded_id = _extract_embedded_website_id(html_content)
+            if _embedded_id and _embedded_id != website_id:
+                try:
+                    _draft = supabase.table("websites").select(
+                        "id, user_id, status"
+                    ).eq("id", _embedded_id).limit(1).execute()
+                    if _draft.data:
+                        _drow = _draft.data[0]
+                        if _drow.get("status") == "pending_payment" and _drow.get("user_id") in (None, user_id):
+                            website_id = _embedded_id  # reuse → upsert flips it to published
+                            is_promotion = True
+                            logger.info(
+                                f"🪪 Promoting pre-payment draft {_embedded_id} → published "
+                                f"for user {user_id}"
+                            )
+                except Exception as _promo_err:
+                    logger.warning(f"⚠️ Draft promotion lookup failed (continuing): {_promo_err}")
+
         # Prevent ID collisions across users and determine if this is a NEW website
         is_new_website = True
         if supabase:
@@ -3155,9 +3307,11 @@ async def publish_website(
             except Exception as sub_err:
                 logger.warning(f"⚠️ Subdomain ownership check failed: {sub_err}")
 
-        # CRITICAL: Enforce subscription limit for NEW websites
+        # CRITICAL: Enforce subscription limit for NEW websites.
+        # A draft promotion is the website's first publish, so it must pass the
+        # quota gate too (the draft was excluded from the count until now).
         # Uses sub_service which has its own httpx client (independent of global supabase)
-        if is_new_website:
+        if is_new_website or is_promotion:
             try:
                 limit_result = await sub_service.check_limit(user_id, "create_website")
                 logger.info(f"📊 Limit check for user {user_id}: {limit_result}")
@@ -3283,17 +3437,28 @@ async def publish_website(
                 supabase.table("websites").upsert(
                     upsert_payload, on_conflict="id"
                 ).execute()
-                logger.info(f"✅ Database record created/updated: {website_id}")
+                _publish_mode = (
+                    "promote-draft" if is_promotion
+                    else "insert-new" if is_new_website
+                    else "republish-update"
+                )
+                logger.info(
+                    f"✅ [WEBSITES INSERT] id={website_id} user_id={user_id} "
+                    f"status=published mode={_publish_mode} subdomain={subdomain} "
+                    f"html_chars={len(html_content)}"
+                )
 
-                # CRITICAL: Sync usage_tracking after new website creation
-                if is_new_website:
+                # CRITICAL: Sync usage_tracking after a website goes live.
+                # Both a brand-new website AND a promoted draft are a first
+                # publish, so both increment the live website count.
+                if is_new_website or is_promotion:
                     try:
                         await sub_service.increment_usage(user_id, "create_website")
                         logger.info(f"📊 Incremented websites_count for user {user_id}")
                     except Exception as usage_err:
                         logger.warning(f"⚠️ Usage tracking increment failed for user {user_id}: {usage_err}")
             except Exception as db_err:
-                logger.error(f"❌ CRITICAL: Database insert failed: {db_err}")
+                logger.error(f"❌ [WEBSITES INSERT] FAILED id={website_id} user_id={user_id}: {db_err}")
                 # Don't continue - if DB fails, the website will be orphaned
                 return JSONResponse(
                     status_code=500,

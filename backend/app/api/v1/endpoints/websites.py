@@ -65,12 +65,18 @@ async def generate_website(
         if _is_admin_bypass:
             logger.info(f"[LIMIT CHECK] admin bypass for user={user_id}")
 
-        # 1. Count actual websites owned by this user (source of truth)
+        # 1. Count actual websites owned by this user (source of truth).
+        # status=neq.pending_payment excludes pre-payment drafts so they never
+        # consume a website slot (they flip to 'published' at publish time).
         async with _httpx.AsyncClient() as _client:
             _count_resp = await _client.get(
                 f"{_base_url}/rest/v1/websites",
                 headers={**_svc_headers, "Prefer": "count=exact"},
-                params={"user_id": f"eq.{user_id}", "select": "id"}
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "status": "neq.pending_payment",
+                    "select": "id",
+                }
             )
         actual_count = 0
         if _count_resp.status_code == 200:
