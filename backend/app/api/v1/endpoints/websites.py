@@ -584,6 +584,15 @@ async def list_websites(current_user: dict = Depends(get_current_user)):
             try:
                 # Handle potential null/missing values
                 website_status = w.get("status", "draft")
+
+                # Hide pre-payment drafts from the dashboard. The generator
+                # persists finished HTML as status='pending_payment' so the work
+                # is never lost, but a brand-new user who hasn't paid shouldn't
+                # see a half-broken "draft" website yet — it surfaces only once
+                # publish flips it to 'published'.
+                if website_status == "pending_payment":
+                    continue
+
                 # Ensure status is valid enum value
                 if website_status not in ["draft", "generating", "published", "failed"]:
                     website_status = "draft"
