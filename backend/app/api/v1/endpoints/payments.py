@@ -1052,6 +1052,24 @@ async def _process_legacy_payment(bill_code: str, tp_transaction_id: str = None)
                 # Update usage limits based on tier
                 await _update_usage_limits(user_id, tier)
 
+                # Promote the user's pre-payment DRAFT to a live site. This is
+                # the LEGACY callback path (bill recorded in the `payments`
+                # table, not `transactions`) — the primary new-subscriber flow
+                # (UpgradeModal → POST /subscribe/{tier}). Without this call a
+                # paying customer here gets an active subscription but their
+                # generated site never goes live. Idempotent + best-effort:
+                # wrapped so it can never break activation.
+                logger.info(f"🟢 promotion CALLED for user {user_id} (legacy callback)")
+                try:
+                    await _promote_pending_draft_for_user(user_id)
+                except Exception as promo_err:
+                    import traceback
+                    logger.error(
+                        f"❌ Draft promotion failed for user {user_id} via legacy "
+                        f"callback (subscription still active): {promo_err}\n"
+                        f"{traceback.format_exc()}"
+                    )
+
         else:
             logger.warning(f"⚠️ No payment record found in legacy table for bill_code: {bill_code}")
             # Try addon_purchases table as a last resort (for old records with bill_code field)
@@ -1245,6 +1263,21 @@ async def verify_toyyibpay_payment(bill_code: str):
 
                             # Update usage limits
                             await _update_usage_limits(user_id, tier)
+
+                            # Promote the user's pre-payment DRAFT (legacy
+                            # late-verify path). Same idempotent + best-effort
+                            # call so a bill that only landed in the `payments`
+                            # table still publishes the generated site.
+                            logger.info(f"🟢 promotion CALLED for user {user_id} (legacy verify)")
+                            try:
+                                await _promote_pending_draft_for_user(user_id)
+                            except Exception as promo_err:
+                                import traceback
+                                logger.error(
+                                    f"❌ Draft promotion failed for user {user_id} via "
+                                    f"legacy verify (subscription still active): {promo_err}\n"
+                                    f"{traceback.format_exc()}"
+                                )
 
                             logger.info(f"✅ Late payment processing completed for user {user_id}")
 
