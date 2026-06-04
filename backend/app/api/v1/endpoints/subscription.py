@@ -878,6 +878,27 @@ async def verify_payment(
                     logger.error(f"Failed to apply addon credits for user {user_id}")
                     # Don't fail the whole response - transaction is already marked as success
 
+            # Backup promotion path. The primary promotion runs from the
+            # ToyyibPay webhook callback (_process_subscription_payment), but
+            # webhooks are not 100% reliable — a customer could be confirmed
+            # here via verify_payment without the webhook ever landing, and
+            # never get their draft promoted. _promote_pending_draft_for_user
+            # is idempotent (status-scoped flip), so whichever path runs first
+            # promotes and the other is a safe no-op. Best-effort: a promotion
+            # failure must never break payment confirmation.
+            if transaction_type in ("subscription", "renewal"):
+                logger.info(f"🟢 promotion CALLED for user {user_id} (verify_payment)")
+                try:
+                    from app.api.v1.endpoints.payments import _promote_pending_draft_for_user
+                    await _promote_pending_draft_for_user(user_id)
+                except Exception as promo_err:
+                    import traceback
+                    logger.error(
+                        f"❌ Draft promotion failed for user {user_id} via "
+                        f"verify_payment (payment still confirmed): {promo_err}\n"
+                        f"{traceback.format_exc()}"
+                    )
+
             return {
                 "success": True,
                 "payment_status": "paid",
