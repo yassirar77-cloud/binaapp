@@ -676,11 +676,234 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
                     json={"status": "published"}
                 )
             logger.info(f"✅ Re-enabled suspended websites for user {user_id}")
+
+            # Promote the user's pre-payment DRAFT to a live published site.
+            # The generator persists finished HTML as a status='pending_payment'
+            # draft (main.py), but the only code that turns a draft into a live
+            # site lived in the frontend-driven /api/publish path — which the
+            # post-payment redirect never reliably calls. The ToyyibPay callback
+            # is the one thing guaranteed to run after a real payment, so we do
+            # the promotion here, server-side, keyed by user_id. Best-effort:
+            # wrapped so a promotion failure can never abort subscription
+            # activation (the sub is already active above).
+            logger.info(f"🟢 promotion CALLED for user {user_id}")
+            try:
+                await _promote_pending_draft_for_user(user_id)
+            except Exception as promo_err:
+                import traceback
+                logger.error(
+                    f"❌ Draft promotion failed for user {user_id} "
+                    f"(subscription still active): {promo_err}\n"
+                    f"{traceback.format_exc()}"
+                )
         else:
             logger.error(f"❌ Failed to update subscription: {response.status_code}")
 
     except Exception as e:
         logger.error(f"Error processing subscription payment: {e}", exc_info=True)
+
+
+def _slugify_business_name(name: str) -> str:
+    """Turn a business name into a subdomain-safe base slug.
+
+    Lowercase, ASCII alnum + single hyphens, no leading/trailing hyphen,
+    trimmed to leave room for a uniqueness suffix. Returns "" if nothing
+    usable survives (caller falls back to a uuid-derived slug).
+    """
+    import re
+
+    base = (name or "").lower()
+    base = re.sub(r"[^a-z0-9]+", "-", base)
+    base = re.sub(r"-+", "-", base).strip("-")
+    return base[:24].strip("-")
+
+
+async def _subdomain_is_taken(subdomain: str, headers: dict) -> bool:
+    """True if any websites row already uses this subdomain."""
+    import httpx
+
+    url = f"{settings.SUPABASE_URL}/rest/v1/websites"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            url,
+            headers=headers,
+            params={"subdomain": f"eq.{subdomain}", "select": "id", "limit": "1"},
+        )
+    return resp.status_code == 200 and bool(resp.json())
+
+
+async def _promote_pending_draft_for_user(user_id: str):
+    """Promote a user's most-recent pre-payment draft into a live site.
+
+    Steps (mirrors the building blocks of the /api/publish promotion in
+    main.py, but driven server-side from the payment callback):
+      1. Find the user's most-recent status='pending_payment' draft.
+      2. Pick a real subdomain slug from the business name (uniqueness-checked;
+         the draft itself only carries a placeholder 'draft-<uuid>' subdomain).
+      3. Ensure the chat widget is present (must be on every published site).
+      4. Upload the HTML to Supabase Storage — the subdomain middleware serves
+         from storage, NOT the DB, so a status flip without an upload 404s.
+      5. Flip the draft row to status='published' with the real subdomain/url.
+      6. Increment the live-website usage counter (first publish).
+
+    Idempotent: once promoted the row is no longer 'pending_payment', so a
+    re-fired callback finds no draft and no-ops. No draft (renewal, or the user
+    already published) is a logged no-op, never an error.
+    """
+    from datetime import datetime
+    import httpx
+
+    logger.info(f"🟢 promotion entered for user {user_id}")
+
+    headers = {
+        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
+    }
+    websites_url = f"{settings.SUPABASE_URL}/rest/v1/websites"
+
+    # 1. Most-recent pending_payment draft for this user.
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            websites_url,
+            headers=headers,
+            params={
+                "user_id": f"eq.{user_id}",
+                "status": "eq.pending_payment",
+                "select": "id,user_id,business_name,name,subdomain,html_content,status",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+        )
+
+    if resp.status_code != 200:
+        logger.warning(
+            f"⚠️ Promotion: could not query drafts for user {user_id}: "
+            f"{resp.status_code} {resp.text[:200]}"
+        )
+        return
+
+    drafts = resp.json()
+    if not drafts:
+        logger.info(
+            f"⏭️ Promotion no-op for user {user_id}: no pending_payment draft "
+            f"(renewal, or already published)."
+        )
+        return
+
+    draft = drafts[0]
+    website_id = draft["id"]
+    html_content = draft.get("html_content") or ""
+    business_name = draft.get("business_name") or draft.get("name") or "Business"
+
+    if not html_content:
+        logger.warning(
+            f"⚠️ Promotion: draft {website_id} for user {user_id} has empty "
+            f"html_content — cannot publish. Leaving as pending_payment."
+        )
+        return
+
+    # 2. Pick a unique subdomain slug from the business name.
+    base_slug = _slugify_business_name(business_name)
+    if len(base_slug) < 3:
+        base_slug = f"site-{str(website_id).replace('-', '')[:8]}"
+
+    subdomain = base_slug
+    if await _subdomain_is_taken(subdomain, headers):
+        subdomain = None
+        for n in range(2, 12):
+            candidate = f"{base_slug[:22]}-{n}"
+            if not await _subdomain_is_taken(candidate, headers):
+                subdomain = candidate
+                break
+        if subdomain is None:
+            # Extremely unlikely; fall back to a uuid-derived unique slug.
+            subdomain = f"{base_slug[:18]}-{str(website_id).replace('-', '')[:6]}"
+
+    logger.info(
+        f"🪪 Promoting pre-payment draft {website_id} → published for user "
+        f"{user_id} (subdomain chosen: {subdomain})"
+    )
+
+    # 3. Ensure the chat widget is present (every published site needs it).
+    if "chat-widget.js" not in html_content:
+        chat_widget_tag = (
+            "\n<!-- BinaApp Chat Widget - Customer to Owner Chat -->\n"
+            '<script src="https://binaapp-backend.onrender.com/static/widgets/chat-widget.js"\n'
+            f'        data-website-id="{website_id}"\n'
+            '        data-api-url="https://binaapp-backend.onrender.com"></script>'
+        )
+        if "</body>" in html_content:
+            html_content = html_content.replace("</body>", chat_widget_tag + "\n</body>")
+        else:
+            html_content += chat_widget_tag
+
+    # 4. Upload to Supabase Storage FIRST. The subdomain middleware serves from
+    #    storage; if this fails we must NOT flip the DB to published (that would
+    #    show a live site in the dashboard that 404s to visitors).
+    storage_url = (
+        f"{settings.SUPABASE_URL}/storage/v1/object/websites/{subdomain}/index.html"
+    )
+    storage_headers = {
+        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "text/html; charset=utf-8",
+        "x-upsert": "true",
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        upload_resp = await client.post(
+            storage_url, headers=storage_headers, content=html_content.encode("utf-8")
+        )
+
+    if upload_resp.status_code not in [200, 201]:
+        logger.error(
+            f"❌ Promotion: storage upload failed for {subdomain} "
+            f"(draft {website_id}, user {user_id}): "
+            f"{upload_resp.status_code} {upload_resp.text[:200]}. "
+            f"Leaving row as pending_payment so it can be retried/republished."
+        )
+        return
+
+    logger.info(f"✅ Promotion: uploaded {subdomain}/index.html to storage")
+
+    # 5. Flip the draft row to published with the real subdomain + url.
+    published_url = f"https://{subdomain}.binaapp.my"
+    async with httpx.AsyncClient() as client:
+        patch_resp = await client.patch(
+            websites_url,
+            headers={**headers, "Prefer": "return=minimal"},
+            params={"id": f"eq.{website_id}", "status": "eq.pending_payment"},
+            json={
+                "status": "published",
+                "subdomain": subdomain,
+                "public_url": published_url,
+                "html_content": html_content,
+                "updated_at": datetime.utcnow().isoformat(),
+            },
+        )
+
+    if patch_resp.status_code not in [200, 204]:
+        logger.error(
+            f"❌ Promotion: DB flip failed for draft {website_id} (user {user_id}): "
+            f"{patch_resp.status_code} {patch_resp.text[:200]}"
+        )
+        return
+
+    logger.info(
+        f"✅ [WEBSITES PROMOTE] id={website_id} user_id={user_id} "
+        f"status=published subdomain={subdomain} url={published_url}"
+    )
+
+    # 6. Sync usage — a promoted draft is a first publish.
+    try:
+        from app.services.subscription_service import subscription_service
+        await subscription_service.increment_usage(user_id, "create_website")
+        logger.info(f"📊 Promotion: incremented websites_count for user {user_id}")
+    except Exception as usage_err:
+        logger.warning(
+            f"⚠️ Promotion: usage increment failed for user {user_id} "
+            f"(site is live regardless): {usage_err}"
+        )
 
 
 async def _process_addon_payment(user_id: str, transaction_id: str, metadata: dict, bill_code: str = None):
@@ -828,6 +1051,24 @@ async def _process_legacy_payment(bill_code: str, tp_transaction_id: str = None)
 
                 # Update usage limits based on tier
                 await _update_usage_limits(user_id, tier)
+
+                # Promote the user's pre-payment DRAFT to a live site. This is
+                # the LEGACY callback path (bill recorded in the `payments`
+                # table, not `transactions`) — the primary new-subscriber flow
+                # (UpgradeModal → POST /subscribe/{tier}). Without this call a
+                # paying customer here gets an active subscription but their
+                # generated site never goes live. Idempotent + best-effort:
+                # wrapped so it can never break activation.
+                logger.info(f"🟢 promotion CALLED for user {user_id} (legacy callback)")
+                try:
+                    await _promote_pending_draft_for_user(user_id)
+                except Exception as promo_err:
+                    import traceback
+                    logger.error(
+                        f"❌ Draft promotion failed for user {user_id} via legacy "
+                        f"callback (subscription still active): {promo_err}\n"
+                        f"{traceback.format_exc()}"
+                    )
 
         else:
             logger.warning(f"⚠️ No payment record found in legacy table for bill_code: {bill_code}")
@@ -1022,6 +1263,21 @@ async def verify_toyyibpay_payment(bill_code: str):
 
                             # Update usage limits
                             await _update_usage_limits(user_id, tier)
+
+                            # Promote the user's pre-payment DRAFT (legacy
+                            # late-verify path). Same idempotent + best-effort
+                            # call so a bill that only landed in the `payments`
+                            # table still publishes the generated site.
+                            logger.info(f"🟢 promotion CALLED for user {user_id} (legacy verify)")
+                            try:
+                                await _promote_pending_draft_for_user(user_id)
+                            except Exception as promo_err:
+                                import traceback
+                                logger.error(
+                                    f"❌ Draft promotion failed for user {user_id} via "
+                                    f"legacy verify (subscription still active): {promo_err}\n"
+                                    f"{traceback.format_exc()}"
+                                )
 
                             logger.info(f"✅ Late payment processing completed for user {user_id}")
 
