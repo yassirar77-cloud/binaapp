@@ -497,6 +497,56 @@ async def _process_successful_payment(bill_code: str, tp_transaction_id: str = N
         logger.error(f"Error processing payment for bill_code {bill_code}: {e}", exc_info=True)
 
 
+async def _resolve_plan_id_for_tier(tier: str) -> Optional[str]:
+    """Resolve subscription_plans.plan_id for a tier (plan_name).
+
+    The serve-time subdomain gate (plan_features.can_publish_subdomain) joins
+    subscriptions.plan_id → subscription_plans to read the feature flags. If a
+    paid activation flips `tier` to starter/basic/pro but leaves `plan_id`
+    pointing at the signup-default FREE plan, that join lands on the free plan
+    (can_publish_subdomain:false) and the paid user's site serves the paywall.
+    Resolving plan_id from the tier on every activation keeps tier and plan_id
+    from ever disagreeing.
+
+    Returns None on any error/miss. Callers must treat None as "leave plan_id
+    untouched" (writing a guessed/wrong id would be worse than a no-op) and log
+    loudly so the drift is visible.
+    """
+    import httpx
+
+    if not tier:
+        return None
+
+    url = f"{settings.SUPABASE_URL}/rest/v1/subscription_plans"
+    headers = {
+        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                url,
+                headers=headers,
+                params={"plan_name": f"eq.{tier}", "select": "plan_id", "limit": "1"},
+            )
+        if resp.status_code == 200:
+            rows = resp.json()
+            if rows:
+                return rows[0].get("plan_id")
+            logger.error(
+                f"⚠️ plan_id resolver: no subscription_plans row for tier '{tier}'"
+            )
+        else:
+            logger.error(
+                f"⚠️ plan_id resolver: non-200 for tier '{tier}': "
+                f"{resp.status_code} {resp.text[:200]}"
+            )
+    except Exception as e:
+        logger.error(f"⚠️ plan_id resolver failed for tier '{tier}': {e}")
+    return None
+
+
 async def _process_subscription_payment(user_id: str, metadata: dict, bill_code: str):
     """Process a subscription or renewal payment.
 
@@ -556,6 +606,16 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
 
         new_end_date = now + timedelta(days=30)
 
+        # Resolve plan_id from the tier so the serve-time subdomain gate (which
+        # joins subscriptions.plan_id → subscription_plans) reads the PAID
+        # plan's features instead of the stale signup-default free plan_id.
+        plan_id = await _resolve_plan_id_for_tier(plan)
+        if not plan_id:
+            logger.error(
+                f"❌ Could not resolve plan_id for tier '{plan}' (user {user_id}); "
+                f"leaving plan_id unchanged — site may serve the paywall despite payment"
+            )
+
         subscription_data = {
             "tier": plan,
             "status": "active",
@@ -571,6 +631,10 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
             "locked_at": None,
             "lock_reason": None,
         }
+
+        # Only write plan_id when we resolved it — never overwrite with a guess.
+        if plan_id:
+            subscription_data["plan_id"] = plan_id
 
         async with httpx.AsyncClient() as client:
             if existing_sub:
@@ -1035,14 +1099,28 @@ async def _process_legacy_payment(bill_code: str, tp_transaction_id: str = None)
                 # Update the payment record status
                 await supabase_service.update_payment_status(payment.get("id"), "successful")
 
-                # Upgrade user's subscription
+                # Upgrade user's subscription. Resolve plan_id from the tier so
+                # the serve-time subdomain gate doesn't keep reading the stale
+                # signup-default free plan_id and serve the paywall to a paid
+                # user (the legacy /subscribe/{tier} path previously wrote tier
+                # without plan_id, causing exactly that drift).
                 tier_price = TIER_PRICES.get(tier, 0)
-                upgrade_success = await supabase_service.update_user_subscription(user_id, {
+                sub_update = {
                     "tier": tier,
                     "status": "active",
                     "price": tier_price,
                     "toyyibpay_bill_code": bill_code
-                })
+                }
+                plan_id = await _resolve_plan_id_for_tier(tier)
+                if plan_id:
+                    sub_update["plan_id"] = plan_id
+                else:
+                    logger.error(
+                        f"❌ Could not resolve plan_id for tier '{tier}' (user "
+                        f"{user_id}, legacy callback); subscription keeps prior "
+                        f"plan_id and may serve the paywall despite payment"
+                    )
+                upgrade_success = await supabase_service.update_user_subscription(user_id, sub_update)
 
                 if upgrade_success:
                     logger.info(f"✅ Subscription upgraded for user {user_id} to {tier}")
@@ -1252,14 +1330,28 @@ async def verify_toyyibpay_payment(bill_code: str):
                             # Update payment status
                             await supabase_service.update_payment_status(payment.get("id"), "successful")
 
-                            # Upgrade subscription
+                            # Upgrade subscription. Resolve plan_id from the
+                            # tier (same as the legacy callback) so the paid
+                            # plan's features back the subdomain gate instead of
+                            # the stale signup-default free plan_id.
                             tier_price = TIER_PRICES.get(tier, 0)
-                            await supabase_service.update_user_subscription(user_id, {
+                            sub_update = {
                                 "tier": tier,
                                 "status": "active",
                                 "price": tier_price,
                                 "toyyibpay_bill_code": bill_code
-                            })
+                            }
+                            plan_id = await _resolve_plan_id_for_tier(tier)
+                            if plan_id:
+                                sub_update["plan_id"] = plan_id
+                            else:
+                                logger.error(
+                                    f"❌ Could not resolve plan_id for tier "
+                                    f"'{tier}' (user {user_id}, legacy verify); "
+                                    f"subscription keeps prior plan_id and may "
+                                    f"serve the paywall despite payment"
+                                )
+                            await supabase_service.update_user_subscription(user_id, sub_update)
 
                             # Update usage limits
                             await _update_usage_limits(user_id, tier)

@@ -959,9 +959,29 @@ async def _apply_subscription_upgrade(user_id: str, plan: str, headers: dict):
     """Apply subscription upgrade for user"""
     import httpx
     from datetime import timedelta
+    from app.api.v1.endpoints.payments import _resolve_plan_id_for_tier
 
     # Calculate new end date (30 days from now)
     end_date = (datetime.utcnow() + timedelta(days=30)).isoformat()
+
+    # Resolve plan_id from the tier so the serve-time subdomain gate reads the
+    # paid plan's features, not the stale signup-default free plan_id.
+    plan_id = await _resolve_plan_id_for_tier(plan)
+    if not plan_id:
+        logger.error(
+            f"❌ Could not resolve plan_id for tier '{plan}' (user {user_id}); "
+            f"leaving plan_id unchanged — site may serve the paywall despite payment"
+        )
+
+    subscription_data = {
+        "tier": plan,
+        "status": "active",
+        "start_date": datetime.utcnow().isoformat(),
+        "end_date": end_date,
+        "auto_renew": True
+    }
+    if plan_id:
+        subscription_data["plan_id"] = plan_id
 
     # Check if subscription exists
     url = f"{settings.SUPABASE_URL}/rest/v1/subscriptions"
@@ -976,13 +996,7 @@ async def _apply_subscription_upgrade(user_id: str, plan: str, headers: dict):
                 url,
                 headers={**headers, "Prefer": "return=minimal"},
                 params=params,
-                json={
-                    "tier": plan,
-                    "status": "active",
-                    "start_date": datetime.utcnow().isoformat(),
-                    "end_date": end_date,
-                    "auto_renew": True
-                }
+                json=subscription_data
             )
             if resp.status_code not in [200, 204]:
                 logger.error(f"Failed to update subscription for {user_id}: {resp.status_code} {resp.text}")
@@ -991,14 +1005,7 @@ async def _apply_subscription_upgrade(user_id: str, plan: str, headers: dict):
             resp = await client.post(
                 url,
                 headers={**headers, "Prefer": "return=minimal"},
-                json={
-                    "user_id": user_id,
-                    "tier": plan,
-                    "status": "active",
-                    "start_date": datetime.utcnow().isoformat(),
-                    "end_date": end_date,
-                    "auto_renew": True
-                }
+                json={"user_id": user_id, **subscription_data}
             )
             if resp.status_code not in [200, 201, 204]:
                 logger.error(f"Failed to create subscription for {user_id}: {resp.status_code} {resp.text}")
@@ -1008,9 +1015,19 @@ async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
     """Apply subscription renewal for user"""
     import httpx
     from datetime import timedelta
+    from app.api.v1.endpoints.payments import _resolve_plan_id_for_tier
 
     # Calculate new end date (30 days from now)
     end_date = (datetime.utcnow() + timedelta(days=30)).isoformat()
+
+    # Resolve plan_id from the tier so a renewal also heals any prior plan_id
+    # drift (tier and plan_id must never disagree at serve time).
+    plan_id = await _resolve_plan_id_for_tier(plan)
+    if not plan_id:
+        logger.error(
+            f"❌ Could not resolve plan_id for tier '{plan}' (user {user_id}, renewal); "
+            f"leaving plan_id unchanged — site may serve the paywall despite payment"
+        )
 
     url = f"{settings.SUPABASE_URL}/rest/v1/subscriptions"
     params = {"user_id": f"eq.{user_id}"}
@@ -1032,31 +1049,39 @@ async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
                 except Exception:
                     pass
 
+            renewal_data = {
+                "status": "active",
+                "end_date": end_date,
+                "auto_renew": True
+            }
+            if plan_id:
+                renewal_data["plan_id"] = plan_id
+
             resp = await client.patch(
                 url,
                 headers={**headers, "Prefer": "return=minimal"},
                 params=params,
-                json={
-                    "status": "active",
-                    "end_date": end_date,
-                    "auto_renew": True
-                }
+                json=renewal_data
             )
             if resp.status_code not in [200, 204]:
                 logger.error(f"Failed to renew subscription for {user_id}: {resp.status_code} {resp.text}")
         else:
             # Create new subscription if doesn't exist
+            create_data = {
+                "user_id": user_id,
+                "tier": plan,
+                "status": "active",
+                "start_date": datetime.utcnow().isoformat(),
+                "end_date": end_date,
+                "auto_renew": True
+            }
+            if plan_id:
+                create_data["plan_id"] = plan_id
+
             resp = await client.post(
                 url,
                 headers={**headers, "Prefer": "return=minimal"},
-                json={
-                    "user_id": user_id,
-                    "tier": plan,
-                    "status": "active",
-                    "start_date": datetime.utcnow().isoformat(),
-                    "end_date": end_date,
-                    "auto_renew": True
-                }
+                json=create_data
             )
             if resp.status_code not in [200, 201, 204]:
                 logger.error(f"Failed to create subscription for {user_id}: {resp.status_code} {resp.text}")
