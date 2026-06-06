@@ -1016,6 +1016,36 @@ export default function CreatePage() {
       return
     }
 
+    // Persist the typed project name + subdomain onto the pre-payment draft
+    // BEFORE any payment divert. For a free user the free-tier gate below sends
+    // them to the upgrade flow without ever calling /api/publish, so without
+    // this the name/subdomain would be lost and post-payment promotion would
+    // fall back to the AI-derived name + a regenerated slug. Best-effort: a
+    // failure here must never block publish/payment (the values are re-sent on
+    // the paid /api/publish path anyway).
+    try {
+      let intentToken = getStoredToken()
+      if (!intentToken && supabase) {
+        const { data: { session } } = await supabase.auth.getSession()
+        intentToken = session?.access_token || null
+      }
+      if (intentToken) {
+        await fetch(`${API_BASE_URL}/api/draft/publish-intent`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${intentToken}`,
+          },
+          body: JSON.stringify({
+            project_name: projectName,
+            subdomain: cleanSubdomain,
+          }),
+        })
+      }
+    } catch (intentErr) {
+      console.warn('publish-intent save failed (continuing):', intentErr)
+    }
+
     // Free-tier gate: free plan can't publish to a subdomain.
     // Uses currentTier already populated by checkSubscriptionStatus().
     // Guarded by !subscriptionLoading so a slow status fetch doesn't

@@ -827,6 +827,12 @@ async def _promote_pending_draft_for_user(user_id: str):
     websites_url = f"{settings.SUPABASE_URL}/rest/v1/websites"
 
     # 1. Most-recent pending_payment draft for this user.
+    #    requested_subdomain (migration 044) is the user's build-time subdomain
+    #    choice. Select it, but degrade gracefully if the column hasn't been
+    #    applied to this database yet: a missing-column 400 would otherwise abort
+    #    promotion for EVERY user. On that error we retry the legacy select so
+    #    the working flow keeps publishing (just without the subdomain override).
+    _base_select = "id,user_id,business_name,name,subdomain,html_content,status"
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             websites_url,
@@ -834,11 +840,27 @@ async def _promote_pending_draft_for_user(user_id: str):
             params={
                 "user_id": f"eq.{user_id}",
                 "status": "eq.pending_payment",
-                "select": "id,user_id,business_name,name,subdomain,html_content,status",
+                "select": f"{_base_select},requested_subdomain",
                 "order": "created_at.desc",
                 "limit": "1",
             },
         )
+        if resp.status_code == 400 and "requested_subdomain" in resp.text:
+            logger.warning(
+                "⚠️ Promotion: requested_subdomain column missing (migration 044 "
+                "not applied yet) — falling back to legacy slug-from-name."
+            )
+            resp = await client.get(
+                websites_url,
+                headers=headers,
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "status": "eq.pending_payment",
+                    "select": _base_select,
+                    "order": "created_at.desc",
+                    "limit": "1",
+                },
+            )
 
     if resp.status_code != 200:
         logger.warning(
@@ -867,10 +889,18 @@ async def _promote_pending_draft_for_user(user_id: str):
         )
         return
 
-    # 2. Pick a unique subdomain slug from the business name.
-    base_slug = _slugify_business_name(business_name)
-    if len(base_slug) < 3:
-        base_slug = f"site-{str(website_id).replace('-', '')[:8]}"
+    # 2. Subdomain: prefer the subdomain the user explicitly chose at build time
+    #    (saved on the draft as requested_subdomain by /api/draft/publish-intent).
+    #    Only regenerate a slug from the business name when the user left the
+    #    subdomain field blank. The collision-suffix logic below still applies as
+    #    a safety net if the chosen subdomain is already taken by another site.
+    requested_slug = _slugify_business_name(draft.get("requested_subdomain") or "")
+    if len(requested_slug) >= 2:
+        base_slug = requested_slug
+    else:
+        base_slug = _slugify_business_name(business_name)
+        if len(base_slug) < 3:
+            base_slug = f"site-{str(website_id).replace('-', '')[:8]}"
 
     subdomain = base_slug
     if await _subdomain_is_taken(subdomain, headers):
