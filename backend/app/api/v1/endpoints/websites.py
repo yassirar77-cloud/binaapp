@@ -20,7 +20,7 @@ from app.models.schemas import (
 )
 from app.services.supabase_client import supabase_service
 from app.core.supabase import get_supabase_client
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_verified_email
 from app.services.ai_service import ai_service
 from app.services.storage_service import storage_service
 from app.services.templates import TemplateService
@@ -844,10 +844,13 @@ async def regenerate_website(
 async def publish_website(
     website_id: str,
     http_request: Request,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_verified_email)
 ):
     """
-    Publish website to subdomain
+    Publish website to subdomain.
+
+    Requires a verified email (require_verified_email) — publishing is gated
+    behind email verification.
     """
     try:
         website = await supabase_service.get_website(website_id)

@@ -428,6 +428,72 @@ export async function signIn(email: string, password: string) {
 }
 
 /**
+ * Verify the current user's email with the 6-digit code.
+ * Requires a stored auth token (set at signup/login).
+ */
+export async function verifyEmail(code: string) {
+  const token = getStoredToken()
+  if (!token) {
+    throw new Error('Sila log masuk semula untuk mengesahkan e-mel anda.')
+  }
+
+  const response = await fetch(`${API_BASE}/api/v1/verify-email`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ code }),
+  })
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(data.detail || data.message || 'Kod pengesahan tidak sah')
+  }
+
+  // Keep stored user in sync so UI can unlock publish/pay without re-login.
+  try {
+    const storedUser = localStorage.getItem(USER_KEY)
+    if (storedUser) {
+      const user = JSON.parse(storedUser)
+      user.email_verified = true
+      localStorage.setItem(USER_KEY, JSON.stringify(user))
+    }
+  } catch {
+    // non-fatal
+  }
+
+  return data
+}
+
+/**
+ * Request a new verification code to be emailed to the current user.
+ */
+export async function resendVerification() {
+  const token = getStoredToken()
+  if (!token) {
+    throw new Error('Sila log masuk semula untuk menghantar kod baharu.')
+  }
+
+  const response = await fetch(`${API_BASE}/api/v1/resend-verification`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new Error(data.detail || data.message || 'Gagal menghantar kod pengesahan')
+  }
+
+  return data
+}
+
+/**
  * Sign out user - clear stored tokens
  */
 export async function signOut() {

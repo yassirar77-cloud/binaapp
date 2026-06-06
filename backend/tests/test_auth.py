@@ -84,6 +84,35 @@ class TestRegister:
 
         assert response.status_code == 422
 
+    def test_disposable_email_rejected(self, auth_client):
+        # Known disposable provider -> blocked by the schema validator (422).
+        response = auth_client.post("/api/v1/register", json={
+            "email": "throwaway@mailinator.com",
+            "password": "securepass123",
+            "full_name": "Disposable",
+        })
+
+        assert response.status_code == 422
+
+    def test_registration_returns_unverified(self, auth_client, mock_supabase_service):
+        mock_supabase_service.create_user.return_value = {
+            "user": {"id": "unverified-id", "email": "unverified@example.com"}
+        }
+
+        response = auth_client.post("/api/v1/register", json={
+            "email": "unverified@example.com",
+            "password": "securepass123",
+            "full_name": "Unverified User",
+        })
+
+        assert response.status_code == 201
+        data = response.json()
+        # Account is created UNVERIFIED; the JWT is still issued so the user
+        # can use the builder immediately.
+        assert data["email_verified"] is False
+        assert data["access_token"]
+        assert data["user"]["email_verified"] is False
+
 
 class TestLogin:
     def test_successful_login(self, auth_client, mock_supabase_service):
@@ -120,6 +149,84 @@ class TestLogin:
         })
 
         assert response.status_code == 401
+
+
+class TestEmailVerification:
+    def test_verify_requires_auth(self, auth_client):
+        response = auth_client.post("/api/v1/verify-email", json={"code": "123456"})
+        assert response.status_code in (401, 403)
+
+    def test_verify_success(self, auth_client, mock_supabase_service, valid_token, test_user_id):
+        from app.core.verification import hash_code
+
+        mock_supabase_service.is_email_verified.return_value = False
+        mock_supabase_service.get_active_verification_code.return_value = {
+            "id": "code-1",
+            "code_hash": hash_code(test_user_id, "654321"),
+            "expires_at": "2999-01-01T00:00:00",
+            "attempts": 0,
+        }
+        mock_supabase_service.consume_verification_code.return_value = True
+        mock_supabase_service.mark_email_verified.return_value = True
+
+        response = auth_client.post(
+            "/api/v1/verify-email",
+            json={"code": "654321"},
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["email_verified"] is True
+        mock_supabase_service.mark_email_verified.assert_awaited()
+
+    def test_verify_wrong_code(self, auth_client, mock_supabase_service, valid_token, test_user_id):
+        from app.core.verification import hash_code
+
+        mock_supabase_service.is_email_verified.return_value = False
+        mock_supabase_service.get_active_verification_code.return_value = {
+            "id": "code-2",
+            "code_hash": hash_code(test_user_id, "111111"),
+            "expires_at": "2999-01-01T00:00:00",
+            "attempts": 0,
+        }
+
+        response = auth_client.post(
+            "/api/v1/verify-email",
+            json={"code": "000000"},
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+
+        assert response.status_code == 400
+        mock_supabase_service.increment_verification_attempts.assert_awaited()
+        mock_supabase_service.mark_email_verified.assert_not_awaited()
+
+    def test_verify_no_active_code(self, auth_client, mock_supabase_service, valid_token):
+        mock_supabase_service.is_email_verified.return_value = False
+        mock_supabase_service.get_active_verification_code.return_value = None
+
+        response = auth_client.post(
+            "/api/v1/verify-email",
+            json={"code": "123456"},
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+
+        assert response.status_code == 400
+
+    def test_verify_already_verified_is_idempotent(self, auth_client, mock_supabase_service, valid_token):
+        mock_supabase_service.is_email_verified.return_value = True
+
+        response = auth_client.post(
+            "/api/v1/verify-email",
+            json={"code": "123456"},
+            headers={"Authorization": f"Bearer {valid_token}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["email_verified"] is True
+
+    def test_resend_requires_auth(self, auth_client):
+        response = auth_client.post("/api/v1/resend-verification")
+        assert response.status_code in (401, 403)
 
 
 class TestLogout:

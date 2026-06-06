@@ -19,6 +19,7 @@ import asyncio
 from app.services.storage_service import storage_service
 from app.services.supabase_client import supabase_service
 from app.core.security import get_optional_current_user
+from app.core.config import settings
 from app.services.subscription_service import subscription_service
 
 router = APIRouter()
@@ -291,6 +292,22 @@ async def publish_website(
         # Update request.user_id for downstream use
         request.user_id = user_id
         logger.info("=" * 80)
+
+        # EMAIL VERIFICATION GATE: publishing requires a verified email.
+        # The builder/generate flow stays open (try-it-now), but a website
+        # cannot be published until the owner confirms their email. Enforced on
+        # the resolved user_id regardless of how it was authenticated.
+        if settings.EMAIL_VERIFICATION_ENABLED:
+            if not await supabase_service.is_email_verified(user_id):
+                logger.warning(f"   ⛔ Publish blocked: email not verified for user {user_id}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=(
+                        "Sila sahkan e-mel anda sebelum menerbitkan website. "
+                        "/ Please verify your email before publishing."
+                    ),
+                    headers={"X-Email-Verification-Required": "true"},
+                )
 
         # NOTE: Subscription limit check is moved AFTER is_republish is determined
         # This allows users to republish/update their existing websites even when at limit

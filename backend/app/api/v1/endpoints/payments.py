@@ -25,7 +25,7 @@ from app.models.schemas import (
 from app.services.payment_service import payment_service
 from app.services.supabase_client import supabase_service
 from app.services.toyyibpay_service import toyyibpay_service
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_verified_email
 from app.core.config import settings
 
 router = APIRouter()
@@ -65,10 +65,13 @@ async def get_subscription_plans():
 @router.post("/create-checkout-session", response_model=CheckoutSessionResponse)
 async def create_checkout_session(
     request: CheckoutSessionRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_verified_email)
 ):
     """
-    Create Stripe checkout session for subscription
+    Create Stripe checkout session for subscription.
+
+    Requires a verified email (require_verified_email) — payment is gated
+    behind email verification.
     """
     try:
         user_id = current_user.get("sub")
@@ -291,10 +294,13 @@ async def test_toyyibpay_credentials():
 @router.post("/toyyibpay/create-bill")
 async def create_toyyibpay_bill(
     request: Request,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_verified_email)
 ):
     """
-    Create a ToyyibPay bill for subscription payment
+    Create a ToyyibPay bill for subscription payment.
+
+    Requires a verified email (require_verified_email) — payment is gated
+    behind email verification.
     """
     try:
         body = await request.json()
@@ -1667,6 +1673,19 @@ async def create_subscription_payment(
             )
 
         user_id = user_id.strip()
+
+        # EMAIL VERIFICATION GATE: payment requires a verified email.
+        if settings.EMAIL_VERIFICATION_ENABLED and not await supabase_service.is_email_verified(user_id):
+            logger.warning(f"⛔ Subscription payment blocked: email not verified for user {user_id[:8]}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Sila sahkan e-mel anda sebelum membuat pembayaran. "
+                    "/ Please verify your email before making a payment."
+                ),
+                headers={"X-Email-Verification-Required": "true"},
+            )
+
         price = TIER_PRICES[tier]
 
         logger.info(f"Creating subscription payment: tier={tier}, user_id={user_id[:8]}...")
@@ -1800,6 +1819,18 @@ async def purchase_addon(
             )
 
         user_id = user_id.strip()
+
+        # EMAIL VERIFICATION GATE: payment requires a verified email.
+        if settings.EMAIL_VERIFICATION_ENABLED and not await supabase_service.is_email_verified(user_id):
+            logger.warning(f"⛔ Addon purchase blocked: email not verified for user {user_id[:8]}")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Sila sahkan e-mel anda sebelum membuat pembayaran. "
+                    "/ Please verify your email before making a payment."
+                ),
+                headers={"X-Email-Verification-Required": "true"},
+            )
 
         if addon_type not in ADDON_PRICES:
             raise HTTPException(
