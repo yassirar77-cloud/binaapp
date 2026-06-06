@@ -3186,11 +3186,16 @@ async def save_publish_intent(
     draft = draft_resp.data[0]
     draft_id = draft["id"]
 
-    update: dict = {"updated_at": datetime.now().isoformat()}
+    # The name/business_name/html_content write and the requested_subdomain write
+    # are done SEPARATELY on purpose. requested_subdomain (migration 044) may not
+    # be applied to this database yet; bundling it with the name write would make
+    # the whole UPDATE fail on the missing column and silently drop the name too.
+    # Splitting them means the name always lands, and the subdomain is best-effort.
+    core_update: dict = {"updated_at": datetime.now().isoformat()}
 
     if project_name:
-        update["name"] = project_name
-        update["business_name"] = project_name
+        core_update["name"] = project_name
+        core_update["business_name"] = project_name
         # Rewrite the AI-baked business name in the already-generated HTML so the
         # live site renders the user's typed name. Best-effort, case-insensitive,
         # and fully guarded — a failure here must never block saving the intent.
@@ -3198,29 +3203,50 @@ async def save_publish_intent(
         html = draft.get("html_content") or ""
         if old_name and html and old_name.lower() != project_name.lower():
             try:
-                update["html_content"] = re.sub(
+                core_update["html_content"] = re.sub(
                     re.escape(old_name), project_name, html, flags=re.IGNORECASE
                 )
             except Exception as rw_err:
                 logger.warning(f"⚠️ publish-intent: HTML name rewrite skipped for draft {draft_id}: {rw_err}")
 
-    if requested_subdomain:
-        update["requested_subdomain"] = requested_subdomain
+    # name_saved/subdomain_saved reflect ROWS ACTUALLY CHANGED (len(result.data)),
+    # not merely "the UPDATE didn't throw" — so a status-race or wrong-row match
+    # that touches 0 rows is reported as not-saved instead of a false positive.
+    name_saved = False
+    if len(core_update) > 1:  # more than just updated_at
+        try:
+            _res = supabase.table("websites").update(core_update).eq(
+                "id", draft_id
+            ).eq("status", "pending_payment").execute()
+            name_saved = bool(project_name) and bool(_res.data)
+        except Exception as u_err:
+            logger.warning(f"⚠️ publish-intent: name update failed for {draft_id}: {u_err}")
 
-    try:
-        supabase.table("websites").update(update).eq("id", draft_id).eq(
-            "status", "pending_payment"
-        ).execute()
-    except Exception as u_err:
-        logger.warning(f"⚠️ publish-intent: draft update failed for {draft_id}: {u_err}")
-        return JSONResponse(status_code=200, content={"success": False, "error": "update failed"})
+    subdomain_saved = False
+    if requested_subdomain:
+        try:
+            _res = supabase.table("websites").update(
+                {"requested_subdomain": requested_subdomain}
+            ).eq("id", draft_id).eq("status", "pending_payment").execute()
+            subdomain_saved = bool(_res.data)
+        except Exception as s_err:
+            # Almost certainly the column is missing (migration 044 not applied).
+            # Promotion degrades to slug-from-name in that case, so this is a
+            # recoverable warning, not a failure of the whole request.
+            logger.warning(
+                f"⚠️ publish-intent: requested_subdomain not saved for {draft_id} "
+                f"(is migration 044 applied?): {s_err}"
+            )
 
     logger.info(
         f"✅ [PUBLISH INTENT] draft {draft_id} user {user_id} "
-        f"name={'set' if project_name else 'unchanged'} "
-        f"requested_subdomain={requested_subdomain or 'unchanged'}"
+        f"name={'saved' if name_saved else 'unchanged'} "
+        f"requested_subdomain={'saved' if subdomain_saved else 'NOT saved'}"
     )
-    return JSONResponse(status_code=200, content={"success": True})
+    return JSONResponse(
+        status_code=200,
+        content={"success": True, "name_saved": name_saved, "subdomain_saved": subdomain_saved},
+    )
 
 
 @app.post("/api/publish")

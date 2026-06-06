@@ -1030,7 +1030,8 @@ export default function CreatePage() {
         intentToken = session?.access_token || null
       }
       if (intentToken) {
-        await fetch(`${API_BASE_URL}/api/draft/publish-intent`, {
+        console.log('📝 publish-intent: saving', { project_name: projectName, subdomain: cleanSubdomain })
+        const intentRes = await fetch(`${API_BASE_URL}/api/draft/publish-intent`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1041,6 +1042,9 @@ export default function CreatePage() {
             subdomain: cleanSubdomain,
           }),
         })
+        console.log('📝 publish-intent: response', intentRes.status, await intentRes.clone().json().catch(() => null))
+      } else {
+        console.warn('📝 publish-intent: no auth token, skipping')
       }
     } catch (intentErr) {
       console.warn('publish-intent save failed (continuing):', intentErr)
