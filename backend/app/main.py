@@ -3127,6 +3127,102 @@ def replace_template_placeholders(html: str, request_data: dict) -> str:
     return html
 
 
+@app.post("/api/draft/publish-intent")
+async def save_publish_intent(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """Persist the project name + subdomain the user typed in the publish modal
+    onto their most-recent pre-payment draft.
+
+    Why this exists: a free-account user types PROJECT NAME and SUBDOMAIN in the
+    publish modal, then clicks Publish — but the free-tier gate diverts them to
+    the upgrade/payment flow BEFORE /api/publish runs, so those two inputs used
+    to live only in browser state and were lost. After payment,
+    _promote_pending_draft_for_user() turned the draft live using the AI-derived
+    business name and a regenerated slug. The frontend calls this endpoint right
+    before diverting to payment so the user's choices survive to promotion:
+      • name + business_name  → the typed project name (also rewritten into the
+        already-generated html_content so the live site renders it, best-effort)
+      • requested_subdomain   → the typed subdomain (promotion prefers it)
+
+    Idempotent and best-effort: no draft (e.g. anonymous build) is a logged
+    no-op, never an error, and must never block the payment flow.
+    """
+    user_id = current_user.get("sub") or current_user.get("id")
+    if not user_id:
+        return JSONResponse(status_code=401, content={"success": False, "error": "Unauthorized"})
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
+
+    project_name = (body.get("project_name") or body.get("name") or "").strip()
+    raw_subdomain = (body.get("subdomain") or "").lower().strip()
+    requested_subdomain = re.sub(r"[^a-z0-9-]", "", raw_subdomain)
+
+    if not supabase:
+        return JSONResponse(status_code=200, content={"success": False, "error": "storage unavailable"})
+
+    try:
+        draft_resp = (
+            supabase.table("websites")
+            .select("id,html_content,business_name,name")
+            .eq("user_id", user_id)
+            .eq("status", "pending_payment")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception as q_err:
+        logger.warning(f"⚠️ publish-intent: draft lookup failed for user {user_id}: {q_err}")
+        return JSONResponse(status_code=200, content={"success": False, "error": "lookup failed"})
+
+    if not draft_resp.data:
+        logger.info(f"⏭️ publish-intent no-op for user {user_id}: no pending_payment draft")
+        return JSONResponse(status_code=200, content={"success": False, "error": "no draft"})
+
+    draft = draft_resp.data[0]
+    draft_id = draft["id"]
+
+    update: dict = {"updated_at": datetime.now().isoformat()}
+
+    if project_name:
+        update["name"] = project_name
+        update["business_name"] = project_name
+        # Rewrite the AI-baked business name in the already-generated HTML so the
+        # live site renders the user's typed name. Best-effort, case-insensitive,
+        # and fully guarded — a failure here must never block saving the intent.
+        old_name = (draft.get("business_name") or draft.get("name") or "").strip()
+        html = draft.get("html_content") or ""
+        if old_name and html and old_name.lower() != project_name.lower():
+            try:
+                update["html_content"] = re.sub(
+                    re.escape(old_name), project_name, html, flags=re.IGNORECASE
+                )
+            except Exception as rw_err:
+                logger.warning(f"⚠️ publish-intent: HTML name rewrite skipped for draft {draft_id}: {rw_err}")
+
+    if requested_subdomain:
+        update["requested_subdomain"] = requested_subdomain
+
+    try:
+        supabase.table("websites").update(update).eq("id", draft_id).eq(
+            "status", "pending_payment"
+        ).execute()
+    except Exception as u_err:
+        logger.warning(f"⚠️ publish-intent: draft update failed for {draft_id}: {u_err}")
+        return JSONResponse(status_code=200, content={"success": False, "error": "update failed"})
+
+    logger.info(
+        f"✅ [PUBLISH INTENT] draft {draft_id} user {user_id} "
+        f"name={'set' if project_name else 'unchanged'} "
+        f"requested_subdomain={requested_subdomain or 'unchanged'}"
+    )
+    return JSONResponse(status_code=200, content={"success": True})
+
+
 @app.post("/api/publish")
 async def publish_website(
     request: Request,
