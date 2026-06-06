@@ -3209,23 +3209,26 @@ async def save_publish_intent(
             except Exception as rw_err:
                 logger.warning(f"⚠️ publish-intent: HTML name rewrite skipped for draft {draft_id}: {rw_err}")
 
+    # name_saved/subdomain_saved reflect ROWS ACTUALLY CHANGED (len(result.data)),
+    # not merely "the UPDATE didn't throw" — so a status-race or wrong-row match
+    # that touches 0 rows is reported as not-saved instead of a false positive.
     name_saved = False
     if len(core_update) > 1:  # more than just updated_at
         try:
-            supabase.table("websites").update(core_update).eq("id", draft_id).eq(
-                "status", "pending_payment"
-            ).execute()
-            name_saved = bool(project_name)
+            _res = supabase.table("websites").update(core_update).eq(
+                "id", draft_id
+            ).eq("status", "pending_payment").execute()
+            name_saved = bool(project_name) and bool(_res.data)
         except Exception as u_err:
             logger.warning(f"⚠️ publish-intent: name update failed for {draft_id}: {u_err}")
 
     subdomain_saved = False
     if requested_subdomain:
         try:
-            supabase.table("websites").update(
+            _res = supabase.table("websites").update(
                 {"requested_subdomain": requested_subdomain}
             ).eq("id", draft_id).eq("status", "pending_payment").execute()
-            subdomain_saved = True
+            subdomain_saved = bool(_res.data)
         except Exception as s_err:
             # Almost certainly the column is missing (migration 044 not applied).
             # Promotion degrades to slug-from-name in that case, so this is a
