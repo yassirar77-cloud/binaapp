@@ -26,9 +26,9 @@ async def _issue_verification_code(user_id: str, email: str, full_name: str = No
     """
     Generate a fresh 6-digit code, persist its hash, and email it.
 
-    Best-effort: returns whether the email was dispatched. Callers should NOT
-    fail the parent request if this returns False (the user can request a
-    resend) — but they should surface that the email is pending.
+    Returns whether the email was actually dispatched. Callers decide how to
+    react: /register treats False as fatal and rolls back (see register), while
+    /resend-verification reports it and lets the user try again.
     """
     code = generate_code()
     ttl = settings.EMAIL_VERIFICATION_CODE_TTL_MINUTES
@@ -115,8 +115,15 @@ async def register(user_data: UserCreate):
             }
         )
 
-        # STEP 3: Send the 6-digit verification code (best-effort). A failure
-        # here must NOT fail registration — the user can request a resend.
+        # STEP 3: Send the 6-digit verification code.
+        #
+        # FAIL-FAST: when verification is enabled, the code email is part of a
+        # working registration — if it cannot be sent (SMTP misconfigured or
+        # down), we must NOT hand back a cheerful "success" for an account that
+        # can never publish or pay. Instead we roll back the just-created auth
+        # user (freeing the email) and return a clear error so the user can
+        # retry. This is the safeguard against the silent-stuck-account case:
+        # without working email, every new signup would otherwise dead-end.
         email_sent = False
         if settings.EMAIL_VERIFICATION_ENABLED:
             try:
@@ -127,6 +134,22 @@ async def register(user_data: UserCreate):
                 )
             except Exception as e:
                 logger.error(f"Verification code issuance failed for {user_email}: {e}")
+                email_sent = False
+
+            if not email_sent:
+                logger.error(
+                    f"Rolling back registration for {user_email}: verification "
+                    f"email could not be sent (check SMTP_USER / SMTP_PASSWORD)."
+                )
+                await supabase_service.delete_user(user_id)
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=(
+                        "Kami tidak dapat menghantar e-mel pengesahan anda sekarang. "
+                        "Sila cuba lagi sebentar lagi. / We couldn't send your "
+                        "verification email right now. Please try again shortly."
+                    ),
+                )
 
         logger.info(f"✅ User registered successfully: {user_email} (verification email sent: {email_sent})")
 

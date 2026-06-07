@@ -152,6 +152,30 @@ class SupabaseService:
             print(f"❌ Create user error: {str(e)}")
             return None
 
+    async def delete_user(self, user_id: str) -> bool:
+        """
+        Delete an auth user via the Supabase Admin API.
+
+        Used to roll back a just-created account when a required post-creation
+        step (e.g. sending the email-verification code) fails, so the email is
+        freed and the user can register again cleanly instead of being stuck
+        with a taken-but-unverifiable account. Deleting the auth user cascades
+        to profiles / subscriptions / verification codes via their FK
+        ON DELETE CASCADE constraints.
+        """
+        try:
+            url = f"{self.url}/auth/v1/admin/users/{user_id}"
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(url, headers=self.service_headers)
+            if response.status_code in [200, 204]:
+                print(f"✅ Rolled back auth user: {user_id}")
+                return True
+            print(f"❌ Delete user failed: {response.status_code} - {response.text}")
+            return False
+        except Exception as e:
+            print(f"❌ Delete user error: {str(e)}")
+            return False
+
     async def create_user_profile(self, user_id: str, email: str, full_name: Optional[str] = None, role: str = "customer") -> Optional[Dict[str, Any]]:
         """
         Create a user profile in the public.profiles table.

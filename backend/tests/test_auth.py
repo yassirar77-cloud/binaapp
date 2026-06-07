@@ -10,9 +10,19 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def auth_client(mock_supabase_service):
-    """TestClient with supabase_service mocked out."""
-    with patch("app.api.v1.endpoints.auth.supabase_service", mock_supabase_service):
+def mock_email_service():
+    """Mock the email_service used in auth endpoints (verification sends OK)."""
+    from unittest.mock import AsyncMock
+    m = AsyncMock()
+    m.send_verification_code = AsyncMock(return_value=True)
+    return m
+
+
+@pytest.fixture
+def auth_client(mock_supabase_service, mock_email_service):
+    """TestClient with supabase_service and email_service mocked out."""
+    with patch("app.api.v1.endpoints.auth.supabase_service", mock_supabase_service), \
+         patch("app.api.v1.endpoints.auth.email_service", mock_email_service):
         from app.main import app
         yield TestClient(app)
 
@@ -36,7 +46,8 @@ class TestRegister:
         assert data["user"]["email"] == "new@example.com"
         # Profile + subscription are created by the DB trigger, not the backend.
         mock_supabase_service.create_user_profile.assert_not_called()
-        mock_supabase_service.delete_auth_user.assert_not_called()
+        # Email sent fine, so no rollback.
+        mock_supabase_service.delete_user.assert_not_called()
 
     def test_registration_fails_when_user_creation_fails(self, auth_client, mock_supabase_service):
         mock_supabase_service.create_user.return_value = None
@@ -49,9 +60,10 @@ class TestRegister:
 
         assert response.status_code == 400
 
-    def test_registration_does_not_insert_profile_or_rollback(self, auth_client, mock_supabase_service):
+    def test_registration_does_not_insert_profile_on_success(self, auth_client, mock_supabase_service):
         # The handle_new_user trigger owns profile + subscription creation, so
-        # the backend must never insert a profile or roll back the auth user.
+        # the backend must never insert a profile. On the happy path (email
+        # sent) it also must not roll back the auth user.
         mock_supabase_service.create_user.return_value = {
             "user": {"id": "trigger-id", "email": "trigger@example.com"}
         }
@@ -64,7 +76,27 @@ class TestRegister:
 
         assert response.status_code == 201
         mock_supabase_service.create_user_profile.assert_not_called()
-        mock_supabase_service.delete_auth_user.assert_not_called()
+        mock_supabase_service.delete_user.assert_not_called()
+
+    def test_registration_fails_fast_when_verification_email_unsendable(
+        self, auth_client, mock_supabase_service, mock_email_service
+    ):
+        # If the verification code can't be emailed (e.g. SMTP misconfigured),
+        # registration must NOT silently succeed with a stuck account. It rolls
+        # back the just-created auth user and returns 503 so the user can retry.
+        mock_supabase_service.create_user.return_value = {
+            "user": {"id": "stuck-id", "email": "stuck@example.com"}
+        }
+        mock_email_service.send_verification_code.return_value = False
+
+        response = auth_client.post("/api/v1/register", json={
+            "email": "stuck@example.com",
+            "password": "securepass123",
+            "full_name": "Stuck User",
+        })
+
+        assert response.status_code == 503
+        mock_supabase_service.delete_user.assert_awaited_once_with("stuck-id")
 
     def test_short_password_rejected(self, auth_client):
         response = auth_client.post("/api/v1/register", json={
