@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
 import { getCurrentUser, getStoredToken } from '@/lib/supabase';
 import './UpgradeModal.css';
 
@@ -46,6 +48,7 @@ const features: Record<string, string[]> = {
 };
 
 export function UpgradeModal({ show, currentTier, targetTier, onClose }: UpgradeModalProps) {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
 
   const handleUpgrade = async () => {
@@ -57,13 +60,13 @@ export function UpgradeModal({ show, currentTier, targetTier, onClose }: Upgrade
       const token = getStoredToken();
 
       if (!user?.id) {
-        alert('Sila log masuk semula untuk meneruskan pembayaran.');
+        toast.error('Sila log masuk semula untuk meneruskan pembayaran.');
         setLoading(false);
         return;
       }
 
       if (!token) {
-        alert('Sesi anda telah tamat. Sila log masuk semula.');
+        toast.error('Sesi anda telah tamat. Sila log masuk semula.');
         setLoading(false);
         return;
       }
@@ -92,15 +95,21 @@ export function UpgradeModal({ show, currentTier, targetTier, onClose }: Upgrade
         response.status === 403 &&
         response.headers.get('X-Email-Verification-Required') === 'true'
       ) {
-        // Email verification gate: send the user to verify before paying.
-        alert(data.detail || 'Sila sahkan e-mel anda sebelum membuat pembayaran.');
-        window.location.href = '/verify-email?redirect=/dashboard/billing';
+        // Email verification gate: send the user straight to the code-entry
+        // page (pre-filled with their email) instead of a blocking alert, then
+        // back to billing once verified — no hunting for where to verify.
+        toast.error(data.detail || 'Sila sahkan e-mel anda sebelum membuat pembayaran.');
+        onClose();
+        const params = new URLSearchParams();
+        if (user.email) params.set('email', user.email);
+        params.set('redirect', '/dashboard/billing');
+        router.push(`/verify-email?${params.toString()}`);
       } else {
-        alert('Error: ' + (data.detail || 'Failed to create payment'));
+        toast.error(data.detail || 'Failed to create payment');
         setLoading(false);
       }
     } catch (error) {
-      alert('Error: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      toast.error(error instanceof Error ? error.message : 'Unknown error');
       setLoading(false);
     }
   };
