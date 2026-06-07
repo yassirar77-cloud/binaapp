@@ -152,6 +152,30 @@ class SupabaseService:
             print(f"❌ Create user error: {str(e)}")
             return None
 
+    async def delete_user(self, user_id: str) -> bool:
+        """
+        Delete an auth user via the Supabase Admin API.
+
+        Used to roll back a just-created account when a required post-creation
+        step (e.g. sending the email-verification code) fails, so the email is
+        freed and the user can register again cleanly instead of being stuck
+        with a taken-but-unverifiable account. Deleting the auth user cascades
+        to profiles / subscriptions / verification codes via their FK
+        ON DELETE CASCADE constraints.
+        """
+        try:
+            url = f"{self.url}/auth/v1/admin/users/{user_id}"
+            async with httpx.AsyncClient() as client:
+                response = await client.delete(url, headers=self.service_headers)
+            if response.status_code in [200, 204]:
+                print(f"✅ Rolled back auth user: {user_id}")
+                return True
+            print(f"❌ Delete user failed: {response.status_code} - {response.text}")
+            return False
+        except Exception as e:
+            print(f"❌ Delete user error: {str(e)}")
+            return False
+
     async def create_user_profile(self, user_id: str, email: str, full_name: Optional[str] = None, role: str = "customer") -> Optional[Dict[str, Any]]:
         """
         Create a user profile in the public.profiles table.
@@ -1127,6 +1151,184 @@ class SupabaseService:
         except Exception as e:
             print(f"❌ Create missing website error: {str(e)}")
             return None
+
+
+    # =====================================================================
+    # Email verification (block-at-publish/pay)
+    # =====================================================================
+
+    async def is_email_verified(self, user_id: str) -> bool:
+        """
+        Return True if the user's email has been verified.
+
+        Source of truth is profiles.email_verified (set when the user enters
+        the 6-digit code). Existing accounts were grandfathered to verified by
+        migration 045.
+
+        FAIL-OPEN on read errors (returns True). This gate is anti-abuse, not
+        a security boundary protecting money or data, so the dangerous failure
+        mode is locking out legitimate users — e.g. if this code deploys before
+        migration 045 runs the `email_verified` column won't exist and the read
+        400s. In that case we must NOT block everyone; we let the action through
+        and log loudly. A real (post-migration, healthy DB) row always reads
+        cleanly, so new unverified accounts are still correctly blocked.
+        """
+        try:
+            url = f"{self.url}/rest/v1/profiles"
+            params = {"id": f"eq.{user_id}", "select": "email_verified"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.service_headers, params=params)
+
+            if response.status_code == 200:
+                records = response.json()
+                if records:
+                    return bool(records[0].get("email_verified"))
+                # No profile row at all — anomalous (the signup trigger creates
+                # one). Don't hard-block; treat as verified and log.
+                print(f"⚠️ [VERIFY] No profile row for {user_id}; allowing (fail-open)")
+                return True
+            # Non-200: most likely the column/migration isn't present yet.
+            print(
+                f"⚠️ [VERIFY] is_email_verified read returned {response.status_code} "
+                f"({response.text[:200]}); allowing (fail-open)"
+            )
+            return True
+        except Exception as e:
+            print(f"⚠️ [VERIFY] is_email_verified error: {str(e)}; allowing (fail-open)")
+            return True
+
+    async def mark_email_verified(self, user_id: str) -> bool:
+        """Flip profiles.email_verified = true (idempotent)."""
+        try:
+            url = f"{self.url}/rest/v1/profiles"
+            params = {"id": f"eq.{user_id}"}
+            data = {"email_verified": True, "email_verified_at": "now()"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.patch(
+                    url,
+                    headers={**self.service_headers, "Prefer": "return=representation"},
+                    params=params,
+                    json=data,
+                )
+
+            if response.status_code in [200, 204]:
+                result = response.json() if response.text else []
+                if isinstance(result, list) and len(result) == 0:
+                    # No profile row — ensure one exists then retry once.
+                    await self.ensure_profile_exists(user_id)
+                    async with httpx.AsyncClient() as client:
+                        response = await client.patch(
+                            url,
+                            headers={**self.service_headers, "Prefer": "return=representation"},
+                            params=params,
+                            json=data,
+                        )
+                    result = response.json() if response.text else []
+                ok = isinstance(result, list) and len(result) > 0
+                if ok:
+                    print(f"✅ [VERIFY] Email marked verified for user: {user_id}")
+                return ok
+            print(f"❌ [VERIFY] mark_email_verified failed: {response.status_code} - {response.text}")
+            return False
+        except Exception as e:
+            print(f"❌ [VERIFY] mark_email_verified error: {str(e)}")
+            return False
+
+    async def create_verification_code(self, user_id: str, code_hash: str, expires_at_iso: str) -> bool:
+        """
+        Store a new verification code hash, invalidating any prior unconsumed
+        codes for this user (only the newest code is valid).
+        """
+        try:
+            base = f"{self.url}/rest/v1/email_verification_codes"
+
+            # Invalidate previous unconsumed codes (mark consumed=now) so the
+            # latest emailed code is the only one that can succeed.
+            async with httpx.AsyncClient() as client:
+                await client.patch(
+                    base,
+                    headers={**self.service_headers, "Prefer": "return=minimal"},
+                    params={"user_id": f"eq.{user_id}", "consumed_at": "is.null"},
+                    json={"consumed_at": "now()"},
+                )
+
+                response = await client.post(
+                    base,
+                    headers={**self.service_headers, "Prefer": "return=representation"},
+                    json={
+                        "user_id": user_id,
+                        "code_hash": code_hash,
+                        "expires_at": expires_at_iso,
+                    },
+                )
+
+            if response.status_code in [200, 201]:
+                print(f"✅ [VERIFY] Stored verification code for user: {user_id}")
+                return True
+            print(f"❌ [VERIFY] create_verification_code failed: {response.status_code} - {response.text}")
+            return False
+        except Exception as e:
+            print(f"❌ [VERIFY] create_verification_code error: {str(e)}")
+            return False
+
+    async def get_active_verification_code(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Return the newest unconsumed verification-code row for a user, or None."""
+        try:
+            url = f"{self.url}/rest/v1/email_verification_codes"
+            params = {
+                "user_id": f"eq.{user_id}",
+                "consumed_at": "is.null",
+                "select": "id,code_hash,expires_at,attempts,created_at",
+                "order": "created_at.desc",
+                "limit": "1",
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.service_headers, params=params)
+
+            if response.status_code == 200:
+                records = response.json()
+                return records[0] if records else None
+            return None
+        except Exception as e:
+            print(f"❌ [VERIFY] get_active_verification_code error: {str(e)}")
+            return None
+
+    async def increment_verification_attempts(self, code_id: str, attempts: int) -> bool:
+        """Bump the attempt counter on a verification-code row."""
+        try:
+            url = f"{self.url}/rest/v1/email_verification_codes"
+            params = {"id": f"eq.{code_id}"}
+            async with httpx.AsyncClient() as client:
+                response = await client.patch(
+                    url,
+                    headers={**self.service_headers, "Prefer": "return=minimal"},
+                    params=params,
+                    json={"attempts": attempts},
+                )
+            return response.status_code in [200, 204]
+        except Exception as e:
+            print(f"❌ [VERIFY] increment_verification_attempts error: {str(e)}")
+            return False
+
+    async def consume_verification_code(self, code_id: str) -> bool:
+        """Mark a verification-code row as consumed so it cannot be reused."""
+        try:
+            url = f"{self.url}/rest/v1/email_verification_codes"
+            params = {"id": f"eq.{code_id}"}
+            async with httpx.AsyncClient() as client:
+                response = await client.patch(
+                    url,
+                    headers={**self.service_headers, "Prefer": "return=minimal"},
+                    params=params,
+                    json={"consumed_at": "now()"},
+                )
+            return response.status_code in [200, 204]
+        except Exception as e:
+            print(f"❌ [VERIFY] consume_verification_code error: {str(e)}")
+            return False
 
 
 # Create singleton instance

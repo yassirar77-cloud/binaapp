@@ -143,6 +143,12 @@ class Settings(BaseSettings):
     NOREPLY_EMAIL: str = Field(default="info@binaapp.my", env="NOREPLY_EMAIL")
     UNLIMITED_ACCESS_EMAILS: List[str] = Field(default=[], env="UNLIMITED_ACCESS_EMAILS")
 
+    # Email verification (6-digit code sent on registration; gates publish + pay)
+    EMAIL_VERIFICATION_ENABLED: bool = Field(default=True, env="EMAIL_VERIFICATION_ENABLED")
+    EMAIL_VERIFICATION_CODE_TTL_MINUTES: int = Field(default=15, env="EMAIL_VERIFICATION_CODE_TTL_MINUTES")
+    EMAIL_VERIFICATION_MAX_ATTEMPTS: int = Field(default=5, env="EMAIL_VERIFICATION_MAX_ATTEMPTS")
+    BLOCK_DISPOSABLE_EMAILS: bool = Field(default=True, env="BLOCK_DISPOSABLE_EMAILS")
+
     @validator("UNLIMITED_ACCESS_EMAILS", pre=True)
     def parse_unlimited_access_emails(cls, v):
         if isinstance(v, str):

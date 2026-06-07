@@ -54,14 +54,25 @@ function RegisterPageContent() {
     setLoading(true)
 
     try {
-      await signUp(
+      const result = await signUp(
         formData.email,
         formData.password,
         formData.fullName
       )
-      toast.success('Akaun berjaya didaftar!')
-      // Redirect to my-projects (which uses custom auth) instead of profile (which uses Supabase auth)
-      if (redirectUrl) {
+      toast.success('Akaun berjaya didaftar! Sila sahkan e-mel anda.')
+
+      // The account starts UNVERIFIED: the user can use the builder right
+      // away, but publishing + payment require the emailed 6-digit code.
+      // Route to the verification page unless verification is disabled.
+      const needsVerification =
+        result?.verification_required !== false && result?.email_verified !== true
+
+      if (needsVerification) {
+        const params = new URLSearchParams()
+        params.set('email', formData.email)
+        if (redirectUrl) params.set('redirect', redirectUrl)
+        router.push(`/verify-email?${params.toString()}`)
+      } else if (redirectUrl) {
         router.push(redirectUrl)
       } else {
         router.push('/dashboard')

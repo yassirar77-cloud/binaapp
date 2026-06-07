@@ -1167,6 +1167,25 @@ export default function CreatePage() {
           return
         }
 
+        // Email verification gate: publishing requires a verified email.
+        // Send the user to the verification page, then back to /create.
+        if (
+          response.status === 403 &&
+          (errorData.error === 'email_not_verified' ||
+            response.headers.get('X-Email-Verification-Required') === 'true')
+        ) {
+          setShowPublishModal(false)
+          toast.error(
+            errorData.message ||
+              'Sila sahkan e-mel anda sebelum menerbitkan website.'
+          )
+          const params = new URLSearchParams()
+          if (user?.email) params.set('email', user.email)
+          params.set('redirect', '/create')
+          router.push(`/verify-email?${params.toString()}`)
+          return
+        }
+
         throw new Error(errorData.detail || errorData.message || 'Gagal menerbitkan website')
       }
 

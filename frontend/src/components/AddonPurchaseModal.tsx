@@ -74,6 +74,13 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
 
         // Redirect to ToyyibPay
         window.location.href = data.payment_url;
+      } else if (
+        response.status === 403 &&
+        response.headers.get('X-Email-Verification-Required') === 'true'
+      ) {
+        // Email verification gate: send the user to verify before paying.
+        alert(data.detail || 'Sila sahkan e-mel anda sebelum membuat pembayaran.');
+        window.location.href = '/verify-email?redirect=/dashboard/billing';
       } else {
         alert('Error: ' + (data.detail || 'Failed to create payment'));
         setLoading(false);

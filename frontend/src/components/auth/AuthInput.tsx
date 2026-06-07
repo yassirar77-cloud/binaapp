@@ -9,6 +9,7 @@ interface AuthInputProps {
   autoComplete?: string
   required?: boolean
   helperText?: string
+  inputMode?: 'text' | 'numeric' | 'tel' | 'email' | 'url' | 'search' | 'none' | 'decimal'
 }
 
 export default function AuthInput({
@@ -22,6 +23,7 @@ export default function AuthInput({
   autoComplete,
   required,
   helperText,
+  inputMode,
 }: AuthInputProps) {
   return (
     <div>
@@ -39,6 +41,7 @@ export default function AuthInput({
         onChange={onChange}
         placeholder={placeholder}
         autoComplete={autoComplete}
+        inputMode={inputMode}
         required={required}
         className="w-full bg-ink-700 border border-white/10 rounded-xl px-4 py-3 font-geist text-sm text-white placeholder:text-ink-400 outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors"
       />

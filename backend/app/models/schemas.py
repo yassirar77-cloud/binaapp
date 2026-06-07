@@ -37,10 +37,37 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8)
 
+    @field_validator("email")
+    @classmethod
+    def reject_disposable_email(cls, v: str) -> str:
+        """
+        Block known disposable/temporary email providers at signup.
+
+        EmailStr already enforces RFC format; this adds a domain blocklist so
+        throwaway inboxes can't create accounts. Real proof-of-ownership is
+        still the 6-digit verification code. Controlled by
+        settings.BLOCK_DISPOSABLE_EMAILS so it can be disabled via env.
+        """
+        # Imported lazily to avoid a circular import (config -> schemas).
+        from app.core.config import settings
+        from app.core.disposable_emails import is_disposable_email
+
+        if getattr(settings, "BLOCK_DISPOSABLE_EMAILS", True) and is_disposable_email(v):
+            raise ValueError(
+                "Alamat e-mel sekali guna tidak dibenarkan. "
+                "Sila gunakan e-mel kekal. / Disposable email addresses are not allowed."
+            )
+        return v
+
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+
+class VerifyEmailRequest(BaseModel):
+    """Payload for confirming a registration with the 6-digit code."""
+    code: str = Field(..., min_length=4, max_length=10)
 
 
 class UserResponse(UserBase):

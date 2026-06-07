@@ -339,6 +339,73 @@ class EmailService:
         )
 
     # =====================
+    # Email Verification
+    # =====================
+
+    async def send_verification_code(
+        self,
+        user_email: str,
+        user_name: str,
+        code: str,
+        ttl_minutes: int = 15
+    ) -> bool:
+        """Send the 6-digit email-verification code to a newly registered user."""
+
+        safe_name = user_name or "there"
+
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background: #10b981; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
+                .content {{ background: #f9fafb; padding: 24px; border-radius: 0 0 8px 8px; }}
+                .code {{ font-size: 36px; font-weight: bold; letter-spacing: 10px; color: #111827; text-align: center; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 18px 0; margin: 24px 0; }}
+                .muted {{ color: #6b7280; font-size: 0.9em; }}
+                .footer {{ text-align: center; margin-top: 20px; color: #666; font-size: 0.9em; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>Sahkan E-mel Anda</h1>
+                </div>
+                <div class="content">
+                    <p>Hai {safe_name},</p>
+                    <p>Terima kasih kerana mendaftar dengan BinaApp! Masukkan kod pengesahan ini untuk menerbitkan website dan membuat pembayaran:</p>
+
+                    <div class="code">{code}</div>
+
+                    <p class="muted">Kod ini akan tamat tempoh dalam {ttl_minutes} minit. Jika anda tidak mendaftar di BinaApp, sila abaikan e-mel ini.</p>
+                </div>
+                <div class="footer">
+                    <p>BinaApp - Platform Restoran Digital</p>
+                    <p>Soalan? Hubungi kami di {self.support_email}</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        text_content = (
+            f"Hai {safe_name},\n\n"
+            f"Kod pengesahan e-mel BinaApp anda: {code}\n"
+            f"Kod ini akan tamat tempoh dalam {ttl_minutes} minit.\n\n"
+            f"Jika anda tidak mendaftar di BinaApp, sila abaikan e-mel ini."
+        )
+
+        return await self._send_email(
+            to_email=user_email,
+            subject=f"Kod Pengesahan BinaApp: {code}",
+            html_content=html_content,
+            text_content=text_content,
+            from_email=self.noreply_email
+        )
+
+    # =====================
     # Support Emails
     # =====================
 

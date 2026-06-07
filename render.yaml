@@ -44,6 +44,23 @@ services:
       - key: STRIPE_SECRET_KEY
         sync: false
 
+      # Email (Zoho SMTP). REQUIRED for the email-verification code to send.
+      # Set the secret values in the Render dashboard. If SMTP_USER /
+      # SMTP_PASSWORD are missing, /register fails fast (503) rather than
+      # creating accounts that never receive their verification code.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: NOREPLY_EMAIL
+        sync: false
+      - key: SUPPORT_EMAIL
+        sync: false
+
       # App config
       - key: FRONTEND_URL
         value: "https://binaapp.my"

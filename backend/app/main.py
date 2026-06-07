@@ -3310,6 +3310,26 @@ async def publish_website(
     if not user_id:
         return JSONResponse(status_code=401, content={"success": False, "error": "Unauthorized"})
 
+    # EMAIL VERIFICATION GATE: publishing requires a verified email.
+    # Sign up + use the builder stays open; publishing is blocked until the
+    # owner confirms their email via the 6-digit code. The frontend keys off
+    # the X-Email-Verification-Required header to prompt for the code.
+    if settings.EMAIL_VERIFICATION_ENABLED:
+        if not await supabase_service.is_email_verified(user_id):
+            logger.warning(f"⛔ Publish blocked: email not verified for user {user_id}")
+            return JSONResponse(
+                status_code=403,
+                headers={"X-Email-Verification-Required": "true"},
+                content={
+                    "success": False,
+                    "error": "email_not_verified",
+                    "message": (
+                        "Sila sahkan e-mel anda sebelum menerbitkan website. "
+                        "/ Please verify your email before publishing."
+                    ),
+                },
+            )
+
     # Validate inputs
     if not html_content:
         return JSONResponse(status_code=400, content={"success": False, "error": "No HTML content provided"})

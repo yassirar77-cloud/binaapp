@@ -169,6 +169,55 @@ async def get_current_user(
     )
 
 
+async def require_verified_email(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+) -> Dict[str, Any]:
+    """
+    Dependency that requires the authenticated user to have a verified email.
+
+    Layered on top of get_current_user, so the caller is already authenticated.
+    Used to gate high-value actions (publish a website, pay/subscribe) while
+    leaving signup and the builder open — the "try it now, verify before you
+    publish/pay" model.
+
+    Returns the user payload if verified; raises 403 with a machine-readable
+    header (X-Email-Verification-Required) so the frontend can prompt the
+    user to enter their code. Can be globally disabled via
+    settings.EMAIL_VERIFICATION_ENABLED.
+    """
+    # Import here to avoid a circular import at module load time.
+    from app.services.supabase_client import supabase_service
+
+    if not getattr(settings, "EMAIL_VERIFICATION_ENABLED", True):
+        return current_user
+
+    user_id = current_user.get("sub") or current_user.get("id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token - please login again",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        verified = await supabase_service.is_email_verified(user_id)
+    except Exception as e:
+        logger.error(f"Email verification check failed for {user_id}: {e}")
+        verified = False
+
+    if not verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Sila sahkan e-mel anda untuk meneruskan. "
+                "/ Please verify your email to continue."
+            ),
+            headers={"X-Email-Verification-Required": "true"},
+        )
+
+    return current_user
+
+
 def decode_token_for_refresh(token: str) -> Optional[Dict[str, Any]]:
     """
     Decode a JWT token for refresh purposes.

@@ -98,6 +98,12 @@ class TestApiPublishPersistsDescription:
                 "app.services.plan_features.can_publish_subdomain",
                 new=AsyncMock(return_value=True),
             ),
+            # Email-verification gate on /api/publish: treat the user as
+            # verified so this persistence test reaches the upsert.
+            patch(
+                "app.main.supabase_service.is_email_verified",
+                new=AsyncMock(return_value=True),
+            ),
             patch(
                 "app.main.httpx.AsyncClient",
                 return_value=fake_async_client,
@@ -174,6 +180,12 @@ class TestApiPublishPersistsDescription:
                 "app.services.plan_features.can_publish_subdomain",
                 new=AsyncMock(return_value=True),
             ),
+            # Email-verification gate on /api/publish: treat the user as
+            # verified so this persistence test reaches the upsert.
+            patch(
+                "app.main.supabase_service.is_email_verified",
+                new=AsyncMock(return_value=True),
+            ),
             patch(
                 "app.main.httpx.AsyncClient",
                 return_value=fake_async_client,
@@ -239,6 +251,13 @@ class TestSimplePublishPersistsDescription:
                 "check_subdomain_available",
                 new=AsyncMock(return_value=True),
             ),
+            # Email-verification gate: treat the publishing user as verified
+            # so this persistence-focused test reaches create_website.
+            patch.object(
+                simple_publish.supabase_service,
+                "is_email_verified",
+                new=AsyncMock(return_value=True),
+            ),
             patch.object(
                 simple_publish.storage_service,
                 "upload_website",
@@ -299,6 +318,13 @@ class TestSimplePublishPersistsDescription:
             patch.object(
                 simple_publish.supabase_service,
                 "check_subdomain_available",
+                new=AsyncMock(return_value=True),
+            ),
+            # Email-verification gate: treat the publishing user as verified
+            # so this persistence-focused test reaches create_website.
+            patch.object(
+                simple_publish.supabase_service,
+                "is_email_verified",
                 new=AsyncMock(return_value=True),
             ),
             patch.object(
