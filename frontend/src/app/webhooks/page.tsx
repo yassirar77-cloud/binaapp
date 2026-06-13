@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { API_BASE_URL } from '@/lib/env'
 import { getStoredToken } from '@/lib/supabase'
+import { ConfirmDialog } from '@/components/ui'
 
 interface WebhookEndpoint {
   id: string
@@ -47,6 +48,8 @@ export default function WebhooksPage() {
   const [newSecret, setNewSecret] = useState('')
   const [selectedEndpoint, setSelectedEndpoint] = useState<string | null>(null)
   const [logs, setLogs] = useState<DeliveryLog[]>([])
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [deletingEndpoint, setDeletingEndpoint] = useState(false)
 
   useEffect(() => {
     loadEndpoints()
@@ -102,18 +105,25 @@ export default function WebhooksPage() {
     }
   }
 
-  const deleteEndpoint = async (id: string) => {
-    if (!confirm('Padam webhook ini?')) return
+  const deleteEndpoint = (id: string) => {
+    setDeleteId(id)
+  }
 
+  const confirmDeleteEndpoint = async () => {
+    if (!deleteId) return
+    setDeletingEndpoint(true)
     try {
       const token = getStoredToken()
-      await fetch(`${API_BASE_URL}/api/v1/webhooks/${id}`, {
+      await fetch(`${API_BASE_URL}/api/v1/webhooks/${deleteId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
       loadEndpoints()
+      setDeleteId(null)
     } catch (err) {
       console.error('Error:', err)
+    } finally {
+      setDeletingEndpoint(false)
     }
   }
 
@@ -341,6 +351,16 @@ Body:
           <p className="text-xs text-gray-500 mt-3">Signature dikira menggunakan HMAC-SHA256 dengan secret anda sebagai kunci dan payload JSON sebagai mesej.</p>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        title="Padam webhook ini?"
+        confirmLabel="Padam"
+        destructive
+        loading={deletingEndpoint}
+        onConfirm={confirmDeleteEndpoint}
+        onCancel={() => setDeleteId(null)}
+      />
     </div>
   )
 }

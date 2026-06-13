@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { getCurrentUser } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
+import { ConfirmDialog } from '@/components/ui';
 import {
   createZone,
   deleteZone,
@@ -65,6 +66,8 @@ export default function PenghantaranClient({
   // reloading the page.
   const [outletInfo, setOutletInfo] = useState<Outlet | null>(null);
   const [outletLoading, setOutletLoading] = useState(false);
+  const [deleteZoneTarget, setDeleteZoneTarget] = useState<Zone | null>(null);
+  const [deletingZone, setDeletingZone] = useState(false);
 
   const [zones, setZones] = useState<Zone[]>([]);
   const [zonesLoading, setZonesLoading] = useState(false);
@@ -260,17 +263,26 @@ export default function PenghantaranClient({
     [sortedZones],
   );
 
-  const handleDeleteZone = useCallback(async (zone: Zone) => {
-    if (!window.confirm(`Padam ring "${zone.name}"?`)) return;
+  const handleDeleteZone = useCallback((zone: Zone) => {
+    setDeleteZoneTarget(zone);
+  }, []);
+
+  const confirmDeleteZone = useCallback(async () => {
+    if (!deleteZoneTarget) return;
+    const zone = deleteZoneTarget;
+    setDeletingZone(true);
     try {
       await deleteZone(zone.id);
       setZones((zs) => zs.filter((z) => z.id !== zone.id));
+      setDeleteZoneTarget(null);
       toast.success('Ring dipadam');
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'ralat';
       toast.error(`Gagal padam: ${msg}`);
+    } finally {
+      setDeletingZone(false);
     }
-  }, []);
+  }, [deleteZoneTarget]);
 
   const handleToggleActive = useCallback(
     async (zone: Zone, active: boolean) => {
@@ -481,6 +493,17 @@ export default function PenghantaranClient({
           saving={saving}
         />
       )}
+
+      <ConfirmDialog
+        open={!!deleteZoneTarget}
+        title={`Padam ring "${deleteZoneTarget?.name ?? ''}"?`}
+        confirmLabel="Padam"
+        cancelLabel="Batal"
+        destructive
+        loading={deletingZone}
+        onConfirm={confirmDeleteZone}
+        onCancel={() => setDeleteZoneTarget(null)}
+      />
     </div>
   );
 }

@@ -132,7 +132,7 @@ export function AppModal({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center p-0 sm:p-4 animate-fade-in"
+      className="fixed inset-0 z-[1200] flex items-end justify-center sm:items-center p-0 sm:p-4 animate-fade-in"
       aria-modal="true"
       role="dialog"
       onClick={(e) => {
@@ -163,6 +163,7 @@ export function AppModal({
         {/* Close (X) */}
         {!staticOverlay && (
           <button
+            type="button"
             onClick={onClose}
             aria-label="Tutup"
             className="absolute right-3 top-3 sm:right-4 sm:top-4 z-10 rounded-lg p-1.5 text-white/40 hover:text-white hover:bg-white/[0.06] transition-colors"
@@ -199,6 +200,7 @@ export function AppModal({
             <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-2.5">
               {secondaryLabel && (
                 <button
+                  type="button"
                   onClick={onSecondary ?? onClose}
                   disabled={primaryLoading}
                   className="inline-flex h-11 items-center justify-center rounded-xl border border-white/[0.12] bg-white/[0.04] px-5 text-sm font-medium text-white/80 hover:bg-white/[0.08] hover:text-white transition-colors disabled:opacity-50"
@@ -208,6 +210,7 @@ export function AppModal({
               )}
               {primaryLabel && (
                 <button
+                  type="button"
                   onClick={onPrimary}
                   disabled={primaryLoading}
                   className={cn(

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { getStoredToken } from '@/lib/supabase'
+import { ConfirmDialog } from '@/components/ui'
 import { Dispute, DisputeMessage, DisputeSummary, DisputeCategory, DisputeResolutionType } from '@/types'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
@@ -85,6 +86,10 @@ export default function DisputesPage() {
   const [resolveType, setResolveType] = useState<DisputeResolutionType>('issue_resolved')
   const [resolveNotes, setResolveNotes] = useState('')
   const [resolving, setResolving] = useState(false)
+
+  // Escalate confirm state
+  const [escalateId, setEscalateId] = useState<string | null>(null)
+  const [escalating, setEscalating] = useState(false)
 
   // Create subscriber dispute state
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -236,12 +241,18 @@ export default function DisputesPage() {
     }
   }
 
-  async function escalateDispute(disputeId: string) {
+  function escalateDispute(disputeId: string) {
     const token = getStoredToken()
     if (!token) return
+    setEscalateId(disputeId)
+  }
 
-    if (!confirm('Are you sure you want to escalate this dispute to the BinaApp team?')) return
+  async function confirmEscalate() {
+    const token = getStoredToken()
+    if (!token || !escalateId) return
+    const disputeId = escalateId
 
+    setEscalating(true)
     try {
       const res = await fetch(`${API_BASE}/api/v1/disputes/owner/${disputeId}/escalate`, {
         method: 'POST',
@@ -255,8 +266,11 @@ export default function DisputesPage() {
           setSelectedDispute(null)
         }
       }
+      setEscalateId(null)
     } catch (error) {
       console.error('[Disputes] Error escalating:', error)
+    } finally {
+      setEscalating(false)
     }
   }
 
@@ -976,6 +990,16 @@ export default function DisputesPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!escalateId}
+        title="Are you sure you want to escalate this dispute to the BinaApp team?"
+        confirmLabel="Escalate"
+        cancelLabel="Cancel"
+        loading={escalating}
+        onConfirm={confirmEscalate}
+        onCancel={() => setEscalateId(null)}
+      />
     </div>
   )
 }

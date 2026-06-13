@@ -9,6 +9,7 @@ import {
 } from '../lib/constants';
 import { formatDistance } from '../lib/polygon';
 import type { ScheduleJson, Zone } from '../lib/types';
+import { ConfirmDialog } from '@/components/ui';
 
 type Tab = 'asas' | 'jadual' | 'lanjutan';
 
@@ -83,6 +84,7 @@ export default function RingSettingsModal({
   const [tab, setTab] = useState<Tab>('asas');
   const [draft, setDraft] = useState<RingDraft>(initial);
   const [error, setError] = useState<string | null>(null);
+  const [confirmNoActiveDay, setConfirmNoActiveDay] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -144,14 +146,13 @@ export default function RingSettingsModal({
     }
     const noActiveDay = !Object.values(draft.schedule_json).some((d) => d.active);
     if (noActiveDay) {
-      const ok = window.confirm(
-        'Ring ini tiada hari aktif — pelanggan tidak akan boleh order. Teruskan?',
-      );
-      if (!ok) {
-        setTab('jadual');
-        return;
-      }
+      setConfirmNoActiveDay(true);
+      return;
     }
+    await commitSave();
+  };
+
+  const commitSave = async () => {
     try {
       await onSave({ ...draft, name: draft.name.trim() });
     } catch (e) {
@@ -446,6 +447,23 @@ export default function RingSettingsModal({
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmNoActiveDay}
+        variant="warning"
+        title="Ring ini tiada hari aktif — pelanggan tidak akan boleh order. Teruskan?"
+        confirmLabel="Teruskan"
+        cancelLabel="Batal"
+        loading={saving}
+        onConfirm={() => {
+          setConfirmNoActiveDay(false);
+          commitSave();
+        }}
+        onCancel={() => {
+          setConfirmNoActiveDay(false);
+          setTab('jadual');
+        }}
+      />
     </div>
   );
 }

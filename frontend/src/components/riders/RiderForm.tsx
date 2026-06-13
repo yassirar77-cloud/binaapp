@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Field } from '@/app/profile/components/primitives/Field'
 import { GhostButton } from '@/app/profile/components/primitives/GhostButton'
 import { PrimaryButton } from '@/app/profile/components/primitives/PrimaryButton'
+import { ConfirmDialog } from '@/components/ui'
 import {
   RiderApiError,
   isValidUUID,
@@ -94,6 +95,7 @@ export function RiderForm({
 }: RiderFormProps) {
   const [form, setForm] = useState<FormState>(() => initialState(rider))
   const [error, setError] = useState<string | null>(null)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const { createRider, updateRider, deleteRider, submitting, deleting } = useRiderMutations()
 
   const isEdit = mode === 'edit'
@@ -148,16 +150,21 @@ export function RiderForm({
     }
   }
 
-  async function handleDelete() {
+  function handleDelete() {
     if (!rider) return
-    const ok = window.confirm(`Padam rider "${rider.name || 'tanpa nama'}"? Tindakan ini tidak boleh dibatalkan.`)
-    if (!ok) return
+    setConfirmDeleteOpen(true)
+  }
+
+  async function confirmDelete() {
+    if (!rider) return
     try {
       await deleteRider(rider.id)
+      setConfirmDeleteOpen(false)
       onSuccess('Rider dipadam')
       onDeleted?.()
     } catch (err) {
       const msg = err instanceof RiderApiError ? err.message : 'Ralat sistem. Sila cuba lagi.'
+      setConfirmDeleteOpen(false)
       setError(msg)
       onError(msg)
     }
@@ -325,6 +332,18 @@ export function RiderForm({
           </PrimaryButton>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title={`Padam rider "${rider?.name || 'tanpa nama'}"?`}
+        description="Tindakan ini tidak boleh dibatalkan."
+        confirmLabel="Padam rider"
+        cancelLabel="Batal"
+        destructive
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setConfirmDeleteOpen(false)}
+      />
     </form>
   )
 }

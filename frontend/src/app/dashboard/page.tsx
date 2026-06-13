@@ -131,7 +131,8 @@ export default function DashboardPage() {
   }
 
   const handleDelete = async (projectId: string) => {
-    if (!confirm('Are you sure you want to delete this project?')) return
+    // Confirmation is handled by the in-card delete-confirm UI (WebsiteCard /
+    // MobileDashboard); handleDelete only runs after the user accepts there.
     if (!supabase) return
 
     setDeleting(projectId)
