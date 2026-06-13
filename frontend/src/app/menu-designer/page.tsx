@@ -3,6 +3,7 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { Trash2, Check, Plus, FileDown, Loader2 } from 'lucide-react'
 import { API_BASE_URL } from '@/lib/env'
+import { appToast } from '@/components/ui'
 
 type CategoryId = 'makanan-berat' | 'minuman' | 'roti-snack' | 'pencuci-mulut'
 
@@ -116,11 +117,11 @@ export default function MenuDesigner() {
 
   async function generateMenu() {
     if (!businessName.trim()) {
-      alert('Sila isi nama perniagaan dahulu.')
+      appToast.warning('Sila isi nama perniagaan dahulu.')
       return
     }
     if (items.length === 0) {
-      alert('Sila tambah sekurang-kurangnya satu item menu.')
+      appToast.warning('Sila tambah sekurang-kurangnya satu item menu.')
       return
     }
 
@@ -151,11 +152,11 @@ export default function MenuDesigner() {
       if (data.success) {
         setPdfUrl(data.pdf_url)
       } else {
-        alert('Menu generation failed: ' + (data.error || data.detail || 'unknown'))
+        appToast.error('Menu generation failed: ' + (data.error || data.detail || 'unknown'))
       }
     } catch (err) {
       console.error(err)
-      alert('Failed to generate menu')
+      appToast.error('Failed to generate menu')
     } finally {
       setLoading(false)
     }

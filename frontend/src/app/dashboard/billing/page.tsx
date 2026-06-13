@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { backupAuthState, getStoredToken } from '@/lib/supabase';
+import { appToast } from '@/components/ui';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import AddonsGrid from './components/AddonsGrid';
 import BillingSubnav from './components/BillingSubnav';
@@ -103,11 +104,11 @@ export default function BillingPage() {
           backupAuthState();
           window.location.href = data.payment_url;
         } else {
-          alert('Ralat: ' + (data.detail?.message || data.detail || 'Gagal memproses'));
+          appToast.error('Ralat: ' + (data.detail?.message || data.detail || 'Gagal memproses'));
         }
       } catch (error) {
         console.error('Upgrade error:', error);
-        alert('Ralat semasa memproses naik taraf');
+        appToast.error('Ralat semasa memproses naik taraf');
       } finally {
         setProcessing(false);
       }
@@ -138,11 +139,11 @@ export default function BillingPage() {
         backupAuthState();
         window.location.href = data.payment_url;
       } else {
-        alert('Ralat: ' + (data.detail || 'Gagal memproses'));
+        appToast.error('Ralat: ' + (data.detail || 'Gagal memproses'));
       }
     } catch (error) {
       console.error('Renew error:', error);
-      alert('Ralat semasa memproses pembaharuan');
+      appToast.error('Ralat semasa memproses pembaharuan');
     } finally {
       setProcessing(false);
     }
@@ -169,11 +170,11 @@ export default function BillingPage() {
           backupAuthState();
           window.location.href = data.payment_url;
         } else {
-          alert('Ralat: ' + (data.detail || 'Gagal memproses'));
+          appToast.error('Ralat: ' + (data.detail || 'Gagal memproses'));
         }
       } catch (error) {
         console.error('Addon purchase error:', error);
-        alert('Ralat semasa memproses pembelian');
+        appToast.error('Ralat semasa memproses pembelian');
       } finally {
         setProcessing(false);
       }

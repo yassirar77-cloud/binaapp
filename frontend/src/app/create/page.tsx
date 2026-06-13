@@ -955,7 +955,7 @@ export default function CreatePage() {
     } else {
       const shareUrl = publishedUrl || window.location.href
       navigator.clipboard.writeText(shareUrl)
-      alert('Link copied to clipboard!')
+      toast.success('Link copied to clipboard!')
     }
   }
 

@@ -11,6 +11,7 @@ import {
   EmptyState,
   LoadingSpinner,
   Modal,
+  appToast,
 } from '@/components/ui'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
@@ -109,7 +110,7 @@ export default function MyProjectsPage() {
     } catch (error) {
       console.error('Error deleting website:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      alert(`Ralat memadam website: ${errorMessage}`)
+      appToast.error(`Ralat memadam website: ${errorMessage}`)
     } finally {
       setDeleting(null)
     }
