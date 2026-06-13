@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { getCurrentUser, getStoredToken } from '@/lib/supabase';
-import './UpgradeModal.css';
+import { AppModal } from '@/components/ui/AppModal';
 
 interface UpgradeModalProps {
   show: boolean;
@@ -114,55 +114,52 @@ export function UpgradeModal({ show, currentTier, targetTier, onClose }: Upgrade
     }
   };
 
-  if (!show || !targetTier) return null;
+  if (!targetTier) return null;
 
   const tierPrice = prices[targetTier] || 0;
   const tierFeatures = features[targetTier] || [];
   const isFreeToStarter = (currentTier || '').toLowerCase() === 'free' && targetTier === 'starter';
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="upgrade-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="close-btn" onClick={onClose}>×</button>
-
-        {isFreeToStarter ? (
+    <AppModal
+      open={show}
+      onClose={onClose}
+      variant="limit-reached"
+      title={isFreeToStarter ? 'Your site looks amazing! 🚀' : `Upgrade ke ${targetTier.toUpperCase()}`}
+      description={
+        isFreeToStarter ? (
           <>
-            <h2>Your site looks amazing! 🚀</h2>
-            <p style={{ marginTop: 8, marginBottom: 16, color: '#4b5563' }}>
-              Upgrade to Starter (RM5/month) to publish at <strong>yourname.binaapp.my</strong>.
-            </p>
+            Upgrade to Starter (RM5/month) to publish at{' '}
+            <strong className="text-white">yourname.binaapp.my</strong>.
           </>
-        ) : (
-          <h2>Upgrade ke {targetTier.toUpperCase()}</h2>
-        )}
+        ) : undefined
+      }
+      primaryLabel={loading ? 'Memproses...' : `Upgrade Sekarang - RM${tierPrice}`}
+      onPrimary={handleUpgrade}
+      primaryLoading={loading}
+    >
+      {/* Price */}
+      <div className="flex items-baseline justify-center gap-1 rounded-2xl border border-white/[0.08] bg-white/[0.02] py-5">
+        <span className="text-3xl font-bold text-white">RM {tierPrice}</span>
+        <span className="text-sm text-white/50">/bulan</span>
+      </div>
 
-        <div className="price-box">
-          <div className="price">RM {tierPrice}</div>
-          <div className="period">/bulan</div>
-        </div>
-
-        <div className="features-list">
-          <h3>Anda akan dapat:</h3>
+      {/* Features */}
+      <div className="mt-4">
+        <h3 className="text-sm font-semibold text-white/80">Anda akan dapat:</h3>
+        <div className="mt-2 space-y-1.5">
           {tierFeatures.map((feature, i) => (
-            <div key={i} className="feature-item">
-              <span className="check">✓</span> {feature}
+            <div key={i} className="flex items-center gap-2 text-sm text-white/70">
+              <span className="text-volt-400">✓</span> {feature}
             </div>
           ))}
         </div>
-
-        <button
-          className="upgrade-btn"
-          onClick={handleUpgrade}
-          disabled={loading}
-        >
-          {loading ? 'Memproses...' : `Upgrade Sekarang - RM${tierPrice}`}
-        </button>
-
-        <p className="note">
-          Anda akan diarahkan ke ToyyibPay untuk pembayaran selamat.
-        </p>
       </div>
-    </div>
+
+      <p className="mt-4 text-center text-xs text-white/40">
+        Anda akan diarahkan ke ToyyibPay untuk pembayaran selamat.
+      </p>
+    </AppModal>
   );
 }
 

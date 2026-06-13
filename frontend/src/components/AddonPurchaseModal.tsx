@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { getCurrentUser, getStoredToken, backupAuthState } from '@/lib/supabase';
-import './AddonPurchaseModal.css';
+import { AppModal } from '@/components/ui/AppModal';
 
 interface Addon {
   type: string;
@@ -100,59 +100,58 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
     }
   };
 
-  if (!show || !addon) return null;
+  if (!addon) return null;
 
   const total = addon.price * quantity;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="addon-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="close-btn" onClick={onClose}>×</button>
-
-        <h2>Beli Addon</h2>
-
-        <div className="addon-details">
-          <h3>{addon.label}</h3>
-          <p className="addon-price">
-            RM {addon.price} {addon.is_recurring ? '/bulan' : 'sekali'}
-          </p>
-        </div>
-
-        {['ai_image', 'ai_hero'].includes(addon.type) && (
-          <div className="quantity-selector">
-            <label>Kuantiti:</label>
-            <select value={quantity} onChange={(e) => setQuantity(parseInt(e.target.value))}>
-              <option value="1">1 - RM{addon.price}</option>
-              {addon.type === 'ai_image' && (
-                <>
-                  <option value="10">10 - RM{addon.price * 10}</option>
-                  <option value="50">50 - RM{addon.price * 50}</option>
-                  <option value="100">100 - RM{addon.price * 100}</option>
-                </>
-              )}
-              {addon.type === 'ai_hero' && (
-                <>
-                  <option value="5">5 - RM{addon.price * 5}</option>
-                  <option value="10">10 - RM{addon.price * 10}</option>
-                </>
-              )}
-            </select>
-          </div>
-        )}
-
-        <div className="total-price">
-          <strong>Jumlah: RM {total.toFixed(2)}</strong>
-        </div>
-
-        <button
-          className="purchase-btn"
-          onClick={handlePurchase}
-          disabled={loading}
-        >
-          {loading ? 'Memproses...' : `Bayar RM${total.toFixed(2)}`}
-        </button>
+    <AppModal
+      open={show}
+      onClose={onClose}
+      variant="limit-reached"
+      title="Beli Addon"
+      primaryLabel={loading ? 'Memproses...' : `Bayar RM${total.toFixed(2)}`}
+      onPrimary={handlePurchase}
+      primaryLoading={loading}
+    >
+      <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-4">
+        <h3 className="text-base font-semibold text-white">{addon.label}</h3>
+        <p className="mt-1 text-sm text-white/60">
+          RM {addon.price} {addon.is_recurring ? '/bulan' : 'sekali'}
+        </p>
       </div>
-    </div>
+
+      {['ai_image', 'ai_hero'].includes(addon.type) && (
+        <div className="mt-4 flex items-center justify-between">
+          <label className="text-sm text-white/70">Kuantiti:</label>
+          <select
+            value={quantity}
+            onChange={(e) => setQuantity(parseInt(e.target.value))}
+            className="rounded-xl border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-volt-400/40"
+          >
+            <option value="1">1 - RM{addon.price}</option>
+            {addon.type === 'ai_image' && (
+              <>
+                <option value="10">10 - RM{addon.price * 10}</option>
+                <option value="50">50 - RM{addon.price * 50}</option>
+                <option value="100">100 - RM{addon.price * 100}</option>
+              </>
+            )}
+            {addon.type === 'ai_hero' && (
+              <>
+                <option value="5">5 - RM{addon.price * 5}</option>
+                <option value="10">10 - RM{addon.price * 10}</option>
+              </>
+            )}
+          </select>
+        </div>
+      )}
+
+      <div className="mt-4 flex items-center justify-between border-t border-white/[0.06] pt-4">
+        <span className="text-sm text-white/70">Jumlah:</span>
+        <span className="text-lg font-bold text-volt-400">RM {total.toFixed(2)}</span>
+      </div>
+    </AppModal>
   );
 }
 

@@ -10,3 +10,5 @@ export {
 } from './Card'
 export { Field, Input, Textarea, Select } from './Input'
 export { Modal } from './Modal'
+export { AppModal } from './AppModal'
+export type { AppModalVariant } from './AppModal'

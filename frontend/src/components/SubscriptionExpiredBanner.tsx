@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { getStoredToken } from '@/lib/supabase';
-import './SubscriptionExpiredBanner.css';
 
 interface SubscriptionStatus {
   plan_name: string;
@@ -66,7 +66,7 @@ export function SubscriptionExpiredBanner({ onRenewClick }: SubscriptionExpiredB
     try {
       const token = getStoredToken();
       if (!token) {
-        alert('Sila log masuk semula');
+        toast.error('Sila log masuk semula');
         setRenewLoading(false);
         return;
       }
@@ -88,11 +88,11 @@ export function SubscriptionExpiredBanner({ onRenewClick }: SubscriptionExpiredB
         localStorage.setItem('pending_renewal', 'true');
         window.location.href = data.payment_url;
       } else {
-        alert('Ralat: ' + (data.detail || 'Gagal mencipta pembayaran'));
+        toast.error('Ralat: ' + (data.detail || 'Gagal mencipta pembayaran'));
       }
     } catch (error) {
       console.error('Renew error:', error);
-      alert('Ralat semasa memproses pembaharuan');
+      toast.error('Ralat semasa memproses pembaharuan');
     } finally {
       setRenewLoading(false);
     }
@@ -124,59 +124,61 @@ export function SubscriptionExpiredBanner({ onRenewClick }: SubscriptionExpiredB
 
   const price = prices[status.plan_name] || 5;
 
-  if (isExpired) {
-    return (
-      <div className="subscription-banner expired">
-        <div className="banner-content">
-          <div className="banner-icon">!</div>
-          <div className="banner-text">
-            <h3>Langganan Anda Telah Tamat</h3>
-            <p>
-              Perkhidmatan anda telah digantung. Perbaharui sekarang untuk meneruskan penggunaan BinaApp.
-            </p>
-          </div>
-        </div>
-        <div className="banner-actions">
-          <button
-            className="renew-btn"
-            onClick={handleRenew}
-            disabled={renewLoading}
-          >
-            {renewLoading ? 'Memproses...' : `Perbaharui Langganan (RM${price})`}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Expiring soon banner
   return (
-    <div className="subscription-banner warning">
-      <div className="banner-content">
-        <div className="banner-icon">&#9888;</div>
-        <div className="banner-text">
-          <h3>Langganan Akan Tamat</h3>
-          <p>
-            Pelan {status.plan_name.toUpperCase()} anda akan tamat dalam{' '}
-            <strong>{status.days_remaining} hari</strong>. Perbaharui sekarang untuk mengelakkan
-            gangguan perkhidmatan.
+    <div
+      className={`flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between ${
+        isExpired
+          ? 'border-err-400/20 bg-err-400/[0.08]'
+          : 'border-warn-400/20 bg-warn-400/[0.08]'
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base font-bold ${
+            isExpired ? 'bg-err-400/15 text-err-400' : 'bg-warn-400/15 text-warn-400'
+          }`}
+          aria-hidden
+        >
+          {isExpired ? '!' : '⚠'}
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-white">
+            {isExpired ? 'Langganan Anda Telah Tamat' : 'Langganan Akan Tamat'}
+          </h3>
+          <p className="mt-0.5 text-sm text-white/60">
+            {isExpired ? (
+              'Perkhidmatan anda telah digantung. Perbaharui sekarang untuk meneruskan penggunaan BinaApp.'
+            ) : (
+              <>
+                Pelan {status.plan_name.toUpperCase()} anda akan tamat dalam{' '}
+                <strong className="text-white">{status.days_remaining} hari</strong>. Perbaharui
+                sekarang untuk mengelakkan gangguan perkhidmatan.
+              </>
+            )}
           </p>
         </div>
       </div>
-      <div className="banner-actions">
+
+      <div className="flex shrink-0 items-center gap-2 pl-11 sm:pl-0">
         <button
-          className="renew-btn"
           onClick={handleRenew}
           disabled={renewLoading}
+          className="inline-flex h-9 items-center justify-center rounded-xl bg-volt-400 px-4 text-sm font-semibold text-ink-900 transition-all hover:bg-volt-300 active:scale-[0.98] disabled:opacity-60"
         >
-          {renewLoading ? 'Memproses...' : `Perbaharui Sekarang (RM${price})`}
+          {renewLoading
+            ? 'Memproses...'
+            : isExpired
+            ? `Perbaharui Langganan (RM${price})`
+            : `Perbaharui Sekarang (RM${price})`}
         </button>
-        <button
-          className="dismiss-btn"
-          onClick={() => setDismissed(true)}
-        >
-          Tutup
-        </button>
+        {!isExpired && (
+          <button
+            onClick={() => setDismissed(true)}
+            className="inline-flex h-9 items-center justify-center rounded-xl border border-white/[0.12] bg-white/[0.04] px-4 text-sm font-medium text-white/70 transition-colors hover:bg-white/[0.08] hover:text-white"
+          >
+            Tutup
+          </button>
+        )}
       </div>
     </div>
   );

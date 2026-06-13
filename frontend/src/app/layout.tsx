@@ -95,9 +95,21 @@ export default function RootLayout({
           position="top-right"
           toastOptions={{
             duration: 4000,
+            // BinaApp dark-navy + lime toast styling (matches dashboard surfaces)
             style: {
-              background: '#363636',
+              background: '#161623',
               color: '#fff',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '14px',
+              padding: '12px 16px',
+              fontSize: '14px',
+              boxShadow: '0 12px 32px rgba(0,0,0,0.45)',
+            },
+            success: {
+              iconTheme: { primary: '#C7FF3D', secondary: '#0B0B15' },
+            },
+            error: {
+              iconTheme: { primary: '#FF5A5F', secondary: '#0B0B15' },
             },
           }}
         />
