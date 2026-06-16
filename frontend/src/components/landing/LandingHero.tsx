@@ -46,7 +46,7 @@ export default function LandingHero() {
           <p className="font-geist text-lg leading-relaxed text-ink-300 max-w-[520px] mb-8">
             Ceritakan kedai anda dalam Bahasa Melayu. AI akan bina website penuh
             dengan menu, pesanan WhatsApp, dan jejakan penghantar. Berhenti bayar
-            30% komisen Foodpanda — miliki pelanggan anda sendiri.
+            30% komisen platform penghantaran — miliki pelanggan anda sendiri.
           </p>
 
           {/* CTA — single button, links to /register */}
