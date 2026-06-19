@@ -2462,8 +2462,9 @@ MANDATORY REQUIREMENTS:
 4. DO NOT use Unsplash or any placeholder URLs
 5. Make sure ALL 4 gallery images are included (not 3, not 2, but ALL 4)
 6. Hero section: Use h-[60vh] (NOT h-[90vh])
-7. Gallery images: Use h-48 (NOT h-64)
+7. Gallery/product card image areas: EVERY card MUST use the IDENTICAL classes `w-full aspect-[4/3] object-cover` — never per-card pixel heights (no h-48/h-56/h-60/h-64/h-72) — so the grid stays even on mobile (375px) and desktop
 8. Each gallery item must be DIFFERENT - different image, different name, different description
+9. If a gallery card shows a small category/label tag, every tag MUST be unique - never repeat the same label (e.g. two "Color" tags) unless there are genuinely more cards than distinct categories
 """
         else:
             # Fallback for partial uploads
