@@ -702,10 +702,12 @@ class SubscriptionService:
                 updated_rows = response.json() if response.status_code == 200 else []
                 if response.status_code == 200 and updated_rows:
                     logger.info(f"[INCREMENT] SUCCESS: {field} updated {current_value} -> {new_value} for user {user_id}")
+                    await self._consume_addon_overflow(user_id, action, current_value, new_value)
                     return True
                 elif response.status_code == 204:
                     # 204 with return=representation shouldn't happen, but treat as success
                     logger.info(f"[INCREMENT] OK (204): {field} set to {new_value} for user {user_id}")
+                    await self._consume_addon_overflow(user_id, action, current_value, new_value)
                     return True
                 else:
                     # 200 but empty body = 0 rows matched the filter
@@ -718,6 +720,63 @@ class SubscriptionService:
         except Exception as e:
             logger.error(f"[INCREMENT] Error incrementing usage for {action}: {e}")
             return False
+
+    async def _consume_addon_overflow(
+        self, user_id: str, action: str, prev_value: int, new_value: int
+    ) -> None:
+        """Consume addon credits for the part of an increment that exceeded the
+        plan's base (monthly) limit.
+
+        Background: AI generations are allowed when current < base_limit +
+        addon_credits, but the generation endpoints only call increment_usage —
+        they never consumed the addon credit, so purchased ai_hero/ai_image
+        credits never depleted (they acted as a permanent monthly limit boost).
+        This centralises consumption so every generation path behaves the same,
+        mirroring create_website's use_addon_credit on the addon-backed slot.
+
+        Scope is intentionally limited to the monthly AI actions:
+        - create_website consumes its `website` credit at the call site (and is
+          not monthly), so it is excluded here to avoid double consumption.
+        - add_menu_item has no addon product.
+        - add_rider / add_zone are live-counted from their tables and consumed
+          (rider) at their own endpoints; they never reach this method because
+          they are not mapped in increment_usage's field_mapping.
+        """
+        addon_map = {
+            "generate_ai_hero": ("ai_hero_limit", "ai_hero"),
+            "generate_ai_image": ("ai_images_limit", "ai_image"),
+        }
+        if action not in addon_map:
+            return
+
+        limit_field, addon_type = addon_map[action]
+        try:
+            limits = await self.get_user_limits(user_id)
+            base_limit = limits.get(limit_field)
+            # Unlimited tier (None) => no addon allowance is ever drawn down.
+            if base_limit is None:
+                return
+
+            # Units in THIS increment that landed beyond the base limit. If the
+            # user was already over the limit, the whole increment is overflow;
+            # if it straddles the boundary, only the part above it counts.
+            overflow = int(new_value) - max(int(prev_value), int(base_limit))
+            if overflow <= 0:
+                return
+
+            consumed = 0
+            for _ in range(overflow):
+                if not await self.use_addon_credit(user_id, addon_type):
+                    break  # no credits left (e.g. admin bypass) — stop quietly
+                consumed += 1
+            if consumed:
+                logger.info(
+                    f"🧾 Consumed {consumed} {addon_type} addon credit(s) for "
+                    f"user {user_id} ({action}: {prev_value}->{new_value}, base limit {base_limit})"
+                )
+        except Exception as e:
+            # Never let credit accounting undo a successful usage increment.
+            logger.warning(f"Addon overflow consumption skipped for {action}/{user_id}: {e}")
 
     async def decrement_usage(self, user_id: str, action: str, count: int = 1) -> bool:
         """Decrement usage counter (for deletions)"""
