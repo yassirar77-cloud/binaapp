@@ -3468,6 +3468,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 # implied </html> exists), fall through unmodified; the flag
                 # is still set so downstream knows.
 
+        # Deterministic gallery post-pass: enforce uniform card-image heights
+        # and drop duplicate category tags regardless of what the model emitted.
+        # Runs after truncation detection/closer insertion so it can't affect
+        # those signals; never raises.
+        try:
+            from app.services.gallery_normalizer import normalize_gallery_html
+            text = normalize_gallery_html(text)
+        except Exception as _gn_err:
+            logger.warning(f"gallery normalize skipped: {_gn_err}")
+
         return text
 
     @staticmethod
