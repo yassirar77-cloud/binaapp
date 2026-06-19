@@ -14,6 +14,9 @@ interface LimitReachedModalProps {
   addonPrice?: number;
   onUpgrade?: (tier: string) => void;
   onBuyAddon?: (type: string, quantity: number) => void;
+  /** Which tab opens first. Pass 'addon' to surface the per-slot add-on
+   *  (e.g. rider RM3) directly instead of the upgrade plans. */
+  defaultOption?: 'upgrade' | 'addon';
 }
 
 const resourceLabels: Record<string, { name: string; nameMalay: string; icon: string }> = {
@@ -69,9 +72,10 @@ export function LimitReachedModal({
   canBuyAddon,
   addonPrice,
   onUpgrade,
-  onBuyAddon
+  onBuyAddon,
+  defaultOption = 'upgrade'
 }: LimitReachedModalProps) {
-  const [selectedOption, setSelectedOption] = useState<'upgrade' | 'addon'>('upgrade');
+  const [selectedOption, setSelectedOption] = useState<'upgrade' | 'addon'>(defaultOption);
   const [addonQuantity, setAddonQuantity] = useState(1);
   const [loading, setLoading] = useState(false);
 
@@ -178,9 +182,10 @@ export function LimitReachedModal({
 
         <div className="limit-modal-header">
           <div className="warning-icon">!</div>
-          <h2>Had Tercapai</h2>
+          <h2>Had Tercapai / Limit Reached</h2>
           <p>
-            Anda telah mencapai had {resource.nameMalay} pelan anda
+            Anda telah mencapai had {resource.nameMalay} pelan anda. / You&rsquo;ve
+            reached your plan&rsquo;s {resource.name} limit.
             <span className="usage-count">({currentUsage}/{limit ?? 'tanpa had'})</span>
           </p>
         </div>
@@ -192,14 +197,14 @@ export function LimitReachedModal({
               className={`toggle-btn ${selectedOption === 'upgrade' ? 'active' : ''}`}
               onClick={() => setSelectedOption('upgrade')}
             >
-              Naik Taraf Pelan
+              Naik Taraf / Upgrade
             </button>
             {canBuyAddon && addonPrice && (
               <button
                 className={`toggle-btn ${selectedOption === 'addon' ? 'active' : ''}`}
                 onClick={() => setSelectedOption('addon')}
               >
-                Beli Addon
+                Beli Addon / Buy Add-on
               </button>
             )}
           </div>
@@ -230,7 +235,7 @@ export function LimitReachedModal({
                     onClick={() => handleUpgrade(plan.tier)}
                     disabled={loading}
                   >
-                    {loading ? 'Memproses...' : `Naik Taraf ke ${plan.name}`}
+                    {loading ? 'Memproses… / Processing…' : `Naik Taraf / Upgrade — ${plan.name}`}
                   </button>
                 </div>
               ))}
@@ -242,14 +247,14 @@ export function LimitReachedModal({
             <div className="addon-options">
               <div className="addon-card">
                 <div className="addon-info">
-                  <h3>{resource.nameMalay} Tambahan</h3>
+                  <h3>{resource.nameMalay} Tambahan / Additional {resource.name}</h3>
                   <p className="addon-price">
                     RM {addonPrice.toFixed(2)} / unit
                   </p>
                 </div>
 
                 <div className="quantity-selector">
-                  <label>Kuantiti:</label>
+                  <label>Kuantiti / Quantity:</label>
                   <div className="quantity-controls">
                     <button
                       onClick={() => setAddonQuantity(Math.max(1, addonQuantity - 1))}
@@ -265,7 +270,7 @@ export function LimitReachedModal({
                 </div>
 
                 <div className="addon-total">
-                  <span>Jumlah:</span>
+                  <span>Jumlah / Total:</span>
                   <span className="total-price">RM {totalAddonPrice.toFixed(2)}</span>
                 </div>
 
@@ -274,11 +279,12 @@ export function LimitReachedModal({
                   onClick={handleBuyAddon}
                   disabled={loading}
                 >
-                  {loading ? 'Memproses...' : `Beli Sekarang - RM ${totalAddonPrice.toFixed(2)}`}
+                  {loading ? 'Memproses… / Processing…' : `Beli Sekarang / Buy Now — RM ${totalAddonPrice.toFixed(2)}`}
                 </button>
 
                 <p className="addon-note">
-                  Kredit addon boleh digunakan bila-bila masa dan tidak akan tamat tempoh.
+                  Kredit sah selama 365 hari dan ditolak apabila digunakan. / Credits
+                  are valid for 365 days and are deducted as you use them.
                 </p>
               </div>
             </div>
@@ -286,7 +292,8 @@ export function LimitReachedModal({
         </div>
 
         <p className="modal-footer-note">
-          Anda akan diarahkan ke ToyyibPay untuk pembayaran selamat.
+          Anda akan diarahkan ke ToyyibPay untuk pembayaran selamat. / You&rsquo;ll be
+          redirected to ToyyibPay for secure payment.
         </p>
       </div>
     </div>

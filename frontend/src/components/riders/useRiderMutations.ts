@@ -33,15 +33,76 @@ class RiderApiError extends Error {
   }
 }
 
-async function parseError(res: Response): Promise<string> {
+/** Structured detail returned by SubscriptionGuard.check_limit("add_rider"). */
+export interface RiderLimitInfo {
+  message: string
+  canBuyAddon: boolean
+  addonType: string
+  addonPrice?: number
+  currentUsage?: number
+  limit?: number
+}
+
+class RiderLimitError extends RiderApiError {
+  info: RiderLimitInfo
+  constructor(info: RiderLimitInfo, status: number) {
+    super(info.message, status)
+    this.name = 'RiderLimitError'
+    this.info = info
+  }
+}
+
+// Turn a non-OK response into a typed error. A 403 carrying the structured
+// limit-reached payload becomes a RiderLimitError (so the UI can open the
+// buy-slot modal); everything else becomes a RiderApiError with the best human
+// message we can extract — crucially, never a bare "Ralat 403" when the API
+// actually sent a `detail` object (the old parseError collapsed those).
+async function toRiderError(res: Response): Promise<RiderApiError> {
+  let detail: unknown
   try {
-    const body = await res.json()
-    if (typeof body?.detail === 'string') return body.detail
-    if (Array.isArray(body?.detail) && body.detail[0]?.msg) return String(body.detail[0].msg)
+    detail = (await res.json())?.detail
   } catch {
     /* ignore JSON parse errors */
   }
-  return `Ralat ${res.status}`
+
+  if (
+    res.status === 403 &&
+    detail &&
+    typeof detail === 'object' &&
+    !Array.isArray(detail) &&
+    ((detail as Record<string, unknown>).error === 'limit_reached' ||
+      (detail as Record<string, unknown>).can_buy_addon !== undefined)
+  ) {
+    const d = detail as Record<string, unknown>
+    return new RiderLimitError(
+      {
+        message:
+          typeof d.message === 'string'
+            ? (d.message as string)
+            : 'Had rider pelan anda telah dicapai. / You’ve reached your plan’s rider limit.',
+        canBuyAddon: !!d.can_buy_addon,
+        addonType: typeof d.addon_type === 'string' ? (d.addon_type as string) : 'rider',
+        addonPrice: typeof d.addon_price === 'number' ? (d.addon_price as number) : undefined,
+        currentUsage: typeof d.current_usage === 'number' ? (d.current_usage as number) : undefined,
+        limit: typeof d.limit === 'number' ? (d.limit as number) : undefined,
+      },
+      res.status,
+    )
+  }
+
+  let message = `Ralat ${res.status}`
+  if (typeof detail === 'string') {
+    message = detail
+  } else if (Array.isArray(detail) && (detail[0] as Record<string, unknown>)?.msg) {
+    message = String((detail[0] as Record<string, unknown>).msg)
+  } else if (
+    detail &&
+    typeof detail === 'object' &&
+    typeof (detail as Record<string, unknown>).message === 'string'
+  ) {
+    message = (detail as Record<string, unknown>).message as string
+  }
+  return new RiderApiError(message, res.status)
 }
 
 export function useRiderMutations() {
@@ -72,7 +133,7 @@ export function useRiderMutations() {
             body: JSON.stringify(payload),
           },
         )
-        if (!res.ok) throw new RiderApiError(await parseError(res), res.status)
+        if (!res.ok) throw await toRiderError(res)
         return await res.json()
       } finally {
         setSubmitting(false)
@@ -92,7 +153,7 @@ export function useRiderMutations() {
           headers: authHeaders(),
           body: JSON.stringify(body),
         })
-        if (!res.ok) throw new RiderApiError(await parseError(res), res.status)
+        if (!res.ok) throw await toRiderError(res)
         return await res.json()
       } finally {
         setSubmitting(false)
@@ -109,7 +170,7 @@ export function useRiderMutations() {
           method: 'DELETE',
           headers: authHeaders(),
         })
-        if (!res.ok) throw new RiderApiError(await parseError(res), res.status)
+        if (!res.ok) throw await toRiderError(res)
       } finally {
         setDeleting(false)
       }
@@ -120,4 +181,4 @@ export function useRiderMutations() {
   return { createRider, updateRider, deleteRider, submitting, deleting }
 }
 
-export { RiderApiError }
+export { RiderApiError, RiderLimitError }

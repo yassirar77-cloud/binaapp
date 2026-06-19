@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { RiderForm, type RiderFormRider, type RiderFormWebsite } from './RiderForm'
+import type { RiderLimitInfo } from './useRiderMutations'
 
 type Mode = 'add' | 'edit'
 
@@ -16,6 +17,7 @@ interface RiderFormModalProps {
   onSaved: () => void
   onDeleted: () => void
   onShowToast: (msg: string, tone: 'success' | 'error') => void
+  onLimitReached?: (info: RiderLimitInfo) => void
 }
 
 const FOCUSABLE_SEL =
@@ -31,6 +33,7 @@ export function RiderFormModal({
   onSaved,
   onDeleted,
   onShowToast,
+  onLimitReached,
 }: RiderFormModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const [mounted, setMounted] = useState(false)
@@ -171,6 +174,7 @@ export function RiderFormModal({
             onClose()
           }}
           onError={(msg) => onShowToast(msg, 'error')}
+          onLimitReached={onLimitReached}
           onCancel={onClose}
           onDeleted={() => {
             onDeleted()
