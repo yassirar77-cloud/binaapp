@@ -8,8 +8,6 @@ import subprocess
 import json
 import os
 
-from app.core.config import settings
-
 router = APIRouter()
 
 
