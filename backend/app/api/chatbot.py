@@ -127,10 +127,8 @@ async def customer_support_chat(request: ChatRequest):
         ChatResponse with AI-generated reply
     """
 
-    # Debug: Show API key configuration status
+    # Debug: Show API key configuration status (boolean only, never the value)
     print(f"🔑 API Key configured: {bool(DEEPSEEK_API_KEY)}")
-    if DEEPSEEK_API_KEY:
-        print(f"🔑 Key preview: {DEEPSEEK_API_KEY[:10]}...")
 
     if not DEEPSEEK_API_KEY:
         print("❌ ERROR: No DEEPSEEK_API_KEY found in environment")
@@ -206,8 +204,7 @@ async def chat_health():
     return {
         "status": "ok",
         "deepseek_configured": bool(DEEPSEEK_API_KEY),
-        "service": "BinaBot (DeepSeek)",
-        "api_key_preview": DEEPSEEK_API_KEY[:10] + "..." if DEEPSEEK_API_KEY else None
+        "service": "BinaBot (DeepSeek)"
     }
 
 

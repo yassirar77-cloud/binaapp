@@ -2113,9 +2113,11 @@ async def get_widget_config(
 
         settings = settings_response.data[0] if settings_response.data else None
 
-        # 3. Get first active delivery zone for default fee
+        # 3. Get first active delivery zone for default fee.
+        # NOTE: migration 026 recreated delivery_zones with columns
+        # name / fee_cents / min_order_cents (fees stored in cents).
         zone_response = supabase.table("delivery_zones").select(
-            "zone_name, delivery_fee, minimum_order"
+            "name, fee_cents, min_order_cents"
         ).eq("website_id", website_id).eq("active", True).order("sort_order").limit(1).execute()
 
         first_zone = zone_response.data[0] if zone_response.data else None
@@ -2156,13 +2158,13 @@ async def get_widget_config(
             # Fulfillment options
             "fulfillment": {
                 "delivery": settings.get("delivery_enabled", True) if settings else True,
-                "delivery_fee": float(first_zone.get("delivery_fee", 5)) if first_zone else (
+                "delivery_fee": (float(first_zone.get("fee_cents", 500)) / 100) if first_zone else (
                     float(settings.get("default_delivery_fee", 5)) if settings else 5.0
                 ),
-                "min_order": float(first_zone.get("minimum_order", 20)) if first_zone else (
+                "min_order": (float(first_zone.get("min_order_cents", 2000)) / 100) if first_zone else (
                     float(settings.get("minimum_order", 20)) if settings else 20.0
                 ),
-                "delivery_area": first_zone.get("zone_name", "") if first_zone else "",
+                "delivery_area": first_zone.get("name", "") if first_zone else "",
                 "pickup": settings.get("pickup_enabled", True) if settings else True,
                 "pickup_address": settings.get("pickup_address") or (
                     website.get("location_address") if website else ""
@@ -2179,36 +2181,18 @@ async def get_widget_config(
         logger.info(f"✅ Widget config loaded for {website_id}: type={business_type}")
         return config
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error fetching widget config: {e}")
-        # Return defaults instead of failing
-        return {
-            "website_id": website_id,
-            "business_type": "food",
-            "business_name": "Kedai",
-            "whatsapp_number": "",
-            "language": "ms",
-            "primary_color": "#ea580c",
-            "payment": {"cod": True, "qr": False, "qr_image": None},
-            "fulfillment": {
-                "delivery": True,
-                "delivery_fee": 5.0,
-                "min_order": 20.0,
-                "delivery_area": "",
-                "pickup": True,
-                "pickup_address": ""
-            },
-            "categories": [
-                {"id": "nasi", "name": "🍚 Nasi", "icon": "🍚"},
-                {"id": "lauk", "name": "🍗 Lauk", "icon": "🍗"},
-                {"id": "minuman", "name": "🥤 Minuman", "icon": "🥤"}
-            ],
-            "features": {
-                "delivery_zones": True,
-                "time_slots": True,
-                "special_instructions": True
-            }
-        }
+        # Surface real DB/schema errors instead of masking them as a 200
+        # with default config (which silently hid the delivery_zones
+        # schema drift). Missing data is already handled above via the
+        # None checks; only genuine failures reach this handler.
+        logger.error(f"Error fetching widget config for {website_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load widget config: {str(e)}",
+        )
 
 
 # =====================================================
