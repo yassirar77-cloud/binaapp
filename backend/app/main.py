@@ -187,7 +187,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
-    expose_headers=["Content-Length"],
+    expose_headers=["Content-Length", "X-Email-Verification-Required"],
     max_age=3600,
 )
 
