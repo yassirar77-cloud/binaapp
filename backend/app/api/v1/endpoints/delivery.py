@@ -24,6 +24,8 @@ from app.core.geocoder import (
 )
 from app.core.supabase import get_supabase_client
 from app.core.security import get_current_user
+from app.middleware.subscription_guard import SubscriptionGuard
+from app.services.subscription_service import subscription_service
 from app.models.delivery_schemas import (
     # Zones
     ZonesWithSettingsResponse,
@@ -1627,12 +1629,22 @@ async def create_rider(
     rider: RiderCreateBusiness,
     current_user: dict = Depends(get_current_user),
     supabase: Client = Depends(get_rider_admin_client),
+    _limit_check: dict = Depends(SubscriptionGuard.check_limit("add_rider")),
 ):
     """
     Create a rider for a website (Admin endpoint).
 
     Uses service role when available and falls back to RLS with user JWT.
     This keeps rider creation working even when the service role key is missing.
+
+    Quota: gated by SubscriptionGuard.check_limit("add_rider"), mirroring
+    create_website. Free/Starter/Basic have riders_limit=0, so a rider can only
+    be created against a purchased `rider` addon credit (or the Pro plan's 10
+    base slots). When the slot comes from an addon credit, the credit is
+    consumed below. Note: rider counts are read live from the `riders` table
+    (get_actual_resource_counts), so the INSERT itself is the count increment —
+    no increment_usage("add_rider") call is needed (that action isn't tracked
+    in usage_tracking and the call would be a silent no-op).
     """
     try:
         user_id = current_user.get("sub") or current_user.get("id")
@@ -1677,6 +1689,17 @@ async def create_rider(
             logger.info("[Rider CREATE] ✅ Verification successful - rider exists in database")
         else:
             logger.warning("[Rider CREATE] ⚠️ Verification failed - rider not found immediately after creation")
+
+        # If this rider slot came from a purchased addon (the guard reported the
+        # base plan limit was already reached), consume one `rider` credit so it
+        # actually depletes — mirrors create_website's use_addon_credit("website").
+        # Best-effort: a tracking failure must not undo a successfully created rider.
+        try:
+            if _limit_check and _limit_check.get("using_addon"):
+                await subscription_service.use_addon_credit(user_id, "rider")
+                logger.info(f"🧾 Consumed rider addon credit for user {user_id}")
+        except Exception as usage_err:
+            logger.warning(f"⚠️ Rider addon credit consumption failed for user {user_id}: {usage_err}")
 
         return convert_db_row_to_dict(created_rider)
     except HTTPException:
