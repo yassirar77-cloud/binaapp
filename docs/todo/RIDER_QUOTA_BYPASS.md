@@ -1,8 +1,13 @@
-# TODO: Fix `create_rider` quota-bypass (revenue leak)
+# RESOLVED: `create_rider` quota-bypass (revenue leak)
 
 **Severity:** High — billing bypass affecting all Starter/Basic merchants
 **Discovered during:** Step 3a / Task 5b rider-addon semantic verification (2026-05-21)
-**Not fixed in this PR:** This is recorded for a separate PR after polisi v3.0 lands.
+**Status:** FIXED — `create_rider` now depends on
+`SubscriptionGuard.check_limit("add_rider")` and consumes a `rider` addon credit
+on the addon-backed slot (commit "Enforce rider quota + consume rider addon
+credit on create_rider"). The notes below are kept for history; a couple of the
+original claims about the surrounding machinery were wrong and are corrected
+inline so the record is accurate.
 
 ## Problem
 
@@ -19,10 +24,16 @@ The quota machinery exists and is wired correctly:
 - `subscription_service.check_limit("add_rider")` (subscription_service.py:560,
   583-606) computes `current < limit + addon_count` using the additive formula.
 - `SubscriptionGuard.check_limit("add_rider")` decorator dependency
-  (subscription_guard.py:372, 580-598) is the standard wrapper used by
-  `create_website`, `generate_ai_hero`, `generate_ai_image`, and `add_zone`.
+  (subscription_guard.py:371-443) exists and is the correct wrapper to attach.
 
-…but no dependency is attached to `create_rider`, so the check never runs.
+…but no dependency was attached to `create_rider`, so the check never ran.
+
+**Correction (original claim was wrong):** the guard dependency was NOT "the
+standard wrapper used by create_website, generate_ai_hero, generate_ai_image,
+and add_zone." In reality only `create_website` (websites.py:39) used the guard
+dependency; `generate_ai_hero`/`generate_ai_image` call bare
+`subscription_service.check_limit(...)` (read-only) and `add_zone` had no check
+at all. So zones share the same class of bypass — see the separate zone audit.
 
 ## Impact
 
@@ -50,15 +61,25 @@ async def create_rider(
     ...
 ```
 
-After the check, on successful insert, increment the rider usage counter:
+On successful insert, consume the addon credit when the slot came from one:
 
 ```python
-await subscription_service.increment_usage(user_id, "add_rider")
+if _limit_check and _limit_check.get("using_addon"):
+    await subscription_service.use_addon_credit(user_id, "rider")
 ```
 
-(`SubscriptionGuard.check_limit` already does the usage increment when the
-addon block fires; verify the non-addon path also increments — see
-subscription_guard.py:597-601.)
+**Correction (original claim was wrong):** do NOT call
+`increment_usage(user_id, "add_rider")` — rider counts are read live from the
+`riders` table (`get_actual_resource_counts`), `"add_rider"` is not mapped in
+`increment_usage`'s `field_mapping`, and the call is a silent no-op. The INSERT
+itself is the count increment.
+
+Also: the original note claimed "`SubscriptionGuard.check_limit` already does
+the usage increment when the addon block fires (subscription_guard.py:597-601)."
+That is wrong. The guard *dependency* (subscription_guard.py:371-443) only
+blocks; it neither increments usage nor consumes credits. Lines 597-601 live in
+the separate `check_and_increment_usage` helper, which no endpoint calls. Credit
+consumption therefore has to be wired explicitly at the call site (as above).
 
 ## Verification before fix lands
 

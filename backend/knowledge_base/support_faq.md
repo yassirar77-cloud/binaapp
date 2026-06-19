@@ -187,7 +187,7 @@ When you reach your plan's limits, you can buy extra addon credits:
 - Rider: RM3.00/credit
 - Delivery Zone: RM2.00/credit
 
-Addon credits are auto-deducted when used. Purchase from Dashboard → Billing → Addons.
+Addon credits for AI images, AI hero generations, websites, and riders are automatically deducted when you use that resource. Credits are valid for 365 days from purchase. Purchase from Dashboard → Billing → Addons.
 
 ### How do I upgrade my plan?
 1. Go to Dashboard → Billing
