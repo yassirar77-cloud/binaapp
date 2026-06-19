@@ -2893,8 +2893,8 @@ RULES:
 - Use each image AT MOST ONCE across the entire page. NEVER show the same photo in two places (e.g. a service card and the gallery/portfolio).
 - Render EXACTLY {_n} image card(s) total. Do NOT pad with empty, placeholder, or duplicate cards.
 - If a section (such as a portfolio/gallery) cannot be filled with UNUSED images, OMIT that section entirely rather than reusing a photo.
-- Gallery images: h-48 or h-52 with object-cover
-- All gallery cards MUST be consistent in height"""
+- Gallery/product card image areas: EVERY card MUST use the IDENTICAL size classes `w-full aspect-[4/3] object-cover` — never per-card pixel heights (no h-48/h-52/h-56/h-60/h-64/h-72) — so the grid stays perfectly even on mobile (375px) and desktop
+- If you add a small category/label tag to gallery cards, each tag MUST be unique across the cards — never repeat the same label (e.g. two "Color" tags) unless there are genuinely more cards than distinct categories; otherwise omit the tag"""
 
         # ---- ECOMMERCE MODE ----
         ecommerce_section = ""
@@ -3467,6 +3467,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 # If neither match somehow (shouldn't happen — ends_with_html
                 # implied </html> exists), fall through unmodified; the flag
                 # is still set so downstream knows.
+
+        # Deterministic gallery post-pass: enforce uniform card-image heights
+        # and drop duplicate category tags regardless of what the model emitted.
+        # Runs after truncation detection/closer insertion so it can't affect
+        # those signals; never raises.
+        try:
+            from app.services.gallery_normalizer import normalize_gallery_html
+            text = normalize_gallery_html(text)
+        except Exception as _gn_err:
+            logger.warning(f"gallery normalize skipped: {_gn_err}")
 
         return text
 
@@ -4905,6 +4915,8 @@ IMPORTANT INSTRUCTIONS:
 5. Use the EXACT menu item titles shown above - DO NOT modify them, and do NOT append the business name or location to a title.
 6. Write compelling descriptions in Malay for each dish, but keep the dish NAME/TITLE exactly as provided.
 7. Make sure ALL images with URLs are displayed in the menu/gallery section.
+8. Gallery/product card image areas MUST all use the IDENTICAL size classes `w-full aspect-[4/3] object-cover` — never per-card pixel heights (no h-48/h-56/h-60/h-64/h-72) — so the grid stays even on mobile (375px) and desktop.
+9. If gallery cards show a small category/label tag, every tag MUST be distinct — never repeat the same label (e.g. two "Color" tags) unless there are genuinely more cards than distinct categories.
 """
 
             prompt += image_instructions
