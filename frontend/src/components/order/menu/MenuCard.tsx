@@ -1,6 +1,6 @@
 'use client'
 
-import { ImageOff, Plus } from 'lucide-react'
+import { Plus, UtensilsCrossed } from 'lucide-react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { cn } from '@/lib/utils'
 import type { MenuItem } from '../menu-types'
@@ -69,7 +69,7 @@ export function MenuCard({ item, cartQty, onOpen, onAdd, onSetQty }: MenuCardPro
           // eslint-disable-next-line @next/next/no-img-element
           <img src={item.image} alt={item.name} loading="lazy" decoding="async" />
         ) : (
-          <ImageOff size={28} aria-hidden="true" />
+          <UtensilsCrossed size={26} aria-hidden="true" />
         )}
         {isSold && (
           <div className="sold-out-overlay" aria-label="Habis stok">
