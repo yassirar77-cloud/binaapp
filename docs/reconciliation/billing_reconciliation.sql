@@ -166,3 +166,112 @@ SELECT user_id, quantity, quantity_used, status, unit_price, total_price, create
 FROM public.addon_purchases
 WHERE addon_type = 'zone'
 ORDER BY created_at;
+
+
+-- ---------------------------------------------------------------------
+-- [F] WEBSITE OVER-LIMIT — users whose live website count exceeds what their
+--     plan + purchased website slots allow. These are pre-existing accounts the
+--     draft-promotion bypass (promotion ran with no check_limit) could have
+--     pushed over the cap. The migration-046 fix gates promotion going forward
+--     but does NOT claw these back — run this before deploying to see exposure.
+--     Mirrors the app's count (status <> 'pending_payment') and its additive
+--     formula (base limit + active `website` addon credits). Pro (unlimited) is
+--     excluded. pending_drafts = latent "free publishes" a future payment could
+--     still have promoted under the old code.
+--     Base limits: pro=∞, basic=5, starter/free=1, unknown→1 (get_user_limits default).
+-- ---------------------------------------------------------------------
+WITH cur_sub AS (
+  SELECT DISTINCT ON (user_id) user_id, tier, status
+  FROM public.subscriptions
+  ORDER BY user_id,
+           current_period_end DESC NULLS LAST,  -- drop this line if column absent
+           end_date DESC NULLS LAST,
+           created_at DESC
+),
+web_counts AS (
+  SELECT user_id,
+         COUNT(*) FILTER (WHERE status <> 'pending_payment') AS websites_count,
+         COUNT(*) FILTER (WHERE status =  'pending_payment') AS pending_drafts
+  FROM public.websites
+  WHERE user_id IS NOT NULL
+  GROUP BY user_id
+),
+web_credits AS (
+  SELECT user_id,
+         SUM(GREATEST(0, quantity - COALESCE(quantity_used,0))) AS website_credits
+  FROM public.addon_purchases
+  WHERE addon_type = 'website' AND status = 'active'
+  GROUP BY user_id
+),
+calc AS (
+  SELECT
+    ct.user_id,
+    s.tier,
+    s.status AS sub_status,
+    CASE lower(COALESCE(s.tier,'starter'))
+      WHEN 'pro'     THEN NULL   -- unlimited
+      WHEN 'basic'   THEN 5
+      WHEN 'starter' THEN 1
+      WHEN 'free'    THEN 1
+      ELSE 1
+    END                             AS websites_base_limit,
+    COALESCE(wc.website_credits, 0) AS website_addon_credits,
+    COALESCE(ct.websites_count, 0)  AS websites_count,
+    COALESCE(ct.pending_drafts, 0)  AS pending_drafts
+  FROM web_counts ct
+  LEFT JOIN cur_sub     s  ON s.user_id  = ct.user_id
+  LEFT JOIN web_credits wc ON wc.user_id = ct.user_id
+)
+SELECT
+  user_id,
+  tier,
+  sub_status,
+  websites_base_limit,
+  website_addon_credits,
+  websites_base_limit + website_addon_credits AS effective_limit,
+  websites_count,
+  pending_drafts,
+  websites_count - (websites_base_limit + website_addon_credits) AS over_by
+FROM calc
+WHERE websites_base_limit IS NOT NULL                                  -- exclude Pro (unlimited)
+  AND websites_count > websites_base_limit + website_addon_credits
+ORDER BY over_by DESC, websites_count DESC;
+
+
+-- ---------------------------------------------------------------------
+-- [F2] WEBSITE OVER-LIMIT — single-row total (how many accounts, how many
+--      excess live sites beyond plan + purchased slots).
+-- ---------------------------------------------------------------------
+WITH cur_sub AS (
+  SELECT DISTINCT ON (user_id) user_id, tier
+  FROM public.subscriptions
+  ORDER BY user_id, current_period_end DESC NULLS LAST,
+           end_date DESC NULLS LAST, created_at DESC
+),
+web_counts AS (
+  SELECT user_id, COUNT(*) FILTER (WHERE status <> 'pending_payment') AS websites_count
+  FROM public.websites WHERE user_id IS NOT NULL GROUP BY user_id
+),
+web_credits AS (
+  SELECT user_id, SUM(GREATEST(0, quantity - COALESCE(quantity_used,0))) AS website_credits
+  FROM public.addon_purchases WHERE addon_type='website' AND status='active' GROUP BY user_id
+),
+calc AS (
+  SELECT
+    ct.user_id,
+    CASE lower(COALESCE(s.tier,'starter'))
+      WHEN 'pro' THEN NULL WHEN 'basic' THEN 5
+      WHEN 'starter' THEN 1 WHEN 'free' THEN 1 ELSE 1 END AS base_limit,
+    COALESCE(wc.website_credits,0) AS credits,
+    COALESCE(ct.websites_count,0)  AS websites_count
+  FROM web_counts ct
+  LEFT JOIN cur_sub     s  ON s.user_id  = ct.user_id
+  LEFT JOIN web_credits wc ON wc.user_id = ct.user_id
+)
+SELECT
+  COUNT(*)                                          AS over_limit_accounts,
+  COALESCE(SUM(websites_count - (base_limit + credits)), 0) AS total_excess_sites
+FROM calc
+WHERE base_limit IS NOT NULL
+  AND websites_count > base_limit + credits;
+
