@@ -135,10 +135,11 @@
 - ✅ Subscription status updates
 - ✅ Plan upgrades/downgrades
 
-**Subscription Tiers**:
-- Free: 1 website, 3 generations/day
-- Basic: 5 websites, unlimited generations (RM29/mo)
-- Pro: Unlimited websites (RM79/mo)
+**Subscription Tiers** (authoritative source: `subscription_service.TIER_LIMITS` + migration `005_subscription_management.sql`):
+- Free: RM0/mo — 1 website, watermark + preview mode (no AI, no delivery)
+- Starter: RM5/mo — 1 website, 20 menu items, 1 AI hero + 5 AI images/mo, 1 delivery zone, 0 riders
+- Basic: RM29/mo — 5 websites, unlimited menu, 10 AI hero + 30 AI images/mo, 5 delivery zones, 0 riders
+- Pro: RM49/mo — unlimited websites/menu/AI/zones, 10 riders with GPS
 
 **Key Files**:
 - `backend/app/api/v1/endpoints/payments.py`

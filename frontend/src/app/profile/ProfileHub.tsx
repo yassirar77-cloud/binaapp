@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import type { User } from '@supabase/supabase-js'
 import useSubscription from '@/hooks/useSubscription'
@@ -22,7 +23,8 @@ import { DisputeCard, type Dispute } from './components/DisputeCard'
 import { Toast, type ToastTone } from './components/primitives/Toast'
 import { RiderFormModal } from '@/components/riders/RiderFormModal'
 import type { RiderFormRider } from '@/components/riders/RiderForm'
-import type { VehicleType } from '@/components/riders/useRiderMutations'
+import type { VehicleType, RiderLimitInfo } from '@/components/riders/useRiderMutations'
+import { LimitReachedModal } from '@/components/LimitReachedModal'
 import { NewDisputeForm } from '@/components/disputes/NewDisputeForm'
 import { DisputeListModal } from '@/components/disputes/DisputeListModal'
 import { DisputeThread } from '@/components/disputes/DisputeThread'
@@ -192,6 +194,8 @@ export function ProfileHub({
   const [websites, setWebsites] = useState<RawWebsite[]>([])
   const [disputes, setDisputes] = useState<Dispute[] | null>(null)
   const [rawDisputes, setRawDisputes] = useState<Map<string, ApiDispute>>(new Map())
+  // Rider plan-limit 403 → drives the reusable buy-slot modal (LimitReachedModal).
+  const [riderLimit, setRiderLimit] = useState<RiderLimitInfo | null>(null)
   const [openDisputeCount, setOpenDisputeCount] = useState(0)
   const [disputeListRefresh, setDisputeListRefresh] = useState(0)
   const [riderModal, setRiderModal] = useState<
@@ -541,7 +545,29 @@ export function ProfileHub({
           closeRiderModal()
         }}
         onShowToast={(msg, tone) => showToast(msg, tone)}
+        onLimitReached={(info) => {
+          // Close the rider form and surface the reusable buy-slot modal so
+          // the merchant gets a clear "buy rider slot (RM3)" path, not a 403.
+          closeRiderModal()
+          setRiderLimit(info)
+        }}
       />
+
+      {riderLimit && typeof document !== 'undefined'
+        ? createPortal(
+            <LimitReachedModal
+              show
+              onClose={() => setRiderLimit(null)}
+              resourceType="rider"
+              currentUsage={riderLimit.currentUsage ?? 0}
+              limit={riderLimit.limit ?? 0}
+              canBuyAddon={riderLimit.canBuyAddon ?? true}
+              addonPrice={riderLimit.addonPrice ?? 3}
+              defaultOption="addon"
+            />,
+            document.body,
+          )
+        : null}
 
       <NewDisputeForm
         open={disputeModal.mode === 'new'}

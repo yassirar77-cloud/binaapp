@@ -6,8 +6,10 @@ import { GhostButton } from '@/app/profile/components/primitives/GhostButton'
 import { PrimaryButton } from '@/app/profile/components/primitives/PrimaryButton'
 import {
   RiderApiError,
+  RiderLimitError,
   isValidUUID,
   useRiderMutations,
+  type RiderLimitInfo,
   type RiderPayload,
   type VehicleType,
 } from './useRiderMutations'
@@ -40,6 +42,9 @@ interface RiderFormProps {
   onWebsiteChange: (id: string) => void
   onSuccess: (msg: string) => void
   onError: (msg: string) => void
+  /** Called when the backend rejects creation with a plan rider-limit 403,
+   *  so the parent can open the buy-slot modal instead of a dead-end error. */
+  onLimitReached?: (info: RiderLimitInfo) => void
   onCancel: () => void
   onDeleted?: () => void
 }
@@ -89,6 +94,7 @@ export function RiderForm({
   onWebsiteChange,
   onSuccess,
   onError,
+  onLimitReached,
   onCancel,
   onDeleted,
 }: RiderFormProps) {
@@ -142,7 +148,21 @@ export function RiderForm({
         onSuccess('Rider ditambah')
       }
     } catch (err) {
-      const msg = err instanceof RiderApiError ? err.message : 'Ralat sistem. Sila cuba lagi.'
+      // Plan rider limit hit → hand off to the buy-slot modal instead of a
+      // dead-end error banner (backend sends a structured can_buy_addon 403).
+      if (err instanceof RiderLimitError) {
+        if (onLimitReached) {
+          onLimitReached(err.info)
+        } else {
+          setError(err.message)
+          onError(err.message)
+        }
+        return
+      }
+      const msg =
+        err instanceof RiderApiError
+          ? err.message
+          : 'Ralat sistem. Sila cuba lagi. / System error. Please try again.'
       setError(msg)
       onError(msg)
     }
