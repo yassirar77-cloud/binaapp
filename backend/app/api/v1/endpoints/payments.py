@@ -758,7 +758,7 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
             # activation (the sub is already active above).
             logger.info(f"🟢 promotion CALLED for user {user_id}")
             try:
-                await _promote_pending_draft_for_user(user_id)
+                await _promote_pending_draft_for_user(user_id, bill_code)
             except Exception as promo_err:
                 import traceback
                 logger.error(
@@ -802,28 +802,36 @@ async def _subdomain_is_taken(subdomain: str, headers: dict) -> bool:
     return resp.status_code == 200 and bool(resp.json())
 
 
-async def _promote_pending_draft_for_user(user_id: str):
-    """Promote a user's most-recent pre-payment draft into a live site.
+async def _promote_pending_draft_for_user(user_id: str, bill_code: Optional[str] = None):
+    """Promote a user's pre-payment draft into a live site, for a specific bill.
 
-    Steps (mirrors the building blocks of the /api/publish promotion in
-    main.py, but driven server-side from the payment callback):
-      1. Find the user's most-recent status='pending_payment' draft.
-      2. Pick a real subdomain slug from the business name (uniqueness-checked;
-         the draft itself only carries a placeholder 'draft-<uuid>' subdomain).
-      3. Ensure the chat widget is present (must be on every published site).
-      4. Upload the HTML to Supabase Storage — the subdomain middleware serves
-         from storage, NOT the DB, so a status flip without an upload 404s.
-      5. Flip the draft row to status='published' with the real subdomain/url.
-      6. Increment the live-website usage counter (first publish).
+    Steps:
+      A. Per-bill idempotency — if this bill already promoted a draft, no-op.
+      B. Quota gate — never promote past the plan's website limit.
+      C. Find the most-recent UNCLAIMED status='pending_payment' draft.
+      D. Atomically claim that draft for this bill (closes the webhook/verify race).
+      E. Pick a real subdomain slug (uniqueness-checked).
+      F. Ensure the chat widget is present.
+      G. Upload the HTML to Supabase Storage (middleware serves from storage).
+      H. Flip the draft row to status='published'.
+      I. Consume a website addon credit if the slot came from one, then count it.
 
-    Idempotent: once promoted the row is no longer 'pending_payment', so a
-    re-fired callback finds no draft and no-ops. No draft (renewal, or the user
-    already published) is a logged no-op, never an error.
+    Keyed to bill_code (migration 046 column promoted_bill_code) rather than
+    "most-recent draft by user_id": one bill promotes at most one specific draft,
+    so the callback + verify-payment + recover invocations for a single payment
+    can no longer each promote a *different* draft. Gated on
+    check_limit("create_website") so a renewal/upgrade can never push a user past
+    their website limit. Degrades gracefully (quota gate still applies, per-bill
+    race guard disabled) if migration 046 isn't applied yet.
+
+    Best-effort + idempotent: a no-op (no draft / already promoted / over limit /
+    lost the claim race) is logged, never raised.
     """
     from datetime import datetime
     import httpx
+    from app.services.subscription_service import subscription_service
 
-    logger.info(f"🟢 promotion entered for user {user_id}")
+    logger.info(f"🟢 promotion entered for user {user_id} (bill={bill_code})")
 
     headers = {
         "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
@@ -832,24 +840,78 @@ async def _promote_pending_draft_for_user(user_id: str):
     }
     websites_url = f"{settings.SUPABASE_URL}/rest/v1/websites"
 
-    # 1. Most-recent pending_payment draft for this user.
+    # A. Per-bill idempotency + capability probe for the claim column. If THIS
+    #    bill already promoted a draft, stop here — this is what makes the
+    #    callback/verify-payment/recover invocations for one payment converge on
+    #    a single published site instead of each promoting a different draft.
+    column_available = True
+    if bill_code:
+        async with httpx.AsyncClient() as client:
+            already = await client.get(
+                websites_url,
+                headers=headers,
+                params={
+                    "promoted_bill_code": f"eq.{bill_code}",
+                    "select": "id,status",
+                    "limit": "1",
+                },
+            )
+        if already.status_code == 400 and "promoted_bill_code" in already.text:
+            column_available = False
+            logger.warning(
+                "⚠️ Promotion: promoted_bill_code column missing (migration 046 not "
+                "applied) — per-bill race guard disabled; quota gate still applies."
+            )
+        elif already.status_code == 200 and already.json():
+            logger.info(
+                f"⏭️ Promotion no-op: bill {bill_code} already promoted draft "
+                f"{already.json()[0].get('id')} for user {user_id}."
+            )
+            return
+
+    # B. Quota gate — promotion is a create-website event, so it must respect the
+    #    plan's website limit (a renewal must never silently publish an extra
+    #    draft past the cap). Fail OPEN only on an unexpected check_limit error: a
+    #    paid site going live matters more than a rare over-count; a definitive
+    #    not-allowed result blocks and leaves the draft pending_payment.
+    using_addon = False
+    try:
+        limit_result = await subscription_service.check_limit(user_id, "create_website")
+        if not limit_result.get("allowed"):
+            logger.warning(
+                f"⛔ Promotion blocked for user {user_id}: website limit reached "
+                f"({limit_result.get('current_usage')}/{limit_result.get('limit')}). "
+                f"Draft stays pending_payment; user must upgrade or buy a website slot."
+            )
+            return
+        using_addon = bool(limit_result.get("using_addon"))
+    except Exception as limit_err:
+        logger.error(
+            f"⚠️ Promotion: check_limit failed for user {user_id}; proceeding "
+            f"(fail-open so a paid site still goes live): {limit_err}"
+        )
+
+    # C. Most-recent UNCLAIMED pending_payment draft for this user.
     #    requested_subdomain (migration 044) is the user's build-time subdomain
     #    choice. Select it, but degrade gracefully if the column hasn't been
     #    applied to this database yet: a missing-column 400 would otherwise abort
     #    promotion for EVERY user. On that error we retry the legacy select so
     #    the working flow keeps publishing (just without the subdomain override).
     _base_select = "id,user_id,business_name,name,subdomain,html_content,status"
+    base_params = {
+        "user_id": f"eq.{user_id}",
+        "status": "eq.pending_payment",
+        "order": "created_at.desc",
+        "limit": "1",
+    }
+    if column_available:
+        # Only consider drafts not already claimed by another bill.
+        base_params["promoted_bill_code"] = "is.null"
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             websites_url,
             headers=headers,
-            params={
-                "user_id": f"eq.{user_id}",
-                "status": "eq.pending_payment",
-                "select": f"{_base_select},requested_subdomain",
-                "order": "created_at.desc",
-                "limit": "1",
-            },
+            params={**base_params, "select": f"{_base_select},requested_subdomain"},
         )
         if resp.status_code == 400 and "requested_subdomain" in resp.text:
             logger.warning(
@@ -859,13 +921,7 @@ async def _promote_pending_draft_for_user(user_id: str):
             resp = await client.get(
                 websites_url,
                 headers=headers,
-                params={
-                    "user_id": f"eq.{user_id}",
-                    "status": "eq.pending_payment",
-                    "select": _base_select,
-                    "order": "created_at.desc",
-                    "limit": "1",
-                },
+                params={**base_params, "select": _base_select},
             )
 
     if resp.status_code != 200:
@@ -878,8 +934,8 @@ async def _promote_pending_draft_for_user(user_id: str):
     drafts = resp.json()
     if not drafts:
         logger.info(
-            f"⏭️ Promotion no-op for user {user_id}: no pending_payment draft "
-            f"(renewal, or already published)."
+            f"⏭️ Promotion no-op for user {user_id}: no unclaimed pending_payment "
+            f"draft (renewal, already published, or all drafts already claimed)."
         )
         return
 
@@ -894,6 +950,30 @@ async def _promote_pending_draft_for_user(user_id: str):
             f"html_content — cannot publish. Leaving as pending_payment."
         )
         return
+
+    # D. Atomically claim this draft for this bill. The conditional
+    #    WHERE status='pending_payment' AND promoted_bill_code IS NULL means only
+    #    the first of two concurrent invocations wins; the loser gets 0 rows back
+    #    and no-ops here instead of going on to promote a *different* draft.
+    if bill_code and column_available:
+        async with httpx.AsyncClient() as client:
+            claim_resp = await client.patch(
+                websites_url,
+                headers={**headers, "Prefer": "return=representation"},
+                params={
+                    "id": f"eq.{website_id}",
+                    "status": "eq.pending_payment",
+                    "promoted_bill_code": "is.null",
+                },
+                json={"promoted_bill_code": bill_code},
+            )
+        claimed = claim_resp.json() if claim_resp.status_code in (200, 201) else []
+        if not claimed:
+            logger.info(
+                f"⏭️ Promotion no-op: draft {website_id} already claimed by a "
+                f"concurrent promotion (user {user_id}, bill {bill_code})."
+            )
+            return
 
     # 2. Subdomain: prefer the subdomain the user explicitly chose at build time
     #    (saved on the draft as requested_subdomain by /api/draft/publish-intent).
@@ -994,14 +1074,18 @@ async def _promote_pending_draft_for_user(user_id: str):
         f"status=published subdomain={subdomain} url={published_url}"
     )
 
-    # 6. Sync usage — a promoted draft is a first publish.
+    # I. Sync billing — a promoted draft is a first publish. Consume a website
+    #    addon credit if this slot came from one (mirrors create_website), then
+    #    increment the live-website counter.
     try:
-        from app.services.subscription_service import subscription_service
+        if using_addon:
+            await subscription_service.use_addon_credit(user_id, "website")
+            logger.info(f"🧾 Promotion: consumed website addon credit for user {user_id}")
         await subscription_service.increment_usage(user_id, "create_website")
         logger.info(f"📊 Promotion: incremented websites_count for user {user_id}")
     except Exception as usage_err:
         logger.warning(
-            f"⚠️ Promotion: usage increment failed for user {user_id} "
+            f"⚠️ Promotion: billing/usage sync failed for user {user_id} "
             f"(site is live regardless): {usage_err}"
         )
 
@@ -1175,7 +1259,7 @@ async def _process_legacy_payment(bill_code: str, tp_transaction_id: str = None)
                 # wrapped so it can never break activation.
                 logger.info(f"🟢 promotion CALLED for user {user_id} (legacy callback)")
                 try:
-                    await _promote_pending_draft_for_user(user_id)
+                    await _promote_pending_draft_for_user(user_id, bill_code)
                 except Exception as promo_err:
                     import traceback
                     logger.error(
@@ -1398,7 +1482,7 @@ async def verify_toyyibpay_payment(bill_code: str):
                             # table still publishes the generated site.
                             logger.info(f"🟢 promotion CALLED for user {user_id} (legacy verify)")
                             try:
-                                await _promote_pending_draft_for_user(user_id)
+                                await _promote_pending_draft_for_user(user_id, bill_code)
                             except Exception as promo_err:
                                 import traceback
                                 logger.error(

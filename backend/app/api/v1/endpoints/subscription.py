@@ -890,7 +890,7 @@ async def verify_payment(
                 logger.info(f"🟢 promotion CALLED for user {user_id} (verify_payment)")
                 try:
                     from app.api.v1.endpoints.payments import _promote_pending_draft_for_user
-                    await _promote_pending_draft_for_user(user_id)
+                    await _promote_pending_draft_for_user(user_id, bill_code)
                 except Exception as promo_err:
                     import traceback
                     logger.error(
