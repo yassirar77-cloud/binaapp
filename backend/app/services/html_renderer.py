@@ -978,21 +978,31 @@ def _menu_grid(p: Dict[str, Any]) -> str:
                           style="background-color: var(--color-primary); letter-spacing: 0.05em;">{_esc(item['badge'])}</span>"""
 
         img_h = "h-56" if is_featured else "h-48"
-        fallback_js = "this.onerror=null;this.parentElement.innerHTML=\\'<div class=&quot;w-full {0} flex items-center justify-center&quot; style=&quot;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary))&quot;><i class=&quot;fa-solid fa-bowl-food text-4xl text-white/40&quot;></i></div>\\'".format(img_h)
+        # Photo-less / image-load-failure state: a small, subtle bowl icon on a
+        # soft neutral panel (theme-aware via color-mix, falling back to the card
+        # surface) instead of a full-bleed brand gradient.
+        placeholder_bg = (
+            "background: var(--color-surface); "
+            "background: color-mix(in srgb, var(--color-text) 6%, var(--color-surface));"
+        )
+        placeholder_icon = (
+            '<i class="fa-solid fa-bowl-food text-4xl" '
+            'style="color: var(--color-text-muted); opacity: 0.55;"></i>'
+        )
         if item.get("image_url"):
             img = f"""            <div class="relative overflow-hidden">
                 <img src="{_esc(item['image_url'])}" alt="{_esc(item['name'])}"
                      class="w-full {img_h} object-cover transition-transform duration-500 hover:scale-110" loading="lazy"
                      onerror="this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='flex';">
-                <div class="w-full {img_h} items-center justify-center" style="display:none;background:linear-gradient(135deg,var(--color-primary),var(--color-secondary));">
-                    <i class="fa-solid fa-bowl-food text-4xl text-white/40"></i>
+                <div class="w-full {img_h} items-center justify-center" style="display:none;{placeholder_bg}">
+                    {placeholder_icon}
                 </div>
 {badge_html}
             </div>"""
         else:
             img = f"""            <div class="relative w-full {img_h} flex items-center justify-center"
-                 style="background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));">
-                <i class="fa-solid fa-bowl-food text-4xl text-white/40"></i>
+                 style="{placeholder_bg}">
+                {placeholder_icon}
 {badge_html}
             </div>"""
 
