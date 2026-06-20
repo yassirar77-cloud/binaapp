@@ -642,6 +642,23 @@
                     object-fit: cover;
                 }
 
+                /* Placeholder shown when a menu item has no photo: a small,
+                   subtle centered utensils icon on a soft neutral background,
+                   instead of a full-bleed external "no image" graphic. */
+                .binaapp-menu-item-noimg {
+                    width: 100%;
+                    height: 180px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: #f3f4f6;
+                    color: #9ca3af;
+                }
+                .binaapp-menu-item-noimg svg {
+                    width: 40px;
+                    height: 40px;
+                }
+
                 .binaapp-menu-item-content {
                     padding: 12px;
                 }
@@ -1383,7 +1400,9 @@
             items.forEach(item => {
                 html += `
                     <div class="binaapp-menu-item" data-item-id="${item.id}" data-category="${item.category || 'all'}">
-                        <img src="${item.image_url || 'https://via.placeholder.com/300x180?text=No+Image'}" alt="${item.name}">
+                        ${item.image_url
+                            ? `<img src="${item.image_url}" alt="${item.name}">`
+                            : `<div class="binaapp-menu-item-noimg" role="img" aria-label="${this.config.language === 'ms' ? 'Tiada gambar' : 'No photo'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 2-2.3 2.3a3 3 0 0 0 0 4.2l1.8 1.8a3 3 0 0 0 4.2 0L22 8"/><path d="M15 15 3.3 3.3a4.2 4.2 0 0 0 0 6l7.3 7.3c.7.7 2 .7 2.8 0L15 15Zm0 0 7 7"/><path d="m2.1 21.8 6.4-6.3"/><path d="m19 5-7 7"/></svg></div>`}
                         <div class="binaapp-menu-item-content">
                             <div class="binaapp-menu-item-name">${item.name}</div>
                             <div class="binaapp-menu-item-desc">${item.description || ''}</div>
