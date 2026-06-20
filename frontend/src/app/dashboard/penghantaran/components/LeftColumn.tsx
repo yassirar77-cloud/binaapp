@@ -69,7 +69,7 @@ export default function LeftColumn({
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 lg:px-6 pb-4 space-y-2.5">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 lg:px-6 pb-4 space-y-2.5">
         {loading ? (
           <div className="space-y-2.5">
             {[0, 1, 2].map((i) => (

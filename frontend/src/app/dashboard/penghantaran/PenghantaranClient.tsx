@@ -438,8 +438,8 @@ export default function PenghantaranClient({
         zones={sortedZones}
       />
 
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-[40%_60%] overflow-hidden">
-        <div className="order-2 md:order-1 h-full overflow-hidden border-t md:border-t-0 md:border-r border-white/[0.08]">
+      <div className="flex-1 grid grid-cols-1 grid-rows-[auto_minmax(0,1fr)] md:grid-cols-[40%_60%] md:grid-rows-1 overflow-hidden">
+        <div className="order-2 md:order-1 h-full min-h-0 overflow-hidden border-t md:border-t-0 md:border-r border-white/[0.08]">
           <LeftColumn
             zones={sortedZones}
             loading={zonesLoading || outletLoading}
@@ -457,7 +457,7 @@ export default function PenghantaranClient({
             onPostcodeSubmit={handlePostcodeSubmit}
           />
         </div>
-        <div className="order-1 md:order-2 h-[40vh] md:h-full">
+        <div className="order-1 md:order-2 h-[34vh] max-h-[300px] min-h-[180px] md:h-full md:max-h-none md:min-h-0">
           <MapPanel
             outlet={outlet}
             zones={sortedZones}
