@@ -991,7 +991,11 @@ async def _apply_subscription_upgrade(user_id: str, plan: str, headers: dict):
         "status": "active",
         "start_date": datetime.utcnow().isoformat(),
         "end_date": end_date,
-        "auto_renew": True
+        "auto_renew": True,
+        # A real payment is never a comp sub — clear is_promo so a promo user
+        # converting to paid via this fallback path reports as paid (the
+        # ToyyibPay callback may never have landed; that's why this path exists).
+        "is_promo": False,
     }
     if plan_id:
         subscription_data["plan_id"] = plan_id
@@ -1065,7 +1069,10 @@ async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
             renewal_data = {
                 "status": "active",
                 "end_date": end_date,
-                "auto_renew": True
+                "auto_renew": True,
+                # Patches the user's existing row (which may be a promo comp sub);
+                # clear is_promo so a paid renewal stops reporting as a comp sub.
+                "is_promo": False,
             }
             if plan_id:
                 renewal_data["plan_id"] = plan_id
@@ -1086,7 +1093,8 @@ async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
                 "status": "active",
                 "start_date": datetime.utcnow().isoformat(),
                 "end_date": end_date,
-                "auto_renew": True
+                "auto_renew": True,
+                "is_promo": False,
             }
             if plan_id:
                 create_data["plan_id"] = plan_id
