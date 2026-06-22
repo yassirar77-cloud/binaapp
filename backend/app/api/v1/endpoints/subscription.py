@@ -1240,6 +1240,7 @@ _PROMO_FAIL_MESSAGES = {
     "invalid_code": "Kod promosi tidak sah.",
     "already_redeemed": "Anda telah pun menebus kod promosi sebelum ini.",
     "has_active_plan": "Anda sudah mempunyai pelan langganan aktif.",
+    "previously_subscribed": "Promosi ini hanya untuk pengguna baharu. Akaun anda pernah melanggan pelan berbayar.",
     "promo_full": "Maaf, slot promosi telah penuh. Sila langgan seperti biasa.",
 }
 

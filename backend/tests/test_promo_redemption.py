@@ -99,3 +99,29 @@ class TestNoDoubleRedeem:
 
         assert result["success"] is False
         assert result["reason"] == "invalid_code"
+
+
+class TestAlreadyPaid:
+    @pytest.mark.asyncio
+    async def test_active_paid_user_is_rejected(self):
+        """A user with an active paid sub (RPC status 'has_active_plan') is
+        blocked — the promo is not a discount on an existing plan."""
+        patcher, _ = _mock_rpc({"success": False, "status": "has_active_plan"})
+        with patcher:
+            result = await redeem_promo(RedeemPromoRequest(code="BINA20"), FAKE_USER)
+
+        assert result["success"] is False
+        assert result["reason"] == "has_active_plan"
+        assert "aktif" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_lapsed_paid_user_is_rejected(self):
+        """A user whose paid sub lapsed (RPC status 'previously_subscribed')
+        is blocked — closes the lapse-then-redeem loophole (migration 048)."""
+        patcher, _ = _mock_rpc({"success": False, "status": "previously_subscribed"})
+        with patcher:
+            result = await redeem_promo(RedeemPromoRequest(code="BINA20"), FAKE_USER)
+
+        assert result["success"] is False
+        assert result["reason"] == "previously_subscribed"
+        assert "baharu" in result["message"].lower()

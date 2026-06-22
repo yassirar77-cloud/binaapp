@@ -630,6 +630,10 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
             "price": price,
             "toyyibpay_bill_code": bill_code,
             "auto_renew": True,
+            # A real payment is never a comp sub. Clearing is_promo here is what
+            # makes a promo user who converts to paid (month 2) report as paid
+            # rather than staying is_promo=true forever and corrupting reporting.
+            "is_promo": False,
             # Clear stale lock fields from any previous expired/grace/locked
             # cycle. Without this, the row keeps grace_period_end / locked_at
             # / lock_reason set after payment and readers misinterpret it.
