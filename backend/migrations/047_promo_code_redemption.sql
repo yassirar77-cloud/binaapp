@@ -75,7 +75,10 @@ CREATE TABLE IF NOT EXISTS public.promo_redemptions (
     -- backstop against double-redeem (even across different codes).
     user_id UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
     code TEXT NOT NULL,
-    subscription_id UUID REFERENCES public.subscriptions(id) ON DELETE SET NULL,
+    -- NOTE: production public.subscriptions.id is INTEGER (the committed
+    -- DATABASE_SCHEMA.sql shows uuid, but the live table drifted to an integer
+    -- identity/serial PK). The FK column type must match it exactly.
+    subscription_id INTEGER REFERENCES public.subscriptions(id) ON DELETE SET NULL,
     granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     expires_at TIMESTAMPTZ NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',  -- 'active', 'expired', 'cancelled'
@@ -135,7 +138,7 @@ DECLARE
     v_expires_at    TIMESTAMPTZ;
     v_now           TIMESTAMPTZ := NOW();
     v_plan_id       UUID;
-    v_sub_id        UUID;
+    v_sub_id        INTEGER;  -- matches public.subscriptions.id (integer in prod)
 BEGIN
     -- 1. Load config.
     SELECT * INTO v_config FROM public.promo_config WHERE id = 1;
