@@ -12,10 +12,19 @@ from loguru import logger
 from app.services.subscription_service import subscription_service
 from app.services.supabase_client import supabase_service
 from app.services.toyyibpay_service import toyyibpay_service
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_verified_email
 from app.core.config import settings
 
 router = APIRouter()
+
+
+def _service_headers() -> dict:
+    """Supabase service-role headers (same pattern as the rest of this file)."""
+    return {
+        "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+        "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+        "Content-Type": "application/json",
+    }
 
 
 # =============================================================================
@@ -39,6 +48,10 @@ class AddonPurchaseRequest(BaseModel):
 class UseAddonRequest(BaseModel):
     addon_type: str
     quantity: int = 1
+
+
+class RedeemPromoRequest(BaseModel):
+    code: str
 
 
 # =============================================================================
@@ -1209,3 +1222,212 @@ async def _check_addon_purchases_exist(user_id: str, transaction_id: str, header
     except Exception as e:
         logger.error(f"Error checking addon_purchases: {e}")
         return False
+
+
+# =============================================================================
+# Promo Code Redemption Endpoints
+# =============================================================================
+# Launch promo: the first N users (default 20) to redeem the configured code get
+# the RM5 Starter tier FREE for 1 month. No ToyyibPay bill is created. The comp
+# sub is written with status='active' + end_date = now + duration, so the daily
+# subscription cron downgrades/locks it exactly like an unpaid sub once it
+# expires. The slot cap is enforced atomically inside the redeem_promo_code()
+# DB function (advisory lock + count), never by app-level counting.
+
+# Machine-readable failure reason -> user-facing Malay message.
+_PROMO_FAIL_MESSAGES = {
+    "inactive": "Promosi ini tidak aktif buat masa ini.",
+    "invalid_code": "Kod promosi tidak sah.",
+    "already_redeemed": "Anda telah pun menebus kod promosi sebelum ini.",
+    "has_active_plan": "Anda sudah mempunyai pelan langganan aktif.",
+    "promo_full": "Maaf, slot promosi telah penuh. Sila langgan seperti biasa.",
+}
+
+
+@router.post("/redeem-promo")
+async def redeem_promo(
+    request: RedeemPromoRequest,
+    current_user: dict = Depends(require_verified_email),
+):
+    """
+    Redeem a promo code for a free Starter month.
+
+    Requires a verified email (same gate as payment) so the limited promo slots
+    can't be drained with disposable accounts. All validation + the atomic slot
+    cap live in the redeem_promo_code() DB function; this endpoint just forwards
+    the call and maps the result to a clear message.
+
+    Returns HTTP 200 even for business failures (invalid/used/full) so the
+    frontend can react gracefully — e.g. fall back to normal checkout when the
+    promo is full — using the `reason` field.
+    """
+    import httpx
+
+    user_id = current_user.get("sub")
+    code = (request.code or "").strip()
+
+    if not code:
+        return {
+            "success": False,
+            "reason": "invalid_code",
+            "message": _PROMO_FAIL_MESSAGES["invalid_code"],
+        }
+
+    try:
+        url = f"{settings.SUPABASE_URL}/rest/v1/rpc/redeem_promo_code"
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                url,
+                headers=_service_headers(),
+                json={"p_user_id": user_id, "p_code": code},
+            )
+
+        if resp.status_code != 200:
+            logger.error(
+                f"redeem_promo_code RPC failed for user {user_id}: "
+                f"{resp.status_code} {resp.text[:300]}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Gagal menebus kod promosi. Sila cuba lagi.",
+            )
+
+        result = resp.json()
+        # PostgREST returns the function's JSONB result directly (a dict).
+        if isinstance(result, list):
+            result = result[0] if result else {}
+
+        if result.get("success"):
+            expires_at = result.get("expires_at")
+            expires_date = (expires_at or "")[:10]
+            logger.info(
+                f"✅ Promo redeemed by user {user_id} — Starter free until {expires_date}"
+            )
+            return {
+                "success": True,
+                "tier": "starter",
+                "expires_at": expires_at,
+                "slots_remaining": result.get("slots_remaining"),
+                "message": f"Tahniah! Pelan Starter percuma sehingga {expires_date}.",
+            }
+
+        reason = result.get("status", "invalid_code")
+        logger.info(f"Promo redemption rejected for user {user_id}: {reason}")
+        return {
+            "success": False,
+            "reason": reason,
+            "message": _PROMO_FAIL_MESSAGES.get(
+                reason, _PROMO_FAIL_MESSAGES["invalid_code"]
+            ),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error redeeming promo for user {user_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal menebus kod promosi",
+        )
+
+
+@router.get("/promo/status")
+async def get_promo_availability(current_user: dict = Depends(get_current_user)):
+    """
+    Lightweight promo availability for the billing page.
+
+    Returns whether the promo is active, how many slots remain, and whether the
+    current user has already redeemed — so the UI can show the input, show
+    "slots penuh", or hide it. The code string itself is never returned.
+    """
+    import httpx
+
+    user_id = current_user.get("sub")
+    try:
+        url = f"{settings.SUPABASE_URL}/rest/v1/rpc/get_promo_status"
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                url, headers=_service_headers(), json={"p_user_id": user_id}
+            )
+
+        if resp.status_code != 200:
+            logger.warning(
+                f"get_promo_status RPC failed: {resp.status_code} {resp.text[:200]}"
+            )
+            return {"active": False, "remaining": 0, "max": 0, "already_redeemed": False}
+
+        result = resp.json()
+        if isinstance(result, list):
+            result = result[0] if result else {}
+        return {
+            "active": bool(result.get("active", False)),
+            "remaining": int(result.get("remaining", 0)),
+            "max": int(result.get("max", 0)),
+            "used": int(result.get("used", 0)),
+            "already_redeemed": bool(result.get("already_redeemed", False)),
+        }
+    except Exception as e:
+        logger.error(f"Error getting promo status: {e}")
+        # Fail closed (no promo shown) rather than erroring the billing page.
+        return {"active": False, "remaining": 0, "max": 0, "already_redeemed": False}
+
+
+@router.get("/promo/admin")
+async def get_promo_admin(current_user: dict = Depends(get_current_user)):
+    """
+    Admin visibility: slots used / remaining and the full list of who redeemed.
+
+    Admin-only (role='admin' in public.users). The same data is available via
+    SQL through the public.promo_redemptions_admin view.
+    """
+    import httpx
+
+    user_id = current_user.get("sub")
+    if not await subscription_service._is_admin(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required for this operation.",
+        )
+
+    try:
+        headers = _service_headers()
+        async with httpx.AsyncClient() as client:
+            # Config row (code + cap).
+            config_resp = await client.get(
+                f"{settings.SUPABASE_URL}/rest/v1/promo_config",
+                headers=headers,
+                params={"id": "eq.1", "select": "*", "limit": "1"},
+            )
+            # Who redeemed (joined to emails via the admin view).
+            redemptions_resp = await client.get(
+                f"{settings.SUPABASE_URL}/rest/v1/promo_redemptions_admin",
+                headers=headers,
+                params={"select": "*"},
+            )
+
+        config = {}
+        if config_resp.status_code == 200 and config_resp.json():
+            config = config_resp.json()[0]
+
+        redemptions = (
+            redemptions_resp.json() if redemptions_resp.status_code == 200 else []
+        )
+
+        used = len(redemptions)
+        max_slots = int(config.get("max_redemptions", 0))
+
+        return {
+            "code": config.get("code"),
+            "is_active": config.get("is_active"),
+            "max_redemptions": max_slots,
+            "duration_days": config.get("duration_days"),
+            "used": used,
+            "remaining": max(0, max_slots - used),
+            "redemptions": redemptions,
+        }
+    except Exception as e:
+        logger.error(f"Error getting promo admin stats: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal mendapatkan statistik promosi",
+        )

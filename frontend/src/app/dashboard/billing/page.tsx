@@ -10,6 +10,7 @@ import CurrentPlanBanner from './components/CurrentPlanBanner';
 import PaymentHistoryPreview from './components/PaymentHistoryPreview';
 import PaymentMethodPanel from './components/PaymentMethodPanel';
 import PlanCards from './components/PlanCards';
+import PromoCodeCard from './components/PromoCodeCard';
 import SupportFooter from './components/SupportFooter';
 import UsageHeroCards from './components/UsageHeroCards';
 import type { Addon, Plan, SubscriptionStatus, Transaction, UsageResponse } from './types';
@@ -238,6 +239,10 @@ export default function BillingPage() {
 
           <section id="sec-penggunaan" className="scroll-mt-32">
             <UsageHeroCards usage={usage} />
+          </section>
+
+          <section id="sec-promo" className="scroll-mt-32">
+            <PromoCodeCard onRedeemed={fetchData} />
           </section>
 
           <section id="sec-pelan" className="scroll-mt-32">
