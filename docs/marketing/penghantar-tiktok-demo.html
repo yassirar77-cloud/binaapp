@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BinaApp — Urus Penghantar & Penghantar Live (TikTok 9:16)</title>
+<style>
+  /* ===========================================================
+     BinaApp — Animated TikTok demo (9:16 / 1080x1920)
+     Dua ciri: "Urus Penghantar" + "Penghantar Live View"
+     Bahasa Malaysia. Auto-main + loop. Tekan stage untuk replay.
+     Warna ikut app sebenar:
+       bg     #0a0e1a   accent  #C7FF3D
+       online #34D399   gps     #FBBF24
+       offline#71717A   stuck   #EF4444
+     =========================================================== */
+
+  :root{
+    --bg:#0a0e1a; --panel:#0f1424; --line:rgba(255,255,255,.08);
+    --accent:#C7FF3D; --online:#34D399; --gps:#FBBF24;
+    --offline:#71717A; --stuck:#EF4444; --cyan:#22d3ee; --violet:#a78bfa;
+    --txt:#ffffff; --muted:rgba(255,255,255,.6);
+    --font: 'Geist','Segoe UI',system-ui,-apple-system,sans-serif;
+  }
+
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;background:#000;font-family:var(--font);overflow:hidden}
+  body{display:flex;align-items:center;justify-content:center}
+
+  /* --- Stage 1080x1920, scaled to fit window --- */
+  #scaler{position:relative}
+  #stage{
+    width:1080px;height:1920px;position:relative;overflow:hidden;
+    background:radial-gradient(140% 90% at 50% 0%,#10172b 0%,var(--bg) 55%);
+    color:var(--txt);transform-origin:top left;
+  }
+
+  /* ---------- Reusable phone chrome ---------- */
+  .topbar{
+    position:absolute;top:0;left:0;right:0;height:150px;z-index:40;
+    display:flex;align-items:center;gap:20px;padding:0 44px;
+    background:rgba(10,14,26,.92);border-bottom:1px solid var(--line);
+    backdrop-filter:blur(6px);
+  }
+  .logo-dot{width:30px;height:30px;border-radius:9px;background:var(--accent);
+    box-shadow:0 0 24px rgba(199,255,61,.6)}
+  .brand{font-weight:800;font-size:34px;letter-spacing:-.5px}
+  .pagepill{margin-left:auto;font-size:24px;font-weight:600;color:#0a0e1a;
+    background:var(--accent);padding:12px 26px;border-radius:999px}
+  .pagepill.live{background:#1b2540;color:#fff;border:1px solid var(--line);
+    display:flex;align-items:center;gap:12px}
+  .livedot{width:14px;height:14px;border-radius:50%;background:var(--stuck);
+    animation:blink 1s steps(2,start) infinite}
+  @keyframes blink{50%{opacity:.25}}
+
+  /* ---------- Map canvas ---------- */
+  .map{position:absolute;inset:150px 0 560px 0;overflow:hidden;background:var(--bg)}
+  .roads{position:absolute;inset:0;opacity:.5}
+  .road{position:absolute;background:rgba(255,255,255,.06)}
+  .road.h{height:6px;left:0;right:0}
+  .road.v{width:6px;top:0;bottom:0}
+
+  /* shop pin (lime + pulse) */
+  .shop{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);z-index:6}
+  .shop .dot{width:34px;height:34px;border-radius:50%;background:var(--accent);
+    box-shadow:0 0 0 5px var(--bg),0 0 28px rgba(199,255,61,.7);position:relative;z-index:2}
+  .shop .pulse{position:absolute;inset:-12px;border-radius:50%;background:var(--accent);
+    opacity:.35;animation:pulse 1.8s ease-out infinite}
+  .shop .tag{position:absolute;left:48px;top:-6px;white-space:nowrap;font-size:22px;
+    font-weight:700;background:rgba(10,14,26,.9);padding:8px 16px;border-radius:10px;
+    border:1px solid var(--line)}
+  @keyframes pulse{0%{transform:scale(.55);opacity:.55}100%{transform:scale(2.4);opacity:0}}
+
+  /* delivery rings */
+  .ring{position:absolute;left:50%;top:46%;border-radius:50%;transform:translate(-50%,-50%) scale(.2);
+    opacity:0;transition:transform .7s cubic-bezier(.2,.8,.2,1),opacity .7s;z-index:3}
+  .ring.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  .ring.r1{width:330px;height:330px;border:4px solid var(--accent);background:rgba(199,255,61,.10)}
+  .ring.r2{width:560px;height:560px;border:4px solid var(--cyan);background:rgba(34,211,238,.08)}
+  .ring.r3{width:820px;height:820px;border:4px solid var(--violet);background:rgba(167,139,250,.07)}
+  .feeflag{position:absolute;left:50%;top:46%;font-size:21px;font-weight:800;color:#0a0e1a;
+    padding:7px 16px;border-radius:999px;opacity:0;transform:translate(-50%,-50%) scale(.4);
+    transition:.5s .25s;z-index:7;white-space:nowrap}
+  .feeflag.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  .feeflag.f1{background:var(--accent);margin-top:-150px}
+  .feeflag.f2{background:var(--cyan);margin-top:-265px}
+  .feeflag.f3{background:var(--violet);color:#fff;margin-top:-385px}
+
+  /* postcode test pin */
+  .pcpin{position:absolute;left:71%;top:33%;z-index:8;opacity:0;transform:translateY(-30px);
+    transition:.4s}
+  .pcpin.show{opacity:1;transform:translateY(0)}
+  .pcpin .head{width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+    background:#fff;box-shadow:0 6px 14px rgba(0,0,0,.5)}
+  .pcbubble{position:absolute;left:34px;top:-10px;white-space:nowrap;font-size:22px;font-weight:700;
+    background:var(--online);color:#062a1c;padding:10px 18px;border-radius:12px}
+
+  /* riders + destinations (live view) */
+  .rider{position:absolute;z-index:8;transition:left 3.4s linear,top 3.4s linear;will-change:left,top}
+  .rider .body{width:40px;height:40px;border-radius:50%;background:var(--online);
+    box-shadow:0 0 0 5px var(--bg),0 2px 8px rgba(0,0,0,.5);display:flex;align-items:center;
+    justify-content:center;font-size:22px}
+  .rider.gps .body{background:var(--gps)}
+  .dest{position:absolute;z-index:7}
+  .dest .d{width:22px;height:22px;border-radius:50%;background:var(--cyan);
+    box-shadow:0 0 0 4px var(--bg)}
+  .dest.stuck .d{background:var(--stuck);animation:stuckring 1.1s ease-out infinite}
+  @keyframes stuckring{0%{box-shadow:0 0 0 4px var(--bg),0 0 0 4px rgba(239,68,68,.6)}
+    100%{box-shadow:0 0 0 4px var(--bg),0 0 0 26px rgba(239,68,68,0)}}
+  .route{position:absolute;inset:0;z-index:4;pointer-events:none}
+  .route path{fill:none;stroke:rgba(255,255,255,.18);stroke-width:3;stroke-dasharray:10 12}
+
+  /* stuck banner */
+  .stuckbanner{position:absolute;left:50%;top:180px;transform:translateX(-50%) translateY(-20px);
+    z-index:30;display:flex;align-items:center;gap:14px;font-size:24px;font-weight:700;
+    background:rgba(239,68,68,.14);border:1px solid rgba(239,68,68,.45);color:#ffb4b4;
+    padding:16px 26px;border-radius:14px;opacity:0;transition:.4s}
+  .stuckbanner.show{opacity:1;transform:translateX(-50%) translateY(0);
+    animation:bannerpulse 1.5s ease-in-out infinite}
+  @keyframes bannerpulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}
+    50%{box-shadow:0 0 0 6px rgba(239,68,68,.18)}}
+
+  /* legend */
+  .legend{position:absolute;left:34px;bottom:24px;z-index:20;background:rgba(10,14,26,.95);
+    border:1px solid var(--line);border-radius:12px;padding:16px 18px;opacity:0;transition:.4s}
+  .legend.show{opacity:1}
+  .legend h5{font-size:13px;letter-spacing:2px;color:rgba(255,255,255,.4);
+    text-transform:uppercase;margin-bottom:10px;font-weight:600}
+  .legend li{list-style:none;display:flex;align-items:center;gap:10px;font-size:18px;
+    color:var(--muted);margin:6px 0}
+  .legend .sw{width:14px;height:14px;border-radius:50%}
+
+  /* ---------- bottom info panel (cards) ---------- */
+  .panel{position:absolute;left:0;right:0;bottom:0;height:560px;z-index:35;
+    background:linear-gradient(180deg,rgba(10,14,26,.4),var(--bg) 22%);
+    border-top:1px solid var(--line);padding:34px 40px 40px}
+  .panel h3{font-size:22px;color:var(--muted);font-weight:600;margin-bottom:20px;
+    letter-spacing:.5px}
+  .cards{display:flex;flex-direction:column;gap:16px}
+  .card{display:flex;align-items:center;gap:18px;background:var(--panel);
+    border:1px solid var(--line);border-radius:16px;padding:22px 24px;
+    opacity:0;transform:translateY(26px);transition:.5s}
+  .card.show{opacity:1;transform:translateY(0)}
+  .card .chip{width:54px;height:54px;border-radius:12px;flex:0 0 auto;display:flex;
+    align-items:center;justify-content:center;font-size:26px}
+  .card .info{flex:1}
+  .card .info b{font-size:27px;font-weight:700;display:block}
+  .card .info span{font-size:20px;color:var(--muted)}
+  .card .price{font-size:30px;font-weight:800}
+  .card .badge{font-size:18px;font-weight:700;padding:7px 16px;border-radius:999px}
+
+  /* ---------- intro / outro overlays ---------- */
+  .cover{position:absolute;inset:0;z-index:60;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;padding:60px;
+    background:radial-gradient(120% 80% at 50% 30%,#13203f,#070a14);
+    opacity:0;pointer-events:none;transition:opacity .6s}
+  .cover.show{opacity:1}
+  .cover .biglogo{display:flex;align-items:center;gap:22px;margin-bottom:40px}
+  .cover .biglogo .d{width:64px;height:64px;border-radius:18px;background:var(--accent);
+    box-shadow:0 0 50px rgba(199,255,61,.6)}
+  .cover .biglogo b{font-size:64px;font-weight:800;letter-spacing:-1px}
+  .cover h1{font-size:76px;line-height:1.08;font-weight:800;letter-spacing:-1.5px}
+  .cover h1 .hl{color:var(--accent)}
+  .cover p{font-size:34px;color:var(--muted);margin-top:30px;max-width:760px}
+  .cta{margin-top:54px;font-size:38px;font-weight:800;color:#0a0e1a;background:var(--accent);
+    padding:26px 56px;border-radius:999px;box-shadow:0 0 50px rgba(199,255,61,.5);
+    animation:ctabeat 1.3s ease-in-out infinite}
+  @keyframes ctabeat{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+  .reveal{opacity:0;transform:translateY(30px);transition:.7s}
+  .cover.show .reveal{opacity:1;transform:translateY(0)}
+  .cover.show .reveal.d1{transition-delay:.15s}
+  .cover.show .reveal.d2{transition-delay:.45s}
+  .cover.show .reveal.d3{transition-delay:.85s}
+
+  /* ---------- TikTok-style caption ---------- */
+  .caption{position:absolute;left:50%;bottom:150px;transform:translateX(-50%);
+    z-index:80;width:88%;text-align:center;pointer-events:none}
+  .caption .line{display:inline;font-size:46px;font-weight:800;line-height:1.25;
+    color:#fff;background:rgba(8,11,20,.78);padding:.12em .35em;
+    box-decoration-break:clone;-webkit-box-decoration-break:clone;border-radius:8px;
+    letter-spacing:-.5px}
+  .caption .line .y{color:var(--accent)}
+  .caption{opacity:0;transition:opacity .35s}
+  .caption.show{opacity:1}
+
+  /* step pill (top center) */
+  .step{position:absolute;left:50%;top:172px;transform:translateX(-50%);z-index:50;
+    font-size:26px;font-weight:800;background:rgba(199,255,61,.14);color:var(--accent);
+    border:1px solid rgba(199,255,61,.4);padding:12px 28px;border-radius:999px;
+    opacity:0;transition:.35s}
+  .step.show{opacity:1}
+  .step.live{background:rgba(239,68,68,.14);color:#ff9b9b;border-color:rgba(239,68,68,.4)}
+
+  /* progress + replay */
+  .progress{position:absolute;top:0;left:0;height:6px;background:var(--accent);width:0;
+    z-index:100;box-shadow:0 0 12px rgba(199,255,61,.7)}
+  #replay{position:absolute;inset:0;z-index:120;display:none;align-items:center;
+    justify-content:center;flex-direction:column;gap:20px;background:rgba(7,10,20,.72);cursor:pointer}
+  #replay.show{display:flex}
+  #replay .btn{font-size:40px;font-weight:800;color:#0a0e1a;background:var(--accent);
+    padding:24px 50px;border-radius:999px}
+  #replay small{color:var(--muted);font-size:24px}
+
+  /* recording hint (outside-ish, top-right tiny) */
+  #hint{position:fixed;top:10px;right:14px;z-index:200;color:#667;font-size:13px;
+    font-family:monospace;opacity:.6}
+  .scene{display:none}
+  .scene.on{display:block}
+</style>
+</head>
+<body>
+  <div id="hint">9:16 • 1080×1920 • rakam kawasan ini</div>
+  <div id="scaler">
+    <div id="stage">
+      <div class="progress" id="bar"></div>
+
+      <!-- ============ SCENE A: URUS PENGHANTAR ============ -->
+      <section class="scene" id="sceneA">
+        <div class="topbar">
+          <div class="logo-dot"></div><div class="brand">BinaApp</div>
+          <div class="pagepill">Urus Penghantar</div>
+        </div>
+        <div class="step" id="stepA">📍 Letak lokasi kedai</div>
+
+        <div class="map">
+          <div class="roads" id="roadsA"></div>
+          <svg class="route" viewBox="0 0 1080 1210"></svg>
+          <div class="ring r3" id="rA3"></div>
+          <div class="ring r2" id="rA2"></div>
+          <div class="ring r1" id="rA1"></div>
+          <div class="feeflag f3" id="fA3">Zon 3 · RM8</div>
+          <div class="feeflag f2" id="fA2">Zon 2 · RM5</div>
+          <div class="feeflag f1" id="fA1">Zon 1 · RM3</div>
+          <div class="shop" id="shopA" style="opacity:0;transition:.5s">
+            <div class="pulse"></div><div class="dot"></div>
+            <div class="tag">🏪 Kedai Saya</div>
+          </div>
+          <div class="pcpin" id="pcA">
+            <div class="head"></div>
+            <div class="pcbubble">✓ 43000 — Dilindungi · RM5</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>ZON PENGHANTARAN</h3>
+          <div class="cards">
+            <div class="card" id="cA1">
+              <div class="chip" style="background:rgba(199,255,61,.15)">🟢</div>
+              <div class="info"><b>Zon 1 — Berdekatan</b><span>0–3 km · 20 min</span></div>
+              <div class="price" style="color:var(--accent)">RM3</div>
+            </div>
+            <div class="card" id="cA2">
+              <div class="chip" style="background:rgba(34,211,238,.15)">🔵</div>
+              <div class="info"><b>Zon 2 — Sederhana</b><span>3–6 km · 35 min</span></div>
+              <div class="price" style="color:var(--cyan)">RM5</div>
+            </div>
+            <div class="card" id="cA3">
+              <div class="chip" style="background:rgba(167,139,250,.15)">🟣</div>
+              <div class="info"><b>Zon 3 — Jauh</b><span>6–10 km · 50 min</span></div>
+              <div class="price" style="color:var(--violet)">RM8</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ SCENE B: PENGHANTAR LIVE ============ -->
+      <section class="scene" id="sceneB">
+        <div class="topbar">
+          <div class="logo-dot"></div><div class="brand">BinaApp</div>
+          <div class="pagepill live"><span class="livedot"></span>Penghantar Live</div>
+        </div>
+        <div class="step live" id="stepB">🛵 Pantau rider secara LIVE</div>
+
+        <div class="map">
+          <div class="roads" id="roadsB"></div>
+          <svg class="route" id="routesB" viewBox="0 0 1080 1210">
+            <path d="M540 560 C 420 480, 300 360, 230 250"/>
+            <path d="M540 560 C 700 520, 840 460, 900 330"/>
+            <path d="M540 560 C 560 720, 470 880, 360 980"/>
+          </svg>
+
+          <div class="shop" style="left:50%;top:46%">
+            <div class="pulse"></div><div class="dot"></div>
+            <div class="tag">🏪 Kedai Saya</div>
+          </div>
+
+          <!-- destinations -->
+          <div class="dest"       id="d1" style="left:200px;top:230px"><div class="d"></div></div>
+          <div class="dest"       id="d2" style="left:880px;top:310px"><div class="d"></div></div>
+          <div class="dest stuck" id="d3" style="left:335px;top:960px"><div class="d"></div></div>
+
+          <!-- riders -->
+          <div class="rider"     id="r1" style="left:520px;top:540px"><div class="body">🛵</div></div>
+          <div class="rider"     id="r2" style="left:520px;top:540px"><div class="body">🛵</div></div>
+          <div class="rider gps" id="r3" style="left:520px;top:540px"><div class="body">🛵</div></div>
+
+          <div class="stuckbanner" id="bannerB">⚠️ 1 order tersangkut — rider tak gerak 8 min</div>
+
+          <div class="legend" id="legendB">
+            <h5>Legenda</h5>
+            <ul>
+              <li><span class="sw" style="background:#C7FF3D"></span>Outlet</li>
+              <li><span class="sw" style="background:#34D399"></span>Rider online</li>
+              <li><span class="sw" style="background:#FBBF24"></span>GPS lapuk</li>
+              <li><span class="sw" style="background:#EF4444"></span>Tersangkut</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>ORDER AKTIF</h3>
+          <div class="cards">
+            <div class="card" id="oB1">
+              <div class="chip" style="background:rgba(52,211,153,.15)">📦</div>
+              <div class="info"><b>#1042 · Aiman</b><span>Rider: Hafiz · dalam perjalanan</span></div>
+              <div class="badge" style="background:rgba(52,211,153,.18);color:var(--online)">3.2 km</div>
+            </div>
+            <div class="card" id="oB2">
+              <div class="chip" style="background:rgba(52,211,153,.15)">📦</div>
+              <div class="info"><b>#1043 · Siti</b><span>Rider: Danial · dalam perjalanan</span></div>
+              <div class="badge" style="background:rgba(52,211,153,.18);color:var(--online)">5.1 km</div>
+            </div>
+            <div class="card" id="oB3">
+              <div class="chip" style="background:rgba(239,68,68,.15)">📦</div>
+              <div class="info"><b>#1044 · Faiz</b><span id="oB3sub">Rider: Imran · tersangkut ⚠️</span></div>
+              <div class="badge" id="oB3badge" style="background:rgba(239,68,68,.18);color:var(--stuck)">STUCK</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- intro + outro -->
+      <div class="cover" id="intro">
+        <div class="biglogo reveal d1"><div class="d"></div><b>BinaApp</b></div>
+        <h1 class="reveal d2">Kedai anda <span class="hl">hantar sendiri?</span></h1>
+        <p class="reveal d3">Urus zon, harga &amp; rider — semua dalam satu app 🛵</p>
+      </div>
+
+      <div class="cover" id="outro">
+        <div class="biglogo reveal d1"><div class="d"></div><b>BinaApp</b></div>
+        <h1 class="reveal d2">Urus penghantaran<br><span class="hl">tanpa pening.</span></h1>
+        <p class="reveal d3">Tetapkan zon. Pantau live. Hantar laju.</p>
+        <div class="cta reveal d3">Cuba percuma → binaapp.my</div>
+      </div>
+
+      <!-- caption + replay -->
+      <div class="caption" id="cap"><span class="line" id="capLine"></span></div>
+      <div id="replay"><div class="btn">↻ Main semula</div><small>tekan untuk replay</small></div>
+    </div>
+  </div>
+
+<script>
+/* ---------- fit stage to window ---------- */
+function fit(){
+  const s=document.getElementById('stage'), w=document.getElementById('scaler');
+  const k=Math.min(window.innerWidth/1080, window.innerHeight/1920);
+  s.style.transform='scale('+k+')';
+  w.style.width=(1080*k)+'px'; w.style.height=(1920*k)+'px';
+}
+addEventListener('resize',fit); fit();
+
+/* ---------- build road grids ---------- */
+function roads(el){
+  for(let i=1;i<6;i++){const r=document.createElement('div');r.className='road h';
+    r.style.top=(i*180)+'px';el.appendChild(r);}
+  for(let i=1;i<6;i++){const r=document.createElement('div');r.className='road v';
+    r.style.left=(i*180)+'px';el.appendChild(r);}
+}
+roads(document.getElementById('roadsA'));
+roads(document.getElementById('roadsB'));
+
+/* ---------- helpers ---------- */
+const $=id=>document.getElementById(id);
+const show=(id,on=true)=>$(id).classList.toggle('show',on);
+const onScene=id=>{document.querySelectorAll('.scene').forEach(s=>s.classList.remove('on'));
+  if(id)$(id).classList.add('on');};
+function caption(html){const c=$('cap');c.classList.remove('show');
+  if(html){$('capLine').innerHTML=html;requestAnimationFrame(()=>c.classList.add('show'));}}
+function moveRider(id,x,y){$(id).style.left=x+'px';$(id).style.top=y+'px';}
+
+/* reset everything to start state */
+function reset(){
+  onScene(null);
+  ['intro','outro'].forEach(i=>$(i).classList.remove('show'));
+  ['rA1','rA2','rA3','fA1','fA2','fA3','cA1','cA2','cA3','pcA',
+   'oB1','oB2','oB3','bannerB','legendB','stepA','stepB'].forEach(i=>show(i,false));
+  $('shopA').style.opacity='0';
+  caption('');
+  // riders back to shop
+  moveRider('r1',520,540);moveRider('r2',520,540);moveRider('r3',520,540);
+  // un-fix stuck order card
+  $('d3').classList.add('stuck');
+  $('oB3').querySelector('.chip').style.background='rgba(239,68,68,.15)';
+  $('oB3sub').textContent='Rider: Imran · tersangkut ⚠️';
+  $('oB3badge').textContent='STUCK';
+  $('oB3badge').style.color='var(--stuck)';
+  $('oB3badge').style.background='rgba(239,68,68,.18)';
+}
+
+/* ---------- timeline ---------- */
+// [time(ms), fn]  — executed once when the clock passes it
+let T0=0, RAF=0, DONE=33500;
+const steps=[
+  // INTRO
+  [0,   ()=>{reset();$('intro').classList.add('show');}],
+  [400, ()=>caption('Kedai <span class="y">hantar sendiri?</span>')],
+  [2600,()=>{$('intro').classList.remove('show');caption('');}],
+
+  // ===== SCENE A — URUS PENGHANTAR =====
+  [3000,()=>{onScene('sceneA');show('stepA');$('stepA').textContent='📍 Letak lokasi kedai';
+             caption('1️⃣ Letak lokasi <span class="y">kedai</span> atas peta');}],
+  [3500,()=>{$('shopA').style.opacity='1';}],
+
+  [5600,()=>{$('stepA').textContent='⭕ Lukis zon penghantaran';
+             caption('Lukis <span class="y">zon</span> penghantaran anda');}],
+  [6000,()=>{show('rA1');show('fA1');show('cA1');}],
+  [7000,()=>{show('rA2');show('fA2');show('cA2');}],
+  [8000,()=>{show('rA3');show('fA3');show('cA3');}],
+  [8600,()=>caption('Setiap zon — <span class="y">harga sendiri</span> 💰')],
+
+  [11200,()=>{$('stepA').textContent='🔎 Uji poskod pelanggan';
+              show('pcA');caption('Uji <span class="y">poskod</span> pelanggan terus ✅');}],
+
+  // ===== SCENE B — PENGHANTAR LIVE =====
+  [14500,()=>{reset();onScene('sceneB');show('legendB');
+              show('oB1');show('oB2');show('oB3');
+              $('stepB').textContent='🛵 Pantau rider LIVE';show('stepB');
+              caption('2️⃣ Pantau rider <span class="y">LIVE</span> atas peta');}],
+  [15200,()=>{moveRider('r1',330,300);moveRider('r2',780,400);moveRider('r3',420,820);}],
+  [18800,()=>{moveRider('r1',230,250);moveRider('r2',880,330);}],
+
+  [19200,()=>{$('stepB').textContent='⚠️ Amaran auto: order tersangkut';
+              show('bannerB');caption('Amaran <span class="y">auto</span> bila order tersangkut ⚠️');}],
+
+  [23000,()=>{$('stepB').textContent='🔁 Tukar rider — satu ketik';
+              caption('Tukar rider dengan <span class="y">satu ketik</span> 🔁');}],
+  [24200,()=>{ // resolve the stuck order
+              $('d3').classList.remove('stuck');
+              moveRider('r3',335,960);
+              const c=$('oB3');
+              c.querySelector('.chip').style.background='rgba(52,211,153,.15)';
+              $('oB3sub').textContent='Rider baru: Zul · dalam perjalanan';
+              $('oB3badge').textContent='2.0 km';
+              $('oB3badge').style.color='var(--online)';
+              $('oB3badge').style.background='rgba(52,211,153,.18)';
+              show('bannerB',false);}],
+  [26200,()=>caption('Order selamat — <span class="y">pelanggan happy</span> 🎉')],
+
+  // ===== OUTRO =====
+  [29200,()=>{reset();$('outro').classList.add('show');caption('');}],
+  [29800,()=>caption('<span class="y">BinaApp</span> — cuba percuma hari ni!')],
+  [DONE, ()=>{cancelAnimationFrame(RAF);$('bar').style.width='100%';$('replay').classList.add('show');}],
+];
+
+function loop(now){
+  const t=now-T0;
+  $('bar').style.width=Math.min(100,(t/DONE)*100)+'%';
+  for(const s of steps){ if(!s.done && t>=s[0]){ s[1](); s.done=true; } }
+  if(t<DONE) RAF=requestAnimationFrame(loop);
+}
+function play(){
+  steps.forEach(s=>s.done=false);
+  $('replay').classList.remove('show');
+  reset();
+  T0=performance.now();
+  cancelAnimationFrame(RAF);
+  RAF=requestAnimationFrame(loop);
+}
+$('replay').addEventListener('click',play);
+$('stage').addEventListener('click',e=>{ if(e.target.closest('#replay'))return; play(); });
+
+play();
+</script>
+</body>
+</html>
