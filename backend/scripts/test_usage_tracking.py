@@ -5,7 +5,7 @@ Runs get_or_create_usage_tracking against the live Supabase instance using
 credentials from the environment and confirms the upsert returns a populated
 row (no 23502 NOT NULL violations).
 
-Usage:
+Usage (runnable from any cwd — repo root, backend/, or backend/scripts/):
     export SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=...
     python backend/scripts/test_usage_tracking.py <user_id>
 
@@ -14,8 +14,13 @@ Default user_id is the one seen in the prod 23502 log; override via CLI arg.
 
 import asyncio
 import sys
+from pathlib import Path
 
-from app.services.subscription_service import SubscriptionService
+# Add backend/ to sys.path so `from app.services...` resolves regardless of
+# the directory the script is invoked from.
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from app.services.subscription_service import SubscriptionService  # noqa: E402
 
 
 DEFAULT_USER_ID = "1b046432-d9a4-4bbc-a999-be62a31b1ab6"
