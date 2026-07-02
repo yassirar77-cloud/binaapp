@@ -67,6 +67,11 @@ BEGIN;
 --     new breakage. We (re)assert a SELECT-ONLY owner policy for defense-in-depth
 --     and for any future Supabase-signed sessions — NOT an update policy.
 DROP POLICY IF EXISTS "Users can update own subscription" ON public.subscriptions;
+-- Live prod carries a FOURTH policy, "user_subscriptions" (cmd=ALL,
+-- qual auth.uid()=user_id): under an authenticated (Supabase-signed) session it
+-- grants self-UPDATE of tier/status exactly like the policy above. Drop it too;
+-- the SELECT-only owner policy below restores read access without write.
+DROP POLICY IF EXISTS "user_subscriptions" ON public.subscriptions;
 
 DROP POLICY IF EXISTS "Users can view own subscription" ON public.subscriptions;
 CREATE POLICY "Users can view own subscription"
@@ -109,9 +114,10 @@ CREATE POLICY "Service role updates wallet"
     ON public.bina_credits
     FOR UPDATE
     TO service_role
-    USING (auth.role() = 'service_role')
-    WITH CHECK (auth.role() = 'service_role');
+    USING (auth.role() = 'service_role');
 -- Keep "Users view own wallet" (auth.uid() = user_id) — untouched.
+-- (Matches the DDL applied live: UPDATE policy scoped with USING only, no
+--  WITH CHECK — for UPDATE, an omitted WITH CHECK defaults to the USING expr.)
 
 -- 2b. promo_config — promo campaign internals. Despite the name, the prod policy
 --     is FOR ALL USING(true) roles={public} (migration 047). Anon could read/edit
