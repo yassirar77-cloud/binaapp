@@ -438,7 +438,27 @@ async def _process_successful_payment(bill_code: str, tp_transaction_id: str = N
         logger.info(f"   Type: {transaction_type}")
         logger.info(f"   Metadata: {metadata}")
 
-        # Update transaction status to success (and ensure invoice number exists)
+        # Apply benefits FIRST, mark the transaction success LAST (audit C5).
+        # If a benefit step fails we leave payment_status unchanged (pending) so
+        # a later verify-payment / recover-pending run retries it — instead of
+        # marking success up-front and having the idempotency guard permanently
+        # skip a grant that never actually happened (money taken, nothing given).
+        if transaction_type in ["subscription", "renewal"]:
+            benefits_ok = await _process_subscription_payment(user_id, metadata, bill_code)
+        elif transaction_type == "addon":
+            benefits_ok = await _process_addon_payment(user_id, transaction_id, metadata, bill_code)
+        else:
+            # Unknown type: nothing to grant. Don't wedge the row on retries.
+            benefits_ok = True
+
+        if not benefits_ok:
+            logger.error(
+                f"❌ Benefits not applied for transaction {transaction_id} "
+                f"(bill_code={bill_code}); leaving payment_status pending for retry."
+            )
+            return
+
+        # Benefits applied — now mark the transaction success (ensure invoice #).
         patch_data = {
             "payment_status": "success",
             "toyyibpay_transaction_id": tp_transaction_id,
@@ -461,15 +481,9 @@ async def _process_successful_payment(bill_code: str, tp_transaction_id: str = N
             )
 
         if patch_resp.status_code not in [200, 204]:
-            logger.error(f"❌ Failed to update transaction {transaction_id}: {patch_resp.status_code} {patch_resp.text}")
+            logger.error(f"❌ Benefits applied but failed to mark transaction {transaction_id} success: {patch_resp.status_code} {patch_resp.text}")
         else:
             logger.info(f"✅ Transaction {transaction_id} marked as success")
-
-        # Process based on transaction type
-        if transaction_type in ["subscription", "renewal"]:
-            await _process_subscription_payment(user_id, metadata, bill_code)
-        elif transaction_type == "addon":
-            await _process_addon_payment(user_id, transaction_id, metadata, bill_code)
 
     except Exception as e:
         logger.error(f"Error processing payment for bill_code {bill_code}: {e}", exc_info=True)
@@ -742,11 +756,16 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
                     f"(subscription still active): {promo_err}\n"
                     f"{traceback.format_exc()}"
                 )
+            # Subscription row was activated — the benefit is applied. The
+            # follow-up steps above (unlock/usage/promote) are best-effort.
+            return True
         else:
             logger.error(f"❌ Failed to update subscription: {response.status_code}")
+            return False
 
     except Exception as e:
         logger.error(f"Error processing subscription payment: {e}", exc_info=True)
+        return False
 
 
 def _slugify_business_name(name: str) -> str:
@@ -1113,7 +1132,7 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
                 )
             if check_resp.status_code == 200 and check_resp.json():
                 logger.info(f"⏭️ Addon purchase already exists for transaction {transaction_id}, skipping duplicate creation")
-                return
+                return True  # already applied — treat as success (idempotent)
 
         insert_data = {
             "user_id": user_id,
@@ -1145,12 +1164,15 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
             record_id = addon_record[0].get("id") if addon_record else "N/A"
             logger.info(f"✅ Addon credits added for user {user_id}: {addon_type} x{quantity}")
             logger.info(f"   Record ID: {record_id}")
+            return True
         else:
             logger.error(f"❌ Failed to create addon purchase: {response.status_code}")
             logger.error(f"   Response: {response.text}")
+            return False
 
     except Exception as e:
         logger.error(f"Error processing addon payment: {e}", exc_info=True)
+        return False
 
 
 async def _update_transaction_status(bill_code: str, status: str):

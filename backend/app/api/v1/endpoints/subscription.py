@@ -838,19 +838,65 @@ async def verify_payment(
                 detail="Transaksi tidak sah"
             )
 
-        # Step 3: If paid, update transaction and apply benefits
+        # Step 3: If paid, apply benefits FIRST, then mark the transaction
+        # success LAST (audit C5). If a benefit step fails we leave
+        # payment_status unchanged (pending) so callback/recover-pending can
+        # retry — instead of marking success up-front and letting the
+        # idempotency guard permanently skip a grant that never happened.
         if payment_status == "paid" and transaction.get("payment_status") != "success":
             logger.info(f"Processing successful payment for transaction {transaction.get('transaction_id')}")
 
-            # Update transaction status to success
             transaction_id = transaction.get("transaction_id")
             update_url = f"{settings.SUPABASE_URL}/rest/v1/transactions"
             update_params = {"transaction_id": f"eq.{transaction_id}"}
+
+            # Step 3a: Apply subscription upgrade or addon credits.
+            transaction_type = transaction.get("transaction_type")
+            metadata = transaction.get("metadata", {})
+            benefits_ok = True
+
+            if transaction_type == "subscription":
+                plan = metadata.get("plan", "basic")
+                benefits_ok = await _apply_subscription_upgrade(user_id, plan, headers)
+                if benefits_ok:
+                    logger.info(f"Applied subscription upgrade to {plan} for user {user_id}")
+                else:
+                    logger.error(f"Failed to apply subscription upgrade to {plan} for user {user_id}")
+
+            elif transaction_type == "renewal":
+                plan = metadata.get("plan", "starter")
+                benefits_ok = await _apply_subscription_renewal(user_id, plan, headers)
+                if benefits_ok:
+                    logger.info(f"Applied subscription renewal for {plan} for user {user_id}")
+                else:
+                    logger.error(f"Failed to apply subscription renewal for {plan} for user {user_id}")
+
+            elif transaction_type == "addon":
+                addon_type = metadata.get("addon_type")
+                quantity = metadata.get("quantity", 1)
+                benefits_ok = await _apply_addon_credits(user_id, addon_type, quantity, headers, transaction_id, bill_code)
+                if benefits_ok:
+                    logger.info(f"Applied {quantity}x {addon_type} addon for user {user_id}")
+                else:
+                    logger.error(f"Failed to apply addon credits for user {user_id}")
+
+            # Step 3b: only NOW mark the transaction success — and only if the
+            # benefit actually applied. Otherwise leave it pending for retry.
+            if not benefits_ok:
+                logger.error(
+                    f"Benefits not applied for transaction {transaction_id} "
+                    f"(bill_code={bill_code}); leaving payment_status pending for retry."
+                )
+                return {
+                    "success": False,
+                    "payment_status": "pending",
+                    "message": "Pembayaran diterima tetapi belum diproses sepenuhnya. Sila cuba sebentar lagi."
+                }
+
             update_data = {
                 "payment_status": "success",
                 "payment_date": datetime.utcnow().isoformat()
             }
-
             async with httpx.AsyncClient() as client:
                 patch_resp = await client.patch(
                     update_url,
@@ -860,36 +906,9 @@ async def verify_payment(
                 )
 
             if patch_resp.status_code not in [200, 204]:
-                logger.error(f"Failed to update transaction {transaction_id}: {patch_resp.status_code} {patch_resp.text}")
+                logger.error(f"Benefits applied but failed to mark transaction {transaction_id} success: {patch_resp.status_code} {patch_resp.text}")
             else:
                 logger.info(f"Transaction {transaction_id} marked as success")
-
-            # Step 4: Apply subscription upgrade or addon credits
-            transaction_type = transaction.get("transaction_type")
-            metadata = transaction.get("metadata", {})
-
-            if transaction_type == "subscription":
-                # Apply subscription upgrade
-                plan = metadata.get("plan", "basic")
-                await _apply_subscription_upgrade(user_id, plan, headers)
-                logger.info(f"Applied subscription upgrade to {plan} for user {user_id}")
-
-            elif transaction_type == "renewal":
-                # Apply subscription renewal
-                plan = metadata.get("plan", "starter")
-                await _apply_subscription_renewal(user_id, plan, headers)
-                logger.info(f"Applied subscription renewal for {plan} for user {user_id}")
-
-            elif transaction_type == "addon":
-                # Apply addon credits
-                addon_type = metadata.get("addon_type")
-                quantity = metadata.get("quantity", 1)
-                success = await _apply_addon_credits(user_id, addon_type, quantity, headers, transaction_id, bill_code)
-                if success:
-                    logger.info(f"Applied {quantity}x {addon_type} addon for user {user_id}")
-                else:
-                    logger.error(f"Failed to apply addon credits for user {user_id}")
-                    # Don't fail the whole response - transaction is already marked as success
 
             # Backup promotion path. The primary promotion runs from the
             # ToyyibPay webhook callback (_process_subscription_payment), but
@@ -1017,6 +1036,8 @@ async def _apply_subscription_upgrade(user_id: str, plan: str, headers: dict):
             )
             if resp.status_code not in [200, 204]:
                 logger.error(f"Failed to update subscription for {user_id}: {resp.status_code} {resp.text}")
+                return False
+            return True
         else:
             # Create new subscription
             resp = await client.post(
@@ -1026,6 +1047,8 @@ async def _apply_subscription_upgrade(user_id: str, plan: str, headers: dict):
             )
             if resp.status_code not in [200, 201, 204]:
                 logger.error(f"Failed to create subscription for {user_id}: {resp.status_code} {resp.text}")
+                return False
+            return True
 
 
 async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
@@ -1085,6 +1108,8 @@ async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
             )
             if resp.status_code not in [200, 204]:
                 logger.error(f"Failed to renew subscription for {user_id}: {resp.status_code} {resp.text}")
+                return False
+            return True
         else:
             # Create new subscription if doesn't exist
             create_data = {
@@ -1106,6 +1131,8 @@ async def _apply_subscription_renewal(user_id: str, plan: str, headers: dict):
             )
             if resp.status_code not in [200, 201, 204]:
                 logger.error(f"Failed to create subscription for {user_id}: {resp.status_code} {resp.text}")
+                return False
+            return True
 
 
 async def _apply_addon_credits(user_id: str, addon_type: str, quantity: int, headers: dict, transaction_id: str = None, bill_code: str = None):
