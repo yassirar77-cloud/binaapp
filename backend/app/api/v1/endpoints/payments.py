@@ -103,40 +103,12 @@ async def create_checkout_session(
         )
 
 
-@router.post("/webhook")
-async def stripe_webhook(
-    request: Request,
-    stripe_signature: Optional[str] = Header(None, alias="stripe-signature")
-):
-    """
-    Handle Stripe webhook events
-    """
-    try:
-        if not stripe_signature:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Missing stripe-signature header"
-            )
-
-        payload = await request.body()
-
-        # Process webhook
-        result = await payment_service.handle_webhook(payload, stripe_signature)
-
-        return result
-
-    except ValueError as e:
-        logger.error(f"Invalid webhook signature: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid signature"
-        )
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Webhook processing failed"
-        )
+# NOTE (audit C2): the Stripe webhook route was REMOVED.
+# BinaApp bills via ToyyibPay; STRIPE_WEBHOOK_SECRET defaults to "", which made
+# stripe.Webhook.construct_event() accept an attacker-forged signature and grant
+# a free subscription via metadata.user_id/tier. The endpoint had no legitimate
+# traffic. Stripe payments are handled nowhere else; ToyyibPay uses
+# /toyyibpay/callback. payment_service.handle_webhook is now hard-disabled too.
 
 
 @router.get("/subscription", response_model=dict)
