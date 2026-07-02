@@ -1323,20 +1323,52 @@ async def update_order_status_admin(
         )
 
 
+# Legal order-status transitions (audit C3). Keys are the current status; the
+# set is the statuses a business owner may move the order to next. Terminal
+# states (completed/cancelled/rejected) allow no outbound transition. Setting a
+# status equal to the current one is treated as an idempotent no-op.
+ALLOWED_ORDER_TRANSITIONS = {
+    "pending":    {"confirmed", "cancelled", "rejected"},
+    "confirmed":  {"preparing", "assigned", "cancelled"},
+    "assigned":   {"preparing", "ready", "cancelled"},
+    "preparing":  {"ready", "cancelled"},
+    "ready":      {"picked_up", "delivering", "cancelled"},
+    "picked_up":  {"delivering", "delivered"},
+    "delivering": {"delivered"},
+    "delivered":  {"completed"},
+    "completed":  set(),
+    "cancelled":  set(),
+    "rejected":   set(),
+}
+
+
 @router.put("/orders/{order_id}/status", response_model=OrderResponse)
 async def update_order_status(
     order_id: str,
     status_update: OrderStatusUpdate,
-    supabase: Client = Depends(get_supabase_client)
+    current_user: dict = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase_client),
 ):
     """
-    Update order status
+    Update order status — business owner only.
 
-    **Authenticated endpoint** - Business owners can update order status
+    Hardened (audit C3): previously this endpoint had NO authentication and used
+    the service-role client, so anyone on the internet could flip any order to
+    any status. It now requires a valid JWT, verifies the caller owns the
+    website the order belongs to, and enforces a legal-transition state machine
+    (see ALLOWED_ORDER_TRANSITIONS).
 
-    Status flow: pending → confirmed → preparing → ready → delivered
+    Status flow: pending → confirmed → preparing → ready → picked_up →
+    delivering → delivered → completed (cancelled/rejected are terminal).
     """
     try:
+        user_id = current_user.get("sub") or current_user.get("id")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User ID not found in token",
+            )
+
         # 1. Get current order
         order_response = supabase.table("delivery_orders").select("*").eq(
             "id", order_id
@@ -1349,15 +1381,43 @@ async def update_order_status(
             )
 
         current_order = order_response.data[0]
+
+        # 2. Ownership: the caller must own the website this order belongs to.
+        order_website_id = current_order.get("website_id")
+        website_check = supabase.table("websites").select("id").eq(
+            "id", order_website_id
+        ).eq("user_id", user_id).execute()
+        if not website_check.data:
+            logger.warning(
+                f"[Order STATUS] User {user_id} attempted to update order "
+                f"{order_id} on unowned website {order_website_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: You don't own this order"
+            )
+
+        current_status = current_order.get("status")
         new_status = status_update.status.value
 
-        # 2. Prepare update data with timestamp
+        # 3. Legal-transition check (idempotent no-op when unchanged).
+        if new_status != current_status:
+            allowed = ALLOWED_ORDER_TRANSITIONS.get(current_status, set())
+            if new_status not in allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Illegal status transition: {current_status} → {new_status}"
+                    ),
+                )
+
+        # 4. Prepare update data with timestamp
         update_data = {"status": new_status}
         timestamp_field = f"{new_status}_at"
         if timestamp_field in ['confirmed_at', 'preparing_at', 'ready_at', 'picked_up_at', 'delivered_at', 'completed_at', 'cancelled_at']:
             update_data[timestamp_field] = datetime.utcnow().isoformat()
 
-        # 3. Update order status
+        # 5. Update order status
         updated_response = supabase.table("delivery_orders").update(
             update_data
         ).eq("id", order_id).execute()
@@ -1368,7 +1428,7 @@ async def update_order_status(
                 detail="Failed to update order status"
             )
 
-        # 4. Add to status history
+        # 6. Add to status history
         history_data = {
             "order_id": order_id,
             "status": new_status,
@@ -1377,7 +1437,7 @@ async def update_order_status(
         }
         supabase.table("order_status_history").insert(history_data).execute()
 
-        logger.info(f"✅ Order {current_order['order_number']} status updated: {current_order['status']} → {new_status}")
+        logger.info(f"✅ Order {current_order['order_number']} status updated: {current_status} → {new_status}")
 
         return convert_db_row_to_dict(updated_response.data[0])
 
@@ -2665,98 +2725,12 @@ async def assign_rider_to_order_public(
         )
 
 
-@router.put("/orders/{order_id}/status", response_model=OrderResponse)
-async def update_order_status_public(
-    order_id: str,
-    status_update: OrderStatusUpdate,
-    supabase: Client = Depends(get_supabase_client),
-):
-    """
-    Update order status (public endpoint for simple dashboards).
-
-    Status flow: pending → confirmed → preparing → ready → picked_up → delivering → delivered → completed
-    """
-    try:
-        # Get current order
-        order_response = supabase.table("delivery_orders").select("*").eq(
-            "id", order_id
-        ).execute()
-
-        if not order_response.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Order not found"
-            )
-
-        current_order = order_response.data[0]
-        new_status = status_update.status.value
-
-        # Prepare update data with timestamp
-        update_data = {"status": new_status}
-        timestamp_field = f"{new_status}_at"
-        if timestamp_field in [
-            "confirmed_at", "preparing_at", "ready_at", "picked_up_at",
-            "delivered_at", "completed_at", "cancelled_at"
-        ]:
-            update_data[timestamp_field] = datetime.utcnow().isoformat()
-
-        # Update order status
-        updated_response = supabase.table("delivery_orders").update(
-            update_data
-        ).eq("id", order_id).execute()
-
-        if not updated_response.data:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to update order status"
-            )
-
-        # Add to status history
-        history_data = {
-            "order_id": order_id,
-            "status": new_status,
-            "notes": status_update.notes,
-            "updated_by": "business"
-        }
-        supabase.table("order_status_history").insert(history_data).execute()
-
-        # Send status update to chat
-        # Note: delivery_orders does NOT have conversation_id column, look up via order_id
-        conv_result = supabase.table("chat_conversations").select("id").eq("order_id", order_id).execute()
-        conversation_id = conv_result.data[0]["id"] if conv_result.data else None
-        if conversation_id:
-            status_messages = {
-                "confirmed": "Pesanan disahkan! Sedang menyediakan pesanan anda.",
-                "preparing": "Pesanan sedang disediakan",
-                "ready": "Pesanan sedia untuk diambil",
-                "picked_up": "Rider telah mengambil pesanan",
-                "delivering": "Pesanan dalam perjalanan",
-                "delivered": "Pesanan telah dihantar!",
-                "completed": "Pesanan selesai. Terima kasih!",
-                "cancelled": "Pesanan dibatalkan"
-            }
-            if new_status in status_messages:
-                await send_system_message(
-                    supabase=supabase,
-                    conversation_id=conversation_id,
-                    content=status_messages[new_status]
-                )
-
-        logger.info(
-            f"✅ Order {current_order['order_number']} status updated: "
-            f"{current_order['status']} → {new_status}"
-        )
-
-        return convert_db_row_to_dict(updated_response.data[0])
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating order status: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update order status: {str(e)}"
-        )
+# NOTE (audit C3): the duplicate, unauthenticated `update_order_status_public`
+# endpoint that also registered PUT /orders/{order_id}/status was REMOVED. It
+# shadowed nothing useful (the authenticated handler above wins route matching)
+# and was an open door to mutate any order via the service-role client. The
+# status→chat-message notification it carried is handled by the admin status
+# endpoint's notification path.
 
 
 # =====================================================
