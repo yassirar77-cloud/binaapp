@@ -2049,11 +2049,30 @@ async def upgrade_subscription(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Upgrade user subscription after successful payment
+    Activate a subscription tier ONLY after the referenced ToyyibPay bill is
+    verified paid server-to-server.
+
+    Hardened (audit C1): previously this endpoint flipped tier/status to
+    active on the caller's say-so — any authenticated user could POST
+    /subscriptions/upgrade/pro and get Pro for free. It now:
+      1. resolves the transaction row for the supplied bill (never trusts a
+         client-supplied status),
+      2. checks the transaction belongs to the caller,
+      3. checks the transaction's recorded plan == the requested tier and its
+         server-stored amount == TIER_PRICES[tier] (tier + amount match),
+      4. calls ToyyibPay getBillTransactions and requires billpaymentStatus==1,
+    and only then activates the tier. Any failure leaves the subscription
+    untouched.
     """
+    import httpx
+    from datetime import datetime
+
     try:
         body = await request.json()
+        # `payment_id` historically carried the ToyyibPay bill code from the
+        # success page; accept an explicit `bill_code` too.
         payment_id = body.get("payment_id")
+        bill_code = body.get("bill_code") or payment_id
 
         if tier not in TIER_PRICES:
             raise HTTPException(
@@ -2063,19 +2082,131 @@ async def upgrade_subscription(
 
         user_id = current_user.get("sub")
 
-        # Update user's subscription tier
-        # First, try to update existing subscription
-        update_result = await supabase_service.update_user_subscription(user_id, {
+        if not bill_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing bill reference; cannot verify payment."
+            )
+
+        headers = {
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json",
+        }
+        txn_url = f"{settings.SUPABASE_URL}/rest/v1/transactions"
+
+        # 1. Resolve the transaction by bill_code (fall back to transaction_id).
+        transaction = None
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                txn_url,
+                headers=headers,
+                params={"toyyibpay_bill_code": f"eq.{bill_code}", "select": "*"},
+            )
+            if resp.status_code == 200 and resp.json():
+                transaction = resp.json()[0]
+            elif payment_id:
+                resp2 = await client.get(
+                    txn_url,
+                    headers=headers,
+                    params={"transaction_id": f"eq.{payment_id}", "select": "*"},
+                )
+                if resp2.status_code == 200 and resp2.json():
+                    transaction = resp2.json()[0]
+
+        if not transaction:
+            logger.warning(f"upgrade_subscription: no transaction for bill/id {bill_code}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Transaksi tidak dijumpai"
+            )
+
+        resolved_bill_code = transaction.get("toyyibpay_bill_code") or bill_code
+
+        # 2. Ownership.
+        if transaction.get("user_id") != user_id:
+            logger.warning(
+                f"upgrade_subscription: transaction owner mismatch "
+                f"{transaction.get('user_id')} != {user_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Transaksi tidak sah"
+            )
+
+        # 3. Tier + amount match against the server-stored transaction record.
+        metadata = transaction.get("metadata") or {}
+        txn_plan = metadata.get("plan")
+        txn_amount = transaction.get("amount")
+        if txn_plan != tier:
+            logger.warning(
+                f"upgrade_subscription: plan mismatch txn={txn_plan} requested={tier}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Pelan pembayaran tidak sepadan"
+            )
+        try:
+            if abs(float(txn_amount) - float(TIER_PRICES[tier])) > 0.01:
+                raise ValueError("amount mismatch")
+        except (TypeError, ValueError):
+            logger.warning(
+                f"upgrade_subscription: amount mismatch txn={txn_amount} "
+                f"expected={TIER_PRICES[tier]}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Jumlah pembayaran tidak sepadan"
+            )
+
+        # 4. Server-to-server paid check. NEVER trust a client-supplied status.
+        tp_result = toyyibpay_service.get_bill_transactions(resolved_bill_code)
+        if not tp_result.get("success"):
+            logger.error(
+                f"upgrade_subscription: ToyyibPay verification unavailable for "
+                f"{resolved_bill_code}: {tp_result.get('error')}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Tidak dapat mengesahkan pembayaran. Sila cuba sebentar lagi."
+            )
+        tp_txns = tp_result.get("transactions") or []
+        paid = (
+            isinstance(tp_txns, list)
+            and len(tp_txns) > 0
+            and tp_txns[0].get("billpaymentStatus") == "1"
+        )
+        if not paid:
+            logger.warning(
+                f"upgrade_subscription: bill {resolved_bill_code} not paid "
+                f"(status={tp_txns[0].get('billpaymentStatus') if tp_txns else 'none'})"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Pembayaran belum disahkan"
+            )
+
+        # Verified. Activate the tier and mark the transaction success.
+        await supabase_service.update_user_subscription(user_id, {
             "tier": tier,
             "status": "active",
             "price": TIER_PRICES[tier]
         })
+        async with httpx.AsyncClient() as client:
+            await client.patch(
+                txn_url,
+                headers={**headers, "Prefer": "return=minimal"},
+                params={"transaction_id": f"eq.{transaction.get('transaction_id')}"},
+                json={
+                    "payment_status": "success",
+                    "payment_date": datetime.utcnow().isoformat(),
+                },
+            )
 
-        # Update payment status if payment_id provided
-        if payment_id:
-            await supabase_service.update_payment_status(payment_id, "successful")
-
-        logger.info(f"Subscription upgraded for user {user_id} to {tier}")
+        logger.info(
+            f"Subscription upgraded for user {user_id} to {tier} "
+            f"(verified bill {resolved_bill_code})"
+        )
 
         return {
             "success": True,

@@ -210,23 +210,14 @@ function PaymentSuccessContent() {
       setStatus('success');
       setMessage(isAddonPayment ? 'Kredit Addon Berjaya Ditambah!' : 'Pembayaran Berjaya!');
 
-      // Update subscription if it was a subscription payment (not addon)
-      if (!isAddonPayment && tier && paymentId) {
-        try {
-          await fetch(`${apiUrl}/api/v1/payments/subscriptions/upgrade/${tier}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authToken}`
-            },
-            body: JSON.stringify({
-              payment_id: paymentId
-            })
-          });
-        } catch (error) {
-          console.error('Upgrade error:', error);
-        }
-      }
+      // NOTE (audit C1): the previous status_id==='1' fallback POSTed to
+      // /subscriptions/upgrade/{tier} to activate the plan based purely on the
+      // URL param — a free-Pro path. Subscription activation now happens ONLY
+      // via the server-verified /subscription/verify-payment call above (which
+      // checks the bill against ToyyibPay). This branch no longer grants
+      // anything; it just reflects the returned status in the UI. If the backend
+      // verification did not confirm the payment, the subscription stays as-is
+      // and the dashboard will show the true state.
 
       // Clear all pending data
       clearPendingPaymentData();
