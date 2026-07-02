@@ -103,40 +103,12 @@ async def create_checkout_session(
         )
 
 
-@router.post("/webhook")
-async def stripe_webhook(
-    request: Request,
-    stripe_signature: Optional[str] = Header(None, alias="stripe-signature")
-):
-    """
-    Handle Stripe webhook events
-    """
-    try:
-        if not stripe_signature:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Missing stripe-signature header"
-            )
-
-        payload = await request.body()
-
-        # Process webhook
-        result = await payment_service.handle_webhook(payload, stripe_signature)
-
-        return result
-
-    except ValueError as e:
-        logger.error(f"Invalid webhook signature: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid signature"
-        )
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Webhook processing failed"
-        )
+# NOTE (audit C2): the Stripe webhook route was REMOVED.
+# BinaApp bills via ToyyibPay; STRIPE_WEBHOOK_SECRET defaults to "", which made
+# stripe.Webhook.construct_event() accept an attacker-forged signature and grant
+# a free subscription via metadata.user_id/tier. The endpoint had no legitimate
+# traffic. Stripe payments are handled nowhere else; ToyyibPay uses
+# /toyyibpay/callback. payment_service.handle_webhook is now hard-disabled too.
 
 
 @router.get("/subscription", response_model=dict)
@@ -302,49 +274,16 @@ async def create_toyyibpay_bill(
     Requires a verified email (require_verified_email) — payment is gated
     behind email verification.
     """
-    try:
-        body = await request.json()
-
-        user_id = current_user.get("sub")
-        email = current_user.get("email")
-
-        bill_name = body.get("bill_name", "BinaApp Subscription")
-        bill_description = body.get("bill_description", "BinaApp subscription payment")
-        bill_amount = float(body.get("amount", 29.00))
-        bill_phone = body.get("phone", "")
-        customer_name = body.get("customer_name", email)
-
-        result = toyyibpay_service.create_bill(
-            bill_name=bill_name,
-            bill_description=bill_description,
-            bill_amount=bill_amount,
-            bill_email=email,
-            bill_phone=bill_phone,
-            bill_name_customer=customer_name,
-            bill_external_reference_no=f"BINA_{user_id[:8]}"
-        )
-
-        if result.get("success"):
-            logger.info(f"ToyyibPay bill created for user {user_id}: {result.get('bill_code')}")
-            return {
-                "success": True,
-                "bill_code": result.get("bill_code"),
-                "payment_url": result.get("payment_url")
-            }
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to create bill")
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error creating ToyyibPay bill: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create payment bill"
-        )
+    # DISABLED (audit C6/H1). This endpoint created a ToyyibPay bill from a
+    # CLIENT-SUPPLIED amount and wrote NO transactions/payments record at all, so
+    # any payment on it was unmatchable on the callback (money taken, nothing
+    # granted) — and the amount was attacker-controlled. It has no callers.
+    # Subscription bills go through POST /payments/subscribe/{tier} (server-side
+    # price + recorded transaction). Refuse rather than mint an untrackable bill.
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="This endpoint is disabled. Use /payments/subscribe/{tier}.",
+    )
 
 
 @router.post("/toyyibpay/callback")
@@ -466,7 +405,27 @@ async def _process_successful_payment(bill_code: str, tp_transaction_id: str = N
         logger.info(f"   Type: {transaction_type}")
         logger.info(f"   Metadata: {metadata}")
 
-        # Update transaction status to success (and ensure invoice number exists)
+        # Apply benefits FIRST, mark the transaction success LAST (audit C5).
+        # If a benefit step fails we leave payment_status unchanged (pending) so
+        # a later verify-payment / recover-pending run retries it — instead of
+        # marking success up-front and having the idempotency guard permanently
+        # skip a grant that never actually happened (money taken, nothing given).
+        if transaction_type in ["subscription", "renewal"]:
+            benefits_ok = await _process_subscription_payment(user_id, metadata, bill_code)
+        elif transaction_type == "addon":
+            benefits_ok = await _process_addon_payment(user_id, transaction_id, metadata, bill_code)
+        else:
+            # Unknown type: nothing to grant. Don't wedge the row on retries.
+            benefits_ok = True
+
+        if not benefits_ok:
+            logger.error(
+                f"❌ Benefits not applied for transaction {transaction_id} "
+                f"(bill_code={bill_code}); leaving payment_status pending for retry."
+            )
+            return
+
+        # Benefits applied — now mark the transaction success (ensure invoice #).
         patch_data = {
             "payment_status": "success",
             "toyyibpay_transaction_id": tp_transaction_id,
@@ -489,15 +448,9 @@ async def _process_successful_payment(bill_code: str, tp_transaction_id: str = N
             )
 
         if patch_resp.status_code not in [200, 204]:
-            logger.error(f"❌ Failed to update transaction {transaction_id}: {patch_resp.status_code} {patch_resp.text}")
+            logger.error(f"❌ Benefits applied but failed to mark transaction {transaction_id} success: {patch_resp.status_code} {patch_resp.text}")
         else:
             logger.info(f"✅ Transaction {transaction_id} marked as success")
-
-        # Process based on transaction type
-        if transaction_type in ["subscription", "renewal"]:
-            await _process_subscription_payment(user_id, metadata, bill_code)
-        elif transaction_type == "addon":
-            await _process_addon_payment(user_id, transaction_id, metadata, bill_code)
 
     except Exception as e:
         logger.error(f"Error processing payment for bill_code {bill_code}: {e}", exc_info=True)
@@ -770,11 +723,16 @@ async def _process_subscription_payment(user_id: str, metadata: dict, bill_code:
                     f"(subscription still active): {promo_err}\n"
                     f"{traceback.format_exc()}"
                 )
+            # Subscription row was activated — the benefit is applied. The
+            # follow-up steps above (unlock/usage/promote) are best-effort.
+            return True
         else:
             logger.error(f"❌ Failed to update subscription: {response.status_code}")
+            return False
 
     except Exception as e:
         logger.error(f"Error processing subscription payment: {e}", exc_info=True)
+        return False
 
 
 def _slugify_business_name(name: str) -> str:
@@ -1141,7 +1099,7 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
                 )
             if check_resp.status_code == 200 and check_resp.json():
                 logger.info(f"⏭️ Addon purchase already exists for transaction {transaction_id}, skipping duplicate creation")
-                return
+                return True  # already applied — treat as success (idempotent)
 
         insert_data = {
             "user_id": user_id,
@@ -1173,12 +1131,15 @@ async def _process_addon_payment(user_id: str, transaction_id: str, metadata: di
             record_id = addon_record[0].get("id") if addon_record else "N/A"
             logger.info(f"✅ Addon credits added for user {user_id}: {addon_type} x{quantity}")
             logger.info(f"   Record ID: {record_id}")
+            return True
         else:
             logger.error(f"❌ Failed to create addon purchase: {response.status_code}")
             logger.error(f"   Response: {response.text}")
+            return False
 
     except Exception as e:
         logger.error(f"Error processing addon payment: {e}", exc_info=True)
+        return False
 
 
 async def _update_transaction_status(bill_code: str, status: str):
@@ -1837,8 +1798,12 @@ async def create_subscription_payment(
             bill_code = result.get("bill_code")
             logger.info(f"ToyyibPay bill created: {bill_code}")
 
-            # Try to store payment record in database (optional - don't fail if table doesn't exist)
-            payment_id = bill_code
+            # Store the payment record BEFORE handing out the payment URL.
+            # If we can't record the bill, we must NOT return a payment URL: a
+            # paid-but-unrecorded bill is unmatchable on the ToyyibPay callback
+            # (money taken, nothing granted). Abort instead (audit C6). The bill
+            # stays unpaid at ToyyibPay and the user simply retries.
+            payment_record = None
             try:
                 payment_record = await supabase_service.insert_record("payments", {
                     "user_id": str(user_id),
@@ -1848,15 +1813,21 @@ async def create_subscription_payment(
                     "tier": tier,
                     "status": "pending"
                 })
-                if payment_record:
-                    payment_id = payment_record.get("id", bill_code)
-                    logger.info(f"Payment record stored: {payment_id}")
-                else:
-                    logger.warning("Payment record not stored (payments table may not exist)")
             except Exception as db_error:
-                logger.warning(f"Could not store payment record: {db_error}")
-                # Continue anyway - payment can still proceed
+                logger.error(f"Could not store payment record for bill {bill_code}: {db_error}")
 
+            if not payment_record:
+                logger.error(
+                    f"Aborting subscription payment: failed to record bill {bill_code} "
+                    f"for user {user_id[:8]} — not returning a payment URL."
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Tidak dapat merekod pembayaran. Sila cuba lagi."
+                )
+
+            payment_id = payment_record.get("id", bill_code)
+            logger.info(f"Payment record stored: {payment_id}")
             logger.info(f"Subscription payment created for user {user_id[:8]}: {tier} - {bill_code}")
 
             return {
@@ -1985,7 +1956,11 @@ async def purchase_addon(
 
             # CRITICAL: Create transaction record so callback handler can find it
             # The callback handler looks for transactions by toyyibpay_bill_code
-            transaction_id = None
+            # Record the transaction BEFORE returning the payment URL. A bill we
+            # can't track is unmatchable on callback (money taken, nothing
+            # granted), so abort instead of handing out an untrackable URL
+            # (audit C6). There is no legacy fallback for addons.
+            transaction_record = None
             try:
                 from app.services.subscription_service import subscription_service
                 invoice_number = await subscription_service.generate_invoice_number()
@@ -2004,13 +1979,21 @@ async def purchase_addon(
                         "unit_price": unit_price
                     }
                 })
-                if transaction_record:
-                    transaction_id = transaction_record.get("transaction_id")
-                    logger.info(f"✅ Transaction record created: {transaction_id}")
             except Exception as db_error:
-                logger.error(f"❌ Failed to create transaction record: {db_error}")
-                # Still continue - the payment might work via legacy fallback
+                logger.error(f"❌ Failed to create addon transaction record for bill {bill_code}: {db_error}")
 
+            if not transaction_record:
+                logger.error(
+                    f"Aborting addon purchase: failed to record bill {bill_code} "
+                    f"for user {user_id[:8]} — not returning a payment URL."
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Tidak dapat merekod pembayaran. Sila cuba lagi."
+                )
+
+            transaction_id = transaction_record.get("transaction_id")
+            logger.info(f"✅ Transaction record created: {transaction_id}")
             logger.info(f"Addon purchase created for user {user_id[:8]}: {addon_type} x{quantity}")
 
             return {
@@ -2049,11 +2032,30 @@ async def upgrade_subscription(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Upgrade user subscription after successful payment
+    Activate a subscription tier ONLY after the referenced ToyyibPay bill is
+    verified paid server-to-server.
+
+    Hardened (audit C1): previously this endpoint flipped tier/status to
+    active on the caller's say-so — any authenticated user could POST
+    /subscriptions/upgrade/pro and get Pro for free. It now:
+      1. resolves the transaction row for the supplied bill (never trusts a
+         client-supplied status),
+      2. checks the transaction belongs to the caller,
+      3. checks the transaction's recorded plan == the requested tier and its
+         server-stored amount == TIER_PRICES[tier] (tier + amount match),
+      4. calls ToyyibPay getBillTransactions and requires billpaymentStatus==1,
+    and only then activates the tier. Any failure leaves the subscription
+    untouched.
     """
+    import httpx
+    from datetime import datetime
+
     try:
         body = await request.json()
+        # `payment_id` historically carried the ToyyibPay bill code from the
+        # success page; accept an explicit `bill_code` too.
         payment_id = body.get("payment_id")
+        bill_code = body.get("bill_code") or payment_id
 
         if tier not in TIER_PRICES:
             raise HTTPException(
@@ -2063,19 +2065,131 @@ async def upgrade_subscription(
 
         user_id = current_user.get("sub")
 
-        # Update user's subscription tier
-        # First, try to update existing subscription
-        update_result = await supabase_service.update_user_subscription(user_id, {
+        if not bill_code:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing bill reference; cannot verify payment."
+            )
+
+        headers = {
+            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_ROLE_KEY}",
+            "Content-Type": "application/json",
+        }
+        txn_url = f"{settings.SUPABASE_URL}/rest/v1/transactions"
+
+        # 1. Resolve the transaction by bill_code (fall back to transaction_id).
+        transaction = None
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                txn_url,
+                headers=headers,
+                params={"toyyibpay_bill_code": f"eq.{bill_code}", "select": "*"},
+            )
+            if resp.status_code == 200 and resp.json():
+                transaction = resp.json()[0]
+            elif payment_id:
+                resp2 = await client.get(
+                    txn_url,
+                    headers=headers,
+                    params={"transaction_id": f"eq.{payment_id}", "select": "*"},
+                )
+                if resp2.status_code == 200 and resp2.json():
+                    transaction = resp2.json()[0]
+
+        if not transaction:
+            logger.warning(f"upgrade_subscription: no transaction for bill/id {bill_code}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Transaksi tidak dijumpai"
+            )
+
+        resolved_bill_code = transaction.get("toyyibpay_bill_code") or bill_code
+
+        # 2. Ownership.
+        if transaction.get("user_id") != user_id:
+            logger.warning(
+                f"upgrade_subscription: transaction owner mismatch "
+                f"{transaction.get('user_id')} != {user_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Transaksi tidak sah"
+            )
+
+        # 3. Tier + amount match against the server-stored transaction record.
+        metadata = transaction.get("metadata") or {}
+        txn_plan = metadata.get("plan")
+        txn_amount = transaction.get("amount")
+        if txn_plan != tier:
+            logger.warning(
+                f"upgrade_subscription: plan mismatch txn={txn_plan} requested={tier}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Pelan pembayaran tidak sepadan"
+            )
+        try:
+            if abs(float(txn_amount) - float(TIER_PRICES[tier])) > 0.01:
+                raise ValueError("amount mismatch")
+        except (TypeError, ValueError):
+            logger.warning(
+                f"upgrade_subscription: amount mismatch txn={txn_amount} "
+                f"expected={TIER_PRICES[tier]}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Jumlah pembayaran tidak sepadan"
+            )
+
+        # 4. Server-to-server paid check. NEVER trust a client-supplied status.
+        tp_result = toyyibpay_service.get_bill_transactions(resolved_bill_code)
+        if not tp_result.get("success"):
+            logger.error(
+                f"upgrade_subscription: ToyyibPay verification unavailable for "
+                f"{resolved_bill_code}: {tp_result.get('error')}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Tidak dapat mengesahkan pembayaran. Sila cuba sebentar lagi."
+            )
+        tp_txns = tp_result.get("transactions") or []
+        paid = (
+            isinstance(tp_txns, list)
+            and len(tp_txns) > 0
+            and tp_txns[0].get("billpaymentStatus") == "1"
+        )
+        if not paid:
+            logger.warning(
+                f"upgrade_subscription: bill {resolved_bill_code} not paid "
+                f"(status={tp_txns[0].get('billpaymentStatus') if tp_txns else 'none'})"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Pembayaran belum disahkan"
+            )
+
+        # Verified. Activate the tier and mark the transaction success.
+        await supabase_service.update_user_subscription(user_id, {
             "tier": tier,
             "status": "active",
             "price": TIER_PRICES[tier]
         })
+        async with httpx.AsyncClient() as client:
+            await client.patch(
+                txn_url,
+                headers={**headers, "Prefer": "return=minimal"},
+                params={"transaction_id": f"eq.{transaction.get('transaction_id')}"},
+                json={
+                    "payment_status": "success",
+                    "payment_date": datetime.utcnow().isoformat(),
+                },
+            )
 
-        # Update payment status if payment_id provided
-        if payment_id:
-            await supabase_service.update_payment_status(payment_id, "successful")
-
-        logger.info(f"Subscription upgraded for user {user_id} to {tier}")
+        logger.info(
+            f"Subscription upgraded for user {user_id} to {tier} "
+            f"(verified bill {resolved_bill_code})"
+        )
 
         return {
             "success": True,

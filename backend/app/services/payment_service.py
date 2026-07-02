@@ -126,40 +126,16 @@ class PaymentService:
 
     async def handle_webhook(self, payload: bytes, sig_header: str) -> Dict:
         """
-        Handle Stripe webhook events
+        DISABLED (audit C2). Stripe webhooks are not used — BinaApp bills via
+        ToyyibPay. This method previously called stripe.Webhook.construct_event
+        with STRIPE_WEBHOOK_SECRET, which defaults to "" and therefore accepted a
+        forged signature, letting anyone grant a free subscription via
+        metadata.user_id/tier. The HTTP route has been removed; this method is
+        kept only so nothing that still imports it crashes, and hard-fails
+        instead of granting anything.
         """
-        try:
-            event = stripe.Webhook.construct_event(
-                payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
-            )
-
-            logger.info(f"Received Stripe webhook: {event['type']}")
-
-            # Handle different event types
-            if event['type'] == 'checkout.session.completed':
-                session = event['data']['object']
-                await self._handle_checkout_completed(session)
-
-            elif event['type'] == 'customer.subscription.updated':
-                subscription = event['data']['object']
-                await self._handle_subscription_updated(subscription)
-
-            elif event['type'] == 'customer.subscription.deleted':
-                subscription = event['data']['object']
-                await self._handle_subscription_cancelled(subscription)
-
-            elif event['type'] == 'invoice.payment_failed':
-                invoice = event['data']['object']
-                await self._handle_payment_failed(invoice)
-
-            return {'status': 'success'}
-
-        except stripe.error.SignatureVerificationError as e:
-            logger.error(f"Invalid webhook signature: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Error handling webhook: {e}")
-            raise
+        logger.error("Stripe webhook handling is disabled (ToyyibPay is the only gateway).")
+        raise RuntimeError("Stripe webhooks are disabled")
 
     async def _handle_checkout_completed(self, session: Dict):
         """Handle successful checkout"""

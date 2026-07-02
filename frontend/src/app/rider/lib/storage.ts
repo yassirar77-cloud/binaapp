@@ -8,6 +8,9 @@ import type { Rider, RiderOrder } from './types';
 const KEY_RIDER_DATA = 'rider_data';
 const KEY_RIDER_PHONE = 'rider_phone';
 const KEY_CACHED_ORDERS = 'rider_cached_orders';
+// Rider JWT issued by /riders/login (audit C4). Required as a bearer token on
+// rider-only endpoints (order status updates).
+const KEY_RIDER_TOKEN = 'rider_token';
 
 // Phase-9 additions. Local-only flags surfaced through the profile
 // screen. Prefixed with `rider_pref_` to avoid colliding with other
@@ -42,6 +45,17 @@ export function clearRider(): void {
   if (!hasWindow()) return;
   localStorage.removeItem(KEY_RIDER_DATA);
   localStorage.removeItem(KEY_CACHED_ORDERS);
+  localStorage.removeItem(KEY_RIDER_TOKEN);
+}
+
+export function loadRiderToken(): string | null {
+  if (!hasWindow()) return null;
+  return localStorage.getItem(KEY_RIDER_TOKEN);
+}
+
+export function saveRiderToken(token: string): void {
+  if (!hasWindow()) return;
+  localStorage.setItem(KEY_RIDER_TOKEN, token);
 }
 
 export function loadRiderPhone(): string | null {

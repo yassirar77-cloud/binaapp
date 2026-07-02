@@ -10,6 +10,11 @@ from loguru import logger
 from app.core.config import settings
 from app.services.supabase_client import supabase_service
 
+# Marker object written into a subdomain's storage folder when the site is
+# deleted (audit C7). The subdomain middleware checks for it and refuses to
+# auto-recover (resurrect) a deliberately deleted site into a ghost DB row.
+TOMBSTONE_FILENAME = ".deleted"
+
 
 class StorageService:
     """Service for Supabase Storage operations using REST API"""
@@ -60,6 +65,16 @@ class StorageService:
             if not storage_url_1 and not storage_url_2:
                 raise Exception("Upload failed - no URL returned")
 
+            # Publishing (or republishing) clears any prior deletion tombstone so
+            # a subdomain that was deleted and later re-published serves normally
+            # (audit C7).
+            try:
+                await self.supabase.delete_file(
+                    self.bucket_name, f"{subdomain}/{TOMBSTONE_FILENAME}"
+                )
+            except Exception as ts_err:
+                logger.warning(f"Could not clear tombstone for {subdomain}: {ts_err}")
+
             # Return the subdomain URL (e.g., https://kedai-ali.binaapp.my)
             subdomain_url = f"https://{subdomain}.{settings.MAIN_DOMAIN}"
 
@@ -98,12 +113,89 @@ class StorageService:
         return f"https://{subdomain}.{settings.MAIN_DOMAIN}"
 
     async def delete_website(self, user_id: str, subdomain: str) -> bool:
-        """Delete website files"""
+        """
+        Delete ALL storage key variants for a website and drop a tombstone
+        (audit C7).
+
+        Historically only the {user_id}/{subdomain} key was deleted, leaving the
+        SERVING key {subdomain}/index.html live — so a "deleted" site kept
+        serving at subdomain.binaapp.my forever, and the middleware would even
+        re-mint a ghost DB row from it. We now:
+          1. delete every key variant (serving + user-scoped + legacy demo-user),
+          2. write a `.deleted` tombstone so the middleware won't resurrect it,
+          3. VERIFY the public serving object is actually gone and RAISE loudly
+             if it is not (a surviving serving key is what keeps a site online).
+
+        Raises on serving-key survival so callers can surface the failure rather
+        than reporting a delete that left the site live.
+        """
+        serving_path = f"{subdomain}/index.html"
+        variant_paths = [
+            serving_path,
+            f"{user_id}/{subdomain}/index.html",
+            f"demo-user/{subdomain}/index.html",
+        ]
+
+        for path in variant_paths:
+            try:
+                await self.supabase.delete_file(self.bucket_name, path)
+                logger.info(f"Deleted storage key: {path}")
+            except Exception as e:
+                logger.warning(f"Could not delete storage key {path}: {e}")
+
+        # Write the tombstone BEFORE verifying, so even if the serving-key delete
+        # silently failed the middleware still refuses to resurrect the site.
         try:
-            file_path = f"{user_id}/{subdomain}/index.html"
-            return await self.supabase.delete_file(self.bucket_name, file_path)
+            await self.supabase.upload_file(
+                bucket=self.bucket_name,
+                path=f"{subdomain}/{TOMBSTONE_FILENAME}",
+                file_data=b"deleted",
+                content_type="text/plain; charset=utf-8",
+            )
+        except Exception as ts_err:
+            logger.error(f"Failed to write deletion tombstone for {subdomain}: {ts_err}")
+
+        # Verify the serving object is actually gone (this is the key that keeps
+        # a deleted site online). Fail loudly if it still resolves.
+        try:
+            import httpx
+            serving_url = (
+                f"{self.supabase.url}/storage/v1/object/public/"
+                f"{self.bucket_name}/{serving_path}"
+            )
+            async with httpx.AsyncClient() as client:
+                resp = await client.head(serving_url, timeout=10.0)
+            if resp.status_code == 200:
+                logger.error(
+                    f"❌ Serving key {serving_path} still live after delete — "
+                    f"site may still be reachable at {subdomain}.{settings.MAIN_DOMAIN}"
+                )
+                raise Exception(
+                    f"Failed to delete serving key for subdomain {subdomain}"
+                )
+        except httpx.HTTPError as head_err:
+            # Couldn't verify (network). Don't claim success we can't confirm.
+            logger.error(f"Could not verify serving-key deletion for {subdomain}: {head_err}")
+            raise Exception(
+                f"Could not verify deletion of serving key for subdomain {subdomain}"
+            )
+
+        logger.info(f"✅ Deleted all storage keys for subdomain {subdomain} (tombstoned)")
+        return True
+
+    async def tombstone_exists(self, subdomain: str) -> bool:
+        """True if a deletion tombstone exists for this subdomain (audit C7)."""
+        try:
+            import httpx
+            url = (
+                f"{self.supabase.url}/storage/v1/object/public/"
+                f"{self.bucket_name}/{subdomain}/{TOMBSTONE_FILENAME}"
+            )
+            async with httpx.AsyncClient() as client:
+                resp = await client.head(url, timeout=5.0)
+            return resp.status_code == 200
         except Exception as e:
-            logger.error(f"Error deleting website: {e}")
+            logger.warning(f"Could not check tombstone for {subdomain}: {e}")
             return False
 
     async def get_website_content(self, user_id: str, subdomain: str) -> Optional[str]:

@@ -125,69 +125,14 @@ class TestCheckoutSession:
 
 class TestWebhookHandling:
     @pytest.mark.asyncio
-    @patch("stripe.Webhook.construct_event")
-    async def test_checkout_completed_event(self, mock_construct):
-        from app.services.payment_service import PaymentService
-
-        mock_construct.return_value = {
-            "type": "checkout.session.completed",
-            "data": {
-                "object": {
-                    "metadata": {"user_id": "user-1", "tier": "basic"},
-                    "customer": "cus_123",
-                    "subscription": "sub_123",
-                }
-            },
-        }
-
-        service = PaymentService()
-        with patch.object(service, "_handle_checkout_completed", new_callable=AsyncMock) as mock_handler:
-            result = await service.handle_webhook(b"payload", "sig_header")
-            assert result["status"] == "success"
-            mock_handler.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    @patch("stripe.Webhook.construct_event")
-    async def test_subscription_deleted_event(self, mock_construct):
-        from app.services.payment_service import PaymentService
-
-        mock_construct.return_value = {
-            "type": "customer.subscription.deleted",
-            "data": {"object": {"id": "sub_123"}},
-        }
-
-        service = PaymentService()
-        with patch.object(service, "_handle_subscription_cancelled", new_callable=AsyncMock) as mock_handler:
-            result = await service.handle_webhook(b"payload", "sig_header")
-            assert result["status"] == "success"
-            mock_handler.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    @patch("stripe.Webhook.construct_event")
-    async def test_payment_failed_event(self, mock_construct):
-        from app.services.payment_service import PaymentService
-
-        mock_construct.return_value = {
-            "type": "invoice.payment_failed",
-            "data": {"object": {"id": "inv_123"}},
-        }
-
-        service = PaymentService()
-        with patch.object(service, "_handle_payment_failed", new_callable=AsyncMock) as mock_handler:
-            result = await service.handle_webhook(b"payload", "sig_header")
-            mock_handler.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    @patch("stripe.Webhook.construct_event")
-    async def test_invalid_signature_raises(self, mock_construct):
-        import stripe
-
-        mock_construct.side_effect = stripe.error.SignatureVerificationError(
-            "Invalid signature", "sig_header"
-        )
-
+    async def test_webhook_handling_is_disabled(self):
+        """
+        Audit C2: Stripe webhooks are disabled. handle_webhook must never grant
+        anything — it hard-fails regardless of payload/signature so a forged
+        Stripe event cannot activate a subscription (the HTTP route is removed).
+        """
         from app.services.payment_service import PaymentService
 
         service = PaymentService()
-        with pytest.raises(stripe.error.SignatureVerificationError):
-            await service.handle_webhook(b"bad_payload", "bad_sig")
+        with pytest.raises(RuntimeError):
+            await service.handle_webhook(b"payload", "sig_header")
