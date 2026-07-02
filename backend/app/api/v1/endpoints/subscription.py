@@ -239,10 +239,12 @@ async def upgrade_subscription(
         if result.get("success"):
             bill_code = result.get("bill_code")
 
-            # Store transaction record
+            # Record the transaction BEFORE returning the payment URL — a bill we
+            # can't track is unmatchable on callback (audit C6). Abort on failure.
+            txn_record = None
             try:
                 invoice_number = await subscription_service.generate_invoice_number()
-                await supabase_service.insert_record("transactions", {
+                txn_record = await supabase_service.insert_record("transactions", {
                     "user_id": user_id,
                     "transaction_type": "subscription",
                     "item_description": f"Upgrade to {new_plan.upper()} Plan",
@@ -253,7 +255,14 @@ async def upgrade_subscription(
                     "metadata": {"plan": new_plan, "previous_plan": current_plan}
                 })
             except Exception as db_error:
-                logger.warning(f"Could not store transaction: {db_error}")
+                logger.error(f"Could not store transaction for bill {bill_code}: {db_error}")
+
+            if not txn_record:
+                logger.error(f"Aborting upgrade: failed to record bill {bill_code}; not returning payment URL.")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Tidak dapat merekod pembayaran. Sila cuba lagi."
+                )
 
             return {
                 "success": True,
@@ -352,10 +361,12 @@ async def renew_subscription(current_user: dict = Depends(get_current_user)):
         if result.get("success"):
             bill_code = result.get("bill_code")
 
-            # Store transaction record
+            # Record the transaction BEFORE returning the payment URL — a bill we
+            # can't track is unmatchable on callback (audit C6). Abort on failure.
+            txn_record = None
             try:
                 invoice_number = await subscription_service.generate_invoice_number()
-                await supabase_service.insert_record("transactions", {
+                txn_record = await supabase_service.insert_record("transactions", {
                     "user_id": user_id,
                     "transaction_type": "renewal",
                     "item_description": f"{display_plan.upper()} Plan Renewal",
@@ -366,7 +377,14 @@ async def renew_subscription(current_user: dict = Depends(get_current_user)):
                     "metadata": {"plan": plan_name}
                 })
             except Exception as db_error:
-                logger.warning(f"Could not store transaction: {db_error}")
+                logger.error(f"Could not store renewal transaction for bill {bill_code}: {db_error}")
+
+            if not txn_record:
+                logger.error(f"Aborting renewal: failed to record bill {bill_code}; not returning payment URL.")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Tidak dapat merekod pembayaran. Sila cuba lagi."
+                )
 
             return {
                 "success": True,
@@ -517,7 +535,9 @@ async def purchase_addon(
         if result.get("success"):
             bill_code = result.get("bill_code")
 
-            # Store transaction record
+            # Record the transaction BEFORE returning the payment URL — a bill we
+            # can't track is unmatchable on callback (audit C6). Abort on failure.
+            transaction_record = None
             try:
                 invoice_number = await subscription_service.generate_invoice_number()
                 transaction_record = await supabase_service.insert_record("transactions", {
@@ -534,11 +554,17 @@ async def purchase_addon(
                         "unit_price": unit_price
                     }
                 })
-
-                transaction_id = transaction_record.get("transaction_id") if transaction_record else None
             except Exception as db_error:
-                logger.warning(f"Could not store transaction: {db_error}")
-                transaction_id = None
+                logger.error(f"Could not store addon transaction for bill {bill_code}: {db_error}")
+
+            if not transaction_record:
+                logger.error(f"Aborting addon purchase: failed to record bill {bill_code}; not returning payment URL.")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Tidak dapat merekod pembayaran. Sila cuba lagi."
+                )
+
+            transaction_id = transaction_record.get("transaction_id")
 
             return {
                 "success": True,

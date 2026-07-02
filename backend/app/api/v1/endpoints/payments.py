@@ -274,49 +274,16 @@ async def create_toyyibpay_bill(
     Requires a verified email (require_verified_email) — payment is gated
     behind email verification.
     """
-    try:
-        body = await request.json()
-
-        user_id = current_user.get("sub")
-        email = current_user.get("email")
-
-        bill_name = body.get("bill_name", "BinaApp Subscription")
-        bill_description = body.get("bill_description", "BinaApp subscription payment")
-        bill_amount = float(body.get("amount", 29.00))
-        bill_phone = body.get("phone", "")
-        customer_name = body.get("customer_name", email)
-
-        result = toyyibpay_service.create_bill(
-            bill_name=bill_name,
-            bill_description=bill_description,
-            bill_amount=bill_amount,
-            bill_email=email,
-            bill_phone=bill_phone,
-            bill_name_customer=customer_name,
-            bill_external_reference_no=f"BINA_{user_id[:8]}"
-        )
-
-        if result.get("success"):
-            logger.info(f"ToyyibPay bill created for user {user_id}: {result.get('bill_code')}")
-            return {
-                "success": True,
-                "bill_code": result.get("bill_code"),
-                "payment_url": result.get("payment_url")
-            }
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=result.get("error", "Failed to create bill")
-            )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error creating ToyyibPay bill: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create payment bill"
-        )
+    # DISABLED (audit C6/H1). This endpoint created a ToyyibPay bill from a
+    # CLIENT-SUPPLIED amount and wrote NO transactions/payments record at all, so
+    # any payment on it was unmatchable on the callback (money taken, nothing
+    # granted) — and the amount was attacker-controlled. It has no callers.
+    # Subscription bills go through POST /payments/subscribe/{tier} (server-side
+    # price + recorded transaction). Refuse rather than mint an untrackable bill.
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="This endpoint is disabled. Use /payments/subscribe/{tier}.",
+    )
 
 
 @router.post("/toyyibpay/callback")
@@ -1831,8 +1798,12 @@ async def create_subscription_payment(
             bill_code = result.get("bill_code")
             logger.info(f"ToyyibPay bill created: {bill_code}")
 
-            # Try to store payment record in database (optional - don't fail if table doesn't exist)
-            payment_id = bill_code
+            # Store the payment record BEFORE handing out the payment URL.
+            # If we can't record the bill, we must NOT return a payment URL: a
+            # paid-but-unrecorded bill is unmatchable on the ToyyibPay callback
+            # (money taken, nothing granted). Abort instead (audit C6). The bill
+            # stays unpaid at ToyyibPay and the user simply retries.
+            payment_record = None
             try:
                 payment_record = await supabase_service.insert_record("payments", {
                     "user_id": str(user_id),
@@ -1842,15 +1813,21 @@ async def create_subscription_payment(
                     "tier": tier,
                     "status": "pending"
                 })
-                if payment_record:
-                    payment_id = payment_record.get("id", bill_code)
-                    logger.info(f"Payment record stored: {payment_id}")
-                else:
-                    logger.warning("Payment record not stored (payments table may not exist)")
             except Exception as db_error:
-                logger.warning(f"Could not store payment record: {db_error}")
-                # Continue anyway - payment can still proceed
+                logger.error(f"Could not store payment record for bill {bill_code}: {db_error}")
 
+            if not payment_record:
+                logger.error(
+                    f"Aborting subscription payment: failed to record bill {bill_code} "
+                    f"for user {user_id[:8]} — not returning a payment URL."
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Tidak dapat merekod pembayaran. Sila cuba lagi."
+                )
+
+            payment_id = payment_record.get("id", bill_code)
+            logger.info(f"Payment record stored: {payment_id}")
             logger.info(f"Subscription payment created for user {user_id[:8]}: {tier} - {bill_code}")
 
             return {
@@ -1979,7 +1956,11 @@ async def purchase_addon(
 
             # CRITICAL: Create transaction record so callback handler can find it
             # The callback handler looks for transactions by toyyibpay_bill_code
-            transaction_id = None
+            # Record the transaction BEFORE returning the payment URL. A bill we
+            # can't track is unmatchable on callback (money taken, nothing
+            # granted), so abort instead of handing out an untrackable URL
+            # (audit C6). There is no legacy fallback for addons.
+            transaction_record = None
             try:
                 from app.services.subscription_service import subscription_service
                 invoice_number = await subscription_service.generate_invoice_number()
@@ -1998,13 +1979,21 @@ async def purchase_addon(
                         "unit_price": unit_price
                     }
                 })
-                if transaction_record:
-                    transaction_id = transaction_record.get("transaction_id")
-                    logger.info(f"✅ Transaction record created: {transaction_id}")
             except Exception as db_error:
-                logger.error(f"❌ Failed to create transaction record: {db_error}")
-                # Still continue - the payment might work via legacy fallback
+                logger.error(f"❌ Failed to create addon transaction record for bill {bill_code}: {db_error}")
 
+            if not transaction_record:
+                logger.error(
+                    f"Aborting addon purchase: failed to record bill {bill_code} "
+                    f"for user {user_id[:8]} — not returning a payment URL."
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Tidak dapat merekod pembayaran. Sila cuba lagi."
+                )
+
+            transaction_id = transaction_record.get("transaction_id")
+            logger.info(f"✅ Transaction record created: {transaction_id}")
             logger.info(f"Addon purchase created for user {user_id[:8]}: {addon_type} x{quantity}")
 
             return {
