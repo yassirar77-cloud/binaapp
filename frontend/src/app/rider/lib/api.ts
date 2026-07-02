@@ -1,10 +1,11 @@
 // /rider — API client.
 // The rider PWA does NOT use Supabase auth — it logs in directly against
-// /api/v1/delivery/riders/login (bcrypt) and stores the rider record in
-// localStorage. All subsequent endpoints are public (rider_id in the path
-// is the only identifier). Do not switch this to authFetch.
+// /api/v1/delivery/riders/login (bcrypt), which returns a rider JWT stored in
+// localStorage (audit C4). Rider-only endpoints (order status updates) send
+// that token as a bearer; other rider endpoints remain keyed by rider_id.
 
 import type { OrderStatus, Rider, RiderOrder, TodayStats } from './types';
+import { loadRiderToken, saveRiderToken } from './storage';
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
@@ -63,11 +64,13 @@ async function riderFetch<T>(
 interface LoginResponse {
   success: boolean;
   rider: Rider;
+  token?: string;
 }
 
 /** POST /api/v1/delivery/riders/login — bcrypt password check on the server.
  *  Strips whitespace from the phone before sending (the input field allows
- *  spaces for readability). */
+ *  spaces for readability). Persists the returned rider JWT (audit C4) so
+ *  rider-only endpoints can authenticate. */
 export async function loginRider(
   phone: string,
   password: string,
@@ -84,6 +87,9 @@ export async function loginRider(
   );
   if (!res?.success || !res?.rider) {
     throw new ApiError('Login gagal. Sila cuba lagi.', 401);
+  }
+  if (res.token) {
+    saveRiderToken(res.token);
   }
   return res.rider;
 }
@@ -113,10 +119,12 @@ export async function updateOrderStatus(
   status: OrderStatus,
   options?: { notes?: string; payment_received?: boolean | null },
 ): Promise<void> {
+  const token = loadRiderToken();
   await riderFetch<void>(
     `/api/v1/delivery/riders/${riderId}/orders/${orderId}/status`,
     {
       method: 'PUT',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: JSON.stringify({
         status,
         notes: options?.notes,

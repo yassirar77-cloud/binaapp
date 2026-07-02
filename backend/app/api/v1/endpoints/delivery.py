@@ -23,7 +23,7 @@ from app.core.geocoder import (
     geocode_address as _geocode_address,
 )
 from app.core.supabase import get_supabase_client
-from app.core.security import get_current_user
+from app.core.security import get_current_user, create_access_token, decode_access_token
 from app.middleware.subscription_guard import SubscriptionGuard
 from app.services.subscription_service import subscription_service
 from app.models.delivery_schemas import (
@@ -54,6 +54,25 @@ from app.utils.whatsapp import (
 
 router = APIRouter(prefix="/delivery", tags=["Delivery System"])
 bearer_scheme = HTTPBearer()
+
+
+def get_current_rider(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> dict:
+    """
+    Resolve the rider identity from a rider JWT (audit C4).
+
+    Rider tokens are minted by POST /delivery/riders/login with role="rider".
+    Business/user tokens (role != "rider") are rejected so a merchant JWT can't
+    be used to drive rider-only endpoints.
+    """
+    payload = decode_access_token(credentials.credentials)
+    if payload.get("role") != "rider":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Rider authentication required",
+        )
+    return payload
 
 
 # =====================================================
@@ -3050,26 +3069,43 @@ async def get_rider_orders(
         )
 
 
+# Statuses a rider is allowed to set from the rider app, and the COD payment
+# methods for which `payment_received` may be recorded (audit C4).
+RIDER_ALLOWED_STATUSES = {"picked_up", "delivering", "delivered", "completed"}
+COD_PAYMENT_METHODS = {"cod", "cash"}
+
+
 @router.put("/riders/{rider_id}/orders/{order_id}/status")
 async def update_order_status_by_rider(
     rider_id: str,
     order_id: str,
     status_update: dict,
+    current_rider: dict = Depends(get_current_rider),
     supabase: Client = Depends(get_supabase_client),
 ):
     """
     Update order status by rider (Phase 2).
 
-    Allows rider to update order status from rider mobile app.
-    Validates that the order is assigned to the rider.
+    Hardened (audit C4): requires a rider JWT (from /riders/login) whose subject
+    matches {rider_id}; the status must be a rider-permitted OrderStatus value;
+    and `payment_received` may only be set on a `delivered` transition of a COD
+    order. Previously this endpoint had no auth (any UUID worked), accepted any
+    string as status, and let anyone toggle the COD cash flag.
 
     Body:
-    - status: New status (e.g., "picked_up", "delivering", "delivered")
+    - status: New status (one of picked_up/delivering/delivered/completed)
     - notes: Optional notes
-    - payment_received: Optional bool — COD cash flag, set on `delivered`
-      transitions. None means "not provided" and leaves the column untouched.
+    - payment_received: Optional bool — COD cash flag, only honored on the
+      `delivered` transition of a COD order. None leaves the column untouched.
     """
     try:
+        # The token subject must match the rider_id in the path.
+        if current_rider.get("sub") != rider_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Rider token does not match this rider",
+            )
+
         new_status = status_update.get("status")
         notes = status_update.get("notes", "")
         payment_received = status_update.get("payment_received")
@@ -3080,9 +3116,22 @@ async def update_order_status_by_rider(
                 detail="Status field is required"
             )
 
+        # Enum-validate the requested status and restrict to rider-permitted ones.
+        valid_statuses = {s.value for s in OrderStatus}
+        if new_status not in valid_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid status: {new_status}",
+            )
+        if new_status not in RIDER_ALLOWED_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Riders may not set status '{new_status}'",
+            )
+
         # Validate order belongs to this rider
         order_response = supabase.table("delivery_orders").select(
-            "id, order_number, rider_id, status"
+            "id, order_number, rider_id, status, payment_method"
         ).eq("id", order_id).execute()
 
         if not order_response.data:
@@ -3113,11 +3162,21 @@ async def update_order_status_by_rider(
         elif new_status == "completed":
             update_data["completed_at"] = now
 
-        # Only forward payment_received when the rider explicitly sent it;
-        # None means "not provided" and we leave the column alone (so a
-        # picked_up update doesn't clobber a previous delivered flag).
+        # Only forward payment_received when (a) the rider explicitly sent it,
+        # (b) this is a `delivered` transition, and (c) the order is COD. This
+        # prevents the COD cash flag from being toggled on non-COD orders or on
+        # unrelated status changes. None means "not provided" and we leave the
+        # column alone (so a picked_up update doesn't clobber a prior flag).
         if payment_received is not None:
-            update_data["payment_received"] = payment_received
+            order_payment_method = (order.get("payment_method") or "").lower()
+            if new_status == "delivered" and order_payment_method in COD_PAYMENT_METHODS:
+                update_data["payment_received"] = bool(payment_received)
+            else:
+                logger.warning(
+                    f"Ignoring payment_received for order {order_id}: "
+                    f"status={new_status}, payment_method={order_payment_method} "
+                    f"(only allowed on COD delivered)"
+                )
 
         updated_order = supabase.table("delivery_orders").update(update_data).eq(
             "id", order_id
@@ -3356,12 +3415,26 @@ async def rider_login(
         # Remove password from response
         rider.pop("password_hash", None)
 
+        # Issue a rider JWT (audit C4). role="rider" so it can drive rider-only
+        # endpoints (e.g. order status updates) but not user/business endpoints.
+        from datetime import timedelta
+        rider_token = create_access_token(
+            {
+                "sub": rider["id"],
+                "role": "rider",
+                "website_id": rider.get("website_id"),
+                "phone": rider.get("phone"),
+            },
+            expires_delta=timedelta(days=30),
+        )
+
         logger.info(f"✅ Rider {rider['name']} ({phone}) logged in successfully")
 
         return {
             "success": True,
             "message": "Login berjaya",
-            "rider": rider
+            "rider": rider,
+            "token": rider_token,
         }
 
     except HTTPException:
