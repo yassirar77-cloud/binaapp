@@ -459,6 +459,22 @@ async def subdomain_middleware(request: Request, call_next):
 
         # STEP 2.5: AUTO-RECOVERY - If HTML exists but no DB record, create one
         if should_try_recovery and not website_id and supabase:
+            # Audit C7: never resurrect a deliberately DELETED site. If a
+            # deletion tombstone exists, the surviving HTML is an orphan of an
+            # incomplete storage delete — do not mint a ghost DB row from it and
+            # do not serve stale content; return 404 as if it were gone.
+            try:
+                from app.services.storage_service import storage_service
+                if await storage_service.tombstone_exists(subdomain):
+                    logger.info(f"[Subdomain] '{subdomain}' is tombstoned (deleted) — not auto-recovering")
+                    return HTMLResponse(
+                        content=_get_not_found_html(subdomain),
+                        status_code=404,
+                        headers={"Content-Type": "text/html; charset=utf-8"},
+                    )
+            except Exception as ts_err:
+                logger.warning(f"[Subdomain] tombstone check failed for {subdomain}: {ts_err}")
+
             try:
                 import uuid
                 from datetime import datetime
