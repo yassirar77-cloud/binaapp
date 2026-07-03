@@ -10,12 +10,14 @@ exception falls through to call_next() instead of killing the ASGI connection
 """
 
 from fastapi import Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
 from loguru import logger
 import re
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional, Tuple
 
 from app.core.config import settings
 from app.services.plan_features import can_publish_subdomain
@@ -24,6 +26,52 @@ from app.services.plan_features import can_publish_subdomain
 # Load locked page template once at startup
 _LOCKED_PAGE_TEMPLATE = None
 _UPGRADE_PAGE_TEMPLATE = None
+
+
+# =============================================================================
+# In-process TTL cache for the subdomain serving path (perf audit follow-up).
+#
+# SCOPE — deliberately narrow: only two things are cached, both immutable-ish
+# within a minute:
+#   1. the subdomain -> (website_id, user_id) DB lookup
+#   2. the raw published HTML fetched from Supabase Storage (pre-injection)
+#
+# The SUBSCRIPTION LOCK check and the PLAN (can_publish_subdomain) check are
+# NOT cached — they run on every request. Lock state is a billing-integrity
+# feature: a locked/expired site must never keep serving because of a cache.
+#
+# Only positive results are cached (never "not found"), so a just-published
+# site becomes visible immediately. Staleness of served HTML is bounded at
+# TTL (60s), consistent with the existing Cache-Control: max-age=300 header.
+# =============================================================================
+_SUBDOMAIN_CACHE_TTL_SECONDS = 60.0
+_SUBDOMAIN_CACHE_MAX_ENTRIES = 512
+
+# key: subdomain -> (stored_at_monotonic, value)
+_website_lookup_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_storage_html_cache: Dict[str, Tuple[float, str]] = {}
+
+
+def _cache_get(cache: Dict[str, Tuple[float, Any]], key: str) -> Optional[Any]:
+    entry = cache.get(key)
+    if entry is None:
+        return None
+    stored_at, value = entry
+    if (time.monotonic() - stored_at) >= _SUBDOMAIN_CACHE_TTL_SECONDS:
+        cache.pop(key, None)
+        return None
+    return value
+
+
+def _cache_set(cache: Dict[str, Tuple[float, Any]], key: str, value: Any) -> None:
+    if len(cache) >= _SUBDOMAIN_CACHE_MAX_ENTRIES:
+        # Evict expired entries first; if still full, drop the oldest.
+        now = time.monotonic()
+        for k in [k for k, (t, _) in cache.items() if now - t >= _SUBDOMAIN_CACHE_TTL_SECONDS]:
+            cache.pop(k, None)
+        while len(cache) >= _SUBDOMAIN_CACHE_MAX_ENTRIES:
+            cache.pop(next(iter(cache)), None)
+    cache[key] = (time.monotonic(), value)
 
 
 def _get_locked_page_html() -> str:
@@ -197,6 +245,11 @@ async def _fetch_html_from_storage(subdomain: str) -> Optional[str]:
     Tries the subdomain path first, then legacy demo-user path.
     Returns HTML string or None if not found.
     """
+    # Serve from the in-process cache when fresh (positive results only)
+    cached_html = _cache_get(_storage_html_cache, subdomain)
+    if cached_html is not None:
+        return cached_html
+
     supabase_url = settings.SUPABASE_URL
     bucket = settings.STORAGE_BUCKET_NAME
 
@@ -213,6 +266,7 @@ async def _fetch_html_from_storage(subdomain: str) -> Optional[str]:
 
             if response.status_code == 200:
                 logger.info(f"Fetched HTML from storage: {subdomain}/index.html")
+                _cache_set(_storage_html_cache, subdomain, response.text)
                 return response.text
 
             # Try legacy path (demo-user/{subdomain}/index.html)
@@ -221,6 +275,7 @@ async def _fetch_html_from_storage(subdomain: str) -> Optional[str]:
 
             if response.status_code == 200:
                 logger.info(f"Fetched HTML from legacy storage: demo-user/{subdomain}/index.html")
+                _cache_set(_storage_html_cache, subdomain, response.text)
                 return response.text
 
     except Exception as e:
@@ -381,70 +436,91 @@ async def subdomain_middleware(request: Request, call_next):
 
         logger.info(f"[Subdomain] Serving: {subdomain}.binaapp.my")
 
-        # STEP 1: Look up website in database
+        # STEP 1: Look up website (60s in-process cache; the lookup result is
+        # cheap to cache because the id/owner mapping of a subdomain almost
+        # never changes — the lock/plan checks below are intentionally NOT
+        # cached and run on every request).
         website_id = None
+        owner_id = None
         business_type = "food"
         language = "ms"
         should_try_recovery = False
+        supabase = None
 
-        supabase = _get_supabase_client()
+        cached_site = _cache_get(_website_lookup_cache, subdomain)
+        if cached_site is not None:
+            website_id = cached_site["id"]
+            owner_id = cached_site.get("user_id")
+        else:
+            supabase = _get_supabase_client()
 
-        if supabase:
-            try:
-                # Only select columns that actually exist in the websites table.
-                # business_type and language do NOT exist as columns.
-                website_result = (
-                    supabase.table("websites")
-                    .select("id, user_id")
-                    .eq("subdomain", subdomain)
-                    .limit(1)
-                    .execute()
+            if supabase:
+                try:
+                    # Only select columns that actually exist in the websites table.
+                    # business_type and language do NOT exist as columns.
+                    # The Supabase client is sync — run it in the threadpool so
+                    # the DB round trip doesn't block the event loop (this
+                    # middleware runs on every public pageview).
+                    website_result = await run_in_threadpool(
+                        supabase.table("websites")
+                        .select("id, user_id")
+                        .eq("subdomain", subdomain)
+                        .limit(1)
+                        .execute
+                    )
+
+                    if website_result.data and len(website_result.data) > 0:
+                        website_data = website_result.data[0]
+                        website_id = str(website_data["id"])
+                        owner_id = website_data.get("user_id")
+                        logger.info(f"[Subdomain] Found website_id {website_id} for {subdomain}")
+                        # Positive results only — a missing site must stay
+                        # uncached so a fresh publish is visible immediately.
+                        _cache_set(
+                            _website_lookup_cache,
+                            subdomain,
+                            {"id": website_id, "user_id": owner_id},
+                        )
+                    else:
+                        logger.warning(f"[Subdomain] Website '{subdomain}' NOT in database")
+                        should_try_recovery = True
+
+                except Exception as db_error:
+                    logger.error(f"[Subdomain] Database lookup failed for '{subdomain}': {db_error}")
+                    # Continue to storage fetch - database being down shouldn't block serving
+            else:
+                logger.warning("[Subdomain] No Supabase client available, skipping DB lookup")
+
+        if website_id:
+            # SUBSCRIPTION LOCK CHECK — REAL-TIME on every request, never
+            # cached. Lock state is a billing-integrity feature: a locked or
+            # expired site must never stay visible because of a cache.
+            if await _check_website_lock(website_id):
+                logger.info(f"[Subdomain] Website {subdomain} is locked")
+                return HTMLResponse(
+                    content=_get_locked_page_html(),
+                    status_code=200,
+                    headers={
+                        "Content-Type": "text/html; charset=utf-8",
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "X-Robots-Tag": "noindex, nofollow"
+                    }
                 )
 
-                if website_result.data and len(website_result.data) > 0:
-                    website_data = website_result.data[0]
-                    website_id = str(website_data["id"])
-                    owner_id = website_data.get("user_id")
-                    logger.info(f"[Subdomain] Found website_id {website_id} for {subdomain}")
-
-                    # SUBSCRIPTION LOCK CHECK
-                    if await _check_website_lock(website_id):
-                        logger.info(f"[Subdomain] Website {subdomain} is locked")
-                        return HTMLResponse(
-                            content=_get_locked_page_html(),
-                            status_code=200,
-                            headers={
-                                "Content-Type": "text/html; charset=utf-8",
-                                "Cache-Control": "no-cache, no-store, must-revalidate",
-                                "X-Robots-Tag": "noindex, nofollow"
-                            }
-                        )
-
-                    # FREE-TIER GATE: refuse to serve sites whose owner's plan
-                    # doesn't include can_publish_subdomain. Fails closed.
-                    # TODO: per-owner LRU cache (60s TTL) deferred until request
-                    # metrics show this lookup is hot. One extra REST hop per
-                    # subdomain hit is acceptable while traffic is small.
-                    if owner_id and not await can_publish_subdomain(owner_id):
-                        logger.info(f"[Subdomain] Owner {owner_id} cannot publish subdomain — serving upgrade page for {subdomain}")
-                        return HTMLResponse(
-                            content=_get_upgrade_required_html(),
-                            status_code=200,
-                            headers={
-                                "Content-Type": "text/html; charset=utf-8",
-                                "Cache-Control": "no-cache, no-store, must-revalidate",
-                                "X-Robots-Tag": "noindex, nofollow"
-                            }
-                        )
-                else:
-                    logger.warning(f"[Subdomain] Website '{subdomain}' NOT in database")
-                    should_try_recovery = True
-
-            except Exception as db_error:
-                logger.error(f"[Subdomain] Database lookup failed for '{subdomain}': {db_error}")
-                # Continue to storage fetch - database being down shouldn't block serving
-        else:
-            logger.warning("[Subdomain] No Supabase client available, skipping DB lookup")
+            # FREE-TIER GATE: refuse to serve sites whose owner's plan
+            # doesn't include can_publish_subdomain. Fails closed and is
+            # REAL-TIME on every request (deliberately not cached).
+            if owner_id and not await can_publish_subdomain(owner_id):
+                logger.info(f"[Subdomain] Owner {owner_id} cannot publish subdomain — serving upgrade page for {subdomain}")
+                return HTMLResponse(
+                    content=_get_upgrade_required_html(),
+                    status_code=200,
+                    headers={
+                        "Content-Type": "text/html; charset=utf-8",
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "X-Robots-Tag": "noindex, nofollow"
+                    }
+                )
 
         # STEP 2: Fetch HTML from Supabase Storage
         html_content = await _fetch_html_from_storage(subdomain)
@@ -492,7 +568,9 @@ async def subdomain_middleware(request: Request, call_next):
                     "updated_at": datetime.utcnow().isoformat()
                 }
 
-                supabase.table("websites").insert(recovery_data).execute()
+                await run_in_threadpool(
+                    supabase.table("websites").insert(recovery_data).execute
+                )
                 website_id = recovery_id
                 logger.info(f"[Subdomain] Auto-recovered orphan: {subdomain} -> {website_id}")
 

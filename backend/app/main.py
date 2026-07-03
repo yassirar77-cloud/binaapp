@@ -363,6 +363,14 @@ async def shutdown_event():
     except Exception as e:
         logger.error(f"📊 Error stopping analytics cleanup: {e}")
 
+    # Close the pooled Supabase REST client
+    try:
+        from app.services.supabase_client import supabase_service
+        await supabase_service.aclose()
+        logger.info("🔌 Pooled Supabase HTTP client closed")
+    except Exception as e:
+        logger.error(f"🔌 Error closing pooled Supabase HTTP client: {e}")
+
     logger.info("🛑 BinaApp API shutdown complete")
 
 # API Keys from environment

@@ -4,6 +4,7 @@ Handles real-time food delivery and order tracking
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from supabase import Client
 from typing import List, Optional
@@ -55,6 +56,18 @@ from app.utils.whatsapp import (
 
 router = APIRouter(prefix="/delivery", tags=["Delivery System"])
 bearer_scheme = HTTPBearer()
+
+
+async def _db(query):
+    """Execute a sync Supabase query in the threadpool.
+
+    The Supabase Python client is synchronous — calling .execute() directly
+    inside an async endpoint blocks the whole event loop for the duration of
+    the DB round trip, serialising every concurrent request. Hot public
+    endpoints route their queries through this helper instead.
+    (Perf phase 1; remaining call sites: backend/PERF_PHASE2_SYNC_CALLSITES.md)
+    """
+    return await run_in_threadpool(query.execute)
 
 
 def get_current_rider(
@@ -197,18 +210,18 @@ async def get_or_create_customer(supabase: Client, website_id: str, phone: str, 
     """Get existing customer or create new one for the website"""
     try:
         # Check if customer exists
-        result = supabase.table("website_customers").select("*").eq(
+        result = await _db(supabase.table("website_customers").select("*").eq(
             "website_id", website_id
-        ).eq("phone", phone).execute()
+        ).eq("phone", phone))
 
         if result.data:
             # Update existing customer info
             customer = result.data[0]
-            supabase.table("website_customers").update({
+            await _db(supabase.table("website_customers").update({
                 "name": name,
                 "address": address,
                 "updated_at": datetime.utcnow().isoformat()
-            }).eq("id", customer["id"]).execute()
+            }).eq("id", customer["id"]))
             logger.info(f"[Customer] Found existing customer: {customer['id']}")
             return customer
         else:
@@ -225,7 +238,7 @@ async def get_or_create_customer(supabase: Client, website_id: str, phone: str, 
                 "name": name,
                 "address": address
             }
-            insert_result = supabase.table("website_customers").insert(customer_data).execute()
+            insert_result = await _db(supabase.table("website_customers").insert(customer_data))
             if insert_result.data:
                 logger.info(f"[Customer] Created new customer: {customer_data['id']} for website {website_id}")
                 return insert_result.data[0]
@@ -249,7 +262,7 @@ async def create_order_conversation(supabase: Client, order_id: str, order_numbe
         # Fetch website name for display in owner dashboard (optional)
         website_name = ""
         try:
-            website_result = supabase.table("websites").select("business_name, name").eq("id", website_id).single().execute()
+            website_result = await _db(supabase.table("websites").select("business_name, name").eq("id", website_id).single())
             if website_result.data:
                 website_name = website_result.data.get("business_name") or website_result.data.get("name") or ""
         except Exception as website_error:
@@ -269,13 +282,13 @@ async def create_order_conversation(supabase: Client, order_id: str, order_numbe
             "status": "active"
         }
 
-        result = supabase.table("chat_conversations").insert(conversation_data).execute()
+        result = await _db(supabase.table("chat_conversations").insert(conversation_data))
 
         # If insert failed due to missing column (e.g. website_name), retry without it
         if not result.data and getattr(result, "error", None):
             logger.warning(f"[Chat] Conversation insert failed: {result.error}")
             conversation_data.pop("website_name", None)
-            result = supabase.table("chat_conversations").insert(conversation_data).execute()
+            result = await _db(supabase.table("chat_conversations").insert(conversation_data))
 
         if result.data:
             conversation = result.data[0]
@@ -295,14 +308,14 @@ async def send_system_message(supabase: Client, conversation_id: str, content: s
     try:
         import uuid
         # Use canonical message_text for chat_messages
-        supabase.table("chat_messages").insert({
+        await _db(supabase.table("chat_messages").insert({
             "id": str(uuid.uuid4()),
             "conversation_id": conversation_id,
             "sender_type": "system",
             "message_text": content,
             "content": content,
             "is_read": False
-        }).execute()
+        }))
     except Exception as e:
         logger.error(f"[Chat] Error sending system message: {e}")
 
@@ -313,7 +326,7 @@ async def create_notification(supabase: Client, user_type: str, user_id: str, we
     """Create a notification for a user"""
     try:
         import uuid
-        supabase.table("notifications").insert({
+        await _db(supabase.table("notifications").insert({
             "id": str(uuid.uuid4()),
             "user_type": user_type,
             "user_id": user_id,
@@ -323,7 +336,7 @@ async def create_notification(supabase: Client, user_type: str, user_id: str, we
             "type": notif_type,
             "title": title,
             "body": body
-        }).execute()
+        }))
         logger.info(f"[Notification] Created {notif_type} for {user_type}:{user_id}")
     except Exception as e:
         logger.error(f"[Notification] Error: {e}")
@@ -491,7 +504,7 @@ async def get_ring_coverage(
         raise HTTPException(status_code=400, detail="Invalid website id")
 
     try:
-        res = supabase.rpc(
+        res = await _db(supabase.rpc(
             "find_zone_for_point",
             {
                 "p_website_id": website_id,
@@ -499,7 +512,7 @@ async def get_ring_coverage(
                 "p_lng": lng,
                 "p_only_active": True,
             },
-        ).execute()
+        ))
         rows = res.data or []
         if not rows:
             return ZoneCoverageResponse(covered=False, zone=None)
@@ -555,14 +568,14 @@ async def get_menu(
     response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=120"
     try:
         # Get categories
-        categories_response = supabase.table("menu_categories").select("*").eq(
+        categories_response = await _db(supabase.table("menu_categories").select("*").eq(
             "website_id", website_id
-        ).eq("is_active", True).order("sort_order").execute()
+        ).eq("is_active", True).order("sort_order"))
 
         # Get menu items with options
-        items_response = supabase.table("menu_items").select(
+        items_response = await _db(supabase.table("menu_items").select(
             "*"
-        ).eq("website_id", website_id).eq("is_available", True).order("sort_order").execute()
+        ).eq("website_id", website_id).eq("is_available", True).order("sort_order"))
 
         categories = [convert_db_row_to_dict(c) for c in categories_response.data]
         items = [convert_db_row_to_dict(i) for i in items_response.data]
@@ -572,9 +585,9 @@ async def get_menu(
         options_by_item: dict = {}
         item_ids = [item['id'] for item in items]
         if item_ids:
-            options_response = supabase.table("menu_item_options").select("*").in_(
+            options_response = await _db(supabase.table("menu_item_options").select("*").in_(
                 "menu_item_id", item_ids
-            ).order("sort_order").execute()
+            ).order("sort_order"))
             for option in options_response.data:
                 options_by_item.setdefault(option['menu_item_id'], []).append(
                     convert_db_row_to_dict(option)
@@ -608,9 +621,9 @@ async def get_menu_item(
     response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=120"
     try:
         # Get menu item
-        item_response = supabase.table("menu_items").select("*").eq(
+        item_response = await _db(supabase.table("menu_items").select("*").eq(
             "id", item_id
-        ).eq("website_id", website_id).execute()
+        ).eq("website_id", website_id))
 
         if not item_response.data:
             raise HTTPException(
@@ -621,9 +634,9 @@ async def get_menu_item(
         item = convert_db_row_to_dict(item_response.data[0])
 
         # Get options
-        options_response = supabase.table("menu_item_options").select("*").eq(
+        options_response = await _db(supabase.table("menu_item_options").select("*").eq(
             "menu_item_id", item_id
-        ).order("sort_order").execute()
+        ).order("sort_order"))
 
         item['options'] = [convert_db_row_to_dict(o) for o in options_response.data]
 
@@ -686,9 +699,9 @@ async def create_order(
             )
 
         # GUARD 3: Verify website exists in database (AUTHORITATIVE CHECK)
-        website_check = supabase.table("websites").select("id, business_name, user_id").eq(
+        website_check = await _db(supabase.table("websites").select("id, business_name, user_id").eq(
             "id", order.website_id.strip()
-        ).execute()
+        ))
 
         if not website_check.data:
             logger.warning(f"[Order] REJECTED: Website not found in database: {order.website_id}")
@@ -711,9 +724,9 @@ async def create_order(
 
         # 1. Fetch menu items to calculate prices
         menu_item_ids = [item.menu_item_id for item in order.items]
-        items_response = supabase.table("menu_items").select("*").in_(
+        items_response = await _db(supabase.table("menu_items").select("*").in_(
             "id", menu_item_ids
-        ).execute()
+        ))
 
         if len(items_response.data) != len(menu_item_ids):
             raise HTTPException(
@@ -752,7 +765,7 @@ async def create_order(
         lat = float(order.delivery_latitude)
         lng = float(order.delivery_longitude)
 
-        zone_lookup = supabase.rpc(
+        zone_lookup = await _db(supabase.rpc(
             "find_zone_for_point",
             {
                 "p_website_id": order.website_id,
@@ -760,7 +773,7 @@ async def create_order(
                 "p_lng": lng,
                 "p_only_active": True,
             },
-        ).execute()
+        ))
         zone_rows = zone_lookup.data or []
 
         if not zone_rows:
@@ -846,7 +859,7 @@ async def create_order(
             "estimated_delivery_time": estimated_delivery_min,
         }
 
-        order_response = supabase.table("delivery_orders").insert(order_data).execute()
+        order_response = await _db(supabase.table("delivery_orders").insert(order_data))
 
         if not order_response.data:
             raise HTTPException(
@@ -862,7 +875,7 @@ async def create_order(
             item_data['order_id'] = order_id
 
         try:
-            items_result = supabase.table("order_items").insert(order_items_data).execute()
+            items_result = await _db(supabase.table("order_items").insert(order_items_data))
             if not items_result.data:
                 logger.error(f"❌ Failed to insert order items for order {order_id}")
                 raise HTTPException(
@@ -876,7 +889,7 @@ async def create_order(
             logger.error(f"❌ Error inserting order items: {items_error}")
             # Try to rollback - delete the order if items failed
             try:
-                supabase.table("delivery_orders").delete().eq("id", order_id).execute()
+                await _db(supabase.table("delivery_orders").delete().eq("id", order_id))
                 logger.info(f"🔄 Rolled back order {order_id} due to items failure")
             except Exception as rollback_error:
                 logger.error(f"❌ Rollback failed: {rollback_error}")
@@ -927,7 +940,7 @@ async def create_order(
             )
 
         # 8. Create notification for owner
-        website_result = supabase.table("websites").select("user_id, business_name").eq("id", order.website_id).single().execute()
+        website_result = await _db(supabase.table("websites").select("user_id, business_name").eq("id", order.website_id).single())
         if website_result.data:
             owner_id = website_result.data["user_id"]
             await create_notification(
@@ -945,7 +958,7 @@ async def create_order(
             # NEW: Send WhatsApp notification to owner
             try:
                 # Get owner's phone number
-                owner_profile = supabase.table("profiles").select("phone").eq("id", owner_id).single().execute()
+                owner_profile = await _db(supabase.table("profiles").select("phone").eq("id", owner_id).single())
                 if owner_profile.data and owner_profile.data.get("phone"):
                     notify_owner_new_order(
                         owner_phone=owner_profile.data["phone"],
@@ -1088,13 +1101,13 @@ async def track_order(
 
         # Only select columns that EXIST in the delivery_orders table
         # Note: updated_at does NOT exist, and it's delivery_address NOT customer_address
-        response = supabase.table("delivery_orders").select(
+        response = await _db(supabase.table("delivery_orders").select(
             "id, order_number, status, created_at, confirmed_at, "
             "customer_name, customer_phone, customer_email, delivery_address, "
             "total_amount, subtotal, delivery_fee, payment_method, "
             "rider_id, website_id, delivery_latitude, delivery_longitude, "
             "estimated_delivery_time"
-        ).eq("order_number", order_number).execute()
+        ).eq("order_number", order_number))
 
         if not response.data:
             logger.warning(f"[TRACK] Order not found: {order_number}")
@@ -1105,15 +1118,15 @@ async def track_order(
         logger.info(f"[TRACK] Order found, status: {order.get('status')}")
 
         # Get order items
-        items_response = supabase.table("order_items").select(
+        items_response = await _db(supabase.table("order_items").select(
             "id, order_id, menu_item_id, item_name, quantity, unit_price, total_price, options, notes"
-        ).eq("order_id", order_id).execute()
+        ).eq("order_id", order_id))
         items = items_response.data if items_response.data else []
 
         # Get status history
-        history_response = supabase.table("order_status_history").select(
+        history_response = await _db(supabase.table("order_status_history").select(
             "id, order_id, status, notes, updated_by, created_at"
-        ).eq("order_id", order_id).order("created_at").execute()
+        ).eq("order_id", order_id).order("created_at"))
         status_history = history_response.data if history_response.data else []
 
         result = {
@@ -1147,10 +1160,10 @@ async def track_order(
         # Fetch rider info if assigned
         if order.get("rider_id"):
             try:
-                rider_response = supabase.table("riders").select(
+                rider_response = await _db(supabase.table("riders").select(
                     "id, name, phone, photo_url, vehicle_type, vehicle_plate, rating, "
                     "current_latitude, current_longitude, last_location_update"
-                ).eq("id", order["rider_id"]).execute()
+                ).eq("id", order["rider_id"]))
 
                 if rider_response.data:
                     rider = rider_response.data[0]
@@ -1166,11 +1179,11 @@ async def track_order(
                         }
 
                     # Also check rider_locations table for latest location
-                    loc_response = supabase.table("rider_locations").select(
+                    loc_response = await _db(supabase.table("rider_locations").select(
                         "latitude, longitude, recorded_at"
                     ).eq("rider_id", order["rider_id"]).order(
                         "recorded_at", desc=True
-                    ).limit(1).execute()
+                    ).limit(1))
 
                     if loc_response.data:
                         result["rider_location"] = {
@@ -2221,27 +2234,27 @@ async def get_widget_config(
 
     try:
         # 1. Get website info (only select columns that exist in the table)
-        website_response = supabase.table("websites").select(
+        website_response = await _db(supabase.table("websites").select(
             "id, name, whatsapp_number, description, location_address"
-        ).eq("id", website_id).execute()
+        ).eq("id", website_id))
 
         website = None
         if website_response.data:
             website = website_response.data[0]
 
         # 2. Get delivery settings
-        settings_response = supabase.table("delivery_settings").select("*").eq(
+        settings_response = await _db(supabase.table("delivery_settings").select("*").eq(
             "website_id", website_id
-        ).execute()
+        ))
 
         settings = settings_response.data[0] if settings_response.data else None
 
         # 3. Get first active delivery zone for default fee.
         # NOTE: migration 026 recreated delivery_zones with columns
         # name / fee_cents / min_order_cents (fees stored in cents).
-        zone_response = supabase.table("delivery_zones").select(
+        zone_response = await _db(supabase.table("delivery_zones").select(
             "name, fee_cents, min_order_cents"
-        ).eq("website_id", website_id).eq("active", True).order("sort_order").limit(1).execute()
+        ).eq("website_id", website_id).eq("active", True).order("sort_order").limit(1))
 
         first_zone = zone_response.data[0] if zone_response.data else None
 
@@ -2788,10 +2801,10 @@ async def get_order_status_simple(
     Returns essential tracking info including rider assignment status.
     """
     try:
-        order_response = supabase.table("delivery_orders").select(
+        order_response = await _db(supabase.table("delivery_orders").select(
             "id, order_number, status, rider_id, customer_name, total_amount, "
             "created_at, estimated_delivery_time"
-        ).eq("order_number", order_number).execute()
+        ).eq("order_number", order_number))
 
         if not order_response.data:
             raise HTTPException(
@@ -2804,9 +2817,9 @@ async def get_order_status_simple(
         # Get rider info if assigned
         rider_info = None
         if order.get("rider_id"):
-            rider_response = supabase.table("riders").select(
+            rider_response = await _db(supabase.table("riders").select(
                 "id, name, phone, vehicle_type, vehicle_plate"
-            ).eq("id", order["rider_id"]).execute()
+            ).eq("id", order["rider_id"]))
 
             if rider_response.data:
                 rider_info = rider_response.data[0]
