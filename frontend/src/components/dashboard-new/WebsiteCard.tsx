@@ -65,6 +65,8 @@ export default function WebsiteCard({
           <img
             src={templateImage}
             alt={name}
+            loading="lazy"
+            decoding="async"
             className={`w-full h-full object-cover block ${
               isDraft ? 'grayscale-[0.6] brightness-[0.7]' : ''
             }`}

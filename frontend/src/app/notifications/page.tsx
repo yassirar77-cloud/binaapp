@@ -89,32 +89,39 @@ export default function NotificationsPage() {
   }
 
   const markRead = async (id: string) => {
+    // Optimistic: reflect the read state immediately
+    setNotifications(prev =>
+      prev.map(n => n.id === id ? { ...n, is_read: true } : n)
+    )
+    setUnreadCount(prev => Math.max(0, prev - 1))
     try {
       const token = getStoredToken()
       await fetch(`${API_BASE_URL}/api/v1/notifications/${id}/read`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       })
-      setNotifications(prev =>
-        prev.map(n => n.id === id ? { ...n, is_read: true } : n)
-      )
-      setUnreadCount(prev => Math.max(0, prev - 1))
     } catch (err) {
       console.error('Error marking read:', err)
     }
   }
 
   const markAllRead = async () => {
+    // Optimistic: mark read in the UI immediately, revert if the API fails
+    const prevNotifications = notifications
+    const prevUnread = unreadCount
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
+    setUnreadCount(0)
     try {
       const token = getStoredToken()
-      await fetch(`${API_BASE_URL}/api/v1/notifications/read-all`, {
+      const res = await fetch(`${API_BASE_URL}/api/v1/notifications/read-all`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` }
       })
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
-      setUnreadCount(0)
+      if (!res.ok) throw new Error('read-all failed')
     } catch (err) {
       console.error('Error marking all read:', err)
+      setNotifications(prevNotifications)
+      setUnreadCount(prevUnread)
     }
   }
 

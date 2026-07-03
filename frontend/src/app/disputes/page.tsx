@@ -85,6 +85,7 @@ export default function DisputesPage() {
   const [resolveType, setResolveType] = useState<DisputeResolutionType>('issue_resolved')
   const [resolveNotes, setResolveNotes] = useState('')
   const [resolving, setResolving] = useState(false)
+  const [escalating, setEscalating] = useState(false)
 
   // Create subscriber dispute state
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -96,10 +97,16 @@ export default function DisputesPage() {
   const [createResult, setCreateResult] = useState<{ status: string; message: string; amount?: number } | null>(null)
   const [websites, setWebsites] = useState<{ id: string; name: string }[]>([])
 
+  // Summary and websites don't depend on the active tab — load once on mount
   useEffect(() => {
-    loadDisputes()
     loadSummary()
     loadWebsites()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    loadDisputes()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
   async function loadDisputes() {
@@ -242,6 +249,7 @@ export default function DisputesPage() {
 
     if (!confirm('Are you sure you want to escalate this dispute to the BinaApp team?')) return
 
+    setEscalating(true)
     try {
       const res = await fetch(`${API_BASE}/api/v1/disputes/owner/${disputeId}/escalate`, {
         method: 'POST',
@@ -257,6 +265,8 @@ export default function DisputesPage() {
       }
     } catch (error) {
       console.error('[Disputes] Error escalating:', error)
+    } finally {
+      setEscalating(false)
     }
   }
 
@@ -711,9 +721,10 @@ export default function DisputesPage() {
                       </button>
                       <button
                         onClick={() => escalateDispute(selectedDispute.id)}
-                        className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700"
+                        disabled={escalating}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Escalate
+                        {escalating ? 'Escalating...' : 'Escalate'}
                       </button>
                     </div>
                   </div>
@@ -819,7 +830,7 @@ export default function DisputesPage() {
                     <div className="flex gap-2 mb-3 flex-wrap">
                       {createEvidence.map((img, i) => (
                         <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-200 group">
-                          <img src={img} alt={`Bukti ${i + 1}`} className="w-full h-full object-cover" />
+                          <img src={img} alt={`Bukti ${i + 1}`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                           <button
                             onClick={() => removeEvidence(i)}
                             className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"

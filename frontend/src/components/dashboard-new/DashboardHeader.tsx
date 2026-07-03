@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 import InstallAppButton from '@/components/pwa/InstallAppButton'
@@ -65,7 +66,7 @@ export default function DashboardHeader({
     <header className="dash-glass sticky top-0 z-50 border-b border-white/[0.08]">
       <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 lg:px-6">
         {/* Left — Logo */}
-        <a href="/dashboard" className="flex items-center gap-2 shrink-0">
+        <Link href="/dashboard" className="flex items-center gap-2 shrink-0">
           <img
             src="/brand/logo-mark.svg"
             alt="BinaApp"
@@ -74,12 +75,12 @@ export default function DashboardHeader({
           <span className="text-sm font-semibold text-white tracking-tight hidden sm:inline">
             binaapp
           </span>
-        </a>
+        </Link>
 
         {/* Center — Desktop pill nav */}
         <nav className="hidden md:flex items-center gap-0.5 rounded-full bg-white/[0.05] p-1">
           {navItems.map((item) => (
-            <a
+            <Link
               key={item.href}
               href={item.href}
               className={`
@@ -97,7 +98,7 @@ export default function DashboardHeader({
                   {item.badge}
                 </span>
               ) : null}
-            </a>
+            </Link>
           ))}
         </nav>
 
@@ -149,12 +150,12 @@ export default function DashboardHeader({
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setAvatarMenuOpen(false)} />
                 <div className="absolute right-0 top-full mt-2 z-50 w-44 rounded-xl bg-[#161623] border border-white/[0.08] py-1.5 shadow-xl shadow-black/40">
-                  <a href="/profile" className="block px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors">
+                  <Link href="/profile" className="block px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors">
                     Profil
-                  </a>
-                  <a href="/subscription" className="block px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors">
+                  </Link>
+                  <Link href="/subscription" className="block px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors">
                     Langganan
-                  </a>
+                  </Link>
                   <button
                     onClick={() => { setAvatarMenuOpen(false); onLogout?.() }}
                     className="w-full text-left px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors bg-transparent border-0 cursor-pointer"
@@ -186,13 +187,14 @@ export default function DashboardHeader({
       {mobileMenuOpen && (
         <nav className="md:hidden border-t border-white/[0.06] px-4 pb-4 pt-2">
           {navItems.map((item) => (
-            <a
+            <Link
               key={item.href}
               href={item.href}
               className={`
                 flex items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors
                 ${item.active ? 'text-white bg-white/[0.06]' : 'text-white/50 hover:text-white'}
               `}
+              onClick={() => setMobileMenuOpen(false)}
             >
               {item.label}
               {item.badge && item.badge > 0 ? (
@@ -200,7 +202,7 @@ export default function DashboardHeader({
                   {item.badge}
                 </span>
               ) : null}
-            </a>
+            </Link>
           ))}
         </nav>
       )}

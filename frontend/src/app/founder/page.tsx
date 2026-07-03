@@ -2,12 +2,15 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { API_BASE_URL } from '@/lib/env'
 import { getStoredToken } from '@/lib/supabase'
-import {
-  LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
-} from 'recharts'
+
+// Recharts is heavy — load the chart module lazily so it doesn't block first paint
+const chartLoading = () => <div className="h-[250px] animate-pulse bg-gray-700/50 rounded-lg" />
+const PlanPieChart = dynamic(() => import('./FounderCharts').then(m => m.PlanPieChart), { ssr: false, loading: chartLoading })
+const ValueBarChart = dynamic(() => import('./FounderCharts').then(m => m.ValueBarChart), { ssr: false, loading: chartLoading })
+const UserGrowthChart = dynamic(() => import('./FounderCharts').then(m => m.UserGrowthChart), { ssr: false, loading: chartLoading })
 
 interface Overview {
   total_users: number
@@ -50,7 +53,6 @@ interface Credits {
   by_transaction_type: Record<string, number>
 }
 
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899']
 
 export default function FounderDashboard() {
   const router = useRouter()
@@ -213,26 +215,11 @@ export default function FounderDashboard() {
           <div className="grid md:grid-cols-2 gap-6">
             <div className="bg-gray-800 rounded-xl p-6">
               <h3 className="text-lg font-semibold mb-4">Langganan Mengikut Pelan</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <PieChart>
-                  <Pie data={planPieData} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
-                    {planPieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
+              <PlanPieChart data={planPieData} />
             </div>
             <div className="bg-gray-800 rounded-xl p-6">
               <h3 className="text-lg font-semibold mb-4">Taburan Skor Kepercayaan</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={trustPieData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="name" stroke="#9CA3AF" />
-                  <YAxis stroke="#9CA3AF" />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="#8B5CF6" />
-                </BarChart>
-              </ResponsiveContainer>
+              <ValueBarChart data={trustPieData} fill="#8B5CF6" />
             </div>
           </div>
         )}
@@ -250,15 +237,7 @@ export default function FounderDashboard() {
             </div>
             <div className="bg-gray-800 rounded-xl p-6">
               <h3 className="text-lg font-semibold mb-4">Hasil Mengikut Pelan</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={revPlanData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="name" stroke="#9CA3AF" />
-                  <YAxis stroke="#9CA3AF" />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="#10B981" />
-                </BarChart>
-              </ResponsiveContainer>
+              <ValueBarChart data={revPlanData} fill="#10B981" />
             </div>
           </div>
         )}
@@ -267,15 +246,7 @@ export default function FounderDashboard() {
         {activeTab === 'users' && users && (
           <div className="bg-gray-800 rounded-xl p-6">
             <h3 className="text-lg font-semibold mb-4">Pertumbuhan Pengguna (12 Bulan)</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={userGrowthData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis dataKey="month" stroke="#9CA3AF" />
-                <YAxis stroke="#9CA3AF" />
-                <Tooltip />
-                <Line type="monotone" dataKey="users" stroke="#3B82F6" strokeWidth={2} dot={{ fill: '#3B82F6' }} />
-              </LineChart>
-            </ResponsiveContainer>
+            <UserGrowthChart data={userGrowthData} />
           </div>
         )}
 

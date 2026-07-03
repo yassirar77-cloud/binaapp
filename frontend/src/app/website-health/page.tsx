@@ -92,19 +92,21 @@ export default function WebsiteHealthPage() {
         const sites = data.websites || data || []
         setWebsites(Array.isArray(sites) ? sites : [])
 
-        // Load latest scan for each website
+        // Load latest scan for each website (in parallel)
         const scanMap: Record<string, Scan> = {}
-        for (const site of (Array.isArray(sites) ? sites : [])) {
-          try {
-            const scanData = await apiFetch(`/api/v1/website-health/scans/${site.id}`)
-            const siteScans = scanData.scans || []
-            if (siteScans.length > 0) {
-              scanMap[site.id] = siteScans[0]
+        await Promise.all(
+          (Array.isArray(sites) ? sites : []).map(async (site: Website) => {
+            try {
+              const scanData = await apiFetch(`/api/v1/website-health/scans/${site.id}`)
+              const siteScans = scanData.scans || []
+              if (siteScans.length > 0) {
+                scanMap[site.id] = siteScans[0]
+              }
+            } catch {
+              // No scans yet
             }
-          } catch {
-            // No scans yet
-          }
-        }
+          })
+        )
         setLatestScans(scanMap)
       } catch (err) {
         console.error('Failed to load websites:', err)

@@ -3,7 +3,7 @@ BinaApp Delivery System API Endpoints
 Handles real-time food delivery and order tracking
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from supabase import Client
 from typing import List, Optional
@@ -541,6 +541,7 @@ async def geocode_address_public(
 @router.get("/menu/{website_id}", response_model=MenuResponse)
 async def get_menu(
     website_id: str,
+    response: Response,
     supabase: Client = Depends(get_supabase_client)
 ):
     """
@@ -548,6 +549,10 @@ async def get_menu(
 
     **Public endpoint** - Used by customer ordering widget
     """
+    # Menus change rarely relative to how often customers open the widget —
+    # let browsers/CDN reuse the response for a minute instead of hitting
+    # Supabase on every pageview.
+    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=120"
     try:
         # Get categories
         categories_response = supabase.table("menu_categories").select("*").eq(
@@ -562,12 +567,20 @@ async def get_menu(
         categories = [convert_db_row_to_dict(c) for c in categories_response.data]
         items = [convert_db_row_to_dict(i) for i in items_response.data]
 
-        # For each item, get its options
-        for item in items:
-            options_response = supabase.table("menu_item_options").select("*").eq(
-                "menu_item_id", item['id']
+        # Fetch options for all items in one query (was one query per item —
+        # a 40-item menu cost 40 sequential round trips) and group in memory.
+        options_by_item: dict = {}
+        item_ids = [item['id'] for item in items]
+        if item_ids:
+            options_response = supabase.table("menu_item_options").select("*").in_(
+                "menu_item_id", item_ids
             ).order("sort_order").execute()
-            item['options'] = [convert_db_row_to_dict(o) for o in options_response.data]
+            for option in options_response.data:
+                options_by_item.setdefault(option['menu_item_id'], []).append(
+                    convert_db_row_to_dict(option)
+                )
+        for item in items:
+            item['options'] = options_by_item.get(item['id'], [])
 
         return {
             "categories": categories,
@@ -586,11 +599,13 @@ async def get_menu(
 async def get_menu_item(
     website_id: str,
     item_id: str,
+    response: Response,
     supabase: Client = Depends(get_supabase_client)
 ):
     """
     Get single menu item with options
     """
+    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=120"
     try:
         # Get menu item
         item_response = supabase.table("menu_items").select("*").eq(
@@ -2178,6 +2193,7 @@ async def purge_widget_cache(
 @router.get("/config/{website_id}")
 async def get_widget_config(
     website_id: str,
+    response: Response,
     supabase: Client = Depends(get_supabase_client)
 ):
     """
@@ -2198,6 +2214,10 @@ async def get_widget_config(
         detect_business_type,
         get_business_config
     )
+
+    # Widget config changes rarely — cache briefly to spare 3 DB round trips
+    # per customer pageview.
+    response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=120"
 
     try:
         # 1. Get website info (only select columns that exist in the table)

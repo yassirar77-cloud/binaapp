@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader'
 import { UpgradeModal } from '@/components/UpgradeModal'
@@ -25,7 +26,6 @@ import ExportButton from './components/ExportButton'
 import KpiRow from './components/KpiRow'
 import OrdersHeatmap from './components/OrdersHeatmap'
 import RangePicker from './components/RangePicker'
-import RevenueChart from './components/RevenueChart'
 import { RiderTable, ZoneTable } from './components/Tables'
 import TopItems from './components/TopItems'
 import VisitorsCard from './components/VisitorsCard'
@@ -44,6 +44,13 @@ import {
 } from './lib/analytics'
 
 import '@/components/dashboard-new/dashboard.css'
+
+// RevenueChart pulls in recharts (heavy) — load it lazily so the analytics
+// page shell paints immediately and the chart streams in after.
+const RevenueChart = dynamic(() => import('./components/RevenueChart'), {
+  ssr: false,
+  loading: () => <div style={{ height: 280 }} className="animate-pulse bg-gray-100 rounded-xl" />,
+})
 
 interface WebsiteOption {
   id: string

@@ -54,6 +54,7 @@ export default function PenaltyBanner({ onAppeal }: PenaltyBannerProps) {
   const [appealingId, setAppealingId] = useState<string | null>(null)
   const [appealReason, setAppealReason] = useState('')
   const [showAppealForm, setShowAppealForm] = useState(false)
+  const [submittingAppeal, setSubmittingAppeal] = useState(false)
 
   useEffect(() => {
     loadPenalties()
@@ -81,8 +82,9 @@ export default function PenaltyBanner({ onAppeal }: PenaltyBannerProps) {
   }
 
   const submitAppeal = async () => {
-    if (!appealingId || !appealReason.trim()) return
+    if (!appealingId || !appealReason.trim() || submittingAppeal) return
 
+    setSubmittingAppeal(true)
     try {
       const token = getStoredToken()
       const response = await fetch(`${API_BASE_URL}/api/v1/penalties/${appealingId}/appeal`, {
@@ -106,6 +108,8 @@ export default function PenaltyBanner({ onAppeal }: PenaltyBannerProps) {
       }
     } catch (err) {
       console.error('Error:', err)
+    } finally {
+      setSubmittingAppeal(false)
     }
   }
 
@@ -167,10 +171,10 @@ export default function PenaltyBanner({ onAppeal }: PenaltyBannerProps) {
             <div className="flex gap-3">
               <button
                 onClick={submitAppeal}
-                disabled={!appealReason.trim()}
+                disabled={!appealReason.trim() || submittingAppeal}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-medium disabled:opacity-50 transition-colors"
               >
-                Hantar Rayuan
+                {submittingAppeal ? 'Menghantar...' : 'Hantar Rayuan'}
               </button>
               <button
                 onClick={() => { setShowAppealForm(false); setAppealingId(null); setAppealReason('') }}

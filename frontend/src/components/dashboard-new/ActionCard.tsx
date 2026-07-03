@@ -1,6 +1,7 @@
 'use client'
 
 import { ReactElement, ReactNode } from 'react'
+import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 
 interface ActionCardMeta {
@@ -38,11 +39,13 @@ export default function ActionCard({
   featured = false,
   onClick,
 }: ActionCardProps): ReactElement {
-  const Tag = href ? 'a' : 'div'
+  // next/link when navigating — gives route prefetch + client-side nav
+  // instead of a full page reload.
+  const Tag = href ? Link : 'div'
 
   return (
     <Tag
-      href={href}
+      href={href as string}
       onClick={onClick}
       className={`
         block no-underline cursor-pointer relative overflow-hidden

@@ -2,8 +2,11 @@
 const nextConfig = {
   reactStrictMode: true,
 
-  // Turbopack config (alias @ is handled by tsconfig.json paths)
-  turbopack: {},
+  // Only import the icons/components actually used instead of whole barrels —
+  // trims first-load JS on every page that uses lucide-react or recharts.
+  experimental: {
+    optimizePackageImports: ['lucide-react', 'recharts'],
+  },
 
   typescript: {
     ignoreBuildErrors: true

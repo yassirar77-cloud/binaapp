@@ -39,6 +39,8 @@ export default function WebsiteRebuildPage() {
   const [previewTab, setPreviewTab] = useState<'old' | 'new'>('new')
   const [websites, setWebsites] = useState<Array<{ id: string; business_name: string }>>([])
   const [selectedWebsite, setSelectedWebsite] = useState(websiteId)
+  // 'approve' | 'reject' while the corresponding action is in flight
+  const [decision, setDecision] = useState<'approve' | 'reject' | null>(null)
 
   useEffect(() => {
     loadWebsites()
@@ -132,6 +134,8 @@ export default function WebsiteRebuildPage() {
   }
 
   const approveRebuild = async (rebuildId: string) => {
+    if (decision) return
+    setDecision('approve')
     try {
       const token = getStoredToken()
       const response = await fetch(`${API_BASE_URL}/api/v1/website-rebuild/${rebuildId}/approve`, {
@@ -145,10 +149,14 @@ export default function WebsiteRebuildPage() {
       }
     } catch (err) {
       console.error('Error:', err)
+    } finally {
+      setDecision(null)
     }
   }
 
   const rejectRebuild = async (rebuildId: string) => {
+    if (decision) return
+    setDecision('reject')
     try {
       const token = getStoredToken()
       await fetch(`${API_BASE_URL}/api/v1/website-rebuild/${rebuildId}/reject`, {
@@ -160,6 +168,8 @@ export default function WebsiteRebuildPage() {
       loadHistory()
     } catch (err) {
       console.error('Error:', err)
+    } finally {
+      setDecision(null)
     }
   }
 
@@ -261,15 +271,17 @@ export default function WebsiteRebuildPage() {
             <div className="flex gap-3 mt-4">
               <button
                 onClick={() => approveRebuild(preview.id)}
-                className="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-medium transition-colors"
+                disabled={decision !== null}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Luluskan &amp; Terapkan
+                {decision === 'approve' ? 'Menerapkan...' : 'Luluskan & Terapkan'}
               </button>
               <button
                 onClick={() => rejectRebuild(preview.id)}
-                className="flex-1 bg-red-100 hover:bg-red-200 text-red-700 py-3 rounded-lg font-medium transition-colors"
+                disabled={decision !== null}
+                className="flex-1 bg-red-100 hover:bg-red-200 text-red-700 py-3 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Tolak
+                {decision === 'reject' ? 'Menolak...' : 'Tolak'}
               </button>
             </div>
           </div>
