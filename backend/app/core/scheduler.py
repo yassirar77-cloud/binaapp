@@ -526,3 +526,135 @@ def start_stuck_generation_sweeper() -> bool:
 def stop_stuck_generation_sweeper() -> None:
     """Shutdown helper — mirrors stop_email_polling."""
     stuck_generation_scheduler.shutdown()
+
+
+# ============================================================
+# Analytics visitor-hash retention purge
+# ============================================================
+#
+# The PDPA analytics pipeline (migration 050) keeps per-day visitor-hash
+# dedup rows only long enough to count uniques. This job calls the
+# cleanup_analytics_visitor_hashes() RPC once a day to purge rows older
+# than the 2-day retention window. Mirrors StuckGenerationScheduler's
+# lifecycle so main.py can start/stop it the same way.
+
+_ANALYTICS_CLEANUP_INTERVAL_SECONDS = 24 * 60 * 60
+
+
+class AnalyticsCleanupScheduler:
+    """APScheduler wrapper around the visitor-hash retention purge."""
+
+    JOB_ID = "analytics_hash_cleanup_job"
+
+    def __init__(self) -> None:
+        self.scheduler: Optional[Any] = None
+        self._is_running = False
+        self._last_job_run: Optional[datetime] = None
+        self._job_run_count = 0
+        self._last_deleted_count = 0
+        self._create_scheduler()
+
+    def _create_scheduler(self) -> None:
+        if not APSCHEDULER_AVAILABLE:
+            return
+        try:
+            self.scheduler = AsyncIOScheduler(
+                jobstores={"default": MemoryJobStore()},
+                executors={"default": AsyncIOExecutor()},
+                job_defaults={
+                    "coalesce": True,
+                    "max_instances": 1,
+                    "misfire_grace_time": 3600,
+                },
+                timezone="UTC",
+            )
+        except Exception as e:
+            logger.error(f"Failed to create analytics-cleanup scheduler: {e}")
+            self.scheduler = None
+
+    def is_available(self) -> bool:
+        return APSCHEDULER_AVAILABLE and self.scheduler is not None
+
+    @property
+    def is_running(self) -> bool:
+        return (
+            self._is_running
+            and self.scheduler is not None
+            and self.scheduler.running
+        )
+
+    async def _cleanup_job(self) -> None:
+        import httpx
+
+        from app.services.supabase_client import supabase_service
+
+        self._last_job_run = datetime.utcnow()
+        self._job_run_count += 1
+        try:
+            url = f"{supabase_service.url}/rest/v1/rpc/cleanup_analytics_visitor_hashes"
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    url, json={}, headers=supabase_service.service_headers
+                )
+                resp.raise_for_status()
+                self._last_deleted_count = int(resp.json() or 0)
+            logger.info(
+                f"[analytics-cleanup] job #{self._job_run_count} purged "
+                f"{self._last_deleted_count} visitor-hash row(s)"
+            )
+        except Exception as e:
+            logger.error(
+                f"[analytics-cleanup] job #{self._job_run_count} errored: "
+                f"{type(e).__name__}: {e}"
+            )
+
+    def start(self) -> bool:
+        if not APSCHEDULER_AVAILABLE:
+            logger.warning(
+                "[analytics-cleanup] APScheduler not installed — purge disabled"
+            )
+            return False
+        if self.is_running:
+            return True
+        if self.scheduler is None:
+            self._create_scheduler()
+        if not self.is_available():
+            return False
+        try:
+            self.scheduler.add_job(
+                self._cleanup_job,
+                trigger=IntervalTrigger(seconds=_ANALYTICS_CLEANUP_INTERVAL_SECONDS),
+                id=self.JOB_ID,
+                name="Analytics Visitor-Hash Cleanup",
+                replace_existing=True,
+            )
+            self.scheduler.start()
+            self._is_running = True
+            logger.info("[analytics-cleanup] scheduler started (daily)")
+            return True
+        except Exception as e:
+            logger.error(f"[analytics-cleanup] failed to start: {e}")
+            self._create_scheduler()
+            return False
+
+    def shutdown(self) -> None:
+        if self.scheduler and self.scheduler.running:
+            try:
+                self.scheduler.shutdown(wait=False)
+                logger.info("[analytics-cleanup] scheduler shutdown complete")
+            except Exception as e:
+                logger.error(f"[analytics-cleanup] error during shutdown: {e}")
+        self._is_running = False
+
+
+analytics_cleanup_scheduler = AnalyticsCleanupScheduler()
+
+
+def start_analytics_cleanup() -> bool:
+    """Startup helper — mirrors start_stuck_generation_sweeper."""
+    return analytics_cleanup_scheduler.start()
+
+
+def stop_analytics_cleanup() -> None:
+    """Shutdown helper — mirrors stop_stuck_generation_sweeper."""
+    analytics_cleanup_scheduler.shutdown()

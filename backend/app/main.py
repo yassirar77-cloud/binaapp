@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -11,11 +11,9 @@ from pathlib import Path
 import re
 import cloudinary
 import cloudinary.uploader
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from collections import defaultdict
-from user_agents import parse as parse_user_agent
 import hashlib
-from urllib.parse import urlparse
 import uuid
 import asyncio
 import json
@@ -40,6 +38,11 @@ from app.middleware.subscription_guard import subscription_check_middleware
 from app.api.v1.endpoints import subscription_status
 from app.services.subscription_service import subscription_service as sub_service
 from app.services.supabase_client import supabase_service
+from app.services.analytics_tracking import (
+    client_ip_from_headers,
+    is_bot_user_agent,
+    process_pageview,
+)
 
 # Email polling system
 from app.api.v1.endpoints.email_polling import router as email_polling_router
@@ -291,6 +294,19 @@ async def startup_event():
     except Exception as e:
         logger.error(f"🩺 Failed to start stuck-generation sweeper: {e}")
 
+    # Daily purge of PDPA analytics visitor-hash dedup rows (migration 050)
+    try:
+        from app.core.scheduler import start_analytics_cleanup
+
+        if start_analytics_cleanup():
+            logger.info("📊 Analytics visitor-hash cleanup started")
+        else:
+            logger.warning(
+                "📊 Analytics cleanup not started (APScheduler unavailable?)"
+            )
+    except Exception as e:
+        logger.error(f"📊 Failed to start analytics cleanup: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -312,6 +328,14 @@ async def shutdown_event():
         logger.info("🩺 Stuck-generation sweeper stopped")
     except Exception as e:
         logger.error(f"🩺 Error stopping stuck-generation sweeper: {e}")
+
+    # Stop analytics cleanup scheduler
+    try:
+        from app.core.scheduler import stop_analytics_cleanup
+        stop_analytics_cleanup()
+        logger.info("📊 Analytics cleanup stopped")
+    except Exception as e:
+        logger.error(f"📊 Error stopping analytics cleanup: {e}")
 
     logger.info("🛑 BinaApp API shutdown complete")
 
@@ -580,6 +604,33 @@ _ANALYTICS_BLOCK_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 
+# Cookieless, PDPA-safe tracking snippet injected into generated sites just
+# before </body>. Single source of truth for all generation paths. The
+# marker comment MUST stay in sync with _ANALYTICS_BLOCK_RE above so the
+# opt-out strip-at-publish path keeps matching.
+#
+# Privacy: no cookies/localStorage (uniques are counted server-side via a
+# daily-rotating salted hash), and DNT / Global Privacy Control opt the
+# visitor out before any request is made. The server re-checks both headers.
+ANALYTICS_TRACKING_SNIPPET = '''
+<!-- BinaApp Analytics -->
+<script>
+(function() {
+    if (navigator.doNotTrack == '1' || window.doNotTrack == '1' || navigator.globalPrivacyControl) return;
+    fetch('https://binaapp-backend.onrender.com/api/analytics/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            project_id: window.location.hostname,
+            referrer: document.referrer,
+            page_path: window.location.pathname
+        }),
+        keepalive: true
+    }).catch(function() {});
+})();
+</script>
+'''
+
 
 def _strip_analytics_block(html: str) -> str:
     """Remove the BinaApp analytics <script> block from generated HTML.
@@ -617,34 +668,6 @@ def _website_analytics_enabled(website_id: Optional[str]) -> bool:
         return resp.data[0].get("analytics_enabled", True) is not False
     except Exception as e:
         logger.warning(f"[analytics] website_id lookup failed for {website_id}: {e}")
-        return True
-
-
-def _website_analytics_enabled_by_hostname(hostname: Optional[str]) -> bool:
-    """Look up websites.analytics_enabled by hostname (subdomain or full host).
-
-    Used by the /api/analytics/track endpoint where the request payload's
-    project_id is a hostname rather than a UUID. Accepts either the bare
-    subdomain (`mybistro`) or the full host (`mybistro.binaapp.my`).
-    Fail-open on any lookup error, same as the UUID variant.
-    """
-    if not hostname or not supabase:
-        return True
-    # Strip a trailing `.binaapp.my` so a bare-subdomain match still works
-    subdomain = hostname.split(".")[0] if "." in hostname else hostname
-    try:
-        resp = (
-            supabase.table("websites")
-            .select("analytics_enabled")
-            .eq("subdomain", subdomain)
-            .limit(1)
-            .execute()
-        )
-        if not resp.data:
-            return True
-        return resp.data[0].get("analytics_enabled", True) is not False
-    except Exception as e:
-        logger.warning(f"[analytics] hostname lookup failed for {hostname}: {e}")
         return True
 
 
@@ -802,33 +825,9 @@ Output ONLY improved HTML."""
             else:
                 final_html = html_structure
 
-            # Add analytics script
-            tracking_script = '''
-<!-- BinaApp Analytics -->
-<script>
-(function() {
-    const PROJECT_ID = 'PENDING';
-    const API_URL = 'https://binaapp-backend.onrender.com/api/analytics/track';
-    let visitorId = localStorage.getItem('binaapp_visitor');
-    if (!visitorId) {
-        visitorId = 'v_' + Math.random().toString(36).substr(2, 9);
-        localStorage.setItem('binaapp_visitor', visitorId);
-    }
-    fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            project_id: PROJECT_ID,
-            visitor_id: visitorId,
-            referrer: document.referrer,
-            page_path: window.location.pathname
-        })
-    }).catch(function() {});
-})();
-</script>
-'''
+            # Add analytics script (cookieless, DNT-aware — shared constant)
             if '</body>' in final_html:
-                final_html = final_html.replace('</body>', f'{tracking_script}</body>')
+                final_html = final_html.replace('</body>', f'{ANALYTICS_TRACKING_SNIPPET}</body>')
 
             # Inject attribution footer for non-white-label merchants
             final_html = _inject_attribution_footer(
@@ -1629,33 +1628,9 @@ Output ONLY improved HTML."""
             else:
                 final_html = html_structure
 
-            # Add analytics script
-            tracking_script = '''
-<!-- BinaApp Analytics -->
-<script>
-(function() {
-    const PROJECT_ID = 'PENDING';
-    const API_URL = 'https://binaapp-backend.onrender.com/api/analytics/track';
-    let visitorId = localStorage.getItem('binaapp_visitor');
-    if (!visitorId) {
-        visitorId = 'v_' + Math.random().toString(36).substr(2, 9);
-        localStorage.setItem('binaapp_visitor', visitorId);
-    }
-    fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            project_id: PROJECT_ID,
-            visitor_id: visitorId,
-            referrer: document.referrer,
-            page_path: window.location.pathname
-        })
-    }).catch(function() {});
-})();
-</script>
-'''
+            # Add analytics script (cookieless, DNT-aware — shared constant)
             if '</body>' in final_html:
-                final_html = final_html.replace('</body>', f'{tracking_script}</body>')
+                final_html = final_html.replace('</body>', f'{ANALYTICS_TRACKING_SNIPPET}</body>')
 
             # Inject attribution footer for non-white-label merchants
             final_html = _inject_attribution_footer(
@@ -1800,33 +1775,11 @@ Output ONLY improved HTML."""
     else:
         final_html = html_structure
 
-    # Add analytics script
-    tracking_script = '''
-<!-- BinaApp Analytics -->
-<script>
-(function() {
-  const projectId = window.location.hostname;
-  const visitorId = localStorage.getItem('bina_visitor') || 'v_' + Math.random().toString(36).substr(2, 9);
-  localStorage.setItem('bina_visitor', visitorId);
-
-  fetch('https://binaapp-backend.onrender.com/api/analytics/track', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      project_id: projectId,
-      visitor_id: visitorId,
-      referrer: document.referrer,
-      page_path: window.location.pathname
-    })
-  }).catch(() => {});
-})();
-</script>
-'''
-
+    # Add analytics script (cookieless, DNT-aware — shared constant)
     if '</body>' in final_html:
-        final_html = final_html.replace('</body>', f'{tracking_script}</body>')
+        final_html = final_html.replace('</body>', f'{ANALYTICS_TRACKING_SNIPPET}</body>')
     else:
-        final_html += tracking_script
+        final_html += ANALYTICS_TRACKING_SNIPPET
 
     # Inject attribution footer. This helper has no user context (it's a
     # generic style-variation generator called without a user_id), so we
@@ -2724,188 +2677,51 @@ async def test_ai():
 
 # ==================== ANALYTICS ENDPOINTS ====================
 
-@app.post("/api/analytics/track")
-async def track_pageview(request: TrackEventRequest, req: Request):
-    """Track a pageview event - called from published websites"""
-    if not supabase:
-        return {"success": False, "error": "Database not connected"}
+@app.post("/api/analytics/track", status_code=204)
+async def track_pageview(
+    request: TrackEventRequest, req: Request, background_tasks: BackgroundTasks
+):
+    """Track a pageview from a published website — fire-and-forget.
 
-    # Per-website analytics opt-out (migration 038): defensive runtime
-    # check for any HTML that was published before the strip-at-publish
-    # path existed, or that bypasses the publish endpoint. Silent 204 so
-    # the visitor's browser doesn't see an error spike. Fail-open on
-    # lookup failure — the strip-at-publish path is the primary control,
-    # this endpoint is just a safety net.
-    if not _website_analytics_enabled_by_hostname(request.project_id):
+    Always answers 204 immediately; every DB touch (opt-out lookup,
+    hostname→website resolution, rollup RPC) runs as a background task so
+    a traffic spike on one merchant site costs this worker only header
+    parsing. PDPA: DNT/Sec-GPC visitors are dropped before any work; the
+    client-supplied visitor_id from old published snippets is IGNORED —
+    uniques come from a daily-rotating salted server-side hash, and the
+    IP/user-agent it derives from are never stored or logged.
+
+    This path is baked into published sites' HTML — it must keep working
+    for old snippets (which still send visitor_id) as well as new ones.
+    """
+    # Do-Not-Track / Global Privacy Control: full opt-out, no background work.
+    if req.headers.get("dnt") == "1" or req.headers.get("sec-gpc") == "1":
         return Response(status_code=204)
 
-    try:
-        # Get visitor info from request
-        ip_address = req.client.host if req.client else "unknown"
-        user_agent_string = req.headers.get("user-agent", "")
+    user_agent_string = req.headers.get("user-agent", "")
+    if is_bot_user_agent(user_agent_string):
+        return Response(status_code=204)
 
-        # Parse user agent
-        user_agent = parse_user_agent(user_agent_string)
-        device_type = "mobile" if user_agent.is_mobile else "tablet" if user_agent.is_tablet else "desktop"
-        browser = user_agent.browser.family
-        os = user_agent.os.family
+    # Capture transient identifiers now (request objects shouldn't be
+    # carried into background tasks); they live only in this task's memory.
+    # Use forwarded headers — on Render req.client.host is the proxy IP,
+    # which would collapse distinct visitors into one hash.
+    fallback_ip = req.client.host if req.client else "unknown"
+    ip_address = client_ip_from_headers(req.headers, fallback=fallback_ip)
 
-        # Generate visitor ID if not provided (hash of IP + user agent for privacy)
-        visitor_id = request.visitor_id
-        if not visitor_id:
-            hash_input = f"{ip_address}{user_agent_string}"
-            visitor_id = hashlib.md5(hash_input.encode()).hexdigest()[:16]
+    background_tasks.add_task(
+        process_pageview,
+        hostname=request.project_id,
+        page_path=request.page_path,
+        referrer=request.referrer,
+        ip=ip_address,
+        user_agent=user_agent_string,
+    )
+    return Response(status_code=204)
 
-        # Insert analytics event
-        supabase.table("analytics").insert({
-            "project_id": request.project_id,
-            "visitor_id": visitor_id,
-            "ip_address": ip_address[:50],  # Truncate for privacy
-            "user_agent": user_agent_string[:500],
-            "device_type": device_type,
-            "browser": browser,
-            "os": os,
-            "referrer": request.referrer,
-            "page_path": request.page_path
-        }).execute()
-
-        # Update project total views
-        supabase.rpc("increment_project_views", {"p_id": request.project_id}).execute()
-
-        # Update daily stats
-        today = date.today().isoformat()
-
-        # Try to update existing daily record, or insert new one
-        existing = supabase.table("analytics_daily").select("*").eq("project_id", request.project_id).eq("date", today).execute()
-
-        if existing.data:
-            # Update existing
-            record = existing.data[0]
-            update_data = {
-                "total_views": record["total_views"] + 1,
-            }
-            if device_type == "mobile":
-                update_data["mobile_views"] = record.get("mobile_views", 0) + 1
-            else:
-                update_data["desktop_views"] = record.get("desktop_views", 0) + 1
-
-            supabase.table("analytics_daily").update(update_data).eq("id", record["id"]).execute()
-        else:
-            # Insert new daily record
-            supabase.table("analytics_daily").insert({
-                "project_id": request.project_id,
-                "date": today,
-                "total_views": 1,
-                "unique_visitors": 1,
-                "mobile_views": 1 if device_type == "mobile" else 0,
-                "desktop_views": 0 if device_type == "mobile" else 1
-            }).execute()
-
-        logger.info(f"📊 Tracked pageview for project {request.project_id[:8]}...")
-        return {"success": True}
-
-    except Exception as e:
-        logger.error(f"📊 Analytics error: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@app.get("/api/analytics/{project_id}")
-async def get_project_analytics(project_id: str, days: int = 30):
-    """Get analytics for a project"""
-    if not supabase:
-        return {"success": False, "error": "Database not connected"}
-
-    try:
-        # Get date range
-        end_date = date.today()
-        start_date = end_date - timedelta(days=days)
-
-        # Get daily stats
-        daily_stats = supabase.table("analytics_daily").select("*").eq(
-            "project_id", project_id
-        ).gte("date", start_date.isoformat()).lte("date", end_date.isoformat()).order("date").execute()
-
-        # Get total stats
-        project = supabase.table("websites").select("total_views, unique_visitors").eq("id", project_id).single().execute()
-
-        # Get device breakdown
-        device_stats = supabase.table("analytics").select("device_type").eq("project_id", project_id).execute()
-
-        mobile_count = sum(1 for d in device_stats.data if d.get("device_type") == "mobile")
-        desktop_count = sum(1 for d in device_stats.data if d.get("device_type") == "desktop")
-
-        # Get top referrers
-        referrer_stats = supabase.table("analytics").select("referrer").eq("project_id", project_id).not_.is_("referrer", "null").execute()
-
-        referrer_counts = {}
-        for r in referrer_stats.data:
-            ref = r.get("referrer", "Direct")
-            if ref:
-                # Extract domain from referrer
-                try:
-                    domain = urlparse(ref).netloc or "Direct"
-                except Exception:
-                    domain = ref[:50]
-                referrer_counts[domain] = referrer_counts.get(domain, 0) + 1
-
-        top_referrers = sorted(referrer_counts.items(), key=lambda x: x[1], reverse=True)[:5]
-
-        # Get browser breakdown
-        browser_stats = supabase.table("analytics").select("browser").eq("project_id", project_id).execute()
-
-        browser_counts = {}
-        for b in browser_stats.data:
-            browser = b.get("browser", "Unknown")
-            browser_counts[browser] = browser_counts.get(browser, 0) + 1
-
-        top_browsers = sorted(browser_counts.items(), key=lambda x: x[1], reverse=True)[:5]
-
-        return {
-            "success": True,
-            "analytics": {
-                "total_views": project.data.get("total_views", 0) if project.data else 0,
-                "unique_visitors": project.data.get("unique_visitors", 0) if project.data else 0,
-                "daily_stats": daily_stats.data,
-                "device_breakdown": {
-                    "mobile": mobile_count,
-                    "desktop": desktop_count
-                },
-                "top_referrers": [{"source": r[0], "count": r[1]} for r in top_referrers],
-                "top_browsers": [{"browser": b[0], "count": b[1]} for b in top_browsers]
-            }
-        }
-
-    except Exception as e:
-        logger.error(f"📊 Analytics fetch error: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@app.get("/api/analytics/{project_id}/realtime")
-async def get_realtime_analytics(project_id: str):
-    """Get realtime visitors (last 5 minutes)"""
-    if not supabase:
-        return {"success": False, "error": "Database not connected"}
-
-    try:
-        five_minutes_ago = (datetime.now() - timedelta(minutes=5)).isoformat()
-
-        recent = supabase.table("analytics").select("visitor_id").eq(
-            "project_id", project_id
-        ).gte("created_at", five_minutes_ago).execute()
-
-        # Count unique visitors
-        unique_recent = len(set(r.get("visitor_id") for r in recent.data))
-
-        return {
-            "success": True,
-            "realtime": {
-                "active_visitors": unique_recent,
-                "last_5_minutes": len(recent.data)
-            }
-        }
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+# NOTE: the legacy unauthenticated GET /api/analytics/{project_id} and
+# /realtime endpoints were removed — merchant analytics reads now live at
+# /api/v1/analytics/* (authenticated, ownership-checked, tier-clamped).
 
 
 # ==================== SUBDOMAIN PUBLISHING ENDPOINTS ====================
