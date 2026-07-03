@@ -139,7 +139,13 @@ async def _resolve_website(hostname: str) -> Optional[dict]:
 
     Falls back to selecting only `id` when the analytics_enabled column is
     missing (migration 038 not applied) — analytics is opt-out, so absence
-    of the column means enabled, matching the old fail-open behaviour.
+    of the column means enabled.
+
+    On a transient PostgREST/network error this raises (via
+    raise_for_status), so process_pageview drops the pageview rather than
+    counting it. That is a deliberate change from the old endpoint, which
+    failed open on the opt-out check: here the check and the write are one
+    flow, so a DB outage means we could not have recorded the view anyway.
     """
     subdomain = hostname.split(".")[0] if "." in hostname else hostname
     if not subdomain:

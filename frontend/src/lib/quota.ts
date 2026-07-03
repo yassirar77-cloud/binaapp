@@ -98,8 +98,12 @@ export async function getWebsiteLimit(_userId: string): Promise<{
   hasActiveSubscription: boolean
 }> {
   const res = await checkCreateWebsiteAllowed()
+  // No plan has a real 0-website limit (starter=1); limit===0 is the
+  // backend's expired/locked sentinel. Surface it as null so the dashboard
+  // widget shows an "unknown/∞" state instead of an alarming "3 / 0".
+  const limit = res.limit === 0 ? null : res.limit
   return {
-    limit: res.limit,
+    limit,
     // The check-limit endpoint doesn't return a plan name; no live caller
     // consumes it (dashboard/page.tsx uses only `limit`).
     planName: null,
