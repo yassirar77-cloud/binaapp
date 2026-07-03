@@ -11,6 +11,7 @@ import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
 // CodeAnimation removed — loading overlay uses pure CSS spinner
 import { UpgradeModal } from '@/components/UpgradeModal'
+import InstallAppButton from '@/components/pwa/InstallAppButton'
 import { AddonPurchaseModal } from '@/components/AddonPurchaseModal'
 import { LimitReachedModal } from '@/components/LimitReachedModal'
 import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
@@ -2679,6 +2680,11 @@ export default function CreatePage() {
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v3M14 21h3M21 17v4"/></svg>
                         QR code
                       </button>
+                    </div>
+                    {/* Click-to-install PWA — shown only when installable */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, padding: '12px 16px', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12 }}>
+                      <span style={{ fontSize: 13, color: '#86869A' }}>Urus order & delivery terus dari phone</span>
+                      <InstallAppButton appName="BinaApp" />
                     </div>
                   </div>
                 )}

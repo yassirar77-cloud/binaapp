@@ -9,6 +9,8 @@ import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Eye, EyeOff, Loader2, Truck } from 'lucide-react';
 
+import InstallAppButton from '@/components/pwa/InstallAppButton';
+
 import { ApiError, loginRider } from '../lib/api';
 import { loadRiderPhone, clearRiderPhone } from '../lib/storage';
 import type { Rider } from '../lib/types';
@@ -179,10 +181,13 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
         </form>
       </div>
 
-      {/* Bottom hint */}
-      <p className="w-full max-w-[400px] text-center text-xs text-[var(--rider-muted)] mt-8">
-        Lupa kata laluan? Hubungi pemilik kedai.
-      </p>
+      {/* Bottom — install CTA + hint */}
+      <div className="w-full max-w-[400px] mt-8 flex flex-col items-center gap-4">
+        <InstallAppButton appName="BinaApp Rider" />
+        <p className="text-center text-xs text-[var(--rider-muted)]">
+          Lupa kata laluan? Hubungi pemilik kedai.
+        </p>
+      </div>
     </div>
   );
 }

@@ -31,7 +31,11 @@ export default function RiderLayout({
   return (
     <>
       {children}
-      <ServiceWorkerRegister swPath="/rider/sw.js" scope="/rider/" />
+      {/* Scope "/rider" (no trailing slash) so the SW controls the /rider
+          page itself — Next serves the app at /rider, and scope "/rider/"
+          would never match it. Widening past the sw.js directory is allowed
+          by the Service-Worker-Allowed: /rider header in next.config.js. */}
+      <ServiceWorkerRegister swPath="/rider/sw.js" scope="/rider" />
     </>
   );
 }

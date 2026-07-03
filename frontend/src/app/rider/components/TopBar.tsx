@@ -6,6 +6,8 @@
 
 import { Bell, RefreshCw } from 'lucide-react';
 
+import InstallAppButton from '@/components/pwa/InstallAppButton';
+
 import type { GpsStatus } from '../lib/types';
 
 interface TopBarProps {
@@ -71,6 +73,8 @@ export default function TopBar({
         />
         <span className="font-mono">GPS {fmtTime(lastGpsUpdate)}</span>
       </div>
+
+      <InstallAppButton appName="BinaApp Rider" compact />
 
       <button
         type="button"
