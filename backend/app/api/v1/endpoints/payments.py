@@ -3,7 +3,7 @@ Payment Endpoints
 Handles Stripe payments and subscriptions
 """
 
-from fastapi import APIRouter, HTTPException, status, Depends, Request, Header
+from fastapi import APIRouter, HTTPException, status, Depends, Request
 from typing import Optional
 from pydantic import BaseModel
 from loguru import logger
