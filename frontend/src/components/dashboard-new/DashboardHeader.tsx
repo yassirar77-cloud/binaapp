@@ -19,7 +19,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Penghantar', href: '/rider' },
   { label: 'Penghantar Live', href: '/dashboard/penghantar-live' },
   { label: 'Menu', href: '/menu-designer' },
-  { label: 'Analitik', href: '/coming-soon' },
+  { label: 'Analitik', href: '/dashboard/analitik' },
 ]
 
 interface DashboardHeaderProps {

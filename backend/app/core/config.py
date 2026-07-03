@@ -124,6 +124,10 @@ class Settings(BaseSettings):
     # Increases security by preventing token reuse across services
     SUPABASE_JWT_AUDIENCE: Optional[str] = Field(None, env="SUPABASE_JWT_AUDIENCE")
 
+    # Salt for the daily-rotating visitor hash used by PDPA-safe analytics.
+    # Falls back to JWT_SECRET_KEY when unset (see analytics_tracking service).
+    ANALYTICS_HASH_SALT: Optional[str] = Field(None, env="ANALYTICS_HASH_SALT")
+
     # API Keys for external integrations (comma-separated)
     # Example: BINAAPP_API_KEYS="bina_abc123...,bina_xyz789..."
     BINAAPP_API_KEYS: Optional[str] = Field(None, env="BINAAPP_API_KEYS")
