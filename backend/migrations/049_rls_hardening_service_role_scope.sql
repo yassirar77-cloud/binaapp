@@ -53,6 +53,10 @@
 -- USING(true) policy, not from adding the scoped one.
 -- =============================================================================
 
+-- APPLIED: run against prod Supabase on 2026-07-03 (after the same-name
+--   DROP-before-CREATE guards below were added — prod already carried some
+--   of these service-role policies, so the original file hit 42710).
+
 BEGIN;
 
 -- =============================================================================
@@ -104,12 +108,14 @@ DROP POLICY IF EXISTS "public_can_track_orders"          ON public.delivery_orde
 DROP POLICY IF EXISTS "System insert wallet" ON public.bina_credits;
 DROP POLICY IF EXISTS "System update wallet" ON public.bina_credits;
 
+DROP POLICY IF EXISTS "Service role inserts wallet" ON public.bina_credits;
 CREATE POLICY "Service role inserts wallet"
     ON public.bina_credits
     FOR INSERT
     TO service_role
     WITH CHECK (auth.role() = 'service_role');
 
+DROP POLICY IF EXISTS "Service role updates wallet" ON public.bina_credits;
 CREATE POLICY "Service role updates wallet"
     ON public.bina_credits
     FOR UPDATE
@@ -163,6 +169,7 @@ DROP POLICY IF EXISTS "Anyone can view messages"   ON public.chat_messages;
 DROP POLICY IF EXISTS "Anyone can insert messages" ON public.chat_messages;
 DROP POLICY IF EXISTS "Anyone can update messages" ON public.chat_messages;
 DROP POLICY IF EXISTS "Service role full access to messages" ON public.chat_messages;
+DROP POLICY IF EXISTS "Service role manages chat_messages" ON public.chat_messages;
 CREATE POLICY "Service role manages chat_messages"
     ON public.chat_messages
     FOR ALL
@@ -179,6 +186,7 @@ DROP POLICY IF EXISTS "Allow all chat_conversations"       ON public.chat_conver
 DROP POLICY IF EXISTS "chat_conversations_all"             ON public.chat_conversations;
 DROP POLICY IF EXISTS "Anyone can create conversations"    ON public.chat_conversations;
 DROP POLICY IF EXISTS "Service role full access to conversations" ON public.chat_conversations;
+DROP POLICY IF EXISTS "Service role manages chat_conversations" ON public.chat_conversations;
 CREATE POLICY "Service role manages chat_conversations"
     ON public.chat_conversations
     FOR ALL
@@ -192,6 +200,7 @@ CREATE POLICY "Service role manages chat_conversations"
 --     BREAKS the dashboard revenue/items breakdown (see header). No frontend writes.
 DROP POLICY IF EXISTS "Anyone can view order items"   ON public.order_items;
 DROP POLICY IF EXISTS "public_can_view_order_items"   ON public.order_items;
+DROP POLICY IF EXISTS "Service role manages order_items" ON public.order_items;
 CREATE POLICY "Service role manages order_items"
     ON public.order_items
     FOR ALL
@@ -213,6 +222,7 @@ CREATE POLICY "Service role manages order_items"
 --    policy for the order-creation role instead of scoping to service_role.
 DROP POLICY IF EXISTS "public_can_view_order_status_history"      ON public.order_status_history;
 DROP POLICY IF EXISTS "system_can_insert_order_status_history"    ON public.order_status_history;
+DROP POLICY IF EXISTS "Service role manages order_status_history" ON public.order_status_history;
 CREATE POLICY "Service role manages order_status_history"
     ON public.order_status_history
     FOR ALL
@@ -229,6 +239,7 @@ DROP POLICY IF EXISTS "Anyone can create notifications" ON public.notifications;
 DROP POLICY IF EXISTS "Service can insert notifications" ON public.notifications;
 DROP POLICY IF EXISTS "Public can view notifications"    ON public.notifications;  -- name-variant, IF EXISTS no-op if absent
 DROP POLICY IF EXISTS "Public can update notifications"  ON public.notifications;  -- name-variant, IF EXISTS no-op if absent
+DROP POLICY IF EXISTS "Service role manages notifications" ON public.notifications;
 CREATE POLICY "Service role manages notifications"
     ON public.notifications
     FOR ALL
@@ -241,6 +252,7 @@ CREATE POLICY "Service role manages notifications"
 DROP POLICY IF EXISTS "Anyone can view dispute messages"   ON public.dispute_messages;
 DROP POLICY IF EXISTS "Anyone can insert dispute messages" ON public.dispute_messages;
 DROP POLICY IF EXISTS "Anyone can update dispute messages"  ON public.dispute_messages;
+DROP POLICY IF EXISTS "Service role manages dispute_messages" ON public.dispute_messages;
 CREATE POLICY "Service role manages dispute_messages"
     ON public.dispute_messages
     FOR ALL
@@ -251,6 +263,7 @@ CREATE POLICY "Service role manages dispute_messages"
 -- 3g. ai_disputes — dispute records (the live dispute API table).
 -- [FRONTEND] no direct anon access found (grep clean).
 DROP POLICY IF EXISTS "System update disputes" ON public.ai_disputes;
+DROP POLICY IF EXISTS "Service role manages ai_disputes" ON public.ai_disputes;
 CREATE POLICY "Service role manages ai_disputes"
     ON public.ai_disputes
     FOR ALL
@@ -296,6 +309,7 @@ DROP POLICY IF EXISTS "Users can manage their own website"             ON public
 --     WITH CHECK(true). Keep the user-view policy.
 -- [FRONTEND] no direct anon access found (grep clean).
 DROP POLICY IF EXISTS "Service can manage order verifications" ON public.order_verifications;
+DROP POLICY IF EXISTS "Service role manages order_verifications" ON public.order_verifications;
 CREATE POLICY "Service role manages order_verifications"
     ON public.order_verifications
     FOR ALL
@@ -307,6 +321,7 @@ CREATE POLICY "Service role manages order_verifications"
 --     WITH CHECK(true). Keep the two owner policies (view/manage own).
 -- [FRONTEND] no direct anon access found (grep clean).
 DROP POLICY IF EXISTS "Service can manage AI chat settings" ON public.ai_chat_settings;
+DROP POLICY IF EXISTS "Service role manages ai_chat_settings" ON public.ai_chat_settings;
 CREATE POLICY "Service role manages ai_chat_settings"
     ON public.ai_chat_settings
     FOR ALL
@@ -334,6 +349,7 @@ BEGIN
         EXECUTE format('DROP POLICY IF EXISTS %I ON public.dispute_fraud_patterns;', p.policyname);
     END LOOP;
 END $$;
+DROP POLICY IF EXISTS "Service role manages dispute_fraud_patterns" ON public.dispute_fraud_patterns;
 CREATE POLICY "Service role manages dispute_fraud_patterns"
     ON public.dispute_fraud_patterns
     FOR ALL
@@ -345,6 +361,7 @@ CREATE POLICY "Service role manages dispute_fraud_patterns"
 --     Keep "Users view own restaurant health" (auth.uid() = user_id).
 -- [FRONTEND] no direct anon access found (grep clean).
 DROP POLICY IF EXISTS "System manage restaurant health" ON public.restaurant_health;
+DROP POLICY IF EXISTS "Service role manages restaurant_health" ON public.restaurant_health;
 CREATE POLICY "Service role manages restaurant_health"
     ON public.restaurant_health
     FOR ALL
@@ -356,6 +373,7 @@ CREATE POLICY "Service role manages restaurant_health"
 --     Keep "Users view own penalties" (auth.uid() = user_id).
 -- [FRONTEND] no direct anon access found (grep clean).
 DROP POLICY IF EXISTS "Service can manage penalties" ON public.restaurant_penalties;
+DROP POLICY IF EXISTS "Service role manages restaurant_penalties" ON public.restaurant_penalties;
 CREATE POLICY "Service role manages restaurant_penalties"
     ON public.restaurant_penalties
     FOR ALL
@@ -367,6 +385,7 @@ CREATE POLICY "Service role manages restaurant_penalties"
 --     WITH CHECK(true). Keep "Users view own referral code" (auth.uid()=user_id).
 -- [FRONTEND] no direct anon access found (grep clean).
 DROP POLICY IF EXISTS "Service can manage referral codes" ON public.referral_codes;
+DROP POLICY IF EXISTS "Service role manages referral_codes" ON public.referral_codes;
 CREATE POLICY "Service role manages referral_codes"
     ON public.referral_codes
     FOR ALL
@@ -376,6 +395,7 @@ CREATE POLICY "Service role manages referral_codes"
 
 DROP POLICY IF EXISTS "Service can manage referral history" ON public.referral_history;
 DROP POLICY IF EXISTS "System manage referral history"      ON public.referral_history;  -- name-variant
+DROP POLICY IF EXISTS "Service role manages referral_history" ON public.referral_history;
 CREATE POLICY "Service role manages referral_history"
     ON public.referral_history
     FOR ALL
@@ -387,6 +407,7 @@ CREATE POLICY "Service role manages referral_history"
 --     Keep "Users view own SLA breaches" (auth.uid() = user_id).
 -- [FRONTEND] no direct anon access found (grep clean).
 DROP POLICY IF EXISTS "Service can insert SLA breaches" ON public.sla_breaches;
+DROP POLICY IF EXISTS "Service role manages sla_breaches" ON public.sla_breaches;
 CREATE POLICY "Service role manages sla_breaches"
     ON public.sla_breaches
     FOR ALL
@@ -403,6 +424,7 @@ CREATE POLICY "Service role manages sla_breaches"
 --   storage.objects (names there are free-form).
 -- =============================================================================
 DROP POLICY IF EXISTS "Public Access" ON storage.objects;
+DROP POLICY IF EXISTS "menu-images public read" ON storage.objects;
 CREATE POLICY "menu-images public read"
     ON storage.objects
     FOR SELECT
