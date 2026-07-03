@@ -36,6 +36,7 @@ from app.models.delivery_schemas import (
     MenuItemResponse,
     OrderCreate,
     OrderResponse,
+    OrderStatus,
     OrderStatusUpdate,
     RiderLocationUpdate,
     RiderResponse,
