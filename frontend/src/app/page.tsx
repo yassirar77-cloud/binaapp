@@ -13,6 +13,7 @@ import LandingHero from '@/components/landing/LandingHero'
 import LandingFeatures from '@/components/landing/LandingFeatures'
 import LandingPricing from '@/components/landing/LandingPricing'
 import LandingFooter from '@/components/landing/LandingFooter'
+import DownloadAppCard from '@/components/pwa/DownloadAppCard'
 
 function LandingPageContent() {
   const router = useRouter()
@@ -86,6 +87,11 @@ function LandingPageContent() {
       <LandingHero />
       <LandingFeatures />
       <LandingPricing onSelectPlan={handleSelectPlan} />
+      <DownloadAppCard
+        appName="BinaApp"
+        tagline="Urus order & delivery terus dari phone"
+        iconSrc="/icons/icon-192x192.png"
+      />
       <LandingFooter />
 
       {/* Upgrade Modal */}

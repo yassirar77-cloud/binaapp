@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { usePathname } from 'next/navigation'
 
+import InstallAppButton from '@/components/pwa/InstallAppButton'
+
 interface NavItem {
   label: string
   href: string
@@ -101,6 +103,14 @@ export default function DashboardHeader({
 
         {/* Right — Actions */}
         <div className="flex items-center gap-3">
+          {/* Install PWA (full pill on ≥sm, icon-only on mobile) */}
+          <span className="hidden sm:block">
+            <InstallAppButton appName="BinaApp" />
+          </span>
+          <span className="sm:hidden">
+            <InstallAppButton appName="BinaApp" compact />
+          </span>
+
           {/* Search placeholder */}
           <button className="hidden lg:flex items-center gap-2 rounded-lg bg-white/[0.05] border border-white/[0.08] px-3 py-1.5 text-xs text-white/40 hover:bg-white/[0.08] transition-colors">
             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

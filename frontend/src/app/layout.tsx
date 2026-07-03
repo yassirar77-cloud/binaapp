@@ -7,7 +7,6 @@ import { Inter } from 'next/font/google'
 import { Suspense } from 'react'
 import './globals.css'
 import { Toaster } from 'react-hot-toast'
-import { PWAInstallPrompt } from '@/components/PWAInstallPrompt'
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister'
 import ChatWidget from '@/components/ChatWidget'
 import { AuthProvider } from '@/components/AuthProvider'
@@ -65,7 +64,12 @@ export default function RootLayout({
     <html lang="ms">
       <head>
         {/* PWA tags emitted via `metadata` so /rider can override them — a hardcoded <link rel="manifest"> here would shadow the rider manifest in document order. */}
-        {/* Early PWA install prompt capture - must run before React mounts */}
+        {/* Early PWA install prompt capture — must run before React mounts.
+            preventDefault() here is what stops Chrome's automatic install
+            mini-infobar; the parked event is consumed exclusively by
+            usePWAInstall() (components/pwa), which drives the click-to-install
+            InstallAppButton / DownloadAppCard. No other code may listen for
+            beforeinstallprompt. */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -89,7 +93,6 @@ export default function RootLayout({
           </AuthProvider>
         </Suspense>
         <ServiceWorkerRegister swPath="/sw.js" />
-        <PWAInstallPrompt />
         <ChatWidget />
         <Toaster
           position="top-right"
