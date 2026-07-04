@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { confirmDialog } from '@/components/ui/popups';
+import { Modal, confirmDialog } from '@/components/ui/popups';
 import {
   supabase,
   getCurrentUser,
@@ -891,50 +891,16 @@ function RegenerateConfirmModal({
     : '';
 
   return (
-    <div
-      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="regenerate-confirm-title"
-      onClick={onCancel}
-    >
-      <div
-        className="bg-white rounded-xl max-w-md w-full p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3
-          id="regenerate-confirm-title"
-          className="text-lg font-bold text-gray-900 mb-2"
-        >
-          {warning.headline}
-        </h3>
-        <p
-          className={`text-sm mb-4 ${
-            warning.hasUploadedImages ? 'text-red-700' : 'text-gray-600'
-          }`}
-        >
-          {warning.body}
-        </p>
-
-        {warning.requiresAcknowledge && (
-          <label className="flex items-start gap-2 mb-4 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={acknowledgeReplace}
-              onChange={(e) => onAcknowledgeChange(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-              aria-describedby="regenerate-ack-help"
-            />
-            <span id="regenerate-ack-help" className="text-sm text-gray-800">
-              {warning.checkboxLabel}
-            </span>
-          </label>
-        )}
-
-        <div className="flex justify-end gap-2">
+    <Modal
+      open
+      onClose={onCancel}
+      title={warning.headline}
+      hideClose
+      footer={
+        <>
           <button
             onClick={onCancel}
-            className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="inline-flex h-11 items-center justify-center rounded-xl bg-white/[0.06] px-4 text-sm font-semibold text-ink-100 ring-1 ring-white/[0.08] transition-colors hover:bg-white/[0.1] sm:h-10"
           >
             Batal
           </button>
@@ -945,22 +911,46 @@ function RegenerateConfirmModal({
             aria-describedby={
               confirmDisabled ? 'regenerate-confirm-help' : undefined
             }
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex h-11 items-center justify-center rounded-xl bg-err-500 px-4 text-sm font-semibold text-white transition-colors hover:bg-err-400 disabled:cursor-not-allowed disabled:opacity-50 sm:h-10"
           >
             Ya, regenerate
           </button>
-        </div>
-        {confirmDisabled && (
-          <p
-            id="regenerate-confirm-help"
-            className="sr-only"
-            role="status"
-            aria-live="polite"
-          >
-            {disabledReason}
-          </p>
-        )}
-      </div>
-    </div>
+        </>
+      }
+    >
+      <p
+        className={`text-sm mb-4 ${
+          warning.hasUploadedImages ? 'text-err-400' : 'text-ink-300'
+        }`}
+      >
+        {warning.body}
+      </p>
+
+      {warning.requiresAcknowledge && (
+        <label className="flex items-start gap-2 mb-1 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={acknowledgeReplace}
+            onChange={(e) => onAcknowledgeChange(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-white/20 bg-white/[0.04] accent-[#C7FF3D]"
+            aria-describedby="regenerate-ack-help"
+          />
+          <span id="regenerate-ack-help" className="text-sm text-ink-100">
+            {warning.checkboxLabel}
+          </span>
+        </label>
+      )}
+
+      {confirmDisabled && (
+        <p
+          id="regenerate-confirm-help"
+          className="sr-only"
+          role="status"
+          aria-live="polite"
+        >
+          {disabledReason}
+        </p>
+      )}
+    </Modal>
   );
 }

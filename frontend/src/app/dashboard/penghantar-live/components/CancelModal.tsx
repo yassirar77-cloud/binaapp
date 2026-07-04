@@ -4,8 +4,9 @@
 // Reason is required at 10+ chars after strip (matches RPC and Pydantic).
 
 import { useState } from 'react';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { Modal } from '@/components/ui/popups';
 import { cancelOrder } from '../lib/api';
 import type { ActiveOrder } from '../lib/types';
 
@@ -41,29 +42,33 @@ export default function CancelModal({ order, onClose, onSuccess }: Props) {
   };
 
   return (
-    <div
-      className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="w-full sm:w-[460px] sm:max-w-[90vw] bg-[#0a0e1a] border border-white/[0.08] rounded-t-2xl sm:rounded-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3 border-b border-white/[0.06]">
-          <h3 className="text-base font-geist font-semibold text-white">
-            Batalkan pesanan {order.order_number}?
-          </h3>
+    <Modal
+      open
+      onClose={onClose}
+      title={`Batalkan pesanan ${order.order_number}?`}
+      className="sm:max-w-[460px]"
+      footer={
+        <>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Tutup"
-            className="h-10 w-10 -mr-2 flex items-center justify-center rounded-lg text-white/60 hover:text-white hover:bg-white/[0.06] transition"
+            disabled={submitting}
+            className="h-11 px-4 rounded-lg text-sm font-geist text-white/70 hover:text-white hover:bg-white/[0.06] transition disabled:opacity-50"
           >
-            <X size={18} strokeWidth={1.5} />
+            Tidak jadi
           </button>
-        </div>
-
-        <div className="px-4 py-4 space-y-3">
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!valid || submitting}
+            className="h-11 px-4 rounded-lg text-sm font-geist font-medium bg-red-400/15 text-red-300 hover:bg-red-400/20 ring-1 ring-red-400/30 transition disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {submitting ? 'Membatalkan…' : 'Batalkan pesanan'}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3">
           <WarningBox tone="amber">
             <strong className="font-geist font-semibold">
               Pembayaran TIDAK akan dikembalikan secara automatik.
@@ -104,28 +109,8 @@ export default function CancelModal({ order, onClose, onSuccess }: Props) {
               <span className="text-white/40">{trimmedLen}/{MAX_REASON}</span>
             </div>
           </div>
-        </div>
-
-        <div className="border-t border-white/[0.06] px-4 py-3 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={submitting}
-            className="h-11 px-4 rounded-lg text-sm font-geist text-white/70 hover:text-white hover:bg-white/[0.06] transition disabled:opacity-50"
-          >
-            Tidak jadi
-          </button>
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!valid || submitting}
-            className="h-11 px-4 rounded-lg text-sm font-geist font-medium bg-red-400/15 text-red-300 hover:bg-red-400/20 ring-1 ring-red-400/30 transition disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {submitting ? 'Membatalkan…' : 'Batalkan pesanan'}
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

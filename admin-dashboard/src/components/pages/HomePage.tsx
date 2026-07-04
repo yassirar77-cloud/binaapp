@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import toast from 'react-hot-toast'
 import { StatCard, Card, LoadingSpinner } from '@/components/ui/Card'
 import { formatCurrency } from '@/lib/utils'
 import {
@@ -42,6 +43,7 @@ export function HomePage() {
       setCharts(chartsData)
     } catch (err) {
       console.error('Failed to fetch data:', err)
+      toast.error('Failed to load data')
     } finally {
       setLoading(false)
     }

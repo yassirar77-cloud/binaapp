@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import toast from 'react-hot-toast'
 import { Card, LoadingSpinner, EmptyState } from '@/components/ui/Card'
 import { formatTime, timeAgo } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
@@ -35,6 +36,7 @@ export function ActivityPage() {
       setActivities(data.activities ?? [])
     } catch (err) {
       console.error('Failed to fetch activities:', err)
+      toast.error('Failed to load activity')
     } finally {
       setLoading(false)
     }

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { getStoredToken } from '@/lib/supabase'
-import { confirmDialog } from '@/components/ui/popups'
+import { Modal, confirmDialog } from '@/components/ui/popups'
 import { Dispute, DisputeMessage, DisputeSummary, DisputeCategory, DisputeResolutionType } from '@/types'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
@@ -751,27 +751,20 @@ export default function DisputesPage() {
       </div>
 
       {/* Create Subscriber Dispute Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            {/* Modal Header */}
-            <div className="sticky top-0 bg-white rounded-t-2xl border-b border-gray-100 px-6 py-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-gray-900">
-                {createStep === 'form' ? 'Buat Aduan Baru' : createStep === 'submitting' ? 'Menghantar Aduan...' : 'Keputusan Aduan'}
-              </h3>
-              <button onClick={closeCreateModal} className="text-gray-400 hover:text-gray-600">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
+      <Modal
+        open={showCreateModal}
+        onClose={closeCreateModal}
+        title={createStep === 'form' ? 'Buat Aduan Baru' : createStep === 'submitting' ? 'Menghantar Aduan...' : 'Keputusan Aduan'}
+        size="md"
+      >
+        <>
 
             {/* Form Step */}
             {createStep === 'form' && (
-              <div className="p-6 space-y-5">
+              <div className="space-y-5">
                 {/* Category Selection */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3">Kategori Aduan</label>
+                  <label className="block text-sm font-medium text-ink-200 mb-3">Kategori Aduan</label>
                   <div className="grid grid-cols-2 gap-2">
                     {SUBSCRIBER_CATEGORIES.map((cat) => (
                       <button
@@ -779,13 +772,13 @@ export default function DisputesPage() {
                         onClick={() => setCreateCategory(cat.key)}
                         className={`text-left p-3 rounded-xl border-2 transition-all ${
                           createCategory === cat.key
-                            ? 'border-indigo-500 bg-indigo-50 ring-1 ring-indigo-200'
-                            : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                            ? 'border-volt-400 bg-volt-400/10 ring-1 ring-volt-400/30'
+                            : 'border-white/[0.08] hover:border-white/[0.16] hover:bg-white/[0.04]'
                         }`}
                       >
                         <span className="text-xl">{cat.icon}</span>
-                        <p className="text-sm font-medium text-gray-800 mt-1">{cat.label}</p>
-                        <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{cat.desc}</p>
+                        <p className="text-sm font-medium text-ink-050 mt-1">{cat.label}</p>
+                        <p className="text-xs text-ink-400 mt-0.5 line-clamp-2">{cat.desc}</p>
                       </button>
                     ))}
                   </div>
@@ -793,7 +786,7 @@ export default function DisputesPage() {
 
                 {/* Description */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-ink-200 mb-1">
                     Terangkan masalah anda secara terperinci
                   </label>
                   <textarea
@@ -801,25 +794,25 @@ export default function DisputesPage() {
                     onChange={(e) => setCreateDescription(e.target.value)}
                     placeholder="Sila terangkan masalah yang anda hadapi dengan BinaApp... (minimum 10 aksara)"
                     rows={4}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-none"
+                    className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] text-ink-050 placeholder:text-ink-500 rounded-lg text-sm focus:ring-2 focus:ring-volt-400/60 focus:border-volt-400/60 focus:outline-none resize-none"
                   />
-                  <p className="text-xs text-gray-400 mt-1">{createDescription.length}/500 aksara</p>
+                  <p className="text-xs text-ink-400 mt-1">{createDescription.length}/500 aksara</p>
                 </div>
 
                 {/* Related Website */}
                 {websites.length > 0 && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Laman Web Berkaitan <span className="text-gray-400">(Pilihan)</span>
+                    <label className="block text-sm font-medium text-ink-200 mb-1">
+                      Laman Web Berkaitan <span className="text-ink-400">(Pilihan)</span>
                     </label>
                     <select
                       value={createWebsiteId}
                       onChange={(e) => setCreateWebsiteId(e.target.value)}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-4 py-3 bg-white/[0.04] border border-white/[0.08] text-ink-050 rounded-lg text-sm focus:ring-2 focus:ring-volt-400/60 focus:border-volt-400/60 focus:outline-none"
                     >
-                      <option value="">-- Pilih laman web --</option>
+                      <option value="" className="bg-ink-800">-- Pilih laman web --</option>
                       {websites.map((w) => (
-                        <option key={w.id} value={w.id}>{w.name}</option>
+                        <option key={w.id} value={w.id} className="bg-ink-800">{w.name}</option>
                       ))}
                     </select>
                   </div>
@@ -827,16 +820,16 @@ export default function DisputesPage() {
 
                 {/* Evidence Upload */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Bukti <span className="text-gray-400">(Pilihan, maks 5 gambar)</span>
+                  <label className="block text-sm font-medium text-ink-200 mb-1">
+                    Bukti <span className="text-ink-400">(Pilihan, maks 5 gambar)</span>
                   </label>
-                  <p className="text-xs text-gray-400 mb-2">Tangkap layar masalah, rekod pembayaran, dsb.</p>
+                  <p className="text-xs text-ink-400 mb-2">Tangkap layar masalah, rekod pembayaran, dsb.</p>
 
                   {/* Image Previews */}
                   {createEvidence.length > 0 && (
                     <div className="flex gap-2 mb-3 flex-wrap">
                       {createEvidence.map((img, i) => (
-                        <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-200 group">
+                        <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-white/[0.12] group">
                           <img src={img} alt={`Bukti ${i + 1}`} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                           <button
                             onClick={() => removeEvidence(i)}
@@ -852,12 +845,12 @@ export default function DisputesPage() {
                   )}
 
                   {createEvidence.length < 5 && (
-                    <label className="flex items-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/50 transition-colors">
-                      <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <label className="flex items-center gap-2 px-4 py-3 border-2 border-dashed border-white/[0.15] rounded-lg cursor-pointer hover:border-volt-400/60 hover:bg-volt-400/5 transition-colors">
+                      <svg className="w-5 h-5 text-ink-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                       </svg>
-                      <span className="text-sm text-gray-500">Muat naik gambar ({createEvidence.length}/5)</span>
+                      <span className="text-sm text-ink-300">Muat naik gambar ({createEvidence.length}/5)</span>
                       <input
                         type="file"
                         accept="image/*"
@@ -873,7 +866,7 @@ export default function DisputesPage() {
                 <button
                   onClick={submitSubscriberDispute}
                   disabled={!createCategory || createDescription.length < 10}
-                  className="w-full px-6 py-3 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="w-full px-6 py-3 bg-volt-400 text-ink-900 rounded-xl text-sm font-semibold hover:bg-volt-300 active:bg-volt-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Hantar Aduan
                 </button>
@@ -882,96 +875,96 @@ export default function DisputesPage() {
 
             {/* Submitting Step */}
             {createStep === 'submitting' && (
-              <div className="p-12 text-center">
-                <div className="animate-spin w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full mx-auto mb-4" />
-                <p className="text-gray-700 font-medium">AI sedang menganalisis...</p>
-                <p className="text-gray-400 text-sm mt-1">Sila tunggu sebentar</p>
+              <div className="py-8 text-center">
+                <div className="animate-spin w-12 h-12 border-4 border-volt-400 border-t-transparent rounded-full mx-auto mb-4" />
+                <p className="text-ink-100 font-medium">AI sedang menganalisis...</p>
+                <p className="text-ink-400 text-sm mt-1">Sila tunggu sebentar</p>
               </div>
             )}
 
             {/* Result Step */}
             {createStep === 'result' && createResult && (
-              <div className="p-8 text-center">
+              <div className="py-4 text-center">
                 {createResult.status === 'approved' && (
                   <>
-                    <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div className="w-16 h-16 bg-ok-400/15 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-8 h-8 text-ok-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                     </div>
-                    <h4 className="text-lg font-bold text-green-700 mb-2">Diluluskan</h4>
-                    <p className="text-sm text-gray-600">{createResult.message}</p>
+                    <h4 className="text-lg font-bold text-ok-400 mb-2">Diluluskan</h4>
+                    <p className="text-sm text-ink-300">{createResult.message}</p>
                   </>
                 )}
                 {createResult.status === 'rejected' && (
                   <>
-                    <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <svg className="w-8 h-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div className="w-16 h-16 bg-err-400/15 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-8 h-8 text-err-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </div>
-                    <h4 className="text-lg font-bold text-red-700 mb-2">Ditolak</h4>
-                    <p className="text-sm text-gray-600">{createResult.message}</p>
+                    <h4 className="text-lg font-bold text-err-400 mb-2">Ditolak</h4>
+                    <p className="text-sm text-ink-300">{createResult.message}</p>
                   </>
                 )}
                 {createResult.status === 'under_review' && (
                   <>
-                    <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <svg className="w-8 h-8 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div className="w-16 h-16 bg-warn-400/15 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-8 h-8 text-warn-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
                       </svg>
                     </div>
-                    <h4 className="text-lg font-bold text-yellow-700 mb-2">Dalam Semakan</h4>
-                    <p className="text-sm text-gray-600">{createResult.message}</p>
+                    <h4 className="text-lg font-bold text-warn-400 mb-2">Dalam Semakan</h4>
+                    <p className="text-sm text-ink-300">{createResult.message}</p>
                   </>
                 )}
 
                 <button
                   onClick={closeCreateModal}
-                  className="mt-6 px-6 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+                  className="mt-6 px-6 py-2.5 bg-volt-400 text-ink-900 rounded-xl text-sm font-medium hover:bg-volt-300 transition-colors"
                 >
                   Tutup
                 </button>
               </div>
             )}
-          </div>
-        </div>
-      )}
+        </>
+      </Modal>
 
       {/* Resolve Modal */}
-      {showResolveModal && selectedDispute && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-1">Selesaikan Aduan</h3>
-            <p className="text-sm text-gray-500 mb-4">
-              #{selectedDispute.dispute_number} - {selectedDispute.description?.slice(0, 60)}{selectedDispute.description?.length > 60 ? '...' : ''}
-            </p>
+      {selectedDispute && (
+        <Modal
+          open={showResolveModal}
+          onClose={() => setShowResolveModal(false)}
+          title="Selesaikan Aduan"
+          description={`#${selectedDispute.dispute_number} - ${selectedDispute.description?.slice(0, 60)}${selectedDispute.description?.length > 60 ? '...' : ''}`}
+        >
+          <>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Jenis Penyelesaian</label>
+                <label className="block text-sm font-medium text-ink-200 mb-1">Jenis Penyelesaian</label>
                 <select
                   value={resolveType}
                   onChange={(e) => setResolveType(e.target.value as DisputeResolutionType)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2.5 bg-white/[0.04] border border-white/[0.08] text-ink-050 placeholder:text-ink-500 rounded-lg text-sm focus:ring-2 focus:ring-volt-400/60 focus:outline-none"
                 >
-                  <option value="issue_resolved">✅ Masalah Selesai — BinaApp telah selesaikan masalah</option>
-                  <option value="self_resolved">🔧 Selesai Sendiri — Saya jumpa penyelesaian sendiri</option>
-                  <option value="no_longer_needed">🚫 Tidak Perlu Lagi — Masalah tidak lagi relevan</option>
-                  <option value="accepted_explanation">💬 Terima Penjelasan — Terima penjelasan BinaApp</option>
-                  <option value="still_unsatisfied">😐 Masih Tidak Puas Hati — Tutup tetapi masih tidak puas hati</option>
-                  <option value="withdraw_complaint">↩️ Tarik Balik Aduan — Batalkan aduan ini sepenuhnya</option>
+                  <option value="issue_resolved" className="bg-ink-800">✅ Masalah Selesai — BinaApp telah selesaikan masalah</option>
+                  <option value="self_resolved" className="bg-ink-800">🔧 Selesai Sendiri — Saya jumpa penyelesaian sendiri</option>
+                  <option value="no_longer_needed" className="bg-ink-800">🚫 Tidak Perlu Lagi — Masalah tidak lagi relevan</option>
+                  <option value="accepted_explanation" className="bg-ink-800">💬 Terima Penjelasan — Terima penjelasan BinaApp</option>
+                  <option value="still_unsatisfied" className="bg-ink-800">😐 Masih Tidak Puas Hati — Tutup tetapi masih tidak puas hati</option>
+                  <option value="withdraw_complaint" className="bg-ink-800">↩️ Tarik Balik Aduan — Batalkan aduan ini sepenuhnya</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nota</label>
+                <label className="block text-sm font-medium text-ink-200 mb-1">Nota</label>
                 <textarea
                   value={resolveNotes}
                   onChange={(e) => setResolveNotes(e.target.value)}
                   placeholder="Tambah nota penyelesaian..."
                   rows={3}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2.5 bg-white/[0.04] border border-white/[0.08] text-ink-050 placeholder:text-ink-500 rounded-lg text-sm focus:ring-2 focus:ring-volt-400/60 focus:outline-none"
                 />
               </div>
             </div>
@@ -979,20 +972,20 @@ export default function DisputesPage() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setShowResolveModal(false)}
-                className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"
+                className="flex-1 px-4 py-2.5 bg-white/[0.06] text-ink-100 ring-1 ring-white/[0.08] rounded-xl text-sm font-medium hover:bg-white/[0.1]"
               >
                 Batal
               </button>
               <button
                 onClick={resolveDispute}
                 disabled={resolving}
-                className="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+                className="flex-1 px-4 py-2.5 bg-ok-500 text-white rounded-xl text-sm font-medium hover:bg-ok-400 disabled:opacity-50"
               >
                 {resolving ? 'Mengesahkan...' : 'Sahkan Penyelesaian'}
               </button>
             </div>
-          </div>
-        </div>
+          </>
+        </Modal>
       )}
     </div>
   )

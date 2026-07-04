@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import toast from 'react-hot-toast'
 import { Card, Badge, LoadingSpinner, EmptyState } from '@/components/ui/Card'
 import { formatCurrency, formatDateTime } from '@/lib/utils'
 import {
@@ -44,6 +45,7 @@ export function RevenuePage() {
       setData(json)
     } catch (err) {
       console.error('Failed to fetch revenue:', err)
+      toast.error('Failed to load revenue data')
     } finally {
       setLoading(false)
     }
