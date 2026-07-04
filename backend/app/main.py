@@ -1905,6 +1905,10 @@ async def run_generation_task(
             uploaded_images=(images if (images and normalized_image_choice != "none") else []),
             color_mode=color_mode,
             template_id=template_id,
+            # Identity for the recipe-pipeline feature-flag allowlist only
+            # (recipe_pipeline.is_enabled_for) — not used for auth or quota.
+            user_email=(user_email or None),
+            user_id=(user_id if user_id and user_id != "anonymous" else None),
         )
 
         # Create progress callback to update Supabase during generation

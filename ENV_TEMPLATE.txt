@@ -90,6 +90,16 @@ QWEN_MODEL=qwen-max  # or: qwen-plus (faster/cheaper)
 STABILITY_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # ------------------------------
+# M1 Recipe Pipeline (GENERATION_UPGRADE_PLAN.md) — default OFF
+# ------------------------------
+# Master switch for the new intent→DesignBrief→assembler generation path.
+# Old pipeline stays the default; any failure auto-falls back to it.
+GENERATION_RECIPE_PIPELINE_ENABLED=false
+# Comma-separated emails and/or user ids allowed onto the new pipeline
+# while the flag is on. Use "*" to enable for everyone (post sign-off only).
+RECIPE_PIPELINE_USER_ALLOWLIST=yassirar77@gmail.com
+
+# ------------------------------
 # Cloudinary (Image Storage)
 # ------------------------------
 # Get from: https://console.cloudinary.com → Dashboard

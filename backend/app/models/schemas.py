@@ -110,6 +110,11 @@ class WebsiteGenerationRequest(BaseModel):
     theme: Optional[str] = Field(default=None, description="Detected theme name (e.g., 'Purrfect Paws Theme')")
     color_mode: Optional[str] = Field(default="light", description="Color mode: 'light' or 'dark'")
     template_id: Optional[str] = Field(default=None, description="Design template ID from template gallery (e.g., 'elegance_dark', 'fresh_clean')")
+    # M1 recipe-pipeline allowlist identity (GENERATION_UPGRADE_PLAN.md).
+    # Optional and additive: only read by recipe_pipeline.is_enabled_for();
+    # never used for auth, billing, or quota decisions.
+    user_email: Optional[str] = Field(default=None, description="Requesting user's email, for feature-flag allowlisting only")
+    user_id: Optional[str] = Field(default=None, description="Requesting user's id, for feature-flag allowlisting only")
 
     @field_validator("subdomain")
     @classmethod

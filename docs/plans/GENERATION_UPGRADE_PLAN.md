@@ -318,6 +318,18 @@ M0 → M1 → M2 → M3 → M5, with M4 optional after M3. Each milestone ships 
 - **Existing published sites:** flags only affect *new generation requests*. Serving reads stored HTML from Storage; no milestone writes to existing sites' storage keys or DB rows. Bulk-republish/rebuild surfaces are out of scope. **100% untouched by construction.**
 - **Cutover:** flip default only after golden-set visual approval + ≥2 weeks of allowlisted usage with fallback rate <2%.
 
+### Old-pipeline kill criteria (we will not maintain two pipelines forever)
+
+The legacy monolithic-prompt pipeline gets **deleted** (not just disabled) when ALL of the following hold:
+
+1. **Volume:** ≥200 production generations have run through the recipe pipeline (flag on, `RECIPE_PIPELINE_USER_ALLOWLIST=*`), covering both languages and at least 4 of the 6 golden scenarios' business types.
+2. **Fallback rate:** <2% of those generations fell back to the legacy pipeline (measured from the `🧪 recipe pipeline failed` log lines / `step_timings` presence on `generation_jobs`), sustained over the most recent 30 days.
+3. **Compliance:** zero forbidden-wording or unbalanced-HTML lint failures in production output over the same window (the lint report is written into each golden run's meta.json; production spot-checks via `generation_jobs.html`).
+4. **Visual sign-off:** Yassir has reviewed a full golden-set `review.html` (all 12 prompts, desktop + mobile, OLD vs NEW) and signed off in writing that NEW ≥ OLD on every prompt — no exceptions carried.
+5. **Support signal:** no open user complaints attributable to recipe-pipeline output.
+
+Deletion scope when criteria are met: `_build_strict_prompt` and the legacy generation branch of `generate_website` in `ai_service.py`, plus the then-dead prompt-support blocks in `design_system.py`. The publish/serving/quota surfaces are untouched by the deletion (they never knew which pipeline produced the HTML). Until every criterion is met, the legacy pipeline stays as the automatic fallback target.
+
 ## 5. LLM cost impact per generation
 
 Verified pricing (July 2026): DeepSeek V4 Flash $0.14/M input (cache miss) / $0.28/M output; V4 Pro $0.435/M in / $0.87/M out ([DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing)). Qwen-Plus intl $0.40/M in / $1.20/M out ([Alibaba Model Studio](https://www.alibabacloud.com/help/en/model-studio/model-pricing)). Stability image costs are unchanged by this plan and excluded (they dominate total cost at ~$0.03/image × ~5 but are orthogonal).

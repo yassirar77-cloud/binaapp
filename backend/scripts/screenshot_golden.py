@@ -44,14 +44,19 @@ VIEWPORTS = {
 
 def _launch_browser(p):
     """Launch Chromium; fall back to the pre-installed system Chromium if the
-    playwright-managed download is absent (cloud env)."""
+    playwright-managed download is absent (cloud env). Honors HTTPS_PROXY so
+    CDN assets (Tailwind, Google Fonts) load in proxied environments."""
+    kwargs = {}
+    proxy = os.getenv("HTTPS_PROXY") or os.getenv("HTTP_PROXY")
+    if proxy:
+        kwargs["proxy"] = {"server": proxy}
     try:
-        return p.chromium.launch()
+        return p.chromium.launch(**kwargs)
     except Exception:
         candidates = glob.glob("/opt/pw-browsers/**/chrome-linux/chrome", recursive=True)
         if not candidates:
             raise
-        return p.chromium.launch(executable_path=candidates[0])
+        return p.chromium.launch(executable_path=candidates[0], **kwargs)
 
 
 def screenshot_all(golden_dir: Path) -> list[dict]:
@@ -74,7 +79,7 @@ def screenshot_all(golden_dir: Path) -> list[dict]:
                 meta_file = html_file.with_suffix(".meta.json")
                 meta = json.loads(meta_file.read_text()) if meta_file.exists() else {}
                 for vp_name, vp in VIEWPORTS.items():
-                    page = browser.new_page(viewport=vp)
+                    page = browser.new_page(viewport=vp, ignore_https_errors=True)
                     page.goto(html_file.resolve().as_uri())
                     page.wait_for_timeout(1500)  # let fonts + entrance animations settle
                     out = shots_dir / f"{prompt_id}__{pipeline_dir.name}__{vp_name}.png"

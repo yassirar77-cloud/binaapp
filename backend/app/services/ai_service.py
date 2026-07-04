@@ -4492,6 +4492,32 @@ IMPORTANT RULES:
 
         return final_html
 
+    async def _try_recipe_pipeline(
+        self,
+        request: WebsiteGenerationRequest,
+        image_choice: str,
+        progress_callback: Optional[Callable[[int, str], Awaitable[None]]],
+        max_ai_images: Optional[int],
+    ) -> Optional[AIGenerationResponse]:
+        """M1 recipe pipeline attempt. Returns None (→ legacy pipeline) when
+        the flag/allowlist doesn't select this request OR anything fails —
+        a broken flag must never become a user-facing outage."""
+        try:
+            from app.services import recipe_pipeline
+            if not recipe_pipeline.is_enabled_for(request):
+                return None
+            return await recipe_pipeline.generate(
+                request,
+                image_choice=image_choice,
+                progress_callback=progress_callback,
+                max_ai_images=max_ai_images,
+            )
+        except Exception:
+            logger.exception(
+                "🧪 recipe pipeline failed — falling back to legacy pipeline"
+            )
+            return None
+
     async def generate_website(
         self,
         request: WebsiteGenerationRequest,
@@ -4510,6 +4536,16 @@ IMPORTANT RULES:
                 after any hero/gallery images already generated this build, so a
                 single build never overshoots the plan limit.
         """
+
+        # M1 recipe pipeline (GENERATION_UPGRADE_PLAN.md): flag + allowlist
+        # gated, auto-falls back to this legacy pipeline on ANY failure.
+        # Template-gallery builds keep their dedicated path.
+        if not request.template_id:
+            v3_response = await self._try_recipe_pipeline(
+                request, image_choice, progress_callback, max_ai_images
+            )
+            if v3_response is not None:
+                return v3_response
 
         import time
         start_time = time.time()
