@@ -146,6 +146,9 @@ export default function AdminPage() {
   const [adminDisputeMsg, setAdminDisputeMsg] = useState('')
   const [sendingDisputeMsg, setSendingDisputeMsg] = useState(false)
   const [creditAmount, setCreditAmount] = useState('')
+  // Identifies the admin action currently in flight (e.g. "suspend:<id>") so
+  // its button can show a pending state and block double-submits.
+  const [pendingAction, setPendingAction] = useState<string | null>(null)
 
   const apiFetch = useCallback(async (path: string, options?: RequestInit) => {
     const token = getStoredToken()
@@ -264,23 +267,35 @@ export default function AdminPage() {
   }
 
   const handleSuspendRestaurant = async (websiteId: string) => {
+    if (pendingAction) return
     const reason = prompt('Sebab penggantungan:')
     if (!reason) return
-    await apiFetch(`/api/v1/admin/restaurants/${websiteId}/suspend`, {
-      method: 'POST',
-      body: JSON.stringify({ notes: reason }),
-    })
-    const data = await apiFetch('/api/v1/admin/restaurants')
-    setRestaurants(data.restaurants || [])
+    setPendingAction(`suspend:${websiteId}`)
+    try {
+      await apiFetch(`/api/v1/admin/restaurants/${websiteId}/suspend`, {
+        method: 'POST',
+        body: JSON.stringify({ notes: reason }),
+      })
+      const data = await apiFetch('/api/v1/admin/restaurants')
+      setRestaurants(data.restaurants || [])
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   const handleUnsuspendRestaurant = async (websiteId: string) => {
-    await apiFetch(`/api/v1/admin/restaurants/${websiteId}/unsuspend`, {
-      method: 'POST',
-      body: JSON.stringify({ notes: 'Unsuspended by admin' }),
-    })
-    const data = await apiFetch('/api/v1/admin/restaurants')
-    setRestaurants(data.restaurants || [])
+    if (pendingAction) return
+    setPendingAction(`unsuspend:${websiteId}`)
+    try {
+      await apiFetch(`/api/v1/admin/restaurants/${websiteId}/unsuspend`, {
+        method: 'POST',
+        body: JSON.stringify({ notes: 'Unsuspended by admin' }),
+      })
+      const data = await apiFetch('/api/v1/admin/restaurants')
+      setRestaurants(data.restaurants || [])
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   // Owner complaint handlers
@@ -314,8 +329,10 @@ export default function AdminPage() {
   }
 
   const handleResolveDispute = async (disputeId: string) => {
+    if (pendingAction) return
     const notes = prompt('Nota penyelesaian:')
     if (!notes) return
+    setPendingAction(`resolve:${disputeId}`)
     try {
       await apiFetch(`/api/v1/admin/disputes/${disputeId}/resolve`, {
         method: 'POST',
@@ -328,12 +345,16 @@ export default function AdminPage() {
       }
     } catch (err) {
       console.error('Failed to resolve dispute:', err)
+    } finally {
+      setPendingAction(null)
     }
   }
 
   const handleAwardCredit = async (disputeId: string) => {
+    if (pendingAction) return
     const amount = parseFloat(creditAmount)
     if (!amount || amount <= 0) return
+    setPendingAction(`credit:${disputeId}`)
     try {
       await apiFetch(`/api/v1/admin/disputes/${disputeId}/credit`, {
         method: 'POST',
@@ -345,10 +366,14 @@ export default function AdminPage() {
       setDisputeMessages(data.messages || [])
     } catch (err) {
       console.error('Failed to award credit:', err)
+    } finally {
+      setPendingAction(null)
     }
   }
 
   const handleToggleDisputeAI = async (disputeId: string, enable: boolean) => {
+    if (pendingAction) return
+    setPendingAction(`toggle-ai:${disputeId}`)
     try {
       await apiFetch(`/api/v1/admin/disputes/${disputeId}/toggle-ai?enabled=${enable}`, {
         method: 'POST',
@@ -358,6 +383,8 @@ export default function AdminPage() {
       )
     } catch (err) {
       console.error('Failed to toggle AI:', err)
+    } finally {
+      setPendingAction(null)
     }
   }
 
@@ -530,10 +557,12 @@ export default function AdminPage() {
                           <p>Tarikh: {new Date(dispute.created_at).toLocaleString('ms-MY')}</p>
                         )}
                         <p>
-                          AI Auto-reply: {dispute?.ai_auto_reply_disabled ? (
-                            <button onClick={() => handleToggleDisputeAI(selectedDisputeId, true)} className="text-blue-600 hover:underline ml-1">Dimatikan - Aktifkan?</button>
+                          AI Auto-reply: {pendingAction === `toggle-ai:${selectedDisputeId}` ? (
+                            <span className="text-gray-400 ml-1">Menukar...</span>
+                          ) : dispute?.ai_auto_reply_disabled ? (
+                            <button onClick={() => handleToggleDisputeAI(selectedDisputeId, true)} disabled={pendingAction !== null} className="text-blue-600 hover:underline ml-1 disabled:opacity-50">Dimatikan - Aktifkan?</button>
                           ) : (
-                            <button onClick={() => handleToggleDisputeAI(selectedDisputeId, false)} className="text-green-600 hover:underline ml-1">Aktif - Matikan?</button>
+                            <button onClick={() => handleToggleDisputeAI(selectedDisputeId, false)} disabled={pendingAction !== null} className="text-green-600 hover:underline ml-1 disabled:opacity-50">Aktif - Matikan?</button>
                           )}
                         </p>
                       </div>
@@ -609,9 +638,10 @@ export default function AdminPage() {
                       {dispute?.status !== 'resolved' && dispute?.status !== 'closed' && (
                         <button
                           onClick={() => handleResolveDispute(selectedDisputeId)}
-                          className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                          disabled={pendingAction !== null}
+                          className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
                         >
-                          Selesai
+                          {pendingAction === `resolve:${selectedDisputeId}` ? 'Menyelesaikan...' : 'Selesai'}
                         </button>
                       )}
                       <div className="flex items-center gap-1">
@@ -626,10 +656,10 @@ export default function AdminPage() {
                         />
                         <button
                           onClick={() => handleAwardCredit(selectedDisputeId)}
-                          disabled={!creditAmount || parseFloat(creditAmount) <= 0}
+                          disabled={!creditAmount || parseFloat(creditAmount) <= 0 || pendingAction !== null}
                           className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
                         >
-                          Beri BinaCredit
+                          {pendingAction === `credit:${selectedDisputeId}` ? 'Memberi...' : 'Beri BinaCredit'}
                         </button>
                       </div>
                     </div>
@@ -790,16 +820,18 @@ export default function AdminPage() {
                           {r.health_status !== 'suspended' ? (
                             <button
                               onClick={() => handleSuspendRestaurant(r.website_id)}
-                              className="text-xs text-red-600 hover:underline"
+                              disabled={pendingAction !== null}
+                              className="text-xs text-red-600 hover:underline disabled:opacity-50"
                             >
-                              Gantung
+                              {pendingAction === `suspend:${r.website_id}` ? 'Menggantung...' : 'Gantung'}
                             </button>
                           ) : (
                             <button
                               onClick={() => handleUnsuspendRestaurant(r.website_id)}
-                              className="text-xs text-green-600 hover:underline"
+                              disabled={pendingAction !== null}
+                              className="text-xs text-green-600 hover:underline disabled:opacity-50"
                             >
-                              Aktifkan
+                              {pendingAction === `unsuspend:${r.website_id}` ? 'Mengaktifkan...' : 'Aktifkan'}
                             </button>
                           )}
                         </td>

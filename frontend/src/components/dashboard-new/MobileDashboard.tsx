@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, ReactNode } from 'react'
+import Link from 'next/link'
 import DashboardGreeting from './DashboardGreeting'
 import ActionCard from './ActionCard'
 import WebsiteCard, { WebsiteStatus } from './WebsiteCard'
@@ -353,7 +354,7 @@ function MobileDrawer({
         {/* Nav links */}
         <div className="flex-1 overflow-y-auto py-3 px-3">
           {NAV_ITEMS.map((item) => (
-            <a
+            <Link
               key={item.href}
               href={item.href}
               onClick={onClose}
@@ -371,7 +372,7 @@ function MobileDrawer({
                   {ordersCount}
                 </span>
               )}
-            </a>
+            </Link>
           ))}
 
           {/* Divider */}
@@ -379,14 +380,14 @@ function MobileDrawer({
 
           {/* Account links */}
           {ACCOUNT_ITEMS.map((item) => (
-            <a
+            <Link
               key={item.href}
               href={item.href}
               onClick={onClose}
               className="flex items-center rounded-xl px-4 py-3 text-sm text-white/40 hover:text-white hover:bg-white/[0.04] transition-colors min-h-[44px]"
             >
               {item.label}
-            </a>
+            </Link>
           ))}
           <button
             onClick={() => { onClose(); onLogout?.() }}

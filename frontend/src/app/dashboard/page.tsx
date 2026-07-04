@@ -8,6 +8,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import toast from 'react-hot-toast'
 import { Sparkles, Truck, MapPin } from 'lucide-react'
 import { API_BASE_URL } from '@/lib/env'
 import { supabase, getStoredToken, getCurrentUser } from '@/lib/supabase'
@@ -64,9 +65,15 @@ export default function DashboardPage() {
     addonPrice: 0
   })
   const [planLimit, setPlanLimit] = useState<number | null>(null)
+  const [checkingCreate, setCheckingCreate] = useState(false)
 
   useEffect(() => {
     loadProjects()
+    // Warm the route chunks users most often click through to — the dashboard
+    // navigates imperatively (router.push), which doesn't prefetch like <Link>.
+    router.prefetch('/create')
+    router.prefetch('/dashboard/billing')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const loadProjects = async () => {
@@ -90,12 +97,16 @@ export default function DashboardPage() {
 
       setUser(currentUser as User)
 
-      // Fetch projects directly from Supabase
-      const { data, error: supabaseError } = await supabase
-        .from('websites')
-        .select('*')
-        .eq('user_id', currentUser.id)
-        .order('created_at', { ascending: false })
+      // Fetch projects and plan limit in parallel — both only need the user id
+      const [{ data, error: supabaseError }, planLimitResult] = await Promise.all([
+        supabase
+          .from('websites')
+          .select('*')
+          .eq('user_id', currentUser.id)
+          .order('created_at', { ascending: false }),
+        // Plan limit is non-critical for display widgets — swallow failures
+        getWebsiteLimit(currentUser.id).catch(() => null)
+      ])
 
       if (supabaseError) {
         console.error('Error fetching projects:', supabaseError)
@@ -115,12 +126,14 @@ export default function DashboardPage() {
 
       setProjects(transformedProjects)
 
-      // Fetch plan limit for display widgets (non-critical).
-      try {
-        const { limit } = await getWebsiteLimit(currentUser.id)
-        setPlanLimit(limit)
-      } catch {
-        // Non-critical — planLimit stays at null (treated as unknown/unlimited)
+      // Warm the editor route chunk so "Edit" opens instantly.
+      if (transformedProjects.length > 0) {
+        router.prefetch(`/editor/${transformedProjects[0].id}`)
+      }
+
+      // Plan limit for display widgets (non-critical) — fetched in parallel above.
+      if (planLimitResult) {
+        setPlanLimit(planLimitResult.limit)
       }
     } catch (err: any) {
       console.error('Load projects error:', err)
@@ -172,6 +185,11 @@ export default function DashboardPage() {
       router.push('/create')
       return
     }
+    // Instant feedback: the quota check is a network round trip — show a
+    // loading toast immediately and block double-clicks while it runs.
+    if (checkingCreate) return
+    setCheckingCreate(true)
+    const toastId = toast.loading('Sekejap...')
 
     try {
       const quota = await checkCreateWebsiteAllowed()
@@ -196,6 +214,9 @@ export default function DashboardPage() {
     } catch (err) {
       console.error('Limit check failed:', err)
       router.push('/create') // Fail open (backend will still block)
+    } finally {
+      toast.dismiss(toastId)
+      setCheckingCreate(false)
     }
   }
 

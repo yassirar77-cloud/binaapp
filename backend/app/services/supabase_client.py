@@ -2,8 +2,11 @@
 Supabase Client Service
 Handles all Supabase interactions using REST API
 """
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Dict, Optional
+
 import httpx
-from typing import Optional, Dict, Any
+
 from app.core.config import settings
 
 class SupabaseService:
@@ -13,6 +16,11 @@ class SupabaseService:
         self.url = settings.SUPABASE_URL
         self.anon_key = settings.SUPABASE_ANON_KEY
         self.service_key = settings.SUPABASE_SERVICE_ROLE_KEY
+
+        # One pooled AsyncClient shared by all methods — reuses TCP/TLS
+        # connections instead of paying a fresh handshake per REST call.
+        # Created lazily on first use; closed via aclose() on app shutdown.
+        self._pooled_client: Optional[httpx.AsyncClient] = None
 
         # SECURITY: Use service role key for admin operations (bypasses RLS)
         # This should ONLY be used for:
@@ -28,6 +36,27 @@ class SupabaseService:
         # For backwards compatibility, default headers use service key
         # TODO: Gradually migrate to use get_user_headers() for business operations
         self.headers = self.service_headers
+
+    def _get_pooled_client(self) -> httpx.AsyncClient:
+        """Return the shared pooled client, (re)creating it if needed."""
+        if self._pooled_client is None or self._pooled_client.is_closed:
+            self._pooled_client = httpx.AsyncClient(timeout=httpx.Timeout(30.0))
+        return self._pooled_client
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[httpx.AsyncClient]:
+        """Context manager yielding the shared pooled client.
+
+        Keeps the same `async with ... as client:` call shape the methods
+        below always used, but no longer opens/closes a client per call —
+        the underlying connection pool stays alive across requests.
+        """
+        yield self._get_pooled_client()
+
+    async def aclose(self) -> None:
+        """Close the pooled client (call on application shutdown)."""
+        if self._pooled_client is not None and not self._pooled_client.is_closed:
+            await self._pooled_client.aclose()
 
     def get_user_headers(self, user_token: str) -> Dict[str, str]:
         """
@@ -69,7 +98,7 @@ class SupabaseService:
                 "content-type": content_type,  # lowercase variant for compatibility
             }
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.post(
                     url,
                     headers=upload_headers,
@@ -99,7 +128,7 @@ class SupabaseService:
         try:
             url = f"{self.url}/storage/v1/object/{bucket}/{path}"
             
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.delete(url, headers=self.headers)
             
             return response.status_code in [200, 204]
@@ -131,7 +160,7 @@ class SupabaseService:
                 payload["user_metadata"]["full_name"] = full_name
 
             # MUST use service_headers with SERVICE_ROLE_KEY for admin operations
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.post(
                     url,
                     headers=self.service_headers,
@@ -165,7 +194,7 @@ class SupabaseService:
         """
         try:
             url = f"{self.url}/auth/v1/admin/users/{user_id}"
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.delete(url, headers=self.service_headers)
             if response.status_code in [200, 204]:
                 print(f"✅ Rolled back auth user: {user_id}")
@@ -196,7 +225,7 @@ class SupabaseService:
             }
 
             # MUST use service_headers to bypass RLS
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.post(
                     url,
                     headers={**self.service_headers, "Prefer": "return=representation"},
@@ -224,7 +253,7 @@ class SupabaseService:
         try:
             url = f"{self.url}/auth/v1/admin/users/{user_id}"
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.delete(
                     url,
                     headers=self.service_headers
@@ -245,7 +274,7 @@ class SupabaseService:
         try:
             url = f"{self.url}/auth/v1/token?grant_type=password"
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.post(
                     url,
                     headers=self.headers,
@@ -273,7 +302,7 @@ class SupabaseService:
             print(f"[DB INSERT] Table: {table}")
             print(f"[DB INSERT] Columns: {list(data.keys())}")
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.post(
                     url,
                     headers={**self.headers, "Prefer": "return=representation"},
@@ -317,7 +346,7 @@ class SupabaseService:
                 for key, value in filters.items():
                     params[key] = f"eq.{value}"
             
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(
                     url,
                     headers=self.headers,
@@ -353,7 +382,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/websites"
             params = {"id": f"eq.{website_id}"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(
                     url,
                     headers=self.headers,
@@ -379,7 +408,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/websites"
             params = {"id": f"eq.{website_id}"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.patch(
                     url,
                     # CRITICAL: Use return=representation to get updated rows back
@@ -413,7 +442,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/{table}"
             params = {column: f"eq.{value}"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.delete(
                     url,
                     headers=self.headers,
@@ -446,7 +475,7 @@ class SupabaseService:
             id_list = ",".join(ids)
             params = {filter_column: f"in.({id_list})"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.patch(
                     url,
                     headers={**self.headers, "Prefer": "return=minimal"},
@@ -470,7 +499,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/{table}"
             params = {"website_id": f"eq.{website_id}"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.patch(
                     url,
                     headers={**self.headers, "Prefer": "return=minimal"},
@@ -494,7 +523,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/riders"
             params = {"website_id": f"eq.{website_id}", "select": "id"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(
                     url,
                     headers=self.headers,
@@ -515,7 +544,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/chat_conversations"
             params = {"website_id": f"eq.{website_id}", "select": "id"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(
                     url,
                     headers=self.headers,
@@ -541,7 +570,7 @@ class SupabaseService:
             ids_str = ",".join([f'"{id}"' for id in ids])
             params = {column: f"in.({ids_str})"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.delete(
                     url,
                     headers=self.headers,
@@ -656,7 +685,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/websites"
             params = {"id": f"eq.{website_id}"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.delete(
                     url,
                     headers=self.headers,
@@ -692,7 +721,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/delivery_orders"
             params = {"website_id": f"eq.{website_id}", "select": "id"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(
                     url,
                     headers=self.headers,
@@ -718,7 +747,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/subscriptions"
             params = {"user_id": f"eq.{user_id}"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(
                     url,
                     headers=self.headers,
@@ -745,7 +774,7 @@ class SupabaseService:
                 # Update existing subscription
                 params = {"user_id": f"eq.{user_id}"}
 
-                async with httpx.AsyncClient() as client:
+                async with self._client() as client:
                     response = await client.patch(
                         url,
                         headers={**self.service_headers, "Prefer": "return=minimal"},
@@ -762,7 +791,7 @@ class SupabaseService:
             else:
                 # Create new subscription using service_headers to bypass RLS
                 data["user_id"] = user_id
-                async with httpx.AsyncClient() as client:
+                async with self._client() as client:
                     response = await client.post(
                         url,
                         headers={**self.service_headers, "Prefer": "return=representation"},
@@ -790,7 +819,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/payments"
             params = {"id": f"eq.{payment_id}"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.patch(
                     url,
                     headers={**self.headers, "Prefer": "return=minimal"},
@@ -808,7 +837,7 @@ class SupabaseService:
         try:
             url = f"{self.url}/auth/v1/admin/users/{user_id}"
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(
                     url,
                     headers=self.headers
@@ -834,7 +863,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/users"
             params = {"id": f"eq.{user_id}", "select": "*"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(
                     url,
                     headers=self.headers,
@@ -861,7 +890,7 @@ class SupabaseService:
             url = f"{self.url}/storage/v1/object/list/{bucket}"
 
             # Use service headers to bypass RLS
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.post(
                     url,
                     headers=self.service_headers,
@@ -904,7 +933,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/websites"
             params = {"select": "id,subdomain,user_id,business_name,status,created_at"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(
                     url,
                     headers=self.service_headers,
@@ -926,7 +955,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/websites"
             params = {"subdomain": f"eq.{subdomain}", "select": "*"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(
                     url,
                     headers=self.service_headers,
@@ -958,7 +987,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/profiles"
             params = {"id": f"eq.{user_id}", "select": "id"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(
                     url,
                     headers=self.service_headers,
@@ -1013,7 +1042,7 @@ class SupabaseService:
                 "updated_at": "now()"
             }
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.post(
                     url,
                     headers={**self.service_headers, "Prefer": "return=representation"},
@@ -1042,7 +1071,7 @@ class SupabaseService:
         try:
             url = f"{self.url}/auth/v1/admin/users"
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(
                     url,
                     headers=self.service_headers,
@@ -1070,7 +1099,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/profiles"
             params = {"select": "id,full_name,created_at"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(
                     url,
                     headers=self.service_headers,
@@ -1133,7 +1162,7 @@ class SupabaseService:
 
             url = f"{self.url}/rest/v1/websites"
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.post(
                     url,
                     headers={**self.service_headers, "Prefer": "return=representation"},
@@ -1177,7 +1206,7 @@ class SupabaseService:
             url = f"{self.url}/rest/v1/profiles"
             params = {"id": f"eq.{user_id}", "select": "email_verified"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(url, headers=self.service_headers, params=params)
 
             if response.status_code == 200:
@@ -1205,7 +1234,7 @@ class SupabaseService:
             params = {"id": f"eq.{user_id}"}
             data = {"email_verified": True, "email_verified_at": "now()"}
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.patch(
                     url,
                     headers={**self.service_headers, "Prefer": "return=representation"},
@@ -1218,7 +1247,7 @@ class SupabaseService:
                 if isinstance(result, list) and len(result) == 0:
                     # No profile row — ensure one exists then retry once.
                     await self.ensure_profile_exists(user_id)
-                    async with httpx.AsyncClient() as client:
+                    async with self._client() as client:
                         response = await client.patch(
                             url,
                             headers={**self.service_headers, "Prefer": "return=representation"},
@@ -1246,7 +1275,7 @@ class SupabaseService:
 
             # Invalidate previous unconsumed codes (mark consumed=now) so the
             # latest emailed code is the only one that can succeed.
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 await client.patch(
                     base,
                     headers={**self.service_headers, "Prefer": "return=minimal"},
@@ -1285,7 +1314,7 @@ class SupabaseService:
                 "limit": "1",
             }
 
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.get(url, headers=self.service_headers, params=params)
 
             if response.status_code == 200:
@@ -1301,7 +1330,7 @@ class SupabaseService:
         try:
             url = f"{self.url}/rest/v1/email_verification_codes"
             params = {"id": f"eq.{code_id}"}
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.patch(
                     url,
                     headers={**self.service_headers, "Prefer": "return=minimal"},
@@ -1318,7 +1347,7 @@ class SupabaseService:
         try:
             url = f"{self.url}/rest/v1/email_verification_codes"
             params = {"id": f"eq.{code_id}"}
-            async with httpx.AsyncClient() as client:
+            async with self._client() as client:
                 response = await client.patch(
                     url,
                     headers={**self.service_headers, "Prefer": "return=minimal"},

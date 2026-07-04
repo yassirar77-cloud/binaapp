@@ -14,6 +14,7 @@ import cloudinary.uploader
 from datetime import datetime, timedelta
 from collections import defaultdict
 import hashlib
+import time
 import uuid
 import asyncio
 import json
@@ -249,6 +250,31 @@ async def add_security_headers(request: Request, call_next):
 from app.middleware.subdomain import subdomain_middleware as _subdomain_middleware
 app.middleware("http")(_subdomain_middleware)
 
+# ============================================
+# REQUEST TIMING (performance visibility)
+# ============================================
+# Registered last so it is the outermost middleware and measures the full
+# request, including subdomain serving. Every response gets an
+# X-Process-Time-Ms header; anything slower than the threshold is logged so
+# slow endpoints show up in Render logs without extra tooling.
+SLOW_REQUEST_THRESHOLD_MS = float(os.getenv("SLOW_REQUEST_THRESHOLD_MS", "500"))
+
+@app.middleware("http")
+async def request_timing(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = (time.perf_counter() - start) * 1000
+    response.headers["X-Process-Time-Ms"] = f"{duration_ms:.0f}"
+    if duration_ms >= SLOW_REQUEST_THRESHOLD_MS:
+        logger.warning(
+            "SLOW REQUEST: %s %s took %.0fms (status %s)",
+            request.method,
+            request.url.path,
+            duration_ms,
+            response.status_code,
+        )
+    return response
+
 @app.on_event("startup")
 async def startup_event():
     global supabase
@@ -336,6 +362,14 @@ async def shutdown_event():
         logger.info("📊 Analytics cleanup stopped")
     except Exception as e:
         logger.error(f"📊 Error stopping analytics cleanup: {e}")
+
+    # Close the pooled Supabase REST client
+    try:
+        from app.services.supabase_client import supabase_service
+        await supabase_service.aclose()
+        logger.info("🔌 Pooled Supabase HTTP client closed")
+    except Exception as e:
+        logger.error(f"🔌 Error closing pooled Supabase HTTP client: {e}")
 
     logger.info("🛑 BinaApp API shutdown complete")
 
