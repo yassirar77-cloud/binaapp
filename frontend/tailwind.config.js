@@ -81,8 +81,12 @@ module.exports = {
       },
       animation: {
         'fade-in': 'fadeIn 0.3s ease-in-out',
+        'fade-out': 'fadeOut 0.18s ease-in forwards',
         'slide-up': 'slideUp 0.4s ease-out',
         'scale-in': 'scaleIn 0.18s ease-out',
+        'scale-out': 'scaleOut 0.15s ease-in forwards',
+        'sheet-in': 'sheetIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
+        'sheet-out': 'sheetOut 0.2s ease-in forwards',
         'bounce-slow': 'bounce 2s infinite',
         'pulse-red': 'pulseRed 1.6s ease-out infinite',
       },
@@ -90,6 +94,22 @@ module.exports = {
         fadeIn: {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },
+        },
+        fadeOut: {
+          '0%': { opacity: '1' },
+          '100%': { opacity: '0' },
+        },
+        scaleOut: {
+          '0%': { transform: 'scale(1)', opacity: '1' },
+          '100%': { transform: 'scale(0.96)', opacity: '0' },
+        },
+        sheetIn: {
+          '0%': { transform: 'translateY(100%)' },
+          '100%': { transform: 'translateY(0)' },
+        },
+        sheetOut: {
+          '0%': { transform: 'translateY(0)', opacity: '1' },
+          '100%': { transform: 'translateY(24px)', opacity: '0' },
         },
         slideUp: {
           '0%': { transform: 'translateY(12px)', opacity: '0' },

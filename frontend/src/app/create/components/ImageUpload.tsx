@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { alertDialog } from '@/components/ui/popups'
 import { API_BASE_URL } from '@/lib/env'
 import { checkImageSafety } from '@/utils/imageModeration'
 
@@ -25,7 +26,7 @@ export default function ImageUpload({ onImagesUploaded }: ImageUploadProps) {
       // Moderation check before upload
       const moderationResult = await checkImageSafety(file)
       if (!moderationResult.allowed) {
-        alert(moderationResult.message)
+        await alertDialog({ title: 'Imej ditolak', message: moderationResult.message, variant: 'warning' })
         continue // Skip this file, try next
       }
 

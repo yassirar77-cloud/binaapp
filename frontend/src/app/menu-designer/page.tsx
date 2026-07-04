@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState, type FormEvent } from 'react'
+import toast from 'react-hot-toast'
 import { Trash2, Check, Plus, FileDown, Loader2 } from 'lucide-react'
 import { API_BASE_URL } from '@/lib/env'
 
@@ -116,11 +117,11 @@ export default function MenuDesigner() {
 
   async function generateMenu() {
     if (!businessName.trim()) {
-      alert('Sila isi nama perniagaan dahulu.')
+      toast.error('Sila isi nama perniagaan dahulu.')
       return
     }
     if (items.length === 0) {
-      alert('Sila tambah sekurang-kurangnya satu item menu.')
+      toast.error('Sila tambah sekurang-kurangnya satu item menu.')
       return
     }
 
@@ -151,11 +152,11 @@ export default function MenuDesigner() {
       if (data.success) {
         setPdfUrl(data.pdf_url)
       } else {
-        alert('Menu generation failed: ' + (data.error || data.detail || 'unknown'))
+        toast.error('Menu generation failed: ' + (data.error || data.detail || 'unknown'))
       }
     } catch (err) {
       console.error(err)
-      alert('Failed to generate menu')
+      toast.error('Failed to generate menu')
     } finally {
       setLoading(false)
     }

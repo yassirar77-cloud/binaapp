@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
+import { confirmDialog } from '@/components/ui/popups';
 import {
   DAY_LABELS,
   DEFAULT_SCHEDULE,
@@ -144,9 +145,13 @@ export default function RingSettingsModal({
     }
     const noActiveDay = !Object.values(draft.schedule_json).some((d) => d.active);
     if (noActiveDay) {
-      const ok = window.confirm(
-        'Ring ini tiada hari aktif — pelanggan tidak akan boleh order. Teruskan?',
-      );
+      const ok = await confirmDialog({
+        title: 'Tiada hari aktif',
+        message: 'Ring ini tiada hari aktif — pelanggan tidak akan boleh order. Teruskan?',
+        confirmText: 'Teruskan',
+        cancelText: 'Batal',
+        variant: 'danger',
+      });
       if (!ok) {
         setTab('jadual');
         return;

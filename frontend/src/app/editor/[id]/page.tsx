@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { confirmDialog } from '@/components/ui/popups';
 import {
   supabase,
   getCurrentUser,
@@ -507,12 +508,16 @@ export default function EditorPage() {
     }
   }
 
-  function handleBack() {
-    if (
-      dirty &&
-      !window.confirm('Anda ada perubahan tidak disimpan. Tinggal halaman?')
-    ) {
-      return;
+  async function handleBack() {
+    if (dirty) {
+      const leave = await confirmDialog({
+        title: 'Tinggal halaman?',
+        message: 'Anda ada perubahan tidak disimpan. Tinggal halaman?',
+        confirmText: 'Tinggal halaman',
+        cancelText: 'Kekal di sini',
+        variant: 'danger',
+      });
+      if (!leave) return;
     }
     router.push('/dashboard');
   }

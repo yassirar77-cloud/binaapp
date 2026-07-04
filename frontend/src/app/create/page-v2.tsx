@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
@@ -164,10 +165,10 @@ export default function CreatePage() {
         .from('websites')
         .upload(`${subdomain}/index.html`, new Blob([html], { type: 'text/html' }), { upsert: true });
 
-      alert('✅ Website saved!');
+      toast.success('✅ Website saved!');
       router.push('/dashboard');
     } else {
-      alert('❌ Error saving: ' + error?.message);
+      toast.error('❌ Error saving: ' + error?.message);
     }
   }
 

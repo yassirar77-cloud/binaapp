@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { alertDialog } from '@/components/ui/popups';
 import { supabase } from '@/lib/supabase';
 import { checkImageSafety } from '@/utils/imageModeration';
 
@@ -34,7 +35,7 @@ export default function AssetsManager({ assets, onAssetsChange }: AssetsManagerP
         // Moderation check before upload
         const moderationResult = await checkImageSafety(file);
         if (!moderationResult.allowed) {
-          alert(moderationResult.message);
+          await alertDialog({ title: 'Imej ditolak', message: moderationResult.message, variant: 'warning' });
           continue; // Skip this file, try next
         }
 
@@ -72,7 +73,7 @@ export default function AssetsManager({ assets, onAssetsChange }: AssetsManagerP
         // Moderation check before upload
         const moderationResult = await checkImageSafety(file);
         if (!moderationResult.allowed) {
-          alert(moderationResult.message);
+          await alertDialog({ title: 'Imej ditolak', message: moderationResult.message, variant: 'warning' });
           continue; // Skip this file, try next
         }
 

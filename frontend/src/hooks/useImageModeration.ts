@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react'
+import { alertDialog } from '@/components/ui/popups'
 import { checkImageSafety, type ModerationResult } from '@/utils/imageModeration'
 
 export function useImageModeration() {
@@ -33,7 +34,7 @@ export function useImageModeration() {
     if (result.allowed) {
       onApproved?.(file)
     } else {
-      onRejected ? onRejected(result.message) : alert(result.message)
+      onRejected ? onRejected(result.message) : void alertDialog({ title: 'Imej ditolak', message: result.message, variant: 'warning' })
     }
 
     return result

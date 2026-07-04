@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getStoredToken } from '@/lib/supabase'
+import { promptDialog } from '@/components/ui/popups'
 import AdminStatCard from '@/components/admin/AdminStatCard'
 import EscalatedDisputeCard from '@/components/admin/EscalatedDisputeCard'
 import ChatViewer from '@/components/admin/ChatViewer'
@@ -268,7 +269,13 @@ export default function AdminPage() {
 
   const handleSuspendRestaurant = async (websiteId: string) => {
     if (pendingAction) return
-    const reason = prompt('Sebab penggantungan:')
+    const reason = await promptDialog({
+      title: 'Gantung restoran',
+      message: 'Sebab penggantungan:',
+      confirmText: 'Gantung',
+      cancelText: 'Batal',
+      multiline: true,
+    })
     if (!reason) return
     setPendingAction(`suspend:${websiteId}`)
     try {
@@ -330,7 +337,13 @@ export default function AdminPage() {
 
   const handleResolveDispute = async (disputeId: string) => {
     if (pendingAction) return
-    const notes = prompt('Nota penyelesaian:')
+    const notes = await promptDialog({
+      title: 'Selesaikan aduan',
+      message: 'Nota penyelesaian:',
+      confirmText: 'Selesaikan',
+      cancelText: 'Batal',
+      multiline: true,
+    })
     if (!notes) return
     setPendingAction(`resolve:${disputeId}`)
     try {

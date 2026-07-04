@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { confirmDialog } from '@/components/ui/popups'
 import { Field } from '@/app/profile/components/primitives/Field'
 import { GhostButton } from '@/app/profile/components/primitives/GhostButton'
 import { PrimaryButton } from '@/app/profile/components/primitives/PrimaryButton'
@@ -170,7 +171,13 @@ export function RiderForm({
 
   async function handleDelete() {
     if (!rider) return
-    const ok = window.confirm(`Padam rider "${rider.name || 'tanpa nama'}"? Tindakan ini tidak boleh dibatalkan.`)
+    const ok = await confirmDialog({
+      title: 'Padam rider?',
+      message: `Padam rider "${rider.name || 'tanpa nama'}"? Tindakan ini tidak boleh dibatalkan.`,
+      confirmText: 'Padam',
+      cancelText: 'Batal',
+      variant: 'danger',
+    })
     if (!ok) return
     try {
       await deleteRider(rider.id)

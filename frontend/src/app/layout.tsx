@@ -6,7 +6,7 @@ import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import { Suspense } from 'react'
 import './globals.css'
-import { Toaster } from 'react-hot-toast'
+import { AppToaster, PopupHost } from '@/components/ui/popups'
 import { ServiceWorkerRegister } from '@/components/ServiceWorkerRegister'
 import ChatWidget from '@/components/ChatWidget'
 import { AuthProvider } from '@/components/AuthProvider'
@@ -94,16 +94,8 @@ export default function RootLayout({
         </Suspense>
         <ServiceWorkerRegister swPath="/sw.js" />
         <ChatWidget />
-        <Toaster
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: '#363636',
-              color: '#fff',
-            },
-          }}
-        />
+        <AppToaster />
+        <PopupHost />
       </body>
     </html>
   )

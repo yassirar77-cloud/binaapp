@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { getStoredToken } from '@/lib/supabase'
+import { confirmDialog } from '@/components/ui/popups'
 import { Dispute, DisputeMessage, DisputeSummary, DisputeCategory, DisputeResolutionType } from '@/types'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com'
@@ -247,7 +248,13 @@ export default function DisputesPage() {
     const token = getStoredToken()
     if (!token) return
 
-    if (!confirm('Are you sure you want to escalate this dispute to the BinaApp team?')) return
+    const ok = await confirmDialog({
+      title: 'Escalate dispute?',
+      message: 'Are you sure you want to escalate this dispute to the BinaApp team?',
+      confirmText: 'Escalate',
+      cancelText: 'Cancel',
+    })
+    if (!ok) return
 
     setEscalating(true)
     try {

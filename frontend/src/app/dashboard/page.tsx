@@ -144,7 +144,8 @@ export default function DashboardPage() {
   }
 
   const handleDelete = async (projectId: string) => {
-    if (!confirm('Are you sure you want to delete this project?')) return
+    // The card's inline "Pasti?" confirm is the single confirmation step —
+    // this handler only runs after the user has confirmed there.
     if (!supabase) return
 
     setDeleting(projectId)
