@@ -1,5 +1,22 @@
 # Generation Upgrade Plan — Lovable-Tier AI Website Generation
 
+> ## ⏸️ PARKED (2026-07-04)
+> M0 (quality harness: output lint, golden prompts, side-by-side screenshot
+> gallery) and M1 (intent extraction → DesignBrief brief generator → recipe
+> pipeline, flag-gated with auto-fallback) are **built and working** on branch
+> `claude/generation-upgrade-m0-m1` — 383 tests passing, ruff clean, verified
+> end-to-end. **Not merged; old pipeline stays default and serves everyone**
+> (`GENERATION_RECIPE_PIPELINE_ENABLED` defaults OFF, no Render env vars set).
+>
+> Why parked: M1 output skewed **too dark for Malaysian F&B** — the DNA
+> selection favors the dark Style DNAs (pasar_malam_neon, fine_dining_obsidian,
+> kopi_hitam) too often, while the target market mostly wants bright, warm,
+> family-friendly sites. Before M1 can beat the old pipeline it needs
+> bright-default tuning (bias DNA selection to light DNAs unless the user
+> clearly asks for dark) plus the M3 recipe widening (palette derivation,
+> layout tokens, more editorial variants). Revisit later; everything below
+> remains the plan of record when we do.
+
 **Status:** AUDIT + PLAN ONLY — no production code written in this session.
 **Date:** 2026-07-04
 **Scope:** Upgrade BinaApp's AI website generation so that a Malaysian F&B SME describing their business gets output that looks designer-built, not templated.
