@@ -284,6 +284,113 @@ async def _fetch_html_from_storage(subdomain: str) -> Optional[str]:
     return None
 
 
+def _build_published_url(subdomain: str) -> str:
+    """The site's real published URL — what the QR code must encode.
+
+    Uses the subdomain host on the main domain. Never the generation-time
+    preview URL (preview.binaapp.my) that gets baked into stored HTML.
+    """
+    return f"https://{subdomain}.{settings.MAIN_DOMAIN}"
+
+
+def _inject_qr_block(html_content: str, subdomain: str, language: str = "ms") -> str:
+    """
+    Replace the generation-baked "Scan to Visit" QR block with a corrected one.
+
+    Fixes four defects in the baked block (see design-defects goal, P0 #2):
+      1. It sat as an orphan strip AFTER </footer> → move it INSIDE the footer.
+      2. It was left-aligned (Tailwind preflight sets img{display:block}, so a
+         wrapper text-align:center did nothing) → center via the <img> itself
+         with margin:0 auto;display:block.
+      3. It was in English → localise to the site language.
+      4. It encoded preview.binaapp.my → encode the REAL published URL.
+
+    Idempotent-ish: strips any prior baked QR block first, so re-serving a
+    cached page never stacks two QR blocks.
+    """
+    if not subdomain:
+        return html_content
+
+    # Strip the generation-baked block (templates.inject_qr_code marker) and any
+    # previously-injected block from this function.
+    html_content = re.sub(
+        r'<!-- QR Code Section -->\s*<div\b.*?</div>',
+        '', html_content, flags=re.DOTALL
+    )
+    html_content = re.sub(
+        r'<!-- BinaApp QR Block -->\s*<div\b.*?</div>',
+        '', html_content, flags=re.DOTALL
+    )
+
+    published_url = _build_published_url(subdomain)
+    from urllib.parse import quote
+    qr_src = (
+        "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data="
+        + quote(published_url, safe="")
+    )
+
+    label = "📱 Imbas untuk Lawat" if language == "ms" else "📱 Scan to Visit"
+
+    # color:inherit so the block adopts the (usually dark) footer's text colour
+    # instead of a hardcoded near-black that would vanish on a dark background.
+    qr_block = f'''
+<!-- BinaApp QR Block -->
+<div style="text-align:center;padding:32px 20px;">
+  <p style="font-size:1.1rem;font-weight:600;margin:0 0 1rem;color:inherit;">{label}</p>
+  <img src="{qr_src}" alt="{label}" width="200" height="200"
+       style="margin:0 auto;display:block;width:200px;height:200px;background:#fff;padding:8px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
+</div>
+'''
+
+    # Inject INSIDE the footer (before its closing tag) so it never orphans
+    # after </footer>. Fall back to before </body> when there's no footer.
+    if "</footer>" in html_content:
+        html_content = html_content.replace("</footer>", qr_block + "</footer>", 1)
+    elif "</body>" in html_content:
+        html_content = html_content.replace("</body>", qr_block + "\n</body>", 1)
+    else:
+        html_content += qr_block
+
+    return html_content
+
+
+# Inline script injected once per served page. Guards against a blank contact
+# card: if the AI-emitted #binaapp-contact-slot never received a widget, drop a
+# WhatsApp fallback CTA (using the first wa.me number found on the page) so we
+# never lose the conversion surface — or hide the empty card as a last resort.
+_CONTACT_SLOT_FALLBACK_SCRIPT = '''
+<!-- BinaApp contact-slot fallback -->
+<script>
+(function(){
+  function run(){
+    var slot = document.getElementById('binaapp-contact-slot');
+    if(!slot) return;
+    if(slot.querySelector('*')) return; // widget already injected — leave it
+    var waLink = document.querySelector('a[href*="wa.me/"]');
+    if(waLink){
+      var href = waLink.getAttribute('href');
+      var cta = document.createElement('a');
+      cta.href = href;
+      cta.target = '_blank';
+      cta.rel = 'noopener';
+      cta.textContent = 'Hubungi Kami di WhatsApp';
+      cta.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;gap:8px;background:#25D366;color:#fff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:600;font-size:1rem;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
+      slot.appendChild(cta);
+    } else {
+      var card = slot.closest('[data-aos]') || slot.parentElement;
+      if(card) card.style.display = 'none';
+    }
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(run, 400); });
+  } else {
+    setTimeout(run, 400);
+  }
+})();
+</script>
+'''
+
+
 def _inject_widgets(html_content: str, website_id: str, business_type: str = "food", language: str = "ms", subdomain: str = "") -> str:
     """
     Remove old widget scripts and inject correct ones with the proper website_id.
@@ -379,6 +486,23 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
         aos_script = '<script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>\n<script>if(typeof AOS!=="undefined"){document.documentElement.classList.add("aos-initialized");AOS.init({once:true,duration:600});}</script>\n'
         if '</body>' in html_content:
             html_content = html_content.replace('</body>', aos_script + '</body>', 1)
+
+    # QR block: replace the generation-baked "Scan to Visit" block (English,
+    # left-aligned, encoding preview.binaapp.my, orphaned after </footer>) with
+    # a corrected one — centred, localised, inside the footer, encoding the real
+    # published URL. Patches already-published sites without republish.
+    html_content = _inject_qr_block(html_content, subdomain, language)
+
+    # Contact-slot fallback: if the AI-emitted contact slot renders empty,
+    # inject a WhatsApp fallback CTA (or hide the card) so we never show a blank
+    # 320px white box. Placed before </body>.
+    if 'binaapp-contact-slot' in html_content:
+        if '</body>' in html_content:
+            html_content = html_content.replace(
+                '</body>', _CONTACT_SLOT_FALLBACK_SCRIPT + '\n</body>', 1
+            )
+        else:
+            html_content += _CONTACT_SLOT_FALLBACK_SCRIPT
 
     # Layout safety guard: inline CSS that survives AOS failures, caps non-hero
     # section heights, equalises menu card heights, and pins the floating
