@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
@@ -46,6 +46,18 @@ export default function DashboardHeader({
   const pathname = usePathname()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
+
+  useEffect(() => {
+    if (!avatarMenuOpen && !mobileMenuOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setAvatarMenuOpen(false)
+        setMobileMenuOpen(false)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [avatarMenuOpen, mobileMenuOpen])
 
   const navItems = NAV_ITEMS.map((item) => ({
     ...item,
@@ -137,6 +149,8 @@ export default function DashboardHeader({
           <div className="relative">
             <button
               onClick={() => setAvatarMenuOpen(!avatarMenuOpen)}
+              aria-haspopup="menu"
+              aria-expanded={avatarMenuOpen}
               className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.1] text-xs font-semibold text-white hover:bg-white/[0.15] transition-colors overflow-hidden"
             >
               {avatarUrl ? (
@@ -149,7 +163,7 @@ export default function DashboardHeader({
             {avatarMenuOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setAvatarMenuOpen(false)} />
-                <div className="absolute right-0 top-full mt-2 z-50 w-44 rounded-xl bg-[#161623] border border-white/[0.08] py-1.5 shadow-xl shadow-black/40">
+                <div role="menu" className="absolute right-0 top-full mt-2 z-50 w-44 origin-top-right animate-scale-in rounded-xl bg-[#161623] border border-white/[0.08] py-1.5 shadow-xl shadow-black/40">
                   <Link href="/profile" className="block px-4 py-2 text-sm text-white/70 hover:text-white hover:bg-white/[0.05] transition-colors">
                     Profil
                   </Link>
@@ -185,7 +199,7 @@ export default function DashboardHeader({
 
       {/* Mobile nav drawer */}
       {mobileMenuOpen && (
-        <nav className="md:hidden border-t border-white/[0.06] px-4 pb-4 pt-2">
+        <nav className="md:hidden animate-slide-up border-t border-white/[0.06] px-4 pb-4 pt-2">
           {navItems.map((item) => (
             <Link
               key={item.href}

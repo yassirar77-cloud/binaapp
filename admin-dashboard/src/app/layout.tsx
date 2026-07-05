@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import { AppToaster } from '@/components/ui/AppToaster'
 
 export const metadata: Metadata = {
   title: 'BinaApp Admin',
@@ -35,6 +36,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen bg-ink-900 font-sans antialiased">
         {children}
+        <AppToaster />
         <script
           dangerouslySetInnerHTML={{
             __html: `

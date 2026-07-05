@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import toast from 'react-hot-toast'
 import { Card, Badge, LoadingSpinner, EmptyState } from '@/components/ui/Card'
 import { formatDateTime, timeAgo } from '@/lib/utils'
 
@@ -43,6 +44,7 @@ export function ErrorsPage() {
       setSummary(data.todaySummary ?? { total: 0, deepseek: 0, qwen: 0, stability: 0 })
     } catch (err) {
       console.error('Failed to fetch errors:', err)
+      toast.error('Failed to load errors')
     } finally {
       setLoading(false)
     }

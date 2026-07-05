@@ -1,6 +1,6 @@
 'use client';
 
-import { X } from 'lucide-react';
+import { Modal } from '@/components/ui/popups';
 
 // Bottom-sheet guide for iOS Safari, where no programmatic install prompt
 // exists — the user must use Share → Add to Home Screen manually.
@@ -34,54 +34,31 @@ const STEPS = [
 
 export default function IOSInstallGuide({ appName, onClose }: IOSInstallGuideProps) {
   return (
-    <div className="fixed inset-0 z-[9999] flex items-end justify-center">
-      <div
-        className="absolute inset-0 bg-black/60"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Install ${appName} di iPhone/iPad`}
-        className="relative w-full max-w-md m-4 rounded-2xl bg-[#161623] border border-white/10 p-5 shadow-2xl"
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="font-semibold text-white">Install {appName}</p>
-            <p className="text-sm text-white/50 mt-0.5">
-              Untuk iPhone/iPad (Safari):
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 text-white/40 hover:text-white transition-colors"
-            aria-label="Tutup"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <ol className="mt-4 space-y-3">
-          {STEPS.map((step, i) => (
-            <li key={i} className="flex items-center gap-3 text-sm text-white/80">
-              <span className="flex-shrink-0 w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs font-semibold text-white">
-                {i + 1}
-              </span>
-              <span>{step}</span>
-            </li>
-          ))}
-        </ol>
-
+    <Modal
+      open
+      onClose={onClose}
+      title={`Install ${appName}`}
+      description="Untuk iPhone/iPad (Safari):"
+      footer={
         <button
           type="button"
           onClick={onClose}
-          className="mt-5 w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-sm font-medium text-white transition-colors"
+          className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-sm font-medium text-white transition-colors sm:w-auto sm:px-6"
         >
           Faham
         </button>
-      </div>
-    </div>
+      }
+    >
+      <ol className="space-y-3">
+        {STEPS.map((step, i) => (
+          <li key={i} className="flex items-center gap-3 text-sm text-white/80">
+            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs font-semibold text-white">
+              {i + 1}
+            </span>
+            <span>{step}</span>
+          </li>
+        ))}
+      </ol>
+    </Modal>
   );
 }

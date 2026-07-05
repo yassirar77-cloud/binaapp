@@ -32,6 +32,15 @@ export default function ChatWidget() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
+    useEffect(() => {
+        if (!isOpen) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setIsOpen(false);
+        };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [isOpen]);
+
     // Early return AFTER all hooks
     if (shouldHide) {
         return null;
@@ -79,7 +88,7 @@ export default function ChatWidget() {
             {/* Chat Button - Smaller on mobile */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="fixed bottom-4 right-4 z-50 bg-blue-600 hover:bg-blue-700 text-white p-3 md:p-4 rounded-full shadow-xl transition-all duration-300"
+                className="fixed bottom-4 right-4 z-50 rounded-full bg-ink-800 p-3 text-volt-400 shadow-2xl shadow-black/50 ring-1 ring-white/[0.12] transition-all duration-300 hover:bg-ink-700 hover:ring-volt-400/40 md:p-4"
                 aria-label="Chat Support"
             >
                 {isOpen ? (
@@ -98,21 +107,21 @@ export default function ChatWidget() {
                 <div className="fixed bottom-16 right-2 md:bottom-24 md:right-6 z-50
                     w-[calc(100vw-16px)] max-w-[320px] md:max-w-[380px]
                     h-[60vh] max-h-[450px] md:max-h-[500px]
-                    bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200">
+                    bg-ink-800 rounded-2xl shadow-2xl shadow-black/50 flex flex-col overflow-hidden ring-1 ring-white/[0.08] animate-scale-in origin-bottom-right">
 
                     {/* Header - Smaller on mobile */}
-                    <div className="bg-blue-600 text-white p-3 md:p-4 flex items-center gap-2 md:gap-3">
-                        <div className="w-8 h-8 md:w-10 md:h-10 bg-white/20 rounded-full flex items-center justify-center text-sm md:text-base">
+                    <div className="border-b border-white/[0.08] bg-ink-900 text-white p-3 md:p-4 flex items-center gap-2 md:gap-3">
+                        <div className="w-8 h-8 md:w-10 md:h-10 bg-volt-400/15 ring-1 ring-volt-400/30 rounded-full flex items-center justify-center text-sm md:text-base">
                             🤖
                         </div>
                         <div>
                             <h3 className="font-bold text-sm md:text-base">BinaBot</h3>
-                            <p className="text-[10px] md:text-xs text-blue-100">Sokongan Pelanggan</p>
+                            <p className="text-[10px] md:text-xs text-ink-300">Sokongan Pelanggan</p>
                         </div>
                         {/* Close button for mobile */}
                         <button
                             onClick={() => setIsOpen(false)}
-                            className="ml-auto md:hidden p-1"
+                            className="ml-auto md:hidden p-1 text-ink-300 hover:text-white transition-colors"
                         >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -121,7 +130,7 @@ export default function ChatWidget() {
                     </div>
 
                     {/* Messages - Smaller text on mobile */}
-                    <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3 bg-gray-50">
+                    <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3 bg-ink-900/60">
                         {messages.map((msg, i) => (
                             <div
                                 key={i}
@@ -130,8 +139,8 @@ export default function ChatWidget() {
                                 <div
                                     className={`max-w-[85%] p-2 md:p-3 rounded-2xl ${
                                         msg.role === 'user'
-                                            ? 'bg-blue-600 text-white rounded-br-md'
-                                            : 'bg-white text-gray-800 rounded-bl-md shadow-sm border'
+                                            ? 'bg-volt-400 text-ink-900 rounded-br-md'
+                                            : 'bg-white/[0.06] text-ink-100 rounded-bl-md ring-1 ring-white/[0.08]'
                                     }`}
                                 >
                                     <p className="text-xs md:text-sm whitespace-pre-wrap">{msg.content}</p>
@@ -141,11 +150,11 @@ export default function ChatWidget() {
 
                         {loading && (
                             <div className="flex justify-start">
-                                <div className="bg-white p-2 md:p-3 rounded-2xl rounded-bl-md shadow-sm border">
+                                <div className="bg-white/[0.06] p-2 md:p-3 rounded-2xl rounded-bl-md ring-1 ring-white/[0.08]">
                                     <div className="flex gap-1">
-                                        <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></span>
-                                        <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></span>
-                                        <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></span>
+                                        <span className="w-2 h-2 bg-ink-400 rounded-full animate-bounce"></span>
+                                        <span className="w-2 h-2 bg-ink-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></span>
+                                        <span className="w-2 h-2 bg-ink-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></span>
                                     </div>
                                 </div>
                             </div>
@@ -155,7 +164,7 @@ export default function ChatWidget() {
                     </div>
 
                     {/* Input - Smaller on mobile */}
-                    <div className="p-2 md:p-3 bg-white border-t">
+                    <div className="p-2 md:p-3 bg-ink-800 border-t border-white/[0.08]">
                         <div className="flex gap-2">
                             <input
                                 type="text"
@@ -163,13 +172,13 @@ export default function ChatWidget() {
                                 onChange={(e) => setInput(e.target.value)}
                                 onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
                                 placeholder="Taip soalan..."
-                                className="flex-1 px-3 py-2 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs md:text-sm"
+                                className="flex-1 px-3 py-2 bg-white/[0.04] ring-1 ring-white/[0.08] text-ink-050 placeholder:text-ink-500 rounded-full focus:outline-none focus:ring-2 focus:ring-volt-400/60 text-xs md:text-sm"
                                 disabled={loading}
                             />
                             <button
                                 onClick={sendMessage}
                                 disabled={loading || !input.trim()}
-                                className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white p-2 rounded-full transition-colors"
+                                className="bg-volt-400 hover:bg-volt-300 disabled:bg-white/[0.08] disabled:text-ink-500 text-ink-900 p-2 rounded-full transition-colors"
                             >
                                 <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />

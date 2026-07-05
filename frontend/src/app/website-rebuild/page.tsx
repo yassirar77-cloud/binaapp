@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import toast from 'react-hot-toast'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
 import { getStoredToken } from '@/lib/supabase'
@@ -101,18 +102,18 @@ export default function WebsiteRebuildPage() {
 
       if (response.ok) {
         const d = await response.json()
-        alert('Bina semula berjaya! Sila semak pratonton.')
+        toast.success('Bina semula berjaya! Sila semak pratonton.')
         loadHistory()
         if (d.data?.id && d.data?.status === 'preview_ready') {
           loadPreview(d.data.id)
         }
       } else {
         const err = await response.json()
-        alert(err.detail || 'Gagal membina semula')
+        toast.error(err.detail || 'Gagal membina semula')
       }
     } catch (err) {
       console.error('Error:', err)
-      alert('Ralat rangkaian')
+      toast.error('Ralat rangkaian')
     } finally {
       setRebuilding(false)
     }
@@ -143,7 +144,7 @@ export default function WebsiteRebuildPage() {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (response.ok) {
-        alert('Laman web berjaya dikemas kini!')
+        toast.success('Laman web berjaya dikemas kini!')
         setPreview(null)
         loadHistory()
       }

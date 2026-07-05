@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import toast from 'react-hot-toast'
 import { Card, SearchInput, FilterChip, Badge, LoadingSpinner, EmptyState } from '@/components/ui/Card'
 import { formatDate } from '@/lib/utils'
 
@@ -50,6 +51,7 @@ export function UsersPage() {
       setTotal(data.total ?? 0)
     } catch (err) {
       console.error('Failed to fetch users:', err)
+      toast.error('Failed to load users')
     } finally {
       setLoading(false)
     }

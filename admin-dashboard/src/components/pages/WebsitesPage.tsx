@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import toast from 'react-hot-toast'
 import { Card, SearchInput, FilterChip, Badge, LoadingSpinner, EmptyState } from '@/components/ui/Card'
 import { formatDate } from '@/lib/utils'
 
@@ -49,6 +50,7 @@ export function WebsitesPage() {
       setCounts(data.counts ?? { total: 0, published: 0, draft: 0, failed: 0 })
     } catch (err) {
       console.error('Failed to fetch websites:', err)
+      toast.error('Failed to load websites')
     } finally {
       setLoading(false)
     }

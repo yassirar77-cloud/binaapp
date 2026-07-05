@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import toast from 'react-hot-toast'
+import { confirmDialog } from '@/components/ui/popups'
 import { useRouter } from 'next/navigation'
 import { API_BASE_URL } from '@/lib/env'
 import { getStoredToken } from '@/lib/supabase'
@@ -93,7 +95,7 @@ export default function WebhooksPage() {
         loadEndpoints()
       } else {
         const err = await response.json()
-        alert(err.detail || 'Gagal mencipta webhook')
+        toast.error(err.detail || 'Gagal mencipta webhook')
       }
     } catch (err) {
       console.error('Error:', err)
@@ -103,7 +105,14 @@ export default function WebhooksPage() {
   }
 
   const deleteEndpoint = async (id: string) => {
-    if (!confirm('Padam webhook ini?')) return
+    const ok = await confirmDialog({
+      title: 'Padam webhook?',
+      message: 'Padam webhook ini?',
+      confirmText: 'Padam',
+      cancelText: 'Batal',
+      variant: 'danger',
+    })
+    if (!ok) return
 
     try {
       const token = getStoredToken()
@@ -125,7 +134,7 @@ export default function WebhooksPage() {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (response.ok) {
-        alert('Webhook ujian dihantar!')
+        toast.success('Webhook ujian dihantar!')
       }
     } catch (err) {
       console.error('Error:', err)

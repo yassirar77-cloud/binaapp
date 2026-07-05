@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import toast from 'react-hot-toast'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { API_BASE_URL } from '@/lib/env'
 import { getStoredToken } from '@/lib/supabase'
@@ -127,7 +128,7 @@ export default function AIChatSettingsPage() {
         })
       })
       if (response.ok) {
-        alert('Tetapan berjaya disimpan!')
+        toast.success('Tetapan berjaya disimpan!')
       }
     } catch (err) {
       console.error('Error saving:', err)

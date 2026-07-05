@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { confirmDialog } from '@/components/ui/popups';
 import { getCurrentUser } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
 import {
@@ -261,7 +262,14 @@ export default function PenghantaranClient({
   );
 
   const handleDeleteZone = useCallback(async (zone: Zone) => {
-    if (!window.confirm(`Padam ring "${zone.name}"?`)) return;
+    const ok = await confirmDialog({
+      title: 'Padam ring?',
+      message: `Padam ring "${zone.name}"?`,
+      confirmText: 'Padam',
+      cancelText: 'Batal',
+      variant: 'danger',
+    });
+    if (!ok) return;
     try {
       await deleteZone(zone.id);
       setZones((zs) => zs.filter((z) => z.id !== zone.id));

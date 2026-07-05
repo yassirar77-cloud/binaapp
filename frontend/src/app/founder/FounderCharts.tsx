@@ -22,7 +22,16 @@ export function PlanPieChart({ data }: { data: NameValue[] }) {
         <Pie data={data} cx="50%" cy="50%" outerRadius={80} dataKey="value" label={({ name, value }) => `${name}: ${value}`}>
           {data.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
         </Pie>
-        <Tooltip />
+        <Tooltip
+          contentStyle={{
+            background: '#161623',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 10,
+            fontSize: 12,
+          }}
+          itemStyle={{ color: '#F7F7FA' }}
+          labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
+        />
       </PieChart>
     </ResponsiveContainer>
   )
@@ -35,7 +44,16 @@ export function ValueBarChart({ data, fill, height = 250 }: { data: NameValue[];
         <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
         <XAxis dataKey="name" stroke="#9CA3AF" />
         <YAxis stroke="#9CA3AF" />
-        <Tooltip />
+        <Tooltip
+          contentStyle={{
+            background: '#161623',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 10,
+            fontSize: 12,
+          }}
+          itemStyle={{ color: '#F7F7FA' }}
+          labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
+        />
         <Bar dataKey="value" fill={fill} />
       </BarChart>
     </ResponsiveContainer>
@@ -49,7 +67,16 @@ export function UserGrowthChart({ data }: { data: { month: string; users: number
         <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
         <XAxis dataKey="month" stroke="#9CA3AF" />
         <YAxis stroke="#9CA3AF" />
-        <Tooltip />
+        <Tooltip
+          contentStyle={{
+            background: '#161623',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 10,
+            fontSize: 12,
+          }}
+          itemStyle={{ color: '#F7F7FA' }}
+          labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
+        />
         <Line type="monotone" dataKey="users" stroke="#3B82F6" strokeWidth={2} dot={{ fill: '#3B82F6' }} />
       </LineChart>
     </ResponsiveContainer>

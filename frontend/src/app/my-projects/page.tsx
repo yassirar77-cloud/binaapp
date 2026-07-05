@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import toast from 'react-hot-toast'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { getCurrentUser, getStoredToken, signOut } from '@/lib/supabase'
@@ -109,7 +110,7 @@ export default function MyProjectsPage() {
     } catch (error) {
       console.error('Error deleting website:', error)
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      alert(`Ralat memadam website: ${errorMessage}`)
+      toast.error(`Ralat memadam website: ${errorMessage}`)
     } finally {
       setDeleting(null)
     }

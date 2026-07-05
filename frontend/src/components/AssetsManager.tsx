@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { alertDialog } from '@/components/ui/popups';
 import { supabase } from '@/lib/supabase';
 import { checkImageSafety } from '@/utils/imageModeration';
 
@@ -34,7 +35,7 @@ export default function AssetsManager({ assets, onAssetsChange }: AssetsManagerP
         // Moderation check before upload
         const moderationResult = await checkImageSafety(file);
         if (!moderationResult.allowed) {
-          alert(moderationResult.message);
+          await alertDialog({ title: 'Imej ditolak', message: moderationResult.message, variant: 'warning' });
           continue; // Skip this file, try next
         }
 
@@ -72,7 +73,7 @@ export default function AssetsManager({ assets, onAssetsChange }: AssetsManagerP
         // Moderation check before upload
         const moderationResult = await checkImageSafety(file);
         if (!moderationResult.allowed) {
-          alert(moderationResult.message);
+          await alertDialog({ title: 'Imej ditolak', message: moderationResult.message, variant: 'warning' });
           continue; // Skip this file, try next
         }
 
@@ -296,10 +297,10 @@ export default function AssetsManager({ assets, onAssetsChange }: AssetsManagerP
       </div>
 
       {uploading && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-xl shadow-xl">
-            <div className="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto"></div>
-            <p className="mt-3 text-gray-600">Uploading...</p>
+        <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="animate-scale-in rounded-2xl bg-ink-800 p-6 shadow-2xl shadow-black/50 ring-1 ring-white/[0.08]">
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-volt-400 border-t-transparent"></div>
+            <p className="mt-3 text-sm text-ink-200">Uploading...</p>
           </div>
         </div>
       )}

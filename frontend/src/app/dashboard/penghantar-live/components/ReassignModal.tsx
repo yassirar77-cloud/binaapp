@@ -4,8 +4,9 @@
 // "Idle" = is_online AND no active_order_id. Calls PATCH /live/orders/{id}/rider.
 
 import { useMemo, useState } from 'react';
-import { Bike, X } from 'lucide-react';
+import { Bike } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { Modal } from '@/components/ui/popups';
 import { reassignRider } from '../lib/api';
 import type { ActiveOrder, LiveRider } from '../lib/types';
 import { computeRiderPresence } from '../lib/types';
@@ -48,7 +49,7 @@ export default function ReassignModal({ order, riders, onClose, onSuccess }: Pro
   };
 
   return (
-    <ModalShell onClose={onClose} title="Tukar rider">
+    <Modal open onClose={onClose} title="Tukar rider" className="sm:max-w-[440px]">
       <p className="text-[13px] text-white/60 font-geist mb-3">
         Pilih rider yang idle untuk pesanan <span className="font-mono text-white/80">{order.order_number}</span>.
       </p>
@@ -120,41 +121,6 @@ export default function ReassignModal({ order, riders, onClose, onSuccess }: Pro
           {submitting ? 'Menyimpan…' : 'Sahkan tukar rider'}
         </button>
       </div>
-    </ModalShell>
-  );
-}
-
-function ModalShell({
-  onClose,
-  title,
-  children,
-}: {
-  onClose: () => void;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-[2000] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="w-full sm:w-[440px] sm:max-w-[90vw] bg-[#0a0e1a] border border-white/[0.08] rounded-t-2xl sm:rounded-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3 border-b border-white/[0.06]">
-          <h3 className="text-base font-geist font-semibold text-white">{title}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Tutup"
-            className="h-10 w-10 -mr-2 flex items-center justify-center rounded-lg text-white/60 hover:text-white hover:bg-white/[0.06] transition"
-          >
-            <X size={18} strokeWidth={1.5} />
-          </button>
-        </div>
-        <div className="px-4 py-4">{children}</div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout, FileText, MapPin, Truck, ListChecks, Globe, X as XIcon } from 'lucide-react'
+import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout, FileText, MapPin, Truck, ListChecks, Globe, ChevronDown, X as XIcon } from 'lucide-react'
 import VisualImageUpload from './components/VisualImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
@@ -129,6 +129,28 @@ export default function CreatePage() {
   const [publishing, setPublishing] = useState(false)
   const [publishedUrl, setPublishedUrl] = useState('')
   const [copied, setCopied] = useState(false)
+  const [shareMenuOpen, setShareMenuOpen] = useState(false)
+  const shareMenuRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!shareMenuOpen) return
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (shareMenuRef.current && !shareMenuRef.current.contains(e.target as Node)) {
+        setShareMenuOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShareMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('touchstart', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('touchstart', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [shareMenuOpen])
   const [uploadedImages, setUploadedImages] = useState<{
     hero: string | null
     gallery: { url: string; name: string; price: string }[]
@@ -956,7 +978,7 @@ export default function CreatePage() {
     } else {
       const shareUrl = publishedUrl || window.location.href
       navigator.clipboard.writeText(shareUrl)
-      alert('Link copied to clipboard!')
+      toast.success('Link copied to clipboard!')
     }
   }
 
@@ -2473,14 +2495,26 @@ export default function CreatePage() {
                 <Upload size={14} /> Publish Website
               </button>
 
-              {/* Share dropdown */}
-              <div style={{ position: 'relative' }} className="group">
-                <button onClick={handleShare} className="cr-btn cr-btn-ghost"><Share2 size={14} /> Share</button>
-                <div className="cr-share-menu">
-                  <button onClick={() => handleShareSocial('whatsapp')} className="cr-share-item"><span style={{ fontSize: 16 }}>💬</span> WhatsApp</button>
-                  <button onClick={() => handleShareSocial('facebook')} className="cr-share-item"><span style={{ fontSize: 16 }}>📘</span> Facebook</button>
-                  <button onClick={() => handleShareSocial('twitter')} className="cr-share-item"><span style={{ fontSize: 16 }}>🐦</span> Twitter</button>
-                  <button onClick={() => handleShareSocial('linkedin')} className="cr-share-item"><span style={{ fontSize: 16 }}>💼</span> LinkedIn</button>
+              {/* Share dropdown — click-toggled (touch) + hover (pointer devices) */}
+              <div ref={shareMenuRef} style={{ position: 'relative' }} className={`group cr-share-group${shareMenuOpen ? ' open' : ''}`}>
+                <div style={{ display: 'flex' }}>
+                  <button onClick={handleShare} className="cr-btn cr-btn-ghost" style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}><Share2 size={14} /> Share</button>
+                  <button
+                    onClick={() => setShareMenuOpen((v) => !v)}
+                    className="cr-btn cr-btn-ghost"
+                    style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0, paddingLeft: 8, paddingRight: 8, marginLeft: -1 }}
+                    aria-haspopup="menu"
+                    aria-expanded={shareMenuOpen}
+                    aria-label="Buka menu share"
+                  >
+                    <ChevronDown size={14} style={{ transform: shareMenuOpen ? 'rotate(180deg)' : undefined, transition: 'transform 180ms' }} />
+                  </button>
+                </div>
+                <div className="cr-share-menu" role="menu">
+                  <button role="menuitem" onClick={() => { setShareMenuOpen(false); handleShareSocial('whatsapp') }} className="cr-share-item"><span style={{ fontSize: 16 }}>💬</span> WhatsApp</button>
+                  <button role="menuitem" onClick={() => { setShareMenuOpen(false); handleShareSocial('facebook') }} className="cr-share-item"><span style={{ fontSize: 16 }}>📘</span> Facebook</button>
+                  <button role="menuitem" onClick={() => { setShareMenuOpen(false); handleShareSocial('twitter') }} className="cr-share-item"><span style={{ fontSize: 16 }}>🐦</span> Twitter</button>
+                  <button role="menuitem" onClick={() => { setShareMenuOpen(false); handleShareSocial('linkedin') }} className="cr-share-item"><span style={{ fontSize: 16 }}>💼</span> LinkedIn</button>
                 </div>
               </div>
 

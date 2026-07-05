@@ -463,7 +463,11 @@
   z-index: 10; min-width: 160px;
   box-shadow: 0 12px 40px rgba(0,0,0,.5);
 }
-.group:hover .cr-share-menu { opacity: 1; visibility: visible; }
+/* Hover-open only on devices that actually hover; click/tap uses .open */
+@media (hover: hover) {
+  .cr-share-group:hover .cr-share-menu { opacity: 1; visibility: visible; }
+}
+.cr-share-group.open .cr-share-menu { opacity: 1; visibility: visible; }
 .cr-share-item {
   display: flex; align-items: center; gap: 8px;
   width: 100%; padding: 8px 12px;
