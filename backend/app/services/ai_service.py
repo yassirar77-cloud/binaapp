@@ -2836,6 +2836,28 @@ Keep all text consistent in English throughout."""
         if not wa_digits:
             wa_digits = "60123456789"
 
+        # ---- WHATSAPP LINK RULES ----
+        # Digits-only (no leading '+'): the '+' form fails to open on some
+        # Android WhatsApp clients. For non-ecommerce sites, each menu/dish CTA
+        # deep-links WhatsApp with the item name prefilled (higher conversion
+        # than a generic #hubungi anchor). Ecommerce sites keep bare cards — a
+        # separate ordering system is stitched on later.
+        if language == "ms":
+            _wa_prefill = "Assalamualaikum, saya nak pesan"
+        else:
+            _wa_prefill = "Hi, I would like to order"
+        if include_ecommerce:
+            wa_rules = f"""WHATSAPP LINKS:
+- Use ONLY the digits-only form: https://wa.me/{wa_digits} (NO leading '+', no spaces or dashes).
+- WhatsApp contact belongs ONLY in the footer/contact area. Do NOT add order buttons on menu/product cards."""
+        else:
+            wa_rules = f"""WHATSAPP LINKS:
+- Use ONLY the digits-only form: https://wa.me/{wa_digits} (NO leading '+', no spaces or dashes). NEVER write wa.me/+... anywhere.
+- EACH menu/dish/service card's CTA button (e.g. "Pesan", "Order") MUST deep-link WhatsApp with that item prefilled:
+  https://wa.me/{wa_digits}?text=<URL-ENCODED "{_wa_prefill} DISH_NAME">
+  Example for "Tomyam Campur": https://wa.me/{wa_digits}?text={_wa_prefill.replace(' ', '%20')}%20Tomyam%20Campur
+- URL-encode the text (spaces as %20). Do NOT point dish CTAs at a bare #hubungi anchor."""
+
         # ---- ADDRESS ----
         address_line = ""
         if location_address and str(location_address).strip():
@@ -2981,7 +3003,7 @@ body {{ background-color: var(--bg-color); font-family: '{fonts['body']}', {font
 
 ===== BEFORE </body> (MUST INCLUDE) =====
 <script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>
-<script>AOS.init({{ duration: 800, once: true, offset: 100 }});</script>
+<script>AOS.init({{ duration: 800, once: true, offset: 100 }}); document.documentElement.classList.add('aos-initialized');</script>
 
 ===== DESIGN SYSTEM =====
 
@@ -3019,6 +3041,19 @@ CARDS MUST STAY READABLE EVEN IF AN IMAGE FAILS:
 - If a card image fails to load, the card must remain legible — real text colour on the surface, never white text on a white background.
 - Give every img a neutral background colour and a fixed aspect ratio so a missing image leaves a clean placeholder block instead of collapsed or overlapping layout.
 
+ICONS — Font Awesome FREE 6.x ONLY (non-negotiable):
+- Only the Font Awesome FREE stylesheet is loaded (6.4.0 all.min.css). Use ONLY free solid (fa-solid / fas) and free brand (fa-brands / fab) glyphs.
+- NEVER use Pro-only or Pro-tier icons — they render as blank squares. Examples of FORBIDDEN Pro icons: fa-pot-food, fa-pan-frying, fa-plate-utensils, fa-burger-soda, fa-salad, fa-bowl-chopsticks. When unsure whether an icon is free, DO NOT use it.
+- Safe free food/service glyphs to prefer: fa-utensils, fa-bowl-food, fa-bowl-rice, fa-mug-hot, fa-burger, fa-drumstick-bite, fa-fish, fa-pizza-slice, fa-ice-cream, fa-truck, fa-star, fa-location-dot, fa-phone, fa-clock, fa-heart.
+
+BRAND / LOGO (non-negotiable):
+- The logo and footer brand text MUST be the FULL business name exactly: "{name}".
+- NEVER truncate the name to a single word or a fragment (e.g. do NOT render "kedai." for "Kedai Tomyam"). A styled dot or accent colour is allowed only AFTER the complete name.
+
+FOOTER:
+- Render the copyright year DYNAMICALLY, never a hardcoded year. Use:
+  &copy; <script>document.write(new Date().getFullYear())</script> {name}
+
 {typography}
 
 {design_patterns}
@@ -3050,6 +3085,8 @@ MUST WRITE REAL CONTENT:
 {"✅ WhatsApp contact ONLY in footer: https://wa.me/" + wa_digits if include_ecommerce else "✅ WhatsApp button: https://wa.me/" + wa_digits}
 {address_line}
 🚫 DO NOT invent phone numbers, addresses, cities, awards
+
+{wa_rules}
 
 {ecommerce_section}
 
@@ -3929,7 +3966,47 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             html = html.replace("</body>", f"{wa_button}\n</body>", 1)
             logger.info(f"   🔧 Injected missing WhatsApp link (wa.me/{wa_digits})")
 
+        # Normalize wa.me links to digits-only (no leading '+', no spaces/dashes).
+        # The '+' form (wa.me/+60123456789) fails to open on some Android
+        # WhatsApp clients; a page can end up with both forms. Rewrite the phone
+        # segment of every wa.me/ URL to bare digits while preserving any query
+        # string (?text=...).
+        html = self._normalize_wa_links(html)
+
+        # Post-generation linter: strip Pro-only Font Awesome icons (blank
+        # squares on free-6.x) and rewrite out-of-scale Tailwind opacity/spacing
+        # utilities the Play CDN silently drops. Deterministic + logged.
+        try:
+            from app.services.generation_linter import lint_html
+            html, lint_report = lint_html(html, context=f"{name} {desc}")
+            if lint_report.changed:
+                logger.info(
+                    f"   🧹 Generation linter: {len(lint_report.fa_replacements)} FA icon(s), "
+                    f"{len(lint_report.tw_rewrites)} Tailwind class(es) fixed"
+                )
+        except Exception as e:
+            logger.warning(f"   ⚠️ Generation linter skipped: {e}")
+
         return html
+
+    @staticmethod
+    def _normalize_wa_links(html: str) -> str:
+        """Rewrite every wa.me/ phone segment to bare digits (no '+', spaces or
+        dashes). Preserves the path's query string. Idempotent."""
+        if not html or "wa.me/" not in html:
+            return html
+
+        def _repl(m: re.Match) -> str:
+            digits = re.sub(r"\D", "", m.group("phone"))
+            return f"wa.me/{digits}"
+
+        # Match wa.me/ followed by a phone-ish segment (digits, +, spaces, dashes)
+        # up to the query string, fragment, quote, or whitespace.
+        return re.sub(
+            r"wa\.me/(?P<phone>[+\d][\d\s\-+]*)",
+            _repl,
+            html,
+        )
 
     def _fix_broken_image_urls(self, html: str, business_description: str = "") -> str:
         """

@@ -648,13 +648,19 @@ function handleContactSubmit(e) {{
         """
         Inject QR code for the website
         """
+        # NOTE: For subdomain-served sites the middleware (middleware/subdomain.py
+        # _inject_qr_block) strips this block and re-injects a corrected one that
+        # encodes the REAL published URL and localises the label. This baked block
+        # is what standalone exports get, so keep it centered (Tailwind preflight
+        # sets img{display:block}, so text-align on the wrapper is not enough —
+        # center the <img> itself with margin:0 auto).
         qr_html = f"""
 <!-- QR Code Section -->
 <div style="text-align:center;padding:40px 20px;background:#f9fafb;">
   <h3 style="font-size:1.5rem;margin-bottom:1rem;color:#1f2937;">📱 Scan to Visit</h3>
   <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={url}"
        alt="QR Code"
-       style="border:4px solid white;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+       style="margin:0 auto;display:block;border:4px solid white;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
 </div>
 """
 
@@ -3497,6 +3503,12 @@ function handleContactSubmit(e) {{
     LAYOUT_SAFETY_CSS = """
 <!-- BinaApp Layout Safety Guard -->
 <style id="binaapp-layout-safety">
+/* (a0) Fixed-navbar offset for anchor navigation. The generated header is
+   position:fixed, so in-page anchors (#menu, #hubungi, #home) would otherwise
+   scroll their target up UNDER the navbar. scroll-padding-top reserves the
+   navbar's height at the top of every scroll landing. Applies to all sites. */
+html { scroll-padding-top: 5.5rem; }
+
 /* (a) AOS fallback: if aos.js fails to load or the IntersectionObserver never fires,
    content must NEVER stay permanently invisible. aos.css sets [data-aos]{opacity:0}
    via html:not(.no-js) [data-aos^="fade"] (high specificity), so we use !important
@@ -3536,6 +3548,11 @@ section[id="laman-utama"]:not(:has(img)):not(:has([style*="background-image"])) 
   min-height: 60vh !important;
   height: auto !important;
   align-items: center !important;
+  /* The hero starts at y=0 behind the position:fixed header. With the section
+     capped to 60vh + centred content, the H1 collides with the navbar. Reserve
+     the navbar height at the top. Only fires on the no-image branch (the
+     :has() guards above) — image heroes keep their photo flush to the top. */
+  padding-top: 6rem !important;
 }
 
 /* (c) Menu grid: equal-height cards. When AI mixes image-and-no-image items the
