@@ -22,7 +22,7 @@ import StuckBanner from './components/StuckBanner';
 import ReassignModal from './components/ReassignModal';
 import CancelModal from './components/CancelModal';
 import { computeStuckOrderIds } from './lib/stuck';
-import { subscribeToRiders } from './lib/realtime';
+import { subscribeToLive } from './lib/realtime';
 import { useIsMobile } from './lib/useIsMobile';
 import MobileBottomSheet from './components/MobileBottomSheet';
 
@@ -31,6 +31,9 @@ interface Props {
 }
 
 const POLL_INTERVAL_MS = 15_000;
+// While realtime is up we still poll, just slower — a safety net so a new
+// order can never sit unseen if a realtime event is missed or dropped.
+const SAFETY_POLL_INTERVAL_MS = 60_000;
 
 export default function PenghantarLiveClient({ outlets }: Props) {
   const router = useRouter();
@@ -163,7 +166,7 @@ export default function PenghantarLiveClient({ outlets }: Props) {
         refetchLive(selectedOutletId);
       }, 800);
     };
-    const handle = subscribeToRiders(selectedOutletId, fire, (status) => {
+    const handle = subscribeToLive(selectedOutletId, fire, (status) => {
       setRealtimeUp(status === 'subscribed');
     });
     return () => {
@@ -176,13 +179,15 @@ export default function PenghantarLiveClient({ outlets }: Props) {
     };
   }, [selectedOutletId, refetchLive]);
 
-  // 15s polling fallback — pauses when realtime is up.
+  // Polling — 15s when realtime is down (primary), 60s when it's up (safety
+  // net). We never fully pause: realtime events can be missed or dropped, and
+  // a newly-placed order must not sit unseen waiting for the socket.
   useEffect(() => {
     if (!selectedOutletId) return;
-    if (realtimeUp) return;
+    const interval = realtimeUp ? SAFETY_POLL_INTERVAL_MS : POLL_INTERVAL_MS;
     const id = window.setInterval(
       () => refetchLive(selectedOutletId),
-      POLL_INTERVAL_MS,
+      interval,
     );
     return () => window.clearInterval(id);
   }, [selectedOutletId, refetchLive, realtimeUp]);

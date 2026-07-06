@@ -96,18 +96,47 @@ export async function loginRider(
 
 interface OrdersResponse {
   orders?: RiderOrder[];
+  available?: RiderOrder[];
 }
 
-/** GET /api/v1/delivery/riders/{rider_id}/orders — returns {orders: [...]}
- *  on the server; we unwrap to the array. Returns [] on missing key so the
- *  UI never has to null-check. */
+export interface RiderOrders {
+  /** Deliveries already assigned to this rider. */
+  orders: RiderOrder[];
+  /** Unassigned `pending` orders for the rider's website — the broadcast feed
+   *  the rider can claim via acceptOrder(). */
+  available: RiderOrder[];
+}
+
+/** GET /api/v1/delivery/riders/{rider_id}/orders — returns
+ *  {orders: [...], available: [...]}. Defaults both to [] on missing keys so
+ *  the UI never has to null-check. */
 export async function fetchRiderOrders(
   riderId: string,
-): Promise<RiderOrder[]> {
+): Promise<RiderOrders> {
   const res = await riderFetch<OrdersResponse>(
     `/api/v1/delivery/riders/${riderId}/orders`,
   );
-  return res?.orders ?? [];
+  return {
+    orders: res?.orders ?? [],
+    available: res?.available ?? [],
+  };
+}
+
+/** POST /api/v1/delivery/riders/{rider_id}/orders/{order_id}/accept — claim an
+ *  unassigned order from the broadcast feed. Atomic on the server; throws
+ *  ApiError with status 409 if another rider won the race. */
+export async function acceptOrder(
+  riderId: string,
+  orderId: string,
+): Promise<void> {
+  const token = loadRiderToken();
+  await riderFetch<unknown>(
+    `/api/v1/delivery/riders/${riderId}/orders/${orderId}/accept`,
+    {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    },
+  );
 }
 
 /** PUT /api/v1/delivery/riders/{rider_id}/orders/{order_id}/status — accepts
