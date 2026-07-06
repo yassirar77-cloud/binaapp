@@ -44,7 +44,13 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v3
       with:
-        node-version: '18'
+        # The test toolchain (jsdom@29 → html-encoding-sniffer@6 →
+        # @exodus/bytes, which is ESM-only) requires node ^20.19 || ^22.12 ||
+        # >=24 — the versions where require(ESM) is supported by default. Node
+        # 18 is below that floor and throws on the transitive require(), which
+        # crashed the jsdom-based test file and failed CI. This also matches
+        # the project's own engines.node (>=20.0.0).
+        node-version: '20'
 
     - name: Install dependencies
       working-directory: ./frontend
