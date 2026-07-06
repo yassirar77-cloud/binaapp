@@ -71,6 +71,8 @@ const SPECIFIC_ELEMENTS = [
   'nombor',
   'telefon',
   'phone',
+  'whatsapp',
+  'wasap',
   'alamat',
   'address',
   'harga',
@@ -147,6 +149,35 @@ function findMatches(haystack: string, tokens: string[]): string[] {
     }
   }
   return found;
+}
+
+/**
+ * Detect a "change my WhatsApp number" request and extract the new number.
+ *
+ * Editing a contact field must NEVER route through the credit-gated full
+ * regenerate. When this returns a number, the editor sends it to the dedicated
+ * credit-free contact-update endpoint (DB field + wa.me links) instead of the
+ * AI. Returns the raw number string (server normalises), or null when
+ * the prompt is not a WhatsApp-number change.
+ *
+ * Guards: the prompt must reference WhatsApp explicitly (a bare "phone"/"nombor"
+ * change is left to the normal quick-edit path) AND contain a plausible phone
+ * number (7–15 digits). A WhatsApp mention with no number (e.g. "buang butang
+ * WhatsApp") returns null and falls through to normal intent detection.
+ */
+export function detectWhatsappNumberChange(prompt: string): string | null {
+  const text = (prompt ?? '').trim();
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  const mentionsWa = /\bwhatsapp\b|\bwasapp?\b|\bwassap\b/.test(lower);
+  if (!mentionsWa) return null;
+  // Phone-number-like token: optional leading +, then digits interspersed with
+  // spaces/dashes. Take the first such run and keep only its digits.
+  const match = text.match(/\+?\d[\d\s-]{5,}\d/);
+  if (!match) return null;
+  const digits = match[0].replace(/\D/g, '');
+  if (digits.length < 7 || digits.length > 15) return null;
+  return match[0].trim();
 }
 
 /** Detect whether the prompt contains a verbatim style-chip modifier. */

@@ -17,7 +17,11 @@ import {
   chipIsStillApplied,
   type StyleChipId,
 } from '@/lib/regenerateStyleChips';
-import { detectIntent, type IntentResult } from '@/lib/aiAssistantIntent';
+import {
+  detectIntent,
+  detectWhatsappNumberChange,
+  type IntentResult,
+} from '@/lib/aiAssistantIntent';
 import { pollMessageForElapsed } from '@/lib/regeneratePollMessages';
 
 // Backend API URL
@@ -43,6 +47,7 @@ interface Website {
   description?: string | null;
   generation_count?: number | null;
   status?: string;
+  whatsapp_number?: string | null;
 }
 
 function mapQuickEditError(code?: string): string {
@@ -305,12 +310,87 @@ export default function EditorPage() {
   function applyChanges() {
     if (!website || applying) return;
     setAssistantError(null);
+    // A WhatsApp-number change is a contact-field edit — it must NEVER route
+    // through the credit-gated regenerate. Intercept it and use the dedicated
+    // credit-free contact-update endpoint (updates the DB field + wa.me links).
+    const newWhatsapp = detectWhatsappNumberChange(prompt);
+    if (newWhatsapp) {
+      runContactUpdate(newWhatsapp);
+      return;
+    }
     const result = detectIntent(prompt);
     if (result.intent === 'quick_edit') {
       runQuickEdit();
     } else {
       setAcknowledgeReplace(false);
       setShowRegenerateConfirm(true);
+    }
+  }
+
+  // Credit-free contact update: PATCH /api/v1/websites/{id}/contact. Persists
+  // the new WhatsApp number to the DB field and rewrites wa.me links in the
+  // stored HTML server-side, then republishes. No AI, no credit consumed.
+  async function runContactUpdate(newWhatsapp: string) {
+    if (!website) return;
+    const token = await getApiAuthToken();
+    if (!token) {
+      const msg = 'Sila log masuk semula untuk meneruskan.';
+      setAssistantError(msg);
+      toast.error(msg);
+      return;
+    }
+
+    setApplying(true);
+    setAssistantMode('quick_edit');
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/v1/websites/${id}/contact`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ whatsapp_number: newWhatsapp }),
+        }
+      );
+
+      if (response.status === 401) {
+        router.push('/login');
+        return;
+      }
+
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && data?.success) {
+        if (typeof data.html_content === 'string' && data.html_content) {
+          setHtml(data.html_content);
+        }
+        setWebsite((prev) =>
+          prev ? { ...prev, whatsapp_number: data.whatsapp_number } : prev
+        );
+        // Server already persisted + republished — buffer is in sync.
+        setDirty(false);
+        setPrompt('');
+        setSelectedChipId(null);
+        toast.success('Nombor WhatsApp dikemas kini.');
+      } else {
+        const detail = (data as { detail?: unknown })?.detail;
+        let msg = 'Ralat mengemas kini nombor WhatsApp. Sila cuba lagi.';
+        if (typeof detail === 'string') msg = detail;
+        else if (detail && typeof detail === 'object' && 'message' in detail) {
+          msg = String((detail as { message?: unknown }).message ?? msg);
+        }
+        setAssistantError(msg);
+        toast.error(msg);
+      }
+    } catch (e) {
+      console.error('Contact update error:', e);
+      const msg = 'Ralat rangkaian. Cuba lagi.';
+      setAssistantError(msg);
+      toast.error(msg);
+    } finally {
+      setApplying(false);
+      setAssistantMode(null);
     }
   }
 

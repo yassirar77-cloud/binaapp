@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectIntent } from './aiAssistantIntent';
+import { detectIntent, detectWhatsappNumberChange } from './aiAssistantIntent';
 
 describe('detectIntent', () => {
   describe('quick_edit — small, targeted changes', () => {
@@ -99,6 +99,42 @@ describe('detectIntent', () => {
       expect(result.indicators).toEqual(expect.arrayContaining(['tukar']));
       expect(typeof result.reason).toBe('string');
       expect(result.reason.length).toBeGreaterThan(0);
+    });
+
+    it('routes a WhatsApp element edit to quick_edit, never regenerate', () => {
+      // Regression: 'whatsapp'/'wasap' were missing from the element list, so a
+      // contact-field edit fell through to the credit-gated full_regenerate.
+      expect(detectIntent('Buang butang whatsapp').intent).toBe('quick_edit');
+      expect(detectIntent('tukar wasap').intent).toBe('quick_edit');
+    });
+  });
+
+  describe('detectWhatsappNumberChange — credit-free contact path', () => {
+    it('extracts the new number from WhatsApp-change prompts', () => {
+      expect(detectWhatsappNumberChange('tukar whatsapp ke 0123456789')).toBe(
+        '0123456789'
+      );
+      expect(detectWhatsappNumberChange('wasap baru 011-2345678')).toBe(
+        '011-2345678'
+      );
+      expect(detectWhatsappNumberChange('WhatsApp +60123456789')).toBe(
+        '+60123456789'
+      );
+    });
+
+    it('intercepts even a long natural sentence (>80 chars)', () => {
+      const longPrompt =
+        'Tolong tukar nombor WhatsApp kedai saya kepada 011-2345 6789 ' +
+        'sebab nombor lama dah tak guna lagi';
+      expect(longPrompt.length).toBeGreaterThan(80);
+      expect(detectWhatsappNumberChange(longPrompt)).toBe('011-2345 6789');
+    });
+
+    it('returns null when there is no number or no WhatsApp mention', () => {
+      expect(detectWhatsappNumberChange('buang butang whatsapp')).toBeNull();
+      expect(detectWhatsappNumberChange('tukar nombor telefon ke 0123456789')).toBeNull();
+      expect(detectWhatsappNumberChange('tukar warna kepada biru')).toBeNull();
+      expect(detectWhatsappNumberChange('')).toBeNull();
     });
   });
 });
