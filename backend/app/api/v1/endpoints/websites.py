@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks, 
 from typing import List
 from loguru import logger
 from datetime import datetime
+import re
 import uuid
 
 from app.models.schemas import (
@@ -2013,6 +2014,151 @@ async def update_website(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update website: {str(e)}"
+        )
+
+
+def _normalize_wa_digits(raw: str) -> str:
+    """Normalise a WhatsApp number to the digits-only wa.me form.
+
+    Mirrors the generation-time normalisation in ai_service.build_prompt so the
+    deep-links this endpoint writes match what a fresh build would produce.
+    """
+    digits = re.sub(r"\D", "", str(raw or ""))
+    if digits.startswith("0"):
+        digits = "6" + digits
+    elif digits.startswith("1"):
+        digits = "60" + digits
+    return digits
+
+
+def _apply_whatsapp_number(html: str, new_digits: str, old_digits: str = "") -> str:
+    """Point every WhatsApp deep-link in `html` at `new_digits`.
+
+    Pure, targeted string transform — NO AI, NO network. Rewrites wa.me and
+    api.whatsapp.com deep-links (preserving any ?text= suffix) and, when the old
+    number is known and long enough that a substring collision is implausible,
+    swaps it verbatim (display text / tel: links).
+    """
+    if not html:
+        return html
+    # wa.me/<digits> (optionally with a leading + / country prefix). \d+ stops at
+    # the '?' so a "?text=..." prefill suffix is preserved.
+    html = re.sub(r'(wa\.me/)\+?\d+', lambda m: m.group(1) + new_digits, html)
+    # api.whatsapp.com/send?phone=<digits>  and  ...&phone=<digits>
+    html = re.sub(r'([?&]phone=)\+?\d+', lambda m: m.group(1) + new_digits, html)
+    # Old number appearing verbatim elsewhere (display text, tel: links).
+    if old_digits and len(old_digits) >= 7 and old_digits != new_digits:
+        html = html.replace(old_digits, new_digits)
+    return html
+
+
+@router.patch("/{website_id}/contact")
+async def update_website_contact(
+    website_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Credit-FREE update of a website's contact fields (currently the WhatsApp
+    number).
+
+    This is deliberately NOT the regenerate path: changing a contact field must
+    never call the AI or consume a `generate_ai_hero` credit. It (1) writes the
+    new whatsapp_number to the DB row, (2) rewrites the wa.me / WhatsApp
+    deep-links (and the old number where it appears verbatim) inside the stored
+    html_content, and (3) republishes the updated HTML to storage — the same
+    credit-free persistence path used by PUT /{website_id}.
+
+    NOTE (protected zone): this endpoint intentionally does NOT touch
+    check_limit, subscription_service, the generate_ai_hero counter, or any
+    credit/billing/gate logic. It only ADDS a credit-free update path.
+    """
+    try:
+        body = await request.json()
+        new_whatsapp = (body.get("whatsapp_number") or "").strip()
+        if not new_whatsapp:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="whatsapp_number is required",
+            )
+
+        website = await supabase_service.get_website(website_id)
+        if not website:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Website not found",
+            )
+
+        # Ownership check — same as update_website.
+        user_id = current_user.get("sub")
+        if website["user_id"] != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to update this website",
+            )
+
+        new_digits = _normalize_wa_digits(new_whatsapp)
+        if not new_digits:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="whatsapp_number must contain digits",
+            )
+        old_digits = _normalize_wa_digits(website.get("whatsapp_number") or "")
+
+        # Rewrite the stored HTML so every WhatsApp link uses the new number.
+        # This is what fixes the secondary bug (regenerate reused the OLD number)
+        # WITHIN this credit-free path — the new number is applied directly.
+        html_content = website.get("html_content") or ""
+        updated_html = _apply_whatsapp_number(html_content, new_digits, old_digits)
+
+        update_data = {
+            "whatsapp_number": new_whatsapp,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        if updated_html != html_content:
+            update_data["html_content"] = updated_html
+
+        await supabase_service.update_website(website_id, update_data)
+
+        # If published, refresh storage so the live site reflects the new number.
+        if (
+            website.get("status") == "published"
+            and website.get("subdomain")
+            and updated_html
+        ):
+            try:
+                await storage_service.publish_website(
+                    subdomain=website["subdomain"],
+                    html_content=updated_html,
+                    website_id=website_id,
+                    user_id=user_id,
+                )
+                logger.info(
+                    f"✅ Contact update: refreshed storage for {website['subdomain']}"
+                )
+            except Exception as storage_err:
+                logger.warning(
+                    f"⚠️ Contact update: storage refresh failed (DB updated OK): {storage_err}"
+                )
+
+        logger.info(
+            f"✅ WhatsApp number updated credit-free for website {website_id}"
+        )
+        return {
+            "success": True,
+            "message": "WhatsApp number updated",
+            "website_id": website_id,
+            "whatsapp_number": new_whatsapp,
+            "html_content": updated_html,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating contact for website {website_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update contact: {str(e)}",
         )
 
 
