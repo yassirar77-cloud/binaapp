@@ -1,13 +1,17 @@
 // Penghantar Live — Supabase Realtime subscription helper.
 //
-// The migration 029 publication adds public.riders to supabase_realtime, so
-// any UPDATE/INSERT/DELETE filtered by website_id is pushed within ~1s of the
-// DB write. The owner page subscribes when an outlet is selected and unsub-
-// scribes on outlet change / unmount.
+// Migration 002 adds public.delivery_orders and migration 029 adds
+// public.riders to the supabase_realtime publication, so any INSERT/UPDATE/
+// DELETE filtered by website_id is pushed within ~1s of the DB write. The
+// owner page subscribes when an outlet is selected and unsubscribes on outlet
+// change / unmount.
 //
-// We do NOT subscribe to delivery_orders here — order status changes are
-// lower-frequency and the 15s polling fallback covers them. If owners report
-// stale order state, switch on a second channel.
+// We subscribe to BOTH tables on one channel:
+//   - riders: GPS pings + online/offline transitions (high frequency).
+//   - delivery_orders: new orders + status changes. A freshly-placed order is
+//     inserted unassigned (rider_id NULL, status 'pending'); without this
+//     subscription the dashboard only learned of it on the next poll — and the
+//     poll is paused while realtime is up, so new orders could sit unseen.
 
 import { supabase } from '@/lib/supabase';
 
@@ -17,7 +21,7 @@ export interface RealtimeHandle {
   unsubscribe: () => void;
 }
 
-export function subscribeToRiders(
+export function subscribeToLive(
   websiteId: string,
   onChange: () => void,
   onStatusChange?: (status: RealtimeStatus) => void,
@@ -29,13 +33,23 @@ export function subscribeToRiders(
   const client = supabase;
 
   const channel = client
-    .channel(`phl-riders:${websiteId}`)
+    .channel(`phl-live:${websiteId}`)
     .on(
       'postgres_changes',
       {
         event: '*',
         schema: 'public',
         table: 'riders',
+        filter: `website_id=eq.${websiteId}`,
+      },
+      () => onChange(),
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'delivery_orders',
         filter: `website_id=eq.${websiteId}`,
       },
       () => onChange(),

@@ -18,6 +18,7 @@ import OrderDetailScreen from './components/OrderDetailScreen';
 import OrdersListScreen from './components/OrdersListScreen';
 import ProfileScreen from './components/ProfileScreen';
 import {
+  acceptOrder as apiAcceptOrder,
   ApiError,
   fetchRiderOrders,
   updateOrderStatus as apiUpdateStatus,
@@ -131,7 +132,13 @@ export default function RiderApp() {
   const [tab, setTab] = useState<Tab>('aktif');
   const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
   const [orders, setOrders] = useState<RiderOrder[]>([]);
-  const [newOrder, setNewOrder] = useState<RiderOrder | null>(null);
+  // Unassigned orders broadcast to this rider's website, and the ids the rider
+  // has dismissed this session (so a rejected banner doesn't keep reappearing
+  // on the next poll while it stays unclaimed).
+  const [available, setAvailable] = useState<RiderOrder[]>([]);
+  const [rejectedOrderIds, setRejectedOrderIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [demoMode, setDemoMode] = useState(false);
@@ -215,8 +222,9 @@ export default function RiderApp() {
       if (!r || demoMode) return;
       if (!silent) setRefreshing(true);
       try {
-        const list = await fetchRiderOrders(r.id);
+        const { orders: list, available: avail } = await fetchRiderOrders(r.id);
         setOrders(list);
+        setAvailable(avail);
         saveCachedOrders(list);
       } catch (e) {
         // Keep cached orders on network failure — the offline banner is
@@ -365,22 +373,58 @@ export default function RiderApp() {
     setRoute('detail');
   }, []);
 
-  const handleAcceptNew = (order: RiderOrder) => {
-    // Wired in a followup PR. For now drop the banner and surface a toast.
-    setNewOrder(null);
-    toast.success(`Pesanan #${order.order_number} diterima.`);
-  };
+  // Claim an unassigned order from the broadcast feed. The server assigns it
+  // atomically (409 if another rider won the race). On success we refresh so
+  // the order moves from `available` into the rider's assigned list.
+  const handleAcceptNew = useCallback(
+    async (order: RiderOrder) => {
+      if (demoMode) {
+        setAvailable((list) => list.filter((o) => o.id !== order.id));
+        toast.success(`Pesanan #${order.order_number} diterima.`);
+        return;
+      }
+      const r = riderRef.current;
+      if (!r) return;
+      setPendingOrderId(order.id);
+      // Optimistically remove from the banner so it doesn't linger.
+      setAvailable((list) => list.filter((o) => o.id !== order.id));
+      try {
+        await apiAcceptOrder(r.id, order.id);
+        toast.success(`Pesanan #${order.order_number} diterima.`);
+        void refreshOrders(true);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          toast('Pesanan telah diambil penghantar lain.', { icon: '⚠️' });
+        } else {
+          const msg =
+            e instanceof ApiError ? e.message : 'Gagal terima pesanan.';
+          toast.error(msg);
+        }
+        // Re-sync so the banner reflects the true server state.
+        void refreshOrders(true);
+      } finally {
+        setPendingOrderId(null);
+      }
+    },
+    [demoMode, refreshOrders],
+  );
 
-  const handleRejectNew = (order: RiderOrder) => {
-    setNewOrder(null);
+  // Dismiss a broadcast order for this session — it stays claimable by others.
+  const handleRejectNew = useCallback((order: RiderOrder) => {
+    setRejectedOrderIds((prev) => {
+      const next = new Set(prev);
+      next.add(order.id);
+      return next;
+    });
     toast(`Pesanan #${order.order_number} ditolak.`);
-  };
+  }, []);
 
   const handleLogout = useCallback(() => {
     clearRider();
     setRider(null);
     setOrders([]);
-    setNewOrder(null);
+    setAvailable([]);
+    setRejectedOrderIds(new Set());
     setActiveOrderId(null);
     setRoute('login');
   }, []);
@@ -394,6 +438,12 @@ export default function RiderApp() {
   const activeOrder = activeOrderId
     ? orders.find((o) => o.id === activeOrderId) ?? null
     : null;
+
+  // Surface the newest un-dismissed broadcast order in the accept/reject
+  // banner. One at a time keeps the decision focused; the next appears after
+  // accept/reject or on the next poll.
+  const newOrder =
+    available.find((o) => !rejectedOrderIds.has(o.id)) ?? null;
 
   const codModalOrder = codModalOrderId
     ? orders.find((o) => o.id === codModalOrderId) ?? null

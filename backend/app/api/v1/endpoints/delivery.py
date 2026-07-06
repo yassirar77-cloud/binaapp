@@ -3039,6 +3039,28 @@ async def get_rider_location_history(
         )
 
 
+# Columns returned to the rider app for both assigned and available orders.
+_RIDER_ORDER_COLUMNS = (
+    "id, order_number, customer_name, customer_phone, customer_email, "
+    "delivery_address, delivery_latitude, delivery_longitude, "
+    "subtotal, delivery_fee, total_amount, payment_method, payment_status, "
+    "status, created_at, confirmed_at, ready_at, picked_up_at, delivered_at, "
+    "estimated_prep_time, estimated_delivery_time"
+)
+
+
+def _rider_order_view(row: dict) -> dict:
+    """Serialize a delivery_orders row for the rider app.
+
+    The rider frontend reads `total` (not `total_amount`); expose both so the
+    banner/rows render correctly without changing the DB field name.
+    """
+    view = convert_db_row_to_dict(row)
+    if "total_amount" in view and "total" not in view:
+        view["total"] = view["total_amount"]
+    return view
+
+
 @router.get("/riders/{rider_id}/orders")
 async def get_rider_orders(
     rider_id: str,
@@ -3046,33 +3068,35 @@ async def get_rider_orders(
     supabase: Client = Depends(get_supabase_client),
 ):
     """
-    Get orders assigned to a specific rider (Phase 2).
+    Get orders for a specific rider (Phase 2).
 
-    Returns list of orders where rider_id matches.
-    Used by rider mobile app to show assigned deliveries.
+    Returns:
+    - orders:    deliveries already assigned to this rider (rider_id matches).
+    - available: unassigned `pending` orders for the rider's website that the
+                 rider can claim. This is the broadcast path — a newly-placed
+                 order is inserted unassigned, so without this the rider would
+                 never see a new order until a human manually assigned it.
 
     Query Parameters:
-    - status_filter: Filter by status (e.g., "ready", "picked_up", "delivering")
+    - status_filter: Filter assigned orders by status (does not affect the
+      available list, which is always unassigned `pending`).
     """
     try:
-        # Validate rider exists
-        rider_response = supabase.table("riders").select("id, name").eq(
-            "id", rider_id
-        ).execute()
+        # Validate rider exists (website_id scopes the broadcast list)
+        rider_response = supabase.table("riders").select(
+            "id, name, website_id"
+        ).eq("id", rider_id).execute()
 
         if not rider_response.data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Rider not found"
             )
+        rider_row = rider_response.data[0]
 
-        # Build query
+        # Assigned orders
         query = supabase.table("delivery_orders").select(
-            "id, order_number, customer_name, customer_phone, customer_email, "
-            "delivery_address, delivery_latitude, delivery_longitude, "
-            "subtotal, delivery_fee, total_amount, payment_method, payment_status, "
-            "status, created_at, confirmed_at, ready_at, picked_up_at, delivered_at, "
-            "estimated_prep_time, estimated_delivery_time"
+            _RIDER_ORDER_COLUMNS
         ).eq("rider_id", rider_id)
 
         # Apply status filter if provided
@@ -3084,13 +3108,30 @@ async def get_rider_orders(
 
         orders_response = query.execute()
 
-        orders = [convert_db_row_to_dict(o) for o in (orders_response.data or [])]
+        orders = [_rider_order_view(o) for o in (orders_response.data or [])]
+
+        # Available (unassigned) orders for this rider's website — the broadcast
+        # feed. Shared riders (NULL website_id) don't get a broadcast list here.
+        available: list = []
+        rider_website_id = rider_row.get("website_id")
+        if rider_website_id:
+            avail_response = supabase.table("delivery_orders").select(
+                _RIDER_ORDER_COLUMNS
+            ).eq("website_id", rider_website_id).is_(
+                "rider_id", "null"
+            ).eq("status", "pending").order(
+                "created_at", desc=True
+            ).limit(50).execute()
+            available = [
+                _rider_order_view(o) for o in (avail_response.data or [])
+            ]
 
         return {
             "rider_id": rider_id,
-            "rider_name": rider_response.data[0]["name"],
+            "rider_name": rider_row["name"],
             "count": len(orders),
-            "orders": orders
+            "orders": orders,
+            "available": available,
         }
 
     except HTTPException:
@@ -3247,6 +3288,150 @@ async def update_order_status_by_rider(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update order status: {str(e)}"
+        )
+
+
+@router.post("/riders/{rider_id}/orders/{order_id}/accept")
+async def accept_order_by_rider(
+    rider_id: str,
+    order_id: str,
+    current_rider: dict = Depends(get_current_rider),
+    supabase: Client = Depends(get_supabase_client),
+):
+    """
+    Rider claims an unassigned order from the broadcast feed (Phase 2).
+
+    Requires a rider JWT whose subject matches {rider_id}. The claim is atomic:
+    the UPDATE is filtered on `rider_id IS NULL` so two riders racing for the
+    same order can't both win — the loser gets a 409. On success the order is
+    assigned to the rider and advanced `pending -> confirmed` so it surfaces in
+    the rider's "Baru" tab and the merchant sees it as confirmed for delivery.
+    """
+    try:
+        # The token subject must match the rider_id in the path.
+        if current_rider.get("sub") != rider_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Rider token does not match this rider",
+            )
+
+        # Load the rider (for website scoping + active check).
+        rider_resp = supabase.table("riders").select(
+            "id, name, phone, website_id, is_active"
+        ).eq("id", rider_id).execute()
+        if not rider_resp.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Rider not found",
+            )
+        rider = rider_resp.data[0]
+        if not rider.get("is_active", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Rider is inactive",
+            )
+
+        # Load the order and validate it's still claimable.
+        order_resp = supabase.table("delivery_orders").select(
+            "id, order_number, website_id, rider_id, status"
+        ).eq("id", order_id).execute()
+        if not order_resp.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Order not found",
+            )
+        order = order_resp.data[0]
+
+        # Rider must belong to the order's website (shared riders — NULL
+        # website_id — are not part of the per-website broadcast feed).
+        rider_website_id = rider.get("website_id")
+        if not rider_website_id or str(rider_website_id) != str(
+            order.get("website_id")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Order does not belong to this rider's website",
+            )
+
+        if order.get("rider_id"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Order already taken by another rider",
+            )
+        if order.get("status") != "pending":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Order is no longer available",
+            )
+
+        # Atomic claim: only assign if rider_id is still NULL. If another rider
+        # won the race, PostgREST returns no rows and we surface a 409.
+        now = datetime.utcnow().isoformat()
+        claim = supabase.table("delivery_orders").update({
+            "rider_id": rider_id,
+            "status": "confirmed",
+            "assigned_at": now,
+            "confirmed_at": now,
+        }).eq("id", order_id).is_("rider_id", "null").execute()
+
+        if not claim.data:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Order already taken by another rider",
+            )
+
+        # Order history (best effort).
+        try:
+            supabase.table("order_status_history").insert({
+                "order_id": order_id,
+                "status": "confirmed",
+                "notes": f"Accepted by rider: {rider.get('name')}",
+                "updated_by": "rider",
+                "created_at": now,
+            }).execute()
+        except Exception as history_err:
+            logger.warning(f"⚠️ Could not insert order_status_history: {history_err}")
+
+        # Attach the rider to the order conversation (best effort) so chat and
+        # the assigned-rider notification path stay consistent with the manual
+        # assign flow.
+        try:
+            conv_lookup = supabase.table("chat_conversations").select("id").eq(
+                "order_id", order_id
+            ).execute()
+            conversation_id = conv_lookup.data[0]["id"] if conv_lookup.data else None
+            if conversation_id:
+                supabase.table("chat_conversations").update({
+                    "rider_id": rider_id
+                }).eq("id", conversation_id).execute()
+                await send_system_message(
+                    supabase=supabase,
+                    conversation_id=conversation_id,
+                    content=(
+                        f"Rider ditugaskan: {rider.get('name')}\n"
+                        f"{rider.get('phone', '')}"
+                    ),
+                )
+        except Exception as conv_err:
+            logger.warning(f"⚠️ Could not link rider to conversation: {conv_err}")
+
+        logger.info(
+            f"✅ Rider {rider_id} accepted order {order.get('order_number')}"
+        )
+        return {
+            "success": True,
+            "order_id": order_id,
+            "order_number": order.get("order_number"),
+            "new_status": "confirmed",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error accepting order: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to accept order: {str(e)}",
         )
 
 
