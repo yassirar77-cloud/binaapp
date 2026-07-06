@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import type { User } from '@supabase/supabase-js'
 import useSubscription from '@/hooks/useSubscription'
 import { getStoredToken } from '@/lib/supabase'
+import BackButton from '@/components/BackButton'
 import { ProfileCard, type ProfileCardData } from './components/ProfileCard'
 import {
   PlanCard,
@@ -454,6 +455,7 @@ export function ProfileHub({
           gap: 16,
         }}
       >
+        <BackButton />
         <header style={{ marginBottom: 8 }}>
           <h1 style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.015em' }}>Tetapan</h1>
           <p style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>

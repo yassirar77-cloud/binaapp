@@ -4,6 +4,7 @@ import { useMemo, useState, type FormEvent } from 'react'
 import toast from 'react-hot-toast'
 import { Trash2, Check, Plus, FileDown, Loader2 } from 'lucide-react'
 import { API_BASE_URL } from '@/lib/env'
+import BackButton from '@/components/BackButton'
 
 type CategoryId = 'makanan-berat' | 'minuman' | 'roti-snack' | 'pencuci-mulut'
 
@@ -165,6 +166,8 @@ export default function MenuDesigner() {
   return (
     <div className="min-h-screen bg-ink-050" style={{ fontFamily: '"Geist", system-ui, -apple-system, sans-serif' }}>
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        {/* Back navigation */}
+        <BackButton className="mb-6" />
         {/* Header */}
         <header className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">Menu Designer</h1>
