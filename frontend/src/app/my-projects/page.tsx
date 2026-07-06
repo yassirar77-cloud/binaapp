@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
 import { getCurrentUser, getStoredToken, signOut } from '@/lib/supabase'
 import {
   Button,
@@ -150,7 +151,17 @@ export default function MyProjectsPage() {
       {/* Header */}
       <header className="bg-white/80 backdrop-blur-md border-b border-ink-200/80 sticky top-0 z-40">
         <nav className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
+          {/* Mobile: explicit back-to-dashboard (desktop nav below is hidden on mobile) */}
+          <Link
+            href="/dashboard"
+            aria-label="Kembali ke Dashboard"
+            className="md:hidden inline-flex min-h-[44px] items-center gap-1.5 text-sm font-medium text-ink-500 hover:text-ink-900 transition-colors"
+          >
+            <ArrowLeft className="h-5 w-5 shrink-0" />
+            Dashboard
+          </Link>
+          {/* Desktop: brand logo returns a signed-in owner to the dashboard */}
+          <Link href="/dashboard" className="hidden md:flex items-center gap-2">
             <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 text-white text-sm font-bold tracking-tight">
               B
             </span>
