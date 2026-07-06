@@ -183,7 +183,7 @@ export default function LoginScreen({ onLogin }: LoginScreenProps) {
 
       {/* Bottom — install CTA + hint */}
       <div className="w-full max-w-[400px] mt-8 flex flex-col items-center gap-4">
-        <InstallAppButton appName="BinaApp Rider" />
+        <InstallAppButton appName="BinaApp Rider" alwaysShow />
         <p className="text-center text-xs text-[var(--rider-muted)]">
           Lupa kata laluan? Hubungi pemilik kedai.
         </p>

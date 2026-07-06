@@ -14,9 +14,10 @@ https://www.binaapp.my/rider
 ## 🛵 **Rider App Features:**
 
 ### **1. Login System**
-- Rider enters their Rider ID
-- Authenticates with backend
-- Session saved to localStorage
+- Rider enters their phone number (+60) and password
+- Authenticates against `POST /api/v1/delivery/riders/login` (bcrypt password check)
+- On success the backend returns the rider profile + a 30-day rider JWT
+- Rider profile + token saved to localStorage
 
 ### **2. GPS Tracking**
 - Real-time location tracking
@@ -256,37 +257,24 @@ export default function TrackingPage() {
 
 ## 🚀 **How to Use Rider App:**
 
-### **Step 1: Create Rider in Database**
+### **Step 1: Create the Rider (Owner Dashboard)**
 
-Run SQL in Supabase:
-```sql
-INSERT INTO riders (
-  website_id,
-  name,
-  phone,
-  vehicle_type,
-  vehicle_plate,
-  is_active,
-  is_online
-) VALUES (
-  'YOUR_WEBSITE_ID',
-  'Ahmad',
-  '0123456789',
-  'motorcycle',
-  'ABC1234',
-  true,
-  false
-);
-```
+The shop owner creates the rider from their dashboard (`/profile` → riders),
+which calls `POST /api/v1/delivery/admin/websites/{website_id}/riders`. This
+sets the rider's **phone**, **password** (stored bcrypt-hashed as
+`password_hash`), and links the rider to the owner's `website_id`. Rider slots
+are subject to the plan quota (a paid rider slot or addon credit is required).
 
-Get the rider ID from the result.
+> A raw SQL insert into `riders` will NOT let the rider log in unless it also
+> sets a bcrypt `password_hash` — login verifies the password, not the ID.
+> Prefer the dashboard flow so hashing and quota are handled for you.
 
 ---
 
 ### **Step 2: Rider Logs In**
 
 1. Rider opens: `https://www.binaapp.my/rider`
-2. Enters Rider ID
+2. Enters their phone number (+60) and password
 3. Clicks "Log Masuk"
 4. GPS tracking starts automatically
 
