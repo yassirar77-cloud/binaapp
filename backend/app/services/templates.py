@@ -3595,6 +3595,51 @@ section[id*="menu"] .grid > div > div.overflow-hidden:first-child:not(:has(img))
   color: rgba(255,255,255,0.85);
 }
 
+/* (d) Non-menu image slots the AI left empty. The generator only ever supplies
+   HERO + GALLERY image URLs — the "Tentang Kami"/About photo container gets
+   none, so the model emits an empty box (e.g. <div class="... aspect-[4/3]
+   bg-gray-100"></div>) which renders as a bare grey rectangle. Menu cards are
+   covered by rule (c); this catches empty photo containers OUTSIDE the menu.
+   Guards: the box must look like a media holder (an aspect-ratio class, or a
+   plain gray placeholder with no children), contain no image/icon/media/text,
+   and carry no gradient class or inline background-image of its own — so we
+   never repaint a real content panel. :has() unsupported → selector is dropped
+   and the box simply keeps its original background (graceful no-op). */
+section:not([id="menu"]):not([id*="menu"]) [class*="aspect-"]:not(:has(img)):not(:has(picture)):not(:has(svg)):not(:has(i)):not(:has(video)):not(:has(iframe)):not([class*="gradient"]):not([style*="background-image"]),
+section:not([id="menu"]):not([id*="menu"]) .bg-gray-100:not(:has(*)):not([class*="gradient"]):not([style*="background-image"]) {
+  position: relative;
+  min-height: 200px;
+  background-image: linear-gradient(135deg, #eef2f7 0%, #d7dee8 100%);
+  overflow: hidden;
+}
+section:not([id="menu"]):not([id*="menu"]) [class*="aspect-"]:not(:has(img)):not(:has(picture)):not(:has(svg)):not(:has(i)):not(:has(video)):not(:has(iframe)):not([class*="gradient"]):not([style*="background-image"])::after,
+section:not([id="menu"]):not([id*="menu"]) .bg-gray-100:not(:has(*)):not([class*="gradient"]):not([style*="background-image"])::after {
+  content: "\\1F5BC"; /* 🖼 framed picture — works without Font Awesome */
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.75rem;
+  opacity: 0.4;
+}
+
+/* (e) Hero fallback hardening. When the image safety guard strips a banned
+   stock URL (e.g. images.unsplash.com) out of an inline background-image it
+   leaves `background-image: url()` behind, so the hero renders as a blank block
+   — rule (b2) can't catch it because the emptied style still matches
+   [style*="background-image"]. Repaint any emptied-URL background with a neutral
+   gradient so a stripped image never shows as a bare empty container. */
+[style*="background-image: url()"],
+[style*="background-image:url()"],
+[style*="background-image: url('')"],
+[style*="background-image:url('')"],
+[style*='background-image: url("")'],
+[style*='background-image:url("")'] {
+  background-image: linear-gradient(135deg, #64748b 0%, #334155 100%) !important;
+  background-color: #475569 !important;
+}
+
 /* (b cont.) Floating WhatsApp button must always be fixed bottom-right, never
    absorbed into the content flow even when the AI HTML it landed next to has
    unclosed tags. */
@@ -3614,17 +3659,31 @@ section[id*="menu"] .grid > div > div.overflow-hidden:first-child:not(:has(img))
         """
         Inject the layout safety CSS into <head>.
 
-        Idempotent: skips if already present (so middleware + generator can
-        both call this without double-injecting).
+        Idempotent AND self-upgrading: if an older copy of the guard is already
+        baked into the HTML (e.g. injected at generation time and stored), the
+        old <style> block is stripped and replaced with the current CSS rather
+        than skipped. This is what lets CSS fixes reach ALREADY-published sites
+        on the next serve without a republish. Re-running with identical CSS is
+        a no-op (strip + re-inject the same block), so middleware + generator
+        can still both call this safely.
 
-        Fixes the three recurring layout bugs after the new AI design rolled out:
+        Fixes the recurring layout bugs after the new AI design rolled out:
         whitespace from broken AOS, broken WhatsApp button placement, uneven
-        menu cards. See LAYOUT_SAFETY_CSS for details.
+        menu cards, and empty About/hero image containers. See LAYOUT_SAFETY_CSS.
         """
         if not html:
             return html
-        if 'id="binaapp-layout-safety"' in html:
-            return html
+
+        # Remove any previously-injected guard block (any version) so CSS
+        # updates always propagate. Matches the LAYOUT_SAFETY_CSS shape:
+        # an optional leading comment followed by the marked <style> element.
+        html = re.sub(
+            r'\s*(?:<!-- BinaApp Layout Safety Guard -->\s*)?'
+            r'<style id="binaapp-layout-safety">.*?</style>',
+            '',
+            html,
+            flags=re.DOTALL,
+        )
 
         css = self.LAYOUT_SAFETY_CSS
 
