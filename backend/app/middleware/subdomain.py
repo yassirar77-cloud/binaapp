@@ -465,10 +465,20 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
   Pesan Delivery
 </a>'''
 
+    # The strip above removes any generation-baked chat-widget.js tag (it may
+    # carry a stale website_id), so the script MUST be re-injected here or the
+    # chat widget never loads on served sites. Chat is not plan-gated — the
+    # only gate is the site-level can_publish_subdomain check upstream.
+    chat_script_html = (
+        f'<script src="{settings.BACKEND_URL}/static/widgets/chat-widget.js" '
+        f'data-website-id="{website_id}" data-api-url="{settings.BACKEND_URL}" defer></script>'
+    )
+
     widget_injection = f'''
 <!-- BinaApp Widgets - Auto-injected with correct website_id -->
 <div id="binaapp-widget-container" data-website-id="{website_id}"></div>
-<script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>{order_button_html}
+<script>window.BINAAPP_WEBSITE_ID = "{website_id}";</script>
+{chat_script_html}{order_button_html}
 '''
 
     # Inject before </body> or at end
