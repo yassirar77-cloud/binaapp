@@ -10,6 +10,7 @@ Covers:
 All HTTP calls are mocked — no live API usage.
 """
 
+import asyncio
 import json
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
@@ -91,6 +92,23 @@ class TestCallGlm:
         assert "PHOTO_SLOT_1" in system_msg["content"]
         assert "Output ONLY HTML" in system_msg["content"]
         assert "RM" in system_msg["content"]
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_requires_core_sections(self, glm_service):
+        """The required-sections clause: minimum section set, order CTA last,
+        design freedom otherwise."""
+        patcher, mock_post = _patch_async_client(_mock_httpx_response("<html></html>"))
+        with patcher:
+            await glm_service._call_glm("make a website")
+
+        content = mock_post.call_args.kwargs["json"]["messages"][0]["content"]
+        assert "Include at minimum these sections" in content
+        for section in ("hero", "menu highlights", "about", "location", "order CTA"):
+            assert section in content
+        assert "Always end the page with the order CTA" in content
+        assert "never omit the required sections" in content
+        # Design freedom stays explicit alongside the hard requirements
+        assert "may add tasteful extra sections" in content
 
     @pytest.mark.asyncio
     async def test_strips_preamble_before_first_angle_bracket(self, glm_service):
@@ -267,6 +285,31 @@ class TestGlmFallbackChain:
 
         glm_service._call_glm.assert_not_awaited()
         glm_service._call_deepseek.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_glm_wait_for_uses_tight_glm_timeout(self, glm_service, monkeypatch):
+        """The GLM primary call must be bounded by AI_GLM_TIMEOUT_SECONDS,
+        not the loose 300s AI_PRIMARY_TIMEOUT_SECONDS — a hung Z.ai must not
+        double total latency before the DeepSeek fallback runs."""
+        monkeypatch.setattr(ai_service_module, "USE_GLM_FOR_HTML", True)
+        glm_service._call_glm = AsyncMock(return_value=VALID_HTML)
+        glm_service._call_deepseek = AsyncMock(return_value=VALID_HTML)
+        _neutralize_post_processing(glm_service)
+
+        recorded_timeouts = []
+        real_wait_for = asyncio.wait_for
+
+        async def _recording_wait_for(coro, timeout=None):
+            recorded_timeouts.append(timeout)
+            return await real_wait_for(coro, timeout=timeout)
+
+        monkeypatch.setattr(ai_service_module.asyncio, "wait_for", _recording_wait_for)
+
+        await glm_service.generate_website(_make_request(), image_choice="none")
+
+        # The first wait_for in the pipeline wraps the GLM primary call.
+        assert recorded_timeouts[0] == ai_service_module.AI_GLM_TIMEOUT_SECONDS
+        assert recorded_timeouts[0] < ai_service_module.AI_PRIMARY_TIMEOUT_SECONDS
 
     @pytest.mark.asyncio
     async def test_truncated_glm_output_is_discarded(self, glm_service, monkeypatch):

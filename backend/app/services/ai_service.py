@@ -47,6 +47,13 @@ AI_DEEPSEEK_MAX_TOKENS = int(os.getenv("AI_DEEPSEEK_MAX_TOKENS", "24000"))
 # Render without a redeploy.
 AI_GLM_MAX_TOKENS = int(os.getenv("AI_GLM_MAX_TOKENS", "16000"))
 
+# Per-call timeout for the GLM primary generation. Deliberately much tighter
+# than AI_PRIMARY_TIMEOUT_SECONDS: glm-5.2 with thinking disabled responds
+# well under a minute, and GLM is a fall-through tier — a hung Z.ai must not
+# double total latency by burning the full 300s budget before DeepSeek even
+# starts. On timeout we log and fall back to DeepSeek (never raise).
+AI_GLM_TIMEOUT_SECONDS = float(os.getenv("AI_GLM_TIMEOUT_SECONDS", "120"))
+
 # Feature flag: route primary HTML generation through GLM (Z.ai) FIRST, with
 # the existing DeepSeek path as an untouched fallback. Ships dark (default
 # OFF). Flip USE_GLM_FOR_HTML=true in Render to enable; flip it off for an
@@ -3137,7 +3144,12 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         "Malay/Manglish with local mamak/F&B terms where the business is "
         "Malaysian. Prices in RM. Warm local tone, not corporate English. "
         "For ALL images use exactly src='PHOTO_SLOT_1', src='PHOTO_SLOT_2', ... "
-        "in order of appearance — never invent image URLs."
+        "in order of appearance — never invent image URLs. "
+        "Include at minimum these sections: hero, menu highlights, about, "
+        "location, and an order CTA. Always end the page with the order CTA. "
+        "You have full freedom over colours, fonts, layout style, section "
+        "backgrounds, and Malay copy tone — and may add tasteful extra "
+        "sections or design flourishes — but never omit the required sections."
     )
 
     # src="PHOTO_SLOT_3" / src='PHOTO_SLOT_3' (either quote style).
@@ -3230,7 +3242,10 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         chosen_model = model or self.zai_model
         try:
             logger.info(f"🟣 Calling GLM (Z.ai) API ({chosen_model})... (prompt length: {len(prompt)} chars)")
-            async with httpx.AsyncClient(timeout=AI_PRIMARY_TIMEOUT_SECONDS + 30) as client:
+            # Client timeout tracks the GLM budget (+30s grace), same pattern
+            # as _call_deepseek's primary-budget+30 — the outer wait_for at
+            # AI_GLM_TIMEOUT_SECONDS is the effective bound either way.
+            async with httpx.AsyncClient(timeout=AI_GLM_TIMEOUT_SECONDS + 30) as client:
                 r = await client.post(
                     f"{self.zai_base_url}/chat/completions",
                     headers={
@@ -5258,11 +5273,11 @@ IMPORTANT INSTRUCTIONS:
                 try:
                     html_raw = await asyncio.wait_for(
                         self._call_glm(prompt),
-                        timeout=AI_PRIMARY_TIMEOUT_SECONDS,
+                        timeout=AI_GLM_TIMEOUT_SECONDS,
                     )
                 except asyncio.TimeoutError:
                     logger.error(
-                        f"⏰ GLM timed out (budget={AI_PRIMARY_TIMEOUT_SECONDS}s) "
+                        f"⏰ GLM timed out (budget={AI_GLM_TIMEOUT_SECONDS}s) "
                         f"— falling back to DeepSeek"
                     )
                     html_raw = None
@@ -5583,10 +5598,13 @@ IMPORTANT INSTRUCTIONS:
                 try:
                     html = await asyncio.wait_for(
                         self._call_glm(prompt),
-                        timeout=AI_PRIMARY_TIMEOUT_SECONDS,
+                        timeout=AI_GLM_TIMEOUT_SECONDS,
                     )
                 except asyncio.TimeoutError:
-                    logger.error(f"⏰ GLM timed out (style={style}) — falling back to DeepSeek")
+                    logger.error(
+                        f"⏰ GLM timed out (style={style}, "
+                        f"budget={AI_GLM_TIMEOUT_SECONDS}s) — falling back to DeepSeek"
+                    )
                     html = None
                 if html and self._last_api_call.get("truncated"):
                     logger.error(f"🚨 GLM output truncated (style={style}) — falling back to DeepSeek")
