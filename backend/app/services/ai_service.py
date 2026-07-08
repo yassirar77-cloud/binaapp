@@ -3131,48 +3131,83 @@ TECHNICAL:
 
 Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HTML."""
 
-    # System prompt for the GLM HTML call, assembled per-call from the pieces
-    # below: the DeepSeek HTML system prompt as base plus Malaysian copy
-    # voice, then ONE image clause chosen by image availability (GLM is
-    # single-shot, so the pipeline must tell it up front which world it's
-    # in), then the required-sections/design-freedom clause.
-    _GLM_SYSTEM_PROMPT_BASE = (
-        "You generate production-ready HTML only. Follow constraints exactly. "
-        "Do not invent facts. Output ONLY HTML. "
-        "All headings, taglines and menu/dish descriptions in natural Malaysian "
-        "Malay/Manglish with local mamak/F&B terms where the business is "
-        "Malaysian. Prices in RM. Warm local tone, not corporate English. "
+    # System prompt for the GLM HTML call, structured as GOAL → HARD RULES →
+    # FREEDOM: one objective, a short checkable rule list (every rule is
+    # verifiable, none stylistic), then explicit creative freedom for
+    # everything else. Assembled per-call: GOAL + rules 1-4 + ONE image rule
+    # (rule 5) chosen by image availability (GLM is single-shot, so the
+    # pipeline must tell it up front which world it's in) + rules 6-8 +
+    # FREEDOM.
+    _GLM_PROMPT_GOAL = (
+        "GOAL: Produce a complete, production-ready, single-file HTML website "
+        "for this Malaysian business that a paying merchant would be proud to "
+        "publish.\n\n"
     )
-    # Images available: the PHOTO_SLOT contract. GLM outputs PHOTO_SLOT_N
-    # tokens which _replace_photo_slots() then binds to the real
+    _GLM_PROMPT_RULES_HEAD = (
+        "HARD RULES — every one must be satisfied:\n"
+        "1. Output ONLY raw HTML starting with <!DOCTYPE html> — the first "
+        "character of your reply is '<'. No preamble, no explanations, no "
+        "markdown fences.\n"
+        "2. Include at minimum these sections: hero, menu highlights (or "
+        "services), about, location, and an order CTA. Always end the page "
+        "with the order CTA. Never omit the required sections.\n"
+        "3. All headings, taglines and menu/dish descriptions in natural "
+        "Malaysian Malay/Manglish with local mamak/F&B terms, unless the "
+        "business context is clearly English-market. Prices in RM. Warm "
+        "local tone, not corporate English.\n"
+        "4. Use ONLY the real business data provided in the prompt (name, "
+        "address, phone, hours, menu items, prices). NEVER invent founder "
+        "names, phone numbers, addresses, ratings, review counts, awards, or "
+        "statistics that were not supplied. If a detail was not provided, "
+        "omit that content rather than fabricate it.\n"
+    )
+    # Rule 5, images-available branch: the PHOTO_SLOT contract. GLM outputs
+    # PHOTO_SLOT_N tokens which _replace_photo_slots() then binds to the real
     # Cloudinary/Stability URLs deterministically — same boundary where the
     # DeepSeek pipeline's exact-URL instructions get enforced.
     _GLM_PHOTO_SLOT_CLAUSE = (
-        "For ALL images use exactly src='PHOTO_SLOT_1', src='PHOTO_SLOT_2', ... "
-        "in order of appearance — never invent image URLs. "
+        "5. For ALL images use exactly src='PHOTO_SLOT_1', "
+        "src='PHOTO_SLOT_2', ... in order of appearance — never invent image "
+        "URLs.\n"
     )
-    # No images available: photo-less design mode. Without this, PHOTO_SLOT
-    # tokens resolve to empty URLs and the image safety net paints grey
-    # fallback blocks — a bare, broken-looking site. Deliberately avoids the
-    # literal token name so the model never sees it in this mode.
+    # Rule 5, no-images branch: photo-less design mode. Without this,
+    # PHOTO_SLOT tokens resolve to empty URLs and the image safety net paints
+    # grey fallback blocks — a bare, broken-looking site. Deliberately avoids
+    # the literal token name so the model never sees it in this mode.
     _GLM_NO_PHOTO_CLAUSE = (
-        "No photographs are available for this site. Build a polished, "
+        "5. No photographs are available for this site. Build a polished, "
         "typography-led design: use bold headings, color blocks, gradients, "
         "generous whitespace, icon accents, and strong layout to create "
         "visual interest. Do NOT use any <img> tags, do NOT use "
         "background-image: url(...) with photo URLs, and do NOT use any "
         "placeholder photo tokens. The page must look complete and "
-        "intentional without any photographs — like a clean modern brand site. "
+        "intentional without any photographs — like a clean modern brand "
+        "site.\n"
     )
-    _GLM_SECTIONS_CLAUSE = (
-        "Include at minimum these sections: hero, menu highlights, about, "
-        "location, and an order CTA. Always end the page with the order CTA. "
-        "You have full freedom over colours, fonts, layout style, section "
-        "backgrounds, and Malay copy tone — and may add tasteful extra "
-        "sections or design flourishes — but never omit the required sections."
+    _GLM_PROMPT_RULES_TAIL = (
+        "6. Mobile-first responsive: nothing may overflow horizontally on a "
+        "375px-wide screen.\n"
+        "7. Every navigation anchor must point to a section id that exists "
+        "in the page.\n"
+        "8. No external JS/CSS beyond what the prompt's HTML skeleton "
+        "already loads (Tailwind CDN, AOS, Font Awesome, Google Fonts).\n\n"
+    )
+    _GLM_PROMPT_FREEDOM = (
+        "FREEDOM: Everything not covered by the hard rules is yours — colour "
+        "palette, typography pairing, layout patterns, section order (except "
+        "the order CTA last), animations, section backgrounds, copy tone and "
+        "personality — and you may add tasteful extra sections or design "
+        "flourishes. Make the site feel individually designed, not "
+        "templated. Surprise us — within the rules."
     )
     # Back-compat alias: the has-images composition (previous single-string form).
-    _GLM_HTML_SYSTEM_PROMPT = _GLM_SYSTEM_PROMPT_BASE + _GLM_PHOTO_SLOT_CLAUSE + _GLM_SECTIONS_CLAUSE
+    _GLM_HTML_SYSTEM_PROMPT = (
+        _GLM_PROMPT_GOAL
+        + _GLM_PROMPT_RULES_HEAD
+        + _GLM_PHOTO_SLOT_CLAUSE
+        + _GLM_PROMPT_RULES_TAIL
+        + _GLM_PROMPT_FREEDOM
+    )
 
     # src="PHOTO_SLOT_3" / src='PHOTO_SLOT_3' (either quote style).
     _PHOTO_SLOT_SRC_RE = re.compile(r"""(src=["'])PHOTO_SLOT_(\d+)(["'])""", re.IGNORECASE)
@@ -3272,9 +3307,11 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         chosen_model = model or self.zai_model
         system_prompt = (
-            self._GLM_SYSTEM_PROMPT_BASE
+            self._GLM_PROMPT_GOAL
+            + self._GLM_PROMPT_RULES_HEAD
             + (self._GLM_PHOTO_SLOT_CLAUSE if has_images else self._GLM_NO_PHOTO_CLAUSE)
-            + self._GLM_SECTIONS_CLAUSE
+            + self._GLM_PROMPT_RULES_TAIL
+            + self._GLM_PROMPT_FREEDOM
         )
         try:
             logger.info(

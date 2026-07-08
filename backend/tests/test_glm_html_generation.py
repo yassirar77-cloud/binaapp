@@ -90,12 +90,28 @@ class TestCallGlm:
         system_msg = mock_post.call_args.kwargs["json"]["messages"][0]
         assert system_msg["role"] == "system"
         assert "PHOTO_SLOT_1" in system_msg["content"]
-        assert "Output ONLY HTML" in system_msg["content"]
+        assert "Output ONLY raw HTML" in system_msg["content"]
         assert "RM" in system_msg["content"]
 
     @pytest.mark.asyncio
+    async def test_system_prompt_has_goal_rules_freedom_structure(self, glm_service):
+        """The prompt is structured GOAL → HARD RULES → FREEDOM, in that
+        order, so GLM reads the objective first, then the checkable
+        non-negotiables, then explicit creative licence."""
+        patcher, mock_post = _patch_async_client(_mock_httpx_response("<html></html>"))
+        with patcher:
+            await glm_service._call_glm("make a website")
+
+        content = mock_post.call_args.kwargs["json"]["messages"][0]["content"]
+        goal = content.index("GOAL:")
+        rules = content.index("HARD RULES")
+        freedom = content.index("FREEDOM:")
+        assert goal < rules < freedom
+        assert "paying merchant would be proud to publish" in content
+
+    @pytest.mark.asyncio
     async def test_system_prompt_requires_core_sections(self, glm_service):
-        """The required-sections clause: minimum section set, order CTA last,
+        """The required-sections rule: minimum section set, order CTA last,
         design freedom otherwise."""
         patcher, mock_post = _patch_async_client(_mock_httpx_response("<html></html>"))
         with patcher:
@@ -106,9 +122,25 @@ class TestCallGlm:
         for section in ("hero", "menu highlights", "about", "location", "order CTA"):
             assert section in content
         assert "Always end the page with the order CTA" in content
-        assert "never omit the required sections" in content
+        assert "Never omit the required sections" in content
         # Design freedom stays explicit alongside the hard requirements
         assert "may add tasteful extra sections" in content
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("has_images", [True, False])
+    async def test_system_prompt_forbids_invented_data(self, glm_service, has_images):
+        """The no-invented-data rule: only supplied business data may appear;
+        missing details are omitted, never fabricated. Present in both image
+        modes — it guards against real hallucination (fake founders, fake
+        phone numbers, fake ratings)."""
+        patcher, mock_post = _patch_async_client(_mock_httpx_response("<html></html>"))
+        with patcher:
+            await glm_service._call_glm("make a website", has_images=has_images)
+
+        content = mock_post.call_args.kwargs["json"]["messages"][0]["content"]
+        assert "Use ONLY the real business data provided" in content
+        assert "NEVER invent founder names, phone numbers, addresses" in content
+        assert "omit that content rather than fabricate it" in content
 
     @pytest.mark.asyncio
     async def test_has_images_true_uses_photo_slot_contract(self, glm_service):
@@ -153,7 +185,7 @@ class TestCallGlm:
         assert "Include at minimum these sections" in content
         assert "Always end the page with the order CTA" in content
         assert "may add tasteful extra sections" in content
-        assert "Output ONLY HTML" in content
+        assert "Output ONLY raw HTML" in content
 
     @pytest.mark.asyncio
     async def test_strips_preamble_before_first_angle_bracket(self, glm_service):
