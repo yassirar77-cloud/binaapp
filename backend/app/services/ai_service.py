@@ -47,12 +47,11 @@ AI_DEEPSEEK_MAX_TOKENS = int(os.getenv("AI_DEEPSEEK_MAX_TOKENS", "24000"))
 # Render without a redeploy.
 AI_GLM_MAX_TOKENS = int(os.getenv("AI_GLM_MAX_TOKENS", "16000"))
 
-# Per-call timeout for the GLM primary generation. Deliberately much tighter
-# than AI_PRIMARY_TIMEOUT_SECONDS: glm-5.2 with thinking disabled responds
-# well under a minute, and GLM is a fall-through tier — a hung Z.ai must not
-# double total latency by burning the full 300s budget before DeepSeek even
-# starts. On timeout we log and fall back to DeepSeek (never raise).
-AI_GLM_TIMEOUT_SECONDS = float(os.getenv("AI_GLM_TIMEOUT_SECONDS", "120"))
+# Per-call timeout for the GLM primary generation. Tighter than
+# AI_PRIMARY_TIMEOUT_SECONDS: GLM is a fall-through tier — a hung Z.ai must
+# not burn the full 300s budget before DeepSeek even starts. On timeout we
+# log and fall back to DeepSeek (never raise).
+AI_GLM_TIMEOUT_SECONDS = float(os.getenv("AI_GLM_TIMEOUT_SECONDS", "240"))
 
 # Feature flag: route primary HTML generation through GLM (Z.ai) FIRST, with
 # the existing DeepSeek path as an untouched fallback. Ships dark (default
