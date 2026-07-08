@@ -164,45 +164,75 @@
   // STYLES
   // =====================================================
 
+  // Theme: inherits the merchant site's primary color via --binaapp-chat-primary
+  // (emitted by the server at generation time); falls back to BinaApp navy.
   const styles = `
+    #binaapp-chat-widget,
     #binaapp-chat-widget * {
       box-sizing: border-box;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    #binaapp-chat-widget {
+      --bc-primary: var(--binaapp-chat-primary, #16233F);
+      --bc-accent: #A3E635;
+      --bc-bg: #F4F6FA;
+      --bc-surface: #FFFFFF;
+      --bc-border: #E5E9F0;
+      --bc-text: #1A2333;
+      --bc-muted: #66718A;
     }
 
     #binaapp-chat-btn {
       position: fixed;
       bottom: 24px;
       right: 24px;
-      width: 56px;
-      height: 56px;
-      background: linear-gradient(135deg, #ea580c, #f97316);
+      width: 58px;
+      height: 58px;
+      background: var(--bc-primary, #16233F);
+      color: #fff;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      box-shadow: 0 4px 12px rgba(234, 88, 12, 0.4);
-      z-index: 9999;
-      font-size: 24px;
-      transition: transform 0.3s ease, box-shadow 0.3s ease;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.30);
+      z-index: 2147482998;
+      transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease;
       border: none;
       outline: none;
+      padding: 0;
     }
 
     #binaapp-chat-btn:hover {
-      transform: scale(1.1);
-      box-shadow: 0 6px 20px rgba(234, 88, 12, 0.5);
+      transform: translateY(-2px) scale(1.05);
+      box-shadow: 0 14px 30px rgba(15, 23, 42, 0.35);
     }
+
+    #binaapp-chat-btn:active {
+      transform: scale(0.96);
+    }
+
+    #binaapp-chat-btn svg {
+      width: 26px;
+      height: 26px;
+      display: block;
+      pointer-events: none;
+    }
+
+    #binaapp-chat-widget.chat-open #binaapp-chat-btn .bc-icon-chat { display: none; }
+    #binaapp-chat-btn .bc-icon-close { display: none; }
+    #binaapp-chat-widget.chat-open #binaapp-chat-btn .bc-icon-close { display: block; }
 
     #binaapp-chat-btn .badge {
       position: absolute;
-      top: -5px;
-      right: -5px;
-      background: #ef4444;
+      top: -4px;
+      right: -4px;
+      background: #EF4444;
       color: white;
-      font-size: 12px;
-      font-weight: bold;
+      font-size: 11px;
+      font-weight: 700;
       min-width: 20px;
       height: 20px;
       border-radius: 10px;
@@ -210,80 +240,197 @@
       align-items: center;
       justify-content: center;
       padding: 0 6px;
+      border: 2px solid #fff;
     }
 
     #binaapp-chat-window {
-      display: none;
       position: fixed;
-      bottom: 90px;
+      bottom: 96px;
       right: 24px;
-      width: 350px;
-      max-width: calc(100vw - 40px);
-      height: 450px;
-      max-height: calc(100vh - 120px);
-      background: white;
-      border-radius: 16px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-      z-index: 9998;
+      width: 372px;
+      max-width: calc(100vw - 32px);
+      height: 540px;
+      max-height: calc(100vh - 130px);
+      background: var(--bc-surface, #fff);
+      border-radius: 20px;
+      border: 1px solid rgba(15, 23, 42, 0.06);
+      box-shadow: 0 24px 60px -12px rgba(15, 23, 42, 0.28), 0 4px 16px rgba(15, 23, 42, 0.10);
+      z-index: 2147483000;
       overflow: hidden;
+      display: flex;
       flex-direction: column;
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateY(14px) scale(0.97);
+      transform-origin: bottom right;
+      transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.21, 1.02, 0.55, 1), visibility 0.22s;
     }
 
     #binaapp-chat-window.open {
-      display: flex;
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transform: translateY(0) scale(1);
+    }
+
+    /* While the chat window is open, collapse the other floating widgets
+       (Pesan Delivery button, WhatsApp float, legacy delivery buttons) so
+       they never cover the chat panel or its input row. */
+    .binaapp-order-button,
+    #whatsapp-button,
+    #binaapp-delivery-btn,
+    #delivery-floating-cart-btn {
+      transition: opacity 0.22s ease, visibility 0.22s ease;
+    }
+
+    html.binaapp-chat-open .binaapp-order-button,
+    html.binaapp-chat-open #whatsapp-button,
+    html.binaapp-chat-open #binaapp-delivery-btn,
+    html.binaapp-chat-open #delivery-floating-cart-btn {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
     }
 
     .binaapp-header {
-      background: linear-gradient(135deg, #ea580c, #f97316);
+      position: relative;
+      background: linear-gradient(160deg, var(--bc-primary, #16233F), rgba(0, 0, 0, 0.55)),
+                  var(--bc-primary, #16233F);
       color: white;
-      padding: 16px;
+      padding: 14px 16px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .binaapp-avatar {
+      position: relative;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 17px;
+      color: #fff;
       flex-shrink: 0;
     }
 
+    .binaapp-avatar svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .binaapp-status-dot {
+      position: absolute;
+      bottom: -1px;
+      right: -1px;
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: var(--bc-accent, #A3E635);
+      box-shadow: 0 0 0 2px rgba(22, 35, 63, 0.9);
+    }
+
+    .binaapp-header-info {
+      flex: 1;
+      min-width: 0;
+    }
+
     .binaapp-header-title {
-      font-weight: bold;
-      font-size: 18px;
-      margin-bottom: 4px;
+      font-weight: 700;
+      font-size: 15.5px;
+      letter-spacing: 0.1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .binaapp-header-subtitle {
       font-size: 12px;
-      opacity: 0.9;
+      opacity: 0.85;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .binaapp-header-close {
-      position: absolute;
-      top: 12px;
-      right: 12px;
-      background: rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.14);
       border: none;
       color: white;
-      width: 28px;
-      height: 28px;
+      width: 30px;
+      height: 30px;
       border-radius: 50%;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 16px;
+      flex-shrink: 0;
+      transition: background 0.2s ease;
+      padding: 0;
+    }
+
+    .binaapp-header-close:hover {
+      background: rgba(255, 255, 255, 0.28);
+    }
+
+    .binaapp-header-close svg {
+      width: 15px;
+      height: 15px;
+      display: block;
     }
 
     .binaapp-messages {
       flex: 1;
       overflow-y: auto;
-      padding: 16px;
-      background: #f9fafb;
+      padding: 18px 16px;
+      background: var(--bc-bg, #F4F6FA);
+    }
+
+    .binaapp-messages::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .binaapp-messages::-webkit-scrollbar-thumb {
+      background: rgba(15, 23, 42, 0.15);
+      border-radius: 3px;
     }
 
     .binaapp-empty-state {
       text-align: center;
-      color: #6b7280;
-      font-size: 14px;
-      padding: 40px 20px;
+      color: var(--bc-muted, #66718A);
+      font-size: 13.5px;
+      line-height: 1.5;
+      padding: 44px 24px;
+    }
+
+    .binaapp-empty-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: var(--bc-surface, #fff);
+      border: 1px solid var(--bc-border, #E5E9F0);
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+      margin: 0 auto 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--bc-primary, #16233F);
+    }
+
+    .binaapp-empty-icon svg {
+      width: 24px;
+      height: 24px;
     }
 
     .binaapp-message {
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       display: flex;
     }
 
@@ -296,36 +443,43 @@
       justify-content: flex-start;
     }
 
+    .binaapp-message.system {
+      justify-content: center;
+    }
+
     .binaapp-message-bubble {
       max-width: 80%;
       padding: 10px 14px;
       border-radius: 16px;
       word-wrap: break-word;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
     }
 
     .binaapp-message.customer .binaapp-message-bubble {
-      background: #ea580c;
+      background: var(--bc-primary, #16233F);
       color: white;
-      border-bottom-right-radius: 4px;
+      border-bottom-right-radius: 5px;
     }
 
     .binaapp-message.owner .binaapp-message-bubble {
-      background: white;
-      border: 1px solid #e5e7eb;
-      border-bottom-left-radius: 4px;
+      background: var(--bc-surface, #fff);
+      border: 1px solid var(--bc-border, #E5E9F0);
+      color: var(--bc-text, #1A2333);
+      border-bottom-left-radius: 5px;
     }
 
     .binaapp-message.system .binaapp-message-bubble {
-      background: #fef3c7;
-      color: #92400e;
+      background: #FFF7E0;
+      color: #8A6412;
       font-size: 12px;
       text-align: center;
-      border-radius: 8px;
+      border-radius: 10px;
+      box-shadow: none;
     }
 
     .binaapp-message-text {
       font-size: 14px;
-      line-height: 1.4;
+      line-height: 1.45;
     }
 
     .binaapp-message-image {
@@ -344,101 +498,141 @@
     }
 
     .binaapp-message.owner .binaapp-message-image {
-      border: 1px solid #e5e7eb;
+      border: 1px solid var(--bc-border, #E5E9F0);
     }
 
     .binaapp-message-time {
       font-size: 10px;
-      opacity: 0.7;
+      opacity: 0.65;
       margin-top: 4px;
     }
 
     .binaapp-input-area {
-      padding: 12px;
-      border-top: 1px solid #e5e7eb;
-      background: white;
+      padding: 12px 14px;
+      border-top: 1px solid var(--bc-border, #E5E9F0);
+      background: var(--bc-surface, #fff);
       flex-shrink: 0;
     }
 
     .binaapp-input-row {
       display: flex;
-      gap: 8px;
+      gap: 10px;
+      align-items: center;
     }
 
     .binaapp-input {
       flex: 1;
-      padding: 12px 16px;
-      border: 1px solid #e5e7eb;
-      border-radius: 24px;
+      min-width: 0;
+      padding: 11px 16px;
+      background: #F2F4F8;
+      border: 1.5px solid transparent;
+      border-radius: 999px;
       outline: none;
       font-size: 14px;
-      transition: border-color 0.2s;
+      color: var(--bc-text, #1A2333);
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .binaapp-input::placeholder {
+      color: #98A2B8;
     }
 
     .binaapp-input:focus {
-      border-color: #ea580c;
+      border-color: var(--bc-primary, #16233F);
+      background: #fff;
     }
 
     .binaapp-send-btn {
-      background: #ea580c;
+      width: 44px;
+      height: 44px;
+      flex-shrink: 0;
+      background: var(--bc-primary, #16233F);
       color: white;
       border: none;
-      padding: 12px 20px;
-      border-radius: 24px;
+      border-radius: 50%;
       cursor: pointer;
-      font-weight: 600;
-      font-size: 14px;
-      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      transition: transform 0.15s ease, background 0.2s ease;
     }
 
-    .binaapp-send-btn:hover {
-      background: #dc4c0a;
+    .binaapp-send-btn svg {
+      width: 19px;
+      height: 19px;
+      margin-left: 2px;
+      display: block;
+      pointer-events: none;
+    }
+
+    .binaapp-send-btn:hover:not(:disabled) {
+      transform: scale(1.06);
     }
 
     .binaapp-send-btn:disabled {
-      background: #d1d5db;
+      background: #C6CCDA;
       cursor: not-allowed;
     }
 
     .binaapp-name-form {
       padding: 16px;
-      border-top: 1px solid #e5e7eb;
-      background: white;
+      border-top: 1px solid var(--bc-border, #E5E9F0);
+      background: var(--bc-surface, #fff);
+    }
+
+    .binaapp-form-intro {
+      font-size: 12.5px;
+      color: var(--bc-muted, #66718A);
+      margin-bottom: 10px;
+      line-height: 1.45;
     }
 
     .binaapp-form-input {
       width: 100%;
       padding: 12px 16px;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
+      background: #F2F4F8;
+      border: 1.5px solid transparent;
+      border-radius: 12px;
       margin-bottom: 8px;
       font-size: 14px;
+      color: var(--bc-text, #1A2333);
       outline: none;
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .binaapp-form-input::placeholder {
+      color: #98A2B8;
     }
 
     .binaapp-form-input:focus {
-      border-color: #ea580c;
+      border-color: var(--bc-primary, #16233F);
+      background: #fff;
     }
 
     .binaapp-start-btn {
       width: 100%;
-      background: #ea580c;
+      background: var(--bc-primary, #16233F);
       color: white;
       border: none;
-      padding: 14px;
-      border-radius: 8px;
+      padding: 13px;
+      border-radius: 12px;
       cursor: pointer;
-      font-weight: bold;
+      font-weight: 700;
       font-size: 14px;
-      transition: background 0.2s;
+      transition: filter 0.2s ease, transform 0.15s ease;
     }
 
-    .binaapp-start-btn:hover {
-      background: #dc4c0a;
+    .binaapp-start-btn:hover:not(:disabled) {
+      filter: brightness(1.12);
+    }
+
+    .binaapp-start-btn:active:not(:disabled) {
+      transform: scale(0.99);
     }
 
     .binaapp-start-btn:disabled {
-      background: #d1d5db;
+      background: #C6CCDA;
       cursor: not-allowed;
     }
 
@@ -452,8 +646,8 @@
     .binaapp-spinner {
       width: 24px;
       height: 24px;
-      border: 3px solid #e5e7eb;
-      border-top-color: #ea580c;
+      border: 3px solid var(--bc-border, #E5E9F0);
+      border-top-color: var(--bc-primary, #16233F);
       border-radius: 50%;
       animation: binaapp-spin 1s linear infinite;
     }
@@ -463,6 +657,13 @@
     }
 
     @media (max-width: 480px) {
+      #binaapp-chat-btn {
+        bottom: 20px;
+        right: 16px;
+        width: 54px;
+        height: 54px;
+      }
+
       #binaapp-chat-window {
         bottom: 0;
         left: 0;
@@ -470,23 +671,24 @@
         width: 100%;
         max-width: 100%;
         height: 100vh;
+        height: 100dvh;
         max-height: 100vh;
+        max-height: 100dvh;
         border-radius: 0;
+        transform: translateY(24px);
       }
 
-      #binaapp-chat-btn {
-        bottom: 20px;
-        right: 16px;
-        width: 52px;
-        height: 52px;
-        font-size: 22px;
+      #binaapp-chat-window.open {
+        transform: translateY(0);
       }
 
-      #binaapp-chat-window {
-        width: calc(100vw - 32px);
-        height: 400px;
-        bottom: 80px;
-        right: 16px;
+      .binaapp-header {
+        padding-top: calc(14px + env(safe-area-inset-top, 0px));
+      }
+
+      .binaapp-input-area,
+      .binaapp-name-form {
+        padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
       }
     }
   `;
@@ -508,38 +710,85 @@
   // CREATE WIDGET HTML
   // =====================================================
 
+  /**
+   * Stack the floating widgets vertically instead of letting them overlap.
+   * The WhatsApp float is pinned at bottom:20 right:20 (60px tall) by the
+   * site's safety-guard CSS, and the serve-time "Pesan Delivery" button sits
+   * at bottom:96. Without this, the chat launcher (bottom:24) would bury the
+   * WhatsApp button. When WhatsApp exists: WA 20 → chat 96 → delivery 164.
+   */
+  function layoutFloatStack() {
+    var btn = document.getElementById('binaapp-chat-btn');
+    var win = document.getElementById('binaapp-chat-window');
+    if (!btn) return;
+
+    var isMobile = window.matchMedia('(max-width: 480px)').matches;
+    var wa = document.getElementById('whatsapp-button');
+    var orderBtn = document.querySelector('.binaapp-order-button');
+
+    // Reset to stylesheet defaults, then apply stack offsets only if needed
+    btn.style.bottom = '';
+    if (win) win.style.bottom = '';
+    if (orderBtn) orderBtn.style.bottom = '';
+
+    if (wa) {
+      btn.style.bottom = '96px';
+      if (win && !isMobile) win.style.bottom = '164px';
+      if (orderBtn) orderBtn.style.bottom = '164px';
+    }
+  }
+
+  function emptyStateHtml() {
+    return '<div class="binaapp-empty-state">' +
+      '<div class="binaapp-empty-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg></div>' +
+      'Mulakan perbualan dengan menghantar mesej' +
+      '</div>';
+  }
+
   function createWidget() {
     if (document.getElementById(WIDGET_ID)) return;
+
+    const chatIconSvg = '<svg class="bc-icon-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>';
+    const closeIconSvg = '<svg class="bc-icon-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>';
+    const sendIconSvg = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.4 20.4 21.85 12.92a1 1 0 0 0 0-1.84L3.4 3.6a1 1 0 0 0-1.39 1.15L3.5 11l9.5 1-9.5 1-1.49 6.25a1 1 0 0 0 1.39 1.15z"></path></svg>';
 
     const widget = document.createElement('div');
     widget.id = WIDGET_ID;
     widget.innerHTML = `
-      <button id="binaapp-chat-btn" aria-label="Chat dengan kami">
-        <span class="icon">&#128172;</span>
+      <button id="binaapp-chat-btn" aria-label="Chat dengan kami" aria-expanded="false">
+        ${chatIconSvg}
+        ${closeIconSvg}
         <span class="badge" style="display: none;">0</span>
       </button>
 
-      <div id="binaapp-chat-window">
-        <div class="binaapp-header" style="position: relative;">
-          <div class="binaapp-header-title">&#128172; Chat dengan Kami</div>
-          <div class="binaapp-header-subtitle">Biasanya balas dalam 5 minit</div>
-          <button class="binaapp-header-close" aria-label="Tutup chat">&times;</button>
+      <div id="binaapp-chat-window" role="dialog" aria-label="Tetingkap chat">
+        <div class="binaapp-header">
+          <div class="binaapp-avatar">
+            <span id="binaapp-avatar-content">${chatIconSvg.replace('bc-icon-chat', '')}</span>
+            <span class="binaapp-status-dot" aria-hidden="true"></span>
+          </div>
+          <div class="binaapp-header-info">
+            <div class="binaapp-header-title" id="binaapp-header-title">Chat dengan Kami</div>
+            <div class="binaapp-header-subtitle">Online &middot; Biasanya balas dalam 5 minit</div>
+          </div>
+          <button class="binaapp-header-close" aria-label="Tutup chat">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg>
+          </button>
         </div>
 
         <div id="binaapp-messages" class="binaapp-messages">
-          <div class="binaapp-empty-state">
-            Mulakan perbualan dengan menghantar mesej
-          </div>
+          ${emptyStateHtml()}
         </div>
 
         <div id="binaapp-chat-input" class="binaapp-input-area" style="display: none;">
           <div class="binaapp-input-row">
             <input type="text" id="binaapp-msg-input" class="binaapp-input" placeholder="Taip mesej..." maxlength="1000">
-            <button id="binaapp-send-btn" class="binaapp-send-btn">Hantar</button>
+            <button id="binaapp-send-btn" class="binaapp-send-btn" aria-label="Hantar mesej" title="Hantar">${sendIconSvg}</button>
           </div>
         </div>
 
         <div id="binaapp-name-form" class="binaapp-name-form">
+          <div class="binaapp-form-intro">Tinggalkan nama anda dan kami akan balas secepat mungkin.</div>
           <input type="text" id="binaapp-name" class="binaapp-form-input" placeholder="Nama anda *" maxlength="100">
           <input type="tel" id="binaapp-phone" class="binaapp-form-input" placeholder="No. telefon (contoh: 0123456789)" maxlength="15">
           <div id="binaapp-form-error" style="display:none;color:#ef4444;font-size:12px;padding:4px 8px;margin-bottom:8px;background:#fef2f2;border-radius:6px;text-align:center;"></div>
@@ -631,6 +880,14 @@
   function toggleChat() {
     isOpen = !isOpen;
     const chatWindow = document.getElementById('binaapp-chat-window');
+    const widgetRoot = document.getElementById(WIDGET_ID);
+    const chatBtn = document.getElementById('binaapp-chat-btn');
+
+    // Signal open state on <html>: CSS hides the other floating widgets
+    // (Pesan Delivery / WhatsApp) so they never cover the chat panel.
+    document.documentElement.classList.toggle('binaapp-chat-open', isOpen);
+    if (widgetRoot) widgetRoot.classList.toggle('chat-open', isOpen);
+    if (chatBtn) chatBtn.setAttribute('aria-expanded', String(isOpen));
 
     if (isOpen) {
       chatWindow.classList.add('open');
@@ -680,7 +937,7 @@
     if (!container) return;
 
     if (!messages || messages.length === 0) {
-      container.innerHTML = '<div class="binaapp-empty-state">Mulakan perbualan dengan menghantar mesej</div>';
+      container.innerHTML = emptyStateHtml();
       return;
     }
 
@@ -786,7 +1043,7 @@
   function showNotification(message) {
     // Create notification element
     const notification = document.createElement('div');
-    notification.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#ef4444;color:white;padding:10px 20px;border-radius:8px;font-size:13px;z-index:10001;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
+    notification.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#ef4444;color:white;padding:10px 20px;border-radius:8px;font-size:13px;z-index:2147483001;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
     notification.textContent = message;
     document.body.appendChild(notification);
     // Remove after 3 seconds
@@ -924,7 +1181,22 @@
     }
 
     showNameForm();
+    layoutFloatStack();
+    window.addEventListener('resize', layoutFloatStack);
     console.log('[BinaApp Chat] Widget UI visible, pending validation for:', pendingWebsiteId);
+  }
+
+  /**
+   * Show the merchant's business name in the header and use its initial
+   * as the avatar, replacing the generic chat icon.
+   */
+  function applyBusinessName(name) {
+    const title = document.getElementById('binaapp-header-title');
+    const avatar = document.getElementById('binaapp-avatar-content');
+    const trimmed = (name || '').trim();
+    if (!trimmed) return;
+    if (title) title.textContent = trimmed;
+    if (avatar) avatar.textContent = trimmed.charAt(0).toUpperCase();
   }
 
   /**
@@ -999,6 +1271,9 @@
     websiteId = result.websiteId;
     validationComplete = true;
 
+    // Personalise the header with the business name from the database
+    if (result.businessName) applyBusinessName(result.businessName);
+
     // Initialize storage keys with validated ID
     initStorageKeys(websiteId);
 
@@ -1035,16 +1310,15 @@
         if (!modalEl) return;
 
         var chatBtn = document.getElementById('binaapp-chat-btn');
-        var chatWindow = document.getElementById('binaapp-chat-window');
 
         if (modalEl.classList.contains('active')) {
-          // Delivery modal is open, hide chat widgets to prevent blocking form
+          // Delivery modal is open: hide the launcher and close the chat
+          // window (via toggleChat so open-state classes stay in sync).
           if (chatBtn) chatBtn.style.display = 'none';
-          if (chatWindow) chatWindow.style.display = 'none';
+          if (isOpen) toggleChat();
         } else {
-          // Delivery modal is closed, show chat widgets
+          // Delivery modal is closed, show chat launcher again
           if (chatBtn) chatBtn.style.display = 'flex';
-          // Chat window visibility is controlled by isOpen state
         }
       });
 
