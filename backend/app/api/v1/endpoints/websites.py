@@ -4,7 +4,7 @@ Handles website generation, management, and publishing
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends, BackgroundTasks, Request
-from typing import List
+from typing import List, Optional
 from loguru import logger
 from datetime import datetime
 import re
@@ -2052,6 +2052,38 @@ def _apply_whatsapp_number(html: str, new_digits: str, old_digits: str = "") -> 
     return html
 
 
+async def _fetch_serving_snapshot(subdomain: str) -> Optional[str]:
+    """Fetch the live storage snapshot the subdomain middleware actually serves.
+
+    Reads `{subdomain}/index.html` straight from Supabase Storage (cache-busted
+    so we never read a stale edge copy). Returns None if unavailable.
+
+    WHY this exists: the subdomain serve path serves the STORAGE snapshot, not
+    `websites.html_content`. Those two can silently diverge (the DB blob may be
+    stale or truncated — see the mimba contact-edit regression). This snapshot is
+    the content a visitor actually sees, and therefore the correct base for an
+    in-place WhatsApp-number edit.
+    """
+    supabase_url = settings.SUPABASE_URL
+    bucket = settings.STORAGE_BUCKET_NAME
+    if not supabase_url or not subdomain:
+        return None
+
+    import httpx
+
+    base = f"{supabase_url}/storage/v1/object/public/{bucket}"
+    # Serving key first, then the legacy demo-user path (mirrors the middleware).
+    for path in (f"{subdomain}/index.html", f"demo-user/{subdomain}/index.html"):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{base}/{path}?cb=contact-edit")
+            if resp.status_code == 200 and resp.text:
+                return resp.text
+        except Exception as e:
+            logger.warning(f"[contact] snapshot fetch failed for {path}: {e}")
+    return None
+
+
 @router.patch("/{website_id}/contact")
 async def update_website_contact(
     website_id: str,
@@ -2105,52 +2137,123 @@ async def update_website_contact(
             )
         old_digits = _normalize_wa_digits(website.get("whatsapp_number") or "")
 
-        # Rewrite the stored HTML so every WhatsApp link uses the new number.
-        # This is what fixes the secondary bug (regenerate reused the OLD number)
-        # WITHIN this credit-free path — the new number is applied directly.
-        html_content = website.get("html_content") or ""
-        updated_html = _apply_whatsapp_number(html_content, new_digits, old_digits)
-
+        # Always persist the new number to the DB column — cheap, correct, and
+        # independent of the HTML/storage rewrite below.
         update_data = {
             "whatsapp_number": new_whatsapp,
             "updated_at": datetime.utcnow().isoformat(),
         }
-        if updated_html != html_content:
-            update_data["html_content"] = updated_html
+
+        # --- Rewrite the live page's WhatsApp links --------------------------
+        # REGRESSION FIX (mimba): the subdomain middleware serves the STORAGE
+        # snapshot, and the DB `html_content` blob can silently diverge from it
+        # (it may be stale or truncated). Blindly rewriting the DB blob and
+        # republishing it can therefore (a) fail to change the number visitors
+        # actually see and, far worse, (b) overwrite a good live snapshot with a
+        # broken/truncated one — which is exactly what wiped mimba's injected
+        # widgets (WhatsApp float, Pesan Delivery, BinaChat all vanished). So:
+        #   1. rewrite against the LIVE serving snapshot when available;
+        #   2. NEVER publish HTML that isn't structurally balanced.
+        from app.utils.html_balance import is_html_balanced
+
+        is_published = (
+            website.get("status") == "published" and bool(website.get("subdomain"))
+        )
+
+        db_html = website.get("html_content") or ""
+        serving_html = None
+        if is_published:
+            serving_html = await _fetch_serving_snapshot(website["subdomain"])
+
+        # Choose the rewrite base: prefer the live snapshot, fall back to the DB
+        # blob. Only accept a base that is structurally balanced — a truncated
+        # base must never be republished over the live site.
+        base_html = None
+        base_source = None
+        for candidate, source in ((serving_html, "storage"), (db_html, "db")):
+            if candidate and is_html_balanced(candidate)[0]:
+                base_html = candidate
+                base_source = source
+                break
+
+        live_site_updated = False
+        html_warning = None
+        result_html = db_html
+
+        if base_html is not None:
+            rewritten = _apply_whatsapp_number(base_html, new_digits, old_digits)
+            balanced, unbalanced = is_html_balanced(rewritten)
+            if not balanced:
+                # A pure link swap should never unbalance HTML — refuse anyway.
+                html_warning = "rewrite_produced_unbalanced_html"
+                logger.error(
+                    f"[contact] refusing to publish unbalanced HTML for "
+                    f"{website.get('subdomain')} (tags: {unbalanced})"
+                )
+            else:
+                # Keep the DB blob in sync with what we publish (repairs prior
+                # DB↔storage divergence going forward).
+                update_data["html_content"] = rewritten
+                result_html = rewritten
+                if is_published:
+                    try:
+                        await storage_service.publish_website(
+                            subdomain=website["subdomain"],
+                            html_content=rewritten,
+                            website_id=website_id,
+                            user_id=user_id,
+                        )
+                        live_site_updated = True
+                        logger.info(
+                            f"✅ Contact update: refreshed storage for "
+                            f"{website['subdomain']} (base={base_source})"
+                        )
+                    except Exception as storage_err:
+                        html_warning = "storage_refresh_failed"
+                        logger.warning(
+                            f"⚠️ Contact update: storage refresh failed "
+                            f"(DB updated OK): {storage_err}"
+                        )
+        else:
+            # No safe base to rewrite. Do NOT touch html_content or storage — we
+            # must not clobber the live snapshot with a truncated blob. The number
+            # is still saved to the account; the live page needs a full
+            # regenerate/republish to be edited safely.
+            html_warning = "no_balanced_html_base"
+            logger.error(
+                f"[contact] no balanced HTML base for {website.get('subdomain')} "
+                f"— DB number saved, live HTML left untouched to avoid clobbering "
+                f"the served snapshot"
+            )
 
         await supabase_service.update_website(website_id, update_data)
 
-        # If published, refresh storage so the live site reflects the new number.
-        if (
-            website.get("status") == "published"
-            and website.get("subdomain")
-            and updated_html
-        ):
-            try:
-                await storage_service.publish_website(
-                    subdomain=website["subdomain"],
-                    html_content=updated_html,
-                    website_id=website_id,
-                    user_id=user_id,
-                )
-                logger.info(
-                    f"✅ Contact update: refreshed storage for {website['subdomain']}"
-                )
-            except Exception as storage_err:
-                logger.warning(
-                    f"⚠️ Contact update: storage refresh failed (DB updated OK): {storage_err}"
-                )
-
         logger.info(
-            f"✅ WhatsApp number updated credit-free for website {website_id}"
+            f"✅ WhatsApp number updated credit-free for website {website_id} "
+            f"(live_site_updated={live_site_updated})"
         )
-        return {
+
+        # Be honest: if the site is published but we could not update the live
+        # snapshot, the caller must not be told the live site changed.
+        if is_published and not live_site_updated:
+            message = (
+                "Nombor telah disimpan, tetapi laman web langsung belum dikemas "
+                "kini. Sila jana semula laman web anda."
+            )
+        else:
+            message = "WhatsApp number updated"
+
+        response = {
             "success": True,
-            "message": "WhatsApp number updated",
+            "message": message,
             "website_id": website_id,
             "whatsapp_number": new_whatsapp,
-            "html_content": updated_html,
+            "live_site_updated": live_site_updated,
+            "html_content": result_html,
         }
+        if html_warning:
+            response["warning"] = html_warning
+        return response
 
     except HTTPException:
         raise
