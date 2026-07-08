@@ -4164,7 +4164,6 @@ C:.
 ³       ³       ³   ³   ³   ³   scaleway.py
 ³       ³       ³   ³   ³   ³   together.py
 ³       ³       ³   ³   ³   ³   wavespeed.py
-³       ³       ³   ³   ³   ³   zai_org.py
 ³       ³       ³   ³   ³   ³   _common.py
 ³       ³       ³   ³   ³   ³   __init__.py
 ³       ³       ³   ³   ³   ³   
@@ -4190,7 +4189,6 @@ C:.
 ³       ³       ³   ³   ³           scaleway.cpython-39.pyc
 ³       ³       ³   ³   ³           together.cpython-39.pyc
 ³       ³       ³   ³   ³           wavespeed.cpython-39.pyc
-³       ³       ³   ³   ³           zai_org.cpython-39.pyc
 ³       ³       ³   ³   ³           _common.cpython-39.pyc
 ³       ³       ³   ³   ³           __init__.cpython-39.pyc
 ³       ³       ³   ³   ³           

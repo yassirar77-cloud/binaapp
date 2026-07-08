@@ -42,6 +42,24 @@ AI_PRIMARY_TIMEOUT_SECONDS = float(os.getenv("AI_PRIMARY_TIMEOUT_SECONDS", "300"
 # with 15+ cards while staying well under the provider ceiling.
 AI_DEEPSEEK_MAX_TOKENS = int(os.getenv("AI_DEEPSEEK_MAX_TOKENS", "24000"))
 
+# Output-token cap for GLM (Z.ai) HTML generation. Mirrors
+# AI_DEEPSEEK_MAX_TOKENS above; env-overridable so the cap can be tuned in
+# Render without a redeploy.
+AI_GLM_MAX_TOKENS = int(os.getenv("AI_GLM_MAX_TOKENS", "16000"))
+
+# Per-call timeout for the GLM primary generation. Deliberately much tighter
+# than AI_PRIMARY_TIMEOUT_SECONDS: glm-5.2 with thinking disabled responds
+# well under a minute, and GLM is a fall-through tier — a hung Z.ai must not
+# double total latency by burning the full 300s budget before DeepSeek even
+# starts. On timeout we log and fall back to DeepSeek (never raise).
+AI_GLM_TIMEOUT_SECONDS = float(os.getenv("AI_GLM_TIMEOUT_SECONDS", "120"))
+
+# Feature flag: route primary HTML generation through GLM (Z.ai) FIRST, with
+# the existing DeepSeek path as an untouched fallback. Ships dark (default
+# OFF). Flip USE_GLM_FOR_HTML=true in Render to enable; flip it off for an
+# instant rollback to pure DeepSeek — no code change or rollback deploy needed.
+USE_GLM_FOR_HTML = os.getenv("USE_GLM_FOR_HTML", "false").strip().lower() in ("1", "true", "yes", "on")
+
 
 # Per-call timeout for the optional Qwen copywriting refinement pass in
 # generate_website. Deliberately well under the 240s httpx client default so a
@@ -581,6 +599,16 @@ class AIService:
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
         self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
         self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-reasoner")
+        # GLM / Z.ai — primary HTML generator when USE_GLM_FOR_HTML is on.
+        # The existing Render env var is named ZAI_BASE_URL; ZAI_API_URL is
+        # also accepted (and wins if both are set).
+        self.zai_api_key = os.getenv("ZAI_API_KEY")
+        self.zai_base_url = (
+            os.getenv("ZAI_API_URL")
+            or os.getenv("ZAI_BASE_URL")
+            or "https://api.z.ai/api/paas/v4"
+        )
+        self.zai_model = os.getenv("ZAI_MODEL", "glm-5.2")
         self.stability_api_key = os.getenv("STABILITY_API_KEY")
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_ANON_KEY")
@@ -599,6 +627,10 @@ class AIService:
 
         logger.info("=" * 80)
         logger.info("🚀 AI SERVICE - STRICT NO-PLACEHOLDER MODE")
+        logger.info(
+            f"   GLM (Z.ai): {'✅ Ready' if self.zai_api_key else '❌ NOT SET'} "
+            f"(USE_GLM_FOR_HTML={'on' if USE_GLM_FOR_HTML else 'off'}, model={self.zai_model})"
+        )
         logger.info(f"   DeepSeek: {'✅ Ready' if self.deepseek_api_key else '❌ NOT SET'}")
         logger.info(f"   Qwen: {'✅ Ready' if self.qwen_api_key else '❌ NOT SET'}")
         logger.info(f"   Stability AI: {'✅ Ready' if self.stability_api_key and STABILITY_AVAILABLE else '❌ NOT SET'}")
@@ -3100,6 +3132,198 @@ TECHNICAL:
 
 Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HTML."""
 
+    # System prompt for the GLM HTML call: the DeepSeek HTML system prompt as
+    # base, plus Malaysian copy voice and the PHOTO_SLOT image contract. GLM
+    # outputs PHOTO_SLOT_N tokens which _replace_photo_slots() then binds to
+    # the real Cloudinary/Stability URLs deterministically — same boundary
+    # where the DeepSeek pipeline's exact-URL instructions get enforced.
+    _GLM_HTML_SYSTEM_PROMPT = (
+        "You generate production-ready HTML only. Follow constraints exactly. "
+        "Do not invent facts. Output ONLY HTML. "
+        "All headings, taglines and menu/dish descriptions in natural Malaysian "
+        "Malay/Manglish with local mamak/F&B terms where the business is "
+        "Malaysian. Prices in RM. Warm local tone, not corporate English. "
+        "For ALL images use exactly src='PHOTO_SLOT_1', src='PHOTO_SLOT_2', ... "
+        "in order of appearance — never invent image URLs. "
+        "Include at minimum these sections: hero, menu highlights, about, "
+        "location, and an order CTA. Always end the page with the order CTA. "
+        "You have full freedom over colours, fonts, layout style, section "
+        "backgrounds, and Malay copy tone — and may add tasteful extra "
+        "sections or design flourishes — but never omit the required sections."
+    )
+
+    # src="PHOTO_SLOT_3" / src='PHOTO_SLOT_3' (either quote style).
+    _PHOTO_SLOT_SRC_RE = re.compile(r"""(src=["'])PHOTO_SLOT_(\d+)(["'])""", re.IGNORECASE)
+    # Any leftover bare token (e.g. inside CSS url(PHOTO_SLOT_1)).
+    _PHOTO_SLOT_BARE_RE = re.compile(r"PHOTO_SLOT_(\d+)", re.IGNORECASE)
+
+    @staticmethod
+    def _ordered_prompt_image_urls(image_urls: Dict) -> List[str]:
+        """Flatten the prompt's image_urls dict into PHOTO_SLOT order:
+        hero first (slot 1), then gallery1..4 — the order the images are
+        presented to the model in the prompt."""
+        ordered: List[str] = []
+        if image_urls.get("hero"):
+            ordered.append(image_urls["hero"])
+        for i in range(1, 5):
+            u = image_urls.get(f"gallery{i}")
+            if u:
+                ordered.append(u)
+        return ordered
+
+    def _replace_photo_slots(self, html: str, ordered_urls: List[str]) -> str:
+        """Deterministically bind GLM's PHOTO_SLOT_N tokens to real image URLs.
+
+        PHOTO_SLOT_1 → first URL, PHOTO_SLOT_2 → second, etc. A slot number
+        beyond the available URLs reuses the last URL rather than 404ing.
+        With no URLs at all (image_choice='none'), src attributes are emptied
+        so the existing _fix_broken_image_urls final safety net fills them
+        with context-appropriate fallbacks — same net that catches src=""
+        from the DeepSeek path. No-op when GLM used the exact URLs directly.
+        """
+        if not html or "PHOTO_SLOT_" not in html.upper():
+            return html
+
+        def _url_for(n: int) -> Optional[str]:
+            if not ordered_urls:
+                return None
+            if 1 <= n <= len(ordered_urls):
+                return ordered_urls[n - 1]
+            return ordered_urls[-1]
+
+        replaced = 0
+
+        def _sub_src(m):
+            nonlocal replaced
+            replaced += 1
+            url = _url_for(int(m.group(2)))
+            # Empty src → picked up by _fix_broken_image_urls downstream.
+            return f"{m.group(1)}{url or ''}{m.group(3)}"
+
+        html = self._PHOTO_SLOT_SRC_RE.sub(_sub_src, html)
+
+        def _sub_bare(m):
+            nonlocal replaced
+            replaced += 1
+            return _url_for(int(m.group(1))) or ""
+
+        html = self._PHOTO_SLOT_BARE_RE.sub(_sub_bare, html)
+        if replaced:
+            logger.info(
+                f"🟣 GLM: bound {replaced} PHOTO_SLOT token(s) to "
+                f"{len(ordered_urls)} available image URL(s)"
+            )
+        return html
+
+    async def _call_glm(
+        self,
+        prompt: str,
+        temperature: float = 0.2,
+        model: Optional[str] = None,
+    ) -> Optional[str]:
+        """Call GLM (Z.ai) API. Mirrors _call_deepseek: same signature, same
+        return shape, same _last_api_call truncation tracking and headroom
+        logging. GLM-specific differences:
+
+        - Request body carries `"thinking": {"type": "disabled"}` — without
+          it glm-5.2 spends the whole output budget on reasoning and returns
+          empty content.
+        - Any preamble before the first '<' is stripped (GLM sometimes adds
+          explanation text before the HTML despite instructions).
+        - Empty/whitespace-only content returns None so the fallback chain
+          proceeds to DeepSeek.
+        """
+        # Reset per-call API state — see _call_qwen for rationale.
+        self._last_api_call = {"provider": "glm", "finish_reason": None, "truncated": False}
+        if not self.zai_api_key:
+            logger.warning("❌ ZAI_API_KEY not configured")
+            return None
+
+        chosen_model = model or self.zai_model
+        try:
+            logger.info(f"🟣 Calling GLM (Z.ai) API ({chosen_model})... (prompt length: {len(prompt)} chars)")
+            # Client timeout tracks the GLM budget (+30s grace), same pattern
+            # as _call_deepseek's primary-budget+30 — the outer wait_for at
+            # AI_GLM_TIMEOUT_SECONDS is the effective bound either way.
+            async with httpx.AsyncClient(timeout=AI_GLM_TIMEOUT_SECONDS + 30) as client:
+                r = await client.post(
+                    f"{self.zai_base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.zai_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": chosen_model,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": self._GLM_HTML_SYSTEM_PROMPT,
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": temperature,
+                        "max_tokens": AI_GLM_MAX_TOKENS,
+                        # CRITICAL: without this glm-5.2 burns the entire
+                        # token budget on reasoning and returns empty content.
+                        "thinking": {"type": "disabled"},
+                    }
+                )
+                if r.status_code == 200:
+                    payload = r.json()
+                    choice = (payload.get("choices") or [{}])[0]
+                    content = (choice.get("message") or {}).get("content", "") or ""
+                    finish_reason = choice.get("finish_reason") or "unknown"
+                    usage = payload.get("usage") or {}
+                    completion_tokens = usage.get("completion_tokens")
+                    logger.info(
+                        f"🟣 GLM ✅ Generated {len(content)} chars "
+                        f"(finish_reason={finish_reason}, completion_tokens={completion_tokens})"
+                    )
+                    # Output-cap headroom logging — same rationale as DeepSeek:
+                    # near-cap completions signal the cap may need raising.
+                    if completion_tokens is not None:
+                        _pct = completion_tokens / AI_GLM_MAX_TOKENS * 100
+                        logger.info(
+                            f"🟣 GLM output usage: {completion_tokens}/{AI_GLM_MAX_TOKENS} "
+                            f"tokens ({_pct:.0f}% of cap)"
+                        )
+                    truncated_at_api = finish_reason in self._TRUNCATED_FINISH_REASONS
+                    self._last_api_call = {
+                        "provider": "glm",
+                        "finish_reason": finish_reason,
+                        "truncated": truncated_at_api,
+                    }
+                    if truncated_at_api:
+                        logger.error(
+                            f"🚨 GLM hit output cap (finish_reason={finish_reason}, "
+                            f"max_tokens={AI_GLM_MAX_TOKENS}). Response was truncated at generation time."
+                        )
+                    # GLM sometimes prepends explanation text before the HTML
+                    # despite instructions — slice from the first '<'.
+                    i = content.find("<")
+                    if i > 0:
+                        logger.info(f"🟣 GLM: stripped {i} chars of preamble before first '<'")
+                    content = content[i:] if i >= 0 else content
+                    # Empty/whitespace-only content is a failure — return None
+                    # so the caller falls through to DeepSeek.
+                    if not content.strip():
+                        logger.error("🟣 GLM ❌ Empty content — treating as failure (fallback to DeepSeek)")
+                        return None
+                    return content
+                else:
+                    try:
+                        error_body = r.text[:500]
+                    except Exception:
+                        error_body = "(unable to read response)"
+                    logger.error(f"🟣 GLM ❌ Status {r.status_code}: {error_body}")
+        except httpx.TimeoutException as e:
+            logger.error(f"🟣 GLM ❌ Timeout: {e}")
+        except httpx.ConnectError as e:
+            logger.error(f"🟣 GLM ❌ Connection error: {e}")
+        except Exception as e:
+            logger.error(f"🟣 GLM ❌ Exception: {e}")
+        return None
+
     async def _call_deepseek(
         self,
         prompt: str,
@@ -5038,6 +5262,40 @@ IMPORTANT INSTRUCTIONS:
             api_truncated_provider: Optional[str] = None
             api_finish_reason: Optional[str] = None
 
+            # GLM (Z.ai) primary path — strictly PREPENDED to the DeepSeek
+            # path below, gated by USE_GLM_FOR_HTML (ships dark). On ANY GLM
+            # failure — no key, HTTP error, empty content, non-HTML output,
+            # API-boundary truncation, or timeout — html_raw stays None and
+            # the DeepSeek path below runs completely unchanged. Flipping the
+            # env flag off restores pure-DeepSeek behaviour with no deploy.
+            html_raw = None
+            if USE_GLM_FOR_HTML and self.zai_api_key:
+                try:
+                    html_raw = await asyncio.wait_for(
+                        self._call_glm(prompt),
+                        timeout=AI_GLM_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(
+                        f"⏰ GLM timed out (budget={AI_GLM_TIMEOUT_SECONDS}s) "
+                        f"— falling back to DeepSeek"
+                    )
+                    html_raw = None
+                if html_raw and self._last_api_call.get("truncated"):
+                    logger.error("🚨 GLM output truncated — discarding, falling back to DeepSeek")
+                    html_raw = None
+                if html_raw and "<" not in html_raw:
+                    logger.error("🟣 GLM returned non-HTML output — discarding, falling back to DeepSeek")
+                    html_raw = None
+                if html_raw:
+                    # Bind PHOTO_SLOT_N tokens to the real image URLs at the
+                    # same boundary where the DeepSeek pipeline's exact-URL
+                    # contract is enforced (before _extract_html/validation).
+                    html_raw = self._replace_photo_slots(
+                        html_raw, self._ordered_prompt_image_urls(image_urls)
+                    )
+                    logger.info("🟣 GLM primary path succeeded — skipping DeepSeek")
+
             # DeepSeek primary path — DeepSeek-only as of the
             # deepseek-only-no-qwen branch. Bounded by
             # AI_PRIMARY_TIMEOUT_SECONDS so a hung provider doesn't burn
@@ -5045,10 +5303,11 @@ IMPORTANT INSTRUCTIONS:
             # asyncio.TimeoutError straight up; the endpoint's existing
             # handler turns that into the user-facing "AI generation
             # timed out" message.
-            html_raw = await asyncio.wait_for(
-                self._call_deepseek(prompt, model=self.deepseek_model_pro),
-                timeout=AI_PRIMARY_TIMEOUT_SECONDS,
-            )
+            if not html_raw:
+                html_raw = await asyncio.wait_for(
+                    self._call_deepseek(prompt, model=self.deepseek_model_pro),
+                    timeout=AI_PRIMARY_TIMEOUT_SECONDS,
+                )
 
             if html_raw and self._last_api_call.get("truncated"):
                 api_truncated_provider = self._last_api_call.get("provider")
@@ -5330,23 +5589,61 @@ IMPORTANT INSTRUCTIONS:
                 include_ecommerce=request.include_ecommerce,
             )
 
+            # GLM (Z.ai) primary path — strictly PREPENDED, gated by
+            # USE_GLM_FOR_HTML. Any GLM failure (no key, error, empty/non-HTML
+            # content, truncation, timeout) leaves html=None and the DeepSeek
+            # path below runs unchanged. Mirrors generate_website.
+            html = None
+            if USE_GLM_FOR_HTML and self.zai_api_key:
+                try:
+                    html = await asyncio.wait_for(
+                        self._call_glm(prompt),
+                        timeout=AI_GLM_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(
+                        f"⏰ GLM timed out (style={style}, "
+                        f"budget={AI_GLM_TIMEOUT_SECONDS}s) — falling back to DeepSeek"
+                    )
+                    html = None
+                if html and self._last_api_call.get("truncated"):
+                    logger.error(f"🚨 GLM output truncated (style={style}) — falling back to DeepSeek")
+                    html = None
+                if html and "<" not in html:
+                    logger.error(f"🟣 GLM returned non-HTML output (style={style}) — falling back to DeepSeek")
+                    html = None
+                if html:
+                    # Bind PHOTO_SLOT_N tokens to the uploaded image URLs in
+                    # order of appearance (multi-style has no Stability step,
+                    # so uploads are the only real URLs available here).
+                    _ordered_urls: List[str] = []
+                    for _img in (request.uploaded_images or []):
+                        if isinstance(_img, dict):
+                            _u = _img.get("url", _img.get("URL", ""))
+                        else:
+                            _u = str(_img) if _img else ""
+                        if _u:
+                            _ordered_urls.append(_u)
+                    html = self._replace_photo_slots(html, _ordered_urls)
+                    logger.info(f"🟣 GLM primary path succeeded (style={style}) — skipping DeepSeek")
+
             # DeepSeek-only path. The legacy Qwen fallback was removed
             # on the deepseek-only-no-qwen branch. wait_for still bounds
             # the call so a hung style doesn't burn the budget for the
             # other two — but on timeout we simply skip the style rather
             # than retrying with another provider.
-            html = None
-            try:
-                html = await asyncio.wait_for(
-                    self._call_deepseek(prompt, model=self.deepseek_model_pro),
-                    timeout=AI_PRIMARY_TIMEOUT_SECONDS,
-                )
-            except asyncio.TimeoutError:
-                logger.error(
-                    f"⏰ DeepSeek timed out (style={style}, "
-                    f"budget={AI_PRIMARY_TIMEOUT_SECONDS}s) — skipping this style"
-                )
-                html = None
+            if not html:
+                try:
+                    html = await asyncio.wait_for(
+                        self._call_deepseek(prompt, model=self.deepseek_model_pro),
+                        timeout=AI_PRIMARY_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error(
+                        f"⏰ DeepSeek timed out (style={style}, "
+                        f"budget={AI_PRIMARY_TIMEOUT_SECONDS}s) — skipping this style"
+                    )
+                    html = None
 
             if html:
                 html = self._extract_html(html)

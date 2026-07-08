@@ -72,6 +72,29 @@ class Settings(BaseSettings):
         env="DEEPSEEK_MODEL_PRO"
     )
 
+    # GLM / Z.ai (primary HTML generator when USE_GLM_FOR_HTML is on).
+    # NOTE: the Render env var for the base URL is named ZAI_BASE_URL —
+    # ai_service.py accepts either name (ZAI_API_URL wins if both are set).
+    ZAI_API_KEY: str = Field(default="", env="ZAI_API_KEY")
+    ZAI_API_URL: str = Field(
+        default="https://api.z.ai/api/paas/v4",
+        env="ZAI_API_URL"
+    )
+    ZAI_MODEL: str = Field(
+        default="glm-5.2",
+        env="ZAI_MODEL"
+    )
+    # Output-token cap for GLM HTML generation (mirrors AI_DEEPSEEK_MAX_TOKENS).
+    AI_GLM_MAX_TOKENS: int = Field(default=16000, env="AI_GLM_MAX_TOKENS")
+    # Per-call timeout for the GLM primary generation — much tighter than the
+    # 300s primary budget so a hung Z.ai can't double total latency before
+    # the DeepSeek fallback gets its turn.
+    AI_GLM_TIMEOUT_SECONDS: float = Field(default=120, env="AI_GLM_TIMEOUT_SECONDS")
+    # Feature flag: try GLM first for HTML generation, falling back to the
+    # untouched DeepSeek path on any failure. Flip off in Render for an
+    # instant rollback to pure DeepSeek — no code change needed.
+    USE_GLM_FOR_HTML: bool = Field(default=False, env="USE_GLM_FOR_HTML")
+
     # Qwen AI (Optional)
     QWEN_API_KEY: Optional[str] = Field(None, env="QWEN_API_KEY")
     QWEN_API_URL: str = Field(
