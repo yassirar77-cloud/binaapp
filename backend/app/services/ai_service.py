@@ -3131,25 +3131,48 @@ TECHNICAL:
 
 Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HTML."""
 
-    # System prompt for the GLM HTML call: the DeepSeek HTML system prompt as
-    # base, plus Malaysian copy voice and the PHOTO_SLOT image contract. GLM
-    # outputs PHOTO_SLOT_N tokens which _replace_photo_slots() then binds to
-    # the real Cloudinary/Stability URLs deterministically — same boundary
-    # where the DeepSeek pipeline's exact-URL instructions get enforced.
-    _GLM_HTML_SYSTEM_PROMPT = (
+    # System prompt for the GLM HTML call, assembled per-call from the pieces
+    # below: the DeepSeek HTML system prompt as base plus Malaysian copy
+    # voice, then ONE image clause chosen by image availability (GLM is
+    # single-shot, so the pipeline must tell it up front which world it's
+    # in), then the required-sections/design-freedom clause.
+    _GLM_SYSTEM_PROMPT_BASE = (
         "You generate production-ready HTML only. Follow constraints exactly. "
         "Do not invent facts. Output ONLY HTML. "
         "All headings, taglines and menu/dish descriptions in natural Malaysian "
         "Malay/Manglish with local mamak/F&B terms where the business is "
         "Malaysian. Prices in RM. Warm local tone, not corporate English. "
+    )
+    # Images available: the PHOTO_SLOT contract. GLM outputs PHOTO_SLOT_N
+    # tokens which _replace_photo_slots() then binds to the real
+    # Cloudinary/Stability URLs deterministically — same boundary where the
+    # DeepSeek pipeline's exact-URL instructions get enforced.
+    _GLM_PHOTO_SLOT_CLAUSE = (
         "For ALL images use exactly src='PHOTO_SLOT_1', src='PHOTO_SLOT_2', ... "
         "in order of appearance — never invent image URLs. "
+    )
+    # No images available: photo-less design mode. Without this, PHOTO_SLOT
+    # tokens resolve to empty URLs and the image safety net paints grey
+    # fallback blocks — a bare, broken-looking site. Deliberately avoids the
+    # literal token name so the model never sees it in this mode.
+    _GLM_NO_PHOTO_CLAUSE = (
+        "No photographs are available for this site. Build a polished, "
+        "typography-led design: use bold headings, color blocks, gradients, "
+        "generous whitespace, icon accents, and strong layout to create "
+        "visual interest. Do NOT use any <img> tags, do NOT use "
+        "background-image: url(...) with photo URLs, and do NOT use any "
+        "placeholder photo tokens. The page must look complete and "
+        "intentional without any photographs — like a clean modern brand site. "
+    )
+    _GLM_SECTIONS_CLAUSE = (
         "Include at minimum these sections: hero, menu highlights, about, "
         "location, and an order CTA. Always end the page with the order CTA. "
         "You have full freedom over colours, fonts, layout style, section "
         "backgrounds, and Malay copy tone — and may add tasteful extra "
         "sections or design flourishes — but never omit the required sections."
     )
+    # Back-compat alias: the has-images composition (previous single-string form).
+    _GLM_HTML_SYSTEM_PROMPT = _GLM_SYSTEM_PROMPT_BASE + _GLM_PHOTO_SLOT_CLAUSE + _GLM_SECTIONS_CLAUSE
 
     # src="PHOTO_SLOT_3" / src='PHOTO_SLOT_3' (either quote style).
     _PHOTO_SLOT_SRC_RE = re.compile(r"""(src=["'])PHOTO_SLOT_(\d+)(["'])""", re.IGNORECASE)
@@ -3219,10 +3242,19 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         prompt: str,
         temperature: float = 0.2,
         model: Optional[str] = None,
+        has_images: bool = True,
     ) -> Optional[str]:
-        """Call GLM (Z.ai) API. Mirrors _call_deepseek: same signature, same
-        return shape, same _last_api_call truncation tracking and headroom
-        logging. GLM-specific differences:
+        """Call GLM (Z.ai) API. Mirrors _call_deepseek: same signature (plus
+        has_images), same return shape, same _last_api_call truncation
+        tracking and headroom logging.
+
+        has_images selects the system-prompt image clause: True (default,
+        preserves prior behaviour) applies the PHOTO_SLOT contract; False
+        applies the no-photo typography-led design instruction instead —
+        callers pass bool(ordered image URLs) so a generation with no real
+        images never emits <img> tags pointing nowhere.
+
+        GLM-specific differences:
 
         - Request body carries `"thinking": {"type": "disabled"}` — without
           it glm-5.2 spends the whole output budget on reasoning and returns
@@ -3239,8 +3271,17 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             return None
 
         chosen_model = model or self.zai_model
+        system_prompt = (
+            self._GLM_SYSTEM_PROMPT_BASE
+            + (self._GLM_PHOTO_SLOT_CLAUSE if has_images else self._GLM_NO_PHOTO_CLAUSE)
+            + self._GLM_SECTIONS_CLAUSE
+        )
         try:
-            logger.info(f"🟣 Calling GLM (Z.ai) API ({chosen_model})... (prompt length: {len(prompt)} chars)")
+            logger.info(
+                f"🟣 Calling GLM (Z.ai) API ({chosen_model})... "
+                f"(prompt length: {len(prompt)} chars, "
+                f"image mode: {'photo-slots' if has_images else 'no-photo'})"
+            )
             # Client timeout tracks the GLM budget (+30s grace), same pattern
             # as _call_deepseek's primary-budget+30 — the outer wait_for at
             # AI_GLM_TIMEOUT_SECONDS is the effective bound either way.
@@ -3256,7 +3297,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                         "messages": [
                             {
                                 "role": "system",
-                                "content": self._GLM_HTML_SYSTEM_PROMPT,
+                                "content": system_prompt,
                             },
                             {"role": "user", "content": prompt},
                         ],
@@ -5269,9 +5310,14 @@ IMPORTANT INSTRUCTIONS:
             # env flag off restores pure-DeepSeek behaviour with no deploy.
             html_raw = None
             if USE_GLM_FOR_HTML and self.zai_api_key:
+                # Image availability picks GLM's prompt mode up front (GLM is
+                # single-shot): with URLs, the PHOTO_SLOT contract; with none,
+                # the no-photo typography-led instruction — otherwise empty
+                # slots become grey fallback blocks downstream.
+                _glm_image_urls = self._ordered_prompt_image_urls(image_urls)
                 try:
                     html_raw = await asyncio.wait_for(
-                        self._call_glm(prompt),
+                        self._call_glm(prompt, has_images=bool(_glm_image_urls)),
                         timeout=AI_GLM_TIMEOUT_SECONDS,
                     )
                 except asyncio.TimeoutError:
@@ -5290,9 +5336,8 @@ IMPORTANT INSTRUCTIONS:
                     # Bind PHOTO_SLOT_N tokens to the real image URLs at the
                     # same boundary where the DeepSeek pipeline's exact-URL
                     # contract is enforced (before _extract_html/validation).
-                    html_raw = self._replace_photo_slots(
-                        html_raw, self._ordered_prompt_image_urls(image_urls)
-                    )
+                    # No-op in no-photo mode (no tokens to replace).
+                    html_raw = self._replace_photo_slots(html_raw, _glm_image_urls)
                     logger.info("🟣 GLM primary path succeeded — skipping DeepSeek")
 
             # DeepSeek primary path — DeepSeek-only as of the
@@ -5594,9 +5639,21 @@ IMPORTANT INSTRUCTIONS:
             # path below runs unchanged. Mirrors generate_website.
             html = None
             if USE_GLM_FOR_HTML and self.zai_api_key:
+                # Uploaded images are the only real URLs on the multi-style
+                # path (no Stability step). Flattened up front because their
+                # presence picks GLM's prompt mode: PHOTO_SLOT contract vs
+                # no-photo typography-led design.
+                _ordered_urls: List[str] = []
+                for _img in (request.uploaded_images or []):
+                    if isinstance(_img, dict):
+                        _u = _img.get("url", _img.get("URL", ""))
+                    else:
+                        _u = str(_img) if _img else ""
+                    if _u:
+                        _ordered_urls.append(_u)
                 try:
                     html = await asyncio.wait_for(
-                        self._call_glm(prompt),
+                        self._call_glm(prompt, has_images=bool(_ordered_urls)),
                         timeout=AI_GLM_TIMEOUT_SECONDS,
                     )
                 except asyncio.TimeoutError:
@@ -5613,16 +5670,7 @@ IMPORTANT INSTRUCTIONS:
                     html = None
                 if html:
                     # Bind PHOTO_SLOT_N tokens to the uploaded image URLs in
-                    # order of appearance (multi-style has no Stability step,
-                    # so uploads are the only real URLs available here).
-                    _ordered_urls: List[str] = []
-                    for _img in (request.uploaded_images or []):
-                        if isinstance(_img, dict):
-                            _u = _img.get("url", _img.get("URL", ""))
-                        else:
-                            _u = str(_img) if _img else ""
-                        if _u:
-                            _ordered_urls.append(_u)
+                    # order of appearance. No-op in no-photo mode.
                     html = self._replace_photo_slots(html, _ordered_urls)
                     logger.info(f"🟣 GLM primary path succeeded (style={style}) — skipping DeepSeek")
 
