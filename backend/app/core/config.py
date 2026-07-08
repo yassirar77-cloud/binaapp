@@ -86,10 +86,10 @@ class Settings(BaseSettings):
     )
     # Output-token cap for GLM HTML generation (mirrors AI_DEEPSEEK_MAX_TOKENS).
     AI_GLM_MAX_TOKENS: int = Field(default=16000, env="AI_GLM_MAX_TOKENS")
-    # Per-call timeout for the GLM primary generation — much tighter than the
+    # Per-call timeout for the GLM primary generation — tighter than the
     # 300s primary budget so a hung Z.ai can't double total latency before
     # the DeepSeek fallback gets its turn.
-    AI_GLM_TIMEOUT_SECONDS: float = Field(default=120, env="AI_GLM_TIMEOUT_SECONDS")
+    AI_GLM_TIMEOUT_SECONDS: float = Field(default=240, env="AI_GLM_TIMEOUT_SECONDS")
     # Feature flag: try GLM first for HTML generation, falling back to the
     # untouched DeepSeek path on any failure. Flip off in Render for an
     # instant rollback to pure DeepSeek — no code change needed.

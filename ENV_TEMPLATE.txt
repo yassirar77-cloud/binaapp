@@ -80,7 +80,7 @@ ZAI_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ZAI_API_URL=https://api.z.ai/api/paas/v4
 ZAI_MODEL=glm-5.2
 AI_GLM_MAX_TOKENS=16000
-AI_GLM_TIMEOUT_SECONDS=120  # GLM call budget; on timeout we fall back to DeepSeek (tighter than the 300s primary budget)
+AI_GLM_TIMEOUT_SECONDS=240  # GLM call budget; on timeout we fall back to DeepSeek (tighter than the 300s primary budget)
 USE_GLM_FOR_HTML=false  # flip to true to route HTML through GLM first; flip off = instant rollback to DeepSeek
 
 # DeepSeek V3 (Fallback when GLM is off/fails)

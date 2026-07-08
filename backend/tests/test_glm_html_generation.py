@@ -111,6 +111,51 @@ class TestCallGlm:
         assert "may add tasteful extra sections" in content
 
     @pytest.mark.asyncio
+    async def test_has_images_true_uses_photo_slot_contract(self, glm_service):
+        """Explicit has_images=True → PHOTO_SLOT contract, no no-photo clause."""
+        patcher, mock_post = _patch_async_client(_mock_httpx_response("<html></html>"))
+        with patcher:
+            await glm_service._call_glm("make a website", has_images=True)
+
+        content = mock_post.call_args.kwargs["json"]["messages"][0]["content"]
+        assert "PHOTO_SLOT_1" in content
+        assert "No photographs are available" not in content
+
+    @pytest.mark.asyncio
+    async def test_has_images_false_uses_no_photo_mode(self, glm_service):
+        """has_images=False → no-photo design instruction, and the request
+        body carries NO PHOTO_SLOT mention anywhere."""
+        patcher, mock_post = _patch_async_client(_mock_httpx_response("<html></html>"))
+        with patcher:
+            await glm_service._call_glm("make a website", has_images=False)
+
+        body = mock_post.call_args.kwargs["json"]
+        content = body["messages"][0]["content"]
+        assert "No photographs are available" in content
+        assert "typography-led" in content
+        assert "Do NOT use any <img> tags" in content
+        # The literal token name must never reach the model in this mode —
+        # checked across the ENTIRE request body, not just the system message.
+        assert "PHOTO_SLOT" not in json.dumps(body)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("has_images", [True, False])
+    async def test_both_image_modes_keep_voice_and_sections(self, glm_service, has_images):
+        """Malay/Manglish voice, RM pricing, and required-sections clauses are
+        identical in both image modes."""
+        patcher, mock_post = _patch_async_client(_mock_httpx_response("<html></html>"))
+        with patcher:
+            await glm_service._call_glm("make a website", has_images=has_images)
+
+        content = mock_post.call_args.kwargs["json"]["messages"][0]["content"]
+        assert "Malay/Manglish" in content
+        assert "Prices in RM" in content
+        assert "Include at minimum these sections" in content
+        assert "Always end the page with the order CTA" in content
+        assert "may add tasteful extra sections" in content
+        assert "Output ONLY HTML" in content
+
+    @pytest.mark.asyncio
     async def test_strips_preamble_before_first_angle_bracket(self, glm_service):
         raw = "Sure! Here is your website:\n\n<!DOCTYPE html><html><body>hi</body></html>"
         patcher, _ = _patch_async_client(_mock_httpx_response(raw))
