@@ -73,7 +73,16 @@ DATABASE_URL=postgresql://postgres:[PASSWORD]@db.xxxxx.supabase.co:5432/postgres
 # AI APIs
 # ------------------------------
 
-# DeepSeek V3 (Primary AI Model)
+# GLM / Z.ai (Primary HTML Generator — gated by USE_GLM_FOR_HTML)
+# Get from: https://z.ai → API Keys
+# NOTE: Render names the base-URL var ZAI_BASE_URL; ZAI_API_URL also works.
+ZAI_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+ZAI_API_URL=https://api.z.ai/api/paas/v4
+ZAI_MODEL=glm-5.2
+AI_GLM_MAX_TOKENS=16000
+USE_GLM_FOR_HTML=false  # flip to true to route HTML through GLM first; flip off = instant rollback to DeepSeek
+
+# DeepSeek V3 (Fallback when GLM is off/fails)
 # Get from: https://platform.deepseek.com → API Keys
 DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 DEEPSEEK_API_URL=https://api.deepseek.com  # Do not add /v1
