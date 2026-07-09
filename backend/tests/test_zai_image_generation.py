@@ -6,11 +6,14 @@ Covers:
   handoff, timeout/error handling.
 - _generate_image dispatcher: provider selection by IMAGE_PROVIDER, Z.ai →
   Stability fallback, both-fail → None fallthrough.
-- _resolve_autofill_image_cap: FREE_AI_IMAGES_PER_SITE default vs caller quota.
+- _resolve_autofill_image_cap: FREE_AI_IMAGES_PER_SITE default when no quota
+  is supplied (None); explicit zero honoured as zero (quota-bypass guard);
+  lower positive caller quota wins.
 - _autofill_missing_images: zero uploads → hero + per-item generation up to the
-  cap; lower caller quota respected; existing uploads reduce the generated
-  count; prompts carry the real item names; total failure leaves image_urls
-  empty so the no-photo branch still applies.
+  cap; lower caller quota respected; explicit-zero quota generates nothing;
+  existing uploads reduce the generated count; prompts carry the real item
+  names; total failure leaves image_urls empty so the no-photo branch still
+  applies.
 
 No network calls: httpx.AsyncClient and cloudinary.uploader.upload are patched.
 """
@@ -124,7 +127,9 @@ class TestZaiImageGeneration:
         call = fake_client.post_calls[0]
         assert call["url"] == "https://api.z.ai/api/paas/v4/images/generations"
         assert call["headers"]["Authorization"] == "Bearer test-zai-key"
-        assert call["json"]["model"] == "cogview-4"  # ZAI_IMAGE_MODEL default
+        # ZAI_IMAGE_MODEL default. Valid codes: glm-image, cogview-4-250304;
+        # plain 'cogview-4' is rejected by the live API (error 1211).
+        assert call["json"]["model"] == "glm-image"
         assert call["json"]["prompt"] == "a test prompt"
         assert call["json"]["size"] == "1024x1024"
         # 30s cap on the whole call (generation + download)
@@ -132,7 +137,7 @@ class TestZaiImageGeneration:
         assert ai_service_module.ZAI_IMAGE_TIMEOUT_SECONDS == 30.0
 
     async def test_zai_image_model_env_override(self, zai_env, cloudinary_upload, monkeypatch):
-        monkeypatch.setenv("ZAI_IMAGE_MODEL", "glm-image")
+        monkeypatch.setenv("ZAI_IMAGE_MODEL", "cogview-4-250304")
         fake_client = make_fake_async_client(
             post_response=ZAI_OK_RESPONSE,
             get_response=FakeResponse(content=b"png-bytes"),
@@ -142,7 +147,7 @@ class TestZaiImageGeneration:
         service = AIService()
         await service._generate_image_zai("a test prompt")
 
-        assert fake_client.post_calls[0]["json"]["model"] == "glm-image"
+        assert fake_client.post_calls[0]["json"]["model"] == "cogview-4-250304"
 
     async def test_zai_base_url_env_respected(self, zai_env, cloudinary_upload, monkeypatch):
         monkeypatch.setenv("ZAI_API_URL", "https://custom.z.ai/v4")
@@ -305,9 +310,12 @@ class TestProviderSelection:
 class TestAutofillCap:
     def test_defaults(self, zai_env):
         service = AIService()
+        # No quota supplied (None) → free-by-default budget applies.
         assert service._resolve_autofill_image_cap(None) == 6
-        assert service._resolve_autofill_image_cap(0) == 6  # free-by-default
-        assert service._resolve_autofill_image_cap(-3) == 6
+        # EXPLICIT zero/negative means the plan system said no — never
+        # overridden by the free default (quota-bypass guard).
+        assert service._resolve_autofill_image_cap(0) == 0
+        assert service._resolve_autofill_image_cap(-3) == 0
         assert service._resolve_autofill_image_cap(2) == 2  # lower caller quota wins
         assert service._resolve_autofill_image_cap(10) == 6  # free budget is the ceiling
 
@@ -375,10 +383,17 @@ class TestAutofillMissingImages:
         assert image_urls["gallery1"]
         assert "gallery2" not in image_urls
 
-    async def test_zero_quota_gets_free_default(self, autofill_service):
+    async def test_explicit_zero_quota_generates_nothing(self, autofill_service):
+        # Explicit 0 = plan exhausted / plan forbids AI images. The free
+        # default must NOT override that decision.
         image_urls = {}
         count = await autofill_service._autofill_missing_images(make_request(), image_urls, 0)
-        assert count == 5  # free-by-default: hero + 4 items
+        assert count == 0
+        assert image_urls == {}
+        autofill_service._generate_image.assert_not_awaited()
+        # No uploads + zero cap → no URLs → downstream has_images decision
+        # takes the no-photo typography branch.
+        assert autofill_service._ordered_prompt_image_urls(image_urls) == []
 
     async def test_free_env_cap_applies(self, autofill_service, monkeypatch):
         monkeypatch.setenv("FREE_AI_IMAGES_PER_SITE", "3")

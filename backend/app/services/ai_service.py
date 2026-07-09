@@ -77,9 +77,10 @@ def free_ai_images_per_site(default: int = 6) -> int:
     """Free-by-default AI-image budget per generated site.
 
     Used by the auto-fill pass in generate_website as the cap when the caller
-    supplied no usable max_ai_images quota. Read at call time (same rationale
-    as image_provider). Never negative; a malformed env value falls back to
-    the default.
+    supplied NO max_ai_images quota (None). An explicit zero quota is honoured
+    as zero — see _resolve_autofill_image_cap. Read at call time (same
+    rationale as image_provider). Never negative; a malformed env value falls
+    back to the default.
     """
     try:
         value = int(os.getenv("FREE_AI_IMAGES_PER_SITE", str(default)))
@@ -683,9 +684,10 @@ class AIService:
         )
         self.zai_model = os.getenv("ZAI_MODEL", "glm-5.2")
         # Z.ai IMAGE model (images/generations endpoint) — separate from the
-        # HTML-generation chat model above. cogview-4 default; glm-image is
-        # the pricier alternative if CogView quality disappoints.
-        self.zai_image_model = os.getenv("ZAI_IMAGE_MODEL", "cogview-4")
+        # HTML-generation chat model above. Valid model codes on that
+        # endpoint are 'glm-image' (default) and 'cogview-4-250304'; plain
+        # 'cogview-4' is rejected by the API (error 1211 "Unknown Model").
+        self.zai_image_model = os.getenv("ZAI_IMAGE_MODEL", "glm-image")
         self.stability_api_key = os.getenv("STABILITY_API_KEY")
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_ANON_KEY")
@@ -5274,17 +5276,19 @@ IMPORTANT RULES:
     def _resolve_autofill_image_cap(self, max_ai_images: Optional[int]) -> int:
         """Effective AI-image cap for the auto-fill pass.
 
-        FREE_AI_IMAGES_PER_SITE (default 6) is the free-by-default budget that
-        applies when the caller supplied no usable quota (None or <= 0). A
-        caller-supplied positive max_ai_images LOWER than the free budget
-        still wins — auto-fill never exceeds an explicit lower quota. Plan
-        quota COMPUTATION (websites.py) is untouched: this only picks the
-        default when none applies.
+        Caller quota None/absent → no plan constraint applies → the
+        free-by-default budget (FREE_AI_IMAGES_PER_SITE, default 6). An
+        EXPLICIT zero (or negative) means the plan system said no — quota
+        exhausted this month, or the plan forbids AI images — so auto-fill
+        generates NOTHING; the free default must never silently override
+        that decision. A positive quota lower than the free budget still
+        wins (min). Plan quota COMPUTATION (websites.py) is untouched: this
+        only interprets the value it is handed.
         """
         free_default = free_ai_images_per_site()
-        if max_ai_images is None or max_ai_images <= 0:
+        if max_ai_images is None:
             return free_default
-        return min(max_ai_images, free_default)
+        return min(max(0, max_ai_images), free_default)
 
     async def _autofill_missing_images(
         self,
@@ -5442,9 +5446,10 @@ IMPORTANT RULES:
             progress_callback: Optional async callback(progress_percent, status_message)
             max_ai_images: Optional hard cap on the number of AI images this build
                 may generate (the user's remaining AI-image quota). For the
-                hero/gallery AUTO-FILL pass, an absent/zero quota falls back to
-                the free-by-default budget (FREE_AI_IMAGES_PER_SITE, default 6)
-                and a lower positive quota still wins — see
+                hero/gallery AUTO-FILL pass, an absent quota (None) falls back
+                to the free-by-default budget (FREE_AI_IMAGES_PER_SITE,
+                default 6); an EXPLICIT zero disables auto-fill (the plan said
+                no); a lower positive quota still wins — see
                 _resolve_autofill_image_cap. For the food-image post-pass, None
                 still means no cap; generation there is capped to whatever
                 budget remains after the auto-fill, so a single build never
