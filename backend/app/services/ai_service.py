@@ -5290,6 +5290,98 @@ IMPORTANT RULES:
             return free_default
         return min(max(0, max_ai_images), free_default)
 
+    # Keywords marking creative-services businesses (photography, videography,
+    # event coverage) whose sellable output is the WORK itself — a wedding
+    # moment, a portrait session — not a physical good on a shelf.
+    _CREATIVE_BUSINESS_KEYWORDS = (
+        "photograph",      # photography / photographer
+        "fotografi",
+        "jurugambar",
+        "videograf",       # videografi / videographer
+        "videography",
+        "cinematograph",
+        "photo booth",
+        "event coverage",
+    )
+
+    def _autofill_prompt_category(self, description: str) -> str:
+        """Prompt-template category for auto-fill images.
+
+        Returns 'food' | 'creative' | 'retail' | 'generic'. The subject of
+        every auto-fill image must be the business's OUTPUT — the dish, the
+        shot, the product — never its premises or equipment, so the template
+        set is chosen by what the business produces.
+        """
+        if self._is_food_business(description):
+            return "food"
+        low = (description or "").lower()
+        if any(k in low for k in self._CREATIVE_BUSINESS_KEYWORDS):
+            return "creative"
+        # Goods-selling types (and undetected businesses, whose gallery names
+        # come from the product-category extractor) get clean product shots;
+        # service types fall through to the generic subject-first template.
+        if detect_business_type(description) in ("clothing", "bakery", "general"):
+            return "retail"
+        return "generic"
+
+    def _autofill_hero_prompt(self, category: str, biz_type: str) -> str:
+        """Hero banner prompt per category.
+
+        Always a lively showcase of the business's output — never an empty
+        premises or equipment shot. (The food hero keeps the established
+        stall-ambience prompt: it is full of people and food, not empty.)
+        """
+        if category == "food":
+            return (
+                "Malaysian restaurant interior, food stall with hanging menu, "
+                "authentic atmosphere, people eating, warm lighting, food photography"
+            )
+        if category == "creative":
+            return (
+                f"Artistic showcase of {biz_type} work, cinematic silhouette "
+                f"composition at golden hour, elegant venue backdrop, "
+                f"professional photography"
+            )
+        if category == "retail":
+            return (
+                f"Attractive arrangement of {biz_type} products, lifestyle "
+                f"commercial photography, warm inviting lighting, clean modern styling"
+            )
+        return (
+            f"Professional photography showcasing {biz_type} work in action, "
+            f"warm lighting, high quality"
+        )
+
+    def _autofill_item_prompt(self, category: str, name: str, biz_type: str) -> str:
+        """Per-item prompt: the item itself is ALWAYS the subject.
+
+        Never prompts for studios, equipment, or empty premises — those can
+        only appear when the item name itself names them (the name IS the
+        subject, verbatim).
+
+        food returns the raw item name: _generate_image(food=True) maps it
+        through _get_malaysian_prompt, which yields a curated appetizing
+        plated-dish prompt for known dishes and a food-photography fallback
+        otherwise.
+        """
+        if category == "food":
+            return name
+        if category == "creative":
+            # The type of work named by the item is the subject; favour
+            # artistic compositions (silhouettes, candid details, venue)
+            # over close-up faces.
+            return (
+                f"{name}, artistic professional photography, cinematic "
+                f"composition, silhouette and candid detail shots, beautiful "
+                f"venue backdrop, golden hour lighting, emotional storytelling"
+            )
+        if category == "retail":
+            return (
+                f"Professional product photography of {name}, clean background, "
+                f"soft studio lighting, high detail, commercial product shot"
+            )
+        return f"Professional photography of {name}, {biz_type}, high quality, sharp focus"
+
     async def _autofill_missing_images(
         self,
         request: WebsiteGenerationRequest,
@@ -5322,7 +5414,8 @@ IMPORTANT RULES:
             logger.info("🚫 Auto-fill image cap is 0 — skipping AI image auto-fill")
             return 0
 
-        is_food = self._is_food_business(request.description)
+        category = self._autofill_prompt_category(request.description)
+        is_food = category == "food"
 
         # Item names already covered by uploads — never generate a duplicate
         # card for something the merchant photographed themselves.
@@ -5362,29 +5455,21 @@ IMPORTANT RULES:
         if _biz_type == "general":
             _biz_type = request.description[:50]
 
-        # Hero is a banner/ambience shot — NEVER a menu/product card.
-        if is_food:
-            hero_prompt = "Malaysian restaurant interior, food stall with hanging menu, authentic atmosphere, people eating, warm lighting, food photography"
-        else:
-            hero_prompt = f"Professional storefront and interior for {_biz_type}, modern welcoming atmosphere, commercial photography"
+        # Hero is a banner/showcase shot — NEVER a menu/product card, and
+        # never empty premises or equipment (see _autofill_hero_prompt).
+        hero_prompt = self._autofill_hero_prompt(category, _biz_type)
 
         # Work list: hero first, then one image per (missing slot, real item
         # name) pair — truncated to the cap, so the hero always wins the
-        # budget and later items are the ones dropped.
+        # budget and later items are the ones dropped. Item prompts always
+        # make the item itself the subject (see _autofill_item_prompt).
         work: List[Tuple[str, Optional[str], str]] = []  # (slot_key, item_name, prompt)
         if hero_missing:
             work.append(("hero", None, hero_prompt))
         for slot_no, name in zip(missing_slots, slot_names):
-            if is_food:
-                # Raw item name — _generate_image(food=True) maps it through
-                # _get_malaysian_prompt (curated prompt for known dishes).
-                _prompt = name
-            else:
-                _prompt = (
-                    f"Professional product photo of {name}, {_biz_type}, "
-                    f"studio lighting, commercial photography"
-                )
-            work.append((f"gallery{slot_no}", name, _prompt))
+            work.append(
+                (f"gallery{slot_no}", name, self._autofill_item_prompt(category, name, _biz_type))
+            )
 
         if len(work) > cap:
             logger.info(f"✂️ Auto-fill capped at {cap} of {len(work)} missing image slot(s)")
@@ -5394,7 +5479,7 @@ IMPORTANT RULES:
 
         logger.info(
             f"🎨 Auto-filling {len(work)} image slot(s) in PARALLEL "
-            f"[provider={image_provider()}, cap={cap}]: "
+            f"[provider={image_provider()}, category={category}, cap={cap}]: "
             + ", ".join(slot for slot, _, _ in work)
         )
 
