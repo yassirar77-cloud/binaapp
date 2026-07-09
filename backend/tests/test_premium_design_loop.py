@@ -345,3 +345,35 @@ class TestPassFlagInconsistency:
             result = await service._run_premium_design_loop(ORIGINAL_HTML)
         assert result == REVISED_HTML
         assert revise.await_count == 1
+
+
+class TestGenerationOuterTimeout:
+    """The outer wait_for guard around generate_website must not kill a
+    healthy premium-loop generation mid-revision (worst case ~510s), while
+    normal generations keep the tight 180s budget."""
+
+    def test_default_budget_when_flags_off(self):
+        with patch.object(ai_service_module, "USE_GLM_FOR_HTML", False), \
+             patch.object(ai_service_module, "PREMIUM_DESIGN_LOOP", False):
+            assert ai_service_module.generation_outer_timeout_seconds() == 180.0
+
+    def test_premium_without_glm_keeps_default(self):
+        """The loop only runs on the GLM path — premium alone doesn't
+        justify a longer budget."""
+        with patch.object(ai_service_module, "USE_GLM_FOR_HTML", False), \
+             patch.object(ai_service_module, "PREMIUM_DESIGN_LOOP", True):
+            assert ai_service_module.generation_outer_timeout_seconds() == 180.0
+
+    def test_glm_without_premium_keeps_default(self):
+        with patch.object(ai_service_module, "USE_GLM_FOR_HTML", True), \
+             patch.object(ai_service_module, "PREMIUM_DESIGN_LOOP", False):
+            assert ai_service_module.generation_outer_timeout_seconds() == 180.0
+
+    def test_premium_glm_budget_covers_worst_case(self):
+        with patch.object(ai_service_module, "USE_GLM_FOR_HTML", True), \
+             patch.object(ai_service_module, "PREMIUM_DESIGN_LOOP", True):
+            budget = ai_service_module.generation_outer_timeout_seconds()
+        worst_case = (ai_service_module.AI_GLM_TIMEOUT_SECONDS * 2
+                      + ai_service_module.DESIGN_REVIEW_TIMEOUT_SECONDS)
+        assert budget >= worst_case
+        assert budget >= 180.0

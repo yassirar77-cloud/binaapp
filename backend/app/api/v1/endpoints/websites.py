@@ -423,16 +423,25 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
                 logger.warning(f"⚠️ Could not determine AI image budget, leaving uncapped: {quota_err}")
                 max_ai_images = None
 
-        # Step 1: Generate HTML using AI with timeout (3 minutes max)
-        logger.info("⏱️  Step 1/4: Calling AI generation service (max 180s timeout)...")
+        # Step 1: Generate HTML using AI, bounded by a flag-aware budget:
+        # 180s for normal generations, extended when the premium design
+        # loop is active on the GLM path (GLM + review + one revision can
+        # legitimately run ~8.5 minutes — the guard must not kill a healthy
+        # premium generation mid-revision).
+        from app.services.ai_service import generation_outer_timeout_seconds
+        generation_budget = generation_outer_timeout_seconds()
+        logger.info(f"⏱️  Step 1/4: Calling AI generation service (max {generation_budget:.0f}s timeout)...")
         try:
             ai_response = await asyncio.wait_for(
                 ai_service.generate_website(request, max_ai_images=max_ai_images),
-                timeout=180.0  # 3 minutes timeout for entire AI generation
+                timeout=generation_budget
             )
             logger.info(f"✅ Step 1/4: AI generation completed - {len(ai_response.html_content)} chars generated")
         except asyncio.TimeoutError:
-            error_msg = "AI generation timed out after 180 seconds. Please try again with a shorter description or fewer features."
+            error_msg = (
+                f"AI generation timed out after {generation_budget:.0f} seconds. "
+                "Please try again with a shorter description or fewer features."
+            )
             logger.error(f"❌ {error_msg}")
             raise Exception(error_msg)
 

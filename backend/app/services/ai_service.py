@@ -70,6 +70,24 @@ PREMIUM_DESIGN_LOOP = os.getenv("PREMIUM_DESIGN_LOOP", "false").strip().lower() 
 # Reviewer model — a fast non-thinking tier; the review is a rules checklist,
 # not generation, so it must stay cheap and quick.
 DESIGN_REVIEW_MODEL = os.getenv("DESIGN_REVIEW_MODEL", "deepseek-v4-flash")
+
+
+def generation_outer_timeout_seconds(base: float = 180.0) -> float:
+    """Outer wait_for budget for a full generate_website call.
+
+    Callers that guard generation with their own asyncio.wait_for use this
+    instead of a hardcoded number so the guard tracks the feature flags:
+    with the premium design loop active on the GLM path, a healthy
+    generation can legitimately take GLM (AI_GLM_TIMEOUT_SECONDS) + review
+    (DESIGN_REVIEW_TIMEOUT_SECONDS) + one GLM revision, and the outer guard
+    must not kill it mid-revision. Normal generations keep the tighter
+    `base` budget. Reads the module flags at call time so env flips and
+    test patches take effect without re-import.
+    """
+    if USE_GLM_FOR_HTML and PREMIUM_DESIGN_LOOP:
+        # Two full GLM calls + the review cap + post-processing headroom.
+        return max(base, AI_GLM_TIMEOUT_SECONDS * 2 + DESIGN_REVIEW_TIMEOUT_SECONDS + 90.0)
+    return base
 # Hard cap on the DeepSeek review call. Deliberately tight: the review is
 # optional polish and must never meaningfully delay generation.
 DESIGN_REVIEW_TIMEOUT_SECONDS = float(os.getenv("DESIGN_REVIEW_TIMEOUT_SECONDS", "30"))
