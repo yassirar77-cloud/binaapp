@@ -139,11 +139,13 @@ export default function DeliveryPage() {
                     return;
                 }
 
-                // Fetch widget configuration from API first
+                // Fetch widget configuration from API first.
+                // Neutral dark fallback colour — the config API returns the
+                // colour extracted from the merchant site's own palette.
                 let widgetConfig: any = {
                     websiteId: websiteId,
                     apiUrl: `${API_URL}/api/v1`,
-                    primaryColor: '#ea580c',
+                    primaryColor: '#1f2937',
                     language: 'ms',
                     businessType: 'food', // default
                 };
@@ -159,7 +161,7 @@ export default function DeliveryPage() {
                             websiteId: websiteId,
                             apiUrl: `${API_URL}/api/v1`,
                             businessType: config.business_type || 'food',
-                            primaryColor: config.primary_color || '#ea580c',
+                            primaryColor: config.primary_color || '#1f2937',
                             language: config.language || 'ms',
                             whatsappNumber: config.whatsapp_number || '',
                             businessName: config.business_name || 'Kedai',

@@ -2218,8 +2218,8 @@ async def get_widget_config(
     - fulfillment: { delivery, pickup, delivery_fee, min_order, delivery_area, pickup_address }
     - whatsapp_number
     - business_name
-    - primary_color
-    - categories (based on business type)
+    - primary_color (extracted from the site's own palette, neutral dark fallback)
+    - categories (from the merchant's actual menu data)
 
     **Public endpoint** - Used by customer ordering widget
     """
@@ -2233,9 +2233,11 @@ async def get_widget_config(
     response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=120"
 
     try:
-        # 1. Get website info (only select columns that exist in the table)
+        # 1. Get website info (only select columns that exist in the table).
+        # html_content is included so the widget colour can be extracted
+        # from the site's own palette (response is cached 60s above).
         website_response = await _db(supabase.table("websites").select(
-            "id, name, whatsapp_number, description, location_address"
+            "id, name, whatsapp_number, description, location_address, html_content"
         ).eq("id", website_id))
 
         website = None
@@ -2268,8 +2270,38 @@ async def get_widget_config(
             elif website.get("name"):
                 business_type = detect_business_type(website["name"])
 
-        # 5. Get business config for categories and colors
+        # 5. Get business config for feature flags/colour fallback
         biz_config = get_business_config(business_type)
+
+        # 5b. Categories come from the merchant's ACTUAL menu data
+        # (menu_categories rows), never from the static business-type
+        # template categories. Empty list when the merchant has none — the
+        # widget then derives tabs from item.category values or shows only
+        # "Semua".
+        merchant_categories = []
+        try:
+            # menu_categories has no slug column (migration 002) — the slug
+            # is derived from the name, matching the widget's own fallback.
+            cat_response = await _db(supabase.table("menu_categories").select(
+                "id, name, icon"
+            ).eq("website_id", website_id).eq("is_active", True).order("sort_order"))
+            for cat in (cat_response.data or []):
+                merchant_categories.append({
+                    "id": str(cat.get("name", "")).lower().replace(" ", "-"),
+                    "name": cat.get("name"),
+                    "icon": cat.get("icon") or "📦",
+                })
+        except Exception as cat_err:
+            logger.warning(f"⚠️ Could not load menu categories for widget config: {cat_err}")
+
+        # 5c. Widget colour: extracted from the merchant site's own palette
+        # (CSS variables / Tailwind config in the stored HTML); neutral dark
+        # fallback when nothing can be extracted — never the business-type
+        # template colour.
+        from app.services.templates import resolve_widget_primary_color
+        widget_primary_color = resolve_widget_primary_color(
+            website.get("html_content") if website else None
+        )
 
         # 6. Build response with all configuration needed by widget
         config = {
@@ -2282,7 +2314,7 @@ async def get_widget_config(
                 website.get("whatsapp_number") if website else None
             ) or "",
             "language": website.get("language", "ms") if website else "ms",
-            "primary_color": biz_config.get("primary_color", "#ea580c"),
+            "primary_color": widget_primary_color,
 
             # Payment options
             "payment": {
@@ -2307,8 +2339,9 @@ async def get_widget_config(
                 ) or ""
             },
 
-            # Categories for this business type
-            "categories": biz_config.get("categories", []),
+            # Categories from the merchant's actual menu data (empty when
+            # none exist) — never the business-type template categories
+            "categories": merchant_categories,
 
             # Features for this business type
             "features": biz_config.get("features", {})

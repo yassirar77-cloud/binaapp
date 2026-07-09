@@ -12,12 +12,135 @@ from app.services.business_types import (
     detect_business_type,
     get_business_config,
     detect_item_category,
-    generate_category_buttons_html,
+    generate_category_buttons_from_menu,
     get_delivery_button_label,
     get_order_config,
 )
 from app.services.menu_validator import log_menu_flow
 from app.services.widget_catalogue import WIDGETS, WidgetSpec
+
+
+# ─── Widget theme (delivery/ordering UI) ────────────────────────────────────
+# The injected ordering UI inherits the generated site's palette via CSS
+# variables. When no palette can be extracted from the site (no CSS vars, no
+# Tailwind config colours) it falls back to this neutral dark theme instead
+# of the legacy template orange.
+WIDGET_FALLBACK_PRIMARY = "#374151"        # gray-700
+WIDGET_FALLBACK_PRIMARY_DARK = "#1f2937"   # gray-800
+WIDGET_FALLBACK_SECONDARY = "#4b5563"      # gray-600
+
+# Literal template-orange values used throughout the injected ordering UI
+# fragments, mapped to the theme CSS variables. Applied ONLY to the fragments
+# this module generates — never to the merchant's own page content.
+_WIDGET_THEME_SUBSTITUTIONS = [
+    ("rgba(234,88,12,0.2)", "var(--binaapp-primary-ring)"),
+    ("rgba(234,88,12,0.3)", "var(--binaapp-primary-glow)"),
+    ("rgba(234,88,12,0.4)", "var(--binaapp-primary-glow)"),
+    ("#fff7ed", "var(--binaapp-primary-soft)"),
+    ("#f97316", "var(--binaapp-primary)"),
+    ("#ea580c", "var(--binaapp-primary-dark)"),
+]
+
+
+def _normalize_hex(color: str) -> Optional[str]:
+    """Return a #rrggbb string, or None when `color` isn't a usable hex.
+
+    Accepts the CSS hex forms the theme extractor can surface: #rgb, #rgba,
+    #rrggbb and #rrggbbaa (alpha channels are dropped — the widget theme
+    derives its own tints)."""
+    if not color or not isinstance(color, str):
+        return None
+    c = color.strip()
+    if not re.fullmatch(r"#[0-9a-fA-F]{3,8}", c) or len(c) in (6, 8):
+        return None
+    if len(c) == 5:   # #rgba → #rgb
+        c = c[:4]
+    if len(c) == 4:   # #rgb → #rrggbb
+        c = "#" + "".join(ch * 2 for ch in c[1:])
+    if len(c) == 9:   # #rrggbbaa → #rrggbb
+        c = c[:7]
+    return c.lower()
+
+
+def _shade_hex(color: str, amount: int) -> str:
+    """Lighten (amount>0) or darken (amount<0) a #rrggbb colour."""
+    c = _normalize_hex(color) or WIDGET_FALLBACK_PRIMARY
+    r, g, b = (int(c[i:i + 2], 16) for i in (1, 3, 5))
+    r, g, b = (max(0, min(255, v + amount)) for v in (r, g, b))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _hex_with_alpha(color: str, alpha: int) -> str:
+    """#rrggbb + 0-255 alpha → 8-digit #rrggbbaa."""
+    c = _normalize_hex(color) or WIDGET_FALLBACK_PRIMARY
+    return f"{c}{alpha:02x}"
+
+
+def resolve_widget_theme(theme_tokens: Optional[Dict[str, str]]) -> Dict[str, str]:
+    """Resolve the widget palette from extracted site theme tokens.
+
+    Uses the site's primary/secondary (or accent) when extraction found
+    them; otherwise the neutral dark fallback. Derived tints (soft/ring/
+    glow) are computed from the resolved primary so hover/selection states
+    always match.
+    """
+    tokens = theme_tokens or {}
+    primary = _normalize_hex(tokens.get("primary"))
+    if primary:
+        primary_dark = _shade_hex(primary, -24)
+        secondary = (
+            _normalize_hex(tokens.get("secondary"))
+            or _normalize_hex(tokens.get("accent"))
+            or _shade_hex(primary, 28)
+        )
+    else:
+        primary = WIDGET_FALLBACK_PRIMARY
+        primary_dark = WIDGET_FALLBACK_PRIMARY_DARK
+        secondary = WIDGET_FALLBACK_SECONDARY
+    return {
+        "primary": primary,
+        "primary_dark": primary_dark,
+        "secondary": secondary,
+        "primary_soft": _hex_with_alpha(primary, 0x14),
+        "primary_ring": _hex_with_alpha(primary, 0x33),
+        "primary_glow": _hex_with_alpha(primary, 0x59),
+    }
+
+
+def resolve_widget_primary_color(html: Optional[str]) -> str:
+    """Primary colour for an injected widget: extracted from the site's own
+    palette (CSS variables / Tailwind config), neutral dark fallback when
+    nothing usable is found. One helper so every injection path resolves
+    the colour identically."""
+    try:
+        from app.services.ai_service import extract_theme_tokens
+        tokens = extract_theme_tokens(html or "") or {}
+    except Exception as theme_err:
+        logger.warning(f"⚠️ Widget theme extraction failed: {theme_err}")
+        tokens = {}
+    return _normalize_hex(tokens.get("primary")) or WIDGET_FALLBACK_PRIMARY_DARK
+
+
+def widget_theme_css_vars(theme: Dict[str, str]) -> str:
+    """CSS custom-property block the themed widget fragments resolve against."""
+    return (
+        ":root {\n"
+        f"    --binaapp-primary: {theme['primary']};\n"
+        f"    --binaapp-primary-dark: {theme['primary_dark']};\n"
+        f"    --binaapp-secondary: {theme['secondary']};\n"
+        f"    --binaapp-primary-soft: {theme['primary_soft']};\n"
+        f"    --binaapp-primary-ring: {theme['primary_ring']};\n"
+        f"    --binaapp-primary-glow: {theme['primary_glow']};\n"
+        "}"
+    )
+
+
+def _theme_widget_fragment(fragment: str) -> str:
+    """Swap the fragment's hardcoded template-orange literals for the theme
+    CSS variables. Call on widget fragments only, never on site content."""
+    for literal, var in _WIDGET_THEME_SUBSTITUTIONS:
+        fragment = fragment.replace(literal, var)
+    return fragment
 
 
 def _find_widget_slot(html: str, widget: WidgetSpec) -> Optional[str]:
@@ -1090,7 +1213,8 @@ function handleContactSubmit(e) {{
         language: str = "ms",
         description: str = "",
         website_id: str = "",
-        api_url: str = "https://binaapp-backend.onrender.com/api/v1"
+        api_url: str = "https://binaapp-backend.onrender.com/api/v1",
+        theme_tokens: Optional[Dict[str, str]] = None,
     ) -> str:
         """
         COMPLETE DELIVERY PAGE - With all dependencies included
@@ -1098,11 +1222,13 @@ function handleContactSubmit(e) {{
 
         BACKEND INTEGRATION: Creates orders via API and supports rider tracking
 
-        Now supports dynamic business types:
-        - food: Restaurants, cafes (Nasi, Lauk, Minuman)
-        - clothing: Boutiques, fashion (Baju, Tudung, Aksesori)
-        - services: Service providers (Perkhidmatan, Pakej)
-        - general: Other businesses (Produk, Lain-lain)
+        Category tabs are derived from the merchant's actual menu items —
+        never from the static business-type template categories.
+
+        Theming: the injected UI resolves its colours from `theme_tokens`
+        (the palette extracted from the generated site); when no tokens are
+        provided it extracts them from `html` directly, and falls back to a
+        neutral dark theme when nothing can be extracted.
         """
         # CRITICAL: Ensure website_id is never empty for BinaApp Chat integration
         if not website_id or website_id.strip() == "":
@@ -1143,6 +1269,24 @@ function handleContactSubmit(e) {{
         default_description = biz_config.get("item_description_default", "Produk berkualiti pilihan kami")
         if language == "en":
             default_description = biz_config.get("item_description_default_en", default_description)
+
+        # Resolve the widget palette: caller-supplied theme tokens win, else
+        # extract from the generated site HTML here, else neutral dark.
+        # Lazy import — ai_service is heavy and templates must stay cheap to
+        # import (and free of import cycles).
+        if not theme_tokens:
+            try:
+                from app.services.ai_service import extract_theme_tokens
+                theme_tokens = extract_theme_tokens(html)
+            except Exception as theme_err:
+                logger.warning(f"⚠️ Theme extraction failed, using neutral dark widget theme: {theme_err}")
+                theme_tokens = {}
+        widget_theme = resolve_widget_theme(theme_tokens)
+        logger.info(
+            f"🎨 Widget theme: primary={widget_theme['primary']} "
+            f"secondary={widget_theme['secondary']} "
+            f"(extracted={'yes' if (theme_tokens or {}).get('primary') else 'no — neutral dark fallback'})"
+        )
         
         # =========================================================================
         # RALPH LOOP: Log menu items received for injection
@@ -1162,8 +1306,10 @@ function handleContactSubmit(e) {{
                 logger.warning(f"   ⚠️ Skipping menu item {idx} - no valid name (got: '{raw_name}')")
                 continue
             
-            # Use dynamic category detection based on business type
-            category = detect_item_category(name, business_type)
+            # Prefer the merchant's OWN category value when the item carries
+            # one; keyword detection is only the fallback for untagged items.
+            raw_category = str(item.get('category') or '').strip().lower()
+            category = raw_category or detect_item_category(name, business_type)
 
             formatted_menu.append({
                 'id': idx + 1,
@@ -1216,7 +1362,11 @@ function handleContactSubmit(e) {{
         # Get dynamic labels and configuration based on business type
         order_config = get_order_config(business_type, language)
         button_label = get_delivery_button_label(business_type, language)
-        category_buttons_html = generate_category_buttons_html(business_type, language)
+        # Category tabs come from the merchant's actual items — never the
+        # static business-type template categories (Baju/Tudung/... etc.).
+        category_buttons_html = generate_category_buttons_from_menu(
+            formatted_menu, business_type, language
+        )
 
         order_emoji = order_config["order_emoji"]
         order_title = order_config["order_title"]
@@ -1255,6 +1405,8 @@ function handleContactSubmit(e) {{
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
+/* BinaApp widget theme — resolved from the site palette (neutral dark fallback) */
+__BINAAPP_WIDGET_THEME_VARS__
 /* Delivery System Styles */
 .delivery-page { display: none; }
 .delivery-page.active { display: block; }
@@ -1314,7 +1466,14 @@ function handleContactSubmit(e) {{
     #page-order h1 { font-size: 20px !important; }
 }
 </style>'''
-        
+        # Resolve the theme-var placeholder and swap the fragment's hardcoded
+        # template-orange literals for the CSS variables. Applied before the
+        # fragment touches the page so the merchant's own HTML is never
+        # rewritten.
+        css_libraries = _theme_widget_fragment(css_libraries).replace(
+            "__BINAAPP_WIDGET_THEME_VARS__", widget_theme_css_vars(widget_theme)
+        )
+
         if "</head>" in html:
             html = html.replace("</head>", css_libraries + "\n</head>")
         elif "<head>" in html:
@@ -1331,9 +1490,12 @@ function handleContactSubmit(e) {{
 
             if body_content_start > 0 and body_end > 0:
                 body_content = html[body_content_start:body_end]
-                
-                # Complete delivery page HTML with inline styles as fallback
-                page_html = f'''<div id="page-home" class="delivery-page active">{body_content}</div>
+
+                # Complete delivery page HTML with inline styles as fallback.
+                # body_content goes in via a sentinel so the theme substitution
+                # below can never rewrite colours inside the merchant's own page.
+                _body_sentinel = "\x00BINAAPP_BODY_CONTENT\x00"
+                page_html = f'''<div id="page-home" class="delivery-page active">{_body_sentinel}</div>
                 <div id="page-order" class="delivery-page">
     <div style="background:linear-gradient(to right,#f97316,#ea580c);color:white;padding:24px 0;position:sticky;top:0;z-index:40;">
         <div style="max-width:1200px;margin:0 auto;padding:0 16px;">
@@ -1632,6 +1794,9 @@ function handleContactSubmit(e) {{
     </div>
 </div>'''
 
+                page_html = _theme_widget_fragment(page_html).replace(
+                    _body_sentinel, body_content
+                )
                 html = html[:body_content_start] + page_html + html[body_end:]
 
         # STEP 3: Add delivery button - multiple injection points with INLINE STYLES
@@ -1640,14 +1805,15 @@ function handleContactSubmit(e) {{
 <button onclick="showDeliveryPage('order')" id="binaapp-delivery-btn" style="position:fixed;bottom:24px;left:24px;background:linear-gradient(135deg,#f97316,#ea580c);color:white;padding:14px 24px;border-radius:50px;font-weight:600;z-index:9999;display:flex;align-items:center;gap:8px;border:none;cursor:pointer;box-shadow:0 4px 20px rgba(234,88,12,0.4);font-family:sans-serif;font-size:15px;">
     {button_label}
 </button>'''
-        
+        delivery_button_inline = _theme_widget_fragment(delivery_button_inline)
+
         # Always inject the button before </body> if not already present
         if "binaapp-delivery-btn" not in html and "</body>" in html:
             html = html.replace("</body>", delivery_button_inline + "\n</body>")
 
-        # STEP 3.5: Add floating chat button - always visible (ORANGE theme, separate ID from chat-widget.js)
+        # STEP 3.5: Add floating chat button - always visible (site theme, separate ID from chat-widget.js)
         chat_button_inline = '''
-<!-- Always-visible Chat Button - BinaApp (Orange Theme) -->
+<!-- Always-visible Chat Button - BinaApp (Site Theme) -->
 <button id="binaapp-inline-chat-btn" onclick="event.stopPropagation(); openGeneralChat();" style="position:fixed;bottom:100px;left:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#ea580c,#f97316);color:white;border:none;cursor:pointer;font-size:24px;box-shadow:0 4px 16px rgba(234,88,12,0.4);z-index:9998;display:flex;align-items:center;justify-content:center;font-family:sans-serif;">💬</button>
 
 <!-- Customer Info Form Modal for Chat -->
@@ -1669,8 +1835,20 @@ function handleContactSubmit(e) {{
     </div>
 </div>'''
 
-        # Inject chat button if not already present (check both IDs to avoid duplicates)
-        if "binaapp-inline-chat-btn" not in html and "binaapp-chat-btn" not in html and "</body>" in html:
+        chat_button_inline = _theme_widget_fragment(chat_button_inline)
+
+        # Inject chat button if not already present. Checking both IDs plus
+        # the external chat-widget.js script tag ("widgets/chat-widget.js" is
+        # the src path — a plain "chat-widget.js" match would false-positive
+        # on the stacking comment in page_html above) keeps this the SINGLE
+        # chat entry point — the page must never render two floating chat
+        # buttons.
+        if (
+            "binaapp-inline-chat-btn" not in html
+            and "binaapp-chat-btn" not in html
+            and "widgets/chat-widget.js" not in html
+            and "</body>" in html
+        ):
             html = html.replace("</body>", chat_button_inline + "\n</body>")
 
         # Convert Python booleans to JavaScript string for injection
@@ -3188,6 +3366,7 @@ function handleContactSubmit(e) {{
     }});
 }})();
 </script>'''
+        script = _theme_widget_fragment(script)
 
         if "</body>" in html:
             html = html.replace("</body>", script + "\n</body>")
@@ -3202,7 +3381,7 @@ function handleContactSubmit(e) {{
         html: str,
         website_id: str,
         whatsapp_number: str,
-        primary_color: str = "#ea580c",
+        primary_color: str = WIDGET_FALLBACK_PRIMARY_DARK,
         business_type: str = None,
         description: str = "",
         language: str = "ms",
@@ -3231,8 +3410,9 @@ function handleContactSubmit(e) {{
         Returns:
             HTML with delivery widget injected
         """
-        # Theme inheritance: prefer the AI's palette over the hard-coded
-        # orange so the floating button doesn't fight the hero.
+        # Theme inheritance: prefer the AI's palette; without one the caller
+        # default (neutral dark) applies so the button never ships template
+        # orange on a site with a different palette.
         tokens = theme_tokens or {}
         primary_color = tokens.get("primary", primary_color) or primary_color
         # Skip if delivery widget already present (avoid duplicate buttons)
@@ -3303,9 +3483,14 @@ function handleContactSubmit(e) {{
         Returns:
             HTML with chat widget injected
         """
-        # Skip if chat-widget.js is already present (avoid duplicate script loads)
-        if "chat-widget.js" in html:
-            logger.info(f"⏭️ Skipping chat widget injection - chat-widget.js already present for website {website_id}")
+        # Skip if a chat entry point is already present — either the external
+        # chat-widget.js script tag ("widgets/chat-widget.js" is the src
+        # path; a bare "chat-widget.js" match would false-positive on the
+        # inline ordering system's stacking comment) or the inline chat
+        # button baked in by inject_ordering_system. The page must only ever
+        # get ONE floating chat button.
+        if "widgets/chat-widget.js" in html or "binaapp-inline-chat-btn" in html:
+            logger.info(f"⏭️ Skipping chat widget injection - chat entry point already present for website {website_id}")
             return html
 
         tokens = theme_tokens or {}
@@ -3415,7 +3600,7 @@ function handleContactSubmit(e) {{
         if "delivery_system" in features or user_data.get("delivery"):
             website_id = user_data.get("website_id", "")
             whatsapp = user_data.get("phone", "+60123456789")
-            primary_color = user_data.get("primary_color", "#ea580c")
+            primary_color = user_data.get("primary_color", WIDGET_FALLBACK_PRIMARY_DARK)
             menu_items = user_data.get("menu_items", [])
             delivery_zones = user_data.get("delivery_zones", [])
             payment_data = user_data.get("payment", {})
@@ -3473,7 +3658,8 @@ function handleContactSubmit(e) {{
                     business_type=business_type,
                     description=description,
                     website_id=ordering_website_id,
-                    api_url="https://binaapp-backend.onrender.com/api/v1"
+                    api_url="https://binaapp-backend.onrender.com/api/v1",
+                    theme_tokens=theme_tokens,
                 )
             elif website_id:
                 # EXTERNAL DELIVERY PAGE - Fallback when no menu_items but website_id exists

@@ -16,7 +16,9 @@
  *     websiteId: 'your-website-id',
  *     apiUrl: 'https://binaapp-backend.onrender.com/api/v1',
  *     businessType: 'food', // food, clothing, salon, services, bakery, general
- *     primaryColor: '#ea580c',
+ *     primaryColor: '#0ea5e9', // optional — when omitted the widget inherits
+ *                              // the site palette (CSS vars / Tailwind
+ *                              // config), neutral dark theme as fallback
  *     language: 'ms'  // 'ms' or 'en'
  *   });
  * </script>
@@ -25,7 +27,21 @@
 (function() {
     'use strict';
 
-    // Business type configurations
+    // Business type configurations.
+    //
+    // NOTE on categories: every config ships with ONLY the "Semua" (all)
+    // tab. Real category tabs are derived at load time from the merchant's
+    // actual menu data (menu_categories rows or distinct item.category
+    // values) in loadData() — never from hardcoded template categories.
+    //
+    // NOTE on colours: the per-type primaryColor values below are legacy
+    // metadata and are NOT used for theming. The widget resolves its colour
+    // as (1) explicit primaryColor/data attribute from the injection layer,
+    // then (2) colours extracted from the host page (CSS variables /
+    // Tailwind config), then (3) the neutral dark fallback. See
+    // readPageThemeColor()/applyTheme().
+    const DEFAULT_CATEGORIES = [{ id: 'all', name: 'Semua', icon: '📋' }];
+
     const BUSINESS_CONFIGS = {
         food: {
             icon: '🛵',
@@ -38,12 +54,7 @@
             cartIcon: '🛒',
             cartLabel: 'Bakul Pesanan',
             primaryColor: '#ea580c',
-            categories: [
-                { id: 'all', name: 'Semua', icon: '📋' },
-                { id: 'nasi', name: 'Nasi', icon: '🍚' },
-                { id: 'lauk', name: 'Lauk', icon: '🍗' },
-                { id: 'minuman', name: 'Minuman', icon: '🥤' }
-            ],
+            categories: [...DEFAULT_CATEGORIES],
             features: {
                 deliveryZones: true,
                 timeSlots: true,
@@ -67,12 +78,7 @@
             cartIcon: '🛒',
             cartLabel: 'Troli Anda',
             primaryColor: '#ec4899',
-            categories: [
-                { id: 'all', name: 'Semua', icon: '📋' },
-                { id: 'baju', name: 'Baju', icon: '👗' },
-                { id: 'tudung', name: 'Tudung', icon: '🧕' },
-                { id: 'aksesori', name: 'Aksesori', icon: '👜' }
-            ],
+            categories: [...DEFAULT_CATEGORIES],
             features: {
                 deliveryZones: false,
                 timeSlots: false,
@@ -103,12 +109,7 @@
             cartIcon: '📋',
             cartLabel: 'Tempahan Anda',
             primaryColor: '#8b5cf6',
-            categories: [
-                { id: 'all', name: 'Semua', icon: '📋' },
-                { id: 'potong', name: 'Potong', icon: '✂️' },
-                { id: 'warna', name: 'Warna', icon: '🎨' },
-                { id: 'rawatan', name: 'Rawatan', icon: '💆' }
-            ],
+            categories: [...DEFAULT_CATEGORIES],
             features: {
                 deliveryZones: false,
                 timeSlots: true,
@@ -137,11 +138,7 @@
             cartIcon: '📋',
             cartLabel: 'Servis Dipilih',
             primaryColor: '#3b82f6',
-            categories: [
-                { id: 'all', name: 'Semua', icon: '📋' },
-                { id: 'servis', name: 'Servis', icon: '🔧' },
-                { id: 'pakej', name: 'Pakej', icon: '📦' }
-            ],
+            categories: [...DEFAULT_CATEGORIES],
             features: {
                 deliveryZones: true,
                 timeSlots: true,
@@ -170,12 +167,7 @@
             cartIcon: '🛒',
             cartLabel: 'Tempahan Anda',
             primaryColor: '#f59e0b',
-            categories: [
-                { id: 'all', name: 'Semua', icon: '📋' },
-                { id: 'kek', name: 'Kek', icon: '🎂' },
-                { id: 'pastri', name: 'Pastri', icon: '🥐' },
-                { id: 'cookies', name: 'Cookies', icon: '🍪' }
-            ],
+            categories: [...DEFAULT_CATEGORIES],
             features: {
                 deliveryZones: true,
                 timeSlots: true,
@@ -201,11 +193,7 @@
             cartIcon: '🛒',
             cartLabel: 'Troli Anda',
             primaryColor: '#10b981',
-            categories: [
-                { id: 'all', name: 'Semua', icon: '📋' },
-                { id: 'produk', name: 'Produk', icon: '🎁' },
-                { id: 'lain', name: 'Lain-lain', icon: '📦' }
-            ],
+            categories: [...DEFAULT_CATEGORIES],
             features: {
                 deliveryZones: true,
                 timeSlots: false,
@@ -234,10 +222,26 @@
             websiteId: null,
             apiUrl: 'https://binaapp-backend.onrender.com/api/v1',
             businessType: 'food',
-            primaryColor: '#ea580c',
+            // Resolved at init: explicit option/data attribute → colour
+            // extracted from the host page → neutral dark fallback.
+            primaryColor: null,
             language: 'ms',
             whatsappNumber: null,
             businessName: 'Kedai'
+        },
+
+        // Neutral dark fallback (gray-800) applied when no explicit colour
+        // was provided and nothing could be extracted from the host page.
+        NEUTRAL_DARK_PRIMARY: '#1f2937',
+
+        // Resolved theme; applyTheme() keeps this and the CSS variables in
+        // sync. `source` tracks where the colour came from so weaker
+        // sources (e.g. the config API's business-type default) never
+        // override stronger ones (explicit attribute / page extraction).
+        theme: {
+            primary: '#1f2937',
+            primaryDark: '#0b111b',
+            source: 'fallback'
         },
 
         // Validation state - tracks whether widget ID has been validated
@@ -443,9 +447,16 @@
             // Get business config
             this.businessConfig = BUSINESS_CONFIGS[this.config.businessType] || BUSINESS_CONFIGS.general;
 
-            // Override primary color if specified
-            if (!options.primaryColor) {
-                this.config.primaryColor = this.businessConfig.primaryColor;
+            // Resolve widget theme: explicit colour (init option / data
+            // attribute) wins, then a colour extracted from the host page
+            // (CSS variables / Tailwind config), then the neutral dark
+            // fallback. The business-type template colour is deliberately
+            // NOT used — the widget must blend into the site, not fight it.
+            if (options.primaryColor) {
+                this.applyTheme(options.primaryColor, 'explicit');
+            } else {
+                const pageColor = this.readPageThemeColor();
+                this.applyTheme(pageColor, pageColor ? 'page' : 'fallback');
             }
 
             // Apply payment config if provided
@@ -493,9 +504,15 @@
             return this.businessConfig || BUSINESS_CONFIGS.general;
         },
 
-        // Inject widget styles
+        // Inject widget styles. All brand colours resolve through the
+        // --binaapp-widget-* CSS variables set by applyTheme(), so a colour
+        // that arrives after injection (e.g. from the config API) restyles
+        // the widget without regenerating this stylesheet.
         injectStyles: function() {
-            const primaryColor = this.config.primaryColor;
+            const primaryColor = 'var(--binaapp-widget-primary, ' + this.NEUTRAL_DARK_PRIMARY + ')';
+            const primaryDark = 'var(--binaapp-widget-primary-dark, #0b111b)';
+            const primarySoft = 'var(--binaapp-widget-primary-soft, rgba(31,41,55,0.08))';
+            const primaryRing = 'var(--binaapp-widget-primary-ring, rgba(31,41,55,0.2))';
             const styles = `
                 /* BinaApp Universal Order Widget Styles */
                 #binaapp-widget {
@@ -507,7 +524,7 @@
                 }
 
                 #binaapp-order-btn {
-                    background: linear-gradient(135deg, ${primaryColor} 0%, ${this.adjustColor(primaryColor, -20)} 100%);
+                    background: linear-gradient(135deg, ${primaryColor} 0%, ${primaryDark} 100%);
                     color: white;
                     border: none;
                     border-radius: 50px;
@@ -569,7 +586,7 @@
                 }
 
                 .binaapp-modal-header {
-                    background: linear-gradient(135deg, ${primaryColor} 0%, ${this.adjustColor(primaryColor, -20)} 100%);
+                    background: linear-gradient(135deg, ${primaryColor} 0%, ${primaryDark} 100%);
                     color: white;
                     padding: 20px;
                     border-radius: 16px 16px 0 0;
@@ -723,7 +740,7 @@
 
                 .binaapp-option-btn.selected {
                     border-color: ${primaryColor};
-                    background: ${primaryColor}10;
+                    background: ${primarySoft};
                 }
 
                 .binaapp-color-btn {
@@ -736,7 +753,7 @@
 
                 .binaapp-color-btn.selected {
                     border-color: ${primaryColor};
-                    box-shadow: 0 0 0 2px white, 0 0 0 4px ${primaryColor};
+                    box-shadow: 0 0 0 2px white, 0 0 0 4px ${primaryRing};
                 }
 
                 .binaapp-cart-empty {
@@ -816,7 +833,7 @@
 
                 .binaapp-shipping-option.selected {
                     border-color: ${primaryColor};
-                    background: ${primaryColor}10;
+                    background: ${primarySoft};
                 }
 
                 .binaapp-staff-btn {
@@ -831,7 +848,7 @@
 
                 .binaapp-staff-btn.selected {
                     border-color: ${primaryColor};
-                    background: ${primaryColor}10;
+                    background: ${primarySoft};
                 }
 
                 .binaapp-tracking-status {
@@ -880,6 +897,68 @@
             const g = Math.min(255, Math.max(0, ((num >> 8) & 0x00FF) + amount));
             const b = Math.min(255, Math.max(0, (num & 0x0000FF) + amount));
             return '#' + (b | (g << 8) | (r << 16)).toString(16).padStart(6, '0');
+        },
+
+        // Normalise a CSS hex colour to 6-digit #rrggbb (expands #rgb/#rgba,
+        // drops alpha from #rrggbbaa). Returns null when unusable — every
+        // downstream consumer (adjustColor, the +'14'/'33' alpha-suffix CSS
+        // vars) assumes exactly 6 hex digits.
+        normalizeHexColor: function(color) {
+            if (typeof color !== 'string') return null;
+            let c = color.trim();
+            if (!/^#[0-9a-fA-F]{3,8}$/.test(c) || c.length === 6 || c.length === 8) return null;
+            if (c.length === 5) c = c.slice(0, 4);                  // #rgba → #rgb
+            if (c.length === 4) c = '#' + c[1] + c[1] + c[2] + c[2] + c[3] + c[3];
+            if (c.length === 9) c = c.slice(0, 7);                  // #rrggbbaa → #rrggbb
+            return c.toLowerCase();
+        },
+
+        // Extract the host page's primary colour: CSS variables first (set
+        // by the generated site or the BinaApp injection layer), then the
+        // Tailwind CDN config the generated site declares. Returns a
+        // normalised #rrggbb, or null when nothing usable is found.
+        readPageThemeColor: function() {
+            try {
+                const rootStyle = getComputedStyle(document.documentElement);
+                const candidates = ['--binaapp-primary', '--primary-color', '--primary'];
+                for (const varName of candidates) {
+                    const v = this.normalizeHexColor(rootStyle.getPropertyValue(varName));
+                    if (v) return v;
+                }
+            } catch (e) { /* getComputedStyle unavailable — fall through */ }
+            try {
+                const tw = window.tailwind && window.tailwind.config;
+                const theme = tw && tw.theme;
+                const colors = theme && ((theme.extend && theme.extend.colors) || theme.colors);
+                const p = colors && colors.primary;
+                const hex = typeof p === 'string' ? p : (p && (p.DEFAULT || p['500']));
+                const v = this.normalizeHexColor(hex);
+                if (v) return v;
+            } catch (e) { /* malformed tailwind config — fall through */ }
+            return null;
+        },
+
+        // Apply a theme colour: updates config.primaryColor, the resolved
+        // theme object, and the CSS variables every widget style resolves
+        // against — so a late colour (e.g. from the config API) restyles
+        // already-injected CSS without re-rendering.
+        applyTheme: function(color, source) {
+            // Normalise to 6-digit hex — a 3/8-digit colour would break
+            // adjustColor and the alpha-suffixed CSS vars below. An
+            // unusable colour degrades to the neutral dark fallback.
+            const primary = this.normalizeHexColor(color) || this.NEUTRAL_DARK_PRIMARY;
+            this.config.primaryColor = primary;
+            this.theme = {
+                primary: primary,
+                primaryDark: this.adjustColor(primary, -20),
+                source: source || 'fallback'
+            };
+            const rootStyle = document.documentElement.style;
+            rootStyle.setProperty('--binaapp-widget-primary', primary);
+            rootStyle.setProperty('--binaapp-widget-primary-dark', this.theme.primaryDark);
+            rootStyle.setProperty('--binaapp-widget-primary-soft', primary + '14');
+            rootStyle.setProperty('--binaapp-widget-primary-ring', primary + '33');
+            console.log('[BinaApp] Theme applied:', primary, '(source: ' + this.theme.source + ')');
         },
 
         // Create widget DOM
@@ -1019,27 +1098,20 @@
                         const websiteConfig = await configRes.json();
 
                         // Apply business type from API if not already set
-                        const alreadyHasDynamicCategories = apiCategories && apiCategories.length > 0;
                         if (websiteConfig.business_type && !this.config.businessType) {
-                            // Preserve dynamic categories before reassigning businessConfig
-                            const savedCategories = alreadyHasDynamicCategories ? this.businessConfig.categories : null;
+                            // Preserve the menu-derived categories before
+                            // reassigning businessConfig
+                            const savedCategories = this.businessConfig.categories;
                             this.config.businessType = websiteConfig.business_type;
                             this.businessConfig = BUSINESS_CONFIGS[websiteConfig.business_type] || BUSINESS_CONFIGS.general;
-                            if (savedCategories) {
-                                this.businessConfig.categories = savedCategories;
-                            }
+                            this.businessConfig.categories = savedCategories;
                         }
 
-                        // Apply config categories only if we didn't already load
-                        // dynamic categories from the menu_categories table above
-                        if (!alreadyHasDynamicCategories && websiteConfig.categories && websiteConfig.categories.length > 0) {
-                            // Merge API categories with the 'all' category
-                            this.businessConfig.categories = [
-                                { id: 'all', name: 'Semua', icon: '📋' },
-                                ...websiteConfig.categories
-                            ];
-                            console.log('[BinaApp] Using config API categories:', this.businessConfig.categories);
-                        }
+                        // NOTE: websiteConfig.categories is deliberately NOT
+                        // applied — those are static business-type template
+                        // categories (e.g. Baju/Tudung/Aksesori). Category
+                        // tabs come ONLY from the merchant's actual menu
+                        // data, loaded above from /delivery/menu.
 
                         // Apply payment config from API if not overridden
                         if (websiteConfig.payment) {
@@ -1070,9 +1142,12 @@
                             this.config.businessName = websiteConfig.business_name;
                         }
 
-                        // Apply primary color from API
-                        if (websiteConfig.primary_color) {
-                            this.config.primaryColor = websiteConfig.primary_color;
+                        // Apply primary color from API only when nothing
+                        // better was resolved: an explicit data attribute or
+                        // a colour extracted from the host page always wins
+                        // over the config API's business-type default.
+                        if (websiteConfig.primary_color && this.theme.source === 'fallback') {
+                            this.applyTheme(websiteConfig.primary_color, 'api');
                         }
                     }
                 } catch (configError) {
@@ -1305,12 +1380,12 @@
                         <div style="
                             width: 50px;
                             height: 50px;
-                            background: linear-gradient(135deg, #ea580c 0%, #fb923c 100%);
+                            background: linear-gradient(135deg, ${this.theme.primary} 0%, ${this.theme.primaryDark} 100%);
                             border-radius: 50%;
                             display: flex;
                             align-items: center;
                             justify-content: center;
-                            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.5);
+                            box-shadow: 0 4px 12px ${this.theme.primary}80;
                             border: 4px solid white;
                             font-size: 26px;
                         ">
@@ -1343,7 +1418,7 @@
                     this.state.routeLine = L.polyline(
                         [[newLat, newLng], [customerLatLng.lat, customerLatLng.lng]],
                         {
-                            color: '#ea580c',
+                            color: this.theme.primary,
                             weight: 4,
                             opacity: 0.7,
                             dashArray: '10, 10',
@@ -1631,7 +1706,7 @@
                                 <p style="font-weight:600;margin:0;">Delivery</p>
                                 <p style="font-size:12px;color:#6b7280;margin:0;">${fulfillment.deliveryArea || 'Hantar ke alamat anda'}</p>
                             </div>
-                            <span style="font-weight:bold;color:#ea580c;">RM${fulfillment.deliveryFee.toFixed(2)}</span>
+                            <span style="font-weight:bold;color:${this.theme.primary};">RM${fulfillment.deliveryFee.toFixed(2)}</span>
                         </div>
                     `;
                 }
@@ -1737,7 +1812,7 @@
                             <img src="${payment.qrImage}" alt="Payment QR" 
                                  style="width:200px;height:200px;border:4px solid white;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);margin:0 auto;display:block;">
                             <p style="font-size:14px;color:#6b7280;margin-top:12px;">
-                                Jumlah: <strong style="color:#ea580c;font-size:18px;">RM<span id="qr-amount">${subtotal.toFixed(2)}</span></strong>
+                                Jumlah: <strong style="color:${this.theme.primary};font-size:18px;">RM<span id="qr-amount">${subtotal.toFixed(2)}</span></strong>
                             </p>
                             <p style="font-size:12px;color:#9ca3af;margin-top:8px;">
                                 Screenshot bukti pembayaran & hantar via WhatsApp
@@ -2364,12 +2439,12 @@
                         <div style="
                             width: 50px;
                             height: 50px;
-                            background: linear-gradient(135deg, #ea580c 0%, #fb923c 100%);
+                            background: linear-gradient(135deg, ${this.theme.primary} 0%, ${this.theme.primaryDark} 100%);
                             border-radius: 50%;
                             display: flex;
                             align-items: center;
                             justify-content: center;
-                            box-shadow: 0 4px 12px rgba(234, 88, 12, 0.5);
+                            box-shadow: 0 4px 12px ${this.theme.primary}80;
                             border: 4px solid white;
                             font-size: 26px;
                         ">
@@ -2441,7 +2516,7 @@
                     this.state.routeLine = L.polyline(
                         [[riderLat, riderLng], [customerLat, customerLng]],
                         {
-                            color: '#ea580c',
+                            color: this.theme.primary,
                             weight: 4,
                             opacity: 0.7,
                             dashArray: '10, 10',

@@ -59,6 +59,42 @@ AI_GLM_TIMEOUT_SECONDS = float(os.getenv("AI_GLM_TIMEOUT_SECONDS", "240"))
 # instant rollback to pure DeepSeek — no code change or rollback deploy needed.
 USE_GLM_FOR_HTML = os.getenv("USE_GLM_FOR_HTML", "false").strip().lower() in ("1", "true", "yes", "on")
 
+# Premium design critique loop. Ships dark (default OFF). When ON, a
+# successful GLM generation is reviewed by DeepSeek against the same 8 hard
+# rules the GLM prompt carries; if the reviewer reports violations or
+# improvements, GLM gets exactly ONE revision request (thinking disabled,
+# same AI_GLM_TIMEOUT_SECONDS budget). The loop is strictly best-effort:
+# a reviewer failure/timeout, unparseable critique, or bad revision ships
+# the original HTML unchanged. With the flag OFF the loop makes zero calls.
+PREMIUM_DESIGN_LOOP = os.getenv("PREMIUM_DESIGN_LOOP", "false").strip().lower() in ("1", "true", "yes", "on")
+# Reviewer model — a fast non-thinking tier; the review is a rules checklist,
+# not generation, so it must stay cheap and quick.
+DESIGN_REVIEW_MODEL = os.getenv("DESIGN_REVIEW_MODEL", "deepseek-v4-flash")
+
+
+def generation_outer_timeout_seconds(base: float = 180.0) -> float:
+    """Outer wait_for budget for a full generate_website call.
+
+    Callers that guard generation with their own asyncio.wait_for use this
+    instead of a hardcoded number so the guard tracks the feature flags:
+    with the premium design loop active on the GLM path, a healthy
+    generation can legitimately take GLM (AI_GLM_TIMEOUT_SECONDS) + review
+    (DESIGN_REVIEW_TIMEOUT_SECONDS) + one GLM revision, and the outer guard
+    must not kill it mid-revision. Normal generations keep the tighter
+    `base` budget. Reads the module flags at call time so env flips and
+    test patches take effect without re-import.
+    """
+    if USE_GLM_FOR_HTML and PREMIUM_DESIGN_LOOP:
+        # Two full GLM calls + the review cap + post-processing headroom.
+        return max(base, AI_GLM_TIMEOUT_SECONDS * 2 + DESIGN_REVIEW_TIMEOUT_SECONDS + 90.0)
+    return base
+# Hard cap on the DeepSeek review call. Deliberately tight: the review is
+# optional polish and must never meaningfully delay generation.
+DESIGN_REVIEW_TIMEOUT_SECONDS = float(os.getenv("DESIGN_REVIEW_TIMEOUT_SECONDS", "30"))
+# Output cap for the critique JSON — {pass, violations, improvements} never
+# legitimately needs more than this.
+DESIGN_REVIEW_MAX_TOKENS = int(os.getenv("DESIGN_REVIEW_MAX_TOKENS", "2000"))
+
 
 # Per-call timeout for the optional Qwen copywriting refinement pass in
 # generate_website. Deliberately well under the 240s httpx client default so a
@@ -99,13 +135,20 @@ def _timed_step(step_name: str, timings: Dict[str, float]):
 # Patterns for extracting theme tokens out of the generated HTML, so the
 # injected widgets can inherit the site's palette via CSS variables. We
 # look in three places (in order): explicit --primary / --primary-color
-# CSS variables, Tailwind `colors: { primary: '...' }` blocks, and named
-# `--bg-color` / `--surface-color` from our own _build_strict_prompt
-# preamble. First match wins.
+# CSS variables, Tailwind config `colors: { primary: '...', secondary:
+# '...' }` blocks (the quoted-hex patterns match both inline tailwind.config
+# scripts and generated CSS-in-JS), and named `--bg-color` /
+# `--surface-color` from our own _build_strict_prompt preamble. First
+# match wins.
 _THEME_PRIMARY_PATTERNS = [
     re.compile(r"--primary-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
     re.compile(r"--primary\s*:\s*(#[0-9a-fA-F]{3,8})"),
     re.compile(r"primary\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
+]
+_THEME_SECONDARY_PATTERNS = [
+    re.compile(r"--secondary-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
+    re.compile(r"--secondary\s*:\s*(#[0-9a-fA-F]{3,8})"),
+    re.compile(r"secondary\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
 ]
 _THEME_ACCENT_PATTERNS = [
     re.compile(r"--accent-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
@@ -119,7 +162,8 @@ _THEME_SURFACE_PATTERNS = [
 
 
 def extract_theme_tokens(html: str) -> Dict[str, str]:
-    """Pull primary / accent / surface colours out of generated HTML.
+    """Pull primary / secondary / accent / surface colours out of generated
+    HTML (CSS variables or Tailwind config colour blocks).
 
     Best-effort: returns whatever it can find. Callers should treat
     missing keys as "fall back to widget default". Used by the injection
@@ -132,6 +176,7 @@ def extract_theme_tokens(html: str) -> Dict[str, str]:
     tokens: Dict[str, str] = {}
     for label, patterns in (
         ("primary", _THEME_PRIMARY_PATTERNS),
+        ("secondary", _THEME_SECONDARY_PATTERNS),
         ("accent", _THEME_ACCENT_PATTERNS),
         ("surface", _THEME_SURFACE_PATTERNS),
     ):
@@ -3401,6 +3446,221 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"🟣 GLM ❌ Exception: {e}")
         return None
 
+    # Reviewer prompt for the premium design critique loop. The rule list is
+    # composed from the SAME _GLM_PROMPT_* fragments the generator saw, so the
+    # reviewer can never drift out of sync with the generation contract.
+    _DESIGN_REVIEW_INSTRUCTIONS = (
+        "You are a strict website design reviewer for a Malaysian small-"
+        "business website builder. You will receive the full HTML of a "
+        "generated single-file website. Check it against every HARD RULE "
+        "below, then suggest at most 5 specific, actionable design "
+        "improvements (visual hierarchy, spacing, colour restraint, "
+        "typography, section flow). Do NOT suggest changing business facts, "
+        "prices, or order/checkout behaviour.\n\n"
+        "Respond with ONLY a JSON object, no markdown fences, in exactly "
+        "this shape:\n"
+        '{"pass": true|false, "violations": ["rule N: what is violated"], '
+        '"improvements": ["specific actionable fix", ...]}\n'
+        '"pass" is true only when there are no rule violations. '
+        '"improvements" has at most 5 entries.\n\n'
+    )
+
+    def _build_design_review_prompt(self, has_images: bool = True) -> str:
+        """System prompt for the DeepSeek design review: reviewer instructions
+        + the exact 8 hard rules the generator was given."""
+        return (
+            self._DESIGN_REVIEW_INSTRUCTIONS
+            + self._GLM_PROMPT_RULES_HEAD
+            + (self._GLM_PHOTO_SLOT_CLAUSE if has_images else self._GLM_NO_PHOTO_CLAUSE)
+            + self._GLM_PROMPT_RULES_TAIL
+        )
+
+    @staticmethod
+    def _parse_design_critique(content: str) -> Optional[Dict]:
+        """Parse the reviewer's JSON critique. Tolerates markdown fences and
+        surrounding prose; normalises to {pass: bool, violations: [str],
+        improvements: [str≤5]}. Returns None when no usable JSON is found."""
+        if not content or not content.strip():
+            return None
+        text = content.strip()
+        # Strip ```json ... ``` fences if the model added them despite rules.
+        fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+        if fence:
+            text = fence.group(1).strip()
+        # Slice to the outermost JSON object in case of stray prose.
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end <= start:
+            return None
+        try:
+            raw = json.loads(text[start:end + 1])
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if not isinstance(raw, dict):
+            return None
+        violations = [str(v) for v in raw.get("violations") or [] if str(v).strip()]
+        improvements = [str(i) for i in raw.get("improvements") or [] if str(i).strip()][:5]
+        return {
+            # A review with violations can never pass, whatever the reviewer's
+            # own (occasionally inconsistent) pass flag claims.
+            "pass": bool(raw.get("pass", not violations)) and not violations,
+            "violations": violations,
+            "improvements": improvements,
+        }
+
+    async def _review_design_with_deepseek(
+        self, html: str, has_images: bool = True
+    ) -> Optional[Dict]:
+        """Send generated HTML to the DeepSeek reviewer and return the parsed
+        critique dict, or None on ANY failure (no key, HTTP error, timeout,
+        unparseable JSON). Never raises — the critique loop is best-effort."""
+        if not self.deepseek_api_key:
+            logger.warning("🎨 Design review skipped: DEEPSEEK_API_KEY not configured")
+            return None
+        try:
+            logger.info(
+                f"🎨 Design review: sending {len(html)} chars to "
+                f"{DESIGN_REVIEW_MODEL} (cap {DESIGN_REVIEW_TIMEOUT_SECONDS:.0f}s)"
+            )
+            body = {
+                "model": DESIGN_REVIEW_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": self._build_design_review_prompt(has_images),
+                    },
+                    {"role": "user", "content": html},
+                ],
+                "temperature": 0.0,
+                "max_tokens": DESIGN_REVIEW_MAX_TOKENS,
+                "response_format": {"type": "json_object"},
+                # Non-thinking review — same contract as the GLM generation
+                # call: reasoning would burn the budget.
+                "thinking": {"type": "disabled"},
+            }
+            headers = {
+                "Authorization": f"Bearer {self.deepseek_api_key}",
+                "Content-Type": "application/json",
+            }
+            async with httpx.AsyncClient(timeout=DESIGN_REVIEW_TIMEOUT_SECONDS) as client:
+                r = await asyncio.wait_for(
+                    client.post(
+                        f"{self.deepseek_base_url}/chat/completions",
+                        headers=headers,
+                        json=body,
+                    ),
+                    timeout=DESIGN_REVIEW_TIMEOUT_SECONDS,
+                )
+                # Some DeepSeek deployments reject the GLM-style `thinking`
+                # field as an unknown parameter. Retry once without it so an
+                # API-contract mismatch can't silently disable the loop.
+                if r.status_code == 400 and "thinking" in body:
+                    logger.warning(
+                        "🎨 Design review got 400 with `thinking` param — retrying without it"
+                    )
+                    body.pop("thinking")
+                    r = await asyncio.wait_for(
+                        client.post(
+                            f"{self.deepseek_base_url}/chat/completions",
+                            headers=headers,
+                            json=body,
+                        ),
+                        timeout=DESIGN_REVIEW_TIMEOUT_SECONDS,
+                    )
+            if r.status_code != 200:
+                logger.error(f"🎨 Design review ❌ Status {r.status_code}: {r.text[:300]}")
+                return None
+            payload = r.json()
+            content = ((payload.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+            critique = self._parse_design_critique(content)
+            if critique is None:
+                logger.error(f"🎨 Design review ❌ Unparseable critique: {content[:300]}")
+            return critique
+        except (asyncio.TimeoutError, httpx.TimeoutException):
+            logger.error(f"🎨 Design review ❌ Timed out (cap {DESIGN_REVIEW_TIMEOUT_SECONDS:.0f}s)")
+        except Exception as e:
+            logger.error(f"🎨 Design review ❌ {e}")
+        return None
+
+    async def _run_premium_design_loop(self, html: str, has_images: bool = True) -> str:
+        """Premium design critique loop: DeepSeek reviews the GLM HTML against
+        the 8 hard rules; if the critique lists violations or improvements,
+        GLM gets exactly ONE revision request. Returns the revised HTML, or
+        the original on flag-off / clean review / any failure.
+
+        Runs BEFORE PHOTO_SLOT binding so a revision keeps the slot contract.
+        Reads the module-level PREMIUM_DESIGN_LOOP flag at call time so it is
+        env-flippable and test-patchable; with the flag off this makes zero
+        network calls.
+        """
+        if not PREMIUM_DESIGN_LOOP:
+            return html
+
+        critique = await self._review_design_with_deepseek(html, has_images=has_images)
+        if critique is None:
+            logger.info("🎨 Design review unavailable — shipping original HTML")
+            return html
+
+        # The critique JSON is the loop's observability contract — always log it.
+        logger.info(f"🎨 Design critique: {json.dumps(critique, ensure_ascii=False)}")
+
+        # Gate the revision on the actionable content, not the reviewer's
+        # pass flag: no violations AND no improvements means there is nothing
+        # to feed a revision, whatever the flag says.
+        if not critique["violations"] and not critique["improvements"]:
+            logger.info("🎨 Design review passed clean — no revision needed")
+            return html
+
+        feedback_lines = [f"- VIOLATION: {v}" for v in critique["violations"]]
+        feedback_lines += [f"- IMPROVE: {i}" for i in critique["improvements"]]
+        revision_prompt = (
+            "You previously generated the website HTML below. A design "
+            "reviewer checked it and returned the critique that follows. "
+            "Produce a REVISED version of the SAME website that fixes every "
+            "violation and applies the improvements. Keep all business facts, "
+            "prices, section content, image placeholders and ids unchanged "
+            "unless a critique point requires otherwise. All HARD RULES "
+            "still apply.\n\n"
+            "=== CRITIQUE ===\n"
+            + "\n".join(feedback_lines)
+            + "\n\n=== YOUR PREVIOUS HTML ===\n"
+            + html
+        )
+
+        # Preserve the original call's truncation state: if the revision is
+        # rejected, upstream truncation checks must reflect the HTML we ship.
+        original_api_call = dict(self._last_api_call)
+        logger.info(
+            f"🎨 Requesting ONE GLM revision "
+            f"({len(critique['violations'])} violation(s), "
+            f"{len(critique['improvements'])} improvement(s))"
+        )
+        try:
+            revised = await asyncio.wait_for(
+                self._call_glm(revision_prompt, has_images=has_images),
+                timeout=AI_GLM_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.error("🎨 GLM revision timed out — shipping original HTML")
+            self._last_api_call = original_api_call
+            return html
+
+        if not revised or "<" not in revised or self._last_api_call.get("truncated"):
+            logger.error("🎨 GLM revision unusable (empty/non-HTML/truncated) — shipping original HTML")
+            self._last_api_call = original_api_call
+            return html
+
+        # The revision must keep the PHOTO_SLOT contract: if the original
+        # carried slot tokens but the revision dropped them (e.g. swapped in
+        # hallucinated image URLs), _replace_photo_slots downstream would
+        # no-op and ship broken images — reject and keep the original.
+        if "PHOTO_SLOT_" in html.upper() and "PHOTO_SLOT_" not in revised.upper():
+            logger.error("🎨 GLM revision dropped PHOTO_SLOT tokens — shipping original HTML")
+            self._last_api_call = original_api_call
+            return html
+
+        logger.info(f"🎨 Design revision applied ({len(revised)} chars)")
+        return revised
+
     async def _call_deepseek(
         self,
         prompt: str,
@@ -5370,6 +5630,13 @@ IMPORTANT INSTRUCTIONS:
                     logger.error("🟣 GLM returned non-HTML output — discarding, falling back to DeepSeek")
                     html_raw = None
                 if html_raw:
+                    # Premium design critique loop (PREMIUM_DESIGN_LOOP, ships
+                    # dark): one DeepSeek review + at most one GLM revision.
+                    # Runs before PHOTO_SLOT binding so a revision keeps the
+                    # slot contract; no-op (zero calls) with the flag off.
+                    html_raw = await self._run_premium_design_loop(
+                        html_raw, has_images=bool(_glm_image_urls)
+                    )
                     # Bind PHOTO_SLOT_N tokens to the real image URLs at the
                     # same boundary where the DeepSeek pipeline's exact-URL
                     # contract is enforced (before _extract_html/validation).
@@ -5706,6 +5973,12 @@ IMPORTANT INSTRUCTIONS:
                     logger.error(f"🟣 GLM returned non-HTML output (style={style}) — falling back to DeepSeek")
                     html = None
                 if html:
+                    # Premium design critique loop — same contract as the
+                    # generate_website hook: one review, max one revision,
+                    # zero calls with the flag off.
+                    html = await self._run_premium_design_loop(
+                        html, has_images=bool(_ordered_urls)
+                    )
                     # Bind PHOTO_SLOT_N tokens to the uploaded image URLs in
                     # order of appearance. No-op in no-photo mode.
                     html = self._replace_photo_slots(html, _ordered_urls)

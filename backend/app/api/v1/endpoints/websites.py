@@ -423,16 +423,25 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
                 logger.warning(f"⚠️ Could not determine AI image budget, leaving uncapped: {quota_err}")
                 max_ai_images = None
 
-        # Step 1: Generate HTML using AI with timeout (3 minutes max)
-        logger.info("⏱️  Step 1/4: Calling AI generation service (max 180s timeout)...")
+        # Step 1: Generate HTML using AI, bounded by a flag-aware budget:
+        # 180s for normal generations, extended when the premium design
+        # loop is active on the GLM path (GLM + review + one revision can
+        # legitimately run ~8.5 minutes — the guard must not kill a healthy
+        # premium generation mid-revision).
+        from app.services.ai_service import generation_outer_timeout_seconds
+        generation_budget = generation_outer_timeout_seconds()
+        logger.info(f"⏱️  Step 1/4: Calling AI generation service (max {generation_budget:.0f}s timeout)...")
         try:
             ai_response = await asyncio.wait_for(
                 ai_service.generate_website(request, max_ai_images=max_ai_images),
-                timeout=180.0  # 3 minutes timeout for entire AI generation
+                timeout=generation_budget
             )
             logger.info(f"✅ Step 1/4: AI generation completed - {len(ai_response.html_content)} chars generated")
         except asyncio.TimeoutError:
-            error_msg = "AI generation timed out after 180 seconds. Please try again with a shorter description or fewer features."
+            error_msg = (
+                f"AI generation timed out after {generation_budget:.0f} seconds. "
+                "Please try again with a shorter description or fewer features."
+            )
             logger.error(f"❌ {error_msg}")
             raise Exception(error_msg)
 
@@ -473,12 +482,16 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
             # Initialize template service
             template_service = TemplateService()
 
-            # Inject delivery widget with website_id
+            # Inject delivery widget with website_id. theme_tokens carry the
+            # extracted site palette; the explicit primary_color is only the
+            # fallback when extraction found nothing — neutral dark, not the
+            # legacy template orange.
+            from app.services.templates import WIDGET_FALLBACK_PRIMARY_DARK
             html_content = template_service.inject_delivery_widget(
                 html=html_content,
                 website_id=website_id,
                 whatsapp_number=request.whatsapp_number or "+60123456789",
-                primary_color="#ea580c",  # Default orange color
+                primary_color=WIDGET_FALLBACK_PRIMARY_DARK,
                 business_type=request.business_type,
                 description=request.description,
                 language=request.language.value if hasattr(request, 'language') and request.language else "ms",
@@ -1062,12 +1075,15 @@ async def fix_website_widget(
                 "changed": False
             }
 
-        # New script tag with data-website-id
+        # New script tag with data-website-id. Colour from the site's own
+        # palette, neutral dark fallback — never the legacy template orange.
+        from app.services.templates import resolve_widget_primary_color
+        repair_primary = resolve_widget_primary_color(html_content)
         new_script = f'''<script
   src="https://binaapp-backend.onrender.com/widgets/delivery-widget.js"
   data-website-id="{website_id}"
   data-api-url="https://binaapp-backend.onrender.com"
-  data-primary-color="#ea580c"
+  data-primary-color="{repair_primary}"
   data-language="ms"
 ></script>
 <div id="binaapp-widget"></div>'''
