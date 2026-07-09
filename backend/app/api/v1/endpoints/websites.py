@@ -473,12 +473,16 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
             # Initialize template service
             template_service = TemplateService()
 
-            # Inject delivery widget with website_id
+            # Inject delivery widget with website_id. theme_tokens carry the
+            # extracted site palette; the explicit primary_color is only the
+            # fallback when extraction found nothing — neutral dark, not the
+            # legacy template orange.
+            from app.services.templates import WIDGET_FALLBACK_PRIMARY_DARK
             html_content = template_service.inject_delivery_widget(
                 html=html_content,
                 website_id=website_id,
                 whatsapp_number=request.whatsapp_number or "+60123456789",
-                primary_color="#ea580c",  # Default orange color
+                primary_color=WIDGET_FALLBACK_PRIMARY_DARK,
                 business_type=request.business_type,
                 description=request.description,
                 language=request.language.value if hasattr(request, 'language') and request.language else "ms",
@@ -1062,12 +1066,19 @@ async def fix_website_widget(
                 "changed": False
             }
 
-        # New script tag with data-website-id
+        # New script tag with data-website-id. Colour from the site's own
+        # palette, neutral dark fallback — never the legacy template orange.
+        from app.services.ai_service import extract_theme_tokens
+        from app.services.templates import WIDGET_FALLBACK_PRIMARY_DARK
+        repair_primary = (
+            (extract_theme_tokens(html_content) or {}).get("primary")
+            or WIDGET_FALLBACK_PRIMARY_DARK
+        )
         new_script = f'''<script
   src="https://binaapp-backend.onrender.com/widgets/delivery-widget.js"
   data-website-id="{website_id}"
   data-api-url="https://binaapp-backend.onrender.com"
-  data-primary-color="#ea580c"
+  data-primary-color="{repair_primary}"
   data-language="ms"
 ></script>
 <div id="binaapp-widget"></div>'''

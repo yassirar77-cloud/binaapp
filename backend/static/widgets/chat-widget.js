@@ -1245,6 +1245,14 @@
    * The button is ALWAYS visible. Chat functionality activates after validation.
    */
   async function initWithValidation() {
+    // DEDUPE GUARD: pages generated with the inline ordering system carry
+    // their own floating chat button (id="binaapp-inline-chat-btn"). If it
+    // is present, this widget must not add a second chat entry point.
+    if (document.getElementById('binaapp-inline-chat-btn')) {
+      console.log('[BinaApp Chat] Inline chat button present — skipping chat-widget launcher (one chat entry point per page)');
+      return;
+    }
+
     // STEP 1: Show the button and chat window UI immediately
     initWidgetUI();
 

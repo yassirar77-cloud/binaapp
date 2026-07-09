@@ -967,8 +967,10 @@ async def _promote_pending_draft_for_user(user_id: str, bill_code: Optional[str]
         f"{user_id} (subdomain chosen: {subdomain})"
     )
 
-    # 3. Ensure the chat widget is present (every published site needs it).
-    if "chat-widget.js" not in html_content:
+    # 3. Ensure a chat entry point is present (every published site needs
+    #    one — and only one: skip when the chat-widget.js script tag or the
+    #    inline chat button from inject_ordering_system already exists).
+    if "widgets/chat-widget.js" not in html_content and "binaapp-inline-chat-btn" not in html_content:
         chat_widget_tag = (
             "\n<!-- BinaApp Chat Widget - Customer to Owner Chat -->\n"
             '<script src="https://binaapp-backend.onrender.com/static/widgets/chat-widget.js"\n'

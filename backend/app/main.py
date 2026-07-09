@@ -3379,8 +3379,13 @@ async def publish_website(
         logger.info(f"📤 HTML after placeholder replacement: {len(html_content)} chars")
 
         # CRITICAL: Inject chat widget script for customer-owner communication
-        # The chat widget button must be visible on ALL published websites
-        if "chat-widget.js" not in html_content:
+        # The chat button must be visible on ALL published websites — but only
+        # ONE chat entry point per page: skip when the script tag or the
+        # inline chat button from inject_ordering_system is already present.
+        if (
+            "widgets/chat-widget.js" not in html_content
+            and "binaapp-inline-chat-btn" not in html_content
+        ):
             chat_widget_tag = f'''
 <!-- BinaApp Chat Widget - Customer to Owner Chat -->
 <script src="https://binaapp-backend.onrender.com/static/widgets/chat-widget.js"
@@ -3466,13 +3471,21 @@ async def publish_website(
             try:
                 api_base = "https://binaapp-backend.onrender.com"
                 widget_src = f"{api_base}/widgets/delivery-widget.js"
+                # Widget colour from the site's own palette, neutral dark
+                # fallback — never the legacy template orange.
+                from app.services.ai_service import extract_theme_tokens
+                from app.services.templates import WIDGET_FALLBACK_PRIMARY_DARK
+                widget_primary = (
+                    (extract_theme_tokens(html_content) or {}).get("primary")
+                    or WIDGET_FALLBACK_PRIMARY_DARK
+                )
                 widget_init = f"""
 <!-- BinaApp Delivery Widget -->
 <script
   src="{widget_src}"
   data-website-id="{website_id}"
   data-api-url="{api_base}"
-  data-primary-color="#ea580c"
+  data-primary-color="{widget_primary}"
   data-language="ms"
 ></script>
 <div id="binaapp-widget"></div>
@@ -3671,8 +3684,9 @@ async def admin_republish_websites(
                 results["skipped"] += 1
                 continue
 
-            # Skip if chat widget already present
-            if "chat-widget.js" in html_content:
+            # Skip if a chat entry point is already present (chat-widget.js
+            # script tag or the inline chat button) — one chat button per page
+            if "widgets/chat-widget.js" in html_content or "binaapp-inline-chat-btn" in html_content:
                 results["skipped"] += 1
                 continue
 

@@ -94,6 +94,12 @@ class Settings(BaseSettings):
     # untouched DeepSeek path on any failure. Flip off in Render for an
     # instant rollback to pure DeepSeek — no code change needed.
     USE_GLM_FOR_HTML: bool = Field(default=False, env="USE_GLM_FOR_HTML")
+    # Feature flag: premium design critique loop. When on, a successful GLM
+    # generation is reviewed once by DeepSeek against the 8 hard rules and,
+    # if the critique reports issues, GLM gets exactly one revision request.
+    # Ships dark (default OFF); any review failure falls back to the
+    # original HTML. See ai_service.PREMIUM_DESIGN_LOOP.
+    PREMIUM_DESIGN_LOOP: bool = Field(default=False, env="PREMIUM_DESIGN_LOOP")
 
     # Qwen AI (Optional)
     QWEN_API_KEY: Optional[str] = Field(None, env="QWEN_API_KEY")

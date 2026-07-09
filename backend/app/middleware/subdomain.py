@@ -469,10 +469,17 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
     # carry a stale website_id), so the script MUST be re-injected here or the
     # chat widget never loads on served sites. Chat is not plan-gated — the
     # only gate is the site-level can_publish_subdomain check upstream.
-    chat_script_html = (
-        f'<script src="{settings.BACKEND_URL}/static/widgets/chat-widget.js" '
-        f'data-website-id="{website_id}" data-api-url="{settings.BACKEND_URL}" defer></script>'
-    )
+    # EXCEPT when the page carries the inline chat button baked in by
+    # inject_ordering_system: that is already a complete chat entry point,
+    # and re-injecting chat-widget.js next to it rendered TWO floating chat
+    # buttons. One chat entry point per page.
+    if "binaapp-inline-chat-btn" in html_content:
+        chat_script_html = ""
+    else:
+        chat_script_html = (
+            f'<script src="{settings.BACKEND_URL}/static/widgets/chat-widget.js" '
+            f'data-website-id="{website_id}" data-api-url="{settings.BACKEND_URL}" defer></script>'
+        )
 
     widget_injection = f'''
 <!-- BinaApp Widgets - Auto-injected with correct website_id -->

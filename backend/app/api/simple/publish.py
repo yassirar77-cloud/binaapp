@@ -767,6 +767,13 @@ def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: 
     # Detect business type from description or business name
     business_type = detect_business_type(description or business_name)
 
+    # Widget colour comes from the site's own palette (CSS vars / Tailwind
+    # config), falling back to the neutral dark theme — never the legacy
+    # template orange.
+    from app.services.ai_service import extract_theme_tokens
+    from app.services.templates import WIDGET_FALLBACK_PRIMARY_DARK
+    primary_color = (extract_theme_tokens(html) or {}).get("primary") or WIDGET_FALLBACK_PRIMARY_DARK
+
     # Inject the actual widget script tag with data attributes
     # The widget JavaScript will auto-initialize from these attributes
     delivery_widget = f'''
@@ -774,7 +781,7 @@ def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: 
 <script src="https://binaapp-backend.onrender.com/static/widgets/delivery-widget.js"
         data-website-id="{website_id}"
         data-api-url="https://binaapp-backend.onrender.com/api/v1"
-        data-primary-color="#ea580c"
+        data-primary-color="{primary_color}"
         data-business-type="{business_type}"
         data-language="{language}"></script>'''
 
@@ -785,9 +792,10 @@ def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: 
 
 def inject_chat_widget_if_needed(html: str, website_id: str, api_url: str = "https://binaapp-backend.onrender.com") -> str:
     """Inject chat widget script if missing to enable customer chat.
-    Always inject chat-widget.js - chat is available for ALL tiers."""
-    # Skip only if chat-widget.js is already present (avoid duplicate script loads)
-    if "chat-widget.js" in html:
+    Chat is available for ALL tiers — but the page gets ONE chat entry
+    point only: skip when the chat-widget.js script tag OR the inline chat
+    button from inject_ordering_system is already present."""
+    if "widgets/chat-widget.js" in html or "binaapp-inline-chat-btn" in html:
         return html
 
     chat_widget = f'''

@@ -433,28 +433,86 @@ def detect_item_category(item_name: str, business_type: str) -> str:
 def generate_category_buttons_html(business_type: str, language: str = "ms") -> str:
     """
     Generate HTML for category filter buttons based on business type.
-    
+
+    LEGACY: emits the static per-business-type template categories (e.g.
+    Baju/Tudung/Aksesori for clothing) regardless of what the merchant
+    actually sells. Prefer generate_category_buttons_from_menu(), which
+    derives the tabs from the merchant's real menu items.
+
     Args:
         business_type: Business type string
         language: "ms" for Malay, "en" for English
-        
+
     Returns:
         HTML string for category buttons
     """
     config = get_business_config(business_type)
     categories = config.get("categories", [])
-    
+
     # "All" button (always first)
     all_label = "Semua" if language == "ms" else "All"
     buttons_html = f'''<button onclick="filterDeliveryCategory('all')" class="delivery-cat-btn active" style="background:#f97316;color:white;padding:8px 16px;border-radius:9999px;font-size:14px;font-weight:500;white-space:nowrap;border:none;cursor:pointer;">{all_label}</button>'''
-    
+
     # Category buttons
     for cat in categories:
         name = cat.get("name") if language == "ms" else cat.get("name_en", cat.get("name"))
         cat_id = cat.get("id")
         buttons_html += f'''
                         <button onclick="filterDeliveryCategory('{cat_id}')" class="delivery-cat-btn" style="background:#f3f4f6;color:#374151;padding:8px 16px;border-radius:9999px;font-size:14px;font-weight:500;white-space:nowrap;border:none;cursor:pointer;">{name}</button>'''
-    
+
+    return buttons_html
+
+
+def generate_category_buttons_from_menu(
+    menu_items: List[Dict],
+    business_type: str,
+    language: str = "ms",
+) -> str:
+    """
+    Generate category filter buttons derived from the merchant's ACTUAL menu
+    items — never from the static business-type template categories.
+
+    Tabs are the distinct `category` values present on the items, in first-
+    appearance order. When a category id matches one of the business-type
+    config categories we reuse its display name/emoji purely as a label;
+    unknown ids get a title-cased label. With no items (or a single shared
+    category) only the "Semua/All" button renders.
+
+    Args:
+        menu_items: Formatted menu items, each with a 'category' field
+        business_type: Business type (label lookup only)
+        language: "ms" for Malay, "en" for English
+
+    Returns:
+        HTML string for category buttons
+    """
+    config = get_business_config(business_type)
+    label_by_id = {
+        cat.get("id"): (
+            cat.get("name") if language == "ms"
+            else cat.get("name_en", cat.get("name"))
+        )
+        for cat in config.get("categories", [])
+    }
+
+    seen = []
+    for item in menu_items or []:
+        cat_id = str(item.get("category") or "").strip()
+        if cat_id and cat_id != "all" and cat_id not in seen:
+            seen.append(cat_id)
+
+    all_label = "Semua" if language == "ms" else "All"
+    buttons_html = f'''<button onclick="filterDeliveryCategory('all')" class="delivery-cat-btn active" style="background:#f97316;color:white;padding:8px 16px;border-radius:9999px;font-size:14px;font-weight:500;white-space:nowrap;border:none;cursor:pointer;">{all_label}</button>'''
+
+    # A single category behaves identically to "Semua" — skip the extra tab.
+    if len(seen) < 2:
+        return buttons_html
+
+    for cat_id in seen:
+        name = label_by_id.get(cat_id) or cat_id.replace("-", " ").replace("_", " ").title()
+        buttons_html += f'''
+                        <button onclick="filterDeliveryCategory('{cat_id}')" class="delivery-cat-btn" style="background:#f3f4f6;color:#374151;padding:8px 16px;border-radius:9999px;font-size:14px;font-weight:500;white-space:nowrap;border:none;cursor:pointer;">{name}</button>'''
+
     return buttons_html
 
 
