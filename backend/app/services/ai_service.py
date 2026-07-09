@@ -10,6 +10,7 @@ import asyncio
 import time
 import json
 import re
+from urllib.parse import quote, urlsplit
 from collections import Counter
 from contextlib import contextmanager
 from loguru import logger
@@ -81,6 +82,14 @@ ZAI_IMAGE_TIMEOUT_SECONDS = float(os.getenv("ZAI_IMAGE_TIMEOUT_SECONDS", "120"))
 # phase budget — once spent, remaining images go straight to Stability.
 # The Stability path keeps its original parallel behaviour.
 ZAI_IMAGE_RETRY_BACKOFF_SECONDS = (3.0, 8.0)  # waits before 429 retries (max 2)
+
+# Browser-like User-Agent for downloading the generated image from
+# mfile.z.ai — the CDN can filter/404 requests from default HTTP-client UAs
+# even though the same URL opens fine in a browser.
+ZAI_IMAGE_DOWNLOAD_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
 
 
 def zai_image_request_delay_seconds() -> float:
@@ -1821,6 +1830,34 @@ Format: Just the image description, no explanations."""
             logger.error(f"🎨 Error generating image: {e}")
             return None
 
+    @staticmethod
+    def _verbatim_download_url(image_url: str):
+        """Build an httpx URL that preserves the API-returned target verbatim.
+
+        httpx.URL(str) re-normalizes the path/query (e.g. re-encoding spaces
+        or unicode inside ?ufileattname=...), which breaks mfile.z.ai's
+        filename-keyed download URLs — the CDN 404s a URL that opens fine in
+        a browser. Rebuilding with raw_path keeps path+query byte-for-byte;
+        only characters that are illegal in an HTTP request target (control
+        chars, space, non-ASCII) are utf-8 percent-encoded — exactly what a
+        browser puts on the wire. Falls back to the raw string on any parse
+        error.
+        """
+        try:
+            parts = urlsplit(image_url)
+            target = parts.path + (f"?{parts.query}" if parts.query else "")
+            wire_target = "".join(
+                ch if 0x20 < ord(ch) < 0x7F else quote(ch) for ch in target
+            )
+            return httpx.URL(
+                scheme=parts.scheme,
+                host=parts.hostname,
+                port=parts.port,
+                raw_path=wire_target.encode("ascii"),
+            )
+        except Exception:
+            return image_url
+
     async def _generate_image_zai(self, prompt: str) -> Optional[str]:
         """Generate an image with Z.ai (CogView / GLM-Image) and upload to Cloudinary.
 
@@ -1888,11 +1925,28 @@ Format: Just the image description, no explanations."""
                     logger.error("🎨 Z.ai image response had no data[0].url")
                     return None
 
-                download = await client.get(image_url)
-                if download.status_code != 200:
-                    logger.error(f"🎨 Z.ai image download failed: {download.status_code}")
-                    return None
-                image_bytes = download.content
+            # Download on a dedicated client: follow CDN redirects, keep the
+            # returned URL verbatim (no re-encoding of ?ufileattname=...),
+            # and send a browser-like UA — mfile.z.ai 404s default clients.
+            download_url = self._verbatim_download_url(image_url)
+            async with httpx.AsyncClient(
+                timeout=ZAI_IMAGE_TIMEOUT_SECONDS,
+                follow_redirects=True,
+            ) as dl_client:
+                download = await dl_client.get(
+                    download_url,
+                    headers={
+                        "User-Agent": ZAI_IMAGE_DOWNLOAD_USER_AGENT,
+                        "Accept": "image/*,*/*;q=0.8",
+                    },
+                )
+            if download.status_code != 200:
+                logger.error(
+                    f"🎨 Z.ai image download failed: {download.status_code} "
+                    f"(requested URL: {download_url} | API returned: {image_url})"
+                )
+                return None
+            image_bytes = download.content
 
             result = cloudinary.uploader.upload(image_bytes, folder="binaapp")
             url = result.get("secure_url")
