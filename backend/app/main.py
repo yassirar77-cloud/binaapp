@@ -3473,12 +3473,8 @@ async def publish_website(
                 widget_src = f"{api_base}/widgets/delivery-widget.js"
                 # Widget colour from the site's own palette, neutral dark
                 # fallback — never the legacy template orange.
-                from app.services.ai_service import extract_theme_tokens
-                from app.services.templates import WIDGET_FALLBACK_PRIMARY_DARK
-                widget_primary = (
-                    (extract_theme_tokens(html_content) or {}).get("primary")
-                    or WIDGET_FALLBACK_PRIMARY_DARK
-                )
+                from app.services.templates import resolve_widget_primary_color
+                widget_primary = resolve_widget_primary_color(html_content)
                 widget_init = f"""
 <!-- BinaApp Delivery Widget -->
 <script

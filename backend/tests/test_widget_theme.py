@@ -207,3 +207,20 @@ class TestChatDedupe:
         # and never twice
         out2 = svc.inject_chat_widget(out, WEBSITE_ID)
         assert out2.count("widgets/chat-widget.js") == 1
+
+
+class TestHexNormalization:
+
+    def test_eight_digit_hex_primary_is_used_not_dropped(self):
+        """#rrggbbaa extracted from site CSS must resolve (alpha stripped),
+        not silently fall back to neutral dark."""
+        theme = resolve_widget_theme({"primary": "#0ea5e9ff"})
+        assert theme["primary"] == "#0ea5e9"
+
+    def test_shorthand_hex_expanded(self):
+        theme = resolve_widget_theme({"primary": "#0af"})
+        assert theme["primary"] == "#00aaff"
+
+    def test_invalid_lengths_fall_back(self):
+        for bad in ("#0ea5e", "#0ea5e9f", "red", "", None):
+            assert resolve_widget_theme({"primary": bad})["primary"] == WIDGET_FALLBACK_PRIMARY

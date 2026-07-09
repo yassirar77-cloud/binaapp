@@ -34,11 +34,12 @@
     // actual menu data (menu_categories rows or distinct item.category
     // values) in loadData() — never from hardcoded template categories.
     //
-    // NOTE on colours: per-type primaryColor values below are the LAST
-    // fallback. The widget prefers (1) an explicit primaryColor/data
-    // attribute from the injection layer, then (2) colours extracted from
-    // the host page (CSS variables / Tailwind config), then (3) a neutral
-    // dark theme. See resolveTheme()/applyTheme().
+    // NOTE on colours: the per-type primaryColor values below are legacy
+    // metadata and are NOT used for theming. The widget resolves its colour
+    // as (1) explicit primaryColor/data attribute from the injection layer,
+    // then (2) colours extracted from the host page (CSS variables /
+    // Tailwind config), then (3) the neutral dark fallback. See
+    // readPageThemeColor()/applyTheme().
     const DEFAULT_CATEGORIES = [{ id: 'all', name: 'Semua', icon: '📋' }];
 
     const BUSINESS_CONFIGS = {
@@ -898,18 +899,31 @@
             return '#' + (b | (g << 8) | (r << 16)).toString(16).padStart(6, '0');
         },
 
+        // Normalise a CSS hex colour to 6-digit #rrggbb (expands #rgb/#rgba,
+        // drops alpha from #rrggbbaa). Returns null when unusable — every
+        // downstream consumer (adjustColor, the +'14'/'33' alpha-suffix CSS
+        // vars) assumes exactly 6 hex digits.
+        normalizeHexColor: function(color) {
+            if (typeof color !== 'string') return null;
+            let c = color.trim();
+            if (!/^#[0-9a-fA-F]{3,8}$/.test(c) || c.length === 6 || c.length === 8) return null;
+            if (c.length === 5) c = c.slice(0, 4);                  // #rgba → #rgb
+            if (c.length === 4) c = '#' + c[1] + c[1] + c[2] + c[2] + c[3] + c[3];
+            if (c.length === 9) c = c.slice(0, 7);                  // #rrggbbaa → #rrggbb
+            return c.toLowerCase();
+        },
+
         // Extract the host page's primary colour: CSS variables first (set
         // by the generated site or the BinaApp injection layer), then the
-        // Tailwind CDN config the generated site declares. Returns null
-        // when nothing usable is found.
+        // Tailwind CDN config the generated site declares. Returns a
+        // normalised #rrggbb, or null when nothing usable is found.
         readPageThemeColor: function() {
-            const HEX_RE = /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/;
             try {
                 const rootStyle = getComputedStyle(document.documentElement);
                 const candidates = ['--binaapp-primary', '--primary-color', '--primary'];
                 for (const varName of candidates) {
-                    const v = (rootStyle.getPropertyValue(varName) || '').trim();
-                    if (HEX_RE.test(v)) return v;
+                    const v = this.normalizeHexColor(rootStyle.getPropertyValue(varName));
+                    if (v) return v;
                 }
             } catch (e) { /* getComputedStyle unavailable — fall through */ }
             try {
@@ -918,7 +932,8 @@
                 const colors = theme && ((theme.extend && theme.extend.colors) || theme.colors);
                 const p = colors && colors.primary;
                 const hex = typeof p === 'string' ? p : (p && (p.DEFAULT || p['500']));
-                if (typeof hex === 'string' && HEX_RE.test(hex.trim())) return hex.trim();
+                const v = this.normalizeHexColor(hex);
+                if (v) return v;
             } catch (e) { /* malformed tailwind config — fall through */ }
             return null;
         },
@@ -928,7 +943,10 @@
         // against — so a late colour (e.g. from the config API) restyles
         // already-injected CSS without re-rendering.
         applyTheme: function(color, source) {
-            const primary = color || this.NEUTRAL_DARK_PRIMARY;
+            // Normalise to 6-digit hex — a 3/8-digit colour would break
+            // adjustColor and the alpha-suffixed CSS vars below. An
+            // unusable colour degrades to the neutral dark fallback.
+            const primary = this.normalizeHexColor(color) || this.NEUTRAL_DARK_PRIMARY;
             this.config.primaryColor = primary;
             this.theme = {
                 primary: primary,

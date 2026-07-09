@@ -1068,12 +1068,8 @@ async def fix_website_widget(
 
         # New script tag with data-website-id. Colour from the site's own
         # palette, neutral dark fallback — never the legacy template orange.
-        from app.services.ai_service import extract_theme_tokens
-        from app.services.templates import WIDGET_FALLBACK_PRIMARY_DARK
-        repair_primary = (
-            (extract_theme_tokens(html_content) or {}).get("primary")
-            or WIDGET_FALLBACK_PRIMARY_DARK
-        )
+        from app.services.templates import resolve_widget_primary_color
+        repair_primary = resolve_widget_primary_color(html_content)
         new_script = f'''<script
   src="https://binaapp-backend.onrender.com/widgets/delivery-widget.js"
   data-website-id="{website_id}"

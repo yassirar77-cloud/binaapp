@@ -12,7 +12,6 @@ from app.services.business_types import (
     detect_business_type,
     get_business_config,
     detect_item_category,
-    generate_category_buttons_html,
     generate_category_buttons_from_menu,
     get_delivery_button_label,
     get_order_config,
@@ -44,14 +43,22 @@ _WIDGET_THEME_SUBSTITUTIONS = [
 
 
 def _normalize_hex(color: str) -> Optional[str]:
-    """Return a #rrggbb string, or None when `color` isn't a usable hex."""
+    """Return a #rrggbb string, or None when `color` isn't a usable hex.
+
+    Accepts the CSS hex forms the theme extractor can surface: #rgb, #rgba,
+    #rrggbb and #rrggbbaa (alpha channels are dropped — the widget theme
+    derives its own tints)."""
     if not color or not isinstance(color, str):
         return None
     c = color.strip()
-    if not re.fullmatch(r"#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?", c):
+    if not re.fullmatch(r"#[0-9a-fA-F]{3,8}", c) or len(c) in (6, 8):
         return None
-    if len(c) == 4:  # #abc → #aabbcc
+    if len(c) == 5:   # #rgba → #rgb
+        c = c[:4]
+    if len(c) == 4:   # #rgb → #rrggbb
         c = "#" + "".join(ch * 2 for ch in c[1:])
+    if len(c) == 9:   # #rrggbbaa → #rrggbb
+        c = c[:7]
     return c.lower()
 
 
@@ -98,6 +105,20 @@ def resolve_widget_theme(theme_tokens: Optional[Dict[str, str]]) -> Dict[str, st
         "primary_ring": _hex_with_alpha(primary, 0x33),
         "primary_glow": _hex_with_alpha(primary, 0x59),
     }
+
+
+def resolve_widget_primary_color(html: Optional[str]) -> str:
+    """Primary colour for an injected widget: extracted from the site's own
+    palette (CSS variables / Tailwind config), neutral dark fallback when
+    nothing usable is found. One helper so every injection path resolves
+    the colour identically."""
+    try:
+        from app.services.ai_service import extract_theme_tokens
+        tokens = extract_theme_tokens(html or "") or {}
+    except Exception as theme_err:
+        logger.warning(f"⚠️ Widget theme extraction failed: {theme_err}")
+        tokens = {}
+    return _normalize_hex(tokens.get("primary")) or WIDGET_FALLBACK_PRIMARY_DARK
 
 
 def widget_theme_css_vars(theme: Dict[str, str]) -> str:

@@ -3482,7 +3482,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         violations = [str(v) for v in raw.get("violations") or [] if str(v).strip()]
         improvements = [str(i) for i in raw.get("improvements") or [] if str(i).strip()][:5]
         return {
-            "pass": bool(raw.get("pass", not violations)),
+            # A review with violations can never pass, whatever the reviewer's
+            # own (occasionally inconsistent) pass flag claims.
+            "pass": bool(raw.get("pass", not violations)) and not violations,
             "violations": violations,
             "improvements": improvements,
         }
@@ -3501,33 +3503,51 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 f"🎨 Design review: sending {len(html)} chars to "
                 f"{DESIGN_REVIEW_MODEL} (cap {DESIGN_REVIEW_TIMEOUT_SECONDS:.0f}s)"
             )
+            body = {
+                "model": DESIGN_REVIEW_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": self._build_design_review_prompt(has_images),
+                    },
+                    {"role": "user", "content": html},
+                ],
+                "temperature": 0.0,
+                "max_tokens": DESIGN_REVIEW_MAX_TOKENS,
+                "response_format": {"type": "json_object"},
+                # Non-thinking review — same contract as the GLM generation
+                # call: reasoning would burn the budget.
+                "thinking": {"type": "disabled"},
+            }
+            headers = {
+                "Authorization": f"Bearer {self.deepseek_api_key}",
+                "Content-Type": "application/json",
+            }
             async with httpx.AsyncClient(timeout=DESIGN_REVIEW_TIMEOUT_SECONDS) as client:
                 r = await asyncio.wait_for(
                     client.post(
                         f"{self.deepseek_base_url}/chat/completions",
-                        headers={
-                            "Authorization": f"Bearer {self.deepseek_api_key}",
-                            "Content-Type": "application/json",
-                        },
-                        json={
-                            "model": DESIGN_REVIEW_MODEL,
-                            "messages": [
-                                {
-                                    "role": "system",
-                                    "content": self._build_design_review_prompt(has_images),
-                                },
-                                {"role": "user", "content": html},
-                            ],
-                            "temperature": 0.0,
-                            "max_tokens": DESIGN_REVIEW_MAX_TOKENS,
-                            "response_format": {"type": "json_object"},
-                            # Non-thinking review — same contract as the GLM
-                            # generation call: reasoning would burn the budget.
-                            "thinking": {"type": "disabled"},
-                        },
+                        headers=headers,
+                        json=body,
                     ),
                     timeout=DESIGN_REVIEW_TIMEOUT_SECONDS,
                 )
+                # Some DeepSeek deployments reject the GLM-style `thinking`
+                # field as an unknown parameter. Retry once without it so an
+                # API-contract mismatch can't silently disable the loop.
+                if r.status_code == 400 and "thinking" in body:
+                    logger.warning(
+                        "🎨 Design review got 400 with `thinking` param — retrying without it"
+                    )
+                    body.pop("thinking")
+                    r = await asyncio.wait_for(
+                        client.post(
+                            f"{self.deepseek_base_url}/chat/completions",
+                            headers=headers,
+                            json=body,
+                        ),
+                        timeout=DESIGN_REVIEW_TIMEOUT_SECONDS,
+                    )
             if r.status_code != 200:
                 logger.error(f"🎨 Design review ❌ Status {r.status_code}: {r.text[:300]}")
                 return None
@@ -3565,7 +3585,10 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         # The critique JSON is the loop's observability contract — always log it.
         logger.info(f"🎨 Design critique: {json.dumps(critique, ensure_ascii=False)}")
 
-        if critique["pass"] and not critique["improvements"]:
+        # Gate the revision on the actionable content, not the reviewer's
+        # pass flag: no violations AND no improvements means there is nothing
+        # to feed a revision, whatever the flag says.
+        if not critique["violations"] and not critique["improvements"]:
             logger.info("🎨 Design review passed clean — no revision needed")
             return html
 
@@ -3605,6 +3628,15 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         if not revised or "<" not in revised or self._last_api_call.get("truncated"):
             logger.error("🎨 GLM revision unusable (empty/non-HTML/truncated) — shipping original HTML")
+            self._last_api_call = original_api_call
+            return html
+
+        # The revision must keep the PHOTO_SLOT contract: if the original
+        # carried slot tokens but the revision dropped them (e.g. swapped in
+        # hallucinated image URLs), _replace_photo_slots downstream would
+        # no-op and ship broken images — reject and keep the original.
+        if "PHOTO_SLOT_" in html.upper() and "PHOTO_SLOT_" not in revised.upper():
+            logger.error("🎨 GLM revision dropped PHOTO_SLOT tokens — shipping original HTML")
             self._last_api_call = original_api_call
             return html
 

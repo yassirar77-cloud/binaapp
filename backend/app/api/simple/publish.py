@@ -770,9 +770,8 @@ def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: 
     # Widget colour comes from the site's own palette (CSS vars / Tailwind
     # config), falling back to the neutral dark theme — never the legacy
     # template orange.
-    from app.services.ai_service import extract_theme_tokens
-    from app.services.templates import WIDGET_FALLBACK_PRIMARY_DARK
-    primary_color = (extract_theme_tokens(html) or {}).get("primary") or WIDGET_FALLBACK_PRIMARY_DARK
+    from app.services.templates import resolve_widget_primary_color
+    primary_color = resolve_widget_primary_color(html)
 
     # Inject the actual widget script tag with data attributes
     # The widget JavaScript will auto-initialize from these attributes
@@ -878,8 +877,11 @@ async def republish_all_websites(
                 continue
 
             try:
-                # Check if chat widget is already injected
-                if "chat-widget.js" in html_content:
+                # Skip if a chat entry point is already present — the
+                # chat-widget.js script tag ("widgets/" prefix avoids a
+                # false positive on the inline ordering system's stacking
+                # comment) or the inline chat button.
+                if "widgets/chat-widget.js" in html_content or "binaapp-inline-chat-btn" in html_content:
                     results["skipped"] += 1
                     continue
 

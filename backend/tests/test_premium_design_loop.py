@@ -286,3 +286,62 @@ class TestFlagOff:
         """The flag ships dark: env default parses to False."""
         assert ai_service_module.os.getenv("PREMIUM_DESIGN_LOOP", "false") \
             .strip().lower() in ("false", "0", "no", "off")
+
+
+class TestPhotoSlotContract:
+
+    @pytest.mark.asyncio
+    async def test_revision_dropping_photo_slots_ships_original(self):
+        """A revision that loses the PHOTO_SLOT tokens would break image
+        binding downstream — the loop must reject it."""
+        svc = AIService()
+        svc.deepseek_api_key = "k"
+        svc.zai_api_key = "k"
+        original = "<!DOCTYPE html><html><img src='PHOTO_SLOT_1'></html>"
+        revised_no_slots = "<!DOCTYPE html><html><img src='https://invented.example/x.jpg'></html>"
+        review = AsyncMock(return_value=dict(CRITIQUE_WITH_ISSUES))
+        revise = AsyncMock(return_value=revised_no_slots)
+        with _flag(True), \
+             patch.object(svc, "_review_design_with_deepseek", review), \
+             patch.object(svc, "_call_glm", revise):
+            result = await svc._run_premium_design_loop(original, has_images=True)
+        assert result == original
+
+    @pytest.mark.asyncio
+    async def test_revision_keeping_photo_slots_accepted(self):
+        svc = AIService()
+        svc.deepseek_api_key = "k"
+        svc.zai_api_key = "k"
+        original = "<!DOCTYPE html><html><img src='PHOTO_SLOT_1'></html>"
+        revised = "<!DOCTYPE html><html><header></header><img src='PHOTO_SLOT_1'></html>"
+        review = AsyncMock(return_value=dict(CRITIQUE_WITH_ISSUES))
+        revise = AsyncMock(return_value=revised)
+        with _flag(True), \
+             patch.object(svc, "_review_design_with_deepseek", review), \
+             patch.object(svc, "_call_glm", revise):
+            result = await svc._run_premium_design_loop(original, has_images=True)
+        assert result == revised
+
+
+class TestPassFlagInconsistency:
+
+    def test_pass_true_with_violations_normalised_to_fail(self):
+        critique = AIService._parse_design_critique(
+            '{"pass": true, "violations": ["rule 3: no location section"], "improvements": []}'
+        )
+        assert critique["pass"] is False
+
+    @pytest.mark.asyncio
+    async def test_violations_trigger_revision_despite_pass_true(self, service):
+        """A reviewer that claims pass=true while listing violations must
+        still get its one revision."""
+        review = AsyncMock(return_value={
+            "pass": True, "violations": ["rule 3: no location section"], "improvements": [],
+        })
+        revise = AsyncMock(return_value=REVISED_HTML)
+        with _flag(True), \
+             patch.object(service, "_review_design_with_deepseek", review), \
+             patch.object(service, "_call_glm", revise):
+            result = await service._run_premium_design_loop(ORIGINAL_HTML)
+        assert result == REVISED_HTML
+        assert revise.await_count == 1

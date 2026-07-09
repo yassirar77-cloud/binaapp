@@ -2280,12 +2280,14 @@ async def get_widget_config(
         # "Semua".
         merchant_categories = []
         try:
+            # menu_categories has no slug column (migration 002) — the slug
+            # is derived from the name, matching the widget's own fallback.
             cat_response = await _db(supabase.table("menu_categories").select(
-                "id, name, slug, icon"
+                "id, name, icon"
             ).eq("website_id", website_id).eq("is_active", True).order("sort_order"))
             for cat in (cat_response.data or []):
                 merchant_categories.append({
-                    "id": cat.get("slug") or str(cat.get("name", "")).lower().replace(" ", "-"),
+                    "id": str(cat.get("name", "")).lower().replace(" ", "-"),
                     "name": cat.get("name"),
                     "icon": cat.get("icon") or "📦",
                 })
@@ -2296,17 +2298,10 @@ async def get_widget_config(
         # (CSS variables / Tailwind config in the stored HTML); neutral dark
         # fallback when nothing can be extracted — never the business-type
         # template colour.
-        from app.services.ai_service import extract_theme_tokens
-        from app.services.templates import WIDGET_FALLBACK_PRIMARY_DARK
-        widget_primary_color = WIDGET_FALLBACK_PRIMARY_DARK
-        try:
-            site_html = website.get("html_content") if website else None
-            widget_primary_color = (
-                (extract_theme_tokens(site_html or "") or {}).get("primary")
-                or WIDGET_FALLBACK_PRIMARY_DARK
-            )
-        except Exception as theme_err:
-            logger.warning(f"⚠️ Theme extraction failed for widget config: {theme_err}")
+        from app.services.templates import resolve_widget_primary_color
+        widget_primary_color = resolve_widget_primary_color(
+            website.get("html_content") if website else None
+        )
 
         # 6. Build response with all configuration needed by widget
         config = {
