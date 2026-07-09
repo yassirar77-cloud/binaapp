@@ -64,3 +64,54 @@ def test_qr_falls_back_to_body_when_no_footer():
     out = _inject_qr_block("<body>content</body>", "ali", "ms")
     assert "BinaApp QR Block" in out
     assert out.index("BinaApp QR Block") < out.index("</body>")
+
+
+# ── blank-page regression (ertyu.binaapp.my) ─────────────────────────────────
+# A published site rendered as a completely blank white page: the contact-slot
+# fallback resolved the "card to hide" to <body> (slot emitted as a direct
+# body child + no wa.me link on the page) and set body.style.display='none'.
+# Secondarily, the AOS guard armed opacity-0 rules immediately after AOS.init
+# with !important, so a stalled AOS pipeline (slow connections) kept sections
+# invisible with no possible CSS rescue.
+
+def test_contact_slot_fallback_never_hides_page_container():
+    """The hide branch must special-case body/html/main and hide only the
+    slot itself — hiding the resolved 'card' blanked the whole page."""
+    from app.middleware.subdomain import _CONTACT_SLOT_FALLBACK_SCRIPT
+    script = _CONTACT_SLOT_FALLBACK_SCRIPT
+    assert "isPageContainer" in script
+    assert "document.body" in script and "document.documentElement" in script
+    # the old unconditional hide must be gone
+    assert "if(card) card.style.display = 'none';" not in script
+
+
+def test_aos_guard_has_rescue_and_no_important_trap():
+    """The AOS block must (a) carry the 2.5s rescue animation that forces
+    stalled elements visible, and (b) avoid !important — a keyframe animation
+    can never override an author !important declaration, so the old
+    opacity:0 !important rule made the rescue impossible."""
+    from app.services.templates import TemplateService
+    css = TemplateService.LAYOUT_SAFETY_CSS
+    aos_block = css.split("/* (a) AOS fallback")[1].split("/* (b1)")[0]
+    assert "binaapp-aos-rescue" in aos_block
+    assert "@keyframes binaapp-aos-rescue" in aos_block
+    assert "!important" not in aos_block
+    # tripled attribute selector out-specifies aos.css 2.x and 3.x hide rules
+    assert "[data-aos][data-aos][data-aos]" in aos_block
+
+
+def test_layout_safety_guard_self_upgrades_served_pages():
+    """apply_layout_safety_guard must replace an OLD baked guard block so the
+    AOS fix reaches already-published sites at serve time."""
+    from app.services.templates import TemplateService
+    svc = TemplateService()
+    old_page = (
+        "<html><head><!-- BinaApp Layout Safety Guard -->"
+        '<style id="binaapp-layout-safety">html [data-aos] '
+        "{ opacity: 1 !important; }</style></head>"
+        '<body><section data-aos="fade-up">hi</section></body></html>'
+    )
+    out = svc.apply_layout_safety_guard(old_page)
+    assert out.count('id="binaapp-layout-safety"') == 1
+    assert "binaapp-aos-rescue" in out
+    assert "{ opacity: 1 !important; }" not in out
