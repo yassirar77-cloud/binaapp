@@ -99,6 +99,18 @@ QWEN_MODEL=qwen-max  # or: qwen-plus (faster/cheaper)
 # Get from: https://platform.stability.ai → API Keys
 STABILITY_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
+# AI Image provider selection
+# 'stability' (default) keeps the existing Stability path unchanged.
+# 'zai' routes image generation through Z.ai (CogView / GLM-Image) first,
+# with Stability as automatic fallback when STABILITY_API_KEY is set.
+IMAGE_PROVIDER=stability
+ZAI_IMAGE_MODEL=cogview-4  # or: glm-image (pricier)
+ZAI_IMAGE_TIMEOUT_SECONDS=30  # Z.ai image call budget before Stability fallback
+
+# Free-by-default AI images per generated site (auto-fill of missing
+# hero/gallery slots). A caller-supplied lower quota still wins.
+FREE_AI_IMAGES_PER_SITE=6
+
 # ------------------------------
 # Cloudinary (Image Storage)
 # ------------------------------
