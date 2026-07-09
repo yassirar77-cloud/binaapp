@@ -68,9 +68,38 @@ def image_provider() -> str:
 
 
 # Hard cap for the Z.ai image call (generation + download of the returned
-# URL). Deliberately tight: Z.ai is a fall-through tier here — a hung image
-# call must not stall the whole build before the Stability fallback runs.
-ZAI_IMAGE_TIMEOUT_SECONDS = float(os.getenv("ZAI_IMAGE_TIMEOUT_SECONDS", "30"))
+# URL). Raised 30 -> 120: production showed glm-image legitimately taking
+# longer than 30s; the per-build phase budget below (not this per-call cap)
+# is what protects total generation time now.
+ZAI_IMAGE_TIMEOUT_SECONDS = float(os.getenv("ZAI_IMAGE_TIMEOUT_SECONDS", "120"))
+
+# The Z.ai image endpoint tolerates far less concurrency than Stability:
+# parallel requests trip its rate limiter (HTTP 429, code 1302). When
+# IMAGE_PROVIDER=zai, image requests are therefore SERIALIZED (concurrency 1)
+# with a small spacing delay between requests, 429s are retried with the
+# backoff below, and the total Z.ai image time per build is bounded by the
+# phase budget — once spent, remaining images go straight to Stability.
+# The Stability path keeps its original parallel behaviour.
+ZAI_IMAGE_RETRY_BACKOFF_SECONDS = (3.0, 8.0)  # waits before 429 retries (max 2)
+
+
+def zai_image_request_delay_seconds() -> float:
+    """Minimum spacing between consecutive Z.ai image requests. Read at call
+    time so an env flip / test patch needs no re-import."""
+    try:
+        return max(0.0, float(os.getenv("ZAI_IMAGE_REQUEST_DELAY_SECONDS", "1.0")))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def zai_image_phase_budget_seconds() -> float:
+    """Cap on the CUMULATIVE time a single build may spend inside Z.ai image
+    calls (auto-fill + food-image pass combined). Once exceeded, remaining
+    images go straight to the Stability fallback. Read at call time."""
+    try:
+        return max(0.0, float(os.getenv("ZAI_IMAGE_PHASE_BUDGET_SECONDS", "300")))
+    except (TypeError, ValueError):
+        return 300.0
 
 
 def free_ai_images_per_site(default: int = 6) -> int:
@@ -114,10 +143,20 @@ def generation_outer_timeout_seconds(base: float = 180.0) -> float:
     `base` budget. Reads the module flags at call time so env flips and
     test patches take effect without re-import.
     """
+    budget = base
     if USE_GLM_FOR_HTML and PREMIUM_DESIGN_LOOP:
         # Two full GLM calls + the review cap + post-processing headroom.
-        return max(base, AI_GLM_TIMEOUT_SECONDS * 2 + DESIGN_REVIEW_TIMEOUT_SECONDS + 90.0)
-    return base
+        budget = max(budget, AI_GLM_TIMEOUT_SECONDS * 2 + DESIGN_REVIEW_TIMEOUT_SECONDS + 90.0)
+    if image_provider() == "zai":
+        # Serialized Z.ai images add up to the phase budget, plus one
+        # in-flight image admitted just before the budget ran out (its own
+        # generation + download timeouts + 429 retry backoffs).
+        budget += (
+            zai_image_phase_budget_seconds()
+            + ZAI_IMAGE_TIMEOUT_SECONDS * 2
+            + sum(ZAI_IMAGE_RETRY_BACKOFF_SECONDS)
+        )
+    return budget
 # Hard cap on the DeepSeek review call. Deliberately tight: the review is
 # optional polish and must never meaningfully delay generation.
 DESIGN_REVIEW_TIMEOUT_SECONDS = float(os.getenv("DESIGN_REVIEW_TIMEOUT_SECONDS", "30"))
@@ -688,6 +727,12 @@ class AIService:
         # endpoint are 'glm-image' (default) and 'cogview-4-250304'; plain
         # 'cogview-4' is rejected by the API (error 1211 "Unknown Model").
         self.zai_image_model = os.getenv("ZAI_IMAGE_MODEL", "glm-image")
+        # Z.ai image serialization state (its endpoint rejects concurrent
+        # requests with 429/1302): a lock enforcing concurrency 1, created
+        # lazily inside the event loop, plus the last-request timestamp used
+        # to space consecutive requests. The Stability path never touches it.
+        self._zai_image_lock: Optional[asyncio.Lock] = None
+        self._zai_last_request_at: float = 0.0
         self.stability_api_key = os.getenv("STABILITY_API_KEY")
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_ANON_KEY")
@@ -1560,7 +1605,9 @@ Respond ONLY with valid JSON, no other text."""
         logger.info(f"🎨 ✅ Generated {len(gallery) + 1} images")
         return {"hero": hero, "gallery": gallery}
 
-    async def generate_food_image(self, food_name: str) -> Optional[str]:
+    async def generate_food_image(
+        self, food_name: str, zai_phase: Optional[Dict] = None
+    ) -> Optional[str]:
         """
         Generate AI image for a food item using the full pipeline:
         1. DeepSeek/Qwen generates detailed English description
@@ -1598,7 +1645,7 @@ Respond ONLY with valid JSON, no other text."""
             # Step 2: Generate image with the selected provider (IMAGE_PROVIDER:
             # Z.ai with Stability fallback, or Stability directly) using the
             # detailed description
-            image_url = await self._generate_image(detailed_description)
+            image_url = await self._generate_image(detailed_description, zai_phase=zai_phase)
 
             if image_url:
                 logger.info(f"✅ Generated image: {image_url[:60]}...")
@@ -1781,10 +1828,13 @@ Format: Just the image description, no explanations."""
         The response carries a hosted image URL (data[0].url) — we download it
         and push the bytes through the same Cloudinary upload the Stability
         path uses, so downstream behaviour (PHOTO_SLOT binding, prompt wiring)
-        is identical regardless of provider. The whole call (generation +
-        download) is bounded by ZAI_IMAGE_TIMEOUT_SECONDS. Returns the
-        Cloudinary secure URL, or None on any failure — the _generate_image
-        dispatcher decides the fallback.
+        is identical regardless of provider. Each HTTP call is bounded by
+        ZAI_IMAGE_TIMEOUT_SECONDS; a 429 (Z.ai code 1302 rate limit) is
+        retried with ZAI_IMAGE_RETRY_BACKOFF_SECONDS backoff before giving up.
+        Returns the Cloudinary secure URL, or None on any failure — the
+        _generate_image dispatcher decides the fallback. Callers must go
+        through _generate_image, which serializes Z.ai requests (the endpoint
+        rejects concurrency) and enforces the per-build phase budget.
         """
         if not self.zai_api_key:
             logger.warning("🎨 No ZAI_API_KEY — cannot generate Z.ai image")
@@ -1792,19 +1842,39 @@ Format: Just the image description, no explanations."""
 
         try:
             logger.info(f"🎨 Z.ai ({self.zai_image_model}) prompt: {prompt[:80]}...")
+            backoffs = ZAI_IMAGE_RETRY_BACKOFF_SECONDS
             async with httpx.AsyncClient(timeout=ZAI_IMAGE_TIMEOUT_SECONDS) as client:
-                response = await client.post(
-                    f"{self.zai_base_url}/images/generations",
-                    headers={
-                        "Authorization": f"Bearer {self.zai_api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": self.zai_image_model,
-                        "prompt": prompt,
-                        "size": "1024x1024",
-                    },
-                )
+                response = None
+                for attempt in range(1 + len(backoffs)):
+                    response = await client.post(
+                        f"{self.zai_base_url}/images/generations",
+                        headers={
+                            "Authorization": f"Bearer {self.zai_api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": self.zai_image_model,
+                            "prompt": prompt,
+                            "size": "1024x1024",
+                        },
+                    )
+                    # Rate limit (HTTP 429, Z.ai code 1302): back off and
+                    # retry — its image endpoint rejects request bursts.
+                    if response.status_code != 429:
+                        break
+                    if attempt < len(backoffs):
+                        wait = backoffs[attempt]
+                        logger.warning(
+                            f"🎨 Z.ai image rate-limited (429/code 1302) — "
+                            f"retry {attempt + 1}/{len(backoffs)} in {wait:.0f}s"
+                        )
+                        await asyncio.sleep(wait)
+                if response.status_code == 429:
+                    logger.error(
+                        f"🎨 Z.ai image rate limit persisted after "
+                        f"{len(backoffs)} retries — giving up: {response.text[:200]}"
+                    )
+                    return None
                 if response.status_code != 200:
                     logger.error(
                         f"🎨 Z.ai image failed: {response.status_code} - {response.text[:200]}"
@@ -1836,26 +1906,93 @@ Format: Just the image description, no explanations."""
             logger.error(f"🎨 Z.ai image error: {e}")
             return None
 
-    async def _generate_image(self, prompt: str, food: bool = True) -> Optional[str]:
+    def _get_zai_image_lock(self) -> asyncio.Lock:
+        """Lazily create the Z.ai serialization lock inside the event loop."""
+        if self._zai_image_lock is None:
+            self._zai_image_lock = asyncio.Lock()
+        return self._zai_image_lock
+
+    @staticmethod
+    def _new_zai_image_phase() -> Dict:
+        """Per-build Z.ai image phase state, threaded through every image call
+        of one generate_website build (auto-fill + food-image pass share it).
+        `spent` accumulates the time spent INSIDE Z.ai image calls — HTML
+        generation between the two passes doesn't count against the budget.
+        """
+        return {
+            "spent": 0.0,
+            "budget": zai_image_phase_budget_seconds(),
+            "exhausted": False,
+        }
+
+    def _zai_phase_exhausted(self, zai_phase: Optional[Dict]) -> bool:
+        """True once this build's Z.ai image budget is spent (logged once)."""
+        if not zai_phase:
+            return False
+        if zai_phase.get("exhausted"):
+            return True
+        if zai_phase["spent"] >= zai_phase["budget"]:
+            zai_phase["exhausted"] = True
+            logger.warning(
+                f"⏰ Z.ai image phase budget exhausted "
+                f"({zai_phase['spent']:.0f}s >= {zai_phase['budget']:.0f}s) — "
+                f"remaining images go straight to Stability"
+            )
+            return True
+        return False
+
+    async def _pace_zai_image_request(self) -> None:
+        """Sleep so consecutive Z.ai requests are at least
+        ZAI_IMAGE_REQUEST_DELAY_SECONDS apart. Called under the lock."""
+        delay = zai_image_request_delay_seconds()
+        if delay <= 0 or not self._zai_last_request_at:
+            return
+        wait = delay - (time.monotonic() - self._zai_last_request_at)
+        if wait > 0:
+            await asyncio.sleep(wait)
+
+    async def _generate_image(
+        self,
+        prompt: str,
+        food: bool = True,
+        zai_phase: Optional[Dict] = None,
+    ) -> Optional[str]:
         """Provider-selecting wrapper around single-image generation.
 
-        IMAGE_PROVIDER=zai routes through Z.ai first (30s cap) and falls back
-        to the untouched Stability path when STABILITY_API_KEY is set; the
-        default 'stability' keeps the existing path exactly as before. Logs
-        which provider actually served each image. Returns a Cloudinary URL,
-        or None when every configured provider fails (existing no-image
-        behaviour applies downstream).
+        IMAGE_PROVIDER=zai routes through Z.ai first and falls back to the
+        untouched Stability path when STABILITY_API_KEY is set; the default
+        'stability' keeps the existing path exactly as before. Z.ai requests
+        are SERIALIZED (its endpoint 429s on concurrency) with a spacing
+        delay, and honour the per-build phase budget in `zai_phase` — once
+        spent, the image goes straight to Stability. The Stability fallback
+        itself runs OUTSIDE the lock, so fallback images keep their original
+        concurrency. Logs which provider actually served each image. Returns
+        a Cloudinary URL, or None when every configured provider fails
+        (existing no-image behaviour applies downstream).
         """
         if image_provider() == "zai":
             # Same Malaysian-food prompt mapping the Stability path applies
             # internally, so a raw dish name still becomes a curated prompt.
             zai_prompt = self._get_malaysian_prompt(prompt) if food else prompt
-            url = await self._generate_image_zai(zai_prompt)
+            url = None
+            if not self._zai_phase_exhausted(zai_phase):
+                async with self._get_zai_image_lock():
+                    # Re-check after queueing: images ahead of us in the lock
+                    # queue may have spent the remaining budget.
+                    if not self._zai_phase_exhausted(zai_phase):
+                        await self._pace_zai_image_request()
+                        _zai_started = time.monotonic()
+                        try:
+                            url = await self._generate_image_zai(zai_prompt)
+                        finally:
+                            self._zai_last_request_at = time.monotonic()
+                            if zai_phase is not None:
+                                zai_phase["spent"] += time.monotonic() - _zai_started
             if url:
                 logger.info(f"🖼️ Image served by provider=zai: {url[:60]}...")
                 return url
             if self.stability_api_key:
-                logger.warning("🎨 Z.ai image failed — falling back to Stability")
+                logger.warning("🎨 Z.ai image failed/skipped — falling back to Stability")
                 url = await self._generate_stability_image(prompt, food=food)
                 if url:
                     logger.info(f"🖼️ Image served by provider=stability (fallback): {url[:60]}...")
@@ -4469,7 +4606,12 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         logger.info("✅ No duplicate product/service images found")
         return html
 
-    async def _generate_ai_food_images(self, html: str, max_images: Optional[int] = None) -> tuple:
+    async def _generate_ai_food_images(
+        self,
+        html: str,
+        max_images: Optional[int] = None,
+        zai_phase: Optional[Dict] = None,
+    ) -> tuple:
         """
         Replace Unsplash food images with AI-generated images
 
@@ -4563,7 +4705,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             async with food_image_semaphore:
                 try:
                     logger.info(f"   🎨 Generating AI image for: {item_name}")
-                    ai_url = await self.generate_food_image(item_name)
+                    ai_url = await self.generate_food_image(item_name, zai_phase=zai_phase)
                     if ai_url and 'cloudinary' in ai_url.lower():
                         logger.info(f"   ✅ Generated: {ai_url[:60]}...")
                         return (old_url, item_name, ai_url)
@@ -5387,6 +5529,7 @@ IMPORTANT RULES:
         request: WebsiteGenerationRequest,
         image_urls: Dict,
         max_ai_images: Optional[int] = None,
+        zai_phase: Optional[Dict] = None,
     ) -> int:
         """Auto-fill hero/gallery slots that uploads didn't cover (free-by-default).
 
@@ -5483,10 +5626,15 @@ IMPORTANT RULES:
             + ", ".join(slot for slot, _, _ in work)
         )
 
+        # gather still fires the coroutines together, but with provider=zai
+        # the dispatcher's lock serializes the Z.ai requests (concurrency 1
+        # with spacing) — only Stability calls actually run in parallel.
+        _gen_started = time.monotonic()
         results = await asyncio.gather(
-            *[self._generate_image(_p, food=is_food) for _, _, _p in work],
+            *[self._generate_image(_p, food=is_food, zai_phase=zai_phase) for _, _, _p in work],
             return_exceptions=True,
         )
+        _gen_elapsed = time.monotonic() - _gen_started
 
         generated = 0
         for (slot_key, item_name, _p), result in zip(work, results):
@@ -5512,8 +5660,8 @@ IMPORTANT RULES:
                     image_urls[f"{slot_key}_name"] = item_name
 
         logger.info(
-            f"🖼️ Auto-fill complete: {generated}/{len(work)} AI-generated "
-            f"(cap={cap}); {len(image_urls)} image URL(s) ready for HTML generation"
+            f"🖼️ Auto-fill complete in {_gen_elapsed:.1f}s: {generated}/{len(work)} "
+            f"AI-generated (cap={cap}); {len(image_urls)} image URL(s) ready for HTML generation"
         )
         return generated
 
@@ -5570,6 +5718,10 @@ IMPORTANT RULES:
         # Check image_choice - skip ALL image generation if "none"
         image_urls = {}
         ai_images_generated = 0  # Track how many AI images were successfully generated
+        # One Z.ai image phase per build, shared by the auto-fill pass and the
+        # food-image post-pass, so their combined Z.ai time is bounded by
+        # ZAI_IMAGE_PHASE_BUDGET_SECONDS. No-op when IMAGE_PROVIDER=stability.
+        _zai_image_phase = self._new_zai_image_phase()
 
         if image_choice == "none":
             logger.info("🚫 Image choice='none' - SKIPPING ALL image generation")
@@ -5617,7 +5769,7 @@ IMPORTANT RULES:
             # still takes the photo-slots prompt branch.
             with _timed_step("stability_images", step_timings):
                 ai_images_generated = await self._autofill_missing_images(
-                    request, image_urls, max_ai_images
+                    request, image_urls, max_ai_images, zai_phase=_zai_image_phase
                 )
             if ai_images_generated:
                 await update_progress(45, "AI images generated")
@@ -5636,7 +5788,7 @@ IMPORTANT RULES:
 
             with _timed_step("stability_images", step_timings):
                 ai_images_generated = await self._autofill_missing_images(
-                    request, image_urls, max_ai_images
+                    request, image_urls, max_ai_images, zai_phase=_zai_image_phase
                 )
 
             await update_progress(45, "AI images generated")
@@ -5670,7 +5822,9 @@ IMPORTANT RULES:
                                     else max(0, max_ai_images - ai_images_generated)
                                 )
                                 template_html, food_images_count = await self._generate_ai_food_images(
-                                    template_html, max_images=_food_budget
+                                    template_html,
+                                    max_images=_food_budget,
+                                    zai_phase=_zai_image_phase,
                                 )
                                 ai_images_generated += food_images_count
                         with _timed_step("final_cleanup", step_timings):
@@ -6154,7 +6308,7 @@ IMPORTANT INSTRUCTIONS:
                     else max(0, max_ai_images - ai_images_generated)
                 )
                 html, food_images_count = await self._generate_ai_food_images(
-                    html, max_images=_food_budget
+                    html, max_images=_food_budget, zai_phase=_zai_image_phase
                 )
                 ai_images_generated += food_images_count
 
