@@ -84,6 +84,11 @@ class Settings(BaseSettings):
         default="glm-5.2",
         env="ZAI_MODEL"
     )
+    # Z.ai IMAGE model for the /images/generations endpoint (separate from
+    # the HTML chat model above). Valid model codes are 'glm-image' and
+    # 'cogview-4-250304' — plain 'cogview-4' is rejected by the API with
+    # error 1211 "Unknown Model".
+    ZAI_IMAGE_MODEL: str = Field(default="glm-image", env="ZAI_IMAGE_MODEL")
     # Output-token cap for GLM HTML generation (mirrors AI_DEEPSEEK_MAX_TOKENS).
     AI_GLM_MAX_TOKENS: int = Field(default=16000, env="AI_GLM_MAX_TOKENS")
     # Per-call timeout for the GLM primary generation — tighter than the

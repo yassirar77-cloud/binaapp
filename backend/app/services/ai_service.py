@@ -59,6 +59,36 @@ AI_GLM_TIMEOUT_SECONDS = float(os.getenv("AI_GLM_TIMEOUT_SECONDS", "240"))
 # instant rollback to pure DeepSeek — no code change or rollback deploy needed.
 USE_GLM_FOR_HTML = os.getenv("USE_GLM_FOR_HTML", "false").strip().lower() in ("1", "true", "yes", "on")
 
+# AI image provider selection: 'stability' (default — existing behaviour,
+# byte-for-byte) or 'zai' (CogView / GLM-Image via the Z.ai images API, with
+# the Stability path as automatic fallback when STABILITY_API_KEY is set).
+# Read at call time so an env flip (or test patch) needs no re-import/redeploy.
+def image_provider() -> str:
+    return os.getenv("IMAGE_PROVIDER", "stability").strip().lower()
+
+
+# Hard cap for the Z.ai image call (generation + download of the returned
+# URL). Deliberately tight: Z.ai is a fall-through tier here — a hung image
+# call must not stall the whole build before the Stability fallback runs.
+ZAI_IMAGE_TIMEOUT_SECONDS = float(os.getenv("ZAI_IMAGE_TIMEOUT_SECONDS", "30"))
+
+
+def free_ai_images_per_site(default: int = 6) -> int:
+    """Free-by-default AI-image budget per generated site.
+
+    Used by the auto-fill pass in generate_website as the cap when the caller
+    supplied NO max_ai_images quota (None). An explicit zero quota is honoured
+    as zero — see _resolve_autofill_image_cap. Read at call time (same
+    rationale as image_provider). Never negative; a malformed env value falls
+    back to the default.
+    """
+    try:
+        value = int(os.getenv("FREE_AI_IMAGES_PER_SITE", str(default)))
+    except (TypeError, ValueError):
+        return default
+    return max(0, value)
+
+
 # Premium design critique loop. Ships dark (default OFF). When ON, a
 # successful GLM generation is reviewed by DeepSeek against the same 8 hard
 # rules the GLM prompt carries; if the reviewer reports violations or
@@ -653,6 +683,11 @@ class AIService:
             or "https://api.z.ai/api/paas/v4"
         )
         self.zai_model = os.getenv("ZAI_MODEL", "glm-5.2")
+        # Z.ai IMAGE model (images/generations endpoint) — separate from the
+        # HTML-generation chat model above. Valid model codes on that
+        # endpoint are 'glm-image' (default) and 'cogview-4-250304'; plain
+        # 'cogview-4' is rejected by the API (error 1211 "Unknown Model").
+        self.zai_image_model = os.getenv("ZAI_IMAGE_MODEL", "glm-image")
         self.stability_api_key = os.getenv("STABILITY_API_KEY")
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_ANON_KEY")
@@ -678,6 +713,11 @@ class AIService:
         logger.info(f"   DeepSeek: {'✅ Ready' if self.deepseek_api_key else '❌ NOT SET'}")
         logger.info(f"   Qwen: {'✅ Ready' if self.qwen_api_key else '❌ NOT SET'}")
         logger.info(f"   Stability AI: {'✅ Ready' if self.stability_api_key and STABILITY_AVAILABLE else '❌ NOT SET'}")
+        logger.info(
+            f"   Image provider: {image_provider()} "
+            f"(Z.ai image model={self.zai_image_model}, "
+            f"free images/site={free_ai_images_per_site()})"
+        )
         logger.info(f"   Supabase Storage: {'✅ Ready' if self.supabase_url and self.supabase_key else '❌ NOT SET'}")
         logger.info("   Mode: Real images only, no placeholders allowed")
         logger.info("=" * 80)
@@ -1533,8 +1573,8 @@ Respond ONLY with valid JSON, no other text."""
         Returns:
             Cloudinary URL of generated image, or None if generation fails
         """
-        if not self.stability_api_key:
-            logger.warning("🎨 No Stability API key configured")
+        if not self._image_generation_available():
+            logger.warning("🎨 No image-generation API key configured")
             return None
 
         try:
@@ -1555,8 +1595,10 @@ Respond ONLY with valid JSON, no other text."""
                 else:
                     logger.info(f"📝 AI Description: {detailed_description[:100]}...")
 
-            # Step 2: Generate image with Stability AI using the detailed description
-            image_url = await self._generate_stability_image(detailed_description)
+            # Step 2: Generate image with the selected provider (IMAGE_PROVIDER:
+            # Z.ai with Stability fallback, or Stability directly) using the
+            # detailed description
+            image_url = await self._generate_image(detailed_description)
 
             if image_url:
                 logger.info(f"✅ Generated image: {image_url[:60]}...")
@@ -1731,6 +1773,105 @@ Format: Just the image description, no explanations."""
         except Exception as e:
             logger.error(f"🎨 Error generating image: {e}")
             return None
+
+    async def _generate_image_zai(self, prompt: str) -> Optional[str]:
+        """Generate an image with Z.ai (CogView / GLM-Image) and upload to Cloudinary.
+
+        POSTs the OpenAI-style images payload to {zai_base_url}/images/generations.
+        The response carries a hosted image URL (data[0].url) — we download it
+        and push the bytes through the same Cloudinary upload the Stability
+        path uses, so downstream behaviour (PHOTO_SLOT binding, prompt wiring)
+        is identical regardless of provider. The whole call (generation +
+        download) is bounded by ZAI_IMAGE_TIMEOUT_SECONDS. Returns the
+        Cloudinary secure URL, or None on any failure — the _generate_image
+        dispatcher decides the fallback.
+        """
+        if not self.zai_api_key:
+            logger.warning("🎨 No ZAI_API_KEY — cannot generate Z.ai image")
+            return None
+
+        try:
+            logger.info(f"🎨 Z.ai ({self.zai_image_model}) prompt: {prompt[:80]}...")
+            async with httpx.AsyncClient(timeout=ZAI_IMAGE_TIMEOUT_SECONDS) as client:
+                response = await client.post(
+                    f"{self.zai_base_url}/images/generations",
+                    headers={
+                        "Authorization": f"Bearer {self.zai_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.zai_image_model,
+                        "prompt": prompt,
+                        "size": "1024x1024",
+                    },
+                )
+                if response.status_code != 200:
+                    logger.error(
+                        f"🎨 Z.ai image failed: {response.status_code} - {response.text[:200]}"
+                    )
+                    return None
+
+                data = response.json()
+                items = data.get("data") or []
+                image_url = (items[0] or {}).get("url") if items else None
+                if not image_url:
+                    logger.error("🎨 Z.ai image response had no data[0].url")
+                    return None
+
+                download = await client.get(image_url)
+                if download.status_code != 200:
+                    logger.error(f"🎨 Z.ai image download failed: {download.status_code}")
+                    return None
+                image_bytes = download.content
+
+            result = cloudinary.uploader.upload(image_bytes, folder="binaapp")
+            url = result.get("secure_url")
+            if url:
+                logger.info(f"☁️ Z.ai image uploaded to Cloudinary: {url[:50]}...")
+            return url
+        except httpx.TimeoutException:
+            logger.error(f"🎨 Z.ai image timed out ({ZAI_IMAGE_TIMEOUT_SECONDS:.0f}s cap)")
+            return None
+        except Exception as e:
+            logger.error(f"🎨 Z.ai image error: {e}")
+            return None
+
+    async def _generate_image(self, prompt: str, food: bool = True) -> Optional[str]:
+        """Provider-selecting wrapper around single-image generation.
+
+        IMAGE_PROVIDER=zai routes through Z.ai first (30s cap) and falls back
+        to the untouched Stability path when STABILITY_API_KEY is set; the
+        default 'stability' keeps the existing path exactly as before. Logs
+        which provider actually served each image. Returns a Cloudinary URL,
+        or None when every configured provider fails (existing no-image
+        behaviour applies downstream).
+        """
+        if image_provider() == "zai":
+            # Same Malaysian-food prompt mapping the Stability path applies
+            # internally, so a raw dish name still becomes a curated prompt.
+            zai_prompt = self._get_malaysian_prompt(prompt) if food else prompt
+            url = await self._generate_image_zai(zai_prompt)
+            if url:
+                logger.info(f"🖼️ Image served by provider=zai: {url[:60]}...")
+                return url
+            if self.stability_api_key:
+                logger.warning("🎨 Z.ai image failed — falling back to Stability")
+                url = await self._generate_stability_image(prompt, food=food)
+                if url:
+                    logger.info(f"🖼️ Image served by provider=stability (fallback): {url[:60]}...")
+                return url
+            return None
+
+        url = await self._generate_stability_image(prompt, food=food)
+        if url:
+            logger.info(f"🖼️ Image served by provider=stability: {url[:60]}...")
+        return url
+
+    def _image_generation_available(self) -> bool:
+        """True when the selected provider (or its fallback) has a key set."""
+        if image_provider() == "zai":
+            return bool(self.zai_api_key or self.stability_api_key)
+        return bool(self.stability_api_key)
 
     def _get_malaysian_prompt(self, item: str) -> str:
         """Convert Malaysian food names to detailed prompts"""
@@ -4343,8 +4484,8 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         Returns tuple of (html_with_ai_images, count_of_images_generated)
         """
-        if not html or not self.stability_api_key:
-            logger.info("   ⚠️ Skipping AI image generation (no Stability API key)")
+        if not html or not self._image_generation_available():
+            logger.info("   ⚠️ Skipping AI image generation (no image provider API key)")
             return html, 0
 
         import re
@@ -5130,6 +5271,167 @@ IMPORTANT RULES:
 
         return final_html
 
+    # ==================== FREE AUTO-FILL (missing image slots) ====================
+
+    def _resolve_autofill_image_cap(self, max_ai_images: Optional[int]) -> int:
+        """Effective AI-image cap for the auto-fill pass.
+
+        Caller quota None/absent → no plan constraint applies → the
+        free-by-default budget (FREE_AI_IMAGES_PER_SITE, default 6). An
+        EXPLICIT zero (or negative) means the plan system said no — quota
+        exhausted this month, or the plan forbids AI images — so auto-fill
+        generates NOTHING; the free default must never silently override
+        that decision. A positive quota lower than the free budget still
+        wins (min). Plan quota COMPUTATION (websites.py) is untouched: this
+        only interprets the value it is handed.
+        """
+        free_default = free_ai_images_per_site()
+        if max_ai_images is None:
+            return free_default
+        return min(max(0, max_ai_images), free_default)
+
+    async def _autofill_missing_images(
+        self,
+        request: WebsiteGenerationRequest,
+        image_urls: Dict,
+        max_ai_images: Optional[int] = None,
+    ) -> int:
+        """Auto-fill hero/gallery slots that uploads didn't cover (free-by-default).
+
+        Mutates image_urls in place: the hero slot and any empty gallery1..4
+        slots get AI-generated images via _generate_image (so IMAGE_PROVIDER
+        selection + Stability fallback apply), one image per REAL menu/product
+        item extracted from the merchant's own description — items are never
+        invented (the extractors fall back to safe generic category labels,
+        not fabricated products). Generation is hard-capped by
+        _resolve_autofill_image_cap. A failed generation falls back to the
+        Bug-2 stock-image pool so the slot never ships blank; pool-filled
+        slots do NOT count toward the returned AI-image count.
+
+        Returns the number of images actually AI-generated (for usage
+        accounting upstream).
+        """
+        hero_missing = not image_urls.get("hero")
+        missing_slots = [i for i in range(1, 5) if not image_urls.get(f"gallery{i}")]
+        if not hero_missing and not missing_slots:
+            logger.info("🖼️ All image slots covered by uploads — no auto-fill needed")
+            return 0
+
+        cap = self._resolve_autofill_image_cap(max_ai_images)
+        if cap <= 0:
+            logger.info("🚫 Auto-fill image cap is 0 — skipping AI image auto-fill")
+            return 0
+
+        is_food = self._is_food_business(request.description)
+
+        # Item names already covered by uploads — never generate a duplicate
+        # card for something the merchant photographed themselves.
+        uploaded_names = set()
+        for i in range(1, 5):
+            _n = (image_urls.get(f"gallery{i}_name") or "").strip().lower()
+            if _n:
+                uploaded_names.add(_n)
+
+        def _covered(name: str) -> bool:
+            low = name.strip().lower()
+            return any(low == u or low in u or u in low for u in uploaded_names)
+
+        # STEP 0: real item/category names for the missing gallery slots so
+        # names and images stay paired (same contract as the original
+        # no-upload path).
+        slot_names: List[str] = []
+        if missing_slots:
+            if is_food:
+                logger.info("🍽️ Auto-fill STEP 0: extracting menu item names...")
+                extracted = await self.extract_menu_item_names(
+                    request.description, n=4, business_name=request.business_name
+                )
+            else:
+                logger.info("🛍️ Auto-fill STEP 0: extracting product category names...")
+                extracted = await self.extract_product_category_names(
+                    request.description, n=4, business_name=request.business_name
+                )
+            slot_names = [n for n in (extracted or []) if n and not _covered(n)]
+            logger.info(
+                f"{'🍽️' if is_food else '🛍️'} Auto-fill items: {', '.join(slot_names) or '(none)'}"
+            )
+
+        # Human-readable business type for grounding the prompts; fall back
+        # to a short description slice when detection is generic.
+        _biz_type = detect_business_type(request.description)
+        if _biz_type == "general":
+            _biz_type = request.description[:50]
+
+        # Hero is a banner/ambience shot — NEVER a menu/product card.
+        if is_food:
+            hero_prompt = "Malaysian restaurant interior, food stall with hanging menu, authentic atmosphere, people eating, warm lighting, food photography"
+        else:
+            hero_prompt = f"Professional storefront and interior for {_biz_type}, modern welcoming atmosphere, commercial photography"
+
+        # Work list: hero first, then one image per (missing slot, real item
+        # name) pair — truncated to the cap, so the hero always wins the
+        # budget and later items are the ones dropped.
+        work: List[Tuple[str, Optional[str], str]] = []  # (slot_key, item_name, prompt)
+        if hero_missing:
+            work.append(("hero", None, hero_prompt))
+        for slot_no, name in zip(missing_slots, slot_names):
+            if is_food:
+                # Raw item name — _generate_image(food=True) maps it through
+                # _get_malaysian_prompt (curated prompt for known dishes).
+                _prompt = name
+            else:
+                _prompt = (
+                    f"Professional product photo of {name}, {_biz_type}, "
+                    f"studio lighting, commercial photography"
+                )
+            work.append((f"gallery{slot_no}", name, _prompt))
+
+        if len(work) > cap:
+            logger.info(f"✂️ Auto-fill capped at {cap} of {len(work)} missing image slot(s)")
+            work = work[:cap]
+        if not work:
+            return 0
+
+        logger.info(
+            f"🎨 Auto-filling {len(work)} image slot(s) in PARALLEL "
+            f"[provider={image_provider()}, cap={cap}]: "
+            + ", ".join(slot for slot, _, _ in work)
+        )
+
+        results = await asyncio.gather(
+            *[self._generate_image(_p, food=is_food) for _, _, _p in work],
+            return_exceptions=True,
+        )
+
+        generated = 0
+        for (slot_key, item_name, _p), result in zip(work, results):
+            url = result if (result and not isinstance(result, Exception)) else None
+            if url:
+                generated += 1
+            else:
+                # Bug-2 pool fallback so a provider failure (rate limit, 500,
+                # timeout) doesn't leave the slot empty.
+                try:
+                    url = self.get_matching_image(
+                        item_name or _p, business_type=request.description
+                    )
+                    logger.info(f"   🔄 Auto-fill pool fallback for {slot_key}: {url[:60]}...")
+                except Exception as fb_err:
+                    logger.warning(f"   ⚠️ Auto-fill pool fallback failed for {slot_key}: {fb_err}")
+                    url = None
+            if url:
+                image_urls[slot_key] = url
+                if item_name:
+                    # Same key contract as before: gallery{i}_name pairs the
+                    # slot's image with its real item name for the HTML prompt.
+                    image_urls[f"{slot_key}_name"] = item_name
+
+        logger.info(
+            f"🖼️ Auto-fill complete: {generated}/{len(work)} AI-generated "
+            f"(cap={cap}); {len(image_urls)} image URL(s) ready for HTML generation"
+        )
+        return generated
+
     async def generate_website(
         self,
         request: WebsiteGenerationRequest,
@@ -5143,10 +5445,15 @@ IMPORTANT RULES:
         Args:
             progress_callback: Optional async callback(progress_percent, status_message)
             max_ai_images: Optional hard cap on the number of AI images this build
-                may generate (the user's remaining AI-image quota). None means no
-                cap. Food image generation is capped to whatever budget remains
-                after any hero/gallery images already generated this build, so a
-                single build never overshoots the plan limit.
+                may generate (the user's remaining AI-image quota). For the
+                hero/gallery AUTO-FILL pass, an absent quota (None) falls back
+                to the free-by-default budget (FREE_AI_IMAGES_PER_SITE,
+                default 6); an EXPLICIT zero disables auto-fill (the plan said
+                no); a lower positive quota still wins — see
+                _resolve_autofill_image_cap. For the food-image post-pass, None
+                still means no cap; generation there is capped to whatever
+                budget remains after the auto-fill, so a single build never
+                overshoots the plan limit.
         """
 
         import time
@@ -5218,132 +5525,35 @@ IMPORTANT RULES:
             logger.info(f"   ✅ Using {len(image_urls)} user-uploaded images with metadata")
             await update_progress(35, "Processing uploaded images")
 
+            # AUTO-FILL (free-by-default): a merchant who uploaded FEWER
+            # images than the layout needs gets the remaining hero/gallery
+            # slots AI-generated instead of shipping empty. Runs BEFORE the
+            # has_images decision downstream so a partially-covered site
+            # still takes the photo-slots prompt branch.
+            with _timed_step("stability_images", step_timings):
+                ai_images_generated = await self._autofill_missing_images(
+                    request, image_urls, max_ai_images
+                )
+            if ai_images_generated:
+                await update_progress(45, "AI images generated")
+
         else:
-            # No user images - generate with Stability AI
-            logger.info("🎨 No user images - generating with Stability AI...")
+            # No user images — AUTO-FILL every slot (free-by-default): 1 hero
+            # + 1 per real menu/product item, capped by FREE_AI_IMAGES_PER_SITE
+            # (or a lower caller quota). Runs BEFORE the has_images decision so
+            # zero-upload merchants get generated images and the photo-slots
+            # prompt branch; the no-photo typography branch remains the final
+            # fallback when image generation fails entirely.
+            logger.info(
+                f"🎨 No user images - auto-filling with AI-generated images... "
+                f"[{time.time() - start_time:.1f}s elapsed]"
+            )
 
             with _timed_step("stability_images", step_timings):
-                # STEP 0: Decide the gallery items FIRST, then generate one
-                # image per item so names and images stay paired (fixes the
-                # invented-names + generic-mismatched-images bug).
-                is_food = self._is_food_business(request.description)
-                slot_names = []  # per-gallery item names (None on the non-food path)
-                if is_food:
-                    # A2: extract real dish names - one DeepSeek call, graceful fallback
-                    logger.info(f"🍽️ STEP 0: Extracting menu item names... [{time.time() - start_time:.1f}s elapsed]")
-                    slot_names = await self.extract_menu_item_names(
-                        request.description, n=4, business_name=request.business_name
-                    )
-                    # Hero is a banner/ambience shot - NEVER a menu card.
-                    hero_prompt = "Malaysian restaurant interior, food stall with hanging menu, authentic atmosphere, people eating, warm lighting, food photography"
-                    # B: one Stability image per item name. _generate_stability_image
-                    # already maps each prompt through _get_malaysian_prompt() (curated
-                    # prompt for known dishes, per-item :1673 fallback otherwise), so we
-                    # pass the raw item name and let that single mapping do the work.
-                    product_prompts = list(slot_names)
-                    logger.info(f"🍽️ Items: {', '.join(slot_names)}")
-                else:
-                    # Non-food: mirror the food A2+B+C treatment so each gallery
-                    # card gets an image seeded by its OWN product-category name
-                    # (was: generic description-level prompts assigned
-                    # positionally → mismatched cards, e.g. action figures under
-                    # "Mainan Edukatif").
-                    # A2: extract real category names — one DeepSeek call,
-                    # graceful fallback, same banned-word filter as the food path.
-                    logger.info(f"🛍️ STEP 0: Extracting product category names... [{time.time() - start_time:.1f}s elapsed]")
-                    slot_names = await self.extract_product_category_names(
-                        request.description, n=4, business_name=request.business_name
-                    )
-                    # Human-readable business type for grounding the prompt; fall
-                    # back to a short description slice when detection is generic.
-                    _biz_type = detect_business_type(request.description)
-                    if _biz_type == "general":
-                        _biz_type = request.description[:50]
-                    # Hero stays a storefront/ambience banner — never a product card.
-                    hero_prompt = f"Professional storefront and interior for {_biz_type}, modern welcoming atmosphere, commercial photography"
-                    # B: one Stability image per category name, generated with
-                    # food=False (below) so _get_malaysian_prompt's food fallback
-                    # is bypassed — these prompts are used verbatim.
-                    product_prompts = [
-                        f"Professional product photo of {name}, {_biz_type}, studio lighting, commercial photography"
-                        for name in slot_names
-                    ]
-                    logger.info(f"🛍️ Categories: {', '.join(slot_names)}")
+                ai_images_generated = await self._autofill_missing_images(
+                    request, image_urls, max_ai_images
+                )
 
-                # STEP 1: Generate images with Stability AI
-                logger.info(f"🎨 STEP 1: Generating images with Stability AI using smart prompts... [{time.time() - start_time:.1f}s elapsed]")
-                logger.info(f"   Hero prompt: {hero_prompt[:60]}...")
-                logger.info(f"   Item 1 prompt: {(product_prompts[0] if product_prompts else '')[:60]}...")
-
-                # ===================================================================
-                # PARALLEL IMAGE GENERATION - Generate ALL images at the same time
-                # ===================================================================
-                logger.info("🎨 Generating ALL images in PARALLEL (hero + items)...")
-
-                # One image per item, plus the hero banner. food=is_food: the
-                # food path keeps food=True (curated dish prompts, unchanged);
-                # the non-food path passes food=False so the per-category
-                # prompts above are sent to Stability verbatim.
-                image_tasks = [self._generate_stability_image(hero_prompt, food=is_food)]
-                for _p in product_prompts:
-                    image_tasks.append(self._generate_stability_image(_p, food=is_food))
-
-                # Run ALL tasks in parallel (much faster than sequential)
-                parallel_start = time.time()
-                results = await asyncio.gather(*image_tasks, return_exceptions=True)
-                elapsed = time.time() - parallel_start
-
-            # Extract results with error handling + Bug-2 pool fallback so a
-            # Stability failure (rate limit, 500, etc) doesn't leave the slot
-            # empty. Without this, the HTML prompt silently omits the URL and
-            # the hero/product cards render blank.
-            def _slot_image(result, prompt_text: str) -> Optional[str]:
-                if result and not isinstance(result, Exception):
-                    return result
-                if not prompt_text:
-                    return None
-                try:
-                    fallback = self.get_matching_image(prompt_text, business_type=request.description)
-                    logger.info(f"   🔄 Stability failed for slot — Bug-2 pool fallback: {fallback[:60]}...")
-                    return fallback
-                except Exception as fb_err:
-                    logger.warning(f"   ⚠️ Bug-2 pool fallback also failed: {fb_err}")
-                    return None
-
-            slot_prompts = [hero_prompt] + product_prompts
-
-            # Hero slot (banner only).
-            hero_image = _slot_image(results[0], slot_prompts[0])
-            if hero_image:
-                image_urls["hero"] = hero_image
-
-            # C: each gallery slot is bound to its item name (gallery{i}_name)
-            # so the HTML prompt receives (name, url) PAIRS, not a loose batch.
-            for _idx in range(len(product_prompts)):
-                _slot_no = _idx + 1
-                _img = _slot_image(results[_idx + 1], slot_prompts[_idx + 1])
-                if _img:
-                    image_urls[f"gallery{_slot_no}"] = _img
-                    _name = slot_names[_idx] if _idx < len(slot_names) else None
-                    if _name:
-                        image_urls[f"gallery{_slot_no}_name"] = _name
-
-            # Log results — Stability success count, not slot-filled count
-            # (fallback-filled slots don't count toward the AI usage billing).
-            successful = sum(1 for r in results if r and not isinstance(r, Exception))
-            failed = len(results) - successful
-            ai_images_generated = successful  # Track for usage billing
-            _n_items = len([n for n in slot_names if n])
-            logger.info(f"☁️ Parallel generation complete in {elapsed:.1f}s")
-            # Requirement: item/image counts visible in prod. Wording mirrors the
-            # path taken — dishes (food) vs product categories (non-food).
-            if is_food:
-                logger.info(f"🍽️ Items extracted: {_n_items}; images requested: {len(image_tasks)}; Stability successful: {successful}/{len(image_tasks)}")
-            else:
-                logger.info(f"🛍️ Category names extracted: {_n_items}; images requested: {len(image_tasks)}; Stability successful: {successful}/{len(image_tasks)}")
-            if failed > 0:
-                logger.warning(f"   ⚠️ Stability failed: {failed}/{len(image_tasks)} images (Bug-2 pool fallback applied)")
-            logger.info(f"   Total URLs: {len(image_urls)} images ready for HTML generation")
             await update_progress(45, "AI images generated")
 
         # ===================================================================
