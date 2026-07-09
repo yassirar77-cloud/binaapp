@@ -18,6 +18,7 @@ Covers:
 No network calls: httpx.AsyncClient and cloudinary.uploader.upload are patched.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -43,8 +44,13 @@ class FakeResponse:
         return self._json
 
 
-def make_fake_async_client(post_response=None, get_response=None, post_exc=None):
-    """Build a stand-in for httpx.AsyncClient that records calls."""
+def make_fake_async_client(post_response=None, get_response=None, post_exc=None, post_responses=None):
+    """Build a stand-in for httpx.AsyncClient that records calls.
+
+    post_responses: optional sequence returned call-by-call (the last entry
+    repeats), for retry scenarios like 429 → 429 → 200.
+    """
+    queue = list(post_responses) if post_responses else None
 
     class FakeAsyncClient:
         init_kwargs = []
@@ -64,6 +70,8 @@ def make_fake_async_client(post_response=None, get_response=None, post_exc=None)
             type(self).post_calls.append({"url": url, "headers": headers, "json": json})
             if post_exc is not None:
                 raise post_exc
+            if queue:
+                return queue.pop(0) if len(queue) > 1 else queue[0]
             return post_response
 
         async def get(self, url, **kwargs):
@@ -132,9 +140,10 @@ class TestZaiImageGeneration:
         assert call["json"]["model"] == "glm-image"
         assert call["json"]["prompt"] == "a test prompt"
         assert call["json"]["size"] == "1024x1024"
-        # 30s cap on the whole call (generation + download)
+        # Per-call cap: raised to 120s (glm-image can legitimately take >30s;
+        # total build time is protected by the phase budget instead).
         assert fake_client.init_kwargs[0]["timeout"] == ai_service_module.ZAI_IMAGE_TIMEOUT_SECONDS
-        assert ai_service_module.ZAI_IMAGE_TIMEOUT_SECONDS == 30.0
+        assert ai_service_module.ZAI_IMAGE_TIMEOUT_SECONDS == 120.0
 
     async def test_zai_image_model_env_override(self, zai_env, cloudinary_upload, monkeypatch):
         monkeypatch.setenv("ZAI_IMAGE_MODEL", "cogview-4-250304")
@@ -220,6 +229,159 @@ class TestZaiImageGeneration:
         service = AIService()
         assert await service._generate_image_zai("a test prompt") is None
         cloudinary_upload.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Part 1a-bis: Z.ai rate limiting, serialization, and the phase budget
+# ---------------------------------------------------------------------------
+
+RATE_LIMIT_RESPONSE = FakeResponse(
+    status_code=429,
+    json_data={"code": "1302", "message": "Rate limit reached for requests"},
+    text='{"code":"1302","message":"Rate limit reached for requests"}',
+)
+
+
+class TestZaiRateLimitAndSerialization:
+    async def test_429_retry_then_success(self, zai_env, cloudinary_upload, monkeypatch):
+        monkeypatch.setattr(ai_service_module, "ZAI_IMAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+        fake_client = make_fake_async_client(
+            post_responses=[RATE_LIMIT_RESPONSE, ZAI_OK_RESPONSE],
+            get_response=FakeResponse(content=b"png-bytes"),
+        )
+        monkeypatch.setattr(ai_service_module.httpx, "AsyncClient", fake_client)
+
+        service = AIService()
+        url = await service._generate_image_zai("a test prompt")
+
+        assert url == "https://res.cloudinary.com/demo/binaapp/generated.png"
+        assert len(fake_client.post_calls) == 2  # 429, then success on retry
+
+    async def test_429_exhausted_returns_none(self, zai_env, cloudinary_upload, monkeypatch):
+        monkeypatch.setattr(ai_service_module, "ZAI_IMAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+        fake_client = make_fake_async_client(post_responses=[RATE_LIMIT_RESPONSE])
+        monkeypatch.setattr(ai_service_module.httpx, "AsyncClient", fake_client)
+
+        service = AIService()
+        assert await service._generate_image_zai("a test prompt") is None
+        assert len(fake_client.post_calls) == 3  # initial + 2 retries
+        cloudinary_upload.assert_not_called()
+
+    async def test_429_exhausted_falls_back_to_stability(self, zai_env, cloudinary_upload, monkeypatch):
+        monkeypatch.setenv("IMAGE_PROVIDER", "zai")
+        monkeypatch.setenv("ZAI_IMAGE_REQUEST_DELAY_SECONDS", "0")
+        monkeypatch.setattr(ai_service_module, "ZAI_IMAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
+        fake_client = make_fake_async_client(post_responses=[RATE_LIMIT_RESPONSE])
+        monkeypatch.setattr(ai_service_module.httpx, "AsyncClient", fake_client)
+
+        service = AIService()
+        service.stability_api_key = "test-stability-key"
+        service._generate_stability_image = AsyncMock(
+            return_value="https://res.cloudinary.com/stability.png"
+        )
+        url = await service._generate_image("a test prompt", food=False)
+        assert url == "https://res.cloudinary.com/stability.png"
+        service._generate_stability_image.assert_awaited_once()
+
+    async def test_zai_requests_are_serialized(self, zai_env, monkeypatch):
+        monkeypatch.setenv("IMAGE_PROVIDER", "zai")
+        monkeypatch.setenv("ZAI_IMAGE_REQUEST_DELAY_SECONDS", "0")
+        service = AIService()
+
+        state = {"active": 0, "max_active": 0, "order": []}
+
+        async def fake_zai(prompt):
+            state["active"] += 1
+            state["max_active"] = max(state["max_active"], state["active"])
+            state["order"].append(prompt)
+            await asyncio.sleep(0.01)
+            state["active"] -= 1
+            return f"https://res.cloudinary.com/{len(state['order'])}.png"
+
+        service._generate_image_zai = fake_zai
+
+        prompts = [f"item {i}" for i in range(5)]
+        results = await asyncio.gather(
+            *[service._generate_image(p, food=False) for p in prompts]
+        )
+
+        assert all(results)
+        assert state["max_active"] == 1  # concurrency 1: never overlapping
+        assert state["order"] == prompts  # FIFO through the lock
+
+    async def test_stability_path_keeps_parallelism(self, zai_env):
+        service = AIService()  # IMAGE_PROVIDER unset → stability
+
+        state = {"active": 0, "max_active": 0}
+
+        async def fake_stability(prompt, food=True):
+            state["active"] += 1
+            state["max_active"] = max(state["max_active"], state["active"])
+            await asyncio.sleep(0.02)
+            state["active"] -= 1
+            return "https://res.cloudinary.com/stability.png"
+
+        service._generate_stability_image = fake_stability
+
+        await asyncio.gather(*[service._generate_image(f"p{i}") for i in range(4)])
+        assert state["max_active"] > 1  # unchanged: parallel generation
+
+    async def test_request_spacing_delay(self, zai_env, monkeypatch):
+        monkeypatch.setenv("ZAI_IMAGE_REQUEST_DELAY_SECONDS", "5")
+        service = AIService()
+
+        sleeps = []
+
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+
+        monkeypatch.setattr(ai_service_module.asyncio, "sleep", fake_sleep)
+        service._zai_last_request_at = ai_service_module.time.monotonic()
+        await service._pace_zai_image_request()
+
+        assert sleeps and 4.5 < sleeps[0] <= 5.0
+
+    async def test_phase_budget_cutover_to_stability(self, zai_env, monkeypatch):
+        monkeypatch.setenv("IMAGE_PROVIDER", "zai")
+        monkeypatch.setenv("ZAI_IMAGE_REQUEST_DELAY_SECONDS", "0")
+        service = AIService()
+        service.stability_api_key = "test-stability-key"
+
+        async def slow_zai(prompt):
+            await asyncio.sleep(0.05)
+            return "https://res.cloudinary.com/zai.png"
+
+        service._generate_image_zai = slow_zai
+        service._generate_stability_image = AsyncMock(
+            return_value="https://res.cloudinary.com/stability.png"
+        )
+
+        phase = {"spent": 0.0, "budget": 0.04, "exhausted": False}
+        first = await service._generate_image("one", food=False, zai_phase=phase)
+        second = await service._generate_image("two", food=False, zai_phase=phase)
+
+        # First image spends the whole budget on Z.ai; the second goes
+        # straight to Stability without touching Z.ai again.
+        assert first == "https://res.cloudinary.com/zai.png"
+        assert second == "https://res.cloudinary.com/stability.png"
+        assert phase["exhausted"] is True
+        service._generate_stability_image.assert_awaited_once()
+
+    def test_phase_budget_default(self, zai_env):
+        service = AIService()
+        phase = service._new_zai_image_phase()
+        assert phase == {"spent": 0.0, "budget": 300.0, "exhausted": False}
+
+    def test_outer_timeout_extends_for_zai(self, zai_env, monkeypatch):
+        assert ai_service_module.generation_outer_timeout_seconds() == 180.0
+        monkeypatch.setenv("IMAGE_PROVIDER", "zai")
+        expected = (
+            180.0
+            + 300.0  # phase budget
+            + 2 * ai_service_module.ZAI_IMAGE_TIMEOUT_SECONDS  # in-flight gen + download
+            + sum(ai_service_module.ZAI_IMAGE_RETRY_BACKOFF_SECONDS)
+        )
+        assert ai_service_module.generation_outer_timeout_seconds() == expected
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +542,7 @@ def autofill_service(zai_env, monkeypatch):
 
     counter = {"n": 0}
 
-    async def _fake_generate(prompt, food=True):
+    async def _fake_generate(prompt, food=True, zai_phase=None):
         counter["n"] += 1
         return f"https://res.cloudinary.com/gen{counter['n']}.png"
 

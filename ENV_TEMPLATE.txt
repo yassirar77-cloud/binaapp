@@ -109,7 +109,12 @@ IMAGE_PROVIDER=stability
 # Sizes must be multiples of 32 between 512-2048; the API also supports an
 # optional 'quality' param (default 'hd').
 ZAI_IMAGE_MODEL=glm-image
-ZAI_IMAGE_TIMEOUT_SECONDS=30  # Z.ai image call budget before Stability fallback
+# Z.ai's image endpoint rejects concurrent requests (429 code 1302), so
+# image requests are serialized with a spacing delay and 429s retried
+# (3s/8s backoff) before falling back to Stability per-image.
+ZAI_IMAGE_TIMEOUT_SECONDS=120  # per-call cap (glm-image can take >30s)
+ZAI_IMAGE_REQUEST_DELAY_SECONDS=1.0  # spacing between consecutive Z.ai requests
+ZAI_IMAGE_PHASE_BUDGET_SECONDS=300  # max cumulative Z.ai image time per build; beyond it remaining images go to Stability
 
 # Free-by-default AI images per generated site (auto-fill of missing
 # hero/gallery slots). A caller-supplied lower quota still wins.
