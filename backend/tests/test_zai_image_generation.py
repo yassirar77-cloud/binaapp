@@ -334,7 +334,38 @@ class TestAutofillCap:
 
 
 # ---------------------------------------------------------------------------
-# Part 2b: auto-fill of missing image slots
+# Part 2b: per-business-type prompt templates
+# ---------------------------------------------------------------------------
+
+class TestAutofillPromptTemplates:
+    def test_category_resolution(self, zai_env, monkeypatch):
+        service = AIService()
+        # Food wins first.
+        monkeypatch.setattr(service, "_is_food_business", lambda d: True)
+        assert service._autofill_prompt_category("Restoran nasi kandar") == "food"
+        monkeypatch.setattr(service, "_is_food_business", lambda d: False)
+        # Creative-services keywords (BM + EN).
+        assert service._autofill_prompt_category("Jurugambar perkahwinan profesional") == "creative"
+        assert service._autofill_prompt_category("Wedding photography and videography") == "creative"
+        # Goods-selling / undetected types → retail product shots.
+        monkeypatch.setattr(ai_service_module, "detect_business_type", lambda d: "clothing")
+        assert service._autofill_prompt_category("Butik pakaian") == "retail"
+        monkeypatch.setattr(ai_service_module, "detect_business_type", lambda d: "general")
+        assert service._autofill_prompt_category("Kedai runcit") == "retail"
+        # Non-creative service types → generic subject-first template.
+        monkeypatch.setattr(ai_service_module, "detect_business_type", lambda d: "salon")
+        assert service._autofill_prompt_category("Salon rambut wanita") == "generic"
+
+    def test_item_naming_equipment_is_still_the_subject(self, zai_env):
+        # Studios/equipment may only appear when the item itself names them —
+        # the item name is the subject verbatim.
+        service = AIService()
+        prompt = service._autofill_item_prompt("retail", "Studio Lighting Kit", "camera shop")
+        assert "Professional product photography of Studio Lighting Kit" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Part 2c: auto-fill of missing image slots
 # ---------------------------------------------------------------------------
 
 MENU_ITEMS = ["Nasi Kandar", "Ayam Goreng Berempah", "Roti Canai", "Teh Tarik"]
@@ -451,8 +482,9 @@ class TestAutofillMissingImages:
         for name, prompt in zip(MENU_ITEMS, prompts[1:]):
             assert name in prompt
 
-    async def test_nonfood_prompts_contain_item_name_and_business_type(self, autofill_service, monkeypatch):
+    async def test_retail_prompts_put_product_on_clean_background(self, autofill_service, monkeypatch):
         monkeypatch.setattr(autofill_service, "_is_food_business", lambda description: False)
+        monkeypatch.setattr(ai_service_module, "detect_business_type", lambda description: "general")
         autofill_service.extract_product_category_names = AsyncMock(
             return_value=["Keladi Tikus Herbal Supplement"]
         )
@@ -466,9 +498,59 @@ class TestAutofillMissingImages:
         # hero + 1 real product (only items that exist — nothing invented)
         assert len(calls) == 2
         product_prompt = calls[1].args[0]
-        assert "Professional product photo of Keladi Tikus Herbal Supplement" in product_prompt
+        # Retail template: the product itself on a clean background
+        assert "Professional product photography of Keladi Tikus Herbal Supplement" in product_prompt
+        assert "clean background" in product_prompt
         assert calls[1].kwargs.get("food") is False
         assert image_urls["gallery1_name"] == "Keladi Tikus Herbal Supplement"
+
+    async def test_creative_prompts_show_the_work_not_the_premises(self, autofill_service, monkeypatch):
+        monkeypatch.setattr(autofill_service, "_is_food_business", lambda description: False)
+        autofill_service.extract_product_category_names = AsyncMock(
+            return_value=["Wedding Photography", "Portrait Session"]
+        )
+        image_urls = {}
+        request = make_request(
+            description="Perkhidmatan jurugambar perkahwinan dan videografi majlis di Kuala Lumpur"
+        )
+        await autofill_service._autofill_missing_images(request, image_urls, None)
+
+        prompts = [c.args[0] for c in autofill_service._generate_image.await_args_list]
+        hero_prompt, item_prompts = prompts[0], prompts[1:]
+
+        # The work itself is the subject, framed artistically (silhouettes/
+        # details/venue) rather than close-up faces...
+        assert "Wedding Photography" in item_prompts[0]
+        assert "Portrait Session" in item_prompts[1]
+        for p in item_prompts:
+            assert "silhouette" in p.lower()
+            assert "venue" in p.lower()
+        assert "silhouette" in hero_prompt.lower()
+        # ...and never the studio, equipment, or empty premises.
+        for p in prompts:
+            low = p.lower()
+            assert "studio" not in low
+            assert "equipment" not in low
+            assert "storefront" not in low
+            assert "interior" not in low
+
+    async def test_generic_prompts_use_item_name_as_subject(self, autofill_service, monkeypatch):
+        monkeypatch.setattr(autofill_service, "_is_food_business", lambda description: False)
+        monkeypatch.setattr(ai_service_module, "detect_business_type", lambda description: "services")
+        autofill_service.extract_product_category_names = AsyncMock(
+            return_value=["Servis Penghawa Dingin"]
+        )
+        image_urls = {}
+        request = make_request(description="Syarikat membaiki dan menyelenggara penghawa dingin")
+        await autofill_service._autofill_missing_images(request, image_urls, None)
+
+        calls = autofill_service._generate_image.await_args_list
+        item_prompt = calls[1].args[0]
+        assert item_prompt.startswith("Professional photography of Servis Penghawa Dingin")
+        # Generic hero showcases the work in action — not empty premises.
+        hero_prompt = calls[0].args[0]
+        assert "work in action" in hero_prompt
+        assert "storefront" not in hero_prompt.lower()
 
     async def test_generation_failure_uses_pool_fallback_without_counting(self, autofill_service, monkeypatch):
         autofill_service._generate_image = AsyncMock(return_value=None)
