@@ -3695,21 +3695,37 @@ __BINAAPP_WIDGET_THEME_VARS__
    navbar's height at the top of every scroll landing. Applies to all sites. */
 html { scroll-padding-top: 5.5rem; }
 
-/* (a) AOS fallback: if aos.js fails to load or the IntersectionObserver never fires,
-   content must NEVER stay permanently invisible. aos.css sets [data-aos]{opacity:0}
-   via html:not(.no-js) [data-aos^="fade"] (high specificity), so we use !important
-   to win. Once aos.js initialises and adds the `aos-initialized` html class
-   (see middleware/subdomain.py), we hand visibility control back to AOS. */
-html [data-aos] { opacity: 1 !important; transform: none !important; }
-html.aos-initialized [data-aos].aos-init:not(.aos-animate) {
-  opacity: 0 !important;
+/* (a) AOS fallback: content must NEVER stay permanently invisible — not when
+   aos.js fails to load, and not when AOS initialises but its scroll pipeline
+   stalls (slow connections compute element offsets before images settle, so
+   nothing past the first paint ever gets .aos-animate; the page arms
+   `aos-initialized` immediately after AOS.init, which used to hide every
+   [data-aos] element with an important opacity:0 forever).
+
+   Design: no important declarations anywhere in this block — a keyframe
+   animation can never override an important author declaration, and the
+   2.5s rescue below is the safety net for the stalled case. The tripled
+   [data-aos] attribute selector gives (0,3,1) specificity, beating
+   aos.css's hide rules in both
+   2.x ([data-aos^=fade][data-aos^=fade], (0,2,0)) and 3.x
+   (html:not(.no-js) [data-aos^=fade], (0,2,1)) without importance. */
+html [data-aos][data-aos][data-aos] { opacity: 1; transform: none; }
+html.aos-initialized [data-aos][data-aos][data-aos].aos-init:not(.aos-animate) {
+  opacity: 0;
   transition-property: opacity, transform;
   transition-duration: 600ms;
   transition-timing-function: ease-out;
+  /* Rescue: if AOS never delivers .aos-animate (stalled observer/scroll
+     handler), force the element visible after 2.5s anyway. */
+  animation: binaapp-aos-rescue 0.6s ease-out 2.5s forwards;
 }
-html.aos-initialized [data-aos].aos-init.aos-animate {
-  opacity: 1 !important;
-  transform: none !important;
+html.aos-initialized [data-aos][data-aos][data-aos].aos-init.aos-animate {
+  opacity: 1;
+  transform: none;
+  animation: none;
+}
+@keyframes binaapp-aos-rescue {
+  to { opacity: 1; transform: none; }
 }
 
 /* (b1) Bound non-hero section heights so AI-emitted min-h-screen / 100vh on content

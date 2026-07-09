@@ -377,8 +377,18 @@ _CONTACT_SLOT_FALLBACK_SCRIPT = '''
       cta.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;gap:8px;background:#25D366;color:#fff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:600;font-size:1rem;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
       slot.appendChild(cta);
     } else {
+      // Hide the empty contact card — but NEVER a page-level container.
+      // When the slot is a direct child of <body> (some generations emit it
+      // top-level), slot.closest('[data-aos]') is null and parentElement is
+      // <body>: hiding that blanked the ENTIRE page (the ertyu blank-white-
+      // page bug). Structural containers are never a "card" — fall back to
+      // hiding just the slot itself.
       var card = slot.closest('[data-aos]') || slot.parentElement;
-      if(card) card.style.display = 'none';
+      var isPageContainer = !card
+        || card === document.body
+        || card === document.documentElement
+        || card.tagName === 'MAIN';
+      (isPageContainer ? slot : card).style.display = 'none';
     }
   }
   if(document.readyState === 'loading'){
