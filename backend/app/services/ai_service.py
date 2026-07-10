@@ -7,6 +7,7 @@ import os
 import httpx
 import uuid
 import asyncio
+import base64
 import time
 import json
 import re
@@ -91,6 +92,21 @@ ZAI_IMAGE_DOWNLOAD_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 
+# mfile.z.ai can 404 a freshly generated image for a few seconds (CDN
+# propagation lag: production showed 404 at download time on a URL that
+# served fine minutes later in a browser). Retry the download on 404 with
+# these waits before falling back to Stability for that image.
+ZAI_IMAGE_DOWNLOAD_RETRY_DELAYS_SECONDS = (2.0, 5.0, 10.0)
+
+
+def zai_image_b64_enabled() -> bool:
+    """Feature flag: request response_format=b64_json from the Z.ai images
+    API and upload the decoded bytes straight to Cloudinary, skipping the
+    mfile.z.ai CDN download entirely. Ships dark (default off). If the API
+    rejects the param or omits the field, the URL path is used instead.
+    Read at call time so an env flip needs no redeploy."""
+    return os.getenv("ZAI_IMAGE_B64", "false").strip().lower() in ("1", "true", "yes", "on")
+
 
 def zai_image_request_delay_seconds() -> float:
     """Minimum spacing between consecutive Z.ai image requests. Read at call
@@ -159,11 +175,13 @@ def generation_outer_timeout_seconds(base: float = 180.0) -> float:
     if image_provider() == "zai":
         # Serialized Z.ai images add up to the phase budget, plus one
         # in-flight image admitted just before the budget ran out (its own
-        # generation + download timeouts + 429 retry backoffs).
+        # generation + download timeouts + 429 backoffs + download-404
+        # retry waits).
         budget += (
             zai_image_phase_budget_seconds()
             + ZAI_IMAGE_TIMEOUT_SECONDS * 2
             + sum(ZAI_IMAGE_RETRY_BACKOFF_SECONDS)
+            + sum(ZAI_IMAGE_DOWNLOAD_RETRY_DELAYS_SECONDS)
         )
     return budget
 # Hard cap on the DeepSeek review call. Deliberately tight: the review is
@@ -1880,32 +1898,53 @@ Format: Just the image description, no explanations."""
         try:
             logger.info(f"🎨 Z.ai ({self.zai_image_model}) prompt: {prompt[:80]}...")
             backoffs = ZAI_IMAGE_RETRY_BACKOFF_SECONDS
+            want_b64 = zai_image_b64_enabled()
             async with httpx.AsyncClient(timeout=ZAI_IMAGE_TIMEOUT_SECONDS) as client:
-                response = None
-                for attempt in range(1 + len(backoffs)):
-                    response = await client.post(
-                        f"{self.zai_base_url}/images/generations",
-                        headers={
-                            "Authorization": f"Bearer {self.zai_api_key}",
-                            "Content-Type": "application/json",
-                        },
-                        json={
-                            "model": self.zai_image_model,
-                            "prompt": prompt,
-                            "size": "1024x1024",
-                        },
-                    )
-                    # Rate limit (HTTP 429, Z.ai code 1302): back off and
-                    # retry — its image endpoint rejects request bursts.
-                    if response.status_code != 429:
-                        break
-                    if attempt < len(backoffs):
-                        wait = backoffs[attempt]
-                        logger.warning(
-                            f"🎨 Z.ai image rate-limited (429/code 1302) — "
-                            f"retry {attempt + 1}/{len(backoffs)} in {wait:.0f}s"
+
+                async def _post_with_rate_limit_retry(payload: Dict):
+                    """POST the images payload, retrying 429s (code 1302)."""
+                    resp = None
+                    for attempt in range(1 + len(backoffs)):
+                        resp = await client.post(
+                            f"{self.zai_base_url}/images/generations",
+                            headers={
+                                "Authorization": f"Bearer {self.zai_api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            json=payload,
                         )
-                        await asyncio.sleep(wait)
+                        if resp.status_code != 429:
+                            break
+                        if attempt < len(backoffs):
+                            wait = backoffs[attempt]
+                            logger.warning(
+                                f"🎨 Z.ai image rate-limited (429/code 1302) — "
+                                f"retry {attempt + 1}/{len(backoffs)} in {wait:.0f}s"
+                            )
+                            await asyncio.sleep(wait)
+                    return resp
+
+                payload = {
+                    "model": self.zai_image_model,
+                    "prompt": prompt,
+                    "size": "1024x1024",
+                }
+                if want_b64:
+                    payload["response_format"] = "b64_json"
+                response = await _post_with_rate_limit_retry(payload)
+
+                # ZAI_IMAGE_B64 graceful degrade #1: if the API rejects the
+                # response_format param outright, re-request in URL format.
+                if want_b64 and response.status_code not in (200, 429):
+                    logger.warning(
+                        f"🎨 Z.ai rejected response_format=b64_json "
+                        f"({response.status_code}: {response.text[:120]}) — "
+                        f"retrying in URL format"
+                    )
+                    want_b64 = False
+                    payload.pop("response_format", None)
+                    response = await _post_with_rate_limit_retry(payload)
+
                 if response.status_code == 429:
                     logger.error(
                         f"🎨 Z.ai image rate limit persisted after "
@@ -1920,33 +1959,58 @@ Format: Just the image description, no explanations."""
 
                 data = response.json()
                 items = data.get("data") or []
-                image_url = (items[0] or {}).get("url") if items else None
-                if not image_url:
-                    logger.error("🎨 Z.ai image response had no data[0].url")
+                first = (items[0] or {}) if items else {}
+                image_url = first.get("url")
+                image_bytes: Optional[bytes] = None
+                if want_b64:
+                    b64_data = first.get("b64_json")
+                    if b64_data:
+                        image_bytes = base64.b64decode(b64_data)
+                        logger.info("🎨 Z.ai returned b64_json — skipping CDN download")
+                    elif image_url:
+                        # Graceful degrade #2: param accepted but field absent.
+                        logger.warning("🎨 Z.ai returned no b64_json — falling back to URL download")
+                if image_bytes is None and not image_url:
+                    logger.error("🎨 Z.ai image response had no data[0].url or b64_json")
                     return None
 
-            # Download on a dedicated client: follow CDN redirects, keep the
-            # returned URL verbatim (no re-encoding of ?ufileattname=...),
-            # and send a browser-like UA — mfile.z.ai 404s default clients.
-            download_url = self._verbatim_download_url(image_url)
-            async with httpx.AsyncClient(
-                timeout=ZAI_IMAGE_TIMEOUT_SECONDS,
-                follow_redirects=True,
-            ) as dl_client:
-                download = await dl_client.get(
-                    download_url,
-                    headers={
-                        "User-Agent": ZAI_IMAGE_DOWNLOAD_USER_AGENT,
-                        "Accept": "image/*,*/*;q=0.8",
-                    },
-                )
-            if download.status_code != 200:
-                logger.error(
-                    f"🎨 Z.ai image download failed: {download.status_code} "
-                    f"(requested URL: {download_url} | API returned: {image_url})"
-                )
-                return None
-            image_bytes = download.content
+            if image_bytes is None:
+                # Download on a dedicated client: follow CDN redirects, keep
+                # the returned URL verbatim (no re-encoding of
+                # ?ufileattname=...), send a browser-like UA, and retry 404s —
+                # mfile.z.ai can lag a few seconds before a fresh image is
+                # actually fetchable.
+                download_url = self._verbatim_download_url(image_url)
+                retry_delays = ZAI_IMAGE_DOWNLOAD_RETRY_DELAYS_SECONDS
+                async with httpx.AsyncClient(
+                    timeout=ZAI_IMAGE_TIMEOUT_SECONDS,
+                    follow_redirects=True,
+                ) as dl_client:
+                    download = None
+                    for attempt in range(1 + len(retry_delays)):
+                        download = await dl_client.get(
+                            download_url,
+                            headers={
+                                "User-Agent": ZAI_IMAGE_DOWNLOAD_USER_AGENT,
+                                "Accept": "image/*,*/*;q=0.8",
+                            },
+                        )
+                        if download.status_code != 404:
+                            break
+                        if attempt < len(retry_delays):
+                            wait = retry_delays[attempt]
+                            logger.warning(
+                                f"🎨 Z.ai image download 404 (CDN propagation lag?) — "
+                                f"retry {attempt + 1}/{len(retry_delays)} in {wait:.0f}s"
+                            )
+                            await asyncio.sleep(wait)
+                if download.status_code != 200:
+                    logger.error(
+                        f"🎨 Z.ai image download failed: {download.status_code} "
+                        f"(requested URL: {download_url} | API returned: {image_url})"
+                    )
+                    return None
+                image_bytes = download.content
 
             result = cloudinary.uploader.upload(image_bytes, folder="binaapp")
             url = result.get("secure_url")

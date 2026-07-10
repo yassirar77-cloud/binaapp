@@ -115,6 +115,7 @@ ZAI_IMAGE_MODEL=glm-image
 ZAI_IMAGE_TIMEOUT_SECONDS=120  # per-call cap (glm-image can take >30s)
 ZAI_IMAGE_REQUEST_DELAY_SECONDS=1.0  # spacing between consecutive Z.ai requests
 ZAI_IMAGE_PHASE_BUDGET_SECONDS=300  # max cumulative Z.ai image time per build; beyond it remaining images go to Stability
+ZAI_IMAGE_B64=false  # request response_format=b64_json and upload bytes directly, skipping the mfile.z.ai download (falls back to URL path if the API rejects/omits it)
 
 # Free-by-default AI images per generated site (auto-fill of missing
 # hero/gallery slots). A caller-supplied lower quota still wins.
