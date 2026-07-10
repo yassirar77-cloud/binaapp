@@ -375,7 +375,9 @@ class TestZaiRateLimitAndSerialization:
 
         assert all(results)
         assert state["max_active"] == 1  # concurrency 1: never overlapping
-        assert state["order"] == prompts  # FIFO through the lock
+        # FIFO through the lock; the dispatcher appends the no-text suffix
+        # to non-food prompts, so compare on the subject prefix.
+        assert [p.split(",")[0] for p in state["order"]] == prompts
 
     async def test_stability_path_keeps_parallelism(self, zai_env):
         service = AIService()  # IMAGE_PROVIDER unset → stability
@@ -620,12 +622,17 @@ class TestProviderSelection:
         assert sent_prompt == service._get_malaysian_prompt("nasi lemak")
         assert "nasi lemak" in sent_prompt.lower()
 
-    async def test_zai_nonfood_prompt_used_verbatim(self, zai_env, monkeypatch):
+    async def test_zai_nonfood_prompt_keeps_subject_and_gains_no_text_suffix(self, zai_env, monkeypatch):
+        # Non-food prompts keep their subject verbatim (no Malaysian-food
+        # mapping) but the dispatcher appends the no-text suffix so gallery
+        # images never render garbled lettering.
         monkeypatch.setenv("IMAGE_PROVIDER", "zai")
         service = self._service()
         prompt = "Professional product photo of Keladi Tikus herbal supplement, studio lighting"
         await service._generate_image(prompt, food=False)
-        assert service._generate_image_zai.await_args.args[0] == prompt
+        sent = service._generate_image_zai.await_args.args[0]
+        assert sent.startswith(prompt)
+        assert "no text, no signage, no words, no lettering" in sent
 
     async def test_zai_failure_falls_back_to_stability(self, zai_env, monkeypatch):
         monkeypatch.setenv("IMAGE_PROVIDER", "zai")
@@ -709,9 +716,12 @@ class TestAutofillPromptTemplates:
         assert service._autofill_prompt_category("Butik pakaian") == "retail"
         monkeypatch.setattr(ai_service_module, "detect_business_type", lambda d: "general")
         assert service._autofill_prompt_category("Kedai runcit") == "retail"
-        # Non-creative service types → generic subject-first template.
+        # Salon/barber/beauty and other service types → services template
+        # (specialist-at-work shots + service-name cards), never retail.
         monkeypatch.setattr(ai_service_module, "detect_business_type", lambda d: "salon")
-        assert service._autofill_prompt_category("Salon rambut wanita") == "generic"
+        assert service._autofill_prompt_category("Salon rambut wanita") == "services"
+        monkeypatch.setattr(ai_service_module, "detect_business_type", lambda d: "services")
+        assert service._autofill_prompt_category("Bengkel servis aircond") == "services"
 
     def test_item_naming_equipment_is_still_the_subject(self, zai_env):
         # Studios/equipment may only appear when the item itself names them —
@@ -734,6 +744,7 @@ def autofill_service(zai_env, monkeypatch):
     monkeypatch.setattr(service, "_is_food_business", lambda description: True)
     service.extract_menu_item_names = AsyncMock(return_value=list(MENU_ITEMS))
     service.extract_product_category_names = AsyncMock(return_value=list(MENU_ITEMS))
+    service.extract_service_names = AsyncMock(return_value=list(MENU_ITEMS))
 
     counter = {"n": 0}
 
@@ -863,7 +874,9 @@ class TestAutofillMissingImages:
 
     async def test_creative_prompts_show_the_work_not_the_premises(self, autofill_service, monkeypatch):
         monkeypatch.setattr(autofill_service, "_is_food_business", lambda description: False)
-        autofill_service.extract_product_category_names = AsyncMock(
+        # Creative businesses sell their WORK — gallery names now come from
+        # the service extractor, not the retail product-category extractor.
+        autofill_service.extract_service_names = AsyncMock(
             return_value=["Wedding Photography", "Portrait Session"]
         )
         image_urls = {}
@@ -891,10 +904,10 @@ class TestAutofillMissingImages:
             assert "storefront" not in low
             assert "interior" not in low
 
-    async def test_generic_prompts_use_item_name_as_subject(self, autofill_service, monkeypatch):
+    async def test_service_prompts_use_item_name_as_subject(self, autofill_service, monkeypatch):
         monkeypatch.setattr(autofill_service, "_is_food_business", lambda description: False)
         monkeypatch.setattr(ai_service_module, "detect_business_type", lambda description: "services")
-        autofill_service.extract_product_category_names = AsyncMock(
+        autofill_service.extract_service_names = AsyncMock(
             return_value=["Servis Penghawa Dingin"]
         )
         image_urls = {}
@@ -902,11 +915,13 @@ class TestAutofillMissingImages:
         await autofill_service._autofill_missing_images(request, image_urls, None)
 
         calls = autofill_service._generate_image.await_args_list
+        # The named service is the subject, shown being performed.
         item_prompt = calls[1].args[0]
-        assert item_prompt.startswith("Professional photography of Servis Penghawa Dingin")
-        # Generic hero showcases the work in action — not empty premises.
+        assert item_prompt.startswith("Servis Penghawa Dingin")
+        assert "performing the service" in item_prompt
+        # Services hero shows the specialist at work — not empty premises.
         hero_prompt = calls[0].args[0]
-        assert "work in action" in hero_prompt
+        assert "at work with a client" in hero_prompt
         assert "storefront" not in hero_prompt.lower()
 
     async def test_generation_failure_uses_pool_fallback_without_counting(self, autofill_service, monkeypatch):

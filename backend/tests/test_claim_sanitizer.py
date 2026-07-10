@@ -375,19 +375,27 @@ class TestHeroPrompts:
         prompt = service._autofill_hero_prompt(category, "photography studio")
         assert NO_TEXT_SUFFIX in prompt
 
-    def test_item_prompts_unchanged(self, service):
-        """Item-level prompts are producing correct results in production —
-        they must not carry the hero changes."""
+    def test_item_prompts_keep_their_subjects(self, service):
+        """Item-level subjects are unchanged by the no-text rollout: the
+        item stays the subject, the suffix is purely additive. (Item prompts
+        used to ship WITHOUT the suffix — that's how gallery images got
+        garbled baked-in text; see test_autofill_image_prompts.py for the
+        full no-text coverage.)"""
+        # Food still returns the raw name — the suffix is applied later by
+        # _get_malaysian_prompt inside the provider dispatch.
         assert service._autofill_item_prompt("food", "Nasi Kandar", "restaurant") == "Nasi Kandar"
         retail = service._autofill_item_prompt("retail", "Baju Kurung", "clothing store")
-        assert retail == (
+        assert retail.startswith(
             "Professional product photography of Baju Kurung, clean background, "
             "soft studio lighting, high detail, commercial product shot"
         )
+        assert NO_TEXT_SUFFIX in retail
         creative = service._autofill_item_prompt("creative", "Wedding Photography", "photography")
-        assert NO_TEXT_SUFFIX not in creative
+        assert "Wedding Photography" in creative
+        assert NO_TEXT_SUFFIX in creative
         generic = service._autofill_item_prompt("generic", "Servis Aircond", "aircond service")
-        assert generic == (
+        assert generic.startswith(
             "Professional photography of Servis Aircond, aircond service, "
             "high quality, sharp focus"
         )
+        assert NO_TEXT_SUFFIX in generic
