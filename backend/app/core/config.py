@@ -105,6 +105,15 @@ class Settings(BaseSettings):
     # Ships dark (default OFF); any review failure falls back to the
     # original HTML. See ai_service.PREMIUM_DESIGN_LOOP.
     PREMIUM_DESIGN_LOOP: bool = Field(default=False, env="PREMIUM_DESIGN_LOOP")
+    # Sensitive-claim sanitizer pattern overrides (see
+    # app.services.claim_sanitizer). Both are JSON arrays of
+    # {"label", "pattern", "verify"} entries and are read at call time by
+    # the sanitizer, so the list can be extended in Render without a code
+    # change or redeploy. SENSITIVE_CLAIM_PATTERNS replaces the built-in
+    # defaults entirely; SENSITIVE_CLAIM_PATTERNS_EXTRA appends to whichever
+    # list is active.
+    SENSITIVE_CLAIM_PATTERNS: Optional[str] = Field(None, env="SENSITIVE_CLAIM_PATTERNS")
+    SENSITIVE_CLAIM_PATTERNS_EXTRA: Optional[str] = Field(None, env="SENSITIVE_CLAIM_PATTERNS_EXTRA")
 
     # Qwen AI (Optional)
     QWEN_API_KEY: Optional[str] = Field(None, env="QWEN_API_KEY")
