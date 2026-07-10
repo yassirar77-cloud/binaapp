@@ -122,6 +122,16 @@ ZAI_IMAGE_B64=false  # request response_format=b64_json and upload bytes directl
 FREE_AI_IMAGES_PER_SITE=6
 
 # ------------------------------
+# Issue Reports → Free Regeneration (make-good flow)
+# ------------------------------
+# Master switch for POST /websites/{id}/report-issue and the free-regen
+# grant path. Read at call time; default OFF — with it off the endpoints
+# 404 and regeneration quota behaves exactly as before.
+ISSUE_REPORT_ENABLED=false
+# Max free (quota-bypassing) regenerations auto-granted per site, ever.
+ISSUE_FREE_REGEN_CAP=2
+
+# ------------------------------
 # Cloudinary (Image Storage)
 # ------------------------------
 # Get from: https://console.cloudinary.com → Dashboard

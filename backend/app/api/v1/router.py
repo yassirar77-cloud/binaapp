@@ -5,7 +5,7 @@ Combines all API endpoints
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics
+from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports
 from app.api.admin import repair as admin_repair
 from app.api.admin import unstick_generation as admin_unstick
 
@@ -41,3 +41,9 @@ api_router.include_router(admin_repair.router, tags=["Admin: Repair"])
 # scheduled sweeper in core/scheduler.py handles the common case
 # automatically; this endpoint is for the long tail.
 api_router.include_router(admin_unstick.router, tags=["Admin: Unstick"])
+# Report Issue → Free Regeneration (flag-gated: ISSUE_REPORT_ENABLED).
+# User endpoint shares the /websites prefix (POST /websites/{id}/report-issue);
+# admin endpoints live at /admin/issue-reports. With the flag off, every
+# route in both routers returns 404.
+api_router.include_router(issue_reports.router, prefix="/websites", tags=["Issue Reports"])
+api_router.include_router(issue_reports.admin_router, tags=["Admin: Issue Reports"])
