@@ -376,9 +376,22 @@ async def generate_website(
         )
 
 
-async def generate_website_content(website_id: str, request: WebsiteGenerationRequest, user_id: str = None):
+async def generate_website_content(
+    website_id: str,
+    request: WebsiteGenerationRequest,
+    user_id: str = None,
+    free_regen_report_id: str = None,
+):
     """
     Background task to generate website content using AI
+
+    free_regen_report_id: set ONLY by the regenerate endpoint when this run
+    is a make-good regeneration granted by an issue report (flag-gated,
+    ISSUE_REPORT_ENABLED). In that mode the run is free: no generate_ai_hero
+    or ai_images_used usage is charged, and the AI-image budget is the
+    standard FREE_AI_IMAGES_PER_SITE default instead of the user's remaining
+    quota. On success the report is stamped regen_used=true + resolved; a
+    failed generation leaves the report untouched so the user can retry.
     """
     import asyncio
     from app.services.generation_heartbeat import (
@@ -404,7 +417,21 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
         # cap (unlimited plan, anonymous build, or quota lookup failed → fail
         # open to preserve prior behaviour; the post-build increment still runs).
         max_ai_images = None
-        if user_id:
+        if free_regen_report_id:
+            # Make-good regen: explicit bypass of the per-user quota lookup.
+            # The budget is the standard free-by-default cap — bounded, not
+            # unlimited — and nothing is charged afterwards (see the usage
+            # tracking block below). We deliberately do NOT consult
+            # check_limit here: a quota-exhausted user must still get the
+            # make-good images that were part of what was broken.
+            from app.services.ai_service import free_ai_images_per_site
+            max_ai_images = free_ai_images_per_site()
+            logger.info(
+                f"🔁 Free make-good regeneration for site={website_id} "
+                f"(report={free_regen_report_id}) — AI image budget {max_ai_images}, "
+                f"no usage will be charged"
+            )
+        elif user_id:
             try:
                 img_check = await subscription_service.check_limit(user_id, "generate_ai_image")
                 if img_check.get("unlimited"):
@@ -445,8 +472,11 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
             logger.error(f"❌ {error_msg}")
             raise Exception(error_msg)
 
-        # Track AI usage after successful generation
-        if user_id:
+        # Track AI usage after successful generation. Skipped entirely for
+        # a free make-good regeneration: neither ai_hero_used nor
+        # ai_images_used moves — the bypass is this explicit branch, never
+        # a mutation/refund inside the usage tracker itself.
+        if user_id and not free_regen_report_id:
             try:
                 # AI always generates hero content
                 await subscription_service.increment_usage(user_id, "generate_ai_hero")
@@ -460,6 +490,11 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
                     logger.info(f"📊 Incremented ai_images_used by {ai_response.ai_images_count} for user {user_id}")
             except Exception as usage_err:
                 logger.warning(f"⚠️ AI usage tracking failed for user {user_id}: {usage_err}")
+        elif free_regen_report_id:
+            logger.info(
+                f"🔁 Make-good regen for site={website_id}: skipping usage charge "
+                f"(ai_hero + {ai_response.ai_images_count} images uncharged, report={free_regen_report_id})"
+            )
 
         html_content = ai_response.html_content
         integrations = ai_response.integrations_included
@@ -541,6 +576,25 @@ async def generate_website_content(website_id: str, request: WebsiteGenerationRe
 
         logger.info("✅ Step 4/4: Database updated successfully")
         logger.info(f"🎉 Website generation completed successfully: {website_id}")
+
+        # Consume the make-good grant only now that the regeneration has
+        # fully succeeded — the failure branches below never touch the
+        # report, so a failed run leaves the grant intact for a retry.
+        if free_regen_report_id:
+            from app.services.issue_report_service import issue_report_service
+            marked = await issue_report_service.mark_regen_completed(free_regen_report_id)
+            if marked:
+                logger.info(
+                    f"🔁 Free make-good regeneration completed for site={website_id} "
+                    f"(report={free_regen_report_id} → resolved, regen_used=true)"
+                )
+            else:
+                # Loud: an unmarked report means the grant could be spent
+                # again. Surfaced for ops follow-up via /admin/issue-reports.
+                logger.error(
+                    f"🛑 Make-good regen succeeded but report {free_regen_report_id} "
+                    f"could not be marked used for site={website_id} — grant may be reusable"
+                )
 
     except asyncio.TimeoutError:
         error_msg = "Generation timed out - please try again"
@@ -756,21 +810,44 @@ async def regenerate_website(
     # use the same helper the create flow uses (subscription_service.
     # check_limit) so any future quota changes apply uniformly. This is
     # the same path that catches the "addon credit available" case.
-    hero_check = await subscription_service.check_limit(user_id, "generate_ai_hero")
-    if not hero_check.get("allowed"):
-        logger.warning(
-            f"[REGENERATE] AI hero limit reached for user {user_id} on website {website_id}"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "LIMIT_REACHED",
-                "message": hero_check.get("message", "Had AI hero tercapai."),
-                "upgrade_options": hero_check.get("can_buy_addon", False),
-                "current_usage": hero_check.get("current_usage"),
-                "limit": hero_check.get("limit"),
-            },
-        )
+    #
+    # EXCEPTION (flag-gated make-good flow): if this site holds an unused
+    # issue-report grant (status=auto_regen_granted, regen_used=false),
+    # this ONE regeneration is free — the quota check is skipped entirely
+    # rather than decremented-and-refunded, so the user's counters never
+    # move. The grant is consumed by the background task only after the
+    # generation succeeds. Any lookup failure falls through to the normal
+    # quota path (fail closed: no grant → no bypass).
+    free_regen_report_id = None
+    from app.services.issue_report_service import (
+        issue_report_enabled,
+        issue_report_service,
+    )
+    if issue_report_enabled():
+        granted_report = await issue_report_service.get_unused_granted_report(website_id)
+        if granted_report:
+            free_regen_report_id = granted_report["id"]
+            logger.info(
+                f"🔁 Free make-good regeneration for site={website_id} "
+                f"(report={free_regen_report_id}) — bypassing generate_ai_hero quota check"
+            )
+
+    if not free_regen_report_id:
+        hero_check = await subscription_service.check_limit(user_id, "generate_ai_hero")
+        if not hero_check.get("allowed"):
+            logger.warning(
+                f"[REGENERATE] AI hero limit reached for user {user_id} on website {website_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "LIMIT_REACHED",
+                    "message": hero_check.get("message", "Had AI hero tercapai."),
+                    "upgrade_options": hero_check.get("can_buy_addon", False),
+                    "current_usage": hero_check.get("current_usage"),
+                    "limit": hero_check.get("limit"),
+                },
+            )
 
     # 5. Optimistically flag the website as generating + persist the new
     # description. generation_count is deliberately NOT bumped here —
@@ -826,11 +903,13 @@ async def regenerate_website(
         website_id,
         ai_request,
         user_id,
+        free_regen_report_id,
     )
 
     logger.info(
         f"[REGENERATE] Started regeneration #{prev_count + 1} for website {website_id} "
         f"by user {user_id}"
+        + (f" (free make-good, report={free_regen_report_id})" if free_regen_report_id else "")
     )
 
     subdomain = website.get("subdomain")
