@@ -1435,8 +1435,8 @@ Respond ONLY with valid JSON, no other text."""
                     },
                     json={
                         "text_prompts": [
-                            {"text": f"{prompt}, professional photography, high quality, realistic", "weight": 1},
-                            {"text": "blurry, bad quality, cartoon, illustration, drawing, anime", "weight": -1}
+                            {"text": self._with_no_text_suffix(f"{prompt}, professional photography, high quality, realistic"), "weight": 1},
+                            {"text": "blurry, bad quality, cartoon, illustration, drawing, anime, text, words, watermark, signage", "weight": -1}
                         ],
                         "cfg_scale": 7,
                         "width": 1024,
@@ -1814,8 +1814,13 @@ Format: Just the image description, no explanations."""
 
         try:
             # Smart prompt for Malaysian context (food path only). Non-food
-            # callers pass the prompt through unchanged.
-            smart_prompt = self._get_malaysian_prompt(prompt) if food else prompt
+            # prompts pass through subject-unchanged but still get the
+            # no-text suffix (idempotent) — no generated image may carry
+            # lettering.
+            smart_prompt = (
+                self._get_malaysian_prompt(prompt) if food
+                else self._with_no_text_suffix(prompt)
+            )
             logger.info(f"🎨 Prompt: {smart_prompt[:80]}...")
 
             async with httpx.AsyncClient(timeout=60) as client:
@@ -2092,7 +2097,12 @@ Format: Just the image description, no explanations."""
         if image_provider() == "zai":
             # Same Malaysian-food prompt mapping the Stability path applies
             # internally, so a raw dish name still becomes a curated prompt.
-            zai_prompt = self._get_malaysian_prompt(prompt) if food else prompt
+            # Non-food prompts get the (idempotent) no-text suffix here for
+            # the same reason the Stability path does.
+            zai_prompt = (
+                self._get_malaysian_prompt(prompt) if food
+                else self._with_no_text_suffix(prompt)
+            )
             url = None
             if not self._zai_phase_exhausted(zai_phase):
                 async with self._get_zai_image_lock():
@@ -2170,17 +2180,23 @@ Format: Just the image description, no explanations."""
 
         item_lower = item.lower().strip()
 
+        # Every branch carries the no-text suffix: gallery/menu-card food
+        # images used to come back with garbled pseudo-text (signage,
+        # labels) because only hero prompts were protected.
+
         # Direct exact match
         if item_lower in prompts:
-            return prompts[item_lower]
+            return self._with_no_text_suffix(prompts[item_lower])
 
         # Fuzzy matching - check if item contains any key
         for key, prompt in prompts.items():
             if key in item_lower:
-                return prompt
+                return self._with_no_text_suffix(prompt)
 
         # Generic food prompt
-        return f"Professional close-up photo of {item}, Malaysian style, food photography, high quality, realistic, appetizing"
+        return self._with_no_text_suffix(
+            f"Professional close-up photo of {item}, Malaysian style, food photography, high quality, realistic, appetizing"
+        )
 
     def _extract_menu_items(self, description: str) -> list:
         """Extract menu items from description"""
@@ -2443,14 +2459,22 @@ Generate prompts now:"""
         return self._get_fallback_prompts(description)
 
     def _is_food_business(self, description: str) -> bool:
-        """True if the description looks like a food / restaurant business."""
+        """True if the description looks like a food / restaurant business.
+
+        Matches on WORD BOUNDARIES, not raw substrings: 'ikan' (fish) is a
+        substring of 'kecantikan' (beauty), which classified beauty salons
+        as food businesses and gave them dish-based gallery prompts.
+        """
         desc_lower = description.lower()
-        return any(word in desc_lower for word in [
-            'nasi', 'mee', 'ayam', 'ikan', 'restoran', 'restaurant',
-            'kedai makan', 'warung', 'mamak', 'kandar', 'lemak', 'goreng',
-            'makanan', 'cafe', 'kafe', 'seafood', 'udang', 'ketam', 'sotong',
-            'food', 'masakan', 'catering', 'bakery', 'roti', 'kuih',
-        ])
+        return any(
+            re.search(rf"\b{re.escape(word)}\b", desc_lower)
+            for word in [
+                'nasi', 'mee', 'ayam', 'ikan', 'restoran', 'restaurant',
+                'kedai makan', 'warung', 'mamak', 'kandar', 'lemak', 'goreng',
+                'makanan', 'cafe', 'kafe', 'seafood', 'udang', 'ketam', 'sotong',
+                'food', 'masakan', 'catering', 'bakery', 'roti', 'kuih',
+            ]
+        )
 
     def _fallback_item_names(self, description: str, n: int) -> list:
         """Deterministic item-name fallback for when AI extraction fails.
@@ -2776,6 +2800,123 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         except Exception as e:
             logger.error(f"🛍️ Category-name extraction error: {e} - using fallback")
             return self._fallback_category_names(description, n)
+
+    # Service-language gallery-card fallbacks per detected business type.
+    # Used when DeepSeek extraction is unavailable — these must read as the
+    # SERVICES the business performs, never retail product language
+    # ("Produk Pilihan"/"Barangan Popular" on a hair salon was the bug).
+    _SERVICE_NAME_FALLBACKS = {
+        "salon": ["Potong Rambut", "Pewarnaan Rambut", "Rawatan Rambut",
+                  "Penggayaan Rambut", "Rawatan Muka", "Solekan"],
+        "services": ["Perkhidmatan Utama", "Pakej Premium", "Tempahan Khas",
+                     "Servis Ekspres", "Pakej Korporat", "Khidmat Nasihat"],
+    }
+
+    def _fallback_service_names(self, description: str, n: int) -> list:
+        """Deterministic service-name fallback for the SERVICES/CREATIVE path.
+
+        Sibling of _fallback_item_names/_fallback_category_names. Never
+        raises; always returns exactly n non-empty, de-duplicated names in
+        service language appropriate to the detected business type (salon
+        gets hairstyling/beauty services, everything else gets generic
+        service packages) so a DeepSeek outage can never blank the gallery
+        NOR fill a salon with retail product cards.
+        """
+        btype = detect_business_type(description)
+        generic = self._SERVICE_NAME_FALLBACKS.get(
+            btype, self._SERVICE_NAME_FALLBACKS["services"]
+        )
+        names = []
+        for name in generic:
+            if name not in names:
+                names.append(name)
+            if len(names) >= n:
+                break
+        i = 1
+        while len(names) < n:
+            names.append(f"Servis {i}")
+            i += 1
+        return names[:n]
+
+    async def extract_service_names(self, description: str, n: int = 4, business_name: str = "") -> list:
+        """Extract EXACTLY n concise service names for SERVICE businesses
+        (salon/barber/beauty, repairs, cleaning, tuition, creative work...).
+
+        Services sibling of extract_menu_item_names /
+        extract_product_category_names. One DeepSeek call. Degrades
+        gracefully on missing key, API failure, timeout, parse error, or bad
+        count -> falls back to _fallback_service_names() and never raises.
+        Applies the same banned-word filter so ambience/interior/storefront
+        shots never become service cards.
+        """
+        api_key = os.getenv("DEEPSEEK_API_KEY")
+        if not api_key:
+            logger.warning("💇 No DEEPSEEK_API_KEY - using fallback service names")
+            return self._fallback_service_names(description, n)
+
+        biz_line = f"\nBUSINESS NAME (never include this, or any part of it, in a service name): {business_name}\n" if business_name else ""
+        prompt = f"""From the business description below, list EXACTLY {n} concise service names offered by this business.
+
+BUSINESS DESCRIPTION:
+{description}
+{biz_line}
+STRICT RULES:
+1. Output ONLY real services this business performs for customers (e.g. for a hair salon: "Potong Rambut", "Pewarnaan Rambut", "Rawatan Keratin", "Gaya Pengantin").
+2. Each name must be concise - 1 to 4 words, the service itself.
+3. DO NOT invent retail product names ("Produk Pilihan", "Koleksi Terbaru") - these are SERVICES performed, not goods sold.
+4. DO NOT include ambience/interior/atmosphere/storefront entries (e.g. "Suasana Kedai", "Shop Interior", "Storefront"). Services only.
+5. DO NOT append the business name, branch, address, city, location, or possessives like "saya"/"kami" to any name.
+6. Use the language of the description (Bahasa Malaysia or English).
+7. If the description names specific services, use those exact services.
+
+OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
+["Name 1", "Name 2", "Name 3", "Name 4"]"""
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://api.deepseek.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.deepseek_model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": 300,
+                        "temperature": 0.2,
+                    },
+                )
+            if response.status_code != 200:
+                logger.error(f"💇 Service-name extraction failed: {response.status_code} - using fallback")
+                return self._fallback_service_names(description, n)
+
+            content = response.json()["choices"][0]["message"]["content"]
+            match = re.search(r'\[[\s\S]*\]', content)
+            if not match:
+                logger.error("💇 Service-name extraction returned no JSON array - using fallback")
+                return self._fallback_service_names(description, n)
+
+            raw = json.loads(match.group())
+            banned = ["suasana", "interior", "ambience", "ambiance",
+                      "dining area", "exterior", "storefront", "atmosphere"]
+            names = []
+            for item in raw:
+                name = str(item).strip()
+                low = name.lower()
+                if not name or any(b in low for b in banned):
+                    continue  # requirement: forbid ambience/interior cards
+                names.append(name)
+
+            # Same strip + semantic-dedup + floor-to-3 top-up as the food path.
+            unique = self._dedupe_item_names(names, business_name)
+            result = self._finalize_item_names(
+                unique, self._fallback_service_names(description, n), business_name, n
+            )
+            return result if result else self._fallback_service_names(description, n)
+        except Exception as e:
+            logger.error(f"💇 Service-name extraction error: {e} - using fallback")
+            return self._fallback_service_names(description, n)
 
     def _get_malaysian_food_prompts(self, description: str) -> dict:
         """Generate Malaysian food-specific prompts using MALAYSIAN_FOOD_PROMPTS database"""
@@ -5621,30 +5762,60 @@ IMPORTANT RULES:
     def _autofill_prompt_category(self, description: str) -> str:
         """Prompt-template category for auto-fill images.
 
-        Returns 'food' | 'creative' | 'retail' | 'generic'. The subject of
-        every auto-fill image must be the business's OUTPUT — the dish, the
-        shot, the product — never its premises or equipment, so the template
-        set is chosen by what the business produces.
+        Returns 'food' | 'creative' | 'services' | 'retail' | 'generic'.
+        The subject of every auto-fill image must be the business's OUTPUT —
+        the dish, the shot, the service being performed, the product — never
+        its premises or equipment, so the template set is chosen by what the
+        business produces.
+
+        Salon/barber/beauty and other service businesses map to 'services'
+        (specialist-at-work compositions + service-name gallery cards), NOT
+        'retail' or 'generic' — a hair salon must never get product-shot
+        prompts or "Produk Pilihan"-style retail card names.
         """
         if self._is_food_business(description):
             return "food"
         low = (description or "").lower()
         if any(k in low for k in self._CREATIVE_BUSINESS_KEYWORDS):
             return "creative"
+        btype = detect_business_type(description)
+        # Service businesses (salon/barber/beauty via 'salon'; repairs,
+        # cleaning, tuition, gym etc. via 'services'): the sellable output
+        # is the work performed on/for a client.
+        if btype in ("salon", "services"):
+            return "services"
         # Goods-selling types (and undetected businesses, whose gallery names
-        # come from the product-category extractor) get clean product shots;
-        # service types fall through to the generic subject-first template.
-        if detect_business_type(description) in ("clothing", "bakery", "general"):
+        # come from the product-category extractor) get clean product shots.
+        if btype in ("clothing", "bakery", "general"):
             return "retail"
         return "generic"
 
-    # Appended to every hero prompt: glm-image renders text well only when
-    # deliberately instructed — incidental scene signage (storefront signs,
-    # hanging menus) comes out as garbled pseudo-text, so heroes must carry
-    # no lettering at all.
-    _HERO_NO_TEXT_SUFFIX = (
+    # Appended to EVERY AI-image prompt (hero, gallery/portfolio items,
+    # food-pass images): glm-image renders text well only when deliberately
+    # instructed — incidental scene signage (storefront signs, hanging
+    # menus, product labels) comes out as garbled pseudo-text, so no
+    # generated image may carry lettering at all. Originally applied to
+    # hero prompts only; gallery/item prompts shipped without it and their
+    # card-title subjects ("Produk Pilihan" etc.) came back baked into the
+    # image as garbled text — hence the blanket enforcement now.
+    _NO_TEXT_SUFFIX = (
         "no text, no signage, no words, no lettering anywhere in the image"
     )
+    # Legacy alias — earlier code/tests reference the hero-specific name.
+    _HERO_NO_TEXT_SUFFIX = _NO_TEXT_SUFFIX
+
+    def _with_no_text_suffix(self, prompt: str) -> str:
+        """Append the no-text suffix unless the prompt already carries one.
+
+        Idempotent by substring check so prompts built by the template
+        helpers (which embed the suffix) don't get it twice when they pass
+        through the provider dispatchers, which apply it as a safety net.
+        """
+        if not prompt:
+            return prompt
+        if "no text" in prompt.lower():
+            return prompt
+        return f"{prompt}, {self._NO_TEXT_SUFFIX}"
 
     def _autofill_hero_prompt(self, category: str, biz_type: str) -> str:
         """Hero banner prompt per category.
@@ -5667,17 +5838,25 @@ IMPORTANT RULES:
             return (
                 f"Artistic showcase of {biz_type} work, cinematic silhouette "
                 f"composition at golden hour, elegant venue backdrop, "
-                f"professional photography, {self._HERO_NO_TEXT_SUFFIX}"
+                f"professional photography, {self._NO_TEXT_SUFFIX}"
+            )
+        if category == "services":
+            # The service being performed is the subject — a stylist mid-cut,
+            # a specialist with a client — never products on shelves.
+            return (
+                f"Skilled {biz_type} professional at work with a client, "
+                f"dynamic in-action moment, warm modern interior, shallow "
+                f"depth of field, professional photography, {self._NO_TEXT_SUFFIX}"
             )
         if category == "retail":
             return (
                 f"Attractive arrangement of {biz_type} products, lifestyle "
                 f"commercial photography, warm inviting lighting, clean "
-                f"modern styling, {self._HERO_NO_TEXT_SUFFIX}"
+                f"modern styling, {self._NO_TEXT_SUFFIX}"
             )
         return (
             f"Professional photography showcasing {biz_type} work in action, "
-            f"warm lighting, high quality, {self._HERO_NO_TEXT_SUFFIX}"
+            f"warm lighting, high quality, {self._NO_TEXT_SUFFIX}"
         )
 
     def _autofill_item_prompt(self, category: str, name: str, biz_type: str) -> str:
@@ -5690,7 +5869,9 @@ IMPORTANT RULES:
         food returns the raw item name: _generate_image(food=True) maps it
         through _get_malaysian_prompt, which yields a curated appetizing
         plated-dish prompt for known dishes and a food-photography fallback
-        otherwise.
+        otherwise (both carry the no-text suffix). Every non-food template
+        below embeds the no-text suffix directly — gallery/portfolio images
+        must never render lettering (see _NO_TEXT_SUFFIX).
         """
         if category == "food":
             return name
@@ -5701,14 +5882,29 @@ IMPORTANT RULES:
             return (
                 f"{name}, artistic professional photography, cinematic "
                 f"composition, silhouette and candid detail shots, beautiful "
-                f"venue backdrop, golden hour lighting, emotional storytelling"
+                f"venue backdrop, golden hour lighting, emotional storytelling, "
+                f"{self._NO_TEXT_SUFFIX}"
+            )
+        if category == "services":
+            # The named service being performed on a client is the subject
+            # (e.g. "Pewarnaan Rambut" → stylist colouring a client's hair),
+            # never a product shot.
+            return (
+                f"{name}, professional {biz_type} service photography, "
+                f"specialist performing the service on a client, candid "
+                f"in-action shot, modern interior backdrop, shallow depth "
+                f"of field, {self._NO_TEXT_SUFFIX}"
             )
         if category == "retail":
             return (
                 f"Professional product photography of {name}, clean background, "
-                f"soft studio lighting, high detail, commercial product shot"
+                f"soft studio lighting, high detail, commercial product shot, "
+                f"{self._NO_TEXT_SUFFIX}"
             )
-        return f"Professional photography of {name}, {biz_type}, high quality, sharp focus"
+        return (
+            f"Professional photography of {name}, {biz_type}, high quality, "
+            f"sharp focus, {self._NO_TEXT_SUFFIX}"
+        )
 
     async def _autofill_missing_images(
         self,
@@ -5766,6 +5962,14 @@ IMPORTANT RULES:
             if is_food:
                 logger.info("🍽️ Auto-fill STEP 0: extracting menu item names...")
                 extracted = await self.extract_menu_item_names(
+                    request.description, n=4, business_name=request.business_name
+                )
+            elif category in ("services", "creative"):
+                # Service/creative businesses sell WORK, not goods — gallery
+                # cards must be named after their services (Potong Rambut,
+                # Wedding Photography), never retail product categories.
+                logger.info("💇 Auto-fill STEP 0: extracting service names...")
+                extracted = await self.extract_service_names(
                     request.description, n=4, business_name=request.business_name
                 )
             else:
