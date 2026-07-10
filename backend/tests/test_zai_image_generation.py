@@ -19,6 +19,7 @@ No network calls: httpx.AsyncClient and cloudinary.uploader.upload are patched.
 """
 
 import asyncio
+import base64
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -44,13 +45,21 @@ class FakeResponse:
         return self._json
 
 
-def make_fake_async_client(post_response=None, get_response=None, post_exc=None, post_responses=None):
+def make_fake_async_client(
+    post_response=None,
+    get_response=None,
+    post_exc=None,
+    post_responses=None,
+    get_responses=None,
+):
     """Build a stand-in for httpx.AsyncClient that records calls.
 
-    post_responses: optional sequence returned call-by-call (the last entry
-    repeats), for retry scenarios like 429 → 429 → 200.
+    post_responses / get_responses: optional sequences returned call-by-call
+    (the last entry repeats), for retry scenarios like 429 → 429 → 200 or
+    404 → 404 → 200.
     """
     queue = list(post_responses) if post_responses else None
+    get_queue = list(get_responses) if get_responses else None
 
     class FakeAsyncClient:
         init_kwargs = []
@@ -67,7 +76,11 @@ def make_fake_async_client(post_response=None, get_response=None, post_exc=None,
             return False
 
         async def post(self, url, headers=None, json=None, **kwargs):
-            type(self).post_calls.append({"url": url, "headers": headers, "json": json})
+            # Snapshot the payload: callers may reuse/mutate the dict between
+            # requests (e.g. dropping response_format on the b64 fallback).
+            type(self).post_calls.append(
+                {"url": url, "headers": headers, "json": dict(json) if isinstance(json, dict) else json}
+            )
             if post_exc is not None:
                 raise post_exc
             if queue:
@@ -76,6 +89,8 @@ def make_fake_async_client(post_response=None, get_response=None, post_exc=None,
 
         async def get(self, url, headers=None, **kwargs):
             type(self).get_calls.append({"url": url, "headers": headers})
+            if get_queue:
+                return get_queue.pop(0) if len(get_queue) > 1 else get_queue[0]
             return get_response
 
     return FakeAsyncClient
@@ -96,6 +111,7 @@ def zai_env(monkeypatch):
     monkeypatch.delenv("IMAGE_PROVIDER", raising=False)
     monkeypatch.delenv("FREE_AI_IMAGES_PER_SITE", raising=False)
     monkeypatch.delenv("STABILITY_API_KEY", raising=False)
+    monkeypatch.delenv("ZAI_IMAGE_B64", raising=False)
 
 
 @pytest.fixture
@@ -270,9 +286,11 @@ class TestZaiImageGeneration:
         )
 
     async def test_download_failure_returns_none(self, zai_env, cloudinary_upload, monkeypatch):
+        # Non-404 failure: fails immediately (404s retry — covered in
+        # TestZaiDownloadRetryAndB64).
         fake_client = make_fake_async_client(
             post_response=ZAI_OK_RESPONSE,
-            get_response=FakeResponse(status_code=404),
+            get_response=FakeResponse(status_code=500),
         )
         monkeypatch.setattr(ai_service_module.httpx, "AsyncClient", fake_client)
 
@@ -430,8 +448,135 @@ class TestZaiRateLimitAndSerialization:
             + 300.0  # phase budget
             + 2 * ai_service_module.ZAI_IMAGE_TIMEOUT_SECONDS  # in-flight gen + download
             + sum(ai_service_module.ZAI_IMAGE_RETRY_BACKOFF_SECONDS)
+            + sum(ai_service_module.ZAI_IMAGE_DOWNLOAD_RETRY_DELAYS_SECONDS)
         )
         assert ai_service_module.generation_outer_timeout_seconds() == expected
+
+
+# ---------------------------------------------------------------------------
+# Part 1a-ter: download 404 retries + optional b64_json response format
+# ---------------------------------------------------------------------------
+
+NOT_FOUND_RESPONSE = FakeResponse(status_code=404, text="Not Found")
+
+
+class TestZaiDownloadRetryAndB64:
+    def _capture_sleeps(self, monkeypatch):
+        sleeps = []
+
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+
+        monkeypatch.setattr(ai_service_module.asyncio, "sleep", fake_sleep)
+        return sleeps
+
+    async def test_download_404_retries_then_success(self, zai_env, cloudinary_upload, monkeypatch):
+        sleeps = self._capture_sleeps(monkeypatch)
+        fake_client = make_fake_async_client(
+            post_response=ZAI_OK_RESPONSE,
+            get_responses=[NOT_FOUND_RESPONSE, NOT_FOUND_RESPONSE, FakeResponse(content=b"png-bytes")],
+        )
+        monkeypatch.setattr(ai_service_module.httpx, "AsyncClient", fake_client)
+
+        service = AIService()
+        url = await service._generate_image_zai("a test prompt")
+
+        assert url == "https://res.cloudinary.com/demo/binaapp/generated.png"
+        assert len(fake_client.get_calls) == 3  # 404, 404, then 200
+        assert sleeps == [2.0, 5.0]  # retry timing before each re-attempt
+
+    async def test_download_404_exhausted_returns_none(self, zai_env, cloudinary_upload, monkeypatch):
+        sleeps = self._capture_sleeps(monkeypatch)
+        fake_client = make_fake_async_client(
+            post_response=ZAI_OK_RESPONSE,
+            get_responses=[NOT_FOUND_RESPONSE],
+        )
+        monkeypatch.setattr(ai_service_module.httpx, "AsyncClient", fake_client)
+
+        service = AIService()
+        assert await service._generate_image_zai("a test prompt") is None
+        assert len(fake_client.get_calls) == 4  # initial + 3 retries
+        assert sleeps == [2.0, 5.0, 10.0]
+        cloudinary_upload.assert_not_called()
+
+    async def test_download_non_404_error_does_not_retry(self, zai_env, cloudinary_upload, monkeypatch):
+        sleeps = self._capture_sleeps(monkeypatch)
+        fake_client = make_fake_async_client(
+            post_response=ZAI_OK_RESPONSE,
+            get_responses=[FakeResponse(status_code=403)],
+        )
+        monkeypatch.setattr(ai_service_module.httpx, "AsyncClient", fake_client)
+
+        service = AIService()
+        assert await service._generate_image_zai("a test prompt") is None
+        assert len(fake_client.get_calls) == 1  # 403 is not propagation lag
+        assert sleeps == []
+
+    async def test_b64_happy_path_skips_cdn_download(self, zai_env, cloudinary_upload, monkeypatch):
+        monkeypatch.setenv("ZAI_IMAGE_B64", "true")
+        b64_payload = base64.b64encode(b"decoded-image-bytes").decode()
+        fake_client = make_fake_async_client(
+            post_response=FakeResponse(status_code=200, json_data={"data": [{"b64_json": b64_payload}]}),
+        )
+        monkeypatch.setattr(ai_service_module.httpx, "AsyncClient", fake_client)
+
+        service = AIService()
+        url = await service._generate_image_zai("a test prompt")
+
+        assert url == "https://res.cloudinary.com/demo/binaapp/generated.png"
+        # Requested base64 output...
+        assert fake_client.post_calls[0]["json"]["response_format"] == "b64_json"
+        # ...decoded it and uploaded straight to Cloudinary — no CDN download.
+        assert fake_client.get_calls == []
+        cloudinary_upload.assert_called_once_with(b"decoded-image-bytes", folder="binaapp")
+
+    async def test_b64_rejected_param_falls_back_to_url_format(self, zai_env, cloudinary_upload, monkeypatch):
+        monkeypatch.setenv("ZAI_IMAGE_B64", "true")
+        fake_client = make_fake_async_client(
+            post_responses=[
+                FakeResponse(status_code=400, text='{"error":"unknown parameter response_format"}'),
+                ZAI_OK_RESPONSE,
+            ],
+            get_response=FakeResponse(content=b"png-bytes"),
+        )
+        monkeypatch.setattr(ai_service_module.httpx, "AsyncClient", fake_client)
+
+        service = AIService()
+        url = await service._generate_image_zai("a test prompt")
+
+        assert url == "https://res.cloudinary.com/demo/binaapp/generated.png"
+        assert len(fake_client.post_calls) == 2
+        assert fake_client.post_calls[0]["json"].get("response_format") == "b64_json"
+        assert "response_format" not in fake_client.post_calls[1]["json"]
+        assert len(fake_client.get_calls) == 1  # URL path used after fallback
+
+    async def test_b64_missing_field_falls_back_to_url_download(self, zai_env, cloudinary_upload, monkeypatch):
+        monkeypatch.setenv("ZAI_IMAGE_B64", "true")
+        # API accepts the param but returns a URL and no b64_json field.
+        fake_client = make_fake_async_client(
+            post_response=ZAI_OK_RESPONSE,
+            get_response=FakeResponse(content=b"png-bytes"),
+        )
+        monkeypatch.setattr(ai_service_module.httpx, "AsyncClient", fake_client)
+
+        service = AIService()
+        url = await service._generate_image_zai("a test prompt")
+
+        assert url == "https://res.cloudinary.com/demo/binaapp/generated.png"
+        assert len(fake_client.post_calls) == 1  # no re-POST needed
+        assert len(fake_client.get_calls) == 1  # downloaded the returned URL
+
+    async def test_b64_flag_off_never_sends_param(self, zai_env, cloudinary_upload, monkeypatch):
+        fake_client = make_fake_async_client(
+            post_response=ZAI_OK_RESPONSE,
+            get_response=FakeResponse(content=b"png-bytes"),
+        )
+        monkeypatch.setattr(ai_service_module.httpx, "AsyncClient", fake_client)
+
+        service = AIService()
+        await service._generate_image_zai("a test prompt")
+
+        assert "response_format" not in fake_client.post_calls[0]["json"]
 
 
 # ---------------------------------------------------------------------------
