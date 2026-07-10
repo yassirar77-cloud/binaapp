@@ -23,6 +23,7 @@ from app.services.widget_catalogue import (
     widgets_for_request,
     build_prompt_context_block,
 )
+from app.services.claim_sanitizer import sanitize_sensitive_claims
 from difflib import SequenceMatcher
 import cloudinary
 import cloudinary.uploader
@@ -3599,8 +3600,15 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         "4. Use ONLY the real business data provided in the prompt (name, "
         "address, phone, hours, menu items, prices). NEVER invent founder "
         "names, phone numbers, addresses, ratings, review counts, awards, or "
-        "statistics that were not supplied. If a detail was not provided, "
-        "omit that content rather than fabricate it.\n"
+        "statistics that were not supplied. NEVER invent religious or "
+        "ownership identity claims (e.g. 'Pengusaha Muslim', 'Muslim-owned', "
+        "'Milik Muslim', 'Bumiputera'), halal status or ANY certification "
+        "(Halal, JAKIM, HACCP, ISO), establishment years ('Est. 20XX', "
+        "'Sejak 19XX', 'Established 20XX'), or dietary claims "
+        "(vegetarian-certified, pork-free, 'no pork no lard', 'tanpa babi'). "
+        "These may appear ONLY if the exact claim is present in the provided "
+        "business data. If a detail was not provided, omit that content "
+        "rather than fabricate it.\n"
     )
     # Rule 5, images-available branch: the PHOTO_SLOT contract. GLM outputs
     # PHOTO_SLOT_N tokens which _replace_photo_slots() then binds to the real
@@ -3853,6 +3861,13 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         "improvements (visual hierarchy, spacing, colour restraint, "
         "typography, section flow). Do NOT suggest changing business facts, "
         "prices, or order/checkout behaviour.\n\n"
+        "SENSITIVE-CLAIM CHECK (part of rule 4): flag as a violation ANY "
+        "religious or ownership identity claim ('Pengusaha Muslim', "
+        "'Muslim-owned', 'Milik Muslim', 'Bumiputera'), halal status or "
+        "certification (Halal, JAKIM, HACCP, ISO), establishment year "
+        "('Est. 20XX', 'Sejak 19XX', 'Established 20XX'), or dietary claim "
+        "(vegetarian-certified, pork-free, 'no pork no lard', 'tanpa babi') "
+        "that is not part of the provided business data.\n\n"
         "Respond with ONLY a JSON object, no markdown fences, in exactly "
         "this shape:\n"
         '{"pass": true|false, "violations": ["rule N: what is violated"], '
@@ -5533,6 +5548,45 @@ IMPORTANT RULES:
 
     # ==================== FREE AUTO-FILL (missing image slots) ====================
 
+    def _sanitize_sensitive_claims(
+        self,
+        html: str,
+        request: WebsiteGenerationRequest,
+        image_urls: Optional[Dict] = None,
+    ) -> str:
+        """Deterministic sensitive-claim guard (Layer 2 of the invented-claims
+        fix): strip religious/ownership identity, halal/certification,
+        establishment-year and dietary claims that the merchant never
+        provided, keeping any claim that IS present in the merchant's own
+        data. Must run on EVERY generation path — GLM primary, DeepSeek
+        fallback, and the template pipeline — because the prompt rules exist
+        only on the GLM side and prompts cannot guarantee omission anyway.
+
+        Source-of-truth fields: business name, description, address,
+        uploaded-image names, and the gallery item names extracted from the
+        merchant's own description (image_urls *_name keys).
+        """
+        if not html:
+            return html
+        sources: List[str] = [
+            request.business_name or "",
+            request.description or "",
+            str(getattr(request, "location_address", "") or ""),
+        ]
+        for img in (request.uploaded_images or []):
+            if isinstance(img, dict) and img.get("name"):
+                sources.append(str(img["name"]))
+        for key, value in (image_urls or {}).items():
+            if key.endswith("_name") and value:
+                sources.append(str(value))
+        sanitized, removed = sanitize_sensitive_claims(html, sources)
+        if removed:
+            logger.info(
+                f"🛡 Sensitive-claim sanitizer removed {len(removed)} "
+                f"unverified claim(s): {removed}"
+            )
+        return sanitized
+
     def _resolve_autofill_image_cap(self, max_ai_images: Optional[int]) -> int:
         """Effective AI-image cap for the auto-fill pass.
 
@@ -5584,32 +5638,46 @@ IMPORTANT RULES:
             return "retail"
         return "generic"
 
+    # Appended to every hero prompt: glm-image renders text well only when
+    # deliberately instructed — incidental scene signage (storefront signs,
+    # hanging menus) comes out as garbled pseudo-text, so heroes must carry
+    # no lettering at all.
+    _HERO_NO_TEXT_SUFFIX = (
+        "no text, no signage, no words, no lettering anywhere in the image"
+    )
+
     def _autofill_hero_prompt(self, category: str, biz_type: str) -> str:
         """Hero banner prompt per category.
 
         Always a lively showcase of the business's output — never an empty
-        premises or equipment shot. (The food hero keeps the established
-        stall-ambience prompt: it is full of people and food, not empty.)
+        premises or equipment shot. The food hero is deliberately
+        food-centric (abundant dishes, close-up plating, hands serving)
+        rather than a storefront/interior scene, where signboards naturally
+        appear and render as garbled AI text. Every category carries the
+        no-text suffix for the same reason.
         """
         if category == "food":
             return (
-                "Malaysian restaurant interior, food stall with hanging menu, "
-                "authentic atmosphere, people eating, warm lighting, food photography"
+                "Abundant spread of delicious Malaysian dishes covering a "
+                "table, close-up plated food, hands serving food, warm "
+                "ambience, shallow depth of field, appetizing food "
+                f"photography, {self._HERO_NO_TEXT_SUFFIX}"
             )
         if category == "creative":
             return (
                 f"Artistic showcase of {biz_type} work, cinematic silhouette "
                 f"composition at golden hour, elegant venue backdrop, "
-                f"professional photography"
+                f"professional photography, {self._HERO_NO_TEXT_SUFFIX}"
             )
         if category == "retail":
             return (
                 f"Attractive arrangement of {biz_type} products, lifestyle "
-                f"commercial photography, warm inviting lighting, clean modern styling"
+                f"commercial photography, warm inviting lighting, clean "
+                f"modern styling, {self._HERO_NO_TEXT_SUFFIX}"
             )
         return (
             f"Professional photography showcasing {biz_type} work in action, "
-            f"warm lighting, high quality"
+            f"warm lighting, high quality, {self._HERO_NO_TEXT_SUFFIX}"
         )
 
     def _autofill_item_prompt(self, category: str, name: str, biz_type: str) -> str:
@@ -5947,6 +6015,11 @@ IMPORTANT RULES:
                                 ai_images_generated += food_images_count
                         with _timed_step("final_cleanup", step_timings):
                             template_html = self._fix_broken_image_urls(template_html, request.description)
+                            # Sensitive-claim guard — same protection as the
+                            # AI-generation paths below.
+                            template_html = self._sanitize_sensitive_claims(
+                                template_html, request, image_urls
+                            )
 
                         total_time = time.time() - start_time
                         logger.info(f"✅ PRE-BUILT TEMPLATE PIPELINE COMPLETE in {total_time:.1f}s")
@@ -6437,6 +6510,10 @@ IMPORTANT INSTRUCTIONS:
             # Safety net: remove any remaining {{placeholder}} tokens so they
             # never appear on the published site (AI sometimes outputs these).
             html = re.sub(r'\{\{[a-zA-Z_]+\}\}', '', html)
+            # Sensitive-claim guard: runs here, AFTER the GLM/DeepSeek paths
+            # converge, so BOTH providers' output is sanitized (the prompt
+            # rules exist only on the GLM side).
+            html = self._sanitize_sensitive_claims(html, request, image_urls)
 
         total_time = time.time() - start_time
         logger.info("✅ ALL STEPS COMPLETE")
@@ -6671,6 +6748,9 @@ IMPORTANT INSTRUCTIONS:
 
                 # FINAL SAFETY NET: Fix any remaining broken/empty image URLs
                 html = self._fix_broken_image_urls(html, request.description)
+
+                # Sensitive-claim guard — same protection as generate_website.
+                html = self._sanitize_sensitive_claims(html, request)
 
                 results[style] = AIGenerationResponse(
                     html_content=html,
