@@ -30,6 +30,8 @@ import WebsitesSection, { type WebsiteItem } from '@/components/dashboard-new/We
 import ActivityFeed, { type ActivityEvent } from '@/components/dashboard-new/ActivityFeed'
 import DashboardUsageWidget from '@/components/dashboard-new/DashboardUsageWidget'
 import MobileDashboard, { type MobileStat } from '@/components/dashboard-new/MobileDashboard'
+import ReportIssueModal from '@/components/dashboard-new/ReportIssueModal'
+import { isIssueReportKnownDisabled } from '@/lib/issueReport'
 import '@/components/dashboard-new/dashboard.css'
 
 interface Project {
@@ -66,6 +68,15 @@ export default function DashboardPage() {
   })
   const [planLimit, setPlanLimit] = useState<number | null>(null)
   const [checkingCreate, setCheckingCreate] = useState(false)
+  // Report Issue (flag-gated: ISSUE_REPORT_ENABLED). Buttons render
+  // optimistically; the first 404 from the endpoint marks the feature
+  // disabled for the session and hides them everywhere.
+  const [reportSite, setReportSite] = useState<{ id: string; name: string } | null>(null)
+  const [reportDisabled, setReportDisabled] = useState(false)
+
+  useEffect(() => {
+    setReportDisabled(isIssueReportKnownDisabled())
+  }, [])
 
   useEffect(() => {
     loadProjects()
@@ -381,6 +392,7 @@ export default function DashboardPage() {
         onDelete={(id) => setDeleteConfirm(id)}
         onDeleteConfirm={(id) => handleDelete(id)}
         onDeleteCancel={() => setDeleteConfirm(null)}
+        onReportIssue={reportDisabled ? undefined : (w) => setReportSite({ id: w.id, name: w.name })}
         onUpgradeClick={() => router.push('/dashboard/billing')}
         onRenewClick={() => router.push('/dashboard/billing')}
         onLogout={handleLogout}
@@ -416,6 +428,7 @@ export default function DashboardPage() {
           onDelete={(id) => setDeleteConfirm(id)}
           onDeleteConfirm={(id) => handleDelete(id)}
           onDeleteCancel={() => setDeleteConfirm(null)}
+          onReportIssue={reportDisabled ? undefined : (w) => setReportSite({ id: w.id, name: w.name })}
         />
 
         {/* TODO: Wire real activity events */}
@@ -438,6 +451,26 @@ export default function DashboardPage() {
           onRenewClick={() => router.push('/dashboard/billing')}
         />
       </div>
+
+      {/* Report Issue modal (flag-gated: ISSUE_REPORT_ENABLED) */}
+      {reportSite && (
+        <ReportIssueModal
+          websiteId={reportSite.id}
+          websiteName={reportSite.name}
+          onClose={() => setReportSite(null)}
+          onGoToRegenerate={(id) => {
+            setReportSite(null)
+            // The regenerate action lives in the editor; after a granted
+            // report the backend makes the next regenerate of this site
+            // free automatically — this is a plain navigation.
+            router.push(`/editor/${id}`)
+          }}
+          onFeatureDisabled={() => {
+            setReportDisabled(true)
+            setReportSite(null)
+          }}
+        />
+      )}
 
       {/* Limit Reached Modal — preserved verbatim */}
       <LimitReachedModal

@@ -76,6 +76,8 @@ interface MobileDashboardProps {
   onDelete: (websiteId: string) => void
   onDeleteConfirm: (websiteId: string) => void
   onDeleteCancel: () => void
+  /** Report-an-issue action; omit to hide (flag off). */
+  onReportIssue?: (website: WebsiteItem) => void
   onUpgradeClick: () => void
   onRenewClick: () => void
   /** Logout handler (calls supabase.auth.signOut) */
@@ -98,6 +100,7 @@ export default function MobileDashboard({
   onDelete,
   onDeleteConfirm,
   onDeleteCancel,
+  onReportIssue,
   onUpgradeClick,
   onRenewClick,
   onLogout,
@@ -188,6 +191,7 @@ export default function MobileDashboard({
               onDelete={() => onDelete(site.id)}
               onDeleteConfirm={() => onDeleteConfirm(site.id)}
               onDeleteCancel={onDeleteCancel}
+              onReportIssue={onReportIssue ? () => onReportIssue(site) : undefined}
             />
           ))}
         </div>
