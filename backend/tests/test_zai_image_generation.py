@@ -74,8 +74,8 @@ def make_fake_async_client(post_response=None, get_response=None, post_exc=None,
                 return queue.pop(0) if len(queue) > 1 else queue[0]
             return post_response
 
-        async def get(self, url, **kwargs):
-            type(self).get_calls.append(url)
+        async def get(self, url, headers=None, **kwargs):
+            type(self).get_calls.append({"url": url, "headers": headers})
             return get_response
 
     return FakeAsyncClient
@@ -182,7 +182,8 @@ class TestZaiImageGeneration:
         url = await service._generate_image_zai("a test prompt")
 
         # Downloaded the URL from the Z.ai response...
-        assert fake_client.get_calls == ["https://zai-cdn.example/generated.png"]
+        assert len(fake_client.get_calls) == 1
+        assert str(fake_client.get_calls[0]["url"]) == "https://zai-cdn.example/generated.png"
         # ...and pushed the bytes through the existing Cloudinary path.
         cloudinary_upload.assert_called_once_with(b"downloaded-image-bytes", folder="binaapp")
         assert url == "https://res.cloudinary.com/demo/binaapp/generated.png"
@@ -218,6 +219,55 @@ class TestZaiImageGeneration:
         service = AIService()
         assert await service._generate_image_zai("a test prompt") is None
         cloudinary_upload.assert_not_called()
+
+    async def test_download_url_matches_api_returned_url_verbatim(self, zai_env, cloudinary_upload, monkeypatch):
+        # Signed/filename-keyed mfile.z.ai URL with a query string that
+        # httpx.URL(str) would otherwise re-normalize.
+        api_url = (
+            "https://mfile.z.ai/api/v1/files/abc-123/download"
+            "?ufileattname=nasi%20kandar+set(1).png&sign=aB%2Fc%3D"
+        )
+        fake_client = make_fake_async_client(
+            post_response=FakeResponse(status_code=200, json_data={"data": [{"url": api_url}]}),
+            get_response=FakeResponse(content=b"png-bytes"),
+        )
+        monkeypatch.setattr(ai_service_module.httpx, "AsyncClient", fake_client)
+
+        service = AIService()
+        url = await service._generate_image_zai("a test prompt")
+
+        assert url is not None
+        # The download must request exactly what the API returned — full
+        # query string (?ufileattname=..., signature) with no re-encoding.
+        assert str(fake_client.get_calls[0]["url"]) == api_url
+
+    async def test_download_uses_redirects_and_browser_user_agent(self, zai_env, cloudinary_upload, monkeypatch):
+        fake_client = make_fake_async_client(
+            post_response=ZAI_OK_RESPONSE,
+            get_response=FakeResponse(content=b"png-bytes"),
+        )
+        monkeypatch.setattr(ai_service_module.httpx, "AsyncClient", fake_client)
+
+        service = AIService()
+        await service._generate_image_zai("a test prompt")
+
+        # Dedicated download client follows CDN redirects...
+        assert len(fake_client.init_kwargs) == 2  # API client + download client
+        assert fake_client.init_kwargs[1].get("follow_redirects") is True
+        # ...and sends a browser-like User-Agent.
+        headers = fake_client.get_calls[0]["headers"]
+        assert headers["User-Agent"].startswith("Mozilla/5.0")
+
+    def test_verbatim_download_url_helper(self, zai_env):
+        # ASCII URLs (including %-escapes, +, parentheses) stay byte-for-byte.
+        raw = "https://mfile.z.ai/download?ufileattname=produk%20foto(1)+x.png&sig=a%2Fb%3D"
+        assert str(AIService._verbatim_download_url(raw)) == raw
+        # Characters illegal on the wire (space, unicode) get percent-encoded
+        # exactly like a browser would — everything else untouched.
+        assert (
+            str(AIService._verbatim_download_url("https://mfile.z.ai/d?name=nasi kandar.png"))
+            == "https://mfile.z.ai/d?name=nasi%20kandar.png"
+        )
 
     async def test_download_failure_returns_none(self, zai_env, cloudinary_upload, monkeypatch):
         fake_client = make_fake_async_client(
