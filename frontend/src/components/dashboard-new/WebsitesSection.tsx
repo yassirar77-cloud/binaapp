@@ -29,6 +29,8 @@ interface WebsitesSectionProps {
   onDelete: (websiteId: string) => void
   onDeleteConfirm: (websiteId: string) => void
   onDeleteCancel: () => void
+  /** Report-an-issue action; omit to hide (flag off). */
+  onReportIssue?: (website: WebsiteItem) => void
 }
 
 export default function WebsitesSection({
@@ -42,6 +44,7 @@ export default function WebsitesSection({
   onDelete,
   onDeleteConfirm,
   onDeleteCancel,
+  onReportIssue,
 }: WebsitesSectionProps): ReactElement {
   return (
     <section className="mb-10">
@@ -92,6 +95,7 @@ export default function WebsitesSection({
               onDelete={() => onDelete(site.id)}
               onDeleteConfirm={() => onDeleteConfirm(site.id)}
               onDeleteCancel={onDeleteCancel}
+              onReportIssue={onReportIssue ? () => onReportIssue(site) : undefined}
             />
           ))}
         </div>

@@ -231,7 +231,9 @@ export default function CreatePage() {
   // 'none' = No images (text-only website)
   // 'upload' = Use only user-uploaded images
   // 'ai' = Generate AI images with Stability AI
-  const [imageChoice, setImageChoice] = useState<'none' | 'upload' | 'ai'>('none')
+  // AI images are free (glm-image, free-by-default budget) — default to
+  // 'ai' so every new site ships with pictures unless the user opts out.
+  const [imageChoice, setImageChoice] = useState<'none' | 'upload' | 'ai'>('ai')
 
   // Delivery system states
   const [deliveryArea, setDeliveryArea] = useState('')
@@ -612,45 +614,11 @@ export default function CreatePage() {
     }
   }
 
-  // Check if user can use AI images
-  async function checkAIImageLimit(): Promise<boolean> {
-    if (imageChoice !== 'ai') return true
-
-    try {
-      const token = getStoredToken()
-      if (!token) return true
-
-      const response = await fetch(`${API_BASE_URL}/api/v1/subscription/check-limit`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ action: 'generate_ai_image' })
-      })
-
-      const data = await response.json()
-
-      if (!response.ok || !data.allowed) {
-        setLimitModalData({
-          resourceType: 'ai_image',
-          currentUsage: data.current_usage || 0,
-          limit: data.limit || 5,
-          canBuyAddon: data.can_buy_addon || false,
-          addonPrice: data.addon_price
-        })
-        setShowLimitModal(true)
-        return false
-      }
-
-      return true
-    } catch (error) {
-      console.error('[Create] AI image limit check error:', error)
-      // FAIL CLOSED: Block action when limit check fails
-      setError('Gagal menyemak had penggunaan imej AI. Sila cuba lagi.')
-      return false
-    }
-  }
+  // NOTE: the pre-submit AI-image quota gate (checkAIImageLimit) was
+  // removed: AI images are free-by-default now (glm-image), so the
+  // frontend must never block or upsell the 'ai' image choice. The
+  // backend remains the authority — it caps the per-site AI-image budget
+  // server-side (FREE_AI_IMAGES_PER_SITE).
 
   // Handle when a limit is reached - show upgrade or addon modal
   const handleLimitReached = (limitData: {
@@ -706,12 +674,6 @@ export default function CreatePage() {
     const canCreate = await checkWebsiteLimit()
     if (!canCreate) {
       return // Modal will be shown by checkWebsiteLimit
-    }
-
-    // Check AI image limits if AI images selected
-    const canUseAI = await checkAIImageLimit()
-    if (!canUseAI) {
-      return
     }
 
     // CRITICAL: Clear any existing polling interval to prevent stale job ID polling
@@ -1719,9 +1681,9 @@ export default function CreatePage() {
                     {(() => {
                       const uploadedCount = (uploadedImages.hero ? 1 : 0) + uploadedImages.gallery.filter(g => g.url).length
                       const sources = [
-                        { id: 'none' as const,   l: 'Tiada gambar',   s: 'Text-only menu', icon: <FileText size={16} />, premium: false, badge: '' },
-                        { id: 'upload' as const, l: 'Upload sendiri', s: 'Drag drop images', icon: <Upload size={16} />, premium: false, badge: uploadedCount > 0 ? `${uploadedCount} uploaded` : '' },
-                        { id: 'ai' as const,     l: 'AI generate',    s: 'Premium · auto-match', icon: <Sparkles size={16} />, premium: true, badge: '' },
+                        { id: 'ai' as const,     l: 'AI Gambar — Percuma', s: 'Auto-match ikut menu anda', icon: <Sparkles size={16} />, badge: 'PERCUMA' },
+                        { id: 'upload' as const, l: 'Upload sendiri', s: 'Drag drop images', icon: <Upload size={16} />, badge: uploadedCount > 0 ? `${uploadedCount} uploaded` : '' },
+                        { id: 'none' as const,   l: 'Tiada gambar',   s: 'Text-only menu', icon: <FileText size={16} />, badge: '' },
                       ]
                       return sources.map(s => (
                         <div
@@ -1736,7 +1698,6 @@ export default function CreatePage() {
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                               {s.l}
-                              {s.premium && <span className="pill pill-volt" style={{ padding: '1px 6px', fontSize: 9 }}>PREMIUM</span>}
                               {s.badge && <span className="pill pill-volt" style={{ padding: '1px 6px', fontSize: 9 }}>{s.badge}</span>}
                             </div>
                             <div style={{ fontSize: 11, color: '#86869A', marginTop: 1 }}>{s.s}</div>

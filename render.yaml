@@ -61,6 +61,15 @@ services:
       - key: SUPPORT_EMAIL
         sync: false
 
+      # Report Issue → free make-good regeneration (flag-gated, default OFF).
+      # Set ISSUE_REPORT_ENABLED=true in the Render dashboard ONLY AFTER
+      # applying backend/migrations/052_website_issue_reports.sql to prod
+      # Supabase. ISSUE_FREE_REGEN_CAP defaults to 2 when unset.
+      - key: ISSUE_REPORT_ENABLED
+        sync: false
+      - key: ISSUE_FREE_REGEN_CAP
+        sync: false
+
       # App config
       - key: FRONTEND_URL
         value: "https://binaapp.my"

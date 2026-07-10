@@ -1,7 +1,7 @@
 'use client'
 
 import { ReactElement } from 'react'
-import { ExternalLink, Edit2, Trash2, Globe } from 'lucide-react'
+import { ExternalLink, Edit2, Trash2, Globe, Flag } from 'lucide-react'
 
 export type WebsiteStatus = 'published' | 'draft' | 'paused'
 
@@ -28,6 +28,12 @@ interface WebsiteCardProps {
   onDelete?: () => void
   onDeleteConfirm?: () => void
   onDeleteCancel?: () => void
+  /**
+   * Report-an-issue action (flag-gated: ISSUE_REPORT_ENABLED). Omit to
+   * hide the button — the dashboard omits it once the backend says the
+   * feature is off.
+   */
+  onReportIssue?: () => void
 }
 
 const STATUS_CONFIG: Record<
@@ -53,6 +59,7 @@ export default function WebsiteCard({
   onDelete,
   onDeleteConfirm,
   onDeleteCancel,
+  onReportIssue,
 }: WebsiteCardProps): ReactElement {
   const isDraft = status === 'draft'
   const statusCfg = STATUS_CONFIG[status]
@@ -154,6 +161,16 @@ export default function WebsiteCard({
           >
             <Edit2 size={12} /> Ubah
           </button>
+          {onReportIssue && (
+            <button
+              onClick={onReportIssue}
+              title="Report masalah"
+              aria-label="Report masalah"
+              className="bg-white/[0.04] text-ink-400 border border-white/[0.08] py-2 px-2.5 rounded-[9px] cursor-pointer grid place-items-center hover:bg-white/[0.08] hover:text-warn-400 transition-colors"
+            >
+              <Flag size={13} />
+            </button>
+          )}
           {isDeleteConfirm ? (
             <button
               onClick={onDeleteConfirm}
