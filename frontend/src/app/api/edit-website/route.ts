@@ -4,7 +4,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onre
 
 export async function POST(request: NextRequest) {
   try {
-    const { html, instruction } = await request.json();
+    const { html, instruction, website_id } = await request.json();
 
     if (!instruction) {
       console.error('❌ AI Edit: Missing instruction');
@@ -48,7 +48,9 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
         Authorization: authHeader,
       },
-      body: JSON.stringify({ html: htmlToEdit, instruction }),
+      // website_id is optional; when present the backend runs the edit
+      // guards' claim verification against the site's business data.
+      body: JSON.stringify({ html: htmlToEdit, instruction, website_id }),
     });
 
     console.log(`🤖 AI Edit: Backend response status: ${response.status}`);

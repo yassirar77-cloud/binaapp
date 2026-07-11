@@ -31,6 +31,7 @@ from app.api.v1.router import api_router as v1_router
 from app.api.chatbot import router as chatbot_router
 from app.api.menu_designer import router as menu_designer_router
 from app.services.templates import template_service
+from app.services.edit_guards import apply_edit_guards
 from app.core.security import get_current_user
 from app.core.config import settings
 
@@ -4450,11 +4451,13 @@ async def edit_html(
 
     html = body.get("html", "")
     instruction = body.get("instruction", "")
+    website_id = body.get("website_id")
 
     logger.info("=" * 50)
     logger.info("🤖 AI EDIT REQUEST")
     logger.info(f"   Instruction: {instruction}")
     logger.info(f"   HTML length: {len(html)} chars")
+    logger.info(f"   Website ID: {website_id or '(not provided)'}")
     logger.info("=" * 50)
 
     if not instruction:
@@ -4541,6 +4544,41 @@ OUTPUT THE COMPLETE MODIFIED HTML:"""
                 html_result = extract_html(content)
 
                 if html_result and len(html_result) > 100:
+                    # POST-EDIT GUARDS: HTML leaving the edit path is held
+                    # to the same standard as a fresh generation — photo-slot
+                    # binding, broken-image fixer, sensitive-claim sanitizer
+                    # (verified against the merchant's stored business data),
+                    # and the layout/AOS safety CSS. See
+                    # app.services.edit_guards for the full rationale.
+                    website = None
+                    if website_id:
+                        try:
+                            website = await supabase_service.get_website(str(website_id))
+                        except Exception as lookup_err:
+                            logger.warning(
+                                f"🛡 Could not load website {website_id} for edit "
+                                f"guards: {lookup_err} — falling back to pre-edit HTML "
+                                f"as claim source"
+                            )
+                            website = None
+                        if website and website.get("user_id") != current_user.get("sub"):
+                            logger.warning(
+                                f"🛡 Edit request referenced website {website_id} not "
+                                f"owned by user {current_user.get('sub')}"
+                            )
+                            return JSONResponse(
+                                status_code=403,
+                                content={
+                                    "success": False,
+                                    "error": "Not authorized for this website",
+                                },
+                            )
+                    html_result = apply_edit_guards(
+                        html_result,
+                        ai_service,
+                        website=website,
+                        previous_html=html,
+                    )
                     logger.info("🔷 ✅ SUCCESS!")
                     return {"html": html_result, "success": True}
                 else:
