@@ -416,7 +416,9 @@ export default function EditorPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ html, instruction }),
+        // website_id lets the backend verify sensitive claims in the edit
+        // result against this site's stored business data (edit guards).
+        body: JSON.stringify({ html, instruction, website_id: id }),
       });
 
       if (response.status === 401) {
