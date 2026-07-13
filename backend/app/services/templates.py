@@ -3842,6 +3842,21 @@ section:not([id="menu"]):not([id*="menu"]) .bg-gray-100:not(:has(*)):not([class*
   background-color: #475569 !important;
 }
 
+/* (f) Hero mini-stats / numbers rows: long Malay labels ("Berpatutan",
+   "Shah Alam") overflow their column and collide with neighbours because
+   grid items default to min-width:auto — a long unbreakable word refuses to
+   shrink below its own width. Force grid cells in the hero/header to shrink
+   (min-width:0) and let words wrap (overflow-wrap inherits to the labels).
+   Harmless for grids without long words — nothing changes visually. */
+section[id="home"] .grid > *,
+header .grid > * {
+  min-width: 0;
+}
+section[id="home"] .grid,
+header .grid {
+  overflow-wrap: break-word;
+}
+
 /* (b cont.) Floating WhatsApp button must always be fixed bottom-right, never
    absorbed into the content flow even when the AI HTML it landed next to has
    unclosed tags. */

@@ -7,6 +7,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports
 from app.api.admin import repair as admin_repair
+from app.api.admin import make_good as admin_make_good
 from app.api.admin import unstick_generation as admin_unstick
 
 api_router = APIRouter()
@@ -36,6 +37,10 @@ api_router.include_router(analytics.router, tags=["Analytics"])
 # enforces role='admin' internally — mounted under the v1 prefix so the
 # full path is POST /api/v1/admin/repair-websites.
 api_router.include_router(admin_repair.router, tags=["Admin: Repair"])
+# Admin: guarded make-good rewrite (regenerate product-card images with
+# business context + strip biased food icons; quota is never charged).
+# Full path is POST /api/v1/admin/make-good-regen.
+api_router.include_router(admin_make_good.router, tags=["Admin: Make-good"])
 # Admin: manual escape hatch for websites stuck on status='generating'.
 # Path is POST /api/v1/admin/websites/{id}/unstick-generation. The
 # scheduled sweeper in core/scheduler.py handles the common case
