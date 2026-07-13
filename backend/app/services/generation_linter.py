@@ -98,6 +98,10 @@ _FREE_SOLID_ICONS = {
     "graduation-cap", "book", "book-open", "chalkboard", "chalkboard-user",
     "laptop", "laptop-code", "desktop", "code", "database", "server",
     "cloud", "wifi", "print", "camera", "camera-retro", "image", "images",
+    # electronics / phone retail
+    "signal", "sim-card", "battery-full", "battery-half", "tablet",
+    "tablet-screen-button", "tv", "gamepad", "keyboard", "computer-mouse",
+    "memory", "microchip", "qrcode", "barcode",
     "video", "film", "music", "microphone", "headphones", "photo-film",
     "paint-roller", "trowel", "trowel-bricks", "helmet-safety", "hard-hat",
     "plug", "bolt", "lightbulb", "faucet", "broom", "bucket", "screwdriver",
@@ -145,15 +149,68 @@ _FA_NON_GLYPH_TOKENS = {
 }
 
 # Free-glyph fallbacks by rough business context. Keys are substrings matched
-# against the (lowercased) context string the caller passes in.
+# against the (lowercased) context string the caller passes in, first match
+# wins — so specific terms must come before broad ones.
+#
+# NOTE: "kedai" is deliberately NOT a food term — it just means "shop" in
+# Malay ("kedai phone", "kedai runcit"). It used to map to bowl-food, which
+# is how a phone shop ("kedai phone & smart line") got fa-bowl-food stamped
+# on its feature cards whenever the model emitted an unknown/Pro glyph.
 _FALLBACK_BY_CONTEXT = [
+    # electronics / phone shops — before "kedai"/"shop"
+    ("phone", "mobile-screen"), ("telefon", "mobile-screen"),
+    ("smartphone", "mobile-screen"), ("gadget", "mobile-screen"),
+    ("elektronik", "mobile-screen"), ("electronic", "mobile-screen"),
+    # food & drink — genuinely food words only
     ("food", "utensils"), ("makan", "utensils"), ("restoran", "utensils"),
     ("cafe", "mug-hot"), ("kopi", "mug-hot"), ("coffee", "mug-hot"),
-    ("kedai", "bowl-food"), ("tomyam", "bowl-food"), ("catering", "utensils"),
+    ("tomyam", "bowl-food"), ("catering", "utensils"),
+    # beauty / services
     ("salon", "scissors"), ("beauty", "spa"), ("spa", "spa"),
+    # generic retail
+    ("kedai", "store"),
     ("shop", "bag-shopping"), ("retail", "bag-shopping"), ("store", "store"),
 ]
 _DEFAULT_FALLBACK = "circle-info"
+
+# ---------------------------------------------------------------------------
+# Food-icon bias pass (non-F&B businesses)
+# ---------------------------------------------------------------------------
+#
+# The generator historically preferred food glyphs (its prompt listed them as
+# the "safe" set), so non-food businesses shipped with e.g. fa-bowl-food on a
+# phone shop's "Smart Line" feature card. This pass removes unambiguous
+# food/drink glyphs from sites whose business type is not F&B, replacing them
+# with a context-appropriate neutral glyph.
+#
+# Only clearly food-specific glyphs are listed. Dual-use glyphs a non-food
+# business might legitimately want (fish → aquarium/pet shop, leaf/seedling →
+# eco messaging, jar → packaging) are deliberately left alone.
+_FOOD_GLYPHS = {
+    "utensils", "bowl-food", "bowl-rice", "burger", "hamburger",
+    "pizza-slice", "drumstick-bite", "hotdog", "cheese", "bread-slice",
+    "cookie", "cookie-bite", "ice-cream", "cake-candles", "birthday-cake",
+    "candy-cane", "mug-saucer", "coffee", "cup-togo", "martini-glass",
+    "martini-glass-citrus", "wine-glass", "wine-glass-empty", "wine-bottle",
+    "beer-mug-empty", "beer", "champagne-glasses", "whiskey-glass",
+    "plate-wheat", "wheat-awn", "egg", "bacon", "stroopwafel", "pepper-hot",
+    "carrot", "lemon", "apple-whole", "kitchen-set", "mortar-pestle",
+    "blender", "fire-burner", "mug-hot",
+}
+
+# Business types (see app.services.business_types.detect_business_type) whose
+# pages legitimately carry food iconography.
+_FOOD_BUSINESS_TYPES = {"food", "bakery", "cafe"}
+
+# Neutral fallback for the food-bias pass, picked from context. A phone /
+# electronics shop reads better with fa-mobile-screen; everything else gets
+# the universally-safe fa-circle-check.
+_NONFOOD_NEUTRAL_BY_CONTEXT = [
+    ("phone", "mobile-screen"), ("telefon", "mobile-screen"),
+    ("smartphone", "mobile-screen"), ("gadget", "mobile-screen"),
+    ("elektronik", "mobile-screen"), ("electronic", "mobile-screen"),
+]
+_NONFOOD_NEUTRAL_DEFAULT = "circle-check"
 
 # A single `fa-<token>` inside a class list. Word-bounded so `fa-solidish`
 # won't match and Tailwind's own classes are untouched.
@@ -163,15 +220,19 @@ _FA_TOKEN_RE = re.compile(r"fa-([a-z0-9]+(?:-[a-z0-9]+)*)")
 @dataclass
 class LintReport:
     fa_replacements: List[Tuple[str, str]] = field(default_factory=list)
+    food_icon_replacements: List[Tuple[str, str]] = field(default_factory=list)
     tw_rewrites: List[Tuple[str, str]] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
-        return bool(self.fa_replacements or self.tw_rewrites)
+        return bool(
+            self.fa_replacements or self.food_icon_replacements or self.tw_rewrites
+        )
 
     def as_dict(self) -> Dict[str, List[Tuple[str, str]]]:
         return {
             "fa_replacements": self.fa_replacements,
+            "food_icon_replacements": self.food_icon_replacements,
             "tw_rewrites": self.tw_rewrites,
         }
 
@@ -184,27 +245,32 @@ def _pick_fallback(context: str) -> str:
     return _DEFAULT_FALLBACK
 
 
+def _pick_nonfood_neutral(context: str) -> str:
+    ctx = (context or "").lower()
+    for needle, glyph in _NONFOOD_NEUTRAL_BY_CONTEXT:
+        if needle in ctx:
+            return glyph
+    return _NONFOOD_NEUTRAL_DEFAULT
+
+
 def _is_known_free_glyph(glyph: str) -> bool:
     return glyph in _FREE_SOLID_ICONS or glyph in _FREE_BRAND_ICONS
 
 
-def lint_fontawesome_icons(html: str, context: str = "") -> Tuple[str, List[Tuple[str, str]]]:
-    """
-    Replace unknown / Pro-only Font Awesome glyph classes with a free fallback.
+# Only rewrite fa-* tokens that appear inside a class attribute so we never
+# touch unrelated text that happens to contain "fa-".
+_CLASS_ATTR_RE = re.compile(r'class\s*=\s*(["\'])(.*?)\1', re.DOTALL)
 
-    Only tokens that look like glyph names are considered — style prefixes
-    (fa-solid), sizing (fa-2x), and animation (fa-spin) modifiers are skipped.
-    Returns (new_html, [(old_glyph, new_glyph), ...]).
-    """
-    if not html:
-        return html, []
 
-    fallback = _pick_fallback(context)
+def _rewrite_fa_glyphs(html: str, decide) -> Tuple[str, List[Tuple[str, str]]]:
+    """Shared class-attribute glyph rewriter.
+
+    `decide(glyph)` returns the replacement glyph name (without the `fa-`
+    prefix) or None to leave the token untouched. Style prefixes (fa-solid),
+    sizing (fa-2x), and animation (fa-spin) modifiers are never passed to
+    `decide`. Returns (new_html, [(old_glyph, new_glyph), ...]).
+    """
     replacements: List[Tuple[str, str]] = []
-
-    # Only rewrite fa-* tokens that appear inside a class attribute so we never
-    # touch unrelated text that happens to contain "fa-".
-    class_attr_re = re.compile(r'class\s*=\s*(["\'])(.*?)\1', re.DOTALL)
 
     def _fix_class_value(match: re.Match) -> str:
         quote = match.group(1)
@@ -228,20 +294,83 @@ def lint_fontawesome_icons(html: str, context: str = "") -> Tuple[str, List[Tupl
                 new_tokens.append(tok)
                 continue
             glyph = m.group(1)
-            if glyph in _FA_NON_GLYPH_TOKENS or _is_known_free_glyph(glyph):
+            if glyph in _FA_NON_GLYPH_TOKENS:
                 new_tokens.append(tok)
                 continue
-            # Unknown glyph → replace with the context fallback.
-            new_tokens.append(f"fa-{fallback}")
-            replacements.append((glyph, fallback))
+            replacement = decide(glyph)
+            if replacement is None:
+                new_tokens.append(tok)
+                continue
+            new_tokens.append(f"fa-{replacement}")
+            replacements.append((glyph, replacement))
         return f"class={quote}{' '.join(new_tokens)}{quote}"
 
-    new_html = class_attr_re.sub(_fix_class_value, html)
+    return _CLASS_ATTR_RE.sub(_fix_class_value, html), replacements
+
+
+def lint_fontawesome_icons(html: str, context: str = "") -> Tuple[str, List[Tuple[str, str]]]:
+    """
+    Replace unknown / Pro-only Font Awesome glyph classes with a free fallback.
+
+    Only tokens that look like glyph names are considered — style prefixes
+    (fa-solid), sizing (fa-2x), and animation (fa-spin) modifiers are skipped.
+    Returns (new_html, [(old_glyph, new_glyph), ...]).
+    """
+    if not html:
+        return html, []
+
+    fallback = _pick_fallback(context)
+
+    def _decide(glyph: str):
+        return None if _is_known_free_glyph(glyph) else fallback
+
+    new_html, replacements = _rewrite_fa_glyphs(html, _decide)
 
     if replacements:
         logger.info(
             f"🔤 FA linter replaced {len(replacements)} unknown/Pro icon(s) "
             f"with fa-{fallback}: {[r[0] for r in replacements]}"
+        )
+    return new_html, replacements
+
+
+def lint_food_icon_bias(
+    html: str, business_type: str = "", context: str = ""
+) -> Tuple[str, List[Tuple[str, str]]]:
+    """
+    Icon-sanity pass: on a NON-F&B site, replace unambiguous food/drink
+    glyphs (fa-bowl-food, fa-utensils, fa-burger, ...) with a neutral
+    context-appropriate glyph (fa-mobile-screen for phone/electronics
+    contexts, fa-circle-check otherwise).
+
+    The generator's icon guidance historically listed food glyphs as the
+    "safe" set for every vertical, and the unknown-glyph fallback used to be
+    food-flavoured too — so a phone shop ("kedai phone & smart line") got
+    fa-bowl-food on its "Smart Line" feature cards. Runs AFTER
+    lint_fontawesome_icons so it also corrects any food fallback that pass
+    might have introduced.
+
+    No-op when business_type is empty (unknown) or an F&B type.
+    Returns (new_html, [(old_glyph, new_glyph), ...]).
+    """
+    if not html:
+        return html, []
+    btype = (business_type or "").strip().lower()
+    if not btype or btype in _FOOD_BUSINESS_TYPES:
+        return html, []
+
+    neutral = _pick_nonfood_neutral(context)
+
+    def _decide(glyph: str):
+        return neutral if glyph in _FOOD_GLYPHS else None
+
+    new_html, replacements = _rewrite_fa_glyphs(html, _decide)
+
+    if replacements:
+        logger.info(
+            f"🍽️→🧹 Food-icon bias pass replaced {len(replacements)} food "
+            f"glyph(s) on a '{btype}' business with fa-{neutral}: "
+            f"{[r[0] for r in replacements]}"
         )
     return new_html, replacements
 
@@ -359,7 +488,9 @@ def lint_tailwind_classes(html: str) -> Tuple[str, List[Tuple[str, str]]]:
     return html, rewrites
 
 
-def lint_html(html: str, context: str = "") -> Tuple[str, LintReport]:
+def lint_html(
+    html: str, context: str = "", business_type: str = ""
+) -> Tuple[str, LintReport]:
     """
     Run all post-generation linters. Safe to call on already-clean HTML
     (returns it unchanged with an empty report).
@@ -368,10 +499,18 @@ def lint_html(html: str, context: str = "") -> Tuple[str, LintReport]:
         html: generated HTML
         context: business name/description/type — used to pick a sensible
                  icon fallback (food → utensils, salon → scissors, …).
+        business_type: detected business type (detect_business_type). When
+                 provided and not F&B, the food-icon bias pass strips
+                 food/drink glyphs the model shouldn't have used.
     """
     report = LintReport()
     if not html:
         return html, report
     html, report.fa_replacements = lint_fontawesome_icons(html, context)
+    # After the unknown-glyph pass, so any food-flavoured fallback it may
+    # have introduced is corrected too.
+    html, report.food_icon_replacements = lint_food_icon_bias(
+        html, business_type, context
+    )
     html, report.tw_rewrites = lint_tailwind_classes(html)
     return html, report

@@ -3594,11 +3594,40 @@ LIGHT MODE STYLING:
             primary_color=palette.get("primary"),
         )
 
+        # ---- ICON GUIDANCE (business-type aware) ----
+        # Food glyphs are only "safe to prefer" on F&B sites. Recommending
+        # them unconditionally is how a phone shop got fa-bowl-food on its
+        # feature cards; non-F&B businesses get an explicit prohibition and
+        # a neutral preferred set instead. The post-generation linter
+        # (lint_food_icon_bias) backstops this deterministically.
+        if detected_biz_type in ("food", "bakery"):
+            icon_glyph_guidance = (
+                "- Safe free food/service glyphs to prefer: fa-utensils, "
+                "fa-bowl-food, fa-bowl-rice, fa-mug-hot, fa-burger, "
+                "fa-drumstick-bite, fa-fish, fa-pizza-slice, fa-ice-cream, "
+                "fa-truck, fa-star, fa-location-dot, fa-phone, fa-clock, fa-heart."
+            )
+        else:
+            icon_glyph_guidance = (
+                f"- This business is NOT a food & beverage business (type: "
+                f"{detected_biz_type}). NEVER use food or drink icons for its "
+                f"sections, features, or cards — no fa-utensils, fa-bowl-food, "
+                f"fa-bowl-rice, fa-burger, fa-mug-hot, fa-pizza-slice, "
+                f"fa-drumstick-bite, fa-ice-cream or similar.\n"
+                f"- Safe free glyphs to prefer: fa-star, fa-circle-check, "
+                f"fa-mobile-screen, fa-bag-shopping, fa-store, fa-truck, "
+                f"fa-tag, fa-gem, fa-award, fa-shield-halved, fa-location-dot, "
+                f"fa-phone, fa-clock, fa-heart. Pick icons that literally match "
+                f"what each section says (a phone/telco feature → fa-mobile-screen "
+                f"or fa-signal or fa-sim-card, delivery → fa-truck, quality → fa-award)."
+            )
+
         # ---- ASSEMBLE PROMPT ----
         return f"""Generate a COMPLETE production-ready HTML website.
 
 BUSINESS: {name}
 DESCRIPTION: {desc}
+BUSINESS TYPE: {detected_biz_type.upper()}
 STYLE: {style.upper()}
 COLOR MODE: {color_mode.upper()}
 TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
@@ -3650,6 +3679,11 @@ DEPTH and SHADOWS:
 - Create depth with layered soft shadows (shadow-lg / shadow-xl), subtle borders, and slight elevation on hover.
 - Cards lift on hover. Avoid flat, borderless boxes that blend into the background.
 
+STAT / NUMBERS ROWS (hero mini-stats, stats bar) MUST NEVER OVERLAP:
+- Every stat cell MUST carry min-w-0 and its label MUST carry break-words.
+- Stat labels use a small size (text-xs md:text-sm); Malay words are long ("Berpatutan", "Perkhidmatan") — the label must wrap inside its own column, never collide with the neighbouring one.
+- Prefer: <div class="grid grid-cols-3 gap-4"><div class="min-w-0 text-center"><div class="text-2xl md:text-3xl font-bold">…</div><div class="text-xs md:text-sm break-words">Label</div></div>…</div>
+
 CARDS MUST STAY READABLE EVEN IF AN IMAGE FAILS:
 - Every card has its own solid surface background and padding. Never place text directly on an image without a background layer.
 - If a card image fails to load, the card must remain legible — real text colour on the surface, never white text on a white background.
@@ -3658,7 +3692,7 @@ CARDS MUST STAY READABLE EVEN IF AN IMAGE FAILS:
 ICONS — Font Awesome FREE 6.x ONLY (non-negotiable):
 - Only the Font Awesome FREE stylesheet is loaded (6.4.0 all.min.css). Use ONLY free solid (fa-solid / fas) and free brand (fa-brands / fab) glyphs.
 - NEVER use Pro-only or Pro-tier icons — they render as blank squares. Examples of FORBIDDEN Pro icons: fa-pot-food, fa-pan-frying, fa-plate-utensils, fa-burger-soda, fa-salad, fa-bowl-chopsticks. When unsure whether an icon is free, DO NOT use it.
-- Safe free food/service glyphs to prefer: fa-utensils, fa-bowl-food, fa-bowl-rice, fa-mug-hot, fa-burger, fa-drumstick-bite, fa-fish, fa-pizza-slice, fa-ice-cream, fa-truck, fa-star, fa-location-dot, fa-phone, fa-clock, fa-heart.
+{icon_glyph_guidance}
 
 BRAND / LOGO (non-negotiable):
 - The logo and footer brand text MUST be the FULL business name exactly: "{name}".
@@ -5096,10 +5130,15 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         # utilities the Play CDN silently drops. Deterministic + logged.
         try:
             from app.services.generation_linter import lint_html
-            html, lint_report = lint_html(html, context=f"{name} {desc}")
+            html, lint_report = lint_html(
+                html,
+                context=f"{name} {desc}",
+                business_type=detect_business_type(desc),
+            )
             if lint_report.changed:
                 logger.info(
                     f"   🧹 Generation linter: {len(lint_report.fa_replacements)} FA icon(s), "
+                    f"{len(lint_report.food_icon_replacements)} food-bias icon(s), "
                     f"{len(lint_report.tw_rewrites)} Tailwind class(es) fixed"
                 )
         except Exception as e:
@@ -5817,7 +5856,32 @@ IMPORTANT RULES:
             return prompt
         return f"{prompt}, {self._NO_TEXT_SUFFIX}"
 
-    def _autofill_hero_prompt(self, category: str, biz_type: str) -> str:
+    @staticmethod
+    def _autofill_business_context(business_name: str, description: str) -> str:
+        """Short business-grounding clause for auto-fill image prompts.
+
+        Every AI-image prompt must carry the business context (name +
+        description) alongside the card title. Without it, a generic
+        extracted/fallback card name ("Koleksi Terbaru", "Produk Pilihan")
+        was the ENTIRE subject the image model saw — on the gogoo phone
+        shop that produced a handbag, cosmetic bottles, a cream jar and a
+        mug for the four product cards while the hero (whose prompt did
+        carry the business type) came out correct.
+        """
+        parts = []
+        name = (business_name or "").strip()
+        desc = re.sub(r"\s+", " ", description or "").strip()
+        # Skip the name when the description already opens with it — many
+        # merchants write "Kedai X, jual …" and the doubled name is noise.
+        if name and not desc.lower().startswith(name.lower()):
+            parts.append(name)
+        if desc:
+            parts.append(desc[:100])
+        return ", ".join(parts)
+
+    def _autofill_hero_prompt(
+        self, category: str, biz_type: str, business_context: str = ""
+    ) -> str:
         """Hero banner prompt per category.
 
         Always a lively showcase of the business's output — never an empty
@@ -5825,18 +5889,21 @@ IMPORTANT RULES:
         food-centric (abundant dishes, close-up plating, hands serving)
         rather than a storefront/interior scene, where signboards naturally
         appear and render as garbled AI text. Every category carries the
-        no-text suffix for the same reason.
+        no-text suffix for the same reason, and every non-food category
+        carries the business context (see _autofill_business_context) so
+        the model knows what business the scene belongs to.
         """
+        ctx = f", for the business: {business_context}" if business_context else ""
         if category == "food":
             return (
                 "Abundant spread of delicious Malaysian dishes covering a "
                 "table, close-up plated food, hands serving food, warm "
                 "ambience, shallow depth of field, appetizing food "
-                f"photography, {self._HERO_NO_TEXT_SUFFIX}"
+                f"photography{ctx}, {self._HERO_NO_TEXT_SUFFIX}"
             )
         if category == "creative":
             return (
-                f"Artistic showcase of {biz_type} work, cinematic silhouette "
+                f"Artistic showcase of {biz_type} work{ctx}, cinematic silhouette "
                 f"composition at golden hour, elegant venue backdrop, "
                 f"professional photography, {self._NO_TEXT_SUFFIX}"
             )
@@ -5844,27 +5911,37 @@ IMPORTANT RULES:
             # The service being performed is the subject — a stylist mid-cut,
             # a specialist with a client — never products on shelves.
             return (
-                f"Skilled {biz_type} professional at work with a client, "
+                f"Skilled {biz_type} professional at work with a client{ctx}, "
                 f"dynamic in-action moment, warm modern interior, shallow "
                 f"depth of field, professional photography, {self._NO_TEXT_SUFFIX}"
             )
         if category == "retail":
             return (
-                f"Attractive arrangement of {biz_type} products, lifestyle "
+                f"Attractive arrangement of {biz_type} products{ctx}, lifestyle "
                 f"commercial photography, warm inviting lighting, clean "
                 f"modern styling, {self._NO_TEXT_SUFFIX}"
             )
         return (
-            f"Professional photography showcasing {biz_type} work in action, "
+            f"Professional photography showcasing {biz_type} work in action{ctx}, "
             f"warm lighting, high quality, {self._NO_TEXT_SUFFIX}"
         )
 
-    def _autofill_item_prompt(self, category: str, name: str, biz_type: str) -> str:
+    def _autofill_item_prompt(
+        self, category: str, name: str, biz_type: str, business_context: str = ""
+    ) -> str:
         """Per-item prompt: the item itself is ALWAYS the subject.
 
         Never prompts for studios, equipment, or empty premises — those can
         only appear when the item name itself names them (the name IS the
         subject, verbatim).
+
+        Every non-food template embeds the BUSINESS CONTEXT (name +
+        description via _autofill_business_context) alongside the item name.
+        The retail template used to send ONLY the card title — a generic
+        fallback title like "Koleksi Terbaru" gave the image model no real
+        subject, so a phone shop's product cards came back as a handbag,
+        cosmetics, a cream jar and a mug (the gogoo bug). The business
+        context anchors every card to what the shop actually sells.
 
         food returns the raw item name: _generate_image(food=True) maps it
         through _get_malaysian_prompt, which yields a curated appetizing
@@ -5873,6 +5950,7 @@ IMPORTANT RULES:
         below embeds the no-text suffix directly — gallery/portfolio images
         must never render lettering (see _NO_TEXT_SUFFIX).
         """
+        ctx = f", for the business: {business_context}" if business_context else ""
         if category == "food":
             return name
         if category == "creative":
@@ -5880,7 +5958,7 @@ IMPORTANT RULES:
             # artistic compositions (silhouettes, candid details, venue)
             # over close-up faces.
             return (
-                f"{name}, artistic professional photography, cinematic "
+                f"{name}, artistic professional photography{ctx}, cinematic "
                 f"composition, silhouette and candid detail shots, beautiful "
                 f"venue backdrop, golden hour lighting, emotional storytelling, "
                 f"{self._NO_TEXT_SUFFIX}"
@@ -5890,19 +5968,23 @@ IMPORTANT RULES:
             # (e.g. "Pewarnaan Rambut" → stylist colouring a client's hair),
             # never a product shot.
             return (
-                f"{name}, professional {biz_type} service photography, "
+                f"{name}, professional {biz_type} service photography{ctx}, "
                 f"specialist performing the service on a client, candid "
                 f"in-action shot, modern interior backdrop, shallow depth "
                 f"of field, {self._NO_TEXT_SUFFIX}"
             )
         if category == "retail":
+            # The item must be shown as a product THIS business sells — the
+            # business type and context are what stop a generic card title
+            # from producing an unrelated product shot.
             return (
-                f"Professional product photography of {name}, clean background, "
+                f"Professional product photography of {name}, a {biz_type} "
+                f"product{ctx}, clean background, "
                 f"soft studio lighting, high detail, commercial product shot, "
                 f"{self._NO_TEXT_SUFFIX}"
             )
         return (
-            f"Professional photography of {name}, {biz_type}, high quality, "
+            f"Professional photography of {name}, {biz_type}{ctx}, high quality, "
             f"sharp focus, {self._NO_TEXT_SUFFIX}"
         )
 
@@ -5982,15 +6064,25 @@ IMPORTANT RULES:
                 f"{'🍽️' if is_food else '🛍️'} Auto-fill items: {', '.join(slot_names) or '(none)'}"
             )
 
-        # Human-readable business type for grounding the prompts; fall back
-        # to a short description slice when detection is generic.
+        # Human-readable business type for grounding the prompts. Detection
+        # returning "general" used to fall back to a raw description slice —
+        # needed when biz_type was the only grounding, but now _biz_context
+        # below carries name + description into every prompt, so a neutral
+        # noun keeps the templates grammatical instead of jamming a
+        # sentence fragment into "a {biz_type} product".
         _biz_type = detect_business_type(request.description)
         if _biz_type == "general":
-            _biz_type = request.description[:50]
+            _biz_type = "retail shop"
+
+        # Business context (name + description) carried by EVERY prompt so
+        # generic card titles can never be the whole subject (gogoo bug).
+        _biz_context = self._autofill_business_context(
+            request.business_name, request.description
+        )
 
         # Hero is a banner/showcase shot — NEVER a menu/product card, and
         # never empty premises or equipment (see _autofill_hero_prompt).
-        hero_prompt = self._autofill_hero_prompt(category, _biz_type)
+        hero_prompt = self._autofill_hero_prompt(category, _biz_type, _biz_context)
 
         # Work list: hero first, then one image per (missing slot, real item
         # name) pair — truncated to the cap, so the hero always wins the
@@ -6001,7 +6093,11 @@ IMPORTANT RULES:
             work.append(("hero", None, hero_prompt))
         for slot_no, name in zip(missing_slots, slot_names):
             work.append(
-                (f"gallery{slot_no}", name, self._autofill_item_prompt(category, name, _biz_type))
+                (
+                    f"gallery{slot_no}",
+                    name,
+                    self._autofill_item_prompt(category, name, _biz_type, _biz_context),
+                )
             )
 
         if len(work) > cap:

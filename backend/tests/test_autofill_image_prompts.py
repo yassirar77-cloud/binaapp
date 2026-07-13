@@ -299,3 +299,106 @@ class TestServiceSubjectsAndCardNames:
         count = await service._autofill_missing_images(request, image_urls, None)
         assert count == 5
         service.extract_product_category_names.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# 4. Business context in EVERY auto-fill image prompt (the gogoo bug)
+# ---------------------------------------------------------------------------
+# A phone shop ("kedai phone & smart line", Shah Alam) generated with correct
+# copy but its 4 product cards came back as a handbag, cosmetics, a cream jar
+# and a mug: the retail item prompt sent ONLY the generic card title
+# ("Koleksi Terbaru") — no business name, description, or type. Every image
+# prompt must now carry the business context.
+
+PHONE_SHOP_NAME = "Kedai Phone & Smart Line"
+PHONE_SHOP_DESC = (
+    "kedai phone & smart line, jual smartphone, gadget dan pelan smart line "
+    "di Shah Alam"
+)
+
+
+class TestBusinessContextInPrompts:
+    NON_FOOD_CATEGORIES = ["creative", "services", "retail", "generic"]
+
+    def _ctx(self, service):
+        return service._autofill_business_context(PHONE_SHOP_NAME, PHONE_SHOP_DESC)
+
+    def test_context_snippet_contains_name_and_description(self, service):
+        ctx = self._ctx(service)
+        # Name check is case-insensitive: when the merchant description
+        # opens with the business name, the context keeps only that copy.
+        assert PHONE_SHOP_NAME.lower() in ctx.lower()
+        assert "jual smartphone" in ctx
+
+    def test_context_snippet_handles_missing_fields(self, service):
+        assert service._autofill_business_context("", "") == ""
+        assert service._autofill_business_context("Kedai A", "") == "Kedai A"
+        assert "desc here" in service._autofill_business_context("", "desc here")
+
+    @pytest.mark.parametrize("category", NON_FOOD_CATEGORIES)
+    def test_item_prompts_carry_business_context(self, service, category):
+        prompt = service._autofill_item_prompt(
+            category, "Koleksi Terbaru", "phone shop", self._ctx(service)
+        )
+        assert PHONE_SHOP_NAME.lower() in prompt.lower()
+        assert "jual smartphone" in prompt
+        assert NO_TEXT_SUFFIX in prompt
+
+    @pytest.mark.parametrize("category", ["food", "creative", "services", "retail", "generic"])
+    def test_hero_prompts_carry_business_context(self, service, category):
+        prompt = service._autofill_hero_prompt(category, "phone shop", self._ctx(service))
+        assert PHONE_SHOP_NAME.lower() in prompt.lower()
+
+    def test_retail_prompt_is_never_title_only(self, service):
+        """The exact gogoo failure: a generic fallback title must never be
+        the entire subject the image model sees."""
+        prompt = service._autofill_item_prompt(
+            "retail", "Koleksi Terbaru", "phone shop", self._ctx(service)
+        )
+        # Business type is in the template itself now, not just the title.
+        assert "a phone shop product" in prompt
+        assert PHONE_SHOP_NAME.lower() in prompt.lower()
+
+    @pytest.mark.asyncio
+    async def test_autofill_prompts_include_business_context_end_to_end(self, service):
+        """Every prompt _autofill_missing_images sends to the image
+        provider — hero AND all 4 product cards — must contain the business
+        name and description, even when the card names are the generic
+        retail fallbacks that caused the gogoo bug."""
+        from app.models.schemas import WebsiteGenerationRequest, Language
+
+        request = WebsiteGenerationRequest(
+            description=PHONE_SHOP_DESC,
+            language=Language.MALAY,
+            business_name=PHONE_SHOP_NAME,
+            business_type="general",
+            subdomain="gogoo",
+            include_whatsapp=False,
+            include_maps=False,
+            include_ecommerce=False,
+        )
+
+        # The generic fallback titles from _fallback_category_names — the
+        # worst case that produced handbag/cosmetics/mug images.
+        service.extract_product_category_names = AsyncMock(
+            return_value=["Produk Pilihan", "Koleksi Terbaru",
+                          "Tawaran Istimewa", "Barangan Popular"]
+        )
+
+        sent_prompts = []
+
+        async def _fake_generate(prompt, food=True, zai_phase=None):
+            sent_prompts.append(prompt)
+            return f"https://res.cloudinary.com/gen{len(sent_prompts)}.png"
+
+        service._generate_image = AsyncMock(side_effect=_fake_generate)
+
+        image_urls = {}
+        count = await service._autofill_missing_images(request, image_urls, None)
+
+        assert count == 5  # hero + 4 cards
+        assert len(sent_prompts) == 5
+        for prompt in sent_prompts:
+            assert PHONE_SHOP_NAME.lower() in prompt.lower(), f"business name missing: {prompt}"
+            assert "jual smartphone" in prompt, f"description missing: {prompt}"
+            assert NO_TEXT_SUFFIX in prompt

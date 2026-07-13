@@ -384,11 +384,13 @@ class TestHeroPrompts:
         # Food still returns the raw name — the suffix is applied later by
         # _get_malaysian_prompt inside the provider dispatch.
         assert service._autofill_item_prompt("food", "Nasi Kandar", "restaurant") == "Nasi Kandar"
+        # Retail now grounds the item in the business type (gogoo fix) —
+        # the item is still the leading subject.
         retail = service._autofill_item_prompt("retail", "Baju Kurung", "clothing store")
         assert retail.startswith(
-            "Professional product photography of Baju Kurung, clean background, "
-            "soft studio lighting, high detail, commercial product shot"
+            "Professional product photography of Baju Kurung, a clothing store product"
         )
+        assert "commercial product shot" in retail
         assert NO_TEXT_SUFFIX in retail
         creative = service._autofill_item_prompt("creative", "Wedding Photography", "photography")
         assert "Wedding Photography" in creative
