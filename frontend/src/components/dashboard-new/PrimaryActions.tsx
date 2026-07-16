@@ -22,6 +22,9 @@ export interface ActionItem {
   href: string
   /** Featured card (volt glow) */
   featured?: boolean
+  /** Locked behind the Bisnes plan — card shows lock + badge, click upsells. */
+  locked?: boolean
+  onClick?: () => void
 }
 
 interface PrimaryActionsProps {
@@ -55,6 +58,8 @@ export default function PrimaryActions({
             hue={action.hue}
             href={action.href}
             featured={action.featured}
+            locked={action.locked}
+            onClick={action.onClick}
           />
         ))}
       </div>

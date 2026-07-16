@@ -3,13 +3,18 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { Lock } from 'lucide-react'
 
 import InstallAppButton from '@/components/pwa/InstallAppButton'
+import { UpgradeModal } from '@/components/UpgradeModal'
+import { usePlanFeatures } from '@/hooks/usePlanFeatures'
 
 interface NavItem {
   label: string
   href: string
   badge?: number
+  /** Rider/GPS delivery ops — Bisnes (pro) plan only. Locked on Permulaan. */
+  requiresRiders?: boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -17,8 +22,8 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Website Saya', href: '/my-projects' },
   { label: 'Pesanan', href: '/pesanan', badge: 3 },
   { label: 'Chat', href: '/chat' },
-  { label: 'Penghantar', href: '/rider' },
-  { label: 'Penghantar Live', href: '/dashboard/penghantar-live' },
+  { label: 'Penghantar', href: '/rider', requiresRiders: true },
+  { label: 'Penghantar Live', href: '/dashboard/penghantar-live', requiresRiders: true },
   { label: 'Menu', href: '/menu-designer' },
   { label: 'Analitik', href: '/dashboard/analitik' },
 ]
@@ -46,6 +51,11 @@ export default function DashboardHeader({
   const pathname = usePathname()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false)
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  // hasRiderFeatures === false → plan has no rider ops (Permulaan): rider nav
+  // items render locked with a Bisnes upsell. null (unknown/loading) stays
+  // unlocked to avoid flashing locks at Bisnes users; backend still enforces.
+  const { hasRiderFeatures, planName } = usePlanFeatures()
 
   useEffect(() => {
     if (!avatarMenuOpen && !mobileMenuOpen) return
@@ -91,27 +101,43 @@ export default function DashboardHeader({
 
         {/* Center — Desktop pill nav */}
         <nav className="hidden md:flex items-center gap-0.5 rounded-full bg-white/[0.05] p-1">
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`
-                relative rounded-full px-3 py-1.5 text-xs font-medium transition-colors
-                ${
-                  item.active
-                    ? 'bg-white/[0.1] text-white'
-                    : 'text-white/50 hover:text-white/80'
-                }
-              `}
-            >
-              {item.label}
-              {item.badge && item.badge > 0 ? (
-                <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#C7FF3D] px-1 text-[10px] font-bold text-[#0B0B15]">
-                  {item.badge}
+          {navItems.map((item) =>
+            item.requiresRiders && hasRiderFeatures === false ? (
+              <button
+                key={item.href}
+                type="button"
+                onClick={() => setShowUpgradeModal(true)}
+                title="Ciri pelan Bisnes — naik taraf untuk mengaktifkan"
+                className="relative flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium text-white/30 hover:text-white/60 transition-colors"
+              >
+                <Lock size={10} strokeWidth={2.5} />
+                {item.label}
+                <span className="ml-1 rounded-full bg-[#C7FF3D]/15 px-1.5 py-[1px] text-[9px] font-bold tracking-wide text-[#C7FF3D]">
+                  BISNES
                 </span>
-              ) : null}
-            </Link>
-          ))}
+              </button>
+            ) : (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`
+                  relative rounded-full px-3 py-1.5 text-xs font-medium transition-colors
+                  ${
+                    item.active
+                      ? 'bg-white/[0.1] text-white'
+                      : 'text-white/50 hover:text-white/80'
+                  }
+                `}
+              >
+                {item.label}
+                {item.badge && item.badge > 0 ? (
+                  <span className="ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#C7FF3D] px-1 text-[10px] font-bold text-[#0B0B15]">
+                    {item.badge}
+                  </span>
+                ) : null}
+              </Link>
+            )
+          )}
         </nav>
 
         {/* Right — Actions */}
@@ -200,26 +226,54 @@ export default function DashboardHeader({
       {/* Mobile nav drawer */}
       {mobileMenuOpen && (
         <nav className="md:hidden animate-slide-up border-t border-white/[0.06] px-4 pb-4 pt-2">
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`
-                flex items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors
-                ${item.active ? 'text-white bg-white/[0.06]' : 'text-white/50 hover:text-white'}
-              `}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              {item.label}
-              {item.badge && item.badge > 0 ? (
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#C7FF3D] px-1.5 text-[11px] font-bold text-[#0B0B15]">
-                  {item.badge}
+          {navItems.map((item) =>
+            item.requiresRiders && hasRiderFeatures === false ? (
+              <button
+                key={item.href}
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false)
+                  setShowUpgradeModal(true)
+                }}
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm text-white/30 hover:text-white/60 transition-colors"
+              >
+                <span className="flex items-center gap-1.5">
+                  <Lock size={12} strokeWidth={2.5} />
+                  {item.label}
                 </span>
-              ) : null}
-            </Link>
-          ))}
+                <span className="rounded-full bg-[#C7FF3D]/15 px-2 py-[2px] text-[10px] font-bold tracking-wide text-[#C7FF3D]">
+                  BISNES
+                </span>
+              </button>
+            ) : (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`
+                  flex items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors
+                  ${item.active ? 'text-white bg-white/[0.06]' : 'text-white/50 hover:text-white'}
+                `}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                {item.label}
+                {item.badge && item.badge > 0 ? (
+                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#C7FF3D] px-1.5 text-[11px] font-bold text-[#0B0B15]">
+                    {item.badge}
+                  </span>
+                ) : null}
+              </Link>
+            )
+          )}
         </nav>
       )}
+
+      {/* Bisnes upsell — opened from locked rider nav items */}
+      <UpgradeModal
+        show={showUpgradeModal}
+        currentTier={planName ?? 'starter'}
+        targetTier="pro"
+        onClose={() => setShowUpgradeModal(false)}
+      />
     </header>
   )
 }

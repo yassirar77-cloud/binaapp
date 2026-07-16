@@ -29,6 +29,7 @@ import PrimaryActions, { type ActionItem } from '@/components/dashboard-new/Prim
 import WebsitesSection, { type WebsiteItem } from '@/components/dashboard-new/WebsitesSection'
 import ActivityFeed, { type ActivityEvent } from '@/components/dashboard-new/ActivityFeed'
 import DashboardUsageWidget from '@/components/dashboard-new/DashboardUsageWidget'
+import { usePlanFeatures } from '@/hooks/usePlanFeatures'
 import MobileDashboard, { type MobileStat } from '@/components/dashboard-new/MobileDashboard'
 import ReportIssueModal from '@/components/dashboard-new/ReportIssueModal'
 import { isIssueReportKnownDisabled } from '@/lib/issueReport'
@@ -46,6 +47,7 @@ interface Project {
 
 export default function DashboardPage() {
   const router = useRouter()
+  const { hasRiderFeatures } = usePlanFeatures()
   const [user, setUser] = useState<User | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
@@ -289,6 +291,11 @@ export default function DashboardPage() {
     ytdAmount: 'RM 0',
   }
 
+  // Rider/GPS ops are a Bisnes (pro) feature. false → locked card with a
+  // Bisnes badge; click routes to billing (same as every other upgrade CTA
+  // on this page). null (unknown) stays unlocked; backend still enforces.
+  const riderLocked = hasRiderFeatures === false
+
   const mockActions: ActionItem[] = [
     {
       icon: <Truck size={20} />,
@@ -302,9 +309,15 @@ export default function DashboardPage() {
       icon: <MapPin size={20} />,
       title: 'Penghantar Live',
       description: 'Pantau lokasi penghantar secara real-time.',
-      meta: { dotColor: '#22C08F', label: '0 penghantar', pulse: true },
+      meta: {
+        dotColor: riderLocked ? '#C7FF3D' : '#22C08F',
+        label: riderLocked ? 'Pelan Bisnes' : '0 penghantar',
+        pulse: !riderLocked,
+      },
       hue: '#22C08F',
       href: '/dashboard/penghantar-live',
+      locked: riderLocked,
+      ...(riderLocked ? { onClick: () => router.push('/dashboard/billing') } : {}),
     },
     {
       icon: <Sparkles size={20} />,

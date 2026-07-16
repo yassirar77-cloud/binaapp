@@ -509,6 +509,20 @@ async def purchase_addon(
                 detail="Imej AI kini percuma — addon ini tidak lagi dijual."
             )
 
+        # Rider slots are a Bisnes feature: the addon adds EXTRA slots on top
+        # of a plan that already includes riders. Plans with riders_limit == 0
+        # (Permulaan) must upgrade instead of buying slots à la carte.
+        if addon_type == "rider":
+            limits = await subscription_service.get_user_limits(user_id)
+            if limits.get("riders_limit") == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=(
+                        "Addon rider memerlukan pelan Bisnes (RM49). "
+                        "Sila naik taraf dahulu."
+                    )
+                )
+
         unit_price = subscription_service.ADDON_PRICES[addon_type]
         total_price = unit_price * quantity
 

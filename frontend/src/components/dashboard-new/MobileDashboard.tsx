@@ -7,6 +7,7 @@ import ActionCard from './ActionCard'
 import WebsiteCard, { WebsiteStatus } from './WebsiteCard'
 import ActivityFeed, { ActivityEvent } from './ActivityFeed'
 import { UsageWidget } from '@/components/UsageWidget'
+import { usePlanFeatures } from '@/hooks/usePlanFeatures'
 
 /* ── Shared types ── */
 
@@ -28,6 +29,9 @@ export interface MobileActionItem {
   hue: string
   href: string
   featured?: boolean
+  /** Locked behind the Bisnes plan — card shows lock + badge, click upsells. */
+  locked?: boolean
+  onClick?: () => void
 }
 
 export interface MobileStat {
@@ -40,11 +44,18 @@ export interface MobileStat {
 
 /* ── Nav items ── */
 
-const NAV_ITEMS: { label: string; href: string; active?: boolean; hasBadge?: boolean }[] = [
+const NAV_ITEMS: {
+  label: string
+  href: string
+  active?: boolean
+  hasBadge?: boolean
+  /** Rider/GPS delivery ops — Bisnes (pro) plan only. Locked on Permulaan. */
+  requiresRiders?: boolean
+}[] = [
   { label: 'Papan Pemuka', href: '/dashboard', active: true },
   { label: 'Website Saya', href: '/websites' },
   { label: 'Pesanan', href: '/orders', hasBadge: true },
-  { label: 'Penghantar', href: '/delivery' },
+  { label: 'Penghantar', href: '/delivery', requiresRiders: true },
   { label: 'Menu', href: '/menu' },
   { label: 'Analitik', href: '/analytics' },
 ]
@@ -115,6 +126,7 @@ export default function MobileDashboard({
         onClose={() => setDrawerOpen(false)}
         ordersCount={ordersCount}
         onLogout={onLogout}
+        onUpgradeClick={onUpgradeClick}
       />
 
       {/* Drawer trigger (floats over header area on far left) */}
@@ -159,6 +171,8 @@ export default function MobileDashboard({
               hue={action.hue}
               href={action.href}
               featured={action.featured}
+              locked={action.locked}
+              onClick={action.onClick}
             />
           ))}
         </div>
@@ -313,12 +327,17 @@ function MobileDrawer({
   onClose,
   ordersCount,
   onLogout,
+  onUpgradeClick,
 }: {
   open: boolean
   onClose: () => void
   ordersCount: number
   onLogout?: () => void
+  onUpgradeClick?: () => void
 }) {
+  // false → plan has no rider ops (Permulaan): rider nav items lock with a
+  // Bisnes upsell. null (unknown) stays unlocked; the backend still enforces.
+  const { hasRiderFeatures } = usePlanFeatures()
   return (
     <>
       {/* Backdrop */}
@@ -357,27 +376,44 @@ function MobileDrawer({
 
         {/* Nav links */}
         <div className="flex-1 overflow-y-auto py-3 px-3">
-          {NAV_ITEMS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onClose}
-              className={`
-                flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition-colors min-h-[44px]
-                ${item.active
-                  ? 'text-white bg-white/[0.07]'
-                  : 'text-white/50 hover:text-white hover:bg-white/[0.04]'
-                }
-              `}
-            >
-              {item.label}
-              {item.hasBadge && ordersCount > 0 && (
-                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#C7FF3D] px-1.5 text-[11px] font-bold text-[#0B0B15]">
-                  {ordersCount}
+          {NAV_ITEMS.map((item) =>
+            item.requiresRiders && hasRiderFeatures === false ? (
+              <button
+                key={item.href}
+                type="button"
+                onClick={() => {
+                  onClose()
+                  onUpgradeClick?.()
+                }}
+                className="flex w-full items-center justify-between rounded-xl px-4 py-3 text-sm font-medium text-white/30 hover:text-white/60 hover:bg-white/[0.04] transition-colors min-h-[44px] bg-transparent border-0 cursor-pointer"
+              >
+                {item.label}
+                <span className="rounded-full bg-[#C7FF3D]/15 px-2 py-[2px] text-[10px] font-bold tracking-wide text-[#C7FF3D]">
+                  BISNES
                 </span>
-              )}
-            </Link>
-          ))}
+              </button>
+            ) : (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onClose}
+                className={`
+                  flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition-colors min-h-[44px]
+                  ${item.active
+                    ? 'text-white bg-white/[0.07]'
+                    : 'text-white/50 hover:text-white hover:bg-white/[0.04]'
+                  }
+                `}
+              >
+                {item.label}
+                {item.hasBadge && ordersCount > 0 && (
+                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#C7FF3D] px-1.5 text-[11px] font-bold text-[#0B0B15]">
+                    {ordersCount}
+                  </span>
+                )}
+              </Link>
+            )
+          )}
 
           {/* Divider */}
           <div className="my-3 mx-4 border-t border-white/[0.06]" />
