@@ -3,6 +3,24 @@ Malaysian Business Smart Prompts for Stability AI
 Maps local terms to detailed English prompts for accurate image generation
 """
 
+import re
+
+
+def _has_word(text: str, word: str) -> bool:
+    """Word-boundary containment check.
+
+    Raw substring matching caused wrong images: 'kopi' matched "fotokopi",
+    'rice' matched "price", 'mee' matched "meeting", 'ikan' matched
+    "kecantikan". Multi-word keys ("nasi lemak") still match phrases.
+    """
+    if not text or not word:
+        return False
+    return bool(re.search(rf"\b{re.escape(word)}\b", text))
+
+
+def _has_any_word(text: str, words) -> bool:
+    return any(_has_word(text, w) for w in words)
+
 # ============================================
 # MALAYSIAN FOOD PROMPTS FOR STABILITY AI
 # ============================================
@@ -188,42 +206,44 @@ def get_smart_stability_prompt(item_name: str, business_type: str = "") -> str:
         **GENERIC_BUSINESS_PROMPTS
     }
 
-    for key, prompt in all_prompts.items():
-        if key in item_lower or item_lower in key:
-            return prompt
+    # Longest keys first so "Nasi Lemak Special" hits "nasi lemak", not a
+    # shorter overlapping key. Whole-word matches only.
+    for key in sorted(all_prompts, key=len, reverse=True):
+        if _has_word(item_lower, key) or _has_word(key, item_lower):
+            return all_prompts[key]
 
-    # 5. Keyword matching
-    if any(word in item_lower for word in ["nasi", "rice"]):
+    # 5. Keyword matching (whole words — 'rice' must not match "price")
+    if _has_any_word(item_lower, ["nasi", "rice"]):
         return MALAYSIAN_FOOD_PROMPTS.get("nasi goreng", f"Malaysian {item_name}, food photography, professional lighting")
 
-    if any(word in item_lower for word in ["mee", "noodle", "mie"]):
+    if _has_any_word(item_lower, ["mee", "noodle", "mie"]):
         return MALAYSIAN_FOOD_PROMPTS.get("mee goreng", f"Malaysian noodles {item_name}, food photography")
 
-    if any(word in item_lower for word in ["ayam", "chicken"]):
+    if _has_any_word(item_lower, ["ayam", "chicken"]):
         return MALAYSIAN_FOOD_PROMPTS.get("ayam goreng", f"Malaysian chicken dish {item_name}, food photography")
 
-    if any(word in item_lower for word in ["ikan", "fish", "seafood"]):
+    if _has_any_word(item_lower, ["ikan", "fish", "seafood"]):
         return MALAYSIAN_FOOD_PROMPTS.get("ikan bakar", f"Malaysian seafood {item_name}, food photography")
 
-    if any(word in item_lower for word in ["roti", "bread"]):
+    if _has_any_word(item_lower, ["roti", "bread"]):
         return MALAYSIAN_FOOD_PROMPTS.get("roti canai", f"Malaysian bread {item_name}, food photography")
 
-    if any(word in item_lower for word in ["rendang", "curry", "kari"]):
+    if _has_any_word(item_lower, ["rendang", "curry", "kari"]):
         return MALAYSIAN_FOOD_PROMPTS.get("rendang", f"Malaysian curry dish {item_name}, food photography")
 
-    if any(word in item_lower for word in ["satay", "sate"]):
+    if _has_any_word(item_lower, ["satay", "sate"]):
         return MALAYSIAN_FOOD_PROMPTS.get("satay", f"Malaysian satay {item_name}, food photography")
 
-    if any(word in item_lower for word in ["kuih", "cake", "dessert"]):
+    if _has_any_word(item_lower, ["kuih", "cake", "dessert"]):
         return MALAYSIAN_FOOD_PROMPTS.get("kuih", f"Malaysian dessert {item_name}, food photography")
 
-    if any(word in item_lower for word in ["teh", "kopi", "tea", "coffee", "milo"]):
+    if _has_any_word(item_lower, ["teh", "kopi", "tea", "coffee", "milo"]):
         return MALAYSIAN_FOOD_PROMPTS.get("teh tarik", f"Malaysian drink {item_name}, food photography")
 
-    if any(word in item_lower for word in ["baju", "kurung", "kebaya"]):
+    if _has_any_word(item_lower, ["baju", "kurung", "kebaya"]):
         return MALAYSIAN_FASHION_PROMPTS.get("baju kurung", f"Malaysian traditional attire {item_name}, fashion photography")
 
-    if any(word in item_lower for word in ["tudung", "hijab", "shawl"]):
+    if _has_any_word(item_lower, ["tudung", "hijab", "shawl"]):
         return MALAYSIAN_FASHION_PROMPTS.get("tudung", f"Malaysian hijab {item_name}, fashion photography")
 
     # 6. Business type fallback
@@ -288,7 +308,7 @@ def get_fallback_image(item_name: str) -> str:
     }
 
     for key, url in FALLBACK_IMAGES.items():
-        if key in item_lower:
+        if key != "default" and _has_word(item_lower, key):
             return url
 
     return FALLBACK_IMAGES["default"]

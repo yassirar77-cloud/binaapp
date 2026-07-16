@@ -984,22 +984,29 @@ async def get_generation_status(job_id: str):
     return response
 
 
+def _desc_has_word(desc_lower: str, word: str) -> bool:
+    """Whole-word keyword check — substring matching misclassified
+    businesses ('cat' in "catering", 'hair' in "chair", 'nasi' in
+    "penasihat") and produced images that didn't match the business."""
+    return bool(re.search(rf"\b{re.escape(word)}\b", desc_lower))
+
+
 def detect_business_type(desc: str) -> str:
     desc_lower = desc.lower()
 
-    if any(word in desc_lower for word in ['salon', 'hair', 'beauty', 'spa', 'nail', 'makeup']):
+    if any(_desc_has_word(desc_lower, w) for w in ['salon', 'hair', 'beauty', 'spa', 'nail', 'makeup']):
         return 'beauty_salon'
-    elif any(word in desc_lower for word in ['restaurant', 'cafe', 'food', 'makan', 'nasi', 'kedai makan', 'catering']):
+    elif any(_desc_has_word(desc_lower, w) for w in ['restaurant', 'cafe', 'food', 'makan', 'nasi', 'kedai makan', 'catering']):
         return 'restaurant'
-    elif any(word in desc_lower for word in ['pet', 'kucing', 'cat', 'dog', 'anjing', 'haiwan']):
+    elif any(_desc_has_word(desc_lower, w) for w in ['pet', 'kucing', 'cat', 'dog', 'anjing', 'haiwan']):
         return 'pet_shop'
-    elif any(word in desc_lower for word in ['gym', 'fitness', 'workout']):
+    elif any(_desc_has_word(desc_lower, w) for w in ['gym', 'fitness', 'workout']):
         return 'fitness'
-    elif any(word in desc_lower for word in ['clinic', 'doctor', 'medical', 'klinik']):
+    elif any(_desc_has_word(desc_lower, w) for w in ['clinic', 'doctor', 'medical', 'klinik']):
         return 'clinic'
-    elif any(word in desc_lower for word in ['photo', 'photographer', 'photography', 'wedding']):
+    elif any(_desc_has_word(desc_lower, w) for w in ['photo', 'photographer', 'photography', 'wedding']):
         return 'photography'
-    elif any(word in desc_lower for word in ['shop', 'store', 'kedai', 'boutique']):
+    elif any(_desc_has_word(desc_lower, w) for w in ['shop', 'store', 'kedai', 'boutique']):
         return 'retail'
     else:
         return 'general_business'
@@ -1038,49 +1045,49 @@ def get_image_prompts_by_business_type(description: str) -> dict:
     desc_lower = description.lower()
 
     # PHOTOGRAPHY / PHOTOGRAPHER
-    if any(word in desc_lower for word in ["photo", "photographer", "photography", "wedding photo", "gambar", "jurugambar"]):
+    if any(_desc_has_word(desc_lower, w) for w in ["photo", "photographer", "photography", "wedding photo", "gambar", "jurugambar"]):
         return {
             "hero": "Professional wedding photographer capturing couple moment, romantic sunset, DSLR camera, artistic photography",
             "gallery": "Beautiful bride and groom wedding portrait, elegant dress, romantic lighting, professional photography"
         }
 
     # RESTAURANT / FOOD
-    elif any(word in desc_lower for word in ["restaurant", "food", "nasi", "makan", "cafe", "kedai makan", "makanan", "ayam", "ikan", "mee", "roti"]):
+    elif any(_desc_has_word(desc_lower, w) for w in ["restaurant", "food", "nasi", "makan", "cafe", "kedai makan", "makanan", "ayam", "ikan", "mee", "roti"]):
         return {
             "hero": "Malaysian restaurant interior, warm lighting, welcoming atmosphere, dining tables",
             "gallery": "Malaysian food nasi kandar with curry, delicious food photography, authentic Malaysian cuisine"
         }
 
     # FASHION / CLOTHING
-    elif any(word in desc_lower for word in ["fashion", "clothing", "baju", "shirt", "boutique", "pakaian", "dress"]):
+    elif any(_desc_has_word(desc_lower, w) for w in ["fashion", "clothing", "baju", "shirt", "boutique", "pakaian", "dress"]):
         return {
             "hero": "Modern fashion boutique interior, clothing displays, elegant design, shopping atmosphere",
             "gallery": "Premium clothing on mannequin, professional fashion product photography, boutique display"
         }
 
     # SALON / BEAUTY
-    elif any(word in desc_lower for word in ["salon", "beauty", "spa", "hair", "kecantikan", "rambut", "haircut"]):
+    elif any(_desc_has_word(desc_lower, w) for w in ["salon", "beauty", "spa", "hair", "kecantikan", "rambut", "haircut"]):
         return {
             "hero": "Modern beauty salon interior, styling chairs, mirrors, professional hair salon equipment",
             "gallery": "Professional hairstylist cutting hair, salon service, beauty treatment"
         }
 
     # WATCH / JEWELRY
-    elif any(word in desc_lower for word in ["watch", "jam", "jewelry", "barang kemas", "timepiece"]):
+    elif any(_desc_has_word(desc_lower, w) for w in ["watch", "jam", "jewelry", "barang kemas", "timepiece"]):
         return {
             "hero": "Luxury watch store display, elegant showcase, premium timepieces, jewelry store interior",
             "gallery": "Luxury silver wristwatch, professional product photography, elegant timepiece"
         }
 
     # GYM / FITNESS
-    elif any(word in desc_lower for word in ["gym", "fitness", "workout", "exercise", "gim", "senaman"]):
+    elif any(_desc_has_word(desc_lower, w) for w in ["gym", "fitness", "workout", "exercise", "gim", "senaman"]):
         return {
             "hero": "Modern gym interior, fitness equipment, workout space, professional training facility",
             "gallery": "Person working out at gym, fitness training, exercise equipment, athletic photography"
         }
 
     # BAKERY / PASTRY
-    elif any(word in desc_lower for word in ["bakery", "cake", "pastry", "kek", "roti", "donut", "bread"]):
+    elif any(_desc_has_word(desc_lower, w) for w in ["bakery", "cake", "pastry", "kek", "roti", "donut", "bread"]):
         return {
             "hero": "Artisan bakery interior, fresh bread display, warm lighting, cozy bakery atmosphere",
             "gallery": "Fresh baked pastries and cakes, food photography, delicious bakery products"

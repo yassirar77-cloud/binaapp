@@ -795,6 +795,26 @@ class AIService:
         logger.info("   Mode: Real images only, no placeholders allowed")
         logger.info("=" * 80)
 
+    @staticmethod
+    def _has_word(text: str, word: str) -> bool:
+        """Word-boundary containment check for keyword matching.
+
+        Raw substring checks caused business/image mismatches all over the
+        image pipeline: 'rice' matched "Price List", 'mee' matched "Meeting
+        Room", 'ikan' matched "kecantikan", 'kopi' matched "fotokopi",
+        'cat' matched "catering" — so non-food/wrong-category images were
+        generated for those cards. Multi-word keywords ("nasi lemak") work
+        unchanged since \\b applies at each end of the whole phrase.
+        """
+        if not text or not word:
+            return False
+        return bool(re.search(rf"\b{re.escape(word)}\b", text))
+
+    @classmethod
+    def _has_any_word(cls, text: str, words) -> bool:
+        """True if any of the keywords appears as a whole word in text."""
+        return any(cls._has_word(text, w) for w in words)
+
     def get_food_image(self, dish_name: str) -> str:
         """
         Get unique food image URL for a dish name
@@ -811,7 +831,8 @@ class AIService:
         if dish_lower in self.FOOD_IMAGES:
             return self.FOOD_IMAGES[dish_lower]
 
-        # Fuzzy matching - check if dish name contains any key
+        # Fuzzy matching - check if dish name contains any key (whole words
+        # only — 'ikan' must not match "kecantikan", 'kopi' not "fotokopi")
         best_match = None
         best_score = 0.0
 
@@ -820,12 +841,12 @@ class AIService:
                 continue
 
             # Check if key is in dish name or vice versa
-            if key in dish_lower:
+            if self._has_word(dish_lower, key):
                 score = len(key) / len(dish_lower)
                 if score > best_score:
                     best_score = score
                     best_match = url
-            elif dish_lower in key:
+            elif self._has_word(key, dish_lower):
                 score = len(dish_lower) / len(key)
                 if score > best_score:
                     best_score = score
@@ -834,34 +855,34 @@ class AIService:
         if best_match and best_score >= 0.3:
             return best_match
 
-        # Keyword fallback
+        # Keyword fallback (whole-word matches only)
         if "nasi kandar" in dish_lower:
             return self.FOOD_IMAGES["nasi kandar"]
         if "nasi lemak" in dish_lower:
             return self.FOOD_IMAGES["nasi lemak"]
-        if "nasi" in dish_lower:
+        if self._has_word(dish_lower, "nasi"):
             return self.FOOD_IMAGES["nasi goreng"]
-        if "ayam" in dish_lower or "chicken" in dish_lower:
+        if self._has_any_word(dish_lower, ("ayam", "chicken")):
             return self.FOOD_IMAGES["ayam goreng"]
-        if "ikan" in dish_lower or "fish" in dish_lower:
+        if self._has_any_word(dish_lower, ("ikan", "fish")):
             return self.FOOD_IMAGES["ikan bakar"]
-        if "mee" in dish_lower or "noodle" in dish_lower:
+        if self._has_any_word(dish_lower, ("mee", "noodle")):
             return self.FOOD_IMAGES["mee goreng"]
-        if "laksa" in dish_lower:
+        if self._has_word(dish_lower, "laksa"):
             return self.FOOD_IMAGES["laksa"]
-        if "roti" in dish_lower:
+        if self._has_word(dish_lower, "roti"):
             return self.FOOD_IMAGES["roti canai"]
-        if "satay" in dish_lower:
+        if self._has_word(dish_lower, "satay"):
             return self.FOOD_IMAGES["satay"]
-        if "rendang" in dish_lower:
+        if self._has_word(dish_lower, "rendang"):
             return self.FOOD_IMAGES["rendang"]
-        if "lauk" in dish_lower or "side" in dish_lower:
+        if self._has_any_word(dish_lower, ("lauk", "side")):
             return self.FOOD_IMAGES["pelbagai lauk"]
-        if "teh" in dish_lower or "tea" in dish_lower:
+        if self._has_any_word(dish_lower, ("teh", "tea")):
             return self.FOOD_IMAGES["teh tarik"]
-        if "kopi" in dish_lower or "coffee" in dish_lower:
+        if self._has_any_word(dish_lower, ("kopi", "coffee")):
             return self.FOOD_IMAGES["kopi"]
-        if "cendol" in dish_lower:
+        if self._has_word(dish_lower, "cendol"):
             return self.FOOD_IMAGES["cendol"]
 
         return self.FOOD_IMAGES["default"]
@@ -893,9 +914,9 @@ class AIService:
         return pool[start]
 
     def _malay_pool_for(self, text_lower: str) -> Optional[str]:
-        """Check if the text contains any Malay keyword and return its pool category."""
+        """Check if the text contains any Malay keyword (whole word) and return its pool category."""
         for keyword, pool in self.MALAY_KEYWORD_TO_POOL.items():
-            if keyword in text_lower:
+            if self._has_word(text_lower, keyword):
                 return pool
         return None
 
@@ -930,6 +951,7 @@ class AIService:
             return all_images[text_lower]
 
         # Fuzzy matching - check if text contains any key or vice versa
+        # (whole words only — 'ikan' must not match "kecantikan")
         best_match = None
         best_score = 0.0
         best_url = None
@@ -939,13 +961,13 @@ class AIService:
                 continue
 
             # Check if key is in text or vice versa
-            if key in text_lower:
+            if self._has_word(text_lower, key):
                 score = len(key) / len(text_lower)
                 if score > best_score:
                     best_score = score
                     best_match = key
                     best_url = url
-            elif text_lower in key:
+            elif self._has_word(key, text_lower):
                 score = len(text_lower) / len(key)
                 if score > best_score:
                     best_score = score
@@ -966,83 +988,85 @@ class AIService:
                 logger.info(f"🎯 Malay keyword match for '{text}' → {malay_pool} pool: {pool_img[:60]}...")
                 return pool_img
 
-        # Keyword-based fallback for common categories
+        # Keyword-based fallback for common categories (whole-word matches —
+        # substring checks caused mismatches like 'cut' in "Executive",
+        # 'rice' in "Price List", 'cat' in "Catering")
         # Fashion & Clothing
-        if any(word in text_lower for word in ['baju', 'kurung', 'melayu', 'traditional', 'dress']):
+        if self._has_any_word(text_lower, ['baju', 'kurung', 'melayu', 'traditional', 'dress']):
             return self.BUSINESS_IMAGES.get("baju kurung", self.BUSINESS_IMAGES["clothing"])
-        if any(word in text_lower for word in ['tudung', 'hijab', 'headscarf', 'shawl']):
+        if self._has_any_word(text_lower, ['tudung', 'hijab', 'headscarf', 'shawl']):
             return self.BUSINESS_IMAGES.get("tudung", self.BUSINESS_IMAGES["default"])
-        if any(word in text_lower for word in ['kebaya', 'blouse']):
+        if self._has_any_word(text_lower, ['kebaya', 'blouse']):
             return self.BUSINESS_IMAGES.get("kebaya", self.BUSINESS_IMAGES["clothing"])
-        if any(word in text_lower for word in ['pakaian', 'clothing', 'fashion', 'boutique']):
+        if self._has_any_word(text_lower, ['pakaian', 'clothing', 'fashion', 'boutique']):
             return self.BUSINESS_IMAGES.get("clothing", self.BUSINESS_IMAGES["default"])
-        if any(word in text_lower for word in ['jewelry', 'brooch', 'anting', 'necklace', 'rantai', 'accessories']):
+        if self._has_any_word(text_lower, ['jewelry', 'brooch', 'anting', 'necklace', 'rantai', 'accessories']):
             return self.BUSINESS_IMAGES.get("accessories", self.BUSINESS_IMAGES["default"])
 
         # Hair Salon
-        if any(word in text_lower for word in ['haircut', 'potong rambut', 'gunting', 'cut']):
+        if self._has_any_word(text_lower, ['haircut', 'potong rambut', 'gunting', 'cut']):
             return self.BUSINESS_IMAGES.get("haircut", self.BUSINESS_IMAGES["salon"])
-        if any(word in text_lower for word in ['hair color', 'cat rambut', 'warna', 'coloring', 'dye']):
+        if self._has_any_word(text_lower, ['hair color', 'cat rambut', 'warna', 'coloring', 'dye']):
             return self.BUSINESS_IMAGES.get("hair coloring", self.BUSINESS_IMAGES["salon"])
-        if any(word in text_lower for word in ['hair treatment', 'rawatan rambut', 'hair spa']):
+        if self._has_any_word(text_lower, ['hair treatment', 'rawatan rambut', 'hair spa']):
             return self.BUSINESS_IMAGES.get("hair treatment", self.BUSINESS_IMAGES["salon"])
-        if any(word in text_lower for word in ['styling', 'blowdry', 'blow dry']):
+        if self._has_any_word(text_lower, ['styling', 'blowdry', 'blow dry']):
             return self.BUSINESS_IMAGES.get("hair styling", self.BUSINESS_IMAGES["salon"])
-        if any(word in text_lower for word in ['salon', 'rambut', 'hair']):
+        if self._has_any_word(text_lower, ['salon', 'rambut', 'hair']):
             return self.BUSINESS_IMAGES.get("salon", self.BUSINESS_IMAGES["default"])
 
         # Beauty & Spa
-        if any(word in text_lower for word in ['facial', 'rawatan muka', 'face treatment']):
+        if self._has_any_word(text_lower, ['facial', 'rawatan muka', 'face treatment']):
             return self.BUSINESS_IMAGES.get("facial", self.BUSINESS_IMAGES["beauty"])
-        if any(word in text_lower for word in ['massage', 'urut', 'body massage']):
+        if self._has_any_word(text_lower, ['massage', 'urut', 'body massage']):
             return self.BUSINESS_IMAGES.get("massage", self.BUSINESS_IMAGES["spa"])
-        if any(word in text_lower for word in ['manicure', 'pedicure', 'nail', 'nails']):
+        if self._has_any_word(text_lower, ['manicure', 'pedicure', 'nail', 'nails']):
             return self.BUSINESS_IMAGES.get("manicure", self.BUSINESS_IMAGES["beauty"])
-        if any(word in text_lower for word in ['makeup', 'makeover', 'solek']):
+        if self._has_any_word(text_lower, ['makeup', 'makeover', 'solek']):
             return self.BUSINESS_IMAGES.get("makeup", self.BUSINESS_IMAGES["beauty"])
-        if any(word in text_lower for word in ['spa', 'beauty', 'kecantikan']):
+        if self._has_any_word(text_lower, ['spa', 'beauty', 'kecantikan']):
             return self.BUSINESS_IMAGES.get("beauty", self.BUSINESS_IMAGES["default"])
 
         # Automotive
-        if any(word in text_lower for word in ['car wash', 'cuci kereta', 'auto wash', 'wash']):
+        if self._has_any_word(text_lower, ['car wash', 'cuci kereta', 'auto wash', 'wash']):
             return self.BUSINESS_IMAGES.get("car wash", self.BUSINESS_IMAGES["car"])
-        if any(word in text_lower for word in ['bengkel', 'workshop', 'repair', 'mechanic']):
+        if self._has_any_word(text_lower, ['bengkel', 'workshop', 'repair', 'mechanic']):
             return self.BUSINESS_IMAGES.get("bengkel", self.BUSINESS_IMAGES["car"])
-        if any(word in text_lower for word in ['car service', 'servis kereta', 'auto service', 'servicing']):
+        if self._has_any_word(text_lower, ['car service', 'servis kereta', 'auto service', 'servicing']):
             return self.BUSINESS_IMAGES.get("car service", self.BUSINESS_IMAGES["car"])
-        if any(word in text_lower for word in ['tire', 'tyre', 'tayar']):
+        if self._has_any_word(text_lower, ['tire', 'tyre', 'tayar']):
             return self.BUSINESS_IMAGES.get("tire service", self.BUSINESS_IMAGES["car"])
-        if any(word in text_lower for word in ['kereta', 'car', 'automotive', 'auto']):
+        if self._has_any_word(text_lower, ['kereta', 'car', 'automotive', 'auto']):
             return self.BUSINESS_IMAGES.get("car", self.BUSINESS_IMAGES["default"])
 
         # Food (use existing get_food_image for better food matching)
-        if any(word in text_lower for word in ['nasi', 'mee', 'rice', 'noodle', 'food', 'makan', 'dish']):
+        if self._has_any_word(text_lower, ['nasi', 'mee', 'rice', 'noodle', 'food', 'makan', 'dish']):
             food_img = self.get_food_image(text)
             if food_img != self.FOOD_IMAGES["default"]:
                 return food_img
 
         # Other categories
-        if any(word in text_lower for word in ['bakery', 'roti', 'bread', 'cake', 'kek']):
+        if self._has_any_word(text_lower, ['bakery', 'roti', 'bread', 'cake', 'kek']):
             return self.BUSINESS_IMAGES.get("bakery", self.BUSINESS_IMAGES["default"])
-        if any(word in text_lower for word in ['flower', 'bunga', 'florist']):
+        if self._has_any_word(text_lower, ['flower', 'bunga', 'florist']):
             return self.BUSINESS_IMAGES.get("florist", self.BUSINESS_IMAGES["default"])
-        if any(word in text_lower for word in ['pet', 'haiwan', 'cat', 'dog']):
+        if self._has_any_word(text_lower, ['pet', 'haiwan', 'cat', 'dog']):
             return self.BUSINESS_IMAGES.get("pet shop", self.BUSINESS_IMAGES["default"])
-        if any(word in text_lower for word in ['grocery', 'runcit', 'mini market', 'mart']):
+        if self._has_any_word(text_lower, ['grocery', 'runcit', 'mini market', 'mart']):
             return self.BUSINESS_IMAGES.get("grocery", self.BUSINESS_IMAGES["default"])
-        if any(word in text_lower for word in ['laundry', 'dobi']):
+        if self._has_any_word(text_lower, ['laundry', 'dobi']):
             return self.BUSINESS_IMAGES.get("laundry", self.BUSINESS_IMAGES["default"])
-        if any(word in text_lower for word in ['cafe', 'kafe', 'coffee', 'kopi']):
+        if self._has_any_word(text_lower, ['cafe', 'kafe', 'coffee', 'kopi']):
             return self.BUSINESS_IMAGES.get("cafe", self.BUSINESS_IMAGES["default"])
-        if any(word in text_lower for word in ['restaurant', 'restoran']):
+        if self._has_any_word(text_lower, ['restaurant', 'restoran']):
             return self.BUSINESS_IMAGES.get("restaurant", self.BUSINESS_IMAGES["default"])
 
         # Photography, Gallery & Portfolio
-        if any(word in text_lower for word in ['galeri', 'gallery', 'portfolio', 'imej', 'foto', 'photo', 'gambar', 'image']):
+        if self._has_any_word(text_lower, ['galeri', 'gallery', 'portfolio', 'imej', 'foto', 'photo', 'gambar', 'image']):
             return self.BUSINESS_IMAGES.get("gallery", self.BUSINESS_IMAGES["default"])
-        if any(word in text_lower for word in ['photography', 'fotografi', 'photographer', 'jurugambar', 'camera', 'kamera']):
+        if self._has_any_word(text_lower, ['photography', 'fotografi', 'photographer', 'jurugambar', 'camera', 'kamera']):
             return self.BUSINESS_IMAGES.get("photography", self.BUSINESS_IMAGES["default"])
-        if any(word in text_lower for word in ['studio']):
+        if self._has_word(text_lower, 'studio'):
             return self.BUSINESS_IMAGES.get("studio", self.BUSINESS_IMAGES["default"])
 
         # Context-aware final fallback using business_type — rotate through pools
@@ -1164,10 +1188,12 @@ class AIService:
             # Calculate similarity score
             score = SequenceMatcher(None, text_lower, dish_name).ratio()
 
-            # Also check if text contains the dish name or vice versa
-            if dish_name in text_lower:
+            # Also check if text contains the dish name or vice versa —
+            # whole words only ('mee' must not match "meeting", 'kopi'
+            # must not match "fotokopi")
+            if self._has_word(text_lower, dish_name):
                 score = max(score, 0.9)
-            elif text_lower in dish_name:
+            elif self._has_word(dish_name, text_lower):
                 score = max(score, 0.85)
 
             # Check word-by-word matching for partial matches
@@ -1463,20 +1489,27 @@ Respond ONLY with valid JSON, no other text."""
         """Get image prompts based on business description - WITH MALAYSIAN FOOD SUPPORT"""
         d = description.lower()
 
-        # Check for Malaysian food dishes using smart matching
-        logger.info(f"🍽️ Analyzing description for Malaysian food: {description[:100]}...")
-
-        # Try to find Malaysian food mentions in the description
-        words = d.split()
         detected_dishes = []
+        # Only scan for Malaysian dishes when the description actually reads
+        # like a food business. The fuzzy dish matcher (SequenceMatcher ≥ 0.6
+        # over every 1-4 word phrase) misfired on non-food descriptions —
+        # e.g. "laksana"/"meeting"/"fotokopi" matched dishes — and the whole
+        # site then got food hero/gallery images (the content↔image mismatch
+        # reported for non-restaurant businesses).
+        if self._is_food_business(description):
+            # Check for Malaysian food dishes using smart matching
+            logger.info(f"🍽️ Analyzing description for Malaysian food: {description[:100]}...")
 
-        # Check for multi-word dish names (like "nasi lemak", "char kway teow")
-        for i in range(len(words)):
-            for j in range(i + 1, min(i + 5, len(words) + 1)):  # Check up to 4-word phrases
-                phrase = " ".join(words[i:j])
-                prompt, confidence = self.get_smart_image_prompt(phrase)
-                if prompt and confidence >= 0.6:
-                    detected_dishes.append((phrase, prompt, confidence))
+            # Try to find Malaysian food mentions in the description
+            words = d.split()
+
+            # Check for multi-word dish names (like "nasi lemak", "char kway teow")
+            for i in range(len(words)):
+                for j in range(i + 1, min(i + 5, len(words) + 1)):  # Check up to 4-word phrases
+                    phrase = " ".join(words[i:j])
+                    prompt, confidence = self.get_smart_image_prompt(phrase)
+                    if prompt and confidence >= 0.6:
+                        detected_dishes.append((phrase, prompt, confidence))
 
         # If we found Malaysian dishes, use them!
         if detected_dishes:
@@ -1514,8 +1547,10 @@ Respond ONLY with valid JSON, no other text."""
                 "gallery": gallery_prompts[:4]
             }
 
-        # Fallback to existing logic for non-Malaysian food
-        if "teddy" in d or "bear" in d or "plush" in d or "patung" in d:
+        # Fallback to existing logic for non-Malaysian food (whole-word
+        # matches — 'bear' must not match "beard", 'cat' not "catering",
+        # 'nasi' not "penasihat")
+        if self._has_any_word(d, ("teddy", "bear", "plush", "patung")):
             return {
                 "hero": "Cute teddy bear shop with soft plush toys on shelves, warm cozy lighting",
                 "gallery": [
@@ -1526,7 +1561,7 @@ Respond ONLY with valid JSON, no other text."""
                 ]
             }
 
-        if "ikan" in d or "fish" in d or "seafood" in d:
+        if self._has_any_word(d, ("ikan", "fish", "seafood")):
             return {
                 "hero": "Fresh fish market with seafood on ice display",
                 "gallery": [
@@ -1537,7 +1572,7 @@ Respond ONLY with valid JSON, no other text."""
                 ]
             }
 
-        if "makan" in d or "restoran" in d or "food" in d or "nasi" in d:
+        if self._has_any_word(d, ("makan", "restoran", "food", "nasi")):
             return {
                 "hero": "Modern Malaysian restaurant interior with warm lighting",
                 "gallery": [
@@ -1548,7 +1583,7 @@ Respond ONLY with valid JSON, no other text."""
                 ]
             }
 
-        if any(w in d for w in ['salon', 'rambut', 'hair', 'beauty']):
+        if self._has_any_word(d, ('salon', 'rambut', 'hair', 'beauty')):
             return {
                 "hero": "Modern luxury hair salon interior",
                 "gallery": [
@@ -1559,7 +1594,7 @@ Respond ONLY with valid JSON, no other text."""
                 ]
             }
 
-        if any(w in d for w in ['kucing', 'cat', 'pet']):
+        if self._has_any_word(d, ('kucing', 'cat', 'pet')):
             return {
                 "hero": "Modern pet shop with cute cats",
                 "gallery": [
@@ -1570,7 +1605,7 @@ Respond ONLY with valid JSON, no other text."""
                 ]
             }
 
-        if "bakery" in d or "roti" in d or "kek" in d or "cake" in d:
+        if self._has_any_word(d, ("bakery", "roti", "kek", "cake")):
             return {
                 "hero": "Artisan bakery with fresh bread and pastries",
                 "gallery": [
@@ -1581,7 +1616,7 @@ Respond ONLY with valid JSON, no other text."""
                 ]
             }
 
-        if "kereta" in d or "car" in d or "bengkel" in d or "workshop" in d:
+        if self._has_any_word(d, ("kereta", "car", "bengkel", "workshop")):
             return {
                 "hero": "Modern car workshop garage",
                 "gallery": [
@@ -2188,10 +2223,13 @@ Format: Just the image description, no explanations."""
         if item_lower in prompts:
             return self._with_no_text_suffix(prompts[item_lower])
 
-        # Fuzzy matching - check if item contains any key
-        for key, prompt in prompts.items():
-            if key in item_lower:
-                return self._with_no_text_suffix(prompt)
+        # Fuzzy matching - check if item contains any key as a whole word
+        # ('kopi' must not match "fotokopi", 'ikan' not "kecantikan").
+        # Longest keys first so "Nasi Lemak Special" hits "nasi lemak",
+        # not a shorter overlapping key.
+        for key in sorted(prompts, key=len, reverse=True):
+            if self._has_word(item_lower, key):
+                return self._with_no_text_suffix(prompts[key])
 
         # Generic food prompt
         return self._with_no_text_suffix(
@@ -3285,17 +3323,18 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
     }
 
     def _detect_type(self, desc: str) -> str:
-        """Detect business type"""
+        """Detect business type (whole-word keyword matches — 'cat' must
+        not match "catering", 'nasi' not "penasihat")"""
         d = desc.lower()
-        if any(w in d for w in ['kucing', 'cat', 'pet', 'haiwan', 'anjing', 'dog']):
+        if self._has_any_word(d, ['kucing', 'cat', 'pet', 'haiwan', 'anjing', 'dog']):
             return "pet_shop"
-        if any(w in d for w in ['salon', 'rambut', 'hair', 'haircut', 'beauty', 'spa', 'kecantikan', 'gunting']):
+        if self._has_any_word(d, ['salon', 'rambut', 'hair', 'haircut', 'beauty', 'spa', 'kecantikan', 'gunting']):
             return "salon"
-        if any(w in d for w in ['makan', 'restoran', 'restaurant', 'food', 'nasi', 'cafe', 'kafe', 'warung']):
+        if self._has_any_word(d, ['makan', 'makanan', 'restoran', 'restaurant', 'food', 'nasi', 'cafe', 'kafe', 'warung', 'catering']):
             return "restaurant"
-        if any(w in d for w in ['pakaian', 'clothing', 'fashion', 'baju', 'boutique', 'fesyen', 'tudung', 'hijab']):
+        if self._has_any_word(d, ['pakaian', 'clothing', 'fashion', 'baju', 'boutique', 'fesyen', 'tudung', 'hijab']):
             return "clothing"
-        if any(w in d for w in ['photo', 'foto', 'fotografi', 'photography', 'jurugambar', 'photographer', 'studio', 'gallery', 'galeri']):
+        if self._has_any_word(d, ['photo', 'foto', 'fotografi', 'photography', 'jurugambar', 'photographer', 'studio', 'gallery', 'galeri']):
             return "photography"
         return "default"
 
@@ -4919,6 +4958,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         html: str,
         max_images: Optional[int] = None,
         zai_phase: Optional[Dict] = None,
+        business_description: str = "",
     ) -> tuple:
         """
         Replace Unsplash food images with AI-generated images
@@ -4931,11 +4971,26 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             max_images: Optional hard cap on how many food images to generate
                 (the caller's remaining AI-image quota). None means no cap.
                 When 0 or less, no food images are generated.
+            business_description: The merchant's business description. When
+                provided and it is NOT a food business, this pass is skipped
+                entirely — food images must never be injected into a
+                non-food site (a gym/photocopy/coworking card heading that
+                merely contains a food-looking substring used to get a
+                Malaysian dish photo).
 
         Returns tuple of (html_with_ai_images, count_of_images_generated)
         """
         if not html or not self._image_generation_available():
             logger.info("   ⚠️ Skipping AI image generation (no image provider API key)")
+            return html, 0
+
+        # Business-type gate: this pass exists to give FOOD sites appetizing
+        # dish photos. On any other business it can only ever cause
+        # content↔image mismatches, so skip it outright.
+        if business_description and not self._is_food_business(business_description):
+            logger.info(
+                "   ℹ️ Non-food business — skipping Malaysian food image pass"
+            )
             return html, 0
 
         import re
@@ -4969,8 +5024,10 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 item_name = re.sub(r'<[^>]+>', '', item_name).strip()
                 item_name = re.sub(r'[🍛🍗🐟🥤]', '', item_name).strip()  # Remove emojis
 
-                # Check if it's Malaysian food
-                is_food = any(word in item_name.lower() for word in [
+                # Check if it's Malaysian food — whole-word matches only:
+                # substring checks turned "Price List" into rice, "Meeting
+                # Room" into mee, "Iskandar" into nasi kandar.
+                is_food = self._has_any_word(item_name.lower(), [
                     'nasi', 'mee', 'ayam', 'ikan', 'roti', 'satay', 'rendang', 'laksa',
                     'rice', 'noodle', 'chicken', 'fish', 'bread', 'curry', 'teh', 'kopi',
                     'cendol', 'kuih', 'goreng', 'lemak', 'kandar', 'bakar'
@@ -6311,6 +6368,7 @@ IMPORTANT RULES:
                                     template_html,
                                     max_images=_food_budget,
                                     zai_phase=_zai_image_phase,
+                                    business_description=request.description,
                                 )
                                 ai_images_generated += food_images_count
                         with _timed_step("final_cleanup", step_timings):
@@ -6799,7 +6857,10 @@ IMPORTANT INSTRUCTIONS:
                     else max(0, max_ai_images - ai_images_generated)
                 )
                 html, food_images_count = await self._generate_ai_food_images(
-                    html, max_images=_food_budget, zai_phase=_zai_image_phase
+                    html,
+                    max_images=_food_budget,
+                    zai_phase=_zai_image_phase,
+                    business_description=request.description,
                 )
                 ai_images_generated += food_images_count
 
@@ -7044,7 +7105,9 @@ IMPORTANT INSTRUCTIONS:
                 # This replaces Unsplash URLs with Cloudinary URLs from Stability AI
                 style_ai_images = 0
                 if not (request.uploaded_images and len(request.uploaded_images) > 0):
-                    html, style_ai_images = await self._generate_ai_food_images(html)
+                    html, style_ai_images = await self._generate_ai_food_images(
+                        html, business_description=request.description
+                    )
 
                 # FINAL SAFETY NET: Fix any remaining broken/empty image URLs
                 html = self._fix_broken_image_urls(html, request.description)
