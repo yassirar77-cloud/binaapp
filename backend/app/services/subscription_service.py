@@ -33,25 +33,6 @@ class SubscriptionService:
         "zone": 2.00
     }
 
-    # Bundled credit packages (RM) with volume discounts, keyed by addon type.
-    # Server-authoritative: purchase endpoints resolve quantity and price from
-    # this table by package_id and never trust a client-computed total. The
-    # 1-unit package price MUST equal ADDON_PRICES for that addon type so the
-    # legacy quantity-based purchase path and the package path can't disagree.
-    ADDON_PACKAGES = {
-        "ai_image": [
-            {"package_id": "ai_image_1", "quantity": 1, "price": 1.00},
-            {"package_id": "ai_image_10", "quantity": 10, "price": 8.00},
-            {"package_id": "ai_image_30", "quantity": 30, "price": 21.00},
-            {"package_id": "ai_image_100", "quantity": 100, "price": 60.00},
-        ],
-        "ai_hero": [
-            {"package_id": "ai_hero_1", "quantity": 1, "price": 2.00},
-            {"package_id": "ai_hero_5", "quantity": 5, "price": 8.00},
-            {"package_id": "ai_hero_10", "quantity": 10, "price": 14.00},
-        ],
-    }
-
     # Tier limits
     TIER_LIMITS = {
         "starter": {
@@ -92,45 +73,6 @@ class SubscriptionService:
     def get_current_billing_period(self) -> str:
         """Get current billing period in YYYY-MM format"""
         return datetime.now().strftime("%Y-%m")
-
-    def get_addon_packages(self, addon_type: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        Return the addon package catalog (optionally filtered by addon type),
-        with derived per-unit price and savings vs buying singles.
-        """
-        packages = []
-        for a_type, package_list in self.ADDON_PACKAGES.items():
-            if addon_type and a_type != addon_type:
-                continue
-            unit_price = self.ADDON_PRICES[a_type]
-            for pkg in package_list:
-                full_price = unit_price * pkg["quantity"]
-                savings = full_price - pkg["price"]
-                packages.append({
-                    "package_id": pkg["package_id"],
-                    "addon_type": a_type,
-                    "quantity": pkg["quantity"],
-                    "price": pkg["price"],
-                    "unit_price": round(pkg["price"] / pkg["quantity"], 2),
-                    "savings": round(savings, 2),
-                    "savings_pct": round(savings / full_price * 100) if full_price else 0,
-                })
-        return packages
-
-    def resolve_addon_package(self, package_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Resolve a package_id to its authoritative {addon_type, quantity, price}.
-        Returns None for unknown ids.
-        """
-        for a_type, package_list in self.ADDON_PACKAGES.items():
-            for pkg in package_list:
-                if pkg["package_id"] == package_id:
-                    return {
-                        "addon_type": a_type,
-                        "quantity": pkg["quantity"],
-                        "price": pkg["price"],
-                    }
-        return None
 
     async def generate_invoice_number(self) -> str:
         """

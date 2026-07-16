@@ -28,16 +28,6 @@ export interface Addon {
   price: number;
 }
 
-export interface AddonPackage {
-  package_id: string;
-  addon_type: string;
-  quantity: number;
-  price: number;
-  unit_price: number;
-  savings: number;
-  savings_pct: number;
-}
-
 export interface UsageData {
   used: number;
   limit: number | null;

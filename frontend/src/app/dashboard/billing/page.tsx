@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { backupAuthState, getStoredToken } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
-import AddonPackageModal from './components/AddonPackageModal';
 import AddonsGrid from './components/AddonsGrid';
 import BillingSubnav from './components/BillingSubnav';
 import CurrentPlanBanner from './components/CurrentPlanBanner';
@@ -14,7 +13,7 @@ import PlanCards from './components/PlanCards';
 import PromoCodeCard from './components/PromoCodeCard';
 import SupportFooter from './components/SupportFooter';
 import UsageHeroCards from './components/UsageHeroCards';
-import type { Addon, AddonPackage, Plan, SubscriptionStatus, Transaction, UsageResponse } from './types';
+import type { Addon, Plan, SubscriptionStatus, Transaction, UsageResponse } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -24,8 +23,6 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [addons, setAddons] = useState<Addon[]>([]);
-  const [packages, setPackages] = useState<AddonPackage[]>([]);
-  const [packageAddon, setPackageAddon] = useState<Addon | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
   const [usage, setUsage] = useState<UsageResponse | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -42,11 +39,10 @@ export default function BillingPage() {
       }
 
       const authHeaders = { Authorization: `Bearer ${token}` };
-      const [plansRes, statusRes, addonsRes, packagesRes, usageRes, txRes] = await Promise.all([
+      const [plansRes, statusRes, addonsRes, usageRes, txRes] = await Promise.all([
         fetch(`${API_URL}/api/v1/subscription/plans`),
         fetch(`${API_URL}/api/v1/subscription/status`, { headers: authHeaders }),
         fetch(`${API_URL}/api/v1/subscription/addons/available`),
-        fetch(`${API_URL}/api/v1/subscription/addons/packages`),
         fetch(`${API_URL}/api/v1/subscription/usage`, { headers: authHeaders }),
         fetch(`${API_URL}/api/v1/subscription/transactions?limit=8`, { headers: authHeaders }),
       ]);
@@ -61,10 +57,6 @@ export default function BillingPage() {
       if (addonsRes.ok) {
         const data = await addonsRes.json();
         setAddons(data.addons || []);
-      }
-      if (packagesRes.ok) {
-        const data = await packagesRes.json();
-        setPackages(data.packages || []);
       }
       if (usageRes.ok) {
         setUsage(await usageRes.json());
@@ -158,7 +150,7 @@ export default function BillingPage() {
   }, [processing, fetchData]);
 
   const handleBuyAddon = useCallback(
-    async (addonType: string, quantity = 1, packageId?: string) => {
+    async (addonType: string, quantity = 1) => {
       if (processing) return;
       setProcessing(true);
       try {
@@ -169,11 +161,7 @@ export default function BillingPage() {
             Authorization: `Bearer ${token}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            addon_type: addonType,
-            quantity,
-            ...(packageId ? { package_id: packageId } : {}),
-          }),
+          body: JSON.stringify({ addon_type: addonType, quantity }),
         });
         const data = await res.json();
         if (data.success && data.payment_url) {
@@ -192,19 +180,6 @@ export default function BillingPage() {
       }
     },
     [processing]
-  );
-
-  // Addons with bundle packages (AI images / AI hero) open the package
-  // picker; everything else goes straight to a single-credit purchase.
-  const handleAddonClick = useCallback(
-    (addonType: string) => {
-      if (packages.some((p) => p.addon_type === addonType)) {
-        setPackageAddon(addons.find((a) => a.type === addonType) ?? null);
-        return;
-      }
-      handleBuyAddon(addonType);
-    },
-    [packages, addons, handleBuyAddon]
   );
 
   const handleLogout = useCallback(() => {
@@ -283,9 +258,8 @@ export default function BillingPage() {
             <AddonsGrid
               addons={addons}
               usage={usage}
-              packages={packages}
               processing={processing}
-              onBuy={handleAddonClick}
+              onBuy={handleBuyAddon}
             />
           </section>
 
@@ -299,16 +273,6 @@ export default function BillingPage() {
 
           <SupportFooter />
         </div>
-
-        <AddonPackageModal
-          addon={packageAddon}
-          packages={packages}
-          processing={processing}
-          onSelect={(packageId) => {
-            if (packageAddon) handleBuyAddon(packageAddon.type, 1, packageId);
-          }}
-          onClose={() => setPackageAddon(null)}
-        />
       </main>
     </>
   );

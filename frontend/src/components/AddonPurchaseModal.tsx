@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { getCurrentUser, getStoredToken, backupAuthState } from '@/lib/supabase';
@@ -14,16 +14,6 @@ interface Addon {
   is_recurring?: boolean;
 }
 
-interface AddonPackage {
-  package_id: string;
-  addon_type: string;
-  quantity: number;
-  price: number;
-  unit_price: number;
-  savings: number;
-  savings_pct: number;
-}
-
 interface AddonPurchaseModalProps {
   show: boolean;
   addon: Addon | null;
@@ -32,44 +22,8 @@ interface AddonPurchaseModalProps {
 
 export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalProps) {
   const router = useRouter();
+  const [quantity, setQuantity] = useState(addon?.quantity || 1);
   const [loading, setLoading] = useState(false);
-  // Bundle packages (AI images / AI hero) fetched from the server catalog.
-  // Prices shown are display-only — the backend re-resolves the package by id
-  // and bills the server-side price. If the fetch fails or the addon has no
-  // packages, the modal falls back to a plain single-credit purchase.
-  const [packages, setPackages] = useState<AddonPackage[]>([]);
-  const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!show || !addon) return;
-    setPackages([]);
-    setSelectedPackageId(null);
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || ''}/api/v1/subscription/addons/packages?addon_type=${encodeURIComponent(addon.type)}`
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        const list: AddonPackage[] = (data.packages || []).sort(
-          (a: AddonPackage, b: AddonPackage) => a.quantity - b.quantity
-        );
-        if (!cancelled && list.length > 0) {
-          setPackages(list);
-          setSelectedPackageId(list[0].package_id);
-        }
-      } catch {
-        // Fall back to single-credit purchase silently.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [show, addon]);
-
-  const selectedPackage = packages.find((p) => p.package_id === selectedPackageId) || null;
 
   const handlePurchase = async () => {
     if (!addon) return;
@@ -102,8 +56,7 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
         body: JSON.stringify({
           user_id: user.id,
           addon_type: addon.type,
-          quantity: selectedPackage ? selectedPackage.quantity : 1,
-          ...(selectedPackage ? { package_id: selectedPackage.package_id } : {})
+          quantity: quantity
         })
       });
 
@@ -114,7 +67,7 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
         localStorage.setItem('pending_payment_id', data.payment_id);
         localStorage.setItem('pending_bill_code', data.bill_code);
         localStorage.setItem('pending_addon_type', addon.type);
-        localStorage.setItem('pending_addon_quantity', String(data.quantity ?? 1));
+        localStorage.setItem('pending_addon_quantity', String(quantity));
         // Clear subscription-related pending info to avoid confusion
         localStorage.removeItem('pending_tier');
 
@@ -149,7 +102,7 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
 
   if (!show || !addon) return null;
 
-  const total = selectedPackage ? selectedPackage.price : addon.price;
+  const total = addon.price * quantity;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -165,19 +118,24 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
           </p>
         </div>
 
-        {packages.length > 0 && (
+        {['ai_image', 'ai_hero'].includes(addon.type) && (
           <div className="quantity-selector">
-            <label>Pakej:</label>
-            <select
-              value={selectedPackageId ?? ''}
-              onChange={(e) => setSelectedPackageId(e.target.value)}
-            >
-              {packages.map((pkg) => (
-                <option key={pkg.package_id} value={pkg.package_id}>
-                  {pkg.quantity} kredit — RM{pkg.price.toFixed(2)}
-                  {pkg.savings_pct > 0 ? ` (Jimat ${pkg.savings_pct}%)` : ''}
-                </option>
-              ))}
+            <label>Kuantiti:</label>
+            <select value={quantity} onChange={(e) => setQuantity(parseInt(e.target.value))}>
+              <option value="1">1 - RM{addon.price}</option>
+              {addon.type === 'ai_image' && (
+                <>
+                  <option value="10">10 - RM{addon.price * 10}</option>
+                  <option value="50">50 - RM{addon.price * 50}</option>
+                  <option value="100">100 - RM{addon.price * 100}</option>
+                </>
+              )}
+              {addon.type === 'ai_hero' && (
+                <>
+                  <option value="5">5 - RM{addon.price * 5}</option>
+                  <option value="10">10 - RM{addon.price * 10}</option>
+                </>
+              )}
             </select>
           </div>
         )}

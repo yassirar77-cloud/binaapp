@@ -10,13 +10,12 @@ import {
   Sparkles,
   Wand2,
 } from 'lucide-react';
-import type { Addon, AddonPackage, UsageResponse } from '../types';
+import type { Addon, UsageResponse } from '../types';
 import SectionHeader from './SectionHeader';
 
 interface Props {
   addons: Addon[];
   usage: UsageResponse | null;
-  packages?: AddonPackage[];
   processing: boolean;
   onBuy: (addonType: string) => void;
 }
@@ -58,13 +57,11 @@ function ownedCredits(addonType: string, usage: UsageResponse | null): number {
 function AddonCard({
   addon,
   owned,
-  maxSavingsPct,
   processing,
   onBuy,
 }: {
   addon: Addon;
   owned: number;
-  maxSavingsPct: number;
   processing: boolean;
   onBuy: (type: string) => void;
 }) {
@@ -102,17 +99,7 @@ function AddonCard({
 
       <div className="mt-1 flex items-center justify-between">
         <span className="text-[20px] font-bold tracking-[-0.03em] tabular-nums text-ink-900">
-          {maxSavingsPct > 0 ? (
-            <>
-              <span className="mr-1 align-middle text-[12px] font-medium text-ink-500">dari</span>
-              {formatRM(addon.price)}
-              <span className="ml-2 align-middle rounded-full bg-[#DCFCE7] px-2 py-[3px] font-geist-mono text-[9.5px] font-semibold uppercase tracking-[0.1em] text-ok-500">
-                Jimat −{maxSavingsPct}%
-              </span>
-            </>
-          ) : (
-            formatRM(addon.price)
-          )}
+          {formatRM(addon.price)}
         </span>
         <button
           type="button"
@@ -128,12 +115,7 @@ function AddonCard({
   );
 }
 
-export default function AddonsGrid({ addons, usage, packages = [], processing, onBuy }: Props) {
-  const maxSavingsFor = (addonType: string): number =>
-    packages
-      .filter((p) => p.addon_type === addonType)
-      .reduce((max, p) => Math.max(max, p.savings_pct), 0);
-
+export default function AddonsGrid({ addons, usage, processing, onBuy }: Props) {
   const renderable = addons.filter((a) => {
     if (!a.type || !a.name || a.price === null || a.price === undefined) {
       console.warn(
@@ -163,7 +145,6 @@ export default function AddonsGrid({ addons, usage, packages = [], processing, o
             key={addon.type}
             addon={addon}
             owned={ownedCredits(addon.type, usage)}
-            maxSavingsPct={maxSavingsFor(addon.type)}
             processing={processing}
             onBuy={onBuy}
           />
