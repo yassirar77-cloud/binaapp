@@ -43,6 +43,10 @@ class UpgradeRequest(BaseModel):
 class AddonPurchaseRequest(BaseModel):
     addon_type: str  # 'ai_image', 'ai_hero', 'website', 'rider', 'zone'
     quantity: int = 1
+    # Optional bundle package id (e.g. 'ai_image_10'). When set, quantity and
+    # price are resolved server-side from the package catalog and the client's
+    # quantity is ignored.
+    package_id: Optional[str] = None
 
 
 class UseAddonRequest(BaseModel):
@@ -461,6 +465,25 @@ async def get_available_addons():
         )
 
 
+@router.get("/addons/packages")
+async def get_addon_packages(addon_type: Optional[str] = None):
+    """
+    Get bundled credit packages (volume-discounted) for addons that offer
+    them (currently AI images and AI hero). Prices are server-authoritative:
+    the purchase endpoints re-resolve the package by id and never trust a
+    client-computed total.
+    """
+    try:
+        packages = subscription_service.get_addon_packages(addon_type)
+        return {"packages": packages}
+    except Exception as e:
+        logger.error(f"Error getting addon packages: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal mendapatkan senarai pakej addon"
+        )
+
+
 @router.get("/addons/credits")
 async def get_addon_credits(current_user: dict = Depends(get_current_user)):
     """
@@ -492,16 +515,36 @@ async def purchase_addon(
         email = current_user.get("email")
         addon_type = request.addon_type
         quantity = max(1, request.quantity)
+        package_id = request.package_id
 
-        # Validate addon type
-        if addon_type not in subscription_service.ADDON_PRICES:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Jenis addon tidak sah: {addon_type}"
-            )
+        if package_id:
+            # Bundle purchase: quantity and price come from the server-side
+            # catalog — the client's quantity field is ignored.
+            package = subscription_service.resolve_addon_package(package_id)
+            if not package:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Pakej tidak sah: {package_id}"
+                )
+            if addon_type and addon_type != package["addon_type"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Pakej {package_id} bukan untuk addon {addon_type}"
+                )
+            addon_type = package["addon_type"]
+            quantity = package["quantity"]
+            total_price = package["price"]
+            unit_price = round(total_price / quantity, 2)
+        else:
+            # Validate addon type
+            if addon_type not in subscription_service.ADDON_PRICES:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Jenis addon tidak sah: {addon_type}"
+                )
 
-        unit_price = subscription_service.ADDON_PRICES[addon_type]
-        total_price = unit_price * quantity
+            unit_price = subscription_service.ADDON_PRICES[addon_type]
+            total_price = unit_price * quantity
 
         # Get user details
         user_data = await supabase_service.get_user_by_id(user_id)
@@ -551,7 +594,8 @@ async def purchase_addon(
                     "metadata": {
                         "addon_type": addon_type,
                         "quantity": quantity,
-                        "unit_price": unit_price
+                        "unit_price": unit_price,
+                        **({"package_id": package_id} if package_id else {})
                     }
                 })
             except Exception as db_error:
@@ -573,6 +617,7 @@ async def purchase_addon(
                 "transaction_id": transaction_id,
                 "addon_type": addon_type,
                 "quantity": quantity,
+                "package_id": package_id,
                 "total_amount": total_price
             }
         else:

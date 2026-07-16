@@ -16,6 +16,10 @@ class AddonPurchaseRequest(BaseModel):
     user_id: str  # UUID string from Supabase
     addon_type: str
     quantity: int = 1
+    # Optional bundle package id (e.g. 'ai_image_10'). When set, quantity and
+    # price are resolved server-side from the package catalog and the client's
+    # quantity is ignored.
+    package_id: Optional[str] = None
 
 from app.models.schemas import (
     CheckoutSessionRequest,
@@ -1893,11 +1897,31 @@ async def purchase_addon(
                 headers={"X-Email-Verification-Required": "true"},
             )
 
-        if addon_type not in ADDON_PRICES:
+        package_id = request.package_id
+        if package_id:
+            # Bundle purchase: quantity and price come from the server-side
+            # catalog — the client's quantity field is ignored.
+            from app.services.subscription_service import subscription_service
+            package = subscription_service.resolve_addon_package(package_id)
+            if not package:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid package: {package_id}"
+                )
+            if addon_type and addon_type != package["addon_type"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Package {package_id} is not for addon {addon_type}"
+                )
+            addon_type = package["addon_type"]
+            quantity = package["quantity"]
+        elif addon_type not in ADDON_PRICES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid addon type: {addon_type}"
             )
+
+        quantity = max(1, quantity)
 
         logger.info(f"Creating addon purchase: type={addon_type}, qty={quantity}, user={user_id[:8]}...")
 
@@ -1917,8 +1941,12 @@ async def purchase_addon(
             email = f"user{user_id[:8]}@binaapp.my"
             logger.warning(f"Using generated email for addon purchase: {email}")
 
-        unit_price = ADDON_PRICES[addon_type]
-        total_price = unit_price * quantity
+        if package_id:
+            total_price = package["price"]
+            unit_price = round(total_price / quantity, 2)
+        else:
+            unit_price = ADDON_PRICES[addon_type]
+            total_price = unit_price * quantity
 
         # Truncate external reference
         external_ref = f"ADDON_{addon_type}_{user_id[:16]}"
@@ -1978,7 +2006,8 @@ async def purchase_addon(
                     "metadata": {
                         "addon_type": addon_type,
                         "quantity": quantity,
-                        "unit_price": unit_price
+                        "unit_price": unit_price,
+                        **({"package_id": package_id} if package_id else {})
                     }
                 })
             except Exception as db_error:
@@ -2006,6 +2035,7 @@ async def purchase_addon(
                 "payment_url": result.get("payment_url"),
                 "addon_type": addon_type,
                 "quantity": quantity,
+                "package_id": package_id,
                 "amount": total_price
             }
         else:
