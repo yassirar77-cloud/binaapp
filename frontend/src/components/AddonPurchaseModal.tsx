@@ -22,7 +22,7 @@ interface AddonPurchaseModalProps {
 
 export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalProps) {
   const router = useRouter();
-  const [quantity, setQuantity] = useState(addon?.quantity || 1);
+  const quantity = addon?.quantity || 1;
   const [loading, setLoading] = useState(false);
 
   const handlePurchase = async () => {
@@ -118,27 +118,8 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
           </p>
         </div>
 
-        {['ai_image', 'ai_hero'].includes(addon.type) && (
-          <div className="quantity-selector">
-            <label>Kuantiti:</label>
-            <select value={quantity} onChange={(e) => setQuantity(parseInt(e.target.value))}>
-              <option value="1">1 - RM{addon.price}</option>
-              {addon.type === 'ai_image' && (
-                <>
-                  <option value="10">10 - RM{addon.price * 10}</option>
-                  <option value="50">50 - RM{addon.price * 50}</option>
-                  <option value="100">100 - RM{addon.price * 100}</option>
-                </>
-              )}
-              {addon.type === 'ai_hero' && (
-                <>
-                  <option value="5">5 - RM{addon.price * 5}</option>
-                  <option value="10">10 - RM{addon.price * 10}</option>
-                </>
-              )}
-            </select>
-          </div>
-        )}
+        {/* ai_image / ai_hero quantity options removed: AI images are free
+            and those addons are no longer sold (backend rejects them). */}
 
         <div className="total-price">
           <strong>Jumlah: RM {total.toFixed(2)}</strong>

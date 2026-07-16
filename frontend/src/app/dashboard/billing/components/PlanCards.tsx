@@ -243,7 +243,14 @@ export default function PlanCards({ plans, subscription, processing, onUpgrade }
   // Exclude `free` — it's the default state, not an upgrade target.
   // Source of truth: backend rejects it in subscription.py:187 (valid_plans = ["starter","basic","pro"]).
   // Free users see their plan via CurrentPlanBanner above this section.
-  const upgradable = plans.filter((p) => p.plan_name !== 'free');
+  // Also exclude retired tiers (is_public === false, e.g. basic) — the
+  // backend rejects new purchases of them — EXCEPT when it's the user's
+  // current plan, so grandfathered subscribers still see their own card.
+  const upgradable = plans.filter(
+    (p) =>
+      p.plan_name !== 'free' &&
+      (p.is_public !== false || p.plan_name === subscription?.plan_name)
+  );
 
   const renderable = upgradable.filter((p) => {
     if (!p.plan_name || !p.display_name || p.price === null || p.price === undefined) {
@@ -277,7 +284,11 @@ export default function PlanCards({ plans, subscription, processing, onUpgrade }
         title="Tukar pelan, bila-bila masa"
         sub="Naik taraf diproses serta-merta melalui ToyyibPay. Untuk turun pelan, sila hubungi sokongan."
       />
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div
+        className={`grid grid-cols-1 gap-4 ${
+          sorted.length >= 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'
+        }`}
+      >
         {sorted.map((plan) => (
           <PlanCardView
             key={plan.plan_name}

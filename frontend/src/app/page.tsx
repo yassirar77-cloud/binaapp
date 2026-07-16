@@ -21,7 +21,7 @@ function LandingPageContent() {
   const [user, setUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
-  const [targetTier, setTargetTier] = useState<'starter' | 'basic' | 'pro'>('starter')
+  const [targetTier, setTargetTier] = useState<'starter' | 'pro'>('starter')
 
   useEffect(() => {
     checkUser()
@@ -30,8 +30,8 @@ function LandingPageContent() {
   // Handle tier parameter from redirect after login
   useEffect(() => {
     if (!loading && user) {
-      const tier = searchParams.get('tier') as 'starter' | 'basic' | 'pro' | null
-      if (tier && ['starter', 'basic', 'pro'].includes(tier)) {
+      const tier = searchParams.get('tier') as 'starter' | 'pro' | null
+      if (tier && ['starter', 'pro'].includes(tier)) {
         // Clear the URL parameter
         router.replace('/', { scroll: false })
         // Open the upgrade modal or redirect
@@ -68,7 +68,7 @@ function LandingPageContent() {
     }
   }
 
-  function handleSelectPlan(tier: 'starter' | 'basic' | 'pro') {
+  function handleSelectPlan(tier: 'starter' | 'pro') {
     if (!user) {
       // Not logged in - redirect to login with return URL
       router.push(`/login?redirect=/?tier=${tier}`)
