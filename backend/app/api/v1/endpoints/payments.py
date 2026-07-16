@@ -1869,7 +1869,9 @@ async def purchase_addon(
     try:
         user_id = request.user_id
         addon_type = request.addon_type
-        quantity = request.quantity
+        # Clamp to >= 1: a zero/negative client quantity must not produce an
+        # RM0 ToyyibPay bill.
+        quantity = max(1, request.quantity)
 
         # Validate user_id
         if not user_id or not user_id.strip():
