@@ -27,29 +27,30 @@ const prices: Record<string, number> = {
 // SMTP daily send cap by hammering the resend endpoint.
 const RESEND_COOLDOWN_SECONDS = 30;
 
+// `basic` was retired from sale (backend rejects new basic purchases) but
+// stays here so a stale targetTier never renders an empty modal.
 const features: Record<string, string[]> = {
   starter: [
     '1 website',
     '20 menu items',
-    '1 AI generation',
-    '5 AI images',
+    'Imej AI percuma',
+    'WhatsApp + troli',
     '1 delivery zone'
   ],
   basic: [
     '5 websites',
     'Unlimited menu',
-    '10 AI generations/month',
-    '30 AI images/month',
+    'Imej AI percuma',
     '5 delivery zones',
     'QR Payment',
     'Borang Hubungi'
   ],
   pro: [
-    'Unlimited websites',
-    'Unlimited menu',
-    'Unlimited AI',
+    'Unlimited websites & menu',
+    'Imej AI percuma',
     'Unlimited zones',
     'Rider GPS (10 riders)',
+    'Order dashboard & chat',
     'Advanced analytics',
     'Priority support'
   ]

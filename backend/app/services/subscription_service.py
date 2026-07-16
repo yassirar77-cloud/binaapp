@@ -25,6 +25,9 @@ class SubscriptionService:
     }
 
     # Addon pricing (RM)
+    # ai_image / ai_hero remain here so existing purchased credits keep their
+    # recorded value and check_limit can still consume them, but NEW sales of
+    # those two are blocked (see DISCONTINUED_ADDONS).
     ADDON_PRICES = {
         "ai_image": 1.00,
         "ai_hero": 2.00,
@@ -32,6 +35,17 @@ class SubscriptionService:
         "rider": 3.00,
         "zone": 2.00
     }
+
+    # Addons retired from sale: AI images are free product-wide, so paid AI
+    # image credits are no longer sold. Purchase endpoints reject these;
+    # already-purchased credits stay usable until they expire.
+    DISCONTINUED_ADDONS = {"ai_image", "ai_hero"}
+
+    # Tiers that can be newly purchased. "basic" was retired from sale
+    # (2-tier lineup: starter RM5 + pro RM49) but stays in TIER_PRICES and
+    # TIER_LIMITS so grandfathered subscribers keep their plan, pricing
+    # display, limits, and renewals.
+    PURCHASABLE_TIERS = {"starter", "pro"}
 
     # Tier limits
     TIER_LIMITS = {
@@ -617,6 +631,21 @@ class SubscriptionService:
                     "using_addon": True,
                     "addon_credits": addon_count,
                     "message": f"Menggunakan kredit addon ({addon_count} baki)"
+                }
+
+            # Retired addons (AI images are free now): never advertise a
+            # purchase that the purchase endpoints would reject. The monthly
+            # cap acts as a fair-use guard and resets with the billing period.
+            if addon_type in self.DISCONTINUED_ADDONS:
+                return {
+                    "allowed": False,
+                    "current_usage": current,
+                    "limit": limit,
+                    "can_buy_addon": False,
+                    "message": (
+                        f"Had penggunaan bulan ini dicapai ({current}/{limit}). "
+                        "Had akan direset bulan hadapan."
+                    )
                 }
 
             # Limit reached, offer addon purchase

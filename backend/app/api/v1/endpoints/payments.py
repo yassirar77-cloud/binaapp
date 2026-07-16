@@ -1680,6 +1680,9 @@ async def recover_pending_transactions(current_user: dict = Depends(get_current_
 # ============================================
 
 # Subscription tier pricing (RM)
+# "basic" stays here so the paid-verification path (/subscriptions/upgrade)
+# can still amount-match in-flight or historical basic transactions, but NEW
+# basic bills are blocked (see SubscriptionService.PURCHASABLE_TIERS).
 TIER_PRICES = {
     "starter": 5,
     "basic": 29,
@@ -1711,6 +1714,15 @@ async def create_subscription_payment(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid tier: {tier}. Valid tiers: {list(TIER_PRICES.keys())}"
+            )
+
+        # Basic was retired from sale — no NEW basic bills. Existing basic
+        # subscribers keep their plan and renewals.
+        from app.services.subscription_service import subscription_service
+        if tier not in subscription_service.PURCHASABLE_TIERS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Pelan {tier} tidak lagi ditawarkan. Sila pilih pelan Pro."
             )
 
         user_id = request.user_id
@@ -1899,6 +1911,14 @@ async def purchase_addon(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid addon type: {addon_type}"
+            )
+
+        # AI images are free — paid AI image credits are no longer sold.
+        from app.services.subscription_service import subscription_service
+        if addon_type in subscription_service.DISCONTINUED_ADDONS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Imej AI kini percuma — addon ini tidak lagi dijual."
             )
 
         logger.info(f"Creating addon purchase: type={addon_type}, qty={quantity}, user={user_id[:8]}...")

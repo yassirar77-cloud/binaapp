@@ -127,49 +127,53 @@ async def get_subscription_plans():
     try:
         plans = await subscription_service.get_subscription_plans()
 
-        # Add feature descriptions
+        # Add feature descriptions. AI images are free product-wide, so no
+        # plan advertises an image count. Pro is positioned as the business
+        # plan: the pitch is delivery operations, not website count.
         feature_descriptions = {
             "starter": [
                 "1 laman web",
                 "20 item menu",
-                "1 penjanaan AI hero",
-                "5 imej AI",
+                "Imej AI percuma",
+                "WhatsApp + troli",
                 "1 zon penghantaran",
-                "Subdomain",
-                "Semua integrasi",
+                "Subdomain percuma",
                 "Sokongan e-mel"
             ],
+            # Grandfathered display only — basic is no longer sold
+            # (is_public=False) but existing subscribers still see it.
             "basic": [
                 "5 laman web",
                 "Item menu tanpa had",
-                "10 penjanaan AI hero/bulan",
-                "30 imej AI/bulan",
+                "Imej AI percuma",
                 "5 zon penghantaran",
                 "Subdomain tersuai",
-                "AI keutamaan",
                 "Analitik",
                 "Pembayaran QR",
                 "Borang hubungi",
                 "Sokongan keutamaan"
             ],
             "pro": [
-                "Laman web tanpa had",
-                "Item menu tanpa had",
-                "Penjanaan AI tanpa had",
-                "Imej AI tanpa had",
+                "Semua dalam Permulaan",
+                "Laman web & item menu tanpa had",
+                "Imej AI percuma",
                 "Zon penghantaran tanpa had",
-                "10 rider (GPS tracking)",
-                "AI lanjutan",
-                "Subdomain tersuai"
+                "10 rider sendiri + GPS tracking",
+                "Dashboard order & chat pelanggan",
+                "Analitik penuh",
+                "Sokongan keutamaan"
             ]
         }
 
-        # Enhance plans with features
+        # Enhance plans with features + purchasability. Plans outside
+        # PURCHASABLE_TIERS are hidden from pricing UIs but still returned so
+        # grandfathered subscribers keep their plan's display data.
         enhanced_plans = []
         for plan in plans:
             plan_name = plan.get("plan_name", "starter")
             enhanced_plans.append({
                 **plan,
+                "is_public": plan_name in subscription_service.PURCHASABLE_TIERS,
                 "feature_list": feature_descriptions.get(plan_name, [])
             })
 
@@ -202,6 +206,14 @@ async def upgrade_subscription(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Pelan tidak sah: {new_plan}"
+            )
+
+        # Basic was retired from sale — existing basic subscribers keep their
+        # plan and renewals, but no NEW basic purchases/upgrades are created.
+        if new_plan not in subscription_service.PURCHASABLE_TIERS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Pelan {new_plan} tidak lagi ditawarkan. Sila pilih pelan Pro."
             )
 
         # Get current subscription
@@ -419,19 +431,9 @@ async def get_available_addons():
     Get available addons with pricing
     """
     try:
+        # ai_image / ai_hero were removed from sale: AI images are free
+        # product-wide (see SubscriptionService.DISCONTINUED_ADDONS).
         addons = [
-            {
-                "type": "ai_image",
-                "name": "Imej AI",
-                "description": "Jana 1 imej AI untuk menu",
-                "price": 1.00
-            },
-            {
-                "type": "ai_hero",
-                "name": "Penjanaan AI Hero",
-                "description": "Jana 1 bahagian hero AI",
-                "price": 2.00
-            },
             {
                 "type": "website",
                 "name": "Laman Web Tambahan",
@@ -498,6 +500,13 @@ async def purchase_addon(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Jenis addon tidak sah: {addon_type}"
+            )
+
+        # AI images are free — paid AI image credits are no longer sold.
+        if addon_type in subscription_service.DISCONTINUED_ADDONS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Imej AI kini percuma — addon ini tidak lagi dijual."
             )
 
         unit_price = subscription_service.ADDON_PRICES[addon_type]

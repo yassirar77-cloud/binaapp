@@ -635,7 +635,7 @@ export default function CreatePage() {
   }
 
   // Show upgrade modal directly
-  const showUpgrade = (tier: string = 'basic') => {
+  const showUpgrade = (tier: string = 'pro') => {
     setTargetTier(tier)
     setShowUpgradeModal(true)
   }

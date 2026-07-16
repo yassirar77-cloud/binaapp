@@ -36,29 +36,19 @@ const addonTypes: Record<string, string> = {
   rider: 'rider'
 };
 
+// Basic (RM29) was retired from sale — the backend rejects new basic
+// purchases, so Pro is the only upgrade target offered here.
 const upgradePlans = [
   {
-    tier: 'basic',
-    name: 'Basic',
-    price: 29,
-    features: [
-      '5 laman web',
-      'Item menu tanpa had',
-      '10 AI hero/bulan',
-      '30 imej AI/bulan',
-      '5 zon penghantaran'
-    ]
-  },
-  {
     tier: 'pro',
-    name: 'Pro',
+    name: 'Bisnes',
     price: 49,
     features: [
-      'Laman web tanpa had',
-      'AI tanpa had',
-      'Zon tanpa had',
-      '10 rider dengan GPS',
-      'Sokongan keutamaan'
+      'Laman web & zon tanpa had',
+      'Imej AI percuma',
+      '10 rider sendiri + GPS tracking',
+      'Dashboard order & chat pelanggan',
+      'Analitik penuh & sokongan keutamaan'
     ]
   }
 ];

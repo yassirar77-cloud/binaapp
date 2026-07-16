@@ -2,6 +2,9 @@ export interface Plan {
   plan_name: string;
   display_name: string;
   price: number;
+  // False for retired tiers (e.g. basic): hidden from pricing UIs unless it
+  // is the user's current (grandfathered) plan. Absent = public.
+  is_public?: boolean;
   websites_limit: number | null;
   menu_items_limit: number | null;
   ai_hero_limit: number | null;
