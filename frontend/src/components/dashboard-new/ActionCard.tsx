@@ -2,7 +2,7 @@
 
 import { ReactElement, ReactNode } from 'react'
 import Link from 'next/link'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Lock } from 'lucide-react'
 
 interface ActionCardMeta {
   dotColor: string
@@ -27,6 +27,9 @@ interface ActionCardProps {
   featured?: boolean
   /** Click handler */
   onClick?: () => void
+  /** Locked behind the Bisnes plan: no navigation, lock icon + BISNES badge;
+   *  onClick should open the upgrade upsell. */
+  locked?: boolean
 }
 
 export default function ActionCard({
@@ -38,20 +41,23 @@ export default function ActionCard({
   href,
   featured = false,
   onClick,
+  locked = false,
 }: ActionCardProps): ReactElement {
   // next/link when navigating — gives route prefetch + client-side nav
-  // instead of a full page reload.
-  const Tag = href ? Link : 'div'
+  // instead of a full page reload. Locked cards never navigate: the click
+  // opens the upgrade upsell instead.
+  const Tag = href && !locked ? Link : 'div'
 
   return (
     <Tag
-      href={href as string}
+      href={(href && !locked ? href : undefined) as string}
       onClick={onClick}
       className={`
         block no-underline cursor-pointer relative overflow-hidden
         rounded-[18px] p-[22px]
         transition-transform duration-200 ease-[cubic-bezier(.25,1,.5,1)]
         hover:scale-[1.01] hover:border-white/10
+        ${locked ? 'opacity-75' : ''}
         ${featured
           ? 'bg-gradient-to-b from-ink-800 to-[#0F0F1F] border border-volt-400/[0.18]'
           : 'bg-ink-800 border border-white/[0.07]'
@@ -89,13 +95,18 @@ export default function ActionCard({
           {icon}
         </div>
         <div className="w-8 h-8 rounded-full bg-white/[0.04] border border-white/[0.06] grid place-items-center text-ink-400">
-          <ArrowRight size={14} strokeWidth={2} />
+          {locked ? <Lock size={13} strokeWidth={2} /> : <ArrowRight size={14} strokeWidth={2} />}
         </div>
       </div>
 
       {/* Title + description */}
-      <h3 className="font-geist font-semibold text-[19px] text-white tracking-[-0.025em] mb-1.5">
+      <h3 className="font-geist font-semibold text-[19px] text-white tracking-[-0.025em] mb-1.5 flex items-center gap-2">
         {title}
+        {locked && (
+          <span className="rounded-full bg-[#C7FF3D]/15 px-2 py-[2px] text-[10px] font-bold tracking-wide text-[#C7FF3D]">
+            BISNES
+          </span>
+        )}
       </h3>
       <p className="font-geist text-[13.5px] text-ink-400 leading-relaxed tracking-[-0.005em] mb-5">
         {description}

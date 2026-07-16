@@ -633,6 +633,23 @@ class SubscriptionService:
                     "message": f"Menggunakan kredit addon ({addon_count} baki)"
                 }
 
+            # Feature not included in the plan at all (limit 0, e.g. riders
+            # on Permulaan): addons can't unlock it — upgrade required. Note
+            # this runs AFTER the addon-credit check above, so already-owned
+            # credits (grandfathered purchases) keep working.
+            if limit == 0:
+                return {
+                    "allowed": False,
+                    "current_usage": current,
+                    "limit": limit,
+                    "can_buy_addon": False,
+                    "requires_upgrade": True,
+                    "message": (
+                        "Ciri ini tidak termasuk dalam pelan anda. "
+                        "Naik taraf ke pelan Bisnes (RM49) untuk mengaktifkannya."
+                    )
+                }
+
             # Retired addons (AI images are free now): never advertise a
             # purchase that the purchase endpoints would reject. The monthly
             # cap acts as a fair-use guard and resets with the billing period.

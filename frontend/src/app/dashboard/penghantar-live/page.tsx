@@ -6,7 +6,9 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Lock } from 'lucide-react';
 import { supabase, getCurrentUser, getStoredToken } from '@/lib/supabase';
+import { usePlanFeatures } from '@/hooks/usePlanFeatures';
 import PenghantarLiveClient from './PenghantarLiveClient';
 import type { Outlet } from './lib/types';
 import './penghantar-live.css';
@@ -16,6 +18,10 @@ export default function PenghantarLivePage() {
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Rider/GPS ops are Bisnes-only — deep links from Permulaan get the upsell
+  // panel below instead of the live map. null (unknown) renders normally;
+  // the backend still enforces rider quotas either way.
+  const { hasRiderFeatures } = usePlanFeatures();
 
   useEffect(() => {
     let cancelled = false;
@@ -82,6 +88,34 @@ export default function PenghantarLivePage() {
       <div className="min-h-screen bg-[#0a0e1a] text-white p-8">
         <h1 className="text-xl font-semibold">Ralat</h1>
         <p className="mt-2 text-white/60">{error}</p>
+      </div>
+    );
+  }
+
+  if (hasRiderFeatures === false) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#0a0e1a] px-6">
+        <div className="max-w-md text-center">
+          <div className="mx-auto mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-[#C7FF3D]/10 text-[#C7FF3D]">
+            <Lock size={24} strokeWidth={2} />
+          </div>
+          <span className="rounded-full bg-[#C7FF3D]/15 px-3 py-1 text-[11px] font-bold tracking-wide text-[#C7FF3D]">
+            CIRI PELAN BISNES
+          </span>
+          <h1 className="mt-4 text-2xl font-semibold text-white">Penghantar Live</h1>
+          <p className="mt-3 text-sm leading-relaxed text-white/60">
+            Pantau lokasi penghantar anda secara real-time dengan GPS tracking.
+            Ciri ini termasuk dalam pelan Bisnes (RM49/bulan) — bersama 10
+            rider sendiri, dashboard order, chat pelanggan, dan tiada komisen.
+          </p>
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard/billing')}
+            className="mt-6 rounded-xl bg-[#C7FF3D] px-6 py-3 text-sm font-bold text-[#0B0B15] transition-colors hover:bg-[#d4ff66]"
+          >
+            Naik taraf ke Bisnes →
+          </button>
+        </div>
       </div>
     );
   }

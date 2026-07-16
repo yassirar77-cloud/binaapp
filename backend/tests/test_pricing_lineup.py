@@ -100,7 +100,8 @@ class TestAddonCatalog:
 
 def _purchase_patches():
     """Patch out network calls made by subscription.purchase_addon (only
-    reached when validation passes)."""
+    reached when validation passes). get_user_limits is mocked to a plan
+    with riders so the rider Bisnes-gate passes."""
     base = "app.api.v1.endpoints.subscription"
     bill = {"success": True, "bill_code": "B1", "payment_url": "https://pay.test/B1"}
     return [
@@ -113,6 +114,10 @@ def _purchase_patches():
         patch(
             f"{base}.subscription_service.generate_invoice_number",
             AsyncMock(return_value="INV-20260716-0001"),
+        ),
+        patch(
+            f"{base}.subscription_service.get_user_limits",
+            AsyncMock(return_value={"riders_limit": 10}),
         ),
     ]
 
@@ -144,7 +149,7 @@ class TestAddonPurchaseRejection:
         from app.api.v1.endpoints.subscription import purchase_addon, AddonPurchaseRequest
 
         patches = _purchase_patches()
-        with patches[0] as create_bill, patches[1], patches[2], patches[3]:
+        with patches[0] as create_bill, patches[1], patches[2], patches[3], patches[4]:
             result = await purchase_addon(
                 AddonPurchaseRequest(addon_type="rider", quantity=2), FAKE_USER
             )
@@ -281,7 +286,8 @@ class TestCheckLimitFreeImages:
 
     @pytest.mark.asyncio
     async def test_rider_limit_still_offers_addon(self):
-        """Non-retired addons keep the buy-addon upsell."""
+        """Non-retired addons keep the buy-addon upsell — on plans that
+        already include the feature (Bisnes: riders_limit 10)."""
         svc = self._service()
         patches = self._limit_patches(
             svc,
@@ -295,3 +301,115 @@ class TestCheckLimitFreeImages:
         assert result["allowed"] is False
         assert result["can_buy_addon"] is True
         assert result["addon_type"] == "rider"
+
+
+class TestBisnesFeatureGate:
+    """Features with limit 0 (riders on Permulaan) require an upgrade —
+    addons can't unlock them, but grandfathered credits keep working."""
+
+    def _limit_patches(self, svc, limits, usage, credits):
+        return [
+            patch.object(svc, "_is_admin", AsyncMock(return_value=False)),
+            patch.object(svc, "get_user_limits", AsyncMock(return_value=limits)),
+            patch.object(svc, "get_or_create_usage_tracking", AsyncMock(return_value=usage)),
+            patch.object(
+                svc, "get_subscription_status",
+                AsyncMock(return_value={"plan_name": "starter", "is_expired": False}),
+            ),
+            patch.object(svc, "get_available_addon_credits", AsyncMock(return_value=credits)),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_riders_on_starter_require_upgrade_not_addon(self):
+        svc = subscription_service
+        patches = self._limit_patches(
+            svc,
+            limits={"riders_limit": 0},
+            usage={"riders_count": 0},
+            credits={"rider": 0},
+        )
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            result = await svc.check_limit("user-x", "add_rider")
+
+        assert result["allowed"] is False
+        assert result["can_buy_addon"] is False
+        assert result["requires_upgrade"] is True
+        assert "bisnes" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_grandfathered_rider_credits_still_work_on_starter(self):
+        """A starter user who bought rider slots before the gate keeps them."""
+        svc = subscription_service
+        patches = self._limit_patches(
+            svc,
+            limits={"riders_limit": 0},
+            usage={"riders_count": 0},
+            credits={"rider": 2},
+        )
+        with patches[0], patches[1], patches[2], patches[3], patches[4]:
+            result = await svc.check_limit("user-x", "add_rider")
+
+        assert result["allowed"] is True
+        assert result["using_addon"] is True
+
+    @pytest.mark.asyncio
+    async def test_rider_addon_purchase_rejected_on_starter(self):
+        """Both purchase endpoints refuse rider addons on plans without riders."""
+        from app.api.v1.endpoints.subscription import purchase_addon, AddonPurchaseRequest
+
+        with patch(
+            "app.api.v1.endpoints.subscription.subscription_service.get_user_limits",
+            AsyncMock(return_value={"riders_limit": 0}),
+        ):
+            with pytest.raises(HTTPException) as exc:
+                await purchase_addon(
+                    AddonPurchaseRequest(addon_type="rider", quantity=1), FAKE_USER
+                )
+        assert exc.value.status_code == 403
+        assert "bisnes" in exc.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_rider_addon_purchase_allowed_on_pro(self):
+        """On Bisnes (riders_limit 10) the rider addon still sells — it adds
+        EXTRA slots on top of the included 10."""
+        from app.api.v1.endpoints.subscription import purchase_addon, AddonPurchaseRequest
+
+        base = "app.api.v1.endpoints.subscription"
+        bill = {"success": True, "bill_code": "B3", "payment_url": "https://pay.test/B3"}
+        with patch(
+            f"{base}.subscription_service.get_user_limits",
+            AsyncMock(return_value={"riders_limit": 10}),
+        ), patch(
+            f"{base}.toyyibpay_service.create_bill", MagicMock(return_value=bill)
+        ) as create_bill, patch(
+            f"{base}.supabase_service.get_user_by_id", AsyncMock(return_value={})
+        ), patch(
+            f"{base}.supabase_service.insert_record",
+            AsyncMock(return_value={"transaction_id": "tx-3"}),
+        ), patch(
+            f"{base}.subscription_service.generate_invoice_number",
+            AsyncMock(return_value="INV-20260716-0003"),
+        ):
+            result = await purchase_addon(
+                AddonPurchaseRequest(addon_type="rider", quantity=2), FAKE_USER
+            )
+
+        assert result["success"] is True
+        assert create_bill.call_args.kwargs["bill_amount"] == 6.00
+
+    @pytest.mark.asyncio
+    async def test_payments_endpoint_rejects_rider_on_starter(self):
+        from app.api.v1.endpoints.payments import purchase_addon, AddonPurchaseRequest
+
+        with patch("app.api.v1.endpoints.payments.settings") as mock_settings, patch(
+            "app.services.subscription_service.subscription_service.get_user_limits",
+            AsyncMock(return_value={"riders_limit": 0}),
+        ):
+            mock_settings.EMAIL_VERIFICATION_ENABLED = False
+            with pytest.raises(HTTPException) as exc:
+                await purchase_addon(
+                    AddonPurchaseRequest(
+                        user_id="user-abc-123", addon_type="rider", quantity=1
+                    )
+                )
+        assert exc.value.status_code == 403
