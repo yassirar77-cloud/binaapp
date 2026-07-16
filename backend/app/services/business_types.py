@@ -14,6 +14,7 @@ Business Types:
 
 from typing import Dict, List
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -356,7 +357,10 @@ def detect_business_type(description: str) -> str:
 
     for btype, keywords in BUSINESS_TYPE_KEYWORDS.items():
         for keyword in keywords:
-            if keyword in desc_lower:
+            # Whole-word match only — substring matching misclassified
+            # businesses ('spa' in "spare parts", 'kek' in "kekal",
+            # 'urut' in "keturutan") and gave them wrong image prompts.
+            if re.search(rf"\b{re.escape(keyword)}\b", desc_lower):
                 # Multi-word keywords get higher weight
                 weight = len(keyword.split())
                 scores[btype] += weight
@@ -424,7 +428,8 @@ def detect_item_category(item_name: str, business_type: str) -> str:
     
     for category_id, keywords in keywords_map.items():
         for keyword in keywords:
-            if keyword in name_lower:
+            # Whole-word match — 'teh' must not match "the", 'air' not "hair"
+            if re.search(rf"\b{re.escape(keyword)}\b", name_lower):
                 return category_id
     
     return config.get("default_category", "produk")

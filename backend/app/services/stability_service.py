@@ -221,9 +221,16 @@ def get_business_image_prompts(description: str) -> dict:
     Returns prompts for hero image and gallery images.
     """
     desc_lower = description.lower()
-    
+
+    def _has_word(word: str) -> bool:
+        # Whole-word match — substring checks misclassified businesses
+        # ('hair' in "chair", 'ikan' in "kecantikan") and produced images
+        # that didn't match the business.
+        import re as _re
+        return bool(_re.search(rf"\b{_re.escape(word)}\b", desc_lower))
+
     # Photography
-    if any(kw in desc_lower for kw in ['photographer', 'photography', 'jurugambar', 'fotografi', 'gambar']):
+    if any(_has_word(kw) for kw in ['photographer', 'photography', 'jurugambar', 'fotografi', 'gambar']):
         return {
             "hero": "Professional photography studio with camera equipment, elegant lighting setup, modern interior",
             "gallery": [
@@ -235,7 +242,7 @@ def get_business_image_prompts(description: str) -> dict:
         }
     
     # Salon/Beauty
-    if any(kw in desc_lower for kw in ['salon', 'spa', 'beauty', 'kecantikan', 'rambut', 'hair']):
+    if any(_has_word(kw) for kw in ['salon', 'spa', 'beauty', 'kecantikan', 'rambut', 'hair']):
         return {
             "hero": "Modern luxury hair salon interior with styling chairs and mirrors, elegant lighting",
             "gallery": [
@@ -247,7 +254,7 @@ def get_business_image_prompts(description: str) -> dict:
         }
     
     # Food/Restaurant
-    if any(kw in desc_lower for kw in ['makanan', 'food', 'restaurant', 'restoran', 'cafe', 'nasi', 'mee']):
+    if any(_has_word(kw) for kw in ['makanan', 'food', 'restaurant', 'restoran', 'cafe', 'nasi', 'mee']):
         return {
             "hero": "Modern Malaysian restaurant interior with warm lighting and elegant seating",
             "gallery": [
@@ -259,7 +266,7 @@ def get_business_image_prompts(description: str) -> dict:
         }
     
     # Clothing/Fashion
-    if any(kw in desc_lower for kw in ['pakaian', 'baju', 'fashion', 'boutique', 'butik', 'tudung', 'hijab']):
+    if any(_has_word(kw) for kw in ['pakaian', 'baju', 'fashion', 'boutique', 'butik', 'tudung', 'hijab']):
         return {
             "hero": "Modern fashion boutique interior with elegant clothing displays",
             "gallery": [
