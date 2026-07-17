@@ -2529,6 +2529,9 @@ Generate prompts now:"""
         "macam", "macam2", "macam-macam", "pelbagai", "berbagai", "banyak",
         "online", "murah", "sedap", "terbaik", "fresh", "panas", "viral",
         "makan", "makanan", "minuman", "food",
+        # Colloquial BM connectors ("jual goreng pisang ade macam2 toping
+        # nama banana bro") — never part of the product name itself.
+        "ada", "ade", "nama", "name", "called", "je", "jer", "saja", "sahaja",
     })
 
     # Sweet topping qualifiers for single-product stalls whose description

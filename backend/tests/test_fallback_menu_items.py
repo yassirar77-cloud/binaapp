@@ -49,6 +49,13 @@ class TestExtractProductPhrase:
             "jual cendol dengan pelbagai pilihan"
         ) == "cendol"
 
+    def test_colloquial_connectors_cut(self, service):
+        # Real bana description shape: "ade macam2 toping nama ..." — the
+        # colloquial "ade" must end the phrase, not join the product name.
+        assert service._extract_product_phrase(
+            "Kedai jual goreng pisang ade macam2 toping nama banana bro"
+        ) == "goreng pisang"
+
 
 class TestFallbackItemNames:
     def test_goreng_pisang_stall_stays_on_product(self, service):
