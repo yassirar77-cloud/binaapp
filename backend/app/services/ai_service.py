@@ -2238,8 +2238,15 @@ Format: Just the image description, no explanations."""
 
     def _extract_menu_items(self, description: str) -> list:
         """Extract menu items from description"""
-        common_items = ["nasi kandar", "nasi lemak", "mee goreng", "ayam goreng",
-                        "roti canai", "teh tarik", "ikan bakar", "pelbagai lauk", "satay"]
+        # Compound/specific street foods FIRST so a single-product stall's
+        # actual product ranks ahead of any generic dish also mentioned.
+        common_items = ["goreng pisang", "pisang goreng", "keropok lekor",
+                        "apam balik", "char kuey teow", "nasi kandar",
+                        "nasi lemak", "nasi goreng", "nasi ayam", "mee goreng",
+                        "mee kari", "ayam goreng", "roti canai", "murtabak",
+                        "teh tarik", "ikan bakar", "pelbagai lauk", "satay",
+                        "sate", "burger", "laksa", "cendol", "rojak", "kuih",
+                        "popia", "donut", "waffle", "pau"]
         found = []
         desc_lower = description.lower()
         for item in common_items:
@@ -2514,20 +2521,83 @@ Generate prompts now:"""
             ]
         )
 
+    # Connectors/marketing words that end a "jual X ..." product phrase —
+    # they never belong inside the product name itself.
+    _PRODUCT_PHRASE_STOPWORDS = frozenset({
+        "dengan", "with", "yang", "untuk", "for", "di", "in", "at",
+        "dan", "and", "atau", "or", "serta",
+        "macam", "macam2", "macam-macam", "pelbagai", "berbagai", "banyak",
+        "online", "murah", "sedap", "terbaik", "fresh", "panas", "viral",
+        "makan", "makanan", "minuman", "food",
+    })
+
+    # Sweet topping qualifiers for single-product stalls whose description
+    # signals variants ("goreng pisang dengan macam-macam topping"). Only the
+    # deterministic fallback uses these, and only behind that signal, so the
+    # names stay plausible.
+    _FALLBACK_TOPPING_VARIANTS = ["Coklat", "Keju", "Ais Krim", "Kacang", "Madu"]
+
+    def _extract_product_phrase(self, description: str) -> str:
+        """Best-effort 'what this shop sells' phrase — deterministic, no AI.
+
+        Looks for 'jual/menjual/selling X' first, then 'kedai/gerai/stall X'.
+        The captured phrase is cut at the first stopword/connector and capped
+        at 3 words so marketing tails ("dengan macam-macam topping") never
+        leak into the product name. Returns '' when unsure.
+        """
+        desc = re.sub(r"\s+", " ", (description or "").lower())
+        m = re.search(r"\b(?:menjual|jual|selling|sells?|serving)\s+([a-z][a-z0-9\- ]{2,60})", desc)
+        if not m:
+            m = re.search(r"\b(?:kedai|gerai|stall|warung)\s+([a-z][a-z0-9\- ]{2,60})", desc)
+        if not m:
+            return ""
+        words = []
+        for w in m.group(1).split():
+            w = w.strip(".,;:!?()[]\"'")
+            if not w or w in self._PRODUCT_PHRASE_STOPWORDS:
+                break
+            words.append(w)
+            if len(words) >= 3:
+                break
+        return " ".join(words)
+
     def _fallback_item_names(self, description: str, n: int) -> list:
         """Deterministic item-name fallback for when AI extraction fails.
 
         Never raises; always returns exactly n non-empty, de-duplicated names.
-        Prefers real dishes named in the description, then pads with sensible
-        generic Malaysian dishes so a DeepSeek outage can never blank the
-        gallery (requirement: graceful degradation).
+        Preference order:
+          1. Real dishes named in the description.
+          2. Variants of the shop's OWN product — a goreng pisang stall pads
+             with "Goreng Pisang Coklat", never a Nasi Lemak menu. Topping
+             variants are used only when the description signals them
+             ("topping"/"perisa"/"pilihan"...); otherwise neutral set/combo
+             qualifiers.
+          3. Generic Malaysian dishes — ONLY when the description gives no
+             clue what the shop sells (a DeepSeek outage must never blank
+             the gallery).
         """
         found = [d for d in self._extract_menu_items(description)
                  if d and d != "hero image"]
+
+        # The shop's own product: the first dish found in the description, or
+        # the "jual X" phrase when no known dish matched.
+        product = found[0] if found else self._extract_product_phrase(description)
+        on_product = []
+        if product:
+            base = str(product).strip().title()
+            if base:
+                desc_lower = (description or "").lower()
+                if re.search(r"\b(topping|toping|perisa|flavou?rs?|pilihan|variasi|rasa)\b", desc_lower):
+                    on_product = [base] + [f"{base} {v}" for v in self._FALLBACK_TOPPING_VARIANTS]
+                else:
+                    on_product = [base, f"Set {base}", f"{base} Combo", f"{base} Istimewa"]
+
         generic = ["Nasi Lemak", "Ayam Goreng", "Mee Goreng", "Roti Canai",
                    "Teh Tarik", "Nasi Goreng"]
+        # Never mix unrelated generics into a shop whose product we know.
+        sources = (found, on_product) if on_product else (found, generic)
         names = []
-        for src_list in (found, generic):
+        for src_list in sources:
             for name in src_list:
                 title = str(name).strip().title()
                 if title and title not in names:
