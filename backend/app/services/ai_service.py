@@ -2754,6 +2754,12 @@ STRICT RULES:
    NOT "Nasi Kandar Saya" - just "Ikan Bakar", "Nasi Kandar").
 5. Use the language of the description (Bahasa Malaysia or English).
 6. If the description names specific dishes, use those exact dishes.
+7. STAY ON-PRODUCT: every item MUST be something this specific business
+   plausibly sells based on its description. If the description centres on
+   ONE product (e.g. "kedai jual goreng pisang dengan macam-macam topping"),
+   output that product and its variants/toppings (e.g. "Goreng Pisang",
+   "Goreng Pisang Coklat", "Goreng Pisang Keju") — NEVER unrelated dishes
+   like "Nasi Lemak" or "Roti Canai" that the description does not support.
 
 OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
 ["Name 1", "Name 2", "Name 3", "Name 4"]"""
