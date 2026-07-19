@@ -2211,6 +2211,26 @@ Format: Just the image description, no explanations."""
 
             "pelbagai lauk": "Malaysian mixed side dishes, variety of curries and vegetables, food photography",
             "lauk": "Malaysian side dishes curry vegetables, food photography",
+
+            # Cake / bakery / dessert — a cake shop's menu items must render as
+            # cakes, not savoury dishes or traditional kuih.
+            "kek harijadi": "Beautifully decorated birthday cake with frosting and toppings, celebration cake, close-up, appetizing bakery photography",
+            "kek hari jadi": "Beautifully decorated birthday cake with frosting and toppings, celebration cake, close-up, appetizing bakery photography",
+            "kek perkahwinan": "Elegant tiered wedding cake with delicate decoration, luxurious celebration cake, close-up, appetizing bakery photography",
+            "kek kahwin": "Elegant tiered wedding cake with delicate decoration, luxurious celebration cake, close-up, appetizing bakery photography",
+            "kek coklat": "Rich moist chocolate cake with ganache, decadent slice, close-up, appetizing dessert photography",
+            "kek cheese": "Creamy baked cheesecake slice with smooth top, close-up, appetizing dessert photography",
+            "cheesecake": "Creamy baked cheesecake slice with smooth top, close-up, appetizing dessert photography",
+            "kek batik": "Malaysian kek batik chocolate biscuit cake slices, close-up, appetizing dessert photography",
+            "cupcake": "Assortment of frosted cupcakes with colourful decoration, close-up, appetizing bakery photography",
+            "brownies": "Fudgy chocolate brownies stacked, rich and moist, close-up, appetizing dessert photography",
+            "muffin": "Freshly baked muffins with golden tops, close-up, appetizing bakery photography",
+            "tart": "Glazed fruit tart with pastry crust, close-up, appetizing bakery photography",
+            "cake": "Beautifully decorated cake with frosting, celebration cake, close-up, appetizing bakery photography",
+            "kek": "Beautifully decorated cake with frosting, celebration cake, close-up, appetizing bakery photography",
+            "pastry": "Assortment of freshly baked pastries, flaky golden layers, close-up, appetizing bakery photography",
+            "pastri": "Assortment of freshly baked pastries, flaky golden layers, close-up, appetizing bakery photography",
+            "donut": "Glazed donuts with colourful toppings, close-up, appetizing bakery photography",
         }
 
         item_lower = item.lower().strip()
@@ -2231,6 +2251,15 @@ Format: Just the image description, no explanations."""
             if self._has_word(item_lower, key):
                 return self._with_no_text_suffix(prompts[key])
 
+        # Dessert/bakery-aware generic fallback: an unlisted cake/dessert name
+        # ("Kek Red Velvet", "Set Kek Istimewa") must not be forced into the
+        # "Malaysian style" savoury bias — render it as a cake/dessert.
+        if self._has_any_word(item_lower, self._BAKERY_SUBTYPE_KEYWORDS):
+            return self._with_no_text_suffix(
+                f"Professional close-up photo of {item}, freshly baked cake and "
+                "dessert, appetizing bakery photography, high quality, realistic"
+            )
+
         # Generic food prompt
         return self._with_no_text_suffix(
             f"Professional close-up photo of {item}, Malaysian style, food photography, high quality, realistic, appetizing"
@@ -2240,7 +2269,15 @@ Format: Just the image description, no explanations."""
         """Extract menu items from description"""
         # Compound/specific street foods FIRST so a single-product stall's
         # actual product ranks ahead of any generic dish also mentioned.
-        common_items = ["goreng pisang", "pisang goreng", "keropok lekor",
+        # Cake/bakery terms lead the list (and sit ahead of the generic
+        # "kuih") so a cake shop that also mentions kuih extracts CAKE as its
+        # product — the fallback used to pick "kuih" and emit a kuih menu for
+        # a "kedai cake".
+        common_items = ["kek harijadi", "kek hari jadi", "kek perkahwinan",
+                        "kek kahwin", "kek coklat", "kek cheese", "cheesecake",
+                        "cupcake", "brownies", "kek batik", "kek lapis",
+                        "kek", "cake", "goreng pisang", "pisang goreng",
+                        "keropok lekor",
                         "apam balik", "char kuey teow", "nasi kandar",
                         "nasi lemak", "nasi goreng", "nasi ayam", "mee goreng",
                         "mee kari", "ayam goreng", "roti canai", "murtabak",
@@ -2250,7 +2287,10 @@ Format: Just the image description, no explanations."""
         found = []
         desc_lower = description.lower()
         for item in common_items:
-            if item in desc_lower:
+            # Whole-word match — a raw substring check let short tokens like
+            # "kek" match "kekacang"/"kekal" and misclassify a savoury warung
+            # as a cake shop.
+            if self._has_word(desc_lower, item):
                 found.append(item)
         return found if found else ["hero image"]
 
@@ -2518,8 +2558,61 @@ Generate prompts now:"""
                 'kedai makan', 'warung', 'mamak', 'kandar', 'lemak', 'goreng',
                 'makanan', 'cafe', 'kafe', 'seafood', 'udang', 'ketam', 'sotong',
                 'food', 'masakan', 'catering', 'bakery', 'roti', 'kuih',
+                # Bakery / cake / dessert / drinks — a cake shop IS a food
+                # business, but a savoury-only keyword list classified it as
+                # non-food and gave it retail product cards, while a savoury
+                # keyword that happened to appear ("kuih") sent it down the
+                # generic Malaysian-dish path (nasi-lemak hero, kuih menu).
+                'kek', 'cake', 'cupcake', 'cupcakes', 'kek harijadi',
+                'kek hari jadi', 'bakeri', 'brownies', 'brownie', 'cheesecake',
+                'pastri', 'pastry', 'donut', 'donat', 'muffin', 'tart',
+                'dessert', 'desserts', 'pencuci mulut', 'minuman', 'drinks',
+                'beverage', 'beverages', 'juice', 'jus', 'smoothie', 'kopi',
             ]
         )
+
+    # Bakery/dessert vs. drinks signals inside a food business. Whole-word
+    # matched. Used to pick a food SUB-TYPE so a cake/pastry/dessert shop gets
+    # cake-centric imagery (hero + item photography) instead of the generic
+    # savoury "Malaysian dishes" spread, and a drinks stall gets beverages.
+    #
+    # Deliberately EXCLUDES "kuih": traditional Malay kuih is not a western
+    # cake, so a "Kuih" menu item must keep its traditional-food image and a
+    # kuih-only shop must not get a western-cake hero. A cake shop that also
+    # sells kuih is still detected as bakery via its kek/cake terms, and its
+    # lone kuih card then correctly shows real kuih.
+    _BAKERY_SUBTYPE_KEYWORDS = (
+        'kek', 'cake', 'cupcake', 'cupcakes', 'kek harijadi', 'kek hari jadi',
+        'kek kahwin', 'wedding cake', 'birthday cake', 'bakery', 'bakeri',
+        'brownies', 'brownie', 'cheesecake', 'pastri', 'pastry', 'croissant',
+        'donut', 'donat', 'muffin', 'tart', 'pie', 'cookies', 'biskut',
+        'macaron', 'macarons', 'fondant', 'buttercream',
+    )
+    _DRINKS_SUBTYPE_KEYWORDS = (
+        'minuman', 'drinks', 'beverage', 'beverages', 'juice', 'jus',
+        'smoothie', 'smoothies', 'bubble tea', 'boba', 'kopi', 'coffee',
+        'teh', 'tea', 'milkshake', 'kombucha', 'soda', 'mocktail',
+    )
+
+    def _food_subtype(self, description: str) -> str:
+        """Sub-type of a food business: 'bakery' | 'drinks' | 'general'.
+
+        Lets the food image path understand WHAT KIND of food business this is
+        so a cake/pastry/dessert shop gets cake imagery and a drinks stall gets
+        beverages, instead of every food business defaulting to the same
+        savoury Malaysian-dish hero and dish-based fallback menu.
+
+        Bakery wins ties over drinks (a "kek & kopi" shop is a cake shop that
+        also sells coffee). Returns 'general' when neither signal is present.
+        """
+        low = (description or "").lower()
+        bakery_hits = sum(1 for k in self._BAKERY_SUBTYPE_KEYWORDS if self._has_word(low, k))
+        drinks_hits = sum(1 for k in self._DRINKS_SUBTYPE_KEYWORDS if self._has_word(low, k))
+        if bakery_hits and bakery_hits >= drinks_hits:
+            return "bakery"
+        if drinks_hits:
+            return "drinks"
+        return "general"
 
     # Connectors/marketing words that end a "jual X ..." product phrase —
     # they never belong inside the product name itself.
@@ -6016,7 +6109,8 @@ IMPORTANT RULES:
         return ", ".join(parts)
 
     def _autofill_hero_prompt(
-        self, category: str, biz_type: str, business_context: str = ""
+        self, category: str, biz_type: str, business_context: str = "",
+        food_subtype: str = "general",
     ) -> str:
         """Hero banner prompt per category.
 
@@ -6028,9 +6122,29 @@ IMPORTANT RULES:
         no-text suffix for the same reason, and every non-food category
         carries the business context (see _autofill_business_context) so
         the model knows what business the scene belongs to.
+
+        Within food, `food_subtype` ('bakery' | 'drinks' | 'general') keeps
+        the hero on-subject: a cake/pastry shop must not get a savoury
+        nasi-lemak spread (the "kedai cake shows kuih" mismatch), and a drinks
+        stall must not get a plate of rice.
         """
         ctx = f", for the business: {business_context}" if business_context else ""
         if category == "food":
+            if food_subtype == "bakery":
+                return (
+                    "Beautiful display of freshly baked cakes and pastries, "
+                    "elegant decorated celebration cake as the centrepiece, "
+                    "cupcakes and sweet treats on a styled dessert table, soft "
+                    "natural light, close-up, appetizing bakery food "
+                    f"photography{ctx}, {self._HERO_NO_TEXT_SUFFIX}"
+                )
+            if food_subtype == "drinks":
+                return (
+                    "Refreshing display of colourful drinks and beverages in "
+                    "glasses, fresh garnish, ice and condensation, bright "
+                    "inviting light, close-up, appetizing beverage "
+                    f"photography{ctx}, {self._HERO_NO_TEXT_SUFFIX}"
+                )
             return (
                 "Abundant spread of delicious Malaysian dishes covering a "
                 "table, close-up plated food, hands serving food, warm "
@@ -6217,8 +6331,13 @@ IMPORTANT RULES:
         )
 
         # Hero is a banner/showcase shot — NEVER a menu/product card, and
-        # never empty premises or equipment (see _autofill_hero_prompt).
-        hero_prompt = self._autofill_hero_prompt(category, _biz_type, _biz_context)
+        # never empty premises or equipment (see _autofill_hero_prompt). For
+        # food, the sub-type (bakery/drinks/general) keeps the hero on-subject
+        # — a cake shop gets a cake hero, not a savoury Malaysian spread.
+        _food_subtype = self._food_subtype(request.description) if is_food else "general"
+        hero_prompt = self._autofill_hero_prompt(
+            category, _biz_type, _biz_context, food_subtype=_food_subtype
+        )
 
         # Work list: hero first, then one image per (missing slot, real item
         # name) pair — truncated to the cap, so the hero always wins the
