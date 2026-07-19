@@ -2575,13 +2575,18 @@ Generate prompts now:"""
     # matched. Used to pick a food SUB-TYPE so a cake/pastry/dessert shop gets
     # cake-centric imagery (hero + item photography) instead of the generic
     # savoury "Malaysian dishes" spread, and a drinks stall gets beverages.
+    #
+    # Deliberately EXCLUDES "kuih": traditional Malay kuih is not a western
+    # cake, so a "Kuih" menu item must keep its traditional-food image and a
+    # kuih-only shop must not get a western-cake hero. A cake shop that also
+    # sells kuih is still detected as bakery via its kek/cake terms, and its
+    # lone kuih card then correctly shows real kuih.
     _BAKERY_SUBTYPE_KEYWORDS = (
         'kek', 'cake', 'cupcake', 'cupcakes', 'kek harijadi', 'kek hari jadi',
         'kek kahwin', 'wedding cake', 'birthday cake', 'bakery', 'bakeri',
         'brownies', 'brownie', 'cheesecake', 'pastri', 'pastry', 'croissant',
         'donut', 'donat', 'muffin', 'tart', 'pie', 'cookies', 'biskut',
-        'macaron', 'macarons', 'fondant', 'buttercream', 'kuih', 'dessert',
-        'desserts', 'pencuci mulut', 'pudding', 'puding',
+        'macaron', 'macarons', 'fondant', 'buttercream',
     )
     _DRINKS_SUBTYPE_KEYWORDS = (
         'minuman', 'drinks', 'beverage', 'beverages', 'juice', 'jus',

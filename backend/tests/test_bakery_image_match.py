@@ -70,6 +70,15 @@ class TestFoodSubtype:
         # A cake shop that also sells coffee is still a cake shop.
         assert service._food_subtype("Kedai kek dan kopi") == "bakery"
 
+    def test_kuih_alone_is_not_bakery(self, service):
+        # Traditional kuih is NOT a western cake — a kuih-only shop must not
+        # be pushed onto the western-cake hero/imagery.
+        assert service._food_subtype("kedai jual kuih tradisional") == "general"
+
+    def test_cake_shop_with_kuih_still_bakery(self, service):
+        # Cake terms drive bakery detection even when kuih is also present.
+        assert service._food_subtype(CAKE_DESC) == "bakery"
+
 
 class TestBakeryHeroPrompt:
     def test_bakery_hero_shows_cakes_not_savoury(self, service):
@@ -149,3 +158,10 @@ class TestCakeItemImagePrompt:
     def test_savoury_item_unchanged(self, service):
         prompt = service._get_malaysian_prompt("Nasi Lemak Special").lower()
         assert "nasi lemak" in prompt
+
+    def test_kuih_item_keeps_traditional_treatment(self, service):
+        # A "Kuih" card must NOT be redirected to a western "freshly baked
+        # cake" prompt — traditional kuih stays traditional food.
+        prompt = service._get_malaysian_prompt("Kuih").lower()
+        assert "freshly baked cake" not in prompt
+        assert "malaysian" in prompt
