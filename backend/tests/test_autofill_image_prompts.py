@@ -402,3 +402,51 @@ class TestBusinessContextInPrompts:
             assert PHONE_SHOP_NAME.lower() in prompt.lower(), f"business name missing: {prompt}"
             assert "jual smartphone" in prompt, f"description missing: {prompt}"
             assert NO_TEXT_SUFFIX in prompt
+
+
+# ---------------------------------------------------------------------------
+# Couple-composition policy — generated wedding/creative imagery must depict a
+# bride and groom (opposite-gender couple), never a same-gender pairing.
+# Enforced as a POSITIVE clause in the creative prompts (the Z.ai image
+# endpoint takes no negative prompt) and as NEGATIVE terms in the Stability
+# payloads.
+# ---------------------------------------------------------------------------
+
+class TestCoupleCompositionPolicy:
+    def test_creative_hero_prompt_pins_opposite_gender_couple(self, service):
+        prompt = service._autofill_hero_prompt("creative", "wedding photographer")
+        assert "bride and groom" in prompt
+        assert "opposite-gender couple" in prompt
+
+    def test_creative_item_prompt_pins_opposite_gender_couple(self, service):
+        prompt = service._autofill_item_prompt(
+            "creative", "Wedding Photography", "wedding photographer"
+        )
+        assert "bride and groom" in prompt
+        assert "opposite-gender couple" in prompt
+
+    def test_negative_prompt_excludes_same_gender_couples(self, service):
+        neg = service._IMAGE_NEGATIVE_PROMPT
+        for term in ("same-sex couple", "two brides", "two grooms"):
+            assert term in neg
+
+    @pytest.mark.asyncio
+    async def test_stability_payload_sends_couple_negative_prompt(self, service, monkeypatch):
+        """The Stability core call must carry the same-gender-couple exclusions
+        in its negative_prompt field."""
+        captured = {}
+
+        class _FakeResponse:
+            status_code = 500
+            text = "boom"
+
+        async def _fake_post(self_client, url, **kwargs):
+            captured["data"] = kwargs["data"]
+            return _FakeResponse()
+
+        import httpx
+        monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+        await service._generate_stability_image(
+            "Wedding Photography, cinematic composition", food=False
+        )
+        assert "same-sex couple" in captured["data"]["negative_prompt"]

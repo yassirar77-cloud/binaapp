@@ -40,7 +40,7 @@ async def generate_image(prompt: str) -> Optional[str]:
                 json={
                     "text_prompts": [
                         {"text": f"{prompt}, professional photography, high quality, realistic", "weight": 1},
-                        {"text": "blurry, bad quality, cartoon, illustration, anime", "weight": -1}
+                        {"text": "blurry, bad quality, cartoon, illustration, anime, same-sex couple, gay couple, lesbian couple, two brides, two grooms, two men as a romantic couple, two women as a romantic couple", "weight": -1}
                     ],
                     "cfg_scale": 7,
                     "width": 1024,
