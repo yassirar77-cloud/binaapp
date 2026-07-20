@@ -1462,7 +1462,7 @@ Respond ONLY with valid JSON, no other text."""
                     json={
                         "text_prompts": [
                             {"text": self._with_no_text_suffix(f"{prompt}, professional photography, high quality, realistic"), "weight": 1},
-                            {"text": "blurry, bad quality, cartoon, illustration, drawing, anime, text, words, watermark, signage", "weight": -1}
+                            {"text": "blurry, bad quality, cartoon, illustration, drawing, anime, text, words, watermark, signage, same-sex couple, gay couple, lesbian couple, two brides, two grooms, two men as a romantic couple, two women as a romantic couple", "weight": -1}
                         ],
                         "cfg_scale": 7,
                         "width": 1024,
@@ -1868,6 +1868,7 @@ Format: Just the image description, no explanations."""
                     files={"none": ""},
                     data={
                         "prompt": smart_prompt,
+                        "negative_prompt": self._IMAGE_NEGATIVE_PROMPT,
                         "output_format": "png",
                         "aspect_ratio": "16:9"
                     }
@@ -6072,6 +6073,32 @@ IMPORTANT RULES:
     # Legacy alias — earlier code/tests reference the hero-specific name.
     _HERO_NO_TEXT_SUFFIX = _NO_TEXT_SUFFIX
 
+    # Couple-composition clause baked into every wedding/creative image prompt
+    # (hero + portfolio items). BinaApp serves Malaysian merchants — largely
+    # Muslim wedding/photography vendors — and the image models were otherwise
+    # free to render same-gender couples into generated wedding portfolios,
+    # which does not fit this market. Enforced as an explicit POSITIVE clause
+    # because the Z.ai / GLM-Image endpoint accepts no negative prompt, so the
+    # only lever there is the prompt text itself. The Stability paths add the
+    # matching exclusions via _IMAGE_NEGATIVE_PROMPT as defence in depth.
+    _COUPLE_COMPOSITION_CLAUSE = (
+        "any couple, newlyweds, or romantic pairing shown must be a bride and "
+        "groom together — one woman and one man, a traditional opposite-gender "
+        "couple"
+    )
+
+    # Negative-prompt terms shared by the Stability generation calls. Extends
+    # the usual quality negatives with same-gender-couple exclusions so
+    # generated wedding/portrait imagery never depicts a same-sex pairing
+    # (see _COUPLE_COMPOSITION_CLAUSE). Harmless for non-couple subjects
+    # (food, products, interiors) — the terms simply never apply.
+    _IMAGE_NEGATIVE_PROMPT = (
+        "blurry, bad quality, cartoon, illustration, anime, drawing, sketch, "
+        "low resolution, same-sex couple, gay couple, lesbian couple, "
+        "two brides, two grooms, two men as a romantic couple, "
+        "two women as a romantic couple"
+    )
+
     def _with_no_text_suffix(self, prompt: str) -> str:
         """Append the no-text suffix unless the prompt already carries one.
 
@@ -6155,7 +6182,8 @@ IMPORTANT RULES:
             return (
                 f"Artistic showcase of {biz_type} work{ctx}, cinematic silhouette "
                 f"composition at golden hour, elegant venue backdrop, "
-                f"professional photography, {self._NO_TEXT_SUFFIX}"
+                f"professional photography, {self._COUPLE_COMPOSITION_CLAUSE}, "
+                f"{self._NO_TEXT_SUFFIX}"
             )
         if category == "services":
             # The service being performed is the subject — a stylist mid-cut,
@@ -6211,7 +6239,7 @@ IMPORTANT RULES:
                 f"{name}, artistic professional photography{ctx}, cinematic "
                 f"composition, silhouette and candid detail shots, beautiful "
                 f"venue backdrop, golden hour lighting, emotional storytelling, "
-                f"{self._NO_TEXT_SUFFIX}"
+                f"{self._COUPLE_COMPOSITION_CLAUSE}, {self._NO_TEXT_SUFFIX}"
             )
         if category == "services":
             # The named service being performed on a client is the subject

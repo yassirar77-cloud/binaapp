@@ -19,6 +19,18 @@ from app.data.malaysian_prompts import (
 STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
 STABILITY_API_URL = "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image"
 
+# Shared negative prompt. Beyond the usual quality negatives it excludes
+# same-gender couples from generated wedding/portrait imagery — BinaApp serves
+# Malaysian (largely Muslim) wedding/photography vendors, so generated couples
+# must read as a bride and groom (one woman and one man). Harmless for
+# non-couple subjects (food, products): the terms simply never apply.
+NEGATIVE_PROMPT = (
+    "blurry, bad quality, cartoon, illustration, anime, drawing, sketch, "
+    "low resolution, same-sex couple, gay couple, lesbian couple, "
+    "two brides, two grooms, two men as a romantic couple, "
+    "two women as a romantic couple"
+)
+
 # Cloudinary config for uploading generated images
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
 CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
@@ -46,7 +58,7 @@ def generate_stability_image(prompt: str, width: int = 512, height: int = 512) -
         
         # Enhanced prompt for better quality
         enhanced_prompt = f"{prompt}, professional photography, high quality, realistic, 4k, sharp focus"
-        negative_prompt = "blurry, bad quality, cartoon, illustration, anime, drawing, sketch, low resolution"
+        negative_prompt = NEGATIVE_PROMPT
         
         response = httpx.post(
             STABILITY_API_URL,
@@ -166,7 +178,7 @@ async def generate_stability_image_async(prompt: str, width: int = 512, height: 
         
         # Enhanced prompt for better quality
         enhanced_prompt = f"{prompt}, professional photography, high quality, realistic, 4k, sharp focus"
-        negative_prompt = "blurry, bad quality, cartoon, illustration, anime, drawing, sketch, low resolution"
+        negative_prompt = NEGATIVE_PROMPT
         
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
@@ -235,7 +247,7 @@ def get_business_image_prompts(description: str) -> dict:
             "hero": "Professional photography studio with camera equipment, elegant lighting setup, modern interior",
             "gallery": [
                 "Professional portrait photography session with studio lighting",
-                "Wedding photography with beautiful decorations and romantic setting",
+                "Wedding photography of a bride and groom, one woman and one man, with beautiful decorations and romantic setting",
                 "Product photography setup with white background",
                 "Corporate headshot photography in office environment"
             ]
@@ -327,7 +339,7 @@ async def generate_malaysian_image(
 
         # Enhanced prompt for better quality
         enhanced_prompt = f"{prompt}, professional photography, high quality, realistic, 4k, sharp focus"
-        negative_prompt = "blurry, bad quality, cartoon, illustration, anime, drawing, sketch, low resolution"
+        negative_prompt = NEGATIVE_PROMPT
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
