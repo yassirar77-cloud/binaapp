@@ -3528,6 +3528,7 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         include_maps: bool = False,
         include_contact_form: bool = True,
         include_chat: bool = True,
+        brand_colors: Optional[dict] = None,
     ) -> str:
         """Build STRICT prompt with premium design system"""
         biz_type = self._detect_type(desc)
@@ -3541,15 +3542,29 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
 
         design_type = get_design_type(detected_biz_type, desc)
 
-        # Initialize design system
+        # Initialize design system — seeded per-business variety (fonts,
+        # palette, hero, personality all rotate deterministically on the
+        # business name) plus explicit user overrides extracted from the
+        # description ("warna biru", "gold theme", "mewah"): design freedom.
         try:
             design = DesignSystem()
-            fonts = design.get_font_pairing(design_type)
-            palette = design.get_color_palette(design_type, color_mode)
-            layout = design.get_layout_template(design_type)
-            hero_variant = design.get_hero_variant(design_type, has_images=(image_choice != "none"))
+            bundle = design.build(
+                design_type,
+                color_mode=color_mode,
+                business_name=name,
+                description=desc,
+                has_images=(image_choice != "none"),
+                brand_colors=brand_colors,
+            )
+            fonts = bundle["fonts"]
+            palette = bundle["palette"]
+            layout = bundle["layout"]
+            hero_variant = bundle["hero_variant"]
+            personality_block = bundle["personality"]["prompt"]
+            user_design_block = bundle["user_request_block"]
+            user_prefs = bundle["preferences"]
+            tw_config = bundle["tailwind_config"]
             animations = design.get_animation_config()
-            tw_config = design.get_tailwind_config(design_type, color_mode)
             typography = design.get_typography_rules()
             design_patterns = design.get_design_patterns(color_mode)
         except Exception as e:
@@ -3570,12 +3585,19 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             palette = {"primary": "#3b82f6", "secondary": "#1e40af", "accent": "#dbeafe", "background": "#ffffff", "surface": "#ffffff", "text": "#0f172a", "text_muted": "#64748b"}
             layout = ""
             hero_variant = ""
+            personality_block = ""
+            user_design_block = ""
+            user_prefs = {"color": None, "style_hint": None}
             animations = ""
             tw_config = ""
             typography = ""
             design_patterns = ""
 
-        logger.info(f"🎨 Design: type={design_type}, mode={color_mode}, fonts={fonts.get('heading')}/{fonts.get('body')}")
+        logger.info(
+            f"🎨 Design: type={design_type}, mode={color_mode}, "
+            f"fonts={fonts.get('heading')}/{fonts.get('body')}, "
+            f"user_color={user_prefs.get('color')}, style_hint={user_prefs.get('style_hint')}"
+        )
 
         # ---- IMAGE HANDLING (unchanged logic) ----
         if image_choice == "none":
@@ -3789,6 +3811,24 @@ LIGHT MODE STYLING:
 - Use larger typography (increase heading sizes by one step)
 - Stronger shadows: shadow-2xl
 - Bolder buttons: px-10 py-4 text-lg font-bold uppercase tracking-wider"""
+        elif style == "elegant":
+            style_note = """STYLE NOTE - ELEGANT:
+- Restrained colour usage: neutrals dominate, primary colour only on CTAs and small details
+- Hairline borders instead of heavy shadows; generous section spacing (py-28+)
+- Letterspaced uppercase kickers above headings (text-xs uppercase tracking-[0.3em])
+- Slim, wide buttons with subtle hover transitions — no bounce effects"""
+        elif style == "playful":
+            style_note = """STYLE NOTE - PLAYFUL:
+- Rounded-3xl corners, pill buttons and badges everywhere
+- Soft tinted section backgrounds and blurred colour blobs for warmth
+- Friendly conversational copy; icons in tinted circles
+- Slight rotation on one or two decorative elements (rotate-2 / -rotate-1) for hand-made charm"""
+        elif style == "classic":
+            style_note = """STYLE NOTE - CLASSIC:
+- Warm heritage feel: cream backgrounds, serif headings, traditional motifs in dividers
+- Framed images (padding + border + shadow, polaroid-style where fitting)
+- Understated buttons with border-bottom accent
+- Dignified, respectful copy tone"""
 
         # ---- WIDGET CONTEXT (E from spec — design AROUND injected widgets) ----
         # Tells the AI which floating/inline widgets will be stitched on
@@ -3834,6 +3874,25 @@ LIGHT MODE STYLING:
                 f"or fa-signal or fa-sim-card, delivery → fa-truck, quality → fa-award)."
             )
 
+        # ---- USER OVERRIDE CONDITIONALS ----
+        # An explicit user colour request lifts the matching generic ban
+        # (e.g. asking for purple beats the anti-purple-SaaS rule).
+        if user_prefs.get("color") == "purple":
+            _purple_rule = "- The user explicitly requested a purple theme — commit to it with proper contrast (deep purple on light, light lavender on dark)."
+        else:
+            _purple_rule = "- FORBIDDEN: purple/violet text or fills on a white or near-white background (low contrast, generic SaaS look)."
+
+        _hero_blueprint = ""
+        if hero_variant:
+            _hero_blueprint = f"""===== HERO BLUEPRINT (follow the structure, replace the content) =====
+{hero_variant}
+
+HERO BLUEPRINT RULES:
+- Replace EVERY ALL-CAPS placeholder token (BUSINESS_NAME, TAGLINE, TAGLINE_KICKER, HERO_IMAGE_URL, WHATSAPP_LINK, VIEW_MENU_CTA, SIGNATURE_DISH_NAME, ...) with real content for this business.
+- HERO_IMAGE_URL = the exact hero image URL from the IMAGE section of this prompt.
+- Drop optional decorative sub-elements (floating cards, kickers) if you have no real content for them — never ship a placeholder.
+"""
+
         # ---- ASSEMBLE PROMPT ----
         return f"""Generate a COMPLETE production-ready HTML website.
 
@@ -3862,9 +3921,13 @@ body {{ background-color: var(--bg-color); font-family: '{fonts['body']}', {font
 
 ===== DESIGN SYSTEM =====
 
+{user_design_block}
+
+{personality_block}
+
 ===== ART DIRECTION (NON-NEGOTIABLE) =====
 TYPE SCALE — use a clear modular scale, never ad-hoc sizes. Keep a strict hierarchy, at most these five steps:
-- Display/hero: 48-72px (3rem-4.5rem), font-bold, tracking-tight, tight leading
+- Display/hero: 48-72px (3rem-4.5rem), font-bold, tracking-tight, tight leading — prefer FLUID sizing via clamp(), e.g. style="font-size: clamp(2.5rem, 6vw, 4.5rem)"
 - H2 section heading: 32-40px (2rem-2.5rem), font-bold
 - H3 card/title: 20-24px (1.25rem-1.5rem), font-semibold
 - Body: 16-18px (1rem-1.125rem), leading-relaxed
@@ -3875,7 +3938,7 @@ COLOUR — ONE dominant colour + ONE accent only:
 - Use exactly one accent colour for small highlights (badges, links, details).
 - Everything else stays neutral: background, surface, text, borders.
 - Do NOT spread 3+ saturated colours across the page.
-- FORBIDDEN: purple/violet text or fills on a white or near-white background (low contrast, generic SaaS look).
+{_purple_rule}
 
 TYPOGRAPHY — fonts (FONT LOCK, non-negotiable):
 - Do NOT use Inter or Roboto — they read as generic defaults.
@@ -3924,7 +3987,15 @@ FOOTER:
 
 {style_note}
 
+{_hero_blueprint}
+
 ===== {layout} =====
+
+LAYOUT FLEXIBILITY (design freedom within the checklist):
+- The layout above is the required CONTENT checklist — every listed section's content must exist on the page.
+- Hero FIRST and footer LAST are fixed. You MAY reorder the middle sections, merge two small ones, or add ONE extra tasteful section when it serves the design personality.
+- Create section rhythm: alternate backgrounds (page background → surface → a subtle accent tint), and include ONE full-width band in the primary colour (CTA or signature highlight) with white text.
+- Do NOT make every section centered text over a grid of identical cards — vary alignment and structure between sections.
 
 ===== {image_section} =====
 
@@ -3957,6 +4028,17 @@ TECHNICAL:
 - Mobile responsive (critical!)
 - Use font-heading for all headings, font-body for all body text
 - Use the primary, secondary, accent, surface colors from tailwind.config
+
+MOBILE & POLISH (NON-NEGOTIABLE):
+- The sticky nav MUST have a working mobile menu: a hamburger button below the md breakpoint that toggles a slide-down panel with the nav links (simple JS class toggle). NEVER leave phone users with no navigation.
+- Add to the <style> block: html {{ scroll-padding-top: 5rem; }} so anchor jumps never hide section headings under the sticky nav.
+- Every <img> EXCEPT the hero image gets loading="lazy".
+- Hero and section headings get style="text-wrap: balance" (combine with the clamp() font-size where used).
+- Keyboard focus must stay visible — never add outline-none without a :focus-visible replacement.
+- Icon-only links (social icons, WhatsApp float) need aria-label attributes.
+
+===== CREATIVE FREEDOM =====
+Everything not covered by a hard rule above is yours: micro-layout, decorative details, hover states, section backgrounds, copy tone and personality. Make the site feel INDIVIDUALLY DESIGNED for {name} — like a designer studied this exact business — not assembled from a template. Avoid the generic AI-site look: no endless rows of three identical cards, no every-section-centered monotony. Surprise us — within the rules.
 
 Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HTML."""
 
@@ -6676,6 +6758,7 @@ IMPORTANT RULES:
             color_mode=color_mode,
             include_whatsapp=request.include_whatsapp,
             include_maps=request.include_maps,
+            brand_colors=getattr(request, "colors", None),
         )
 
         # Add image URLs to prompt with STRONG emphasis.
@@ -7166,6 +7249,7 @@ IMPORTANT INSTRUCTIONS:
                 include_whatsapp=request.include_whatsapp,
                 include_maps=request.include_maps,
                 include_ecommerce=request.include_ecommerce,
+                brand_colors=getattr(request, "colors", None),
             )
 
             # GLM (Z.ai) primary path — strictly PREPENDED, gated by
