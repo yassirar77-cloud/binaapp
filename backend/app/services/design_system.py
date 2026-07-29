@@ -2,11 +2,28 @@
 Design System Module
 Provides comprehensive design guidelines, font pairings, color palettes,
 layout templates, hero variants, and animation configs for premium website generation.
+
+Variety model: every business type has SEVERAL font pairings, colour palettes,
+and hero/layout options. A deterministic seed derived from the business name
+picks one combination, so two different businesses of the same type no longer
+receive an identical-looking website, while regenerating the SAME business
+stays visually stable. Explicit user requests (a colour theme or style words
+found in the description) override the seeded picks — the user always wins.
 """
 
+import hashlib
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+
+def _variant_seed(business_name: str) -> int:
+    """Deterministic seed from the business name — stable across runs."""
+    normalized = (business_name or "").strip().lower()
+    if not normalized:
+        return 0
+    return int(hashlib.md5(normalized.encode("utf-8")).hexdigest()[:8], 16)
 
 
 # ============================================================================
@@ -113,6 +130,229 @@ FONT_PAIRINGS = {
         "body_category": "sans-serif",
         "vibe": "Professional, versatile",
     },
+}
+
+
+# Additional font pairings per business type. Index 0 is always the classic
+# pairing above (kept first for backward compatibility); the seeded pick
+# rotates across the whole list so same-type businesses stop looking cloned.
+ALT_FONT_PAIRINGS = {
+    "food": [
+        {
+            "heading": "Fraunces",
+            "heading_weights": "400;600;700",
+            "heading_fallback": "Georgia, serif",
+            "heading_category": "serif",
+            "body": "Outfit",
+            "body_weights": "400;500;600",
+            "body_fallback": "system-ui, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Contemporary editorial, warm",
+        },
+        {
+            "heading": "Marcellus",
+            "heading_weights": "400",
+            "heading_fallback": "Georgia, serif",
+            "heading_category": "serif",
+            "body": "Figtree",
+            "body_weights": "400;500;600",
+            "body_fallback": "system-ui, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Understated fine-dining",
+        },
+    ],
+    "cafe": [
+        {
+            "heading": "Libre Baskerville",
+            "heading_weights": "400;700",
+            "heading_fallback": "Georgia, serif",
+            "heading_category": "serif",
+            "body": "Jost",
+            "body_weights": "400;500;600",
+            "body_fallback": "Helvetica Neue, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Literary, artisan",
+        },
+        {
+            "heading": "Fraunces",
+            "heading_weights": "400;600;700",
+            "heading_fallback": "Georgia, serif",
+            "heading_category": "serif",
+            "body": "Nunito Sans",
+            "body_weights": "400;600;700",
+            "body_fallback": "system-ui, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Playful specialty-coffee",
+        },
+    ],
+    "salon": [
+        {
+            "heading": "Marcellus",
+            "heading_weights": "400",
+            "heading_fallback": "Georgia, serif",
+            "heading_category": "serif",
+            "body": "Mulish",
+            "body_weights": "400;500;600",
+            "body_fallback": "system-ui, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Quiet luxury",
+        },
+        {
+            "heading": "Prata",
+            "heading_weights": "400",
+            "heading_fallback": "Georgia, serif",
+            "heading_category": "serif",
+            "body": "Jost",
+            "body_weights": "300;400;500",
+            "body_fallback": "Helvetica Neue, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "High-fashion editorial",
+        },
+    ],
+    "clothing": [
+        {
+            "heading": "Archivo",
+            "heading_weights": "500;600;700",
+            "heading_fallback": "Helvetica Neue, sans-serif",
+            "heading_category": "sans-serif",
+            "body": "Figtree",
+            "body_weights": "400;500;600",
+            "body_fallback": "system-ui, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Modern streetwear",
+        },
+        {
+            "heading": "Prata",
+            "heading_weights": "400",
+            "heading_fallback": "Georgia, serif",
+            "heading_category": "serif",
+            "body": "Work Sans",
+            "body_weights": "300;400;500",
+            "body_fallback": "system-ui, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Boutique elegance",
+        },
+    ],
+    "bakery": [
+        {
+            "heading": "Fraunces",
+            "heading_weights": "400;600;700",
+            "heading_fallback": "Georgia, serif",
+            "heading_category": "serif",
+            "body": "Quicksand",
+            "body_weights": "400;500;600",
+            "body_fallback": "system-ui, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Sweet, artisanal",
+        },
+        {
+            "heading": "DM Serif Display",
+            "heading_weights": "400",
+            "heading_fallback": "Georgia, serif",
+            "heading_category": "serif",
+            "body": "Nunito Sans",
+            "body_weights": "400;600;700",
+            "body_fallback": "system-ui, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Classic patisserie",
+        },
+    ],
+    "services": [
+        {
+            "heading": "Sora",
+            "heading_weights": "400;600;700",
+            "heading_fallback": "system-ui, sans-serif",
+            "heading_category": "sans-serif",
+            "body": "Figtree",
+            "body_weights": "400;500;600",
+            "body_fallback": "Helvetica Neue, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Tech-forward, precise",
+        },
+        {
+            "heading": "Space Grotesk",
+            "heading_weights": "500;600;700",
+            "heading_fallback": "system-ui, sans-serif",
+            "heading_category": "sans-serif",
+            "body": "Work Sans",
+            "body_weights": "400;500;600",
+            "body_fallback": "Helvetica Neue, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Contemporary studio",
+        },
+    ],
+    "gym": [
+        {
+            "heading": "Anton",
+            "heading_weights": "400",
+            "heading_fallback": "Impact, sans-serif",
+            "heading_category": "sans-serif",
+            "body": "Manrope",
+            "body_weights": "400;500;700",
+            "body_fallback": "Helvetica Neue, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Heavyweight impact",
+        },
+        {
+            "heading": "Archivo Black",
+            "heading_weights": "400",
+            "heading_fallback": "Impact, sans-serif",
+            "heading_category": "sans-serif",
+            "body": "Barlow",
+            "body_weights": "400;500;700",
+            "body_fallback": "Helvetica Neue, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Athletic, unstoppable",
+        },
+    ],
+    "clinic": [
+        {
+            "heading": "Bitter",
+            "heading_weights": "400;600;700",
+            "heading_fallback": "Georgia, serif",
+            "heading_category": "serif",
+            "body": "Karla",
+            "body_weights": "400;500;600",
+            "body_fallback": "system-ui, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Established, caring",
+        },
+        {
+            "heading": "Newsreader",
+            "heading_weights": "400;600;700",
+            "heading_fallback": "Georgia, serif",
+            "heading_category": "serif",
+            "body": "Mulish",
+            "body_weights": "400;500;600",
+            "body_fallback": "system-ui, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Calm authority",
+        },
+    ],
+    "general": [
+        {
+            "heading": "Sora",
+            "heading_weights": "400;600;700",
+            "heading_fallback": "system-ui, sans-serif",
+            "heading_category": "sans-serif",
+            "body": "Manrope",
+            "body_weights": "400;500;600;700",
+            "body_fallback": "Helvetica Neue, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Crisp, current",
+        },
+        {
+            "heading": "Bricolage Grotesque",
+            "heading_weights": "500;600;700",
+            "heading_fallback": "system-ui, sans-serif",
+            "heading_category": "sans-serif",
+            "body": "Figtree",
+            "body_weights": "400;500;600",
+            "body_fallback": "Helvetica Neue, sans-serif",
+            "body_category": "sans-serif",
+            "vibe": "Distinctive, characterful",
+        },
+    ],
 }
 
 
@@ -322,13 +562,501 @@ COLOR_PALETTES = {
 }
 
 
+# Additional colour palettes per business type. Index 0 is always the classic
+# palette above; the seeded pick rotates across the whole list.
+ALT_COLOR_PALETTES = {
+    "food": [
+        {  # Fresh herb bistro
+            "light": {
+                "primary": "#15803D", "secondary": "#14532D", "accent": "#DCFCE7",
+                "background": "#F7FDF8", "surface": "#FFFFFF", "text": "#122117",
+                "text_muted": "#6B8068", "border": "#E3EFE4",
+            },
+            "dark": {
+                "primary": "#4ADE80", "secondary": "#86EFAC", "accent": "#14532D",
+                "background": "#09110C", "surface": "#14241A", "text": "#ECFDF3",
+                "text_muted": "#9DB8A5", "border": "#1F3A2A",
+            },
+        },
+        {  # Sambal crimson
+            "light": {
+                "primary": "#B91C1C", "secondary": "#7F1D1D", "accent": "#FEE2E2",
+                "background": "#FFF9F6", "surface": "#FFFFFF", "text": "#1C1917",
+                "text_muted": "#78716C", "border": "#F1E5E1",
+            },
+            "dark": {
+                "primary": "#F87171", "secondary": "#FCA5A5", "accent": "#450A0A",
+                "background": "#0F0A0A", "surface": "#1D1414", "text": "#FEF2F2",
+                "text_muted": "#B3A0A0", "border": "#2E2222",
+            },
+        },
+    ],
+    "cafe": [
+        {  # Matcha
+            "light": {
+                "primary": "#4D7C0F", "secondary": "#3F6212", "accent": "#ECFCCB",
+                "background": "#FDFFF6", "surface": "#FFFFFF", "text": "#1C2A10",
+                "text_muted": "#7A8465", "border": "#E7EDD8",
+            },
+            "dark": {
+                "primary": "#A3E635", "secondary": "#BEF264", "accent": "#365314",
+                "background": "#0C1006", "surface": "#171F0E", "text": "#F7FEE7",
+                "text_muted": "#A8B58F", "border": "#2A331B",
+            },
+        },
+        {  # Mocha noir minimal
+            "light": {
+                "primary": "#44403C", "secondary": "#292524", "accent": "#E7E5E4",
+                "background": "#FAFAF9", "surface": "#FFFFFF", "text": "#1C1917",
+                "text_muted": "#78716C", "border": "#E7E5E4",
+            },
+            "dark": {
+                "primary": "#D6D3D1", "secondary": "#A8A29E", "accent": "#292524",
+                "background": "#0C0A09", "surface": "#1C1917", "text": "#FAFAF9",
+                "text_muted": "#A8A29E", "border": "#292524",
+            },
+        },
+    ],
+    "salon": [
+        {  # Champagne gold
+            "light": {
+                "primary": "#A16207", "secondary": "#713F12", "accent": "#FEF9C3",
+                "background": "#FFFDF7", "surface": "#FFFFFF", "text": "#1C1917",
+                "text_muted": "#78716C", "border": "#F0EADB",
+            },
+            "dark": {
+                "primary": "#EAB308", "secondary": "#FDE047", "accent": "#422006",
+                "background": "#0E0C07", "surface": "#1C1917", "text": "#FEFCE8",
+                "text_muted": "#A8A29E", "border": "#2C2824",
+            },
+        },
+        {  # Noir editorial
+            "light": {
+                "primary": "#18181B", "secondary": "#3F3F46", "accent": "#F4F4F5",
+                "background": "#FFFFFF", "surface": "#FAFAFA", "text": "#18181B",
+                "text_muted": "#71717A", "border": "#E4E4E7",
+            },
+            "dark": {
+                "primary": "#E4E4E7", "secondary": "#A1A1AA", "accent": "#27272A",
+                "background": "#09090B", "surface": "#18181B", "text": "#FAFAFA",
+                "text_muted": "#A1A1AA", "border": "#27272A",
+            },
+        },
+    ],
+    "clothing": [
+        {  # Denim navy
+            "light": {
+                "primary": "#1E3A8A", "secondary": "#172554", "accent": "#DBEAFE",
+                "background": "#F8FAFF", "surface": "#FFFFFF", "text": "#0F172A",
+                "text_muted": "#64748B", "border": "#E2E8F0",
+            },
+            "dark": {
+                "primary": "#93C5FD", "secondary": "#BFDBFE", "accent": "#1E3A8A",
+                "background": "#0A0F1E", "surface": "#111A2E", "text": "#EFF6FF",
+                "text_muted": "#94A3B8", "border": "#1E293B",
+            },
+        },
+        {  # Earth editorial
+            "light": {
+                "primary": "#7C2D12", "secondary": "#431407", "accent": "#FFEDD5",
+                "background": "#FFFBF7", "surface": "#FFFFFF", "text": "#1C1917",
+                "text_muted": "#78716C", "border": "#F2E8E0",
+            },
+            "dark": {
+                "primary": "#FDBA74", "secondary": "#FED7AA", "accent": "#431407",
+                "background": "#100B08", "surface": "#1D140E", "text": "#FFF7ED",
+                "text_muted": "#B3A296", "border": "#2E211A",
+            },
+        },
+    ],
+    "bakery": [
+        {  # Strawberry cream
+            "light": {
+                "primary": "#BE185D", "secondary": "#831843", "accent": "#FCE7F3",
+                "background": "#FFFBFC", "surface": "#FFFFFF", "text": "#24151B",
+                "text_muted": "#7E6A72", "border": "#F4E3EA",
+            },
+            "dark": {
+                "primary": "#F9A8D4", "secondary": "#FBCFE8", "accent": "#500724",
+                "background": "#120A0E", "surface": "#21141A", "text": "#FDF2F8",
+                "text_muted": "#B39CA8", "border": "#33222A",
+            },
+        },
+        {  # Pistachio
+            "light": {
+                "primary": "#65A30D", "secondary": "#3F6212", "accent": "#ECFCCB",
+                "background": "#FCFFF4", "surface": "#FFFFFF", "text": "#1A2409",
+                "text_muted": "#7A8465", "border": "#E5EDD5",
+            },
+            "dark": {
+                "primary": "#BEF264", "secondary": "#D9F99D", "accent": "#365314",
+                "background": "#0B0F05", "surface": "#161F0C", "text": "#F7FEE7",
+                "text_muted": "#A6B48D", "border": "#29331A",
+            },
+        },
+    ],
+    "services": [
+        {  # Emerald trust
+            "light": {
+                "primary": "#047857", "secondary": "#064E3B", "accent": "#D1FAE5",
+                "background": "#F7FDFB", "surface": "#FFFFFF", "text": "#0F172A",
+                "text_muted": "#64748B", "border": "#E2E8F0",
+            },
+            "dark": {
+                "primary": "#34D399", "secondary": "#6EE7B7", "accent": "#064E3B",
+                "background": "#06110E", "surface": "#0E1F1A", "text": "#ECFDF5",
+                "text_muted": "#94A3B8", "border": "#1B332C",
+            },
+        },
+        {  # Navy + amber
+            "light": {
+                "primary": "#1E3A8A", "secondary": "#172554", "accent": "#FEF3C7",
+                "background": "#F8FAFF", "surface": "#FFFFFF", "text": "#0F172A",
+                "text_muted": "#64748B", "border": "#E2E8F0",
+            },
+            "dark": {
+                "primary": "#93C5FD", "secondary": "#FDE68A", "accent": "#1E3A8A",
+                "background": "#0A0F1E", "surface": "#111A2E", "text": "#EFF6FF",
+                "text_muted": "#94A3B8", "border": "#1E293B",
+            },
+        },
+    ],
+    "gym": [
+        {  # Electric lime
+            "light": {
+                "primary": "#65A30D", "secondary": "#1A1A1A", "accent": "#ECFCCB",
+                "background": "#FFFFFF", "surface": "#FAFAF9", "text": "#171717",
+                "text_muted": "#737373", "border": "#E5E5E5",
+            },
+            "dark": {
+                "primary": "#A3E635", "secondary": "#D9F99D", "accent": "#1A2E05",
+                "background": "#0A0A0A", "surface": "#171717", "text": "#FAFAFA",
+                "text_muted": "#A3A3A3", "border": "#262626",
+            },
+        },
+        {  # Blue steel
+            "light": {
+                "primary": "#0369A1", "secondary": "#0C4A6E", "accent": "#E0F2FE",
+                "background": "#F8FCFF", "surface": "#FFFFFF", "text": "#0F172A",
+                "text_muted": "#64748B", "border": "#E2E8F0",
+            },
+            "dark": {
+                "primary": "#38BDF8", "secondary": "#7DD3FC", "accent": "#0C4A6E",
+                "background": "#071019", "surface": "#0E1B2A", "text": "#F0F9FF",
+                "text_muted": "#94A3B8", "border": "#1C2B3A",
+            },
+        },
+    ],
+    "clinic": [
+        {  # Calm blue
+            "light": {
+                "primary": "#0369A1", "secondary": "#075985", "accent": "#E0F2FE",
+                "background": "#F8FCFF", "surface": "#FFFFFF", "text": "#0F172A",
+                "text_muted": "#64748B", "border": "#E2E8F0",
+            },
+            "dark": {
+                "primary": "#7DD3FC", "secondary": "#BAE6FD", "accent": "#0C4A6E",
+                "background": "#071019", "surface": "#0E1B2A", "text": "#F0F9FF",
+                "text_muted": "#94A3B8", "border": "#1C2B3A",
+            },
+        },
+        {  # Warm sage wellness
+            "light": {
+                "primary": "#4D7C0F", "secondary": "#3F6212", "accent": "#ECFCCB",
+                "background": "#FDFFF8", "surface": "#FFFFFF", "text": "#1C2A10",
+                "text_muted": "#7A8465", "border": "#E7EDD8",
+            },
+            "dark": {
+                "primary": "#BEF264", "secondary": "#D9F99D", "accent": "#365314",
+                "background": "#0B0F05", "surface": "#161F0C", "text": "#F7FEE7",
+                "text_muted": "#A6B48D", "border": "#29331A",
+            },
+        },
+    ],
+    "general": [
+        {  # Deep cyan
+            "light": {
+                "primary": "#0E7490", "secondary": "#155E75", "accent": "#CFFAFE",
+                "background": "#F7FDFF", "surface": "#FFFFFF", "text": "#0F172A",
+                "text_muted": "#64748B", "border": "#E2E8F0",
+            },
+            "dark": {
+                "primary": "#22D3EE", "secondary": "#67E8F9", "accent": "#155E75",
+                "background": "#051318", "surface": "#0C232B", "text": "#ECFEFF",
+                "text_muted": "#94A3B8", "border": "#164E63",
+            },
+        },
+        {  # Graphite + coral
+            "light": {
+                "primary": "#E11D48", "secondary": "#9F1239", "accent": "#FFE4E6",
+                "background": "#FFF9FA", "surface": "#FFFFFF", "text": "#1C1917",
+                "text_muted": "#78716C", "border": "#F4E4E7",
+            },
+            "dark": {
+                "primary": "#FB7185", "secondary": "#FDA4AF", "accent": "#4C0519",
+                "background": "#130A0D", "surface": "#211318", "text": "#FFF1F2",
+                "text_muted": "#B39BA3", "border": "#351E26",
+            },
+        },
+    ],
+}
+
+
+# Full palettes for EXPLICIT user colour requests ("warna biru", "gold theme").
+# When the user asks for a colour, this palette replaces the seeded pick
+# entirely — user freedom beats the per-type default.
+NAMED_COLOR_PALETTES = {
+    "blue": {
+        "light": {
+            "primary": "#2563EB", "secondary": "#1E40AF", "accent": "#DBEAFE",
+            "background": "#F8FAFF", "surface": "#FFFFFF", "text": "#0F172A",
+            "text_muted": "#64748B", "border": "#E2E8F0",
+        },
+        "dark": {
+            "primary": "#60A5FA", "secondary": "#93C5FD", "accent": "#1E3A5F",
+            "background": "#0B1120", "surface": "#0F172A", "text": "#F1F5F9",
+            "text_muted": "#94A3B8", "border": "#1E293B",
+        },
+    },
+    "navy": {
+        "light": {
+            "primary": "#1E3A8A", "secondary": "#172554", "accent": "#DBEAFE",
+            "background": "#F8FAFF", "surface": "#FFFFFF", "text": "#0F172A",
+            "text_muted": "#64748B", "border": "#E2E8F0",
+        },
+        "dark": {
+            "primary": "#93C5FD", "secondary": "#BFDBFE", "accent": "#1E3A8A",
+            "background": "#0A0F1E", "surface": "#111A2E", "text": "#EFF6FF",
+            "text_muted": "#94A3B8", "border": "#1E293B",
+        },
+    },
+    "green": {
+        "light": {
+            "primary": "#16A34A", "secondary": "#166534", "accent": "#DCFCE7",
+            "background": "#F9FDF9", "surface": "#FFFFFF", "text": "#122117",
+            "text_muted": "#6B8068", "border": "#E3EFE4",
+        },
+        "dark": {
+            "primary": "#4ADE80", "secondary": "#86EFAC", "accent": "#14532D",
+            "background": "#09110C", "surface": "#14241A", "text": "#ECFDF3",
+            "text_muted": "#9DB8A5", "border": "#1F3A2A",
+        },
+    },
+    "red": {
+        "light": {
+            "primary": "#DC2626", "secondary": "#991B1B", "accent": "#FEE2E2",
+            "background": "#FFFAFA", "surface": "#FFFFFF", "text": "#1C1917",
+            "text_muted": "#78716C", "border": "#F3E2E2",
+        },
+        "dark": {
+            "primary": "#F87171", "secondary": "#FCA5A5", "accent": "#450A0A",
+            "background": "#0F0A0A", "surface": "#1D1414", "text": "#FEF2F2",
+            "text_muted": "#B3A0A0", "border": "#2E2222",
+        },
+    },
+    "maroon": {
+        "light": {
+            "primary": "#9F1239", "secondary": "#881337", "accent": "#FFE4E6",
+            "background": "#FFFAFB", "surface": "#FFFFFF", "text": "#241419",
+            "text_muted": "#7E6A6F", "border": "#F4E2E6",
+        },
+        "dark": {
+            "primary": "#FB7185", "secondary": "#FDA4AF", "accent": "#4C0519",
+            "background": "#130A0D", "surface": "#211318", "text": "#FFF1F2",
+            "text_muted": "#B39BA3", "border": "#351E26",
+        },
+    },
+    "purple": {
+        "light": {
+            "primary": "#7C3AED", "secondary": "#5B21B6", "accent": "#EDE9FE",
+            "background": "#FCFAFF", "surface": "#FFFFFF", "text": "#1E1B2E",
+            "text_muted": "#6D6A80", "border": "#EAE5F5",
+        },
+        "dark": {
+            "primary": "#A78BFA", "secondary": "#C4B5FD", "accent": "#2E1065",
+            "background": "#0C0817", "surface": "#161129", "text": "#F5F3FF",
+            "text_muted": "#A5A0B8", "border": "#2A2440",
+        },
+    },
+    "pink": {
+        "light": {
+            "primary": "#DB2777", "secondary": "#9D174D", "accent": "#FCE7F3",
+            "background": "#FFFBFD", "surface": "#FFFFFF", "text": "#24151C",
+            "text_muted": "#7E6A74", "border": "#F6E2EC",
+        },
+        "dark": {
+            "primary": "#F472B6", "secondary": "#F9A8D4", "accent": "#500724",
+            "background": "#120A0E", "surface": "#21141A", "text": "#FDF2F8",
+            "text_muted": "#B39CA8", "border": "#33222A",
+        },
+    },
+    "gold": {
+        "light": {
+            "primary": "#A16207", "secondary": "#713F12", "accent": "#FEF9C3",
+            "background": "#FFFDF5", "surface": "#FFFFFF", "text": "#1C1917",
+            "text_muted": "#78716C", "border": "#F0E9D2",
+        },
+        "dark": {
+            "primary": "#EAB308", "secondary": "#FDE047", "accent": "#422006",
+            "background": "#0E0C07", "surface": "#1C1917", "text": "#FEFCE8",
+            "text_muted": "#A8A29E", "border": "#2C2824",
+        },
+    },
+    "orange": {
+        "light": {
+            "primary": "#EA580C", "secondary": "#9A3412", "accent": "#FED7AA",
+            "background": "#FFFBF5", "surface": "#FFFFFF", "text": "#1C1917",
+            "text_muted": "#78716C", "border": "#F3E6DA",
+        },
+        "dark": {
+            "primary": "#FB923C", "secondary": "#FDBA74", "accent": "#431407",
+            "background": "#0C0A09", "surface": "#1C1917", "text": "#F5F5F4",
+            "text_muted": "#A8A29E", "border": "#292524",
+        },
+    },
+    "teal": {
+        "light": {
+            "primary": "#0D9488", "secondary": "#115E59", "accent": "#CCFBF1",
+            "background": "#F7FFFD", "surface": "#FFFFFF", "text": "#102420",
+            "text_muted": "#5F7A74", "border": "#DDEEE9",
+        },
+        "dark": {
+            "primary": "#2DD4BF", "secondary": "#99F6E4", "accent": "#134E4A",
+            "background": "#0A1210", "surface": "#0F1F1C", "text": "#F0FDFA",
+            "text_muted": "#94A3B8", "border": "#1E3330",
+        },
+    },
+    "brown": {
+        "light": {
+            "primary": "#92400E", "secondary": "#78350F", "accent": "#FEF3C7",
+            "background": "#FFFDF7", "surface": "#FFFFFF", "text": "#1C1917",
+            "text_muted": "#78716C", "border": "#EDE5D8",
+        },
+        "dark": {
+            "primary": "#D9A45B", "secondary": "#E8C08A", "accent": "#3E2A12",
+            "background": "#0E0A06", "surface": "#1B140C", "text": "#FBF3E7",
+            "text_muted": "#B3A48E", "border": "#2E2416",
+        },
+    },
+    "black": {
+        "light": {
+            "primary": "#18181B", "secondary": "#3F3F46", "accent": "#F4F4F5",
+            "background": "#FFFFFF", "surface": "#FAFAFA", "text": "#18181B",
+            "text_muted": "#71717A", "border": "#E4E4E7",
+        },
+        "dark": {
+            "primary": "#E4E4E7", "secondary": "#A1A1AA", "accent": "#27272A",
+            "background": "#09090B", "surface": "#18181B", "text": "#FAFAFA",
+            "text_muted": "#A1A1AA", "border": "#27272A",
+        },
+    },
+}
+
+
+# Malay + English colour words → NAMED_COLOR_PALETTES key.
+# Multi-word phrases must be checked before single words.
+_COLOR_WORDS = [
+    ("merah jambu", "pink"),
+    ("biru laut", "teal"),
+    ("biru gelap", "navy"),
+    ("navy blue", "navy"),
+    ("dark blue", "navy"),
+    ("hijau daun", "green"),
+    ("rose gold", "pink"),
+    ("biru", "blue"),
+    ("navy", "navy"),
+    ("blue", "blue"),
+    ("hijau", "green"),
+    ("green", "green"),
+    ("merah", "red"),
+    ("red", "red"),
+    ("maroon", "maroon"),
+    ("ungu", "purple"),
+    ("purple", "purple"),
+    ("violet", "purple"),
+    ("pink", "pink"),
+    ("emas", "gold"),
+    ("gold", "gold"),
+    ("kuning", "gold"),
+    ("yellow", "gold"),
+    ("oren", "orange"),
+    ("jingga", "orange"),
+    ("orange", "orange"),
+    ("teal", "teal"),
+    ("turquoise", "teal"),
+    ("cyan", "teal"),
+    ("coklat", "brown"),
+    ("brown", "brown"),
+    ("hitam", "black"),
+    ("black", "black"),
+    ("putih", "black"),
+    ("white", "black"),
+]
+
+# Style adjectives (Malay + English) → style hint key.
+_STYLE_WORDS = [
+    (("mewah", "luxury", "luxurious", "premium", "elegant", "elegan",
+      "exclusive", "eksklusif", "classy", "berkelas"), "elegant"),
+    (("minimalis", "minimalist", "minimal", "simple", "ringkas", "bersih",
+      "clean"), "minimal"),
+    (("ceria", "playful", "fun", "colourful", "colorful", "vibrant",
+      "berwarna-warni", "cute", "comel"), "playful"),
+    (("bold", "berani", "garang", "impactful", "striking"), "bold"),
+    (("klasik", "classic", "traditional", "tradisional", "vintage", "retro",
+      "warisan", "heritage"), "classic"),
+]
+
+# Words that signal the colour term is about DESIGN, not a product
+# ("kek pandan hijau" must NOT force a green theme).
+_DESIGN_CONTEXT = r"(?:warna|tema|theme|colou?r|color\s+scheme|design|reka\s*bentuk|latar|background|button|butang)"
+
+
+def extract_design_preferences(description: str) -> dict:
+    """Extract EXPLICIT design requests from the business description.
+
+    Returns {"color": <named palette key or None>,
+             "style_hint": <style key or None>}
+
+    Colour detection is deliberately conservative: a colour word only counts
+    when it appears next to a design word ("warna biru", "blue theme",
+    "tema emas"), so product mentions like "kek pandan hijau" never
+    hijack the palette.
+    """
+    prefs = {"color": None, "style_hint": None}
+    if not description:
+        return prefs
+
+    text = description.lower()
+
+    for word, palette_key in _COLOR_WORDS:
+        escaped = re.escape(word)
+        # design-word BEFORE colour ("warna biru", "tema warna biru laut")
+        before = rf"{_DESIGN_CONTEXT}[\s\w]{{0,20}}?\b{escaped}\b"
+        # colour BEFORE design-word ("biru theme", "gold design")
+        after = rf"\b{escaped}\b\s*(?:{_DESIGN_CONTEXT})"
+        if re.search(before, text) or re.search(after, text):
+            prefs["color"] = palette_key
+            logger.info(f"🎨 User requested colour theme: {palette_key} (matched '{word}')")
+            break
+
+    for words, hint in _STYLE_WORDS:
+        for w in words:
+            if re.search(rf"\b{re.escape(w)}\b", text):
+                prefs["style_hint"] = hint
+                break
+        if prefs["style_hint"]:
+            break
+
+    return prefs
+
+
 # ============================================================================
 # LAYOUT TEMPLATES BY BUSINESS TYPE
 # ============================================================================
 
 LAYOUT_TEMPLATES = {
     "food": """LAYOUT STRUCTURE (Editorial style - MUST FOLLOW):
-1. HERO: Full-screen image with gradient overlay, business name centered at bottom, badge "Est. 2024 · Pengusaha Muslim" above name (never use "Halal" or "Halal Certified"), two CTA buttons
+1. HERO: Full-screen image with gradient overlay, business name centered at bottom, optional factual kicker badge above name ONLY if the business data provides one (NEVER invent "Est." years, "Halal"/certifications, or ownership claims), two CTA buttons
 2. ABOUT: Split section - image on left (rounded-2xl), story text on right with decorative accent
 3. FEATURED: Full-width spotlight of a signature dish/item with large image and description
 4. MENU/GALLERY: 3-column grid of menu items with hover card lift effect, staggered animations
@@ -427,7 +1155,7 @@ HERO_VARIANTS = {
   <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
   <div class="relative z-10 flex items-end h-full pb-16 md:pb-20 px-6 md:px-16">
     <div class="max-w-2xl">
-      <span class="inline-flex px-4 py-1.5 rounded-full bg-primary/20 backdrop-blur-sm text-white text-sm font-medium mb-4">Est. 2024 · Pengusaha Muslim</span>
+      <span class="inline-flex px-4 py-1.5 rounded-full bg-primary/20 backdrop-blur-sm text-white text-sm font-medium mb-4">TAGLINE_KICKER</span>
       <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold text-white leading-tight tracking-tight">BUSINESS_NAME</h1>
       <p class="text-lg md:text-xl text-white/80 mt-4 font-body">TAGLINE</p>
       <div class="flex flex-wrap gap-4 mt-8">
@@ -455,7 +1183,7 @@ HERO_VARIANTS = {
 <section id="home" class="grid md:grid-cols-2 min-h-screen">
   <div class="flex items-center px-8 md:px-16 py-20 order-2 md:order-1" data-aos="fade-right">
     <div>
-      <span class="inline-flex px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-body font-medium mb-6">Premium Beauty Experience</span>
+      <span class="inline-flex px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-body font-medium mb-6">TAGLINE_KICKER</span>
       <h1 class="text-4xl md:text-5xl lg:text-7xl font-heading leading-tight tracking-tight" style="color: var(--text-color)">BUSINESS_NAME</h1>
       <p class="text-lg mt-4 font-body" style="color: var(--text-muted-color)">TAGLINE</p>
       <a href="#services" class="inline-flex items-center mt-8 px-8 py-3.5 bg-primary text-white rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">VIEW_SERVICES_CTA</a>
@@ -498,7 +1226,7 @@ HERO_VARIANTS = {
 <section id="home" class="relative py-24 md:py-32 px-6 md:px-8" style="background-color: var(--bg-color)">
   <div class="max-w-7xl mx-auto grid md:grid-cols-2 gap-12 items-center">
     <div data-aos="fade-right">
-      <span class="inline-flex px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-body font-medium mb-6">Trusted & Professional</span>
+      <span class="inline-flex px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-body font-medium mb-6">TAGLINE_KICKER</span>
       <h1 class="text-4xl md:text-5xl lg:text-6xl font-heading font-bold leading-tight tracking-tight" style="color: var(--text-color)">BUSINESS_NAME</h1>
       <p class="text-lg md:text-xl mt-4 font-body" style="color: var(--text-muted-color)">TAGLINE</p>
       <div class="flex flex-wrap gap-4 mt-8">
@@ -529,7 +1257,7 @@ HERO_VARIANTS = {
 <section id="home" class="relative py-24 md:py-32 px-6 md:px-8" style="background-color: var(--bg-color)">
   <div class="max-w-7xl mx-auto grid md:grid-cols-2 gap-12 items-center">
     <div data-aos="fade-right">
-      <span class="inline-flex px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-body font-medium mb-6">Healthcare You Can Trust</span>
+      <span class="inline-flex px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-body font-medium mb-6">TAGLINE_KICKER</span>
       <h1 class="text-4xl md:text-5xl lg:text-6xl font-heading font-bold leading-tight tracking-tight" style="color: var(--text-color)">BUSINESS_NAME</h1>
       <p class="text-lg md:text-xl mt-4 font-body" style="color: var(--text-muted-color)">TAGLINE</p>
       <a href="#services" class="inline-flex items-center mt-8 px-8 py-3.5 bg-primary text-white rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">BOOK_CTA</a>
@@ -563,7 +1291,7 @@ HERO_VARIANTS_NO_IMAGES = {
   <div class="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.1)_0%,transparent_60%)]"></div>
   <div class="relative z-10 flex items-center justify-center h-full text-center px-6">
     <div class="max-w-3xl">
-      <span class="inline-flex px-4 py-1.5 rounded-full bg-white/20 backdrop-blur-sm text-white text-sm font-medium mb-6">Est. 2024</span>
+      <span class="inline-flex px-4 py-1.5 rounded-full bg-white/20 backdrop-blur-sm text-white text-sm font-medium mb-6">TAGLINE_KICKER</span>
       <h1 class="text-4xl md:text-6xl lg:text-7xl font-heading font-bold text-white leading-tight tracking-tight">BUSINESS_NAME</h1>
       <p class="text-lg md:text-xl text-white/80 mt-4 font-body">TAGLINE</p>
       <a href="#menu" class="inline-flex items-center mt-8 px-8 py-3.5 bg-white text-primary rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">VIEW_MENU_CTA</a>
@@ -586,12 +1314,218 @@ HERO_VARIANTS_NO_IMAGES = {
 }
 
 
+# Alternate hero designs per business type. Index 0 is always the classic
+# HERO_VARIANTS entry; the seeded pick rotates across the whole list so two
+# restaurants stop opening with the identical hero.
+ALT_HERO_VARIANTS = {
+    "food": [
+        """HERO SECTION DESIGN (Split hero — text left, tall image right with floating card):
+<section id="home" class="grid md:grid-cols-2 min-h-[85vh]" style="background-color: var(--bg-color)">
+  <div class="flex items-center px-6 md:px-16 py-20 order-2 md:order-1" data-aos="fade-right">
+    <div>
+      <span class="inline-flex px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-body font-medium mb-6">TAGLINE_KICKER</span>
+      <h1 class="font-heading font-bold leading-[1.05] tracking-tight" style="font-size: clamp(2.5rem, 6vw, 4.5rem); color: var(--text-color)">BUSINESS_NAME</h1>
+      <p class="text-lg md:text-xl mt-5 font-body" style="color: var(--text-muted-color)">TAGLINE</p>
+      <div class="flex flex-wrap gap-4 mt-8">
+        <a href="#menu" class="inline-flex items-center px-8 py-3.5 bg-primary text-white rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">VIEW_MENU_CTA</a>
+        <a href="WHATSAPP_LINK" class="inline-flex items-center px-8 py-3.5 border-2 border-primary/30 text-primary rounded-full font-body font-semibold tracking-wide hover:bg-primary/5 transition-all duration-300">WHATSAPP_CTA</a>
+      </div>
+    </div>
+  </div>
+  <div class="relative order-1 md:order-2 min-h-[320px] md:min-h-0" data-aos="fade-left">
+    <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
+    <div class="hidden md:block absolute bottom-8 -left-10 bg-white/95 backdrop-blur rounded-2xl shadow-2xl px-6 py-4 max-w-[240px]">
+      <p class="text-sm font-body font-semibold" style="color: #1C1917">SIGNATURE_DISH_NAME</p>
+      <p class="text-xs font-body mt-1" style="color: #78716C">SIGNATURE_DISH_NOTE</p>
+    </div>
+  </div>
+</section>""",
+        """HERO SECTION DESIGN (Full-bleed cinematic, centered, scroll cue):
+<section id="home" class="relative h-[88vh] min-h-[480px]" data-aos="fade-in">
+  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
+  <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/25 to-black/70"></div>
+  <div class="relative z-10 flex flex-col items-center justify-center h-full text-center px-6">
+    <p class="text-white/80 font-body text-sm uppercase tracking-[0.35em] mb-5">TAGLINE_KICKER</p>
+    <h1 class="font-heading font-bold text-white leading-[1.02] tracking-tight" style="font-size: clamp(2.75rem, 8vw, 5.5rem)">BUSINESS_NAME</h1>
+    <p class="text-lg md:text-xl text-white/85 mt-5 max-w-2xl font-body">TAGLINE</p>
+    <div class="flex flex-wrap justify-center gap-4 mt-9">
+      <a href="#menu" class="inline-flex items-center px-8 py-3.5 bg-primary text-white rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">VIEW_MENU_CTA</a>
+      <a href="WHATSAPP_LINK" class="inline-flex items-center px-8 py-3.5 bg-white/10 backdrop-blur border border-white/30 text-white rounded-full font-body font-semibold tracking-wide hover:bg-white/20 transition-all duration-300">WHATSAPP_CTA</a>
+    </div>
+    <a href="#about" class="absolute bottom-8 text-white/70 hover:text-white transition-colors" aria-label="Scroll"><i class="fa-solid fa-chevron-down fa-bounce"></i></a>
+  </div>
+</section>""",
+    ],
+    "services": [
+        """HERO SECTION DESIGN (Centered with stat chips):
+<section id="home" class="relative py-24 md:py-36 px-6 md:px-8 overflow-hidden" style="background-color: var(--bg-color)">
+  <div class="absolute -top-24 -right-24 w-96 h-96 bg-primary/5 rounded-full blur-3xl"></div>
+  <div class="absolute -bottom-24 -left-24 w-96 h-96 bg-primary/5 rounded-full blur-3xl"></div>
+  <div class="relative max-w-4xl mx-auto text-center" data-aos="fade-up">
+    <span class="inline-flex px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-body font-medium mb-6">TAGLINE_KICKER</span>
+    <h1 class="font-heading font-bold leading-[1.08] tracking-tight" style="font-size: clamp(2.5rem, 6vw, 4.25rem); color: var(--text-color)">BUSINESS_NAME</h1>
+    <p class="text-lg md:text-xl mt-5 max-w-2xl mx-auto font-body" style="color: var(--text-muted-color)">TAGLINE</p>
+    <div class="flex flex-wrap justify-center gap-4 mt-9">
+      <a href="#services" class="inline-flex items-center px-8 py-3.5 bg-primary text-white rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">VIEW_SERVICES_CTA</a>
+      <a href="WHATSAPP_LINK" class="inline-flex items-center px-8 py-3.5 border-2 border-primary/30 text-primary rounded-full font-body font-semibold tracking-wide hover:bg-primary/5 transition-all duration-300">WHATSAPP_CTA</a>
+    </div>
+  </div>
+</section>""",
+    ],
+    "salon": [
+        """HERO SECTION DESIGN (Full-bleed with offset editorial text):
+<section id="home" class="relative h-[85vh] min-h-[460px]" data-aos="fade-in">
+  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
+  <div class="absolute inset-0 bg-gradient-to-r from-black/65 via-black/30 to-transparent"></div>
+  <div class="relative z-10 flex items-center h-full px-6 md:px-20">
+    <div class="max-w-xl">
+      <p class="text-white/75 font-body text-sm uppercase tracking-[0.3em] mb-5">TAGLINE_KICKER</p>
+      <h1 class="font-heading text-white leading-[1.05] tracking-tight" style="font-size: clamp(2.5rem, 7vw, 5rem)">BUSINESS_NAME</h1>
+      <p class="text-lg text-white/85 mt-5 font-body">TAGLINE</p>
+      <a href="#services" class="inline-flex items-center mt-8 px-8 py-3.5 bg-white text-black rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">VIEW_SERVICES_CTA</a>
+    </div>
+  </div>
+</section>""",
+    ],
+    "clothing": [
+        """HERO SECTION DESIGN (Editorial center, oversized type over image band):
+<section id="home" class="relative pt-24 pb-0 px-0 overflow-hidden" style="background-color: var(--bg-color)">
+  <div class="max-w-5xl mx-auto text-center px-6" data-aos="fade-up">
+    <p class="font-body text-sm uppercase tracking-[0.35em] mb-4" style="color: var(--text-muted-color)">TAGLINE_KICKER</p>
+    <h1 class="font-heading leading-[0.95] tracking-tight" style="font-size: clamp(3rem, 10vw, 7rem); color: var(--text-color)">BUSINESS_NAME</h1>
+    <p class="text-lg md:text-xl mt-5 font-body max-w-xl mx-auto" style="color: var(--text-muted-color)">TAGLINE</p>
+    <a href="#products" class="inline-flex items-center mt-8 px-9 py-4 bg-primary text-white rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">SHOP_CTA</a>
+  </div>
+  <div class="mt-14 relative h-[45vh] min-h-[320px]" data-aos="fade-up" data-aos-delay="150">
+    <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
+  </div>
+</section>""",
+    ],
+    "general": [
+        """HERO SECTION DESIGN (Centered minimal with image band below):
+<section id="home" class="relative pt-24 md:pt-32 pb-0 overflow-hidden" style="background-color: var(--bg-color)">
+  <div class="max-w-4xl mx-auto text-center px-6" data-aos="fade-up">
+    <span class="inline-flex px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-body font-medium mb-6">TAGLINE_KICKER</span>
+    <h1 class="font-heading font-bold leading-[1.05] tracking-tight" style="font-size: clamp(2.5rem, 6.5vw, 4.5rem); color: var(--text-color)">BUSINESS_NAME</h1>
+    <p class="text-lg md:text-xl mt-5 font-body max-w-2xl mx-auto" style="color: var(--text-muted-color)">TAGLINE</p>
+    <a href="#products" class="inline-flex items-center mt-8 px-8 py-3.5 bg-primary text-white rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">VIEW_PRODUCTS_CTA</a>
+  </div>
+  <div class="mt-14 max-w-6xl mx-auto px-6" data-aos="fade-up" data-aos-delay="150">
+    <img src="HERO_IMAGE_URL" class="rounded-t-3xl shadow-2xl w-full max-h-[55vh] object-cover" alt="Hero">
+  </div>
+</section>""",
+    ],
+}
+
+
+# ============================================================================
+# DESIGN PERSONALITIES — a seeded "art direction voice" layered on top of the
+# structural blueprint, so pages differ in feel, not just in colours.
+# ============================================================================
+
+DESIGN_PERSONALITIES = {
+    "editorial": {
+        "name": "Editorial Magazine",
+        "prompt": """DESIGN PERSONALITY — EDITORIAL MAGAZINE:
+- Asymmetric layouts: offset headings, images that break the grid slightly, two-column text blocks
+- Numbered section kickers: small uppercase labels like "01 — TENTANG KAMI" above each section heading
+- Oversized display headings with tight leading; italic serif accents on one or two key words
+- Thin horizontal rules (border-t) as section dividers; generous whitespace
+- Captions under images in small muted text""",
+    },
+    "soft_organic": {
+        "name": "Soft Organic",
+        "prompt": """DESIGN PERSONALITY — SOFT ORGANIC:
+- Generous rounded corners everywhere (rounded-3xl); pill-shaped badges and buttons
+- Soft blurred colour blobs behind sections (bg-primary/5 blur-3xl) and one section with a subtle tinted background
+- Friendly, warm microcopy; icons inside soft tinted circles (bg-primary/10 rounded-full p-4)
+- Cards with soft diffused shadows (shadow-lg shadow-primary/5), never hard edges
+- Overlapping elements: an image slightly overlapping its section boundary""",
+    },
+    "refined_luxe": {
+        "name": "Refined Luxe",
+        "prompt": """DESIGN PERSONALITY — REFINED LUXE:
+- Hairline borders (border, 1px, low-opacity) instead of heavy shadows; muted, restrained colour usage
+- Letterspaced uppercase kickers: text-xs uppercase tracking-[0.3em] above headings
+- Large serif display headings; generous negative space (py-28+ sections)
+- Buttons: slim, wide padding, subtle hover (no bounce); images framed with thin borders
+- One metallic-feeling accent detail per section maximum — restraint is the luxury""",
+    },
+    "bold_contrast": {
+        "name": "Bold Contrast",
+        "prompt": """DESIGN PERSONALITY — BOLD CONTRAST:
+- Oversized headings (clamp up to 6rem) with heavy weight; short punchy copy
+- Strong colour blocking: at least one full-width band section in the primary colour with white text
+- Thick underline or highlight accents on key words (decoration-4 underline-offset-8 or a background highlight span)
+- Big stat numbers (text-5xl+); solid buttons with strong hover states
+- High-contrast section alternation: light section → tinted section → colour-block section""",
+    },
+    "modern_minimal": {
+        "name": "Modern Minimal",
+        "prompt": """DESIGN PERSONALITY — MODERN MINIMAL:
+- Strict grid alignment; consistent max-w container; no decorative shapes or blobs
+- Neutral surfaces with ONE accent colour used only on CTAs and small details
+- Small uppercase labels, restrained heading sizes, plenty of whitespace
+- Cards separated by borders (border border-gray-200) rather than shadows
+- Underlined text links instead of secondary buttons where appropriate""",
+    },
+    "warm_crafted": {
+        "name": "Warm Crafted",
+        "prompt": """DESIGN PERSONALITY — WARM CRAFTED:
+- Warm tinted backgrounds alternating with white sections; cream instead of stark white
+- Rounded-2xl cards with soft warm shadows (shadow-orange-900/5 style, matched to palette)
+- Hand-crafted feel: slightly imperfect layouts, an offset polaroid-style framed image with padding and shadow
+- Icons and small illustrative touches in tinted circles; dotted or wavy divider accents
+- Conversational, warm copy tone""",
+    },
+}
+
+# Which personalities suit each design type (seeded pick from this list).
+PERSONALITY_POOL = {
+    "food": ["editorial", "warm_crafted", "bold_contrast", "soft_organic"],
+    "cafe": ["editorial", "warm_crafted", "refined_luxe", "modern_minimal"],
+    "salon": ["refined_luxe", "editorial", "modern_minimal", "soft_organic"],
+    "clothing": ["editorial", "modern_minimal", "bold_contrast", "refined_luxe"],
+    "bakery": ["warm_crafted", "soft_organic", "editorial", "refined_luxe"],
+    "services": ["modern_minimal", "bold_contrast", "editorial", "refined_luxe"],
+    "gym": ["bold_contrast", "modern_minimal", "editorial"],
+    "clinic": ["modern_minimal", "soft_organic", "refined_luxe"],
+    "general": ["modern_minimal", "editorial", "soft_organic", "bold_contrast", "warm_crafted"],
+}
+
+# Style hints extracted from the user's description force a personality.
+_STYLE_HINT_TO_PERSONALITY = {
+    "elegant": "refined_luxe",
+    "minimal": "modern_minimal",
+    "playful": "soft_organic",
+    "bold": "bold_contrast",
+    "classic": "warm_crafted",
+}
+
+
 class DesignSystem:
     """Complete design system for premium website generation"""
 
-    def get_font_pairing(self, business_type: str) -> dict:
-        """Get font pairing for a business type"""
-        pairing = FONT_PAIRINGS.get(business_type, FONT_PAIRINGS["general"])
+    @staticmethod
+    def _font_options(business_type: str) -> list:
+        base = FONT_PAIRINGS.get(business_type, FONT_PAIRINGS["general"])
+        alts = ALT_FONT_PAIRINGS.get(business_type, ALT_FONT_PAIRINGS["general"])
+        return [base] + list(alts)
+
+    @staticmethod
+    def _palette_options(business_type: str) -> list:
+        base = COLOR_PALETTES.get(business_type, COLOR_PALETTES["general"])
+        alts = ALT_COLOR_PALETTES.get(business_type, ALT_COLOR_PALETTES["general"])
+        return [base] + list(alts)
+
+    @staticmethod
+    def _hero_options(business_type: str) -> list:
+        base = HERO_VARIANTS.get(business_type, HERO_VARIANTS["general"])
+        alts = ALT_HERO_VARIANTS.get(business_type, [])
+        return [base] + list(alts)
+
+    @staticmethod
+    def _build_font_cdn(pairing: dict) -> dict:
         heading_encoded = pairing["heading"].replace(" ", "+")
         body_encoded = pairing["body"].replace(" ", "+")
         cdn_link = (
@@ -605,20 +1539,178 @@ class DesignSystem:
             "cdn_link": cdn_link,
         }
 
-    def get_color_palette(self, business_type: str, color_mode: str = "light") -> dict:
-        """Get color palette for a business type and color mode"""
-        palettes = COLOR_PALETTES.get(business_type, COLOR_PALETTES["general"])
+    def get_font_pairing(self, business_type: str, business_name: str = "") -> dict:
+        """Get font pairing for a business type.
+
+        With a business_name, the pairing is a deterministic seeded pick from
+        this type's pool (variety across businesses, stability per business).
+        Without one, the classic pairing is returned (backward compatible).
+        """
+        options = self._font_options(business_type)
+        if business_name:
+            pairing = options[_variant_seed(business_name) % len(options)]
+        else:
+            pairing = options[0]
+        return self._build_font_cdn(pairing)
+
+    def get_color_palette(
+        self,
+        business_type: str,
+        color_mode: str = "light",
+        business_name: str = "",
+        color_override: str = None,
+    ) -> dict:
+        """Get color palette for a business type and color mode.
+
+        color_override (a NAMED_COLOR_PALETTES key from an explicit user
+        request) always wins. Otherwise, business_name gives a seeded pick
+        from the type's pool; no name = classic palette (backward compatible).
+        """
+        if color_override and color_override in NAMED_COLOR_PALETTES:
+            named = NAMED_COLOR_PALETTES[color_override]
+            return named.get(color_mode, named["light"])
+        options = self._palette_options(business_type)
+        if business_name:
+            # Offset by 1 so the palette pick doesn't always pair with the
+            # same font pick (seed % len would sync when pools match in size).
+            palettes = options[(_variant_seed(business_name) // 7) % len(options)]
+        else:
+            palettes = options[0]
         return palettes.get(color_mode, palettes["light"])
 
     def get_layout_template(self, business_type: str) -> str:
         """Get layout template for a business type"""
         return LAYOUT_TEMPLATES.get(business_type, LAYOUT_TEMPLATES["general"])
 
-    def get_hero_variant(self, business_type: str, has_images: bool = True) -> str:
-        """Get hero section variant for a business type"""
+    def get_hero_variant(self, business_type: str, has_images: bool = True, business_name: str = "") -> str:
+        """Get hero section variant for a business type.
+
+        With a business_name, a deterministic seeded pick from this type's
+        hero pool; without one, the classic hero (backward compatible).
+        """
         if not has_images:
             return HERO_VARIANTS_NO_IMAGES.get(business_type, HERO_VARIANTS_NO_IMAGES["default"])
-        return HERO_VARIANTS.get(business_type, HERO_VARIANTS["general"])
+        options = self._hero_options(business_type)
+        if business_name:
+            return options[(_variant_seed(business_name) // 3) % len(options)]
+        return options[0]
+
+    def get_personality(self, business_type: str, business_name: str = "", style_hint: str = None) -> dict:
+        """Pick a design personality for this site.
+
+        An explicit style hint from the user's description forces the matching
+        personality; otherwise a seeded pick from the type's pool.
+        """
+        if style_hint and style_hint in _STYLE_HINT_TO_PERSONALITY:
+            key = _STYLE_HINT_TO_PERSONALITY[style_hint]
+        else:
+            pool = PERSONALITY_POOL.get(business_type, PERSONALITY_POOL["general"])
+            key = pool[(_variant_seed(business_name) // 11) % len(pool)] if business_name else pool[0]
+        return {"key": key, **DESIGN_PERSONALITIES[key]}
+
+    def build(
+        self,
+        business_type: str,
+        color_mode: str = "light",
+        business_name: str = "",
+        description: str = "",
+        has_images: bool = True,
+        brand_colors: dict = None,
+    ) -> dict:
+        """One-call design bundle with internally CONSISTENT picks.
+
+        Extracts explicit user preferences from the description (colour theme,
+        style adjectives), applies them as overrides, and returns fonts,
+        palette, hero, layout, personality, and a matching Tailwind config.
+
+        brand_colors: optional dict of explicit hex overrides from the request
+        ({"primary": "#RRGGBB", "secondary": ..., "accent": ...}) — the
+        strongest override of all (the merchant's actual brand).
+        """
+        prefs = extract_design_preferences(description)
+
+        fonts = self.get_font_pairing(business_type, business_name=business_name)
+        palette = self.get_color_palette(
+            business_type,
+            color_mode,
+            business_name=business_name,
+            color_override=prefs["color"],
+        )
+
+        # Merchant brand colours (validated hex only) beat every other pick.
+        brand_applied = False
+        if brand_colors:
+            clean = {
+                k: str(v).strip().upper()
+                for k, v in brand_colors.items()
+                if k in ("primary", "secondary", "accent")
+                and isinstance(v, str)
+                and re.fullmatch(r"#[0-9A-Fa-f]{6}", str(v).strip())
+            }
+            if clean:
+                palette = {**palette, **clean}
+                brand_applied = True
+                logger.info(f"🎨 Merchant brand colours applied: {sorted(clean)}")
+        hero = self.get_hero_variant(business_type, has_images=has_images, business_name=business_name)
+        layout = self.get_layout_template(business_type)
+        personality = self.get_personality(
+            business_type, business_name=business_name, style_hint=prefs["style_hint"]
+        )
+
+        tailwind_config = f"""<script>
+tailwind.config = {{
+  theme: {{
+    extend: {{
+      colors: {{
+        'primary': '{palette["primary"]}',
+        'secondary': '{palette["secondary"]}',
+        'accent': '{palette["accent"]}',
+        'surface': '{palette["surface"]}',
+      }},
+      fontFamily: {{
+        'sans': ['{fonts["body"]}', '{fonts["body_fallback"]}'],
+        'heading': ['{fonts["heading"]}', '{fonts["heading_fallback"]}'],
+        'body': ['{fonts["body"]}', '{fonts["body_fallback"]}'],
+      }}
+    }}
+  }}
+}}
+</script>"""
+
+        user_request_lines = []
+        if brand_applied:
+            user_request_lines.append(
+                "- The merchant supplied their own BRAND COLOURS — the palette above already "
+                "contains them. Keep every colour decision consistent with the brand; this "
+                "OVERRIDES any conflicting colour guidance elsewhere in this prompt."
+            )
+        if prefs["color"] and not brand_applied:
+            user_request_lines.append(
+                f"- The user explicitly asked for a {prefs['color'].upper()} colour theme. "
+                f"The palette above already reflects it — keep EVERY colour decision consistent "
+                f"with this theme, and it OVERRIDES any conflicting colour guidance elsewhere "
+                f"in this prompt."
+            )
+        if prefs["style_hint"]:
+            user_request_lines.append(
+                f"- The user asked for a {prefs['style_hint'].upper()} look — the design "
+                f"personality below was chosen to honour that. Commit to it fully."
+            )
+        user_request_block = (
+            "USER DESIGN REQUEST (HIGHEST PRIORITY):\n" + "\n".join(user_request_lines)
+            if user_request_lines else ""
+        )
+
+        return {
+            "preferences": prefs,
+            "fonts": fonts,
+            "palette": palette,
+            "hero_variant": hero,
+            "layout": layout,
+            "personality": personality,
+            "tailwind_config": tailwind_config,
+            "user_request_block": user_request_block,
+        }
 
     def get_animation_config(self) -> str:
         """Get AOS animation CDN and init config"""
