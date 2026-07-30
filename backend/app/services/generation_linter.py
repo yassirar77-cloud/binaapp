@@ -222,11 +222,13 @@ class LintReport:
     fa_replacements: List[Tuple[str, str]] = field(default_factory=list)
     food_icon_replacements: List[Tuple[str, str]] = field(default_factory=list)
     tw_rewrites: List[Tuple[str, str]] = field(default_factory=list)
+    typo_fixes: List[Tuple[str, str]] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
         return bool(
-            self.fa_replacements or self.food_icon_replacements or self.tw_rewrites
+            self.fa_replacements or self.food_icon_replacements
+            or self.tw_rewrites or self.typo_fixes
         )
 
     def as_dict(self) -> Dict[str, List[Tuple[str, str]]]:
@@ -234,7 +236,28 @@ class LintReport:
             "fa_replacements": self.fa_replacements,
             "food_icon_replacements": self.food_icon_replacements,
             "tw_rewrites": self.tw_rewrites,
+            "typo_fixes": self.typo_fixes,
         }
+
+
+# Malay misspellings observed in shipped generator output. Deliberately tiny
+# and unambiguous: each entry is a non-word in Malay whose intended word is
+# unmistakable, so the correction can never change meaning. "majas rumah"
+# (for "majlis rumah", a house function) reached a live catering section.
+#
+# NOT a general spell-checker: adding a real Malay word here would let the
+# linter silently rewrite legitimate merchant copy.
+MALAY_TYPO_FIXES: Dict[str, str] = {
+    "majas": "majlis",
+    "majls": "majlis",
+    "majlish": "majlis",
+    "tempahn": "tempahan",
+    "pesanann": "pesanan",
+    "perkhidmatn": "perkhidmatan",
+    "makanam": "makanan",
+    "hidangn": "hidangan",
+    "penghantarn": "penghantaran",
+}
 
 
 def _pick_fallback(context: str) -> str:
@@ -488,6 +511,44 @@ def lint_tailwind_classes(html: str) -> Tuple[str, List[Tuple[str, str]]]:
     return html, rewrites
 
 
+def lint_malay_typos(html: str) -> Tuple[str, List[Tuple[str, str]]]:
+    """Correct known Malay misspellings in VISIBLE TEXT only.
+
+    Scoped hard: skips <script>/<style> bodies and never touches tag markup
+    (attribute values, class names, URLs), so a correction can't break an
+    onclick handler or rewrite a CDN path. Case of the first letter is
+    preserved so "Majas" -> "Majlis".
+    """
+    if not html:
+        return html, []
+
+    fixes: List[Tuple[str, str]] = []
+    pattern = re.compile(
+        r"\b(" + "|".join(re.escape(k) for k in MALAY_TYPO_FIXES) + r")\b",
+        re.IGNORECASE,
+    )
+
+    # Split into markup / text / raw-block runs and only rewrite text runs.
+    parts = re.split(r"(<script\b[^>]*>.*?</script>|<style\b[^>]*>.*?</style>|<[^>]+>)",
+                     html, flags=re.IGNORECASE | re.DOTALL)
+
+    def _repl(m: "re.Match") -> str:
+        word = m.group(1)
+        fixed = MALAY_TYPO_FIXES[word.lower()]
+        if word[:1].isupper():
+            fixed = fixed[:1].upper() + fixed[1:]
+        if word.isupper():
+            fixed = fixed.upper()
+        fixes.append((word, fixed))
+        return fixed
+
+    out = []
+    for i, part in enumerate(parts):
+        # Odd indices are the captured separators (markup / raw blocks).
+        out.append(part if i % 2 else pattern.sub(_repl, part))
+    return "".join(out), fixes
+
+
 def lint_html(
     html: str, context: str = "", business_type: str = ""
 ) -> Tuple[str, LintReport]:
@@ -513,4 +574,5 @@ def lint_html(
         html, business_type, context
     )
     html, report.tw_rewrites = lint_tailwind_classes(html)
+    html, report.typo_fixes = lint_malay_typos(html)
     return html, report

@@ -520,6 +520,62 @@ def _check_language_consistency(html: str, brief: GenerationBrief) -> List[Valid
     return issues
 
 
+#: Quantified trust claims the generator invents to fill fixed-slot layouts.
+#: Each pattern captures the number so it can be checked against the brief.
+_INVENTED_METRIC_PATTERNS = (
+    # No trailing lookahead here: an adjacent stat cell ("15+ Tahun 1000+
+    # Pelanggan") made a (?!\s*\d) guard reject the very case it must catch.
+    ("years_in_business",
+     re.compile(r"\b(\d{1,3})\s*\+\s*(?:tahun|years?)\b"
+                r"|\b(\d{1,3})\s+(?:tahun|years?)\s+(?:pengalaman|experience|beroperasi)\b",
+                re.IGNORECASE)),
+    ("customer_count",
+     re.compile(r"\b(\d[\d,\.]{1,9})\s*\+?\s*(?:pelanggan|customers?|clients?|"
+                r"pesanan|orders?|jualan)\b", re.IGNORECASE)),
+    ("rating",
+     re.compile(r"\b([0-5][.,]\d)\s*(?:★|\/\s*5|bintang|stars?|rating)\b", re.IGNORECASE)),
+    ("review_count",
+     re.compile(r"\b(\d[\d,\.]{1,9})\s*\+?\s*(?:ulasan|reviews?|testimoni)\b", re.IGNORECASE)),
+)
+
+
+def _check_invented_metrics(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """Quantified claims not present in the brief — WARNING.
+
+    The generator pads 3-up stat rows with numbers it made up ("15+ Tahun" on
+    a business that never stated a founding year). These are trust claims a
+    customer will read as fact.
+
+    WARNING rather than ERROR on purpose: a number can legitimately reach the
+    page through a supplied menu item or address, and the brief this runs
+    against at publish time is weak. It flags for review without blocking a
+    merchant whose data genuinely contains the figure.
+    """
+    issues: List[ValidationIssue] = []
+    text = visible_text(html)
+    source = " ".join(filter(None, [
+        brief.description or "",
+        brief.business_name or "",
+        brief.operating_hours or "",
+        brief.location_address or "",
+        " ".join(f"{i.get('name','')} {i.get('price','')}" for i in (brief.menu_items or [])),
+    ]))
+    source_numbers = set(re.findall(r"\d[\d,\.]*", source))
+
+    for code, pattern in _INVENTED_METRIC_PATTERNS:
+        for match in pattern.finditer(text):
+            # Patterns may have alternate capture groups; take whichever fired.
+            number = next((g for g in match.groups() if g), "")
+            if not number or number in source_numbers:
+                continue
+            issues.append(ValidationIssue(
+                "invented_metric",
+                f"Quantified claim ({code.replace('_', ' ')}) not present in the brief",
+                match.group(0).strip(),
+            ))
+    return issues
+
+
 def _check_sanitizer_trace(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
     """8. Sanitizer trace — ERROR on bare deletion.
 
@@ -554,6 +610,7 @@ _WARNING_CHECKS = (
     _check_empty_containers,
     _check_metadata,
     _check_language_consistency,
+    _check_invented_metrics,
 )
 
 
