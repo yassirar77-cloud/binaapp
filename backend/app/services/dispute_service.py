@@ -41,7 +41,7 @@ class DisputeAIService:
 
     def __init__(self):
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY", "")
-        self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
         self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY", "")
 
     async def analyze_dispute(

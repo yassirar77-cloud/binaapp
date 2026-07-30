@@ -211,7 +211,7 @@ async function callDeepSeek(prompt: string): Promise<string | null> {
     const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${DEEPSEEK_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'deepseek-chat', messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 8000 }),
+      body: JSON.stringify({ model: process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash', messages: [{ role: 'user', content: prompt }], temperature: 0.7, max_tokens: 8000 }),
     });
     if (res.ok) {
       console.log('🔷 ✅ DeepSeek success');

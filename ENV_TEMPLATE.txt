@@ -87,7 +87,7 @@ USE_GLM_FOR_HTML=false  # flip to true to route HTML through GLM first; flip off
 # Get from: https://platform.deepseek.com → API Keys
 DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 DEEPSEEK_API_URL=https://api.deepseek.com  # Do not add /v1
-DEEPSEEK_MODEL=deepseek-chat  # or: deepseek-coder
+DEEPSEEK_MODEL=deepseek-v4-flash  # Expert tier: DEEPSEEK_MODEL_PRO=deepseek-v4-pro
 
 # Qwen AI (Fallback Model - Optional)
 # Get from: https://dashscope.console.aliyun.com

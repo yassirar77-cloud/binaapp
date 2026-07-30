@@ -81,6 +81,26 @@ class UserResponse(UserBase):
 
 
 # Website Generation Schemas
+class MenuItemInput(BaseModel):
+    """One merchant-supplied menu/product item — the source of truth.
+
+    Prices are strings on purpose: they must reach the page EXACTLY as the
+    merchant typed them ("RM7.00", "RM18/pax", "RM5 - RM8"). Parsing them
+    into a float would silently reformat or round a business-critical field,
+    and Malaysian F&B pricing is full of per-pax and range forms a numeric
+    type cannot represent.
+    """
+    name: str = Field(..., min_length=1, max_length=120)
+    price: Optional[str] = Field(default=None, max_length=40)
+    description: Optional[str] = Field(default=None, max_length=400)
+    category: Optional[str] = Field(default=None, max_length=60)
+
+    @field_validator("name", "price", "description", "category")
+    @classmethod
+    def strip_whitespace(cls, v):
+        return v.strip() if isinstance(v, str) else v
+
+
 class WebsiteGenerationRequest(BaseModel):
     description: str = Field(
         ...,
@@ -110,6 +130,16 @@ class WebsiteGenerationRequest(BaseModel):
     theme: Optional[str] = Field(default=None, description="Detected theme name (e.g., 'Purrfect Paws Theme')")
     color_mode: Optional[str] = Field(default="light", description="Color mode: 'light' or 'dark'")
     template_id: Optional[str] = Field(default=None, description="Design template ID from template gallery (e.g., 'elegance_dark', 'fresh_clean')")
+    menu_items: Optional[List[MenuItemInput]] = Field(
+        default=[],
+        description=(
+            "Structured menu/product items supplied by the merchant. When "
+            "present these are the SOURCE OF TRUTH: names and prices are "
+            "rendered verbatim and the generator may not rename, merge, "
+            "round, or invent items. When absent the site renders a visible "
+            "'add your items' placeholder instead of fabricated items."
+        ),
+    )
 
     @field_validator("subdomain")
     @classmethod

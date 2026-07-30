@@ -78,7 +78,7 @@ class AIChatbotService:
             "user_id": user_id,
             "status": "active",
             "messages_count": 0,
-            "ai_model_used": "deepseek-chat",
+            "ai_model_used": settings.DEEPSEEK_MODEL,
         }
         if website_id:
             chat_data["website_id"] = website_id

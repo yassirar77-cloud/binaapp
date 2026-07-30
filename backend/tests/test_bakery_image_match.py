@@ -111,7 +111,7 @@ class TestBakeryHeroPrompt:
 class TestCakeMenuFallback:
     def test_cake_shop_fallback_is_cakes_not_kuih(self, service):
         names = service._fallback_item_names(CAKE_DESC, 4)
-        assert len(names) == 4
+        assert names, "a description naming real cakes must still yield items"
         # The product cards lead with cake, never an all-kuih menu.
         assert names[0].lower().startswith("kek")
         joined = " ".join(names).lower()
@@ -119,9 +119,15 @@ class TestCakeMenuFallback:
         # Must NOT be the old Kuih / Set Kuih / Kuih Combo / Kuih Istimewa menu.
         assert names != ["Kuih", "Set Kuih", "Kuih Combo", "Kuih Istimewa"]
 
-    def test_pure_cake_shop_pads_with_cake_variants(self, service):
-        names = service._fallback_item_names("kedai cake", 4)
-        assert names == ["Cake", "Set Cake", "Cake Combo", "Cake Istimewa"]
+    def test_pure_cake_shop_returns_the_product_only(self, service):
+        """Replaces test_pure_cake_shop_pads_with_cake_variants.
+
+        "Cake" is grounded — the shop says so. "Set Cake"/"Cake Combo"/
+        "Cake Istimewa" are invented products (the P0 fabrication vector), so
+        the fallback now returns the one real name and lets the caller render
+        fewer cards.
+        """
+        assert service._fallback_item_names("kedai cake", 4) == ["Cake"]
 
     def test_extract_ranks_cake_ahead_of_kuih(self, service):
         found = service._extract_menu_items(CAKE_DESC)

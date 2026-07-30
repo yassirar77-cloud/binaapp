@@ -738,8 +738,8 @@ class AIService:
         self.qwen_base_url = os.getenv("QWEN_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-        self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-        self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-reasoner")
+        self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
+        self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-v4-pro")
         # GLM / Z.ai — primary HTML generator when USE_GLM_FOR_HTML is on.
         # The existing Render env var is named ZAI_BASE_URL; ZAI_API_URL is
         # also accepted (and wins if both are set).
@@ -2266,25 +2266,41 @@ Format: Just the image description, no explanations."""
             f"Professional close-up photo of {item}, Malaysian style, food photography, high quality, realistic, appetizing"
         )
 
+    # Known dish vocabulary — the single source for both keyword extraction
+    # and the business-name overlap guard in _extract_product_phrase.
+    # Compound/specific street foods FIRST so a single-product stall's
+    # actual product ranks ahead of any generic dish also mentioned.
+    # Cake/bakery terms lead the list (and sit ahead of the generic
+    # "kuih") so a cake shop that also mentions kuih extracts CAKE as its
+    # product — the fallback used to pick "kuih" and emit a kuih menu for
+    # a "kedai cake".
+    _COMMON_DISH_ITEMS = ["kek harijadi", "kek hari jadi", "kek perkahwinan",
+                          "kek kahwin", "kek coklat", "kek cheese", "cheesecake",
+                          "cupcake", "brownies", "kek batik", "kek lapis",
+                          "kek", "cake", "goreng pisang", "pisang goreng",
+                          "keropok lekor",
+                          "apam balik", "char kuey teow", "nasi kandar",
+                          "nasi lemak", "nasi goreng", "nasi ayam", "mee goreng",
+                          "mee kari", "ayam goreng", "roti canai", "murtabak",
+                          "teh tarik", "ikan bakar", "pelbagai lauk", "satay",
+                          "sate", "burger", "laksa", "cendol", "rojak", "kuih",
+                          "popia", "donut", "waffle", "pau"]
+    # Individual tokens of the above — a phrase made only of these is a real
+    # dish even when it also appears in the business name ("Nasi Lemak Ali").
+    _KNOWN_DISH_TOKENS = frozenset(
+        tok for item in _COMMON_DISH_ITEMS for tok in item.split()
+    )
+    # Shop-type / legal-entity nouns that appear in business names but carry
+    # no product identity — ignored when checking business-name overlap.
+    _BUSINESS_NAME_TYPE_WORDS = frozenset({
+        "warung", "kedai", "restoran", "restaurant", "cafe", "kafe", "gerai",
+        "stall", "bakery", "bakeri", "catering", "katering", "enterprise",
+        "trading", "resources", "sdn", "bhd", "the", "shop", "store", "house",
+    })
+
     def _extract_menu_items(self, description: str) -> list:
         """Extract menu items from description"""
-        # Compound/specific street foods FIRST so a single-product stall's
-        # actual product ranks ahead of any generic dish also mentioned.
-        # Cake/bakery terms lead the list (and sit ahead of the generic
-        # "kuih") so a cake shop that also mentions kuih extracts CAKE as its
-        # product — the fallback used to pick "kuih" and emit a kuih menu for
-        # a "kedai cake".
-        common_items = ["kek harijadi", "kek hari jadi", "kek perkahwinan",
-                        "kek kahwin", "kek coklat", "kek cheese", "cheesecake",
-                        "cupcake", "brownies", "kek batik", "kek lapis",
-                        "kek", "cake", "goreng pisang", "pisang goreng",
-                        "keropok lekor",
-                        "apam balik", "char kuey teow", "nasi kandar",
-                        "nasi lemak", "nasi goreng", "nasi ayam", "mee goreng",
-                        "mee kari", "ayam goreng", "roti canai", "murtabak",
-                        "teh tarik", "ikan bakar", "pelbagai lauk", "satay",
-                        "sate", "burger", "laksa", "cendol", "rojak", "kuih",
-                        "popia", "donut", "waffle", "pau"]
+        common_items = self._COMMON_DISH_ITEMS
         found = []
         desc_lower = description.lower()
         for item in common_items:
@@ -2634,13 +2650,20 @@ Generate prompts now:"""
     # names stay plausible.
     _FALLBACK_TOPPING_VARIANTS = ["Coklat", "Keju", "Ais Krim", "Kacang", "Madu"]
 
-    def _extract_product_phrase(self, description: str) -> str:
+    def _extract_product_phrase(self, description: str, business_name: str = "") -> str:
         """Best-effort 'what this shop sells' phrase — deterministic, no AI.
 
         Looks for 'jual/menjual/selling X' first, then 'kedai/gerai/stall X'.
         The captured phrase is cut at the first stopword/connector and capped
         at 3 words so marketing tails ("dengan macam-macam topping") never
         leak into the product name. Returns '' when unsure.
+
+        BUSINESS-NAME GUARD: the shop-type regex ('warung X', 'kedai X') sits
+        one word away from the business name in the single most common Malay
+        phrasing — "Warung Kak Ropiah" captured "kak ropiah a0" and shipped a
+        live site whose entire menu was that string plus Set/Combo/Istimewa.
+        Any capture overlapping the business name is therefore rejected: an
+        empty phrase (→ honest placeholder) always beats a confident wrong one.
         """
         desc = re.sub(r"\s+", " ", (description or "").lower())
         m = re.search(r"\b(?:menjual|jual|selling|sells?|serving)\s+([a-z][a-z0-9\- ]{2,60})", desc)
@@ -2651,50 +2674,83 @@ Generate prompts now:"""
         words = []
         for w in m.group(1).split():
             w = w.strip(".,;:!?()[]\"'")
-            if not w or w in self._PRODUCT_PHRASE_STOPWORDS:
+            # A bare token like "a0"/"b12" is a section label from the source
+            # brief, never a product name.
+            if not w or w in self._PRODUCT_PHRASE_STOPWORDS or re.fullmatch(r"[a-z]\d+", w):
                 break
             words.append(w)
             if len(words) >= 3:
                 break
-        return " ".join(words)
+        phrase = " ".join(words)
+        if not phrase:
+            return ""
 
-    def _fallback_item_names(self, description: str, n: int) -> list:
+        biz_tokens = {
+            t for t in re.findall(r"[a-z0-9]+", (business_name or "").lower())
+            if t not in self._BUSINESS_NAME_TYPE_WORDS
+        }
+        if biz_tokens:
+            phrase_tokens = set(re.findall(r"[a-z0-9]+", phrase))
+            overlap = phrase_tokens & biz_tokens
+            # A shop genuinely named after its dish ("Nasi Lemak Ali") is a
+            # legitimate overlap — allowed only when every overlapping token
+            # is real dish vocabulary. "kak"/"ropiah" are not.
+            if overlap and not overlap <= self._KNOWN_DISH_TOKENS:
+                logger.info(
+                    f"🚫 Rejected product phrase '{phrase}' — overlaps the "
+                    f"business name '{business_name}' (would fabricate items)"
+                )
+                return ""
+        return phrase
+
+    def _fallback_item_names(self, description: str, n: int, business_name: str = "") -> list:
         """Deterministic item-name fallback for when AI extraction fails.
 
-        Never raises; always returns exactly n non-empty, de-duplicated names.
-        Preference order:
+        Returns AT MOST n names and MAY RETURN AN EMPTY LIST. Callers must
+        handle fewer names by rendering fewer cards (and, with none, an honest
+        "menu coming soon" placeholder).
+
+        Only two sources are permitted, both grounded in the merchant's own
+        words:
           1. Real dishes named in the description.
-          2. Variants of the shop's OWN product — a goreng pisang stall pads
-             with "Goreng Pisang Coklat", never a Nasi Lemak menu. Topping
-             variants are used only when the description signals them
-             ("topping"/"perisa"/"pilihan"...); otherwise neutral set/combo
-             qualifiers.
-          3. Generic Malaysian dishes — ONLY when the description gives no
-             clue what the shop sells (a DeepSeek outage must never blank
-             the gallery).
+          2. Topping/flavour variants of the shop's OWN product, and only when
+             the description explicitly signals variants ("macam-macam
+             topping", "pelbagai perisa") — the merchant said those exist.
+
+        Deliberately REMOVED (each shipped fabricated items to live sites):
+          - "Set X / X Combo / X Istimewa" permutation of the product phrase.
+            Combined with a product phrase captured from the business name it
+            produced the "Kak Ropiah A0 / Set Kak Ropiah A0 / ... Combo /
+            ... Istimewa" menu on a real merchant's published site.
+          - The generic Malaysian dish list (Nasi Lemak, Roti Canai, ...) used
+            when nothing was known. Blanking the gallery is the correct
+            outcome there; inventing a menu for a business we know nothing
+            about is not.
+          - "Menu 1 / Menu 2" padding to force a fixed count.
         """
         found = [d for d in self._extract_menu_items(description)
                  if d and d != "hero image"]
 
         # The shop's own product: the first dish found in the description, or
-        # the "jual X" phrase when no known dish matched.
-        product = found[0] if found else self._extract_product_phrase(description)
+        # the "jual X" phrase when no known dish matched. The phrase extractor
+        # rejects anything overlapping the business name.
+        product = found[0] if found else self._extract_product_phrase(
+            description, business_name=business_name
+        )
         on_product = []
         if product:
             base = str(product).strip().title()
-            if base:
-                desc_lower = (description or "").lower()
-                if re.search(r"\b(topping|toping|perisa|flavou?rs?|pilihan|variasi|rasa)\b", desc_lower):
-                    on_product = [base] + [f"{base} {v}" for v in self._FALLBACK_TOPPING_VARIANTS]
-                else:
-                    on_product = [base, f"Set {base}", f"{base} Combo", f"{base} Istimewa"]
+            desc_lower = (description or "").lower()
+            if base and re.search(
+                r"\b(topping|toping|perisa|flavou?rs?|pilihan|variasi|rasa)\b", desc_lower
+            ):
+                on_product = [base] + [f"{base} {v}" for v in self._FALLBACK_TOPPING_VARIANTS]
+            elif base:
+                # The product itself is real; its "Set/Combo" variants are not.
+                on_product = [base]
 
-        generic = ["Nasi Lemak", "Ayam Goreng", "Mee Goreng", "Roti Canai",
-                   "Teh Tarik", "Nasi Goreng"]
-        # Never mix unrelated generics into a shop whose product we know.
-        sources = (found, on_product) if on_product else (found, generic)
         names = []
-        for src_list in sources:
+        for src_list in (found, on_product):
             for name in src_list:
                 title = str(name).strip().title()
                 if title and title not in names:
@@ -2703,10 +2759,11 @@ Generate prompts now:"""
                     break
             if len(names) >= n:
                 break
-        i = 1
-        while len(names) < n:
-            names.append(f"Menu {i}")
-            i += 1
+        if not names:
+            logger.info(
+                "🍽️ No grounded item names available — returning none "
+                "(placeholder menu section will render instead of invented items)"
+            )
         return names[:n]
 
     # Possessive / promo filler tokens that leak into extracted item names but
@@ -2806,9 +2863,13 @@ Generate prompts now:"""
     def _finalize_item_names(
         self, unique: list, fallback_names: list, business_name: str, n: int
     ) -> list:
-        """Cap the unique real items at n, then top up to the floor (3) with
-        DISTINCT generics only. Floor, not ceiling: if unique already has >=
-        floor items we keep them all (up to n) and add nothing."""
+        """Cap the unique real items at n, then top up to the floor (3) from
+        fallback_names, DISTINCT only. Floor, not ceiling: if unique already
+        has >= floor items we keep them all (up to n) and add nothing.
+
+        fallback_names is itself grounded (see _fallback_item_names) and may
+        be empty, so this can legitimately return fewer than the floor — or
+        nothing at all. Never pads with invented names."""
         floor = min(self._MIN_GALLERY_ITEMS, n)
         out = list(unique[:n])
         keys = [self._clean_item_name(x, business_name)[1] for x in out]
@@ -2824,16 +2885,20 @@ Generate prompts now:"""
         return out
 
     async def extract_menu_item_names(self, description: str, n: int = 4, business_name: str = "") -> list:
-        """Extract EXACTLY n concise menu/dish names from the description.
+        """Extract UP TO n concise menu/dish names from the description.
 
         One DeepSeek call. Degrades gracefully on missing key, API failure
         (e.g. 402 Insufficient Balance), timeout, parse error, or bad count ->
         falls back to _fallback_item_names() and never raises.
+
+        May return FEWER than n names, or none at all, when nothing grounded
+        in the merchant's own words is available. Callers render fewer cards
+        (and a placeholder section when empty) rather than invented items.
         """
         api_key = os.getenv("DEEPSEEK_API_KEY")
         if not api_key:
             logger.warning("🍽️ No DEEPSEEK_API_KEY - using fallback item names")
-            return self._fallback_item_names(description, n)
+            return self._fallback_item_names(description, n, business_name)
 
         biz_line = f"\nBUSINESS NAME (never include this, or any part of it, in an item name): {business_name}\n" if business_name else ""
         prompt = f"""From the business description below, list EXACTLY {n} menu/dish item names.
@@ -2878,13 +2943,13 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
                 )
             if response.status_code != 200:
                 logger.error(f"🍽️ Item-name extraction failed: {response.status_code} - using fallback")
-                return self._fallback_item_names(description, n)
+                return self._fallback_item_names(description, n, business_name)
 
             content = response.json()["choices"][0]["message"]["content"]
             match = re.search(r'\[[\s\S]*\]', content)
             if not match:
                 logger.error("🍽️ Item-name extraction returned no JSON array - using fallback")
-                return self._fallback_item_names(description, n)
+                return self._fallback_item_names(description, n, business_name)
 
             raw = json.loads(match.group())
             banned = ["suasana", "interior", "ambience", "ambiance",
@@ -2904,12 +2969,12 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             # same image.
             unique = self._dedupe_item_names(names, business_name)
             result = self._finalize_item_names(
-                unique, self._fallback_item_names(description, n), business_name, n
+                unique, self._fallback_item_names(description, n, business_name), business_name, n
             )
-            return result if result else self._fallback_item_names(description, n)
+            return result if result else self._fallback_item_names(description, n, business_name)
         except Exception as e:
             logger.error(f"🍽️ Item-name extraction error: {e} - using fallback")
-            return self._fallback_item_names(description, n)
+            return self._fallback_item_names(description, n, business_name)
 
     def _fallback_category_names(self, description: str, n: int) -> list:
         """Deterministic product-category fallback for the NON-food path.
@@ -3511,6 +3576,72 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             return "photography"
         return "default"
 
+    # Known dummy/example numbers that must never reach a published page.
+    # "60123456789" was the pipeline's own default and shipped on live sites;
+    # the rest are the usual example forms merchants paste in.
+    _PLACEHOLDER_PHONE_DIGITS = frozenset({
+        "60123456789", "0123456789", "123456789", "601234567890",
+        "60111111111", "60000000000", "1234567890", "60123456780",
+    })
+
+    @classmethod
+    def _normalize_wa_digits(cls, raw: Optional[str]) -> str:
+        """Malaysian WhatsApp number → digits-only, or '' when unusable.
+
+        Returns '' for missing, too-short, repeated-digit, and known
+        placeholder input. Callers MUST treat '' as "this site has no
+        WhatsApp" and omit the CTAs — never substitute an example number.
+        """
+        digits = re.sub(r"\D", "", str(raw or ""))
+        if digits.startswith("0"):
+            digits = "6" + digits
+        elif digits.startswith("1"):
+            digits = "60" + digits
+        if len(digits) < 10 or len(digits) > 15:
+            return ""
+        if digits in cls._PLACEHOLDER_PHONE_DIGITS:
+            return ""
+        # All-same or strictly sequential bodies are dummies (60111111111).
+        body = digits[2:] if digits.startswith("60") else digits
+        if len(set(body)) <= 1:
+            return ""
+        return digits
+
+    @staticmethod
+    def _normalize_supplied_menu_items(menu_items: Optional[list]) -> List[dict]:
+        """Normalise merchant-supplied items to plain dicts.
+
+        Accepts MenuItemInput models or raw dicts (the API layer and internal
+        callers both exist). Drops entries without a usable name; never
+        raises — a malformed item must not take a generation down, it just
+        doesn't become a card.
+        """
+        out: List[dict] = []
+        for raw in (menu_items or []):
+            try:
+                if hasattr(raw, "model_dump"):
+                    d = raw.model_dump()
+                elif hasattr(raw, "dict"):
+                    d = raw.dict()
+                elif isinstance(raw, dict):
+                    d = raw
+                elif isinstance(raw, str):
+                    d = {"name": raw}
+                else:
+                    continue
+                name = str(d.get("name") or "").strip()
+                if not name:
+                    continue
+                out.append({
+                    "name": name,
+                    "price": str(d.get("price") or "").strip(),
+                    "description": str(d.get("description") or "").strip(),
+                    "category": str(d.get("category") or "").strip(),
+                })
+            except Exception:
+                continue
+        return out
+
     def _build_strict_prompt(
         self,
         name: str,
@@ -3529,8 +3660,15 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         include_contact_form: bool = True,
         include_chat: bool = True,
         brand_colors: Optional[dict] = None,
+        menu_items: Optional[list] = None,
     ) -> str:
-        """Build STRICT prompt with premium design system"""
+        """Build STRICT prompt with premium design system
+
+        menu_items: merchant-supplied MenuItemInput objects (or dicts). When
+        present they are the source of truth — every item is rendered
+        verbatim, names and prices unmodified. When absent, the prompt asks
+        for a visible placeholder section instead of invented items.
+        """
         biz_type = self._detect_type(desc)
         imgs = self.IMAGES.get(biz_type, self.IMAGES["default"])
 
@@ -3675,14 +3813,18 @@ Generate ALL content in English.
 Keep all text consistent in English throughout."""
 
         # ---- WHATSAPP ----
-        wa_raw = whatsapp_number or "60123456789"
-        wa_digits = re.sub(r"\D", "", str(wa_raw))
-        if wa_digits.startswith("0"):
-            wa_digits = "6" + wa_digits
-        elif wa_digits.startswith("1"):
-            wa_digits = "60" + wa_digits
-        if not wa_digits:
-            wa_digits = "60123456789"
+        # No placeholder fallback. The pipeline used to default to
+        # "60123456789" whenever a number was missing, which published live
+        # sites whose every CTA pointed at a fake number — a dead business.
+        # With no real number we emit NO WhatsApp links at all and tell the
+        # model to route contact through the form/contact section instead.
+        wa_digits = self._normalize_wa_digits(whatsapp_number)
+        if whatsapp_number and not wa_digits:
+            logger.warning(
+                f"📵 Ignoring unusable WhatsApp number '{whatsapp_number}' "
+                f"— generating without WhatsApp CTAs"
+            )
+        has_whatsapp_number = bool(wa_digits)
 
         # ---- WHATSAPP LINK RULES ----
         # Digits-only (no leading '+'): the '+' form fails to open on some
@@ -3694,7 +3836,14 @@ Keep all text consistent in English throughout."""
             _wa_prefill = "Assalamualaikum, saya nak pesan"
         else:
             _wa_prefill = "Hi, I would like to order"
-        if include_ecommerce:
+        if not has_whatsapp_number:
+            wa_rules = """WHATSAPP LINKS — NONE AVAILABLE (NON-NEGOTIABLE):
+- The merchant did NOT supply a WhatsApp number.
+- DO NOT output any wa.me link, any tel: link, or any phone number anywhere on the page.
+- NEVER invent, guess, or copy an example/placeholder number from anywhere, including this prompt.
+- Route every "order"/"contact" CTA to the on-page contact section (#hubungi / #contact) instead.
+- Omit phone rows from the contact block entirely rather than showing a placeholder."""
+        elif include_ecommerce:
             wa_rules = f"""WHATSAPP LINKS:
 - Use ONLY the digits-only form: https://wa.me/{wa_digits} (NO leading '+', no spaces or dashes).
 - WhatsApp contact belongs ONLY in the footer/contact area. Do NOT add order buttons on menu/product cards."""
@@ -3705,6 +3854,18 @@ Keep all text consistent in English throughout."""
   https://wa.me/{wa_digits}?text=<URL-ENCODED "{_wa_prefill} DISH_NAME">
   Example for "Tomyam Campur": https://wa.me/{wa_digits}?text={_wa_prefill.replace(' ', '%20')}%20Tomyam%20Campur
 - URL-encode the text (spaces as %20). Do NOT point dish CTAs at a bare #hubungi anchor."""
+
+        # Content-rules line for WhatsApp. With no usable number this must not
+        # emit a bare "https://wa.me/" — an empty link is still a broken CTA.
+        if not has_whatsapp_number:
+            _wa_content_line = (
+                "🚫 NO phone/WhatsApp number was provided — do NOT render any "
+                "phone number, tel: link or wa.me link anywhere"
+            )
+        elif include_ecommerce:
+            _wa_content_line = f"✅ WhatsApp contact ONLY in footer: https://wa.me/{wa_digits}"
+        else:
+            _wa_content_line = f"✅ WhatsApp button: https://wa.me/{wa_digits}"
 
         # ---- ADDRESS ----
         address_line = ""
@@ -3874,6 +4035,71 @@ LIGHT MODE STYLING:
                 f"or fa-signal or fa-sim-card, delivery → fa-truck, quality → fa-award)."
             )
 
+        # ---- MERCHANT MENU DATA (SOURCE OF TRUTH) ----
+        # Deliberately independent of the image slots. The old pipeline only
+        # ever told the model about items that happened to have a generated
+        # image (max 4), so a merchant with 25 priced items got 4 cards and
+        # zero prices — and when name extraction failed, the slot names were
+        # fabricated and then mandated with "COPY EXACTLY". Supplied items now
+        # bypass that path entirely: every item reaches the prompt verbatim.
+        menu_data_block = ""
+        _supplied_items = self._normalize_supplied_menu_items(menu_items)
+        _has_slot_names = any(
+            (images or {}).get(f"gallery{i}_name") for i in range(1, 5)
+        )
+        _noun = "menu" if detected_biz_type in ("food", "bakery") else "product"
+        if _supplied_items:
+            _lines = []
+            for idx, it in enumerate(_supplied_items, 1):
+                line = f'{idx}. NAME: "{it["name"]}"'
+                if it.get("price"):
+                    line += f' | PRICE: "{it["price"]}"'
+                else:
+                    line += " | PRICE: (none supplied — omit the price element for this item)"
+                if it.get("category"):
+                    line += f' | CATEGORY: "{it["category"]}"'
+                if it.get("description"):
+                    line += f' | DESCRIPTION (use verbatim): "{it["description"]}"'
+                _lines.append(line)
+            menu_data_block = f"""===== MERCHANT {_noun.upper()} DATA — SOURCE OF TRUTH (NON-NEGOTIABLE) =====
+The merchant supplied these {len(_supplied_items)} item(s). This data OVERRIDES
+anything you might infer from the business name, description, or image filenames.
+
+{chr(10).join(_lines)}
+
+ABSOLUTE RULES FOR THIS DATA:
+- Render EVERY item listed above. Do not drop, merge, or summarise any of them.
+- Copy each NAME character-for-character. Do NOT rename, translate, reorder words,
+  add the business name, or append qualifiers like "Set", "Combo", "Istimewa", "Special".
+- Copy each PRICE character-for-character, exactly as written (RM7.00 stays "RM7.00",
+  RM18/pax stays "RM18/pax"). Never round, reformat, convert, or invent a price.
+- Do NOT add any item that is not in this list.
+- Where an item has no supplied description you may write ONE short appetising line,
+  but it must not assert facts absent from the data (no cooking times, no ingredient
+  lists, no provenance, no awards, no spice levels).
+- If CATEGORY values are present, group the items under those categories."""
+        elif not _has_slot_names and detected_biz_type in ("food", "bakery", "clothing", "general"):
+            # Nothing real to show. Ask for an honest placeholder — never let
+            # the model fill the gap from the business name (this is exactly
+            # how "Kak Ropiah A0 / Set Kak Ropiah A0 / ... Combo / ... Istimewa"
+            # reached a live site).
+            _ph_heading = "Menu Akan Datang" if language == "ms" else "Menu Coming Soon"
+            _ph_body = (
+                "Menu penuh akan dikemas kini tidak lama lagi. Hubungi kami untuk pertanyaan."
+                if language == "ms" else
+                "Our full menu is being updated. Contact us for enquiries."
+            )
+            menu_data_block = f"""===== NO {_noun.upper()} DATA SUPPLIED — RENDER A PLACEHOLDER =====
+The merchant did NOT provide {_noun} items, and none could be read from the description.
+
+- Render the {_noun} section as a clearly-styled PLACEHOLDER: heading "{_ph_heading}",
+  one short line of copy ("{_ph_body}"), and the contact/WhatsApp CTA.
+- DO NOT invent {_noun} items. DO NOT create item cards.
+- NEVER derive an item name from the business name, the tagline, a section label,
+  or a heading (e.g. a business called "Warung Kak Ropiah" must NEVER produce items
+  named "Kak Ropiah", "Set Kak Ropiah", "Kak Ropiah Combo" or "Kak Ropiah Istimewa").
+- DO NOT invent prices. An empty, honest section is REQUIRED over a fabricated one."""
+
         # ---- USER OVERRIDE CONDITIONALS ----
         # An explicit user colour request lifts the matching generic ban
         # (e.g. asking for purple beats the anti-purple-SaaS rule).
@@ -3989,6 +4215,8 @@ FOOTER:
 
 {_hero_blueprint}
 
+{menu_data_block}
+
 ===== {layout} =====
 
 LAYOUT FLEXIBILITY (design freedom within the checklist):
@@ -4013,7 +4241,7 @@ MUST WRITE REAL CONTENT:
 ✅ Real about section (2-3 sentences)
 ✅ Real service names and descriptions (3-4 services)
 ✅ Real contact message
-{"✅ WhatsApp contact ONLY in footer: https://wa.me/" + wa_digits if include_ecommerce else "✅ WhatsApp button: https://wa.me/" + wa_digits}
+{_wa_content_line}
 {address_line}
 🚫 DO NOT invent phone numbers, addresses, cities, awards
 
@@ -5938,15 +6166,9 @@ IMPORTANT RULES:
         await update_progress(40, "AI generating text content")
         language = request.language.value if hasattr(request, 'language') and request.language else "ms"
 
-        # Extract phone number
-        wa_raw = request.whatsapp_number or "60123456789"
-        wa_digits = re.sub(r"\D", "", str(wa_raw))
-        if wa_digits.startswith("0"):
-            wa_digits = "6" + wa_digits
-        elif wa_digits.startswith("1"):
-            wa_digits = "60" + wa_digits
-        if not wa_digits:
-            wa_digits = "60123456789"
+        # Extract phone number. Empty when unusable — the template must then
+        # omit WhatsApp rather than render the old "60123456789" placeholder.
+        wa_digits = self._normalize_wa_digits(request.whatsapp_number)
 
         # Build menu items from uploaded images if available
         menu_items_input = []
@@ -6360,9 +6582,12 @@ IMPORTANT RULES:
         Mutates image_urls in place: the hero slot and any empty gallery1..4
         slots get AI-generated images via _generate_image (so IMAGE_PROVIDER
         selection + Stability fallback apply), one image per REAL menu/product
-        item extracted from the merchant's own description — items are never
-        invented (the extractors fall back to safe generic category labels,
-        not fabricated products). Generation is hard-capped by
+        item. Item names come from request.menu_items when the merchant
+        supplied them (source of truth), otherwise from extraction against
+        the merchant's own description. Extraction that yields nothing leaves
+        slot_names EMPTY — the gallery renders fewer cards and the prompt asks
+        for a placeholder section, rather than naming cards after the
+        business. Generation is hard-capped by
         _resolve_autofill_image_cap. A failed generation falls back to the
         Bug-2 stock-image pool so the slot never ships blank; pool-filled
         slots do NOT count toward the returned AI-image count.
@@ -6400,7 +6625,21 @@ IMPORTANT RULES:
         # names and images stay paired (same contract as the original
         # no-upload path).
         slot_names: List[str] = []
-        if missing_slots:
+        # Merchant-supplied items win outright: no extraction call, no
+        # fallback, and the generated photography is of the merchant's REAL
+        # items instead of whatever the extractor guessed.
+        _supplied = self._normalize_supplied_menu_items(
+            getattr(request, "menu_items", None)
+        )
+        if missing_slots and _supplied:
+            slot_names = [
+                it["name"] for it in _supplied if not _covered(it["name"])
+            ][:len(missing_slots)]
+            logger.info(
+                f"📋 Auto-fill using {len(slot_names)} merchant-supplied item "
+                f"name(s) — skipping AI extraction: {', '.join(slot_names) or '(none)'}"
+            )
+        elif missing_slots:
             if is_food:
                 logger.info("🍽️ Auto-fill STEP 0: extracting menu item names...")
                 extracted = await self.extract_menu_item_names(
@@ -6759,6 +6998,7 @@ IMPORTANT RULES:
             include_whatsapp=request.include_whatsapp,
             include_maps=request.include_maps,
             brand_colors=getattr(request, "colors", None),
+            menu_items=getattr(request, "menu_items", None),
         )
 
         # Add image URLs to prompt with STRONG emphasis.
@@ -6999,14 +7239,9 @@ IMPORTANT INSTRUCTIONS:
         # Validate and retry once if the model ignored hard constraints
         # Compute wa_digits up-front — used by both validation (R7 image check)
         # and _fix_placeholders (R6 WhatsApp link injection).
-        wa_raw = request.whatsapp_number or "60123456789"
-        wa_digits = re.sub(r"\D", "", str(wa_raw))
-        if wa_digits.startswith("0"):
-            wa_digits = "6" + wa_digits
-        elif wa_digits.startswith("1"):
-            wa_digits = "60" + wa_digits
-        if not wa_digits:
-            wa_digits = "60123456789"
+        # Empty when the merchant gave no usable number: _fix_placeholders
+        # then skips WhatsApp-link injection instead of adding a fake one.
+        wa_digits = self._normalize_wa_digits(request.whatsapp_number)
 
         if html:
             required_urls: List[str] = []
@@ -7250,6 +7485,7 @@ IMPORTANT INSTRUCTIONS:
                 include_maps=request.include_maps,
                 include_ecommerce=request.include_ecommerce,
                 brand_colors=getattr(request, "colors", None),
+                menu_items=getattr(request, "menu_items", None),
             )
 
             # GLM (Z.ai) primary path — strictly PREPENDED, gated by
@@ -7344,14 +7580,9 @@ IMPORTANT INSTRUCTIONS:
                             if idx < len(request.uploaded_images):
                                 required_urls.append(_url(request.uploaded_images[idx]))
 
-                    wa_raw = request.whatsapp_number or "60123456789"
-                    wa_digits = re.sub(r"\D", "", str(wa_raw))
-                    if wa_digits.startswith("0"):
-                        wa_digits = "6" + wa_digits
-                    elif wa_digits.startswith("1"):
-                        wa_digits = "60" + wa_digits
-                    if not wa_digits:
-                        wa_digits = "60123456789"
+                    # Empty when unusable — validation then stops REQUIRING a
+                    # wa.me link, instead of demanding the fake default.
+                    wa_digits = self._normalize_wa_digits(request.whatsapp_number)
 
                     errors = self._validate_generated_html(
                         html,
