@@ -23,7 +23,15 @@ from app.services.widget_catalogue import (
     widgets_for_request,
     build_prompt_context_block,
 )
-from app.services.claim_sanitizer import sanitize_sensitive_claims
+from app.services.claim_sanitizer import (
+    sanitize_sensitive_claims,
+    sanitize_sensitive_claims_traced,
+)
+from app.services.generation_validator import (
+    ValidationResult,
+    brief_from_request,
+    validate_generated_site,
+)
 from difflib import SequenceMatcher
 import cloudinary
 import cloudinary.uploader
@@ -738,6 +746,9 @@ class AIService:
         self.qwen_base_url = os.getenv("QWEN_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+        # Sanitizer trace from the most recent generation — consumed by the
+        # post-generation validator (a bare deletion is a blocking error).
+        self._last_sanitizer_trace: List[Dict[str, str]] = []
         self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
         self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-v4-pro")
         # GLM / Z.ai — primary HTML generator when USE_GLM_FOR_HTML is on.
@@ -6262,6 +6273,106 @@ IMPORTANT RULES:
 
     # ==================== FREE AUTO-FILL (missing image slots) ====================
 
+    async def _validate_and_repair(
+        self,
+        html: str,
+        request: WebsiteGenerationRequest,
+        prompt: str = "",
+        model: str = "",
+    ) -> Tuple[str, ValidationResult]:
+        """Validate generated HTML against the brief; one repair attempt.
+
+        Returns (html, result). The html returned is the repaired version when
+        the repair cleared the errors, otherwise the original — a repair that
+        does not actually help is discarded rather than shipped.
+
+        Every result is logged WITH the producing model, so after a few weeks
+        of production data the fallback ordering can be tuned on evidence
+        instead of intuition.
+        """
+        brief = brief_from_request(
+            request,
+            sanitizer_removals=getattr(self, "_last_sanitizer_trace", []),
+            model=model,
+        )
+        result = validate_generated_site(html, brief)
+        self._log_validation(result, request)
+
+        if result.ok or not prompt:
+            return html, result
+
+        logger.warning(
+            f"🧪 Validation failed ({len(result.errors)} error(s)) — "
+            f"attempting ONE repair"
+        )
+        repair_prompt = (
+            prompt
+            + "\n\n=== VALIDATION FAILURES — THESE MUST BE FIXED ===\n"
+            + "\n".join(f"- {e}" for e in result.errors)
+            + "\n\nRegenerate the COMPLETE HTML with every failure above fixed. "
+              "Do NOT invent data to satisfy a rule: if a value was not supplied, "
+              "omit that element entirely. Output ONLY HTML."
+        )
+        try:
+            repaired = await self._call_deepseek(
+                repair_prompt, temperature=0.1, model=self.deepseek_model_pro
+            )
+        except Exception as err:
+            logger.error(f"🧪 Validation repair call failed: {err}")
+            return html, result
+
+        if not repaired or "<" not in repaired:
+            logger.error("🧪 Validation repair produced no usable HTML — keeping original")
+            return html, result
+
+        repaired = self._extract_html(repaired)
+        repaired = self._sanitize_sensitive_claims(repaired, request)
+        brief_after = brief_from_request(
+            request,
+            sanitizer_removals=getattr(self, "_last_sanitizer_trace", []),
+            model=model,
+        )
+        after = validate_generated_site(repaired, brief_after)
+        self._log_validation(after, request, attempt="repair")
+
+        if len(after.errors) < len(result.errors):
+            logger.info(
+                f"🧪 Repair improved validation: {len(result.errors)} → "
+                f"{len(after.errors)} error(s)"
+            )
+            return repaired, after
+        logger.warning("🧪 Repair did not improve validation — keeping original HTML")
+        return html, result
+
+    def _log_validation(
+        self,
+        result: ValidationResult,
+        request: WebsiteGenerationRequest,
+        attempt: str = "initial",
+    ) -> None:
+        """One structured line per validation, tagged with the producing model.
+
+        This is the dataset that tells us which link in the GLM → DeepSeek →
+        Qwen chain degrades most; do not make it conditional on failure.
+        """
+        payload = {
+            "event": "generation_validation",
+            "attempt": attempt,
+            "model": result.model or "unknown",
+            "business": getattr(request, "business_name", ""),
+            "ok": result.ok,
+            "error_codes": [e.code for e in result.errors],
+            "warning_codes": [w.code for w in result.warnings],
+        }
+        if result.ok:
+            logger.info(f"🧪 Validation PASSED {payload}")
+        else:
+            logger.error(f"🧪 Validation FAILED {payload}")
+            for err in result.errors:
+                logger.error(f"   ✗ {err}")
+        for warn in result.warnings:
+            logger.info(f"   ⚠ {warn}")
+
     def _sanitize_sensitive_claims(
         self,
         html: str,
@@ -6293,11 +6404,25 @@ IMPORTANT RULES:
         for key, value in (image_urls or {}).items():
             if key.endswith("_name") and value:
                 sources.append(str(value))
-        sanitized, removed = sanitize_sensitive_claims(html, sources)
-        if removed:
+        for item in self._normalize_supplied_menu_items(
+            getattr(request, "menu_items", None)
+        ):
+            sources.append(item["name"])
+            if item.get("description"):
+                sources.append(item["description"])
+
+        _lang = getattr(request, "language", "ms")
+        _lang = getattr(_lang, "value", _lang) or "ms"
+        sanitized, trace = sanitize_sensitive_claims_traced(html, sources, _lang)
+        # The trace is what the post-generation validator asserts on (a bare
+        # deletion is an ERROR), so keep the last one addressable.
+        self._last_sanitizer_trace = trace
+        if trace:
+            _subbed = sum(1 for t in trace if t.get("substitution"))
             logger.info(
-                f"🛡 Sensitive-claim sanitizer removed {len(removed)} "
-                f"unverified claim(s): {removed}"
+                f"🛡 Sensitive-claim sanitizer handled {len(trace)} unverified "
+                f"claim(s) — {_subbed} substituted, {len(trace) - _subbed} removed: "
+                f"{[t['claim'] for t in trace]}"
             )
         return sanitized
 
@@ -7153,6 +7278,10 @@ IMPORTANT INSTRUCTIONS:
             # the DeepSeek path below runs completely unchanged. Flipping the
             # env flag off restores pure-DeepSeek behaviour with no deploy.
             html_raw = None
+            # Which model produced the final HTML — recorded on every
+            # validation result so the fallback ordering can be tuned on
+            # real degradation data rather than intuition.
+            _html_model = ""
             if USE_GLM_FOR_HTML and self.zai_api_key:
                 # Image availability picks GLM's prompt mode up front (GLM is
                 # single-shot): with URLs, the PHOTO_SLOT contract; with none,
@@ -7189,6 +7318,7 @@ IMPORTANT INSTRUCTIONS:
                     # contract is enforced (before _extract_html/validation).
                     # No-op in no-photo mode (no tokens to replace).
                     html_raw = self._replace_photo_slots(html_raw, _glm_image_urls)
+                    _html_model = self.zai_model
                     logger.info("🟣 GLM primary path succeeded — skipping DeepSeek")
 
             # DeepSeek primary path — DeepSeek-only as of the
@@ -7203,6 +7333,8 @@ IMPORTANT INSTRUCTIONS:
                     self._call_deepseek(prompt, model=self.deepseek_model_pro),
                     timeout=AI_PRIMARY_TIMEOUT_SECONDS,
                 )
+                if html_raw:
+                    _html_model = self.deepseek_model_pro
 
             if html_raw and self._last_api_call.get("truncated"):
                 api_truncated_provider = self._last_api_call.get("provider")
@@ -7420,6 +7552,14 @@ IMPORTANT INSTRUCTIONS:
             # rules exist only on the GLM side).
             html = self._sanitize_sensitive_claims(html, request, image_urls)
 
+        # POST-GENERATION VALIDATION — compares the OUTPUT against the merchant's
+        # INPUT. Errors get exactly one repair attempt before being surfaced;
+        # callers fail closed on a result that still has errors.
+        with _timed_step("validation", step_timings):
+            html, validation = await self._validate_and_repair(
+                html, request, prompt=prompt, model=_html_model
+            )
+
         total_time = time.time() - start_time
         logger.info("✅ ALL STEPS COMPLETE")
         logger.info(f"   Final size: {len(html)} characters")
@@ -7443,6 +7583,9 @@ IMPORTANT INSTRUCTIONS:
             sections=["Header", "Hero", "About", "Services", "Gallery", "Contact", "Footer"],
             integrations_included=integrations,
             ai_images_count=ai_images_generated,
+            validation_ok=validation.ok,
+            validation_errors=validation.error_messages(),
+            validation_warnings=[str(w) for w in validation.warnings],
             was_truncated=truncation_flags.get("was_truncated", False),
             truncation_retries=truncation_flags.get("truncation_retries", 0),
             needs_manual_review=truncation_flags.get("needs_manual_review", False),
