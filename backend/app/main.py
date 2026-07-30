@@ -35,6 +35,12 @@ from app.services.edit_guards import apply_edit_guards
 from app.core.security import get_current_user
 from app.core.config import settings
 
+# DeepSeek chat-tier model for the inline generation helpers below. Read from
+# the env (same var the services use) so the V4 alias migration is applied in
+# one place — the old "deepseek-chat"/"deepseek-reasoner" aliases were hard
+# deprecated 2026-07-24 and now fail, silently degrading every caller.
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
+
 # Subscription lock system
 from app.middleware.subscription_guard import subscription_check_middleware
 from app.api.v1.endpoints import subscription_status
@@ -1354,7 +1360,7 @@ async def call_deepseek(prompt: str) -> Optional[str]:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "deepseek-chat",
+                    "model": DEEPSEEK_MODEL,
                     "messages": [
                         {"role": "system", "content": "You are an expert web developer. Output only valid HTML code."},
                         {"role": "user", "content": prompt}
@@ -4533,7 +4539,7 @@ OUTPUT THE COMPLETE MODIFIED HTML:"""
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "deepseek-chat",
+                    "model": DEEPSEEK_MODEL,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 8192,
                     "temperature": 0.3

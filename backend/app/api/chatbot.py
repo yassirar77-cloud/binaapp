@@ -19,7 +19,7 @@ DEEPSEEK_API_KEY = (
     os.getenv("DASHSCOPE_API_KEY")
 )
 DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 
 # Debug: Log which env var was found
 if DEEPSEEK_API_KEY:

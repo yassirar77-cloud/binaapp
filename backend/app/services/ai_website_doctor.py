@@ -307,7 +307,7 @@ class AIWebsiteDoctor:
                 "auto_fixable_issues": auto_fixable_issues,
                 "ai_summary": ai_analysis.get("summary", ""),
                 "ai_recommendations": json.dumps(ai_analysis.get("recommendations", [])),
-                "model_used": "deepseek-chat",
+                "model_used": settings.DEEPSEEK_MODEL,
             }
             supabase.table("website_health_scans").update(update_data).eq("id", scan_id).execute()
 

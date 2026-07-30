@@ -64,11 +64,11 @@ class Settings(BaseSettings):
         env="DEEPSEEK_API_URL"
     )
     DEEPSEEK_MODEL: str = Field(
-        default="deepseek-chat",
+        default="deepseek-v4-flash",
         env="DEEPSEEK_MODEL"
     )
     DEEPSEEK_MODEL_PRO: str = Field(
-        default="deepseek-reasoner",
+        default="deepseek-v4-pro",
         env="DEEPSEEK_MODEL_PRO"
     )
 
