@@ -850,7 +850,8 @@ async def generate_website(request: SimpleGenerateRequest):
             "address": address if address else "",
             "email": "contact@business.com",
             "url": "https://preview.binaapp.my",
-            "whatsapp_message": "Hi, I'm interested",
+            # Language-aware default resolved in inject_whatsapp_button.
+                "whatsapp_message": None,
             "business_name": business_name,
             "business_type": business_type,  # For dynamic categories
             "description": request.description,  # For business type detection
@@ -1627,7 +1628,8 @@ async def generate_variants_background(job_id: str, request: SimpleGenerateReque
             "address": address if address else "",
             "email": "contact@business.com",
             "url": "https://preview.binaapp.my",
-            "whatsapp_message": "Hi, I'm interested",
+            # Language-aware default resolved in inject_whatsapp_button.
+                "whatsapp_message": None,
             "business_name": business_name,
             "business_type": business_type,  # CRITICAL: Pass for dynamic categories
             "description": request.description,  # CRITICAL: Pass for business type detection
@@ -2072,7 +2074,8 @@ async def generate_stream(request: SimpleGenerateRequest):
                 "address": address if address else "",
                 "email": "contact@business.com",
                 "url": "https://preview.binaapp.my",
-                "whatsapp_message": "Hi, I'm interested",
+                # Language-aware default resolved in inject_whatsapp_button.
+                "whatsapp_message": None,
                 "business_name": business_name,
                 "business_type": detect_business_type(request.description),
                 "description": request.description,
@@ -2397,7 +2400,8 @@ async def generate_website_simple(request: SimpleGenerateRequest):
             "address": address if address else "",
             "email": "contact@business.com",
             "url": "https://preview.binaapp.my",
-            "whatsapp_message": "Hi, I'm interested",
+            # Language-aware default resolved in inject_whatsapp_button.
+                "whatsapp_message": None,
             "business_name": business_name
         }
 

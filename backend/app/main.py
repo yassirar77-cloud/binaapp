@@ -2173,7 +2173,8 @@ async def run_generation_task(
                 "address": address or "",
                 "email": "contact@business.com",
                 "url": "https://preview.binaapp.my",
-                "whatsapp_message": "Hi, I'm interested",
+                # Language-aware default resolved in inject_whatsapp_button.
+                "whatsapp_message": None,
                 "business_name": actual_business_name,
                 "business_type": business_type,  # For dynamic categories
                 "description": description,  # For business type detection
@@ -3489,6 +3490,17 @@ async def publish_website(
                 # fallback — never the legacy template orange.
                 from app.services.templates import resolve_widget_primary_color
                 widget_primary = resolve_widget_primary_color(html_content)
+                # data-business-type was missing on THIS injection path only,
+                # so the widget self-defaulted to "general" and showed generic
+                # copy on F&B sites. Detected from the same source the other
+                # two injection sites use.
+                from app.services.business_types import detect_business_type
+                try:
+                    widget_biz_type = detect_business_type(
+                        (body.get("description") or "") or (project_name or "")
+                    )
+                except Exception:
+                    widget_biz_type = "general"
                 widget_init = f"""
 <!-- BinaApp Delivery Widget -->
 <script
@@ -3496,6 +3508,7 @@ async def publish_website(
   data-website-id="{website_id}"
   data-api-url="{api_base}"
   data-primary-color="{widget_primary}"
+  data-business-type="{widget_biz_type}"
   data-language="ms"
 ></script>
 <div id="binaapp-widget"></div>

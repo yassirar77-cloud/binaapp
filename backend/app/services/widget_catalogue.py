@@ -270,13 +270,23 @@ RULES:
 1. Do NOT add your own floating WhatsApp / chat / delivery buttons —
    they will be injected. (You may add a regular inline "Order Now" CTA
    that scrolls to #menu; that's fine.)
-2. For inline widgets (maps, contact form, qr, pesanan), you MAY emit an
-   empty placeholder div with the listed id, e.g.
-       <div id="binaapp-pesanan-slot"></div>
-   placed at the correct semantic location. The injection layer will
-   replace the inner contents with the live widget. If you don't emit a
-   slot div, the widget is appended at the end of the body (legacy
-   behaviour, still works, but layout is less controlled).
+2. For inline widgets (maps, contact form, qr, pesanan), you MAY emit a
+   placeholder div with the listed id, placed at the correct semantic
+   location. The injection layer replaces its inner contents with the live
+   widget. If you don't emit a slot div, the widget is appended at the end
+   of the body (legacy behaviour, still works, but layout is less
+   controlled).
+   A slot MUST NOT be empty — an un-injected empty slot renders as a blank
+   white box under a heading. Put real fallback content inside it, marked
+   with data-binaapp-fallback so the injection layer knows it is
+   replaceable:
+       <div id="binaapp-pesanan-slot">
+         <div data-binaapp-fallback class="text-center py-8">
+           <p class="mb-4">Hubungi kami untuk tempahan.</p>
+           <!-- a real CTA here: WhatsApp link, or an anchor to #hubungi -->
+         </div>
+       </div>
+   The fallback must make sense on its own if the widget never loads.
 3. Keep the bottom-right ~80px clear of your own fixed elements (no fixed
    "back to top" arrows, no announcement bars there).
 4. Pick a palette that does not clash with the floating widgets'
