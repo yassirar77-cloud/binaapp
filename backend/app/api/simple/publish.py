@@ -368,6 +368,70 @@ async def publish_website(
                     }
                 )
 
+        # CONTENT-INTEGRITY GATE — the output is compared against the
+        # merchant's own brief (fabricated menu items, missing supplied
+        # prices, placeholder phone numbers). Fails CLOSED: a site that
+        # contradicts its own input must not go live. Same ?force=true
+        # override + audit log as the structural gate above, plus an ops
+        # kill-switch (GENERATION_VALIDATOR_ENFORCE=0) so a false positive
+        # can be defused without a redeploy.
+        import os as _os
+        from app.services.generation_validator import (
+            PUBLISH_ENFORCED_CODES,
+            GenerationBrief,
+            blocking_errors,
+            validate_generated_site,
+        )
+
+        _enforce = (_os.getenv("GENERATION_VALIDATOR_ENFORCE", "1").strip().lower()
+                    not in ("0", "false", "no", "off"))
+        _content_result = validate_generated_site(
+            html_content,
+            GenerationBrief(
+                business_name=request.project_name or "",
+                description=request.description or "",
+                language=request.language or "ms",
+            ),
+        )
+        for _w in _content_result.warnings:
+            logger.info(f"   ⚠ publish validation warning: {_w}")
+        # Only the ground-truth-free checks block here — see
+        # PUBLISH_ENFORCED_CODES. The rest are logged for observability.
+        _blocking = blocking_errors(_content_result, PUBLISH_ENFORCED_CODES)
+        for _e in _content_result.errors:
+            if _e not in _blocking:
+                logger.info(f"   ⚠ publish validation (non-blocking): {_e}")
+        if _blocking:
+            _codes = [e.code for e in _blocking]
+            if force or not _enforce:
+                logger.warning(
+                    f"⚠️ PUBLISH VALIDATION OVERRIDE subdomain={request.subdomain} "
+                    f"user_id={user_id} errors={_codes} "
+                    f"(force={force}, enforce={_enforce}) — proceeding anyway"
+                )
+            else:
+                logger.error(
+                    f"🛑 PUBLISH BLOCKED (content integrity) "
+                    f"subdomain={request.subdomain} user_id={user_id} errors={_codes}"
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "error": "content_validation_failed",
+                        "message": (
+                            "Laman web ini ada maklumat yang tidak sepadan dengan "
+                            "maklumat perniagaan anda dan tidak boleh diterbitkan. "
+                            "Sila semak dan jana semula."
+                        ),
+                        "message_en": (
+                            "This website contains content that does not match your "
+                            "business information and cannot be published. Please "
+                            "review and regenerate."
+                        ),
+                        "issues": [str(e) for e in _blocking],
+                    },
+                )
+
         # CRITICAL: Check if subdomain is allowed BEFORE anything else
         logger.info("")
         logger.info("🛡️ STEP 1: CONTENT POLICY CHECK")

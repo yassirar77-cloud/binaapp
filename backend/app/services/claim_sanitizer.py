@@ -51,6 +51,44 @@ DEFAULT_SENSITIVE_CLAIM_PATTERNS: List[Dict[str, str]] = [
 ]
 
 
+# Approved replacement wording, by claim label. Stripping an unverified
+# halal/certification claim is correct — false halal claims carry real legal
+# exposure in Malaysia — but deleting it and leaving NOTHING throws away the
+# highest-value trust signal on a Malay F&B page. Where an approved,
+# non-certifying alternative exists we substitute it instead of deleting.
+#
+# These strings assert no certification and no ownership identity: they say
+# only what the merchant can always say about their own kitchen.
+DEFAULT_CLAIM_SUBSTITUTIONS: Dict[str, Dict[str, str]] = {
+    "halal": {"ms": "Tiada Babi & Arak", "en": "No Lard & No Alcohol"},
+    "jakim": {"ms": "Tiada Babi & Arak", "en": "No Lard & No Alcohol"},
+    "no-pork": {"ms": "Tiada Babi & Arak", "en": "No Lard & No Alcohol"},
+    "tanpa-babi": {"ms": "Tiada Babi & Arak", "en": "No Lard & No Alcohol"},
+    "pork-free": {"ms": "Tiada Babi & Arak", "en": "No Lard & No Alcohol"},
+}
+
+
+def claim_substitutions() -> Dict[str, Dict[str, str]]:
+    """Active substitution map. Overridable via CLAIM_SUBSTITUTIONS (JSON
+    object of {label: {"ms": str, "en": str}}) without a redeploy."""
+    raw = os.getenv("CLAIM_SUBSTITUTIONS")
+    if not raw or not raw.strip():
+        return dict(DEFAULT_CLAIM_SUBSTITUTIONS)
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return {str(k): dict(v) for k, v in parsed.items() if isinstance(v, dict)}
+    except (ValueError, TypeError) as err:
+        logger.warning(f"🛡 Ignoring malformed CLAIM_SUBSTITUTIONS: {err}")
+    return dict(DEFAULT_CLAIM_SUBSTITUTIONS)
+
+
+def _substitution_for(label: str, language: str) -> str:
+    entry = claim_substitutions().get(label) or {}
+    lang = "ms" if str(language or "ms").lower().startswith("ms") else "en"
+    return str(entry.get(lang) or entry.get("en") or "").strip()
+
+
 def _parse_pattern_env(raw: Optional[str], env_name: str) -> Optional[List[Dict[str, str]]]:
     if not raw or not raw.strip():
         return None
@@ -185,6 +223,39 @@ def _strip_claim_text(html: str, start: int, end: int) -> str:
     return before + after
 
 
+# Certification qualifiers that hang off a claim word. Substituting only the
+# matched token left "Halal Certified" as "Tiada Babi & Arak Certified", so the
+# replaced span is grown over these first.
+_QUALIFIER_AFTER_RE = re.compile(
+    r"^[\s\-–—]*(?:certified|certificate|certification|cert\.?|approved|"
+    r"verified|registered|disahkan|bersijil|sah)\b",
+    re.IGNORECASE,
+)
+_QUALIFIER_BEFORE_RE = re.compile(
+    r"(?:\b(?:100%|fully|certified|sepenuhnya|sah)\s+)$",
+    re.IGNORECASE,
+)
+
+
+def _expand_claim_span(html: str, start: int, end: int) -> Tuple[int, int]:
+    """Grow [start, end) over adjacent certification qualifier words, without
+    crossing a tag boundary."""
+    after = html[end:end + 40]
+    if "<" in after:
+        after = after[:after.index("<")]
+    m_after = _QUALIFIER_AFTER_RE.match(after)
+    if m_after:
+        end += m_after.end()
+
+    before = html[max(0, start - 40):start]
+    if ">" in before:
+        before = before[before.rindex(">") + 1:]
+    m_before = _QUALIFIER_BEFORE_RE.search(before)
+    if m_before:
+        start -= (m_before.end() - m_before.start())
+    return start, end
+
+
 def _claim_is_verified(entry: Dict[str, str], compiled: "re.Pattern", match: "re.Match", source_blob: str) -> bool:
     if entry.get("verify") == "year":
         year_m = re.search(r"\d{4}", match.group(0))
@@ -193,7 +264,7 @@ def _claim_is_verified(entry: Dict[str, str], compiled: "re.Pattern", match: "re
 
 
 def sanitize_sensitive_claims(
-    html: str, source_texts: Iterable[Optional[str]]
+    html: str, source_texts: Iterable[Optional[str]], language: str = "ms"
 ) -> Tuple[str, List[str]]:
     """Remove sensitive claims not present in the merchant-provided data.
 
@@ -202,16 +273,36 @@ def sanitize_sensitive_claims(
         source_texts: every merchant-provided text field (business name,
             description, address, menu/item names, badges) — the ground truth
             a claim must appear in to survive.
+        language: page language, selecting the substitution wording.
 
     Returns:
         (sanitized_html, list_of_removed_claim_texts). Every removal is also
         logged as "🛡 Removed unverified claim: '...'".
+
+    Use sanitize_sensitive_claims_traced() when you need the substitution
+    trace (the post-generation validator requires it).
+    """
+    sanitized, trace = sanitize_sensitive_claims_traced(html, source_texts, language)
+    return sanitized, [entry["claim"] for entry in trace]
+
+
+def sanitize_sensitive_claims_traced(
+    html: str, source_texts: Iterable[Optional[str]], language: str = "ms"
+) -> Tuple[str, List[Dict[str, str]]]:
+    """As sanitize_sensitive_claims, but returns a full removal trace.
+
+    Trace entries are {"claim": str, "label": str, "substitution": str}.
+    A non-empty substitution means the claim text was REPLACED with approved
+    wording rather than deleted; an empty one means the claim was dropped
+    (correct for identity/certification/year claims that have no safe
+    equivalent). The validator asserts on this trace, which is why the
+    sanitizer must report substitutions rather than just deletions.
     """
     if not html:
         return html, []
 
     source_blob = " ".join(str(t) for t in source_texts if t).lower()
-    removed: List[str] = []
+    trace: List[Dict[str, str]] = []
 
     compiled_entries = []
     for entry in sensitive_claim_patterns():
@@ -235,20 +326,51 @@ def sanitize_sensitive_claims(
                     continue
 
                 claim_text = match.group(0)
+                label = str(entry.get("label", ""))
+                substitution = _substitution_for(label, language)
+                # A substitution that itself matches an active pattern would be
+                # re-detected on the next pass and replaced again forever. The
+                # defaults are chosen to avoid this; an operator-supplied
+                # CLAIM_SUBSTITUTIONS value might not be, so verify and fall
+                # back to plain deletion rather than corrupting the page.
+                if substitution and any(
+                    c.search(substitution) for _e, c in compiled_entries
+                ):
+                    logger.warning(
+                        f"🛡 Substitution '{substitution}' for '{label}' matches a "
+                        f"sensitive-claim pattern — deleting instead"
+                    )
+                    substitution = ""
                 element = _innermost_element_span(html, match.start(), match.end())
-                if (
+
+                if substitution:
+                    # Approved wording exists — replace the claim text in
+                    # place. The surrounding badge/element survives, so the
+                    # page keeps its trust signal instead of losing it.
+                    _s, _e = _expand_claim_span(html, match.start(), match.end())
+                    html = html[:_s] + substitution + html[_e:]
+                    logger.info(
+                        f"🛡 Substituted unverified claim '{claim_text}' "
+                        f"→ '{substitution}'"
+                    )
+                elif (
                     element
                     and element[2] not in _STRUCTURAL_TAGS
                     and len(_visible_text(html[element[0]:element[1]])) <= _BADGE_TEXT_MAX_CHARS
                 ):
-                    # Small badge/pill — drop the whole element.
+                    # Small badge/pill with no safe equivalent — drop it whole.
                     html = html[:element[0]] + html[element[1]:]
+                    logger.info(f"🛡 Removed unverified claim: '{claim_text}'")
                 else:
                     # Longer prose — strip only the claim text.
                     html = _strip_claim_text(html, match.start(), match.end())
+                    logger.info(f"🛡 Removed unverified claim: '{claim_text}'")
 
-                removed.append(claim_text)
-                logger.info(f"🛡 Removed unverified claim: '{claim_text}'")
+                trace.append({
+                    "claim": claim_text,
+                    "label": label,
+                    "substitution": substitution,
+                })
                 edited = True
                 break
             if edited:
@@ -256,4 +378,4 @@ def sanitize_sensitive_claims(
         if not edited:
             break
 
-    return html, removed
+    return html, trace
