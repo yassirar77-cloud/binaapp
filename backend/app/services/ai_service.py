@@ -29,6 +29,7 @@ from app.services.claim_sanitizer import (
     sensitive_claim_patterns,
 )
 from app.services.seo_metadata import SeoMeta, inject_seo_metadata
+from app.services.layout_guard_audit import firing_guards
 from app.services.generation_validator import (
     ValidationResult,
     brief_from_request,
@@ -7809,6 +7810,19 @@ IMPORTANT INSTRUCTIONS:
             html, validation = await self._validate_and_repair(
                 html, request, prompt=prompt, model=_html_model
             )
+            # P3 telemetry: which Layout Safety Guard rules still have work to
+            # do on freshly generated HTML. Each firing guard is a generator
+            # defect being patched at serve time; a guard that stops firing
+            # across production traffic is one that can be retired. Logged,
+            # never enforced — this must not change what ships.
+            try:
+                _guards = firing_guards(html)
+                logger.info(
+                    f"🧱 Layout guards that would fire: {_guards or 'none'} "
+                    f"[model={_html_model or 'unknown'}]"
+                )
+            except Exception as _g_err:
+                logger.warning(f"⚠️ Layout guard audit failed: {_g_err}")
 
         total_time = time.time() - start_time
         logger.info("✅ ALL STEPS COMPLETE")

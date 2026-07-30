@@ -107,6 +107,32 @@ def resolve_widget_theme(theme_tokens: Optional[Dict[str, str]]) -> Dict[str, st
     }
 
 
+_EMPTY_BG_URL_RE = re.compile(
+    r"background-image\s*:\s*url\(\s*['\"]?\s*['\"]?\s*\)",
+    re.IGNORECASE,
+)
+#: Neutral repaint for a background whose URL was stripped. Matches the colours
+#: LAYOUT_SAFETY_CSS rule (e) used, so behaviour is unchanged when the rule is
+#: eventually retired.
+_STRIPPED_BG_REPLACEMENT = (
+    "background-image: linear-gradient(135deg, #64748b 0%, #334155 100%); "
+    "background-color: #475569"
+)
+
+
+def _repaint_emptied_background_urls(html: str) -> str:
+    """Replace `background-image: url()` with a neutral gradient.
+
+    Stripping a banned stock URL out of an inline style leaves an empty
+    url(), which renders as a blank block. Repainting here — at the point we
+    create the problem — means the page is correct as authored rather than
+    correct only because a CSS guard patched it at serve time.
+    """
+    if not html or "url(" not in html:
+        return html
+    return _EMPTY_BG_URL_RE.sub(_STRIPPED_BG_REPLACEMENT, html)
+
+
 def resolve_widget_primary_color(html: Optional[str]) -> str:
     """Primary colour for an injected widget: extracted from the site's own
     palette (CSS variables / Tailwind config), neutral dark fallback when
@@ -3993,6 +4019,13 @@ header .grid {
                 html,
                 flags=re.IGNORECASE
             )
+
+        # Blanking a URL inside url(...) above leaves `background-image: url()`,
+        # which renders as an empty block. LAYOUT_SAFETY_CSS rule (e) exists
+        # only to repaint that — a guard patching a defect we create ourselves.
+        # Fix it at the source instead, so the CSS rule becomes dead weight and
+        # can be retired once telemetry confirms it no longer fires.
+        html = _repaint_emptied_background_urls(html)
 
         if image_choice == 'ai':
             # User explicitly wanted AI images - keep everything (except banned stock images already removed above)
