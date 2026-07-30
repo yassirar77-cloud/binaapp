@@ -1151,7 +1151,7 @@ LAYOUT_TEMPLATES = {
 HERO_VARIANTS = {
     "food": """HERO SECTION DESIGN (Full-bleed with bottom text):
 <section id="home" class="relative h-[70vh] min-h-[400px]" data-aos="fade-in">
-  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
+  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="HERO_ALT_TEXT">
   <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
   <div class="relative z-10 flex items-end h-full pb-16 md:pb-20 px-6 md:px-16">
     <div class="max-w-2xl">
@@ -1168,7 +1168,7 @@ HERO_VARIANTS = {
 
     "cafe": """HERO SECTION DESIGN (Full-bleed atmospheric):
 <section id="home" class="relative h-[70vh] min-h-[400px]" data-aos="fade-in">
-  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
+  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="HERO_ALT_TEXT">
   <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"></div>
   <div class="relative z-10 flex items-center justify-center h-full text-center px-6">
     <div class="max-w-3xl">
@@ -1190,7 +1190,7 @@ HERO_VARIANTS = {
     </div>
   </div>
   <div class="relative order-1 md:order-2 min-h-[400px]" data-aos="fade-left">
-    <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
+    <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="HERO_ALT_TEXT">
   </div>
 </section>""",
 
@@ -1203,7 +1203,7 @@ HERO_VARIANTS = {
       <a href="#products" class="inline-flex items-center mt-8 px-8 py-3.5 bg-primary text-white rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">SHOP_CTA</a>
     </div>
     <div class="relative" data-aos="fade-left">
-      <img src="HERO_IMAGE_URL" class="rounded-3xl shadow-2xl w-full" alt="Hero">
+      <img src="HERO_IMAGE_URL" class="rounded-3xl shadow-2xl w-full" alt="HERO_ALT_TEXT">
       <div class="absolute -bottom-6 -left-6 w-32 h-32 bg-primary/20 rounded-full blur-2xl"></div>
     </div>
   </div>
@@ -1211,7 +1211,7 @@ HERO_VARIANTS = {
 
     "bakery": """HERO SECTION DESIGN (Warm full-bleed):
 <section id="home" class="relative h-[70vh] min-h-[400px]" data-aos="fade-in">
-  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
+  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="HERO_ALT_TEXT">
   <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent"></div>
   <div class="relative z-10 flex items-end h-full pb-16 md:pb-20 px-6 md:px-16">
     <div class="max-w-2xl">
@@ -1235,14 +1235,14 @@ HERO_VARIANTS = {
       </div>
     </div>
     <div class="relative" data-aos="fade-left">
-      <img src="HERO_IMAGE_URL" class="rounded-3xl shadow-2xl w-full" alt="Hero">
+      <img src="HERO_IMAGE_URL" class="rounded-3xl shadow-2xl w-full" alt="HERO_ALT_TEXT">
     </div>
   </div>
 </section>""",
 
     "gym": """HERO SECTION DESIGN (High-impact bold):
 <section id="home" class="relative h-[70vh] min-h-[400px]" data-aos="fade-in">
-  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
+  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="HERO_ALT_TEXT">
   <div class="absolute inset-0 bg-gradient-to-r from-black/80 via-black/50 to-transparent"></div>
   <div class="relative z-10 flex items-center h-full px-6 md:px-16">
     <div class="max-w-2xl">
@@ -1263,7 +1263,7 @@ HERO_VARIANTS = {
       <a href="#services" class="inline-flex items-center mt-8 px-8 py-3.5 bg-primary text-white rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">BOOK_CTA</a>
     </div>
     <div class="relative" data-aos="fade-left">
-      <img src="HERO_IMAGE_URL" class="rounded-3xl shadow-2xl w-full" alt="Hero">
+      <img src="HERO_IMAGE_URL" class="rounded-3xl shadow-2xl w-full" alt="HERO_ALT_TEXT">
     </div>
   </div>
 </section>""",
@@ -1277,7 +1277,7 @@ HERO_VARIANTS = {
       <a href="#products" class="inline-flex items-center mt-8 px-8 py-3.5 bg-primary text-white rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">VIEW_PRODUCTS_CTA</a>
     </div>
     <div class="relative" data-aos="fade-left">
-      <img src="HERO_IMAGE_URL" class="rounded-3xl shadow-2xl w-full" alt="Hero">
+      <img src="HERO_IMAGE_URL" class="rounded-3xl shadow-2xl w-full" alt="HERO_ALT_TEXT">
     </div>
   </div>
 </section>""",
@@ -1333,7 +1333,7 @@ ALT_HERO_VARIANTS = {
     </div>
   </div>
   <div class="relative order-1 md:order-2 min-h-[320px] md:min-h-0" data-aos="fade-left">
-    <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
+    <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="HERO_ALT_TEXT">
     <div class="hidden md:block absolute bottom-8 -left-10 bg-white/95 backdrop-blur rounded-2xl shadow-2xl px-6 py-4 max-w-[240px]">
       <p class="text-sm font-body font-semibold" style="color: #1C1917">SIGNATURE_DISH_NAME</p>
       <p class="text-xs font-body mt-1" style="color: #78716C">SIGNATURE_DISH_NOTE</p>
@@ -1342,7 +1342,7 @@ ALT_HERO_VARIANTS = {
 </section>""",
         """HERO SECTION DESIGN (Full-bleed cinematic, centered, scroll cue):
 <section id="home" class="relative h-[88vh] min-h-[480px]" data-aos="fade-in">
-  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
+  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="HERO_ALT_TEXT">
   <div class="absolute inset-0 bg-gradient-to-b from-black/40 via-black/25 to-black/70"></div>
   <div class="relative z-10 flex flex-col items-center justify-center h-full text-center px-6">
     <p class="text-white/80 font-body text-sm uppercase tracking-[0.35em] mb-5">TAGLINE_KICKER</p>
@@ -1375,7 +1375,7 @@ ALT_HERO_VARIANTS = {
     "salon": [
         """HERO SECTION DESIGN (Full-bleed with offset editorial text):
 <section id="home" class="relative h-[85vh] min-h-[460px]" data-aos="fade-in">
-  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
+  <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="HERO_ALT_TEXT">
   <div class="absolute inset-0 bg-gradient-to-r from-black/65 via-black/30 to-transparent"></div>
   <div class="relative z-10 flex items-center h-full px-6 md:px-20">
     <div class="max-w-xl">
@@ -1397,7 +1397,7 @@ ALT_HERO_VARIANTS = {
     <a href="#products" class="inline-flex items-center mt-8 px-9 py-4 bg-primary text-white rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">SHOP_CTA</a>
   </div>
   <div class="mt-14 relative h-[45vh] min-h-[320px]" data-aos="fade-up" data-aos-delay="150">
-    <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="Hero">
+    <img src="HERO_IMAGE_URL" class="absolute inset-0 w-full h-full object-cover" alt="HERO_ALT_TEXT">
   </div>
 </section>""",
     ],
@@ -1411,7 +1411,7 @@ ALT_HERO_VARIANTS = {
     <a href="#products" class="inline-flex items-center mt-8 px-8 py-3.5 bg-primary text-white rounded-full font-body font-semibold tracking-wide hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">VIEW_PRODUCTS_CTA</a>
   </div>
   <div class="mt-14 max-w-6xl mx-auto px-6" data-aos="fade-up" data-aos-delay="150">
-    <img src="HERO_IMAGE_URL" class="rounded-t-3xl shadow-2xl w-full max-h-[55vh] object-cover" alt="Hero">
+    <img src="HERO_IMAGE_URL" class="rounded-t-3xl shadow-2xl w-full max-h-[55vh] object-cover" alt="HERO_ALT_TEXT">
   </div>
 </section>""",
     ],

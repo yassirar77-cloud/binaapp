@@ -28,6 +28,7 @@ from app.services.claim_sanitizer import (
     sanitize_sensitive_claims_traced,
     sensitive_claim_patterns,
 )
+from app.services.seo_metadata import SeoMeta, inject_seo_metadata
 from app.services.generation_validator import (
     ValidationResult,
     brief_from_request,
@@ -249,17 +250,29 @@ def _timed_step(step_name: str, timings: Dict[str, float]):
 _THEME_PRIMARY_PATTERNS = [
     re.compile(r"--primary-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
     re.compile(r"--primary\s*:\s*(#[0-9a-fA-F]{3,8})"),
-    re.compile(r"primary\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
+    # Tailwind config form. The KEY is itself quoted in the emitted config
+    # ("'primary': '#B91C1C'"), so the closing quote must be optional —
+    # without it this never matched and every widget fell back to the
+    # neutral grey instead of the site's own colour.
+    re.compile(r"['\"]?primary['\"]?\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
 ]
 _THEME_SECONDARY_PATTERNS = [
     re.compile(r"--secondary-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
     re.compile(r"--secondary\s*:\s*(#[0-9a-fA-F]{3,8})"),
-    re.compile(r"secondary\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
+    # Tailwind config form. The KEY is itself quoted in the emitted config
+    # ("'secondary': '#B91C1C'"), so the closing quote must be optional —
+    # without it this never matched and every widget fell back to the
+    # neutral grey instead of the site's own colour.
+    re.compile(r"['\"]?secondary['\"]?\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
 ]
 _THEME_ACCENT_PATTERNS = [
     re.compile(r"--accent-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
     re.compile(r"--accent\s*:\s*(#[0-9a-fA-F]{3,8})"),
-    re.compile(r"accent\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
+    # Tailwind config form. The KEY is itself quoted in the emitted config
+    # ("'accent': '#B91C1C'"), so the closing quote must be optional —
+    # without it this never matched and every widget fell back to the
+    # neutral grey instead of the site's own colour.
+    re.compile(r"['\"]?accent['\"]?\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
 ]
 _THEME_SURFACE_PATTERNS = [
     re.compile(r"--surface-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
@@ -750,6 +763,8 @@ class AIService:
         # Sanitizer trace from the most recent generation — consumed by the
         # post-generation validator (a bare deletion is a blocking error).
         self._last_sanitizer_trace: List[Dict[str, str]] = []
+        # Structured operating hours from the template copywriting pass.
+        self._last_template_hours: list = []
         self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
         self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-v4-pro")
         # GLM / Z.ai — primary HTML generator when USE_GLM_FOR_HTML is on.
@@ -4167,7 +4182,8 @@ The merchant did NOT provide {_noun} items, and none could be read from the desc
 {hero_variant}
 
 HERO BLUEPRINT RULES:
-- Replace EVERY ALL-CAPS placeholder token (BUSINESS_NAME, TAGLINE, TAGLINE_KICKER, HERO_IMAGE_URL, WHATSAPP_LINK, VIEW_MENU_CTA, SIGNATURE_DISH_NAME, ...) with real content for this business.
+- Replace EVERY ALL-CAPS placeholder token (BUSINESS_NAME, TAGLINE, TAGLINE_KICKER, HERO_IMAGE_URL, HERO_ALT_TEXT, WHATSAPP_LINK, VIEW_MENU_CTA, SIGNATURE_DISH_NAME, ...) with real content for this business.
+- HERO_ALT_TEXT = a short factual description of what the hero photo shows for this business (e.g. "Hidangan nasi campur di kaunter"). Never the literal word "Hero".
 - HERO_IMAGE_URL = the exact hero image URL from the IMAGE section of this prompt.
 - Drop optional decorative sub-elements (floating cards, kickers) if you have no real content for them — never ship a placeholder.
 """
@@ -4249,6 +4265,17 @@ RELATIONSHIPS AND PROVENANCE MUST BE EXACT:
 - Copy family relationships, origins and history EXACTLY as the business data states them. Do NOT substitute a different relative or a warmer-sounding one: "resipi arwah ibu" (late mother) must never become "nenek" (grandmother), "warisan keluarga", or "resipi turun-temurun".
 - Do NOT invent a founding story, a generation count, a hometown, or a family lineage that was not provided.
 - Describe a dish only as the data describes it. Do NOT assert a flavour profile, cooking method, spice level or ingredient list you were not given — "gulai nangka" is not "asam manis" unless the data says so. When unsure, write an appetising line that makes no factual claim.
+
+IMAGE ALT TEXT (accessibility + SEO):
+- EVERY <img> needs a descriptive alt describing what the photo SHOWS.
+- A menu/product card's alt is that item's real name, optionally with context ("Nasi Campur Biasa"), never a generic label and never a made-up product.
+- Purely decorative images use alt="" (empty), never a filler word.
+- FORBIDDEN alt values: "Hero", "Image", "Photo", "Gambar", "img", the file name, or a placeholder token.
+
+IMAGE REUSE — EACH PHOTO APPEARS ONCE:
+- Hero, about/story, and every menu/product/gallery card draw from ONE shared pool of the exact URLs listed in the image section.
+- Use each URL AT MOST ONCE on the entire page. The hero image is for the page header ONLY — never reuse it in an about section or as a menu card.
+- If a section (about image, gallery, portfolio) has no UNUSED image left, OMIT that image or the whole section. Repeating a photo reads as broken; a text-only about section does not.
 
 CARDS MUST STAY READABLE EVEN IF AN IMAGE FAILS:
 - Every card has its own solid surface background and padding. Never place text directly on an image without a background layer.
@@ -6396,6 +6423,9 @@ IMPORTANT RULES:
 
         # Step 6: Render operating hours HTML
         op_hours = content.get('operating_hours', [])
+        # Kept for the SEO pass: this is the only path with STRUCTURED hours,
+        # so it is the only one that can emit openingHoursSpecification.
+        self._last_template_hours = op_hours if isinstance(op_hours, list) else []
         content['operating_hours_html'] = self._render_operating_hours_html(op_hours, template_id)
 
         # Step 7: Handle word explosion special placeholders
@@ -6420,6 +6450,60 @@ IMPORTANT RULES:
         return final_html
 
     # ==================== FREE AUTO-FILL (missing image slots) ====================
+
+    def _inject_seo_metadata(
+        self,
+        html: str,
+        request: WebsiteGenerationRequest,
+        image_urls: Optional[Dict] = None,
+        operating_hours: Optional[list] = None,
+    ) -> str:
+        """Add OG/Twitter/description tags and a schema.org JSON-LD block.
+
+        Every field comes from merchant-supplied data or is omitted — a
+        JSON-LD node asserting a fabricated address or price range would be
+        the defect this pipeline was just fixed for, in the machine-readable
+        form search engines actually trust.
+        """
+        if not html:
+            return html
+        try:
+            subdomain = str(getattr(request, "subdomain", "") or "").strip()
+            language = getattr(request, "language", "ms")
+            language = getattr(language, "value", language) or "ms"
+            try:
+                biz_type = get_design_type(
+                    detect_business_type(request.description), request.description
+                )
+            except Exception:
+                biz_type = "general"
+
+            meta = SeoMeta(
+                business_name=request.business_name or "",
+                description=request.description or "",
+                subdomain=subdomain,
+                site_url=f"https://{subdomain}.binaapp.my" if subdomain else "",
+                hero_image=str((image_urls or {}).get("hero") or ""),
+                address=str(getattr(request, "location_address", "") or ""),
+                phone=self._normalize_wa_digits(
+                    getattr(request, "whatsapp_number", None)
+                ),
+                language=language,
+                business_type=biz_type,
+                menu_items=self._normalize_supplied_menu_items(
+                    getattr(request, "menu_items", None)
+                ),
+                operating_hours=operating_hours or [],
+            )
+            out = inject_seo_metadata(html, meta)
+            if out != html:
+                logger.info(
+                    f"🔎 SEO metadata injected (og + json-ld, type={biz_type})"
+                )
+            return out
+        except Exception as err:
+            logger.warning(f"⚠️ SEO metadata injection failed: {err}")
+            return html
 
     async def _validate_and_repair(
         self,
@@ -7198,6 +7282,19 @@ IMPORTANT RULES:
                             template_html = self._sanitize_sensitive_claims(
                                 template_html, request, image_urls
                             )
+                            # Same SEO metadata as the AI path. This path has
+                            # STRUCTURED hours from the copywriting JSON, so
+                            # its JSON-LD also carries
+                            # openingHoursSpecification — including both
+                            # blocks of a Friday prayer-time split.
+                            template_html = self._inject_seo_metadata(
+                                template_html,
+                                request,
+                                image_urls,
+                                operating_hours=getattr(
+                                    self, "_last_template_hours", []
+                                ),
+                            )
 
                         total_time = time.time() - start_time
                         logger.info(f"✅ PRE-BUILT TEMPLATE PIPELINE COMPLETE in {total_time:.1f}s")
@@ -7699,6 +7796,11 @@ IMPORTANT INSTRUCTIONS:
             # converge, so BOTH providers' output is sanitized (the prompt
             # rules exist only on the GLM side).
             html = self._sanitize_sensitive_claims(html, request, image_urls)
+            # SEO / social metadata, emitted deterministically from data the
+            # pipeline already has. Malaysian SMEs share by pasting the link
+            # into WhatsApp; with no OG tags that renders as a bare URL.
+            # Runs BEFORE validation so its metadata warnings reflect reality.
+            html = self._inject_seo_metadata(html, request, image_urls)
 
         # POST-GENERATION VALIDATION — compares the OUTPUT against the merchant's
         # INPUT. Errors get exactly one repair attempt before being surfaced;
