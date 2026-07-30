@@ -26,6 +26,7 @@ from app.services.widget_catalogue import (
 from app.services.claim_sanitizer import (
     sanitize_sensitive_claims,
     sanitize_sensitive_claims_traced,
+    sensitive_claim_patterns,
 )
 from app.services.generation_validator import (
     ValidationResult,
@@ -4046,6 +4047,47 @@ LIGHT MODE STYLING:
                 f"or fa-signal or fa-sim-card, delivery → fa-truck, quality → fa-award)."
             )
 
+        # ---- MERCHANT-STATED TRUST SIGNALS (AFFIRMATIVE CARVE-OUT) ----
+        # The prohibition on inventing halal/certification claims is correct and
+        # stays. The defect was over-compliance: the ban is stated prominently
+        # and repeatedly while the permission ("only if present in the data")
+        # is a subordinate clause, so the model dropped halal even when the
+        # merchant said their premises are JAKIM-registered. For a Malay F&B
+        # site that is the highest-value trust signal on the page.
+        #
+        # So when a regulated claim IS in the merchant's own data, say so
+        # affirmatively — the same source-of-truth test the deterministic
+        # sanitizer applies afterwards, so prompt and sanitizer agree.
+        trust_signals_block = ""
+        try:
+            _claim_sources = " ".join(filter(None, [
+                name, desc, str(location_address or ""),
+                " ".join(i["name"] for i in self._normalize_supplied_menu_items(menu_items)),
+            ])).lower()
+            _stated = []
+            for _entry in sensitive_claim_patterns():
+                if _entry.get("verify") == "year":
+                    continue  # years are handled by the no-invention rule
+                try:
+                    if re.search(_entry["pattern"], _claim_sources, re.IGNORECASE):
+                        _stated.append(_entry["label"])
+                except re.error:
+                    continue
+            if _stated:
+                _labels = ", ".join(sorted(set(_stated)))
+                trust_signals_block = f"""===== MERCHANT-STATED TRUST SIGNALS (INCLUDE THESE) =====
+The merchant's own business data states the following: {_labels}.
+- You MUST surface this on the page — it is provided data, NOT an invention,
+  and the general rule against inventing certifications does NOT apply to it.
+- Render it exactly as the merchant stated it. Do NOT upgrade or embellish it
+  (a stated "premis berdaftar JAKIM" must not become "JAKIM Certified"), and
+  do NOT add any certification, authority, or logo the merchant did not state.
+- Place it where a customer will see it: a hero badge, the about section, or
+  the contact/footer area."""
+                logger.info(f"🕌 Merchant-stated trust signals included: {_labels}")
+        except Exception as _ts_err:
+            logger.warning(f"⚠️ Trust-signal detection failed: {_ts_err}")
+
         # ---- MERCHANT MENU DATA (SOURCE OF TRUTH) ----
         # Deliberately independent of the image slots. The old pipeline only
         # ever told the model about items that happened to have a generated
@@ -4196,6 +4238,18 @@ STAT / NUMBERS ROWS (hero mini-stats, stats bar) MUST NEVER OVERLAP:
 - Stat labels use a small size (text-xs md:text-sm); Malay words are long ("Berpatutan", "Perkhidmatan") — the label must wrap inside its own column, never collide with the neighbouring one.
 - Prefer: <div class="grid grid-cols-3 gap-4"><div class="min-w-0 text-center"><div class="text-2xl md:text-3xl font-bold">…</div><div class="text-xs md:text-sm break-words">Label</div></div>…</div>
 
+STAT / BADGE NUMBERS MUST BE REAL (NON-NEGOTIABLE):
+- EVERY number in a stat block, badge, or headline must come from the business data above. If it was not supplied, it does not go on the page.
+- FORBIDDEN unless supplied: years in business ("15+ Tahun", "Sejak 2010"), customer/order counts ("1000+ Pelanggan"), ratings and review counts ("4.9★", "200 ulasan"), awards, staff counts, delivery times.
+- NEVER pad a fixed-slot layout with a filler metric. Counting things already visible on the page is padding — "2 Signature Lauk", "4 Menu Pilihan", "3 Perkhidmatan" are all FORBIDDEN.
+- If you cannot fill a 3-up stat row from real data, RENDER FEWER CELLS (two, or one) or omit the row entirely. A 2-column grid of real facts beats a 3-column grid with one invented number.
+- Safe non-numeric stat labels when little data exists: "Masakan Rumah", "Tempahan WhatsApp", "Halal" (only if stated) — descriptive, not quantified.
+
+RELATIONSHIPS AND PROVENANCE MUST BE EXACT:
+- Copy family relationships, origins and history EXACTLY as the business data states them. Do NOT substitute a different relative or a warmer-sounding one: "resipi arwah ibu" (late mother) must never become "nenek" (grandmother), "warisan keluarga", or "resipi turun-temurun".
+- Do NOT invent a founding story, a generation count, a hometown, or a family lineage that was not provided.
+- Describe a dish only as the data describes it. Do NOT assert a flavour profile, cooking method, spice level or ingredient list you were not given — "gulai nangka" is not "asam manis" unless the data says so. When unsure, write an appetising line that makes no factual claim.
+
 CARDS MUST STAY READABLE EVEN IF AN IMAGE FAILS:
 - Every card has its own solid surface background and padding. Never place text directly on an image without a background layer.
 - If a card image fails to load, the card must remain legible — real text colour on the surface, never white text on a white background.
@@ -4225,6 +4279,8 @@ FOOTER:
 {style_note}
 
 {_hero_blueprint}
+
+{trust_signals_block}
 
 {menu_data_block}
 
@@ -4317,6 +4373,14 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         "These may appear ONLY if the exact claim is present in the provided "
         "business data. If a detail was not provided, omit that content "
         "rather than fabricate it.\n"
+        "4b. NEVER pad a fixed-slot layout with an invented metric. Every "
+        "number in a stat block or badge must come from the supplied data; "
+        "counting things already on the page ('2 Signature Lauk', '4 Menu "
+        "Pilihan') is padding and is forbidden. If a 3-up stat row cannot be "
+        "filled from real data, render fewer cells or omit the row. Copy "
+        "family relationships and provenance EXACTLY as supplied (a 'late "
+        "mother' recipe must not become a grandmother's), and never assert a "
+        "flavour profile, cooking method or ingredient you were not given.\n"
     )
     # Rule 5, images-available branch: the PHOTO_SLOT contract. GLM outputs
     # PHOTO_SLOT_N tokens which _replace_photo_slots() then binds to the real
@@ -5825,7 +5889,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"❌ Failed to load template {template_filename}: {e}")
             return None
 
-    async def _generate_content_only(
+    def _build_content_only_prompt(
         self,
         business_name: str,
         description: str,
@@ -5834,10 +5898,12 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         operating_hours: list,
         language: str = "ms",
         menu_items: list = None,
-    ) -> Optional[dict]:
-        """
-        Ask AI to generate ONLY text content for the website, returned as JSON.
-        The AI does NOT generate any HTML, CSS, or design — only copywriting.
+    ) -> str:
+        """Build the copywriting-JSON prompt for the pre-built template path.
+
+        Split out of _generate_content_only so the prompt is a pure function
+        and directly testable — the split-hours contract in particular needs
+        a test, and it previously lived inside a method that makes an API call.
         """
         lang_name = "Bahasa Malaysia" if language == "ms" else "English"
 
@@ -5862,8 +5928,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             for h in operating_hours:
                 if isinstance(h, dict):
                     days = h.get("days", h.get("day", ""))
-                    hrs = h.get("hours", h.get("time", ""))
-                    hours_lines.append(f"  - {days}: {hrs}")
+                    # A day may carry MULTIPLE ranges (Friday Jumaat closure).
+                    # Flattening them here is how the split got lost before.
+                    hrs = self._format_hour_ranges(
+                        h.get("hours", h.get("time", ""))
+                    ).replace("<br>", ", ")
+                    note = str(h.get("note", "") or "").strip()
+                    line = f"  - {days}: {hrs}"
+                    if note:
+                        line += f" ({note})"
+                    hours_lines.append(line)
                 elif isinstance(h, str):
                     hours_lines.append(f"  - {h}")
             hours_context = "Operating hours:\n" + "\n".join(hours_lines)
@@ -5903,8 +5977,9 @@ Return this EXACT JSON structure:
     "footer_description": "Short footer tagline",
     "operating_hours": [
         {{
-            "days": "Day range (e.g., Isnin - Jumaat)",
-            "hours": "Time range (e.g., 10:00 AM - 10:00 PM)"
+            "days": "Day range (e.g., Isnin - Khamis)",
+            "hours": "Time range (e.g., 10:00 AM - 10:00 PM), OR a LIST of ranges for a split day (e.g., [\"7:00 pagi - 12:00 tgh\", \"2:30 petang - 4:00 petang\"])",
+            "note": "Optional short note for that day (e.g., 'Rehat solat Jumaat'). Omit when there is none."
         }}
     ]
 }}
@@ -5917,7 +5992,38 @@ IMPORTANT RULES:
 - If menu items were provided, use their exact names and prices
 - Generate 4-6 menu items if none were provided
 - Generate 2-3 operating hours entries if none were provided
+- SPLIT HOURS: if a day has more than one opening block (very common in
+  Malaysia — a Friday break for solat Jumaat), you MUST return that day's
+  "hours" as a LIST of ranges and keep BOTH blocks. NEVER collapse a split
+  day into a single range or a vague phrase like "pagi hingga petang", and
+  never silently drop the closure. Put the reason in "note" if given.
+- Never invent a closure, a rest period, or a day off that was not provided.
 """
+        return prompt
+
+    async def _generate_content_only(
+        self,
+        business_name: str,
+        description: str,
+        phone: str,
+        address: str,
+        operating_hours: list,
+        language: str = "ms",
+        menu_items: list = None,
+    ) -> Optional[dict]:
+        """
+        Ask AI to generate ONLY text content for the website, returned as JSON.
+        The AI does NOT generate any HTML, CSS, or design — only copywriting.
+        """
+        prompt = self._build_content_only_prompt(
+            business_name=business_name,
+            description=description,
+            phone=phone,
+            address=address,
+            operating_hours=operating_hours,
+            language=language,
+            menu_items=menu_items,
+        )
 
         # Try DeepSeek first, then Qwen as fallback
         response = await self._call_deepseek(prompt, temperature=0.3)
@@ -6088,14 +6194,22 @@ IMPORTANT RULES:
 
         items_html = []
         for h in hours:
+            note = ""
             if isinstance(h, dict):
                 days = h.get("days", h.get("day", ""))
                 hrs = h.get("hours", h.get("time", ""))
+                note = str(h.get("note", "") or "").strip()
             elif isinstance(h, str):
                 days = h
                 hrs = ""
             else:
                 continue
+            # SPLIT HOURS: a day may carry MULTIPLE ranges. Friday closures for
+            # Jumaat prayers are near-universal in Malay F&B, and the previous
+            # single-string model had nowhere to put the second range — the
+            # generator collapsed "7:00-12:00, 14:30-16:00" into one vague
+            # phrase. Each range now renders on its own line.
+            hrs = self._format_hour_ranges(hrs)
 
             if is_dark:
                 if "aurora" in (template_id or ""):
@@ -6122,14 +6236,48 @@ IMPORTANT RULES:
                     accent = "text-[#3B82F6]"
                 border = "border-gray-200"
 
+            _note_html = (
+                f'<div class="text-sm opacity-70 mt-1">{note}</div>' if note else ""
+            )
             items_html.append(
-                f'<li class="flex justify-between items-center pb-4 border-b {border}">'
-                f'<span class="text-lg">{days}</span>'
-                f'<span class="{accent} font-bold">{hrs}</span>'
+                f'<li class="flex justify-between items-start gap-4 pb-4 border-b {border}">'
+                f'<span class="text-lg min-w-0">{days}</span>'
+                f'<span class="{accent} font-bold text-right min-w-0">{hrs}{_note_html}</span>'
                 f'</li>'
             )
 
         return "\n                            ".join(items_html)
+
+    @staticmethod
+    def _format_hour_ranges(hrs) -> str:
+        """Render one day's opening hours, which may be MULTIPLE ranges.
+
+        Accepts a plain string ("7:00 - 16:00"), a list of ranges
+        (["7:00 - 12:00", "14:30 - 16:00"]), or a list of dicts with
+        open/close keys. Multiple ranges each get their own line so a Friday
+        prayer-time closure stays legible instead of being flattened.
+        """
+        if hrs is None:
+            return ""
+        if isinstance(hrs, str):
+            return hrs.strip()
+        if isinstance(hrs, dict):
+            _o, _c = hrs.get("open", ""), hrs.get("close", "")
+            return f"{_o} - {_c}".strip(" -") if (_o or _c) else ""
+        if isinstance(hrs, (list, tuple)):
+            parts = []
+            for item in hrs:
+                if isinstance(item, str) and item.strip():
+                    parts.append(item.strip())
+                elif isinstance(item, dict):
+                    _o, _c = item.get("open", ""), item.get("close", "")
+                    joined = f"{_o} - {_c}".strip(" -")
+                    if joined:
+                        parts.append(joined)
+            if not parts:
+                return ""
+            return "<br>".join(parts)
+        return str(hrs)
 
     def _wrap_words_fly(self, text: str) -> str:
         """Wrap each word in <span class='fly-word'> for the word explosion template."""
