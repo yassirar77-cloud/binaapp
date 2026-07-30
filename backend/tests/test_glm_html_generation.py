@@ -312,6 +312,11 @@ def _make_request():
     )
 
 
+from app.services.generation_validator import ValidationResult
+
+_PASSING_VALIDATION = ValidationResult()
+
+
 def _neutralize_post_processing(service):
     """Stub the deterministic post-HTML steps so chain tests stay fast and
     assert only the provider-ordering behaviour."""
@@ -321,6 +326,11 @@ def _neutralize_post_processing(service):
     service._fix_menu_item_images = MagicMock(side_effect=lambda html, *a, **k: html)
     service._generate_ai_food_images = AsyncMock(side_effect=lambda html, **k: (html, 0))
     service._fix_broken_image_urls = MagicMock(side_effect=lambda html, *a, **k: html)
+    # Validation is post-processing too: it can trigger a repair call,
+    # which would otherwise look like a fallback-chain DeepSeek hit.
+    service._validate_and_repair = AsyncMock(
+        side_effect=lambda html, request, **k: (html, _PASSING_VALIDATION)
+    )
 
 
 class TestGlmFallbackChain:

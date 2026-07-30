@@ -230,6 +230,12 @@ class AIGenerationResponse(BaseModel):
     # Step-by-step timing breakdown for the generation pipeline — used to
     # identify bottlenecks in production (see Bug 3 diagnostic instrumentation).
     step_timings: Dict[str, float] = {}
+    # Post-generation validation result (generation_validator). validation_ok
+    # False means the output contradicts the merchant's own brief — callers
+    # MUST fail closed and surface validation_errors rather than publishing.
+    validation_ok: bool = True
+    validation_errors: List[str] = []
+    validation_warnings: List[str] = []
 
 
 # Publishing Schemas

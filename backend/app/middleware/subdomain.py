@@ -365,7 +365,23 @@ _CONTACT_SLOT_FALLBACK_SCRIPT = '''
   function run(){
     var slot = document.getElementById('binaapp-contact-slot');
     if(!slot) return;
-    if(slot.querySelector('*')) return; // widget already injected — leave it
+    // Static fallback content (data-binaapp-fallback) is emitted INSIDE the
+    // slot by the generator so the page never shows a blank box, even with
+    // JS disabled. It must not be mistaken for an injected widget: when a
+    // real widget arrives alongside it, drop the fallback; when the slot
+    // holds only fallback content, leave it — it is doing its job.
+    var fallbacks = slot.querySelectorAll('[data-binaapp-fallback]');
+    var realChildren = 0;
+    for(var i = 0; i < slot.children.length; i++){
+      if(!slot.children[i].hasAttribute('data-binaapp-fallback')) realChildren++;
+    }
+    if(realChildren > 0){
+      for(var j = 0; j < fallbacks.length; j++){
+        if(fallbacks[j].parentNode) fallbacks[j].parentNode.removeChild(fallbacks[j]);
+      }
+      return; // widget injected — fallback cleared
+    }
+    if(fallbacks.length) return; // static fallback is present and visible
     var waLink = document.querySelector('a[href*="wa.me/"]');
     if(waLink){
       var href = waLink.getAttribute('href');

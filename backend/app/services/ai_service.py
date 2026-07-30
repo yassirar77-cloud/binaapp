@@ -23,7 +23,18 @@ from app.services.widget_catalogue import (
     widgets_for_request,
     build_prompt_context_block,
 )
-from app.services.claim_sanitizer import sanitize_sensitive_claims
+from app.services.claim_sanitizer import (
+    sanitize_sensitive_claims,
+    sanitize_sensitive_claims_traced,
+    sensitive_claim_patterns,
+)
+from app.services.seo_metadata import SeoMeta, inject_seo_metadata
+from app.services.layout_guard_audit import firing_guards
+from app.services.generation_validator import (
+    ValidationResult,
+    brief_from_request,
+    validate_generated_site,
+)
 from difflib import SequenceMatcher
 import cloudinary
 import cloudinary.uploader
@@ -240,17 +251,29 @@ def _timed_step(step_name: str, timings: Dict[str, float]):
 _THEME_PRIMARY_PATTERNS = [
     re.compile(r"--primary-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
     re.compile(r"--primary\s*:\s*(#[0-9a-fA-F]{3,8})"),
-    re.compile(r"primary\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
+    # Tailwind config form. The KEY is itself quoted in the emitted config
+    # ("'primary': '#B91C1C'"), so the closing quote must be optional —
+    # without it this never matched and every widget fell back to the
+    # neutral grey instead of the site's own colour.
+    re.compile(r"['\"]?primary['\"]?\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
 ]
 _THEME_SECONDARY_PATTERNS = [
     re.compile(r"--secondary-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
     re.compile(r"--secondary\s*:\s*(#[0-9a-fA-F]{3,8})"),
-    re.compile(r"secondary\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
+    # Tailwind config form. The KEY is itself quoted in the emitted config
+    # ("'secondary': '#B91C1C'"), so the closing quote must be optional —
+    # without it this never matched and every widget fell back to the
+    # neutral grey instead of the site's own colour.
+    re.compile(r"['\"]?secondary['\"]?\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
 ]
 _THEME_ACCENT_PATTERNS = [
     re.compile(r"--accent-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
     re.compile(r"--accent\s*:\s*(#[0-9a-fA-F]{3,8})"),
-    re.compile(r"accent\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
+    # Tailwind config form. The KEY is itself quoted in the emitted config
+    # ("'accent': '#B91C1C'"), so the closing quote must be optional —
+    # without it this never matched and every widget fell back to the
+    # neutral grey instead of the site's own colour.
+    re.compile(r"['\"]?accent['\"]?\s*:\s*['\"](#[0-9a-fA-F]{3,8})['\"]"),
 ]
 _THEME_SURFACE_PATTERNS = [
     re.compile(r"--surface-color\s*:\s*(#[0-9a-fA-F]{3,8})"),
@@ -738,6 +761,11 @@ class AIService:
         self.qwen_base_url = os.getenv("QWEN_BASE_URL", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1")
         self.deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
         self.deepseek_base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+        # Sanitizer trace from the most recent generation — consumed by the
+        # post-generation validator (a bare deletion is a blocking error).
+        self._last_sanitizer_trace: List[Dict[str, str]] = []
+        # Structured operating hours from the template copywriting pass.
+        self._last_template_hours: list = []
         self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
         self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-v4-pro")
         # GLM / Z.ai — primary HTML generator when USE_GLM_FOR_HTML is on.
@@ -4035,6 +4063,47 @@ LIGHT MODE STYLING:
                 f"or fa-signal or fa-sim-card, delivery → fa-truck, quality → fa-award)."
             )
 
+        # ---- MERCHANT-STATED TRUST SIGNALS (AFFIRMATIVE CARVE-OUT) ----
+        # The prohibition on inventing halal/certification claims is correct and
+        # stays. The defect was over-compliance: the ban is stated prominently
+        # and repeatedly while the permission ("only if present in the data")
+        # is a subordinate clause, so the model dropped halal even when the
+        # merchant said their premises are JAKIM-registered. For a Malay F&B
+        # site that is the highest-value trust signal on the page.
+        #
+        # So when a regulated claim IS in the merchant's own data, say so
+        # affirmatively — the same source-of-truth test the deterministic
+        # sanitizer applies afterwards, so prompt and sanitizer agree.
+        trust_signals_block = ""
+        try:
+            _claim_sources = " ".join(filter(None, [
+                name, desc, str(location_address or ""),
+                " ".join(i["name"] for i in self._normalize_supplied_menu_items(menu_items)),
+            ])).lower()
+            _stated = []
+            for _entry in sensitive_claim_patterns():
+                if _entry.get("verify") == "year":
+                    continue  # years are handled by the no-invention rule
+                try:
+                    if re.search(_entry["pattern"], _claim_sources, re.IGNORECASE):
+                        _stated.append(_entry["label"])
+                except re.error:
+                    continue
+            if _stated:
+                _labels = ", ".join(sorted(set(_stated)))
+                trust_signals_block = f"""===== MERCHANT-STATED TRUST SIGNALS (INCLUDE THESE) =====
+The merchant's own business data states the following: {_labels}.
+- You MUST surface this on the page — it is provided data, NOT an invention,
+  and the general rule against inventing certifications does NOT apply to it.
+- Render it exactly as the merchant stated it. Do NOT upgrade or embellish it
+  (a stated "premis berdaftar JAKIM" must not become "JAKIM Certified"), and
+  do NOT add any certification, authority, or logo the merchant did not state.
+- Place it where a customer will see it: a hero badge, the about section, or
+  the contact/footer area."""
+                logger.info(f"🕌 Merchant-stated trust signals included: {_labels}")
+        except Exception as _ts_err:
+            logger.warning(f"⚠️ Trust-signal detection failed: {_ts_err}")
+
         # ---- MERCHANT MENU DATA (SOURCE OF TRUTH) ----
         # Deliberately independent of the image slots. The old pipeline only
         # ever told the model about items that happened to have a generated
@@ -4114,7 +4183,8 @@ The merchant did NOT provide {_noun} items, and none could be read from the desc
 {hero_variant}
 
 HERO BLUEPRINT RULES:
-- Replace EVERY ALL-CAPS placeholder token (BUSINESS_NAME, TAGLINE, TAGLINE_KICKER, HERO_IMAGE_URL, WHATSAPP_LINK, VIEW_MENU_CTA, SIGNATURE_DISH_NAME, ...) with real content for this business.
+- Replace EVERY ALL-CAPS placeholder token (BUSINESS_NAME, TAGLINE, TAGLINE_KICKER, HERO_IMAGE_URL, HERO_ALT_TEXT, WHATSAPP_LINK, VIEW_MENU_CTA, SIGNATURE_DISH_NAME, ...) with real content for this business.
+- HERO_ALT_TEXT = a short factual description of what the hero photo shows for this business (e.g. "Hidangan nasi campur di kaunter"). Never the literal word "Hero".
 - HERO_IMAGE_URL = the exact hero image URL from the IMAGE section of this prompt.
 - Drop optional decorative sub-elements (floating cards, kickers) if you have no real content for them — never ship a placeholder.
 """
@@ -4185,6 +4255,29 @@ STAT / NUMBERS ROWS (hero mini-stats, stats bar) MUST NEVER OVERLAP:
 - Stat labels use a small size (text-xs md:text-sm); Malay words are long ("Berpatutan", "Perkhidmatan") — the label must wrap inside its own column, never collide with the neighbouring one.
 - Prefer: <div class="grid grid-cols-3 gap-4"><div class="min-w-0 text-center"><div class="text-2xl md:text-3xl font-bold">…</div><div class="text-xs md:text-sm break-words">Label</div></div>…</div>
 
+STAT / BADGE NUMBERS MUST BE REAL (NON-NEGOTIABLE):
+- EVERY number in a stat block, badge, or headline must come from the business data above. If it was not supplied, it does not go on the page.
+- FORBIDDEN unless supplied: years in business ("15+ Tahun", "Sejak 2010"), customer/order counts ("1000+ Pelanggan"), ratings and review counts ("4.9★", "200 ulasan"), awards, staff counts, delivery times.
+- NEVER pad a fixed-slot layout with a filler metric. Counting things already visible on the page is padding — "2 Signature Lauk", "4 Menu Pilihan", "3 Perkhidmatan" are all FORBIDDEN.
+- If you cannot fill a 3-up stat row from real data, RENDER FEWER CELLS (two, or one) or omit the row entirely. A 2-column grid of real facts beats a 3-column grid with one invented number.
+- Safe non-numeric stat labels when little data exists: "Masakan Rumah", "Tempahan WhatsApp", "Halal" (only if stated) — descriptive, not quantified.
+
+RELATIONSHIPS AND PROVENANCE MUST BE EXACT:
+- Copy family relationships, origins and history EXACTLY as the business data states them. Do NOT substitute a different relative or a warmer-sounding one: "resipi arwah ibu" (late mother) must never become "nenek" (grandmother), "warisan keluarga", or "resipi turun-temurun".
+- Do NOT invent a founding story, a generation count, a hometown, or a family lineage that was not provided.
+- Describe a dish only as the data describes it. Do NOT assert a flavour profile, cooking method, spice level or ingredient list you were not given — "gulai nangka" is not "asam manis" unless the data says so. When unsure, write an appetising line that makes no factual claim.
+
+IMAGE ALT TEXT (accessibility + SEO):
+- EVERY <img> needs a descriptive alt describing what the photo SHOWS.
+- A menu/product card's alt is that item's real name, optionally with context ("Nasi Campur Biasa"), never a generic label and never a made-up product.
+- Purely decorative images use alt="" (empty), never a filler word.
+- FORBIDDEN alt values: "Hero", "Image", "Photo", "Gambar", "img", the file name, or a placeholder token.
+
+IMAGE REUSE — EACH PHOTO APPEARS ONCE:
+- Hero, about/story, and every menu/product/gallery card draw from ONE shared pool of the exact URLs listed in the image section.
+- Use each URL AT MOST ONCE on the entire page. The hero image is for the page header ONLY — never reuse it in an about section or as a menu card.
+- If a section (about image, gallery, portfolio) has no UNUSED image left, OMIT that image or the whole section. Repeating a photo reads as broken; a text-only about section does not.
+
 CARDS MUST STAY READABLE EVEN IF AN IMAGE FAILS:
 - Every card has its own solid surface background and padding. Never place text directly on an image without a background layer.
 - If a card image fails to load, the card must remain legible — real text colour on the surface, never white text on a white background.
@@ -4214,6 +4307,8 @@ FOOTER:
 {style_note}
 
 {_hero_blueprint}
+
+{trust_signals_block}
 
 {menu_data_block}
 
@@ -4306,6 +4401,14 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         "These may appear ONLY if the exact claim is present in the provided "
         "business data. If a detail was not provided, omit that content "
         "rather than fabricate it.\n"
+        "4b. NEVER pad a fixed-slot layout with an invented metric. Every "
+        "number in a stat block or badge must come from the supplied data; "
+        "counting things already on the page ('2 Signature Lauk', '4 Menu "
+        "Pilihan') is padding and is forbidden. If a 3-up stat row cannot be "
+        "filled from real data, render fewer cells or omit the row. Copy "
+        "family relationships and provenance EXACTLY as supplied (a 'late "
+        "mother' recipe must not become a grandmother's), and never assert a "
+        "flavour profile, cooking method or ingredient you were not given.\n"
     )
     # Rule 5, images-available branch: the PHOTO_SLOT contract. GLM outputs
     # PHOTO_SLOT_N tokens which _replace_photo_slots() then binds to the real
@@ -5814,7 +5917,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"❌ Failed to load template {template_filename}: {e}")
             return None
 
-    async def _generate_content_only(
+    def _build_content_only_prompt(
         self,
         business_name: str,
         description: str,
@@ -5823,10 +5926,12 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         operating_hours: list,
         language: str = "ms",
         menu_items: list = None,
-    ) -> Optional[dict]:
-        """
-        Ask AI to generate ONLY text content for the website, returned as JSON.
-        The AI does NOT generate any HTML, CSS, or design — only copywriting.
+    ) -> str:
+        """Build the copywriting-JSON prompt for the pre-built template path.
+
+        Split out of _generate_content_only so the prompt is a pure function
+        and directly testable — the split-hours contract in particular needs
+        a test, and it previously lived inside a method that makes an API call.
         """
         lang_name = "Bahasa Malaysia" if language == "ms" else "English"
 
@@ -5851,8 +5956,16 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             for h in operating_hours:
                 if isinstance(h, dict):
                     days = h.get("days", h.get("day", ""))
-                    hrs = h.get("hours", h.get("time", ""))
-                    hours_lines.append(f"  - {days}: {hrs}")
+                    # A day may carry MULTIPLE ranges (Friday Jumaat closure).
+                    # Flattening them here is how the split got lost before.
+                    hrs = self._format_hour_ranges(
+                        h.get("hours", h.get("time", ""))
+                    ).replace("<br>", ", ")
+                    note = str(h.get("note", "") or "").strip()
+                    line = f"  - {days}: {hrs}"
+                    if note:
+                        line += f" ({note})"
+                    hours_lines.append(line)
                 elif isinstance(h, str):
                     hours_lines.append(f"  - {h}")
             hours_context = "Operating hours:\n" + "\n".join(hours_lines)
@@ -5892,8 +6005,9 @@ Return this EXACT JSON structure:
     "footer_description": "Short footer tagline",
     "operating_hours": [
         {{
-            "days": "Day range (e.g., Isnin - Jumaat)",
-            "hours": "Time range (e.g., 10:00 AM - 10:00 PM)"
+            "days": "Day range (e.g., Isnin - Khamis)",
+            "hours": "Time range (e.g., 10:00 AM - 10:00 PM), OR a LIST of ranges for a split day (e.g., [\"7:00 pagi - 12:00 tgh\", \"2:30 petang - 4:00 petang\"])",
+            "note": "Optional short note for that day (e.g., 'Rehat solat Jumaat'). Omit when there is none."
         }}
     ]
 }}
@@ -5906,7 +6020,38 @@ IMPORTANT RULES:
 - If menu items were provided, use their exact names and prices
 - Generate 4-6 menu items if none were provided
 - Generate 2-3 operating hours entries if none were provided
+- SPLIT HOURS: if a day has more than one opening block (very common in
+  Malaysia — a Friday break for solat Jumaat), you MUST return that day's
+  "hours" as a LIST of ranges and keep BOTH blocks. NEVER collapse a split
+  day into a single range or a vague phrase like "pagi hingga petang", and
+  never silently drop the closure. Put the reason in "note" if given.
+- Never invent a closure, a rest period, or a day off that was not provided.
 """
+        return prompt
+
+    async def _generate_content_only(
+        self,
+        business_name: str,
+        description: str,
+        phone: str,
+        address: str,
+        operating_hours: list,
+        language: str = "ms",
+        menu_items: list = None,
+    ) -> Optional[dict]:
+        """
+        Ask AI to generate ONLY text content for the website, returned as JSON.
+        The AI does NOT generate any HTML, CSS, or design — only copywriting.
+        """
+        prompt = self._build_content_only_prompt(
+            business_name=business_name,
+            description=description,
+            phone=phone,
+            address=address,
+            operating_hours=operating_hours,
+            language=language,
+            menu_items=menu_items,
+        )
 
         # Try DeepSeek first, then Qwen as fallback
         response = await self._call_deepseek(prompt, temperature=0.3)
@@ -6077,14 +6222,22 @@ IMPORTANT RULES:
 
         items_html = []
         for h in hours:
+            note = ""
             if isinstance(h, dict):
                 days = h.get("days", h.get("day", ""))
                 hrs = h.get("hours", h.get("time", ""))
+                note = str(h.get("note", "") or "").strip()
             elif isinstance(h, str):
                 days = h
                 hrs = ""
             else:
                 continue
+            # SPLIT HOURS: a day may carry MULTIPLE ranges. Friday closures for
+            # Jumaat prayers are near-universal in Malay F&B, and the previous
+            # single-string model had nowhere to put the second range — the
+            # generator collapsed "7:00-12:00, 14:30-16:00" into one vague
+            # phrase. Each range now renders on its own line.
+            hrs = self._format_hour_ranges(hrs)
 
             if is_dark:
                 if "aurora" in (template_id or ""):
@@ -6111,14 +6264,48 @@ IMPORTANT RULES:
                     accent = "text-[#3B82F6]"
                 border = "border-gray-200"
 
+            _note_html = (
+                f'<div class="text-sm opacity-70 mt-1">{note}</div>' if note else ""
+            )
             items_html.append(
-                f'<li class="flex justify-between items-center pb-4 border-b {border}">'
-                f'<span class="text-lg">{days}</span>'
-                f'<span class="{accent} font-bold">{hrs}</span>'
+                f'<li class="flex justify-between items-start gap-4 pb-4 border-b {border}">'
+                f'<span class="text-lg min-w-0">{days}</span>'
+                f'<span class="{accent} font-bold text-right min-w-0">{hrs}{_note_html}</span>'
                 f'</li>'
             )
 
         return "\n                            ".join(items_html)
+
+    @staticmethod
+    def _format_hour_ranges(hrs) -> str:
+        """Render one day's opening hours, which may be MULTIPLE ranges.
+
+        Accepts a plain string ("7:00 - 16:00"), a list of ranges
+        (["7:00 - 12:00", "14:30 - 16:00"]), or a list of dicts with
+        open/close keys. Multiple ranges each get their own line so a Friday
+        prayer-time closure stays legible instead of being flattened.
+        """
+        if hrs is None:
+            return ""
+        if isinstance(hrs, str):
+            return hrs.strip()
+        if isinstance(hrs, dict):
+            _o, _c = hrs.get("open", ""), hrs.get("close", "")
+            return f"{_o} - {_c}".strip(" -") if (_o or _c) else ""
+        if isinstance(hrs, (list, tuple)):
+            parts = []
+            for item in hrs:
+                if isinstance(item, str) and item.strip():
+                    parts.append(item.strip())
+                elif isinstance(item, dict):
+                    _o, _c = item.get("open", ""), item.get("close", "")
+                    joined = f"{_o} - {_c}".strip(" -")
+                    if joined:
+                        parts.append(joined)
+            if not parts:
+                return ""
+            return "<br>".join(parts)
+        return str(hrs)
 
     def _wrap_words_fly(self, text: str) -> str:
         """Wrap each word in <span class='fly-word'> for the word explosion template."""
@@ -6237,6 +6424,9 @@ IMPORTANT RULES:
 
         # Step 6: Render operating hours HTML
         op_hours = content.get('operating_hours', [])
+        # Kept for the SEO pass: this is the only path with STRUCTURED hours,
+        # so it is the only one that can emit openingHoursSpecification.
+        self._last_template_hours = op_hours if isinstance(op_hours, list) else []
         content['operating_hours_html'] = self._render_operating_hours_html(op_hours, template_id)
 
         # Step 7: Handle word explosion special placeholders
@@ -6261,6 +6451,160 @@ IMPORTANT RULES:
         return final_html
 
     # ==================== FREE AUTO-FILL (missing image slots) ====================
+
+    def _inject_seo_metadata(
+        self,
+        html: str,
+        request: WebsiteGenerationRequest,
+        image_urls: Optional[Dict] = None,
+        operating_hours: Optional[list] = None,
+    ) -> str:
+        """Add OG/Twitter/description tags and a schema.org JSON-LD block.
+
+        Every field comes from merchant-supplied data or is omitted — a
+        JSON-LD node asserting a fabricated address or price range would be
+        the defect this pipeline was just fixed for, in the machine-readable
+        form search engines actually trust.
+        """
+        if not html:
+            return html
+        try:
+            subdomain = str(getattr(request, "subdomain", "") or "").strip()
+            language = getattr(request, "language", "ms")
+            language = getattr(language, "value", language) or "ms"
+            try:
+                biz_type = get_design_type(
+                    detect_business_type(request.description), request.description
+                )
+            except Exception:
+                biz_type = "general"
+
+            meta = SeoMeta(
+                business_name=request.business_name or "",
+                description=request.description or "",
+                subdomain=subdomain,
+                site_url=f"https://{subdomain}.binaapp.my" if subdomain else "",
+                hero_image=str((image_urls or {}).get("hero") or ""),
+                address=str(getattr(request, "location_address", "") or ""),
+                phone=self._normalize_wa_digits(
+                    getattr(request, "whatsapp_number", None)
+                ),
+                language=language,
+                business_type=biz_type,
+                menu_items=self._normalize_supplied_menu_items(
+                    getattr(request, "menu_items", None)
+                ),
+                operating_hours=operating_hours or [],
+            )
+            out = inject_seo_metadata(html, meta)
+            if out != html:
+                logger.info(
+                    f"🔎 SEO metadata injected (og + json-ld, type={biz_type})"
+                )
+            return out
+        except Exception as err:
+            logger.warning(f"⚠️ SEO metadata injection failed: {err}")
+            return html
+
+    async def _validate_and_repair(
+        self,
+        html: str,
+        request: WebsiteGenerationRequest,
+        prompt: str = "",
+        model: str = "",
+    ) -> Tuple[str, ValidationResult]:
+        """Validate generated HTML against the brief; one repair attempt.
+
+        Returns (html, result). The html returned is the repaired version when
+        the repair cleared the errors, otherwise the original — a repair that
+        does not actually help is discarded rather than shipped.
+
+        Every result is logged WITH the producing model, so after a few weeks
+        of production data the fallback ordering can be tuned on evidence
+        instead of intuition.
+        """
+        brief = brief_from_request(
+            request,
+            sanitizer_removals=getattr(self, "_last_sanitizer_trace", []),
+            model=model,
+        )
+        result = validate_generated_site(html, brief)
+        self._log_validation(result, request)
+
+        if result.ok or not prompt:
+            return html, result
+
+        logger.warning(
+            f"🧪 Validation failed ({len(result.errors)} error(s)) — "
+            f"attempting ONE repair"
+        )
+        repair_prompt = (
+            prompt
+            + "\n\n=== VALIDATION FAILURES — THESE MUST BE FIXED ===\n"
+            + "\n".join(f"- {e}" for e in result.errors)
+            + "\n\nRegenerate the COMPLETE HTML with every failure above fixed. "
+              "Do NOT invent data to satisfy a rule: if a value was not supplied, "
+              "omit that element entirely. Output ONLY HTML."
+        )
+        try:
+            repaired = await self._call_deepseek(
+                repair_prompt, temperature=0.1, model=self.deepseek_model_pro
+            )
+        except Exception as err:
+            logger.error(f"🧪 Validation repair call failed: {err}")
+            return html, result
+
+        if not repaired or "<" not in repaired:
+            logger.error("🧪 Validation repair produced no usable HTML — keeping original")
+            return html, result
+
+        repaired = self._extract_html(repaired)
+        repaired = self._sanitize_sensitive_claims(repaired, request)
+        brief_after = brief_from_request(
+            request,
+            sanitizer_removals=getattr(self, "_last_sanitizer_trace", []),
+            model=model,
+        )
+        after = validate_generated_site(repaired, brief_after)
+        self._log_validation(after, request, attempt="repair")
+
+        if len(after.errors) < len(result.errors):
+            logger.info(
+                f"🧪 Repair improved validation: {len(result.errors)} → "
+                f"{len(after.errors)} error(s)"
+            )
+            return repaired, after
+        logger.warning("🧪 Repair did not improve validation — keeping original HTML")
+        return html, result
+
+    def _log_validation(
+        self,
+        result: ValidationResult,
+        request: WebsiteGenerationRequest,
+        attempt: str = "initial",
+    ) -> None:
+        """One structured line per validation, tagged with the producing model.
+
+        This is the dataset that tells us which link in the GLM → DeepSeek →
+        Qwen chain degrades most; do not make it conditional on failure.
+        """
+        payload = {
+            "event": "generation_validation",
+            "attempt": attempt,
+            "model": result.model or "unknown",
+            "business": getattr(request, "business_name", ""),
+            "ok": result.ok,
+            "error_codes": [e.code for e in result.errors],
+            "warning_codes": [w.code for w in result.warnings],
+        }
+        if result.ok:
+            logger.info(f"🧪 Validation PASSED {payload}")
+        else:
+            logger.error(f"🧪 Validation FAILED {payload}")
+            for err in result.errors:
+                logger.error(f"   ✗ {err}")
+        for warn in result.warnings:
+            logger.info(f"   ⚠ {warn}")
 
     def _sanitize_sensitive_claims(
         self,
@@ -6293,11 +6637,25 @@ IMPORTANT RULES:
         for key, value in (image_urls or {}).items():
             if key.endswith("_name") and value:
                 sources.append(str(value))
-        sanitized, removed = sanitize_sensitive_claims(html, sources)
-        if removed:
+        for item in self._normalize_supplied_menu_items(
+            getattr(request, "menu_items", None)
+        ):
+            sources.append(item["name"])
+            if item.get("description"):
+                sources.append(item["description"])
+
+        _lang = getattr(request, "language", "ms")
+        _lang = getattr(_lang, "value", _lang) or "ms"
+        sanitized, trace = sanitize_sensitive_claims_traced(html, sources, _lang)
+        # The trace is what the post-generation validator asserts on (a bare
+        # deletion is an ERROR), so keep the last one addressable.
+        self._last_sanitizer_trace = trace
+        if trace:
+            _subbed = sum(1 for t in trace if t.get("substitution"))
             logger.info(
-                f"🛡 Sensitive-claim sanitizer removed {len(removed)} "
-                f"unverified claim(s): {removed}"
+                f"🛡 Sensitive-claim sanitizer handled {len(trace)} unverified "
+                f"claim(s) — {_subbed} substituted, {len(trace) - _subbed} removed: "
+                f"{[t['claim'] for t in trace]}"
             )
         return sanitized
 
@@ -6925,6 +7283,19 @@ IMPORTANT RULES:
                             template_html = self._sanitize_sensitive_claims(
                                 template_html, request, image_urls
                             )
+                            # Same SEO metadata as the AI path. This path has
+                            # STRUCTURED hours from the copywriting JSON, so
+                            # its JSON-LD also carries
+                            # openingHoursSpecification — including both
+                            # blocks of a Friday prayer-time split.
+                            template_html = self._inject_seo_metadata(
+                                template_html,
+                                request,
+                                image_urls,
+                                operating_hours=getattr(
+                                    self, "_last_template_hours", []
+                                ),
+                            )
 
                         total_time = time.time() - start_time
                         logger.info(f"✅ PRE-BUILT TEMPLATE PIPELINE COMPLETE in {total_time:.1f}s")
@@ -7153,6 +7524,10 @@ IMPORTANT INSTRUCTIONS:
             # the DeepSeek path below runs completely unchanged. Flipping the
             # env flag off restores pure-DeepSeek behaviour with no deploy.
             html_raw = None
+            # Which model produced the final HTML — recorded on every
+            # validation result so the fallback ordering can be tuned on
+            # real degradation data rather than intuition.
+            _html_model = ""
             if USE_GLM_FOR_HTML and self.zai_api_key:
                 # Image availability picks GLM's prompt mode up front (GLM is
                 # single-shot): with URLs, the PHOTO_SLOT contract; with none,
@@ -7189,6 +7564,7 @@ IMPORTANT INSTRUCTIONS:
                     # contract is enforced (before _extract_html/validation).
                     # No-op in no-photo mode (no tokens to replace).
                     html_raw = self._replace_photo_slots(html_raw, _glm_image_urls)
+                    _html_model = self.zai_model
                     logger.info("🟣 GLM primary path succeeded — skipping DeepSeek")
 
             # DeepSeek primary path — DeepSeek-only as of the
@@ -7203,6 +7579,8 @@ IMPORTANT INSTRUCTIONS:
                     self._call_deepseek(prompt, model=self.deepseek_model_pro),
                     timeout=AI_PRIMARY_TIMEOUT_SECONDS,
                 )
+                if html_raw:
+                    _html_model = self.deepseek_model_pro
 
             if html_raw and self._last_api_call.get("truncated"):
                 api_truncated_provider = self._last_api_call.get("provider")
@@ -7419,6 +7797,32 @@ IMPORTANT INSTRUCTIONS:
             # converge, so BOTH providers' output is sanitized (the prompt
             # rules exist only on the GLM side).
             html = self._sanitize_sensitive_claims(html, request, image_urls)
+            # SEO / social metadata, emitted deterministically from data the
+            # pipeline already has. Malaysian SMEs share by pasting the link
+            # into WhatsApp; with no OG tags that renders as a bare URL.
+            # Runs BEFORE validation so its metadata warnings reflect reality.
+            html = self._inject_seo_metadata(html, request, image_urls)
+
+        # POST-GENERATION VALIDATION — compares the OUTPUT against the merchant's
+        # INPUT. Errors get exactly one repair attempt before being surfaced;
+        # callers fail closed on a result that still has errors.
+        with _timed_step("validation", step_timings):
+            html, validation = await self._validate_and_repair(
+                html, request, prompt=prompt, model=_html_model
+            )
+            # P3 telemetry: which Layout Safety Guard rules still have work to
+            # do on freshly generated HTML. Each firing guard is a generator
+            # defect being patched at serve time; a guard that stops firing
+            # across production traffic is one that can be retired. Logged,
+            # never enforced — this must not change what ships.
+            try:
+                _guards = firing_guards(html)
+                logger.info(
+                    f"🧱 Layout guards that would fire: {_guards or 'none'} "
+                    f"[model={_html_model or 'unknown'}]"
+                )
+            except Exception as _g_err:
+                logger.warning(f"⚠️ Layout guard audit failed: {_g_err}")
 
         total_time = time.time() - start_time
         logger.info("✅ ALL STEPS COMPLETE")
@@ -7443,6 +7847,9 @@ IMPORTANT INSTRUCTIONS:
             sections=["Header", "Hero", "About", "Services", "Gallery", "Contact", "Footer"],
             integrations_included=integrations,
             ai_images_count=ai_images_generated,
+            validation_ok=validation.ok,
+            validation_errors=validation.error_messages(),
+            validation_warnings=[str(w) for w in validation.warnings],
             was_truncated=truncation_flags.get("was_truncated", False),
             truncation_retries=truncation_flags.get("truncation_retries", 0),
             needs_manual_review=truncation_flags.get("needs_manual_review", False),
