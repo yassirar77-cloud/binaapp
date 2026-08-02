@@ -1,8 +1,7 @@
 """Tests for subdomain injection-layer fixes (QR block + contact fallback)."""
 
-from urllib.parse import quote
-
 from app.middleware.subdomain import _build_published_url, _inject_qr_block
+from app.services.qr_service import qr_data_uri
 
 
 def test_published_url_is_real_subdomain_not_preview():
@@ -26,10 +25,17 @@ def test_qr_encodes_real_published_url_not_preview():
 
     # Old preview-URL block is gone.
     assert "preview.binaapp.my" not in out
-    # New block encodes the real published URL (URL-encoded).
-    assert quote("https://ali.binaapp.my", safe="") in out
+    # The served QR is the offline render of the REAL published URL.
+    assert qr_data_uri("https://ali.binaapp.my", scale=6, border=2, dark="#111827") in out
     # Exactly one QR image survives (no stacked blocks).
-    assert out.count("api.qrserver.com") == 1
+    assert out.count("BinaApp QR Block") == 1
+
+
+def test_qr_is_rendered_offline_not_fetched_from_a_third_party():
+    # Every pageview used to hit api.qrserver.com for this image. It must not.
+    out = _inject_qr_block("<footer></footer>", "ali", "ms")
+    assert "api.qrserver.com" not in out
+    assert "data:image/svg+xml;base64," in out
 
 
 def test_qr_block_injected_inside_footer():
@@ -57,7 +63,8 @@ def test_qr_block_idempotent_no_stacking():
     html = "<footer></footer>"
     once = _inject_qr_block(html, "ali", "ms")
     twice = _inject_qr_block(once, "ali", "ms")
-    assert twice.count("api.qrserver.com") == 1
+    assert twice.count("BinaApp QR Block") == 1
+    assert twice.count("data:image/svg+xml;base64,") == 1
 
 
 def test_qr_falls_back_to_body_when_no_footer():

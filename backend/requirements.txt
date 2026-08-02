@@ -43,6 +43,11 @@ aiofiles
 reportlab
 cloudinary==1.36.0
 
+# QR codes (pure Python, no dependencies). Published pages render their
+# footer QR offline instead of loading it from api.qrserver.com, and the
+# QR toolkit endpoints build printable posters from the same encoder.
+segno>=1.6.0
+
 # Templating
 jinja2
 

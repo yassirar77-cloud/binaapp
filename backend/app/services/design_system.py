@@ -26,6 +26,21 @@ def _variant_seed(business_name: str) -> int:
     return int(hashlib.md5(normalized.encode("utf-8")).hexdigest()[:8], 16)
 
 
+def _pick(options: list, seed: int, divisor: int, variant: int = 0):
+    """Seeded pick from `options`, walked forward by `variant` steps.
+
+    `variant` is the "shuffle design" offset. variant=0 reproduces the
+    pre-shuffle pick exactly, so every existing site keeps its look; each
+    increment advances ONE step through this pool. Because it is an offset
+    and not randomness, shuffling three times and reloading still shows
+    shuffle #3 — re-rolls are reproducible and shareable.
+    """
+    if not options:
+        return None
+    index = (seed // divisor + int(variant or 0)) % len(options)
+    return options[index]
+
+
 # ============================================================================
 # FONT PAIRINGS BY BUSINESS TYPE
 # ============================================================================
@@ -1539,16 +1554,21 @@ class DesignSystem:
             "cdn_link": cdn_link,
         }
 
-    def get_font_pairing(self, business_type: str, business_name: str = "") -> dict:
+    def get_font_pairing(
+        self, business_type: str, business_name: str = "", variant: int = 0
+    ) -> dict:
         """Get font pairing for a business type.
 
         With a business_name, the pairing is a deterministic seeded pick from
         this type's pool (variety across businesses, stability per business).
         Without one, the classic pairing is returned (backward compatible).
+        `variant` walks the pick forward for the "shuffle design" re-roll.
         """
         options = self._font_options(business_type)
         if business_name:
-            pairing = options[_variant_seed(business_name) % len(options)]
+            pairing = _pick(options, _variant_seed(business_name), 1, variant)
+        elif variant:
+            pairing = options[int(variant) % len(options)]
         else:
             pairing = options[0]
         return self._build_font_cdn(pairing)
@@ -1559,21 +1579,25 @@ class DesignSystem:
         color_mode: str = "light",
         business_name: str = "",
         color_override: str = None,
+        variant: int = 0,
     ) -> dict:
         """Get color palette for a business type and color mode.
 
         color_override (a NAMED_COLOR_PALETTES key from an explicit user
         request) always wins. Otherwise, business_name gives a seeded pick
         from the type's pool; no name = classic palette (backward compatible).
+        `variant` walks the pick forward for the "shuffle design" re-roll.
         """
         if color_override and color_override in NAMED_COLOR_PALETTES:
             named = NAMED_COLOR_PALETTES[color_override]
             return named.get(color_mode, named["light"])
         options = self._palette_options(business_type)
         if business_name:
-            # Offset by 1 so the palette pick doesn't always pair with the
+            # Divide by 7 so the palette pick doesn't always pair with the
             # same font pick (seed % len would sync when pools match in size).
-            palettes = options[(_variant_seed(business_name) // 7) % len(options)]
+            palettes = _pick(options, _variant_seed(business_name), 7, variant)
+        elif variant:
+            palettes = options[int(variant) % len(options)]
         else:
             palettes = options[0]
         return palettes.get(color_mode, palettes["light"])
@@ -1582,30 +1606,51 @@ class DesignSystem:
         """Get layout template for a business type"""
         return LAYOUT_TEMPLATES.get(business_type, LAYOUT_TEMPLATES["general"])
 
-    def get_hero_variant(self, business_type: str, has_images: bool = True, business_name: str = "") -> str:
+    def get_hero_variant(
+        self,
+        business_type: str,
+        has_images: bool = True,
+        business_name: str = "",
+        variant: int = 0,
+    ) -> str:
         """Get hero section variant for a business type.
 
         With a business_name, a deterministic seeded pick from this type's
         hero pool; without one, the classic hero (backward compatible).
+        `variant` walks the pick forward for the "shuffle design" re-roll.
         """
         if not has_images:
             return HERO_VARIANTS_NO_IMAGES.get(business_type, HERO_VARIANTS_NO_IMAGES["default"])
         options = self._hero_options(business_type)
         if business_name:
-            return options[(_variant_seed(business_name) // 3) % len(options)]
+            return _pick(options, _variant_seed(business_name), 3, variant)
+        if variant:
+            return options[int(variant) % len(options)]
         return options[0]
 
-    def get_personality(self, business_type: str, business_name: str = "", style_hint: str = None) -> dict:
+    def get_personality(
+        self,
+        business_type: str,
+        business_name: str = "",
+        style_hint: str = None,
+        variant: int = 0,
+    ) -> dict:
         """Pick a design personality for this site.
 
         An explicit style hint from the user's description forces the matching
-        personality; otherwise a seeded pick from the type's pool.
+        personality; otherwise a seeded pick from the type's pool, walked
+        forward by `variant` for the "shuffle design" re-roll.
         """
         if style_hint and style_hint in _STYLE_HINT_TO_PERSONALITY:
             key = _STYLE_HINT_TO_PERSONALITY[style_hint]
         else:
             pool = PERSONALITY_POOL.get(business_type, PERSONALITY_POOL["general"])
-            key = pool[(_variant_seed(business_name) // 11) % len(pool)] if business_name else pool[0]
+            if business_name:
+                key = _pick(pool, _variant_seed(business_name), 11, variant)
+            elif variant:
+                key = pool[int(variant) % len(pool)]
+            else:
+                key = pool[0]
         return {"key": key, **DESIGN_PERSONALITIES[key]}
 
     def build(
@@ -1616,6 +1661,9 @@ class DesignSystem:
         description: str = "",
         has_images: bool = True,
         brand_colors: dict = None,
+        variant: int = 0,
+        palette_override: str = None,
+        style_override: str = None,
     ) -> dict:
         """One-call design bundle with internally CONSISTENT picks.
 
@@ -1626,15 +1674,30 @@ class DesignSystem:
         brand_colors: optional dict of explicit hex overrides from the request
         ({"primary": "#RRGGBB", "secondary": ..., "accent": ...}) — the
         strongest override of all (the merchant's actual brand).
+
+        variant: "shuffle design" offset. 0 keeps the business's natural
+        (pre-shuffle) look; each increment re-rolls fonts, palette, hero and
+        personality one step forward, reproducibly.
+
+        palette_override / style_override: explicit picks from the design
+        picker UI. They beat the description sniffing (a merchant who taps
+        "Navy" in the UI means it more than one who typed the word).
         """
         prefs = extract_design_preferences(description)
+        if palette_override and palette_override in NAMED_COLOR_PALETTES:
+            prefs = {**prefs, "color": palette_override}
+        if style_override and style_override in _STYLE_HINT_TO_PERSONALITY:
+            prefs = {**prefs, "style_hint": style_override}
 
-        fonts = self.get_font_pairing(business_type, business_name=business_name)
+        fonts = self.get_font_pairing(
+            business_type, business_name=business_name, variant=variant
+        )
         palette = self.get_color_palette(
             business_type,
             color_mode,
             business_name=business_name,
             color_override=prefs["color"],
+            variant=variant,
         )
 
         # Merchant brand colours (validated hex only) beat every other pick.
@@ -1651,10 +1714,18 @@ class DesignSystem:
                 palette = {**palette, **clean}
                 brand_applied = True
                 logger.info(f"🎨 Merchant brand colours applied: {sorted(clean)}")
-        hero = self.get_hero_variant(business_type, has_images=has_images, business_name=business_name)
+        hero = self.get_hero_variant(
+            business_type,
+            has_images=has_images,
+            business_name=business_name,
+            variant=variant,
+        )
         layout = self.get_layout_template(business_type)
         personality = self.get_personality(
-            business_type, business_name=business_name, style_hint=prefs["style_hint"]
+            business_type,
+            business_name=business_name,
+            style_hint=prefs["style_hint"],
+            variant=variant,
         )
 
         tailwind_config = f"""<script>
@@ -1710,6 +1781,9 @@ tailwind.config = {{
             "personality": personality,
             "tailwind_config": tailwind_config,
             "user_request_block": user_request_block,
+            # Echoed back so the caller can persist "which re-roll is this"
+            # and show the merchant a stable "Design #3" label.
+            "variant": int(variant or 0),
         }
 
     def get_animation_config(self) -> str:
@@ -1852,3 +1926,173 @@ Before completing generation, verify:
 
 # Create singleton instance
 design_system = DesignSystem()
+
+
+# ============================================================================
+# PUBLIC DESIGN CATALOGUE
+#
+# The picker UI (and the credit-free theme repaint endpoint) needs to know
+# what looks exist. Everything below is a read-only projection of the tables
+# above — no new source of truth, so a palette added there shows up in the
+# picker automatically.
+# ============================================================================
+
+#: Display order for the palette picker. Warm/most-requested first — this is
+#: what the merchant scrolls through, so it is a curation, not a data change.
+PALETTE_DISPLAY_ORDER = [
+    "blue", "navy", "teal", "green", "gold", "orange",
+    "red", "maroon", "brown", "purple", "pink", "black",
+]
+
+#: Malay-first labels: the dashboard is in Bahasa Melayu.
+PALETTE_LABELS = {
+    "blue": ("Biru", "Blue"),
+    "navy": ("Biru Laut", "Navy"),
+    "teal": ("Hijau Toska", "Teal"),
+    "green": ("Hijau", "Green"),
+    "gold": ("Emas", "Gold"),
+    "orange": ("Oren", "Orange"),
+    "red": ("Merah", "Red"),
+    "maroon": ("Merah Marun", "Maroon"),
+    "brown": ("Coklat", "Brown"),
+    "purple": ("Ungu", "Purple"),
+    "pink": ("Merah Jambu", "Pink"),
+    "black": ("Hitam Putih", "Monochrome"),
+}
+
+STYLE_LABELS = {
+    "elegant": ("Mewah", "Elegant"),
+    "minimal": ("Minimalis", "Minimal"),
+    "playful": ("Ceria", "Playful"),
+    "bold": ("Berani", "Bold"),
+    "classic": ("Klasik", "Classic"),
+}
+
+
+def font_pairing_key(pairing: dict) -> str:
+    """Stable slug for a font pairing — 'playfair-display__dm-sans'."""
+    def slug(name: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+
+    return f"{slug(pairing.get('heading'))}__{slug(pairing.get('body'))}"
+
+
+def list_named_palettes(color_mode: str = "light") -> list:
+    """Every named palette, ready for a swatch grid.
+
+    Returns [{key, label_ms, label_en, colors: {...}}] in display order.
+    Unknown color_mode falls back to 'light'.
+    """
+    mode = color_mode if color_mode in ("light", "dark") else "light"
+    ordered = [k for k in PALETTE_DISPLAY_ORDER if k in NAMED_COLOR_PALETTES]
+    ordered += [k for k in NAMED_COLOR_PALETTES if k not in ordered]
+    out = []
+    for key in ordered:
+        entry = NAMED_COLOR_PALETTES[key]
+        label_ms, label_en = PALETTE_LABELS.get(key, (key.title(), key.title()))
+        out.append({
+            "key": key,
+            "label_ms": label_ms,
+            "label_en": label_en,
+            "colors": dict(entry.get(mode, entry["light"])),
+        })
+    return out
+
+
+def get_named_palette(key: str, color_mode: str = "light") -> dict:
+    """One named palette by key, or {} when the key is unknown."""
+    entry = NAMED_COLOR_PALETTES.get(key)
+    if not entry:
+        return {}
+    mode = color_mode if color_mode in ("light", "dark") else "light"
+    return dict(entry.get(mode, entry["light"]))
+
+
+def next_palette_key(current: str = None, step: int = 1) -> str:
+    """The next palette in display order — the "shuffle colour" button.
+
+    Deterministic on purpose: the merchant taps shuffle, sees the next
+    swatch, and can tap back to where they were.
+    """
+    ordered = [k for k in PALETTE_DISPLAY_ORDER if k in NAMED_COLOR_PALETTES]
+    if not ordered:
+        return ""
+    if current not in ordered:
+        return ordered[int(step or 1) % len(ordered)]
+    return ordered[(ordered.index(current) + int(step or 1)) % len(ordered)]
+
+
+def match_palette_key(primary_hex: str) -> str:
+    """Which named palette owns this primary colour? '' when none does.
+
+    Used to seed the shuffle from a live page: read the site's current
+    primary, find the palette it came from, advance one step.
+    """
+    if not primary_hex:
+        return ""
+    target = str(primary_hex).strip().upper()
+    for key, entry in NAMED_COLOR_PALETTES.items():
+        for mode in ("light", "dark"):
+            if str(entry.get(mode, {}).get("primary", "")).upper() == target:
+                return key
+    return ""
+
+
+def list_font_pairings(business_type: str = None) -> list:
+    """Every font pairing available, de-duplicated across business types.
+
+    Without a business_type, the whole catalogue (so a cafe can borrow the
+    gym's condensed display face if that is the look the owner wants).
+    """
+    if business_type:
+        types = [business_type]
+    else:
+        types = sorted(set(list(FONT_PAIRINGS.keys()) + list(ALT_FONT_PAIRINGS.keys())))
+
+    seen = set()
+    out = []
+    for btype in types:
+        options = design_system._font_options(btype)
+        for pairing in options:
+            key = font_pairing_key(pairing)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({
+                "key": key,
+                "heading": pairing["heading"],
+                "body": pairing["body"],
+                "heading_weights": pairing.get("heading_weights", "400;600;700"),
+                "body_weights": pairing.get("body_weights", "400;500;600;700"),
+                "heading_fallback": pairing.get("heading_fallback", "Georgia, serif"),
+                "body_fallback": pairing.get("body_fallback", "system-ui, sans-serif"),
+                "vibe": pairing.get("vibe", ""),
+                "business_type": btype,
+            })
+    return out
+
+
+def get_font_pairing_by_key(key: str) -> dict:
+    """One font pairing by its slug, or {} when the slug is unknown."""
+    if not key:
+        return {}
+    for pairing in list_font_pairings():
+        if pairing["key"] == key:
+            return pairing
+    return {}
+
+
+def list_styles() -> list:
+    """The style personalities a merchant can force from the picker."""
+    out = []
+    for key in _STYLE_HINT_TO_PERSONALITY:
+        label_ms, label_en = STYLE_LABELS.get(key, (key.title(), key.title()))
+        personality = DESIGN_PERSONALITIES.get(_STYLE_HINT_TO_PERSONALITY[key], {})
+        out.append({
+            "key": key,
+            "label_ms": label_ms,
+            "label_en": label_en,
+            "personality": _STYLE_HINT_TO_PERSONALITY[key],
+            "description": personality.get("name", ""),
+        })
+    return out

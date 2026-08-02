@@ -14,6 +14,14 @@ BinaApp allows Malaysian SMEs to create fully functional websites by simply desc
 - 💳 **Payment Ready**: Stripe integration for subscriptions
 - 🎨 **Live Preview**: See your website as it's being generated
 - 🔐 **Secure Authentication**: Powered by Supabase Auth
+- 🖌️ **Design Studio**: 12 palettes, 27 font pairings, light/dark and a "shuffle"
+  re-roll — applied instantly and **free**, because a recolour rewrites the
+  live page's colour tokens instead of regenerating it (see
+  [docs/DESIGN_STUDIO_AND_QR.md](docs/DESIGN_STUDIO_AND_QR.md))
+- 🖨️ **QR Toolkit**: offline-rendered QR codes plus a print-ready A4 poster in
+  the site's own colours — one code per table for dine-in
+- 🔍 **SEO Files**: per-site `robots.txt` and `sitemap.xml`, generated from the
+  page actually being served
 
 ## Tech Stack
 

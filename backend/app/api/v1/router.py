@@ -5,7 +5,7 @@ Combines all API endpoints
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports
+from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports, design_studio, site_qr
 from app.api.admin import repair as admin_repair
 from app.api.admin import make_good as admin_make_good
 from app.api.admin import unstick_generation as admin_unstick
@@ -52,3 +52,10 @@ api_router.include_router(admin_unstick.router, tags=["Admin: Unstick"])
 # route in both routers returns 404.
 api_router.include_router(issue_reports.router, prefix="/websites", tags=["Issue Reports"])
 api_router.include_router(issue_reports.admin_router, tags=["Admin: Issue Reports"])
+# Design Studio — credit-free palette/typography control. Shares the /websites
+# prefix (GET /websites/design/options, PATCH /websites/{id}/theme). None of
+# its paths collide with the routes above: /{website_id} only ever matches a
+# single segment, and no existing two-segment route ends in /theme.
+api_router.include_router(design_studio.router, prefix="/websites", tags=["Design Studio"])
+# QR toolkit — offline QR codes and printable posters for a published site.
+api_router.include_router(site_qr.router, prefix="/websites", tags=["QR Toolkit"])

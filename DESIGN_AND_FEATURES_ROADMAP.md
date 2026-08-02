@@ -69,17 +69,47 @@ classic (variant 0) design; all 136 existing generation-related tests pass.
 
 ---
 
+## Part 1b — Shipped since: Design Studio, QR Toolkit, SEO files
+
+Full write-up: **[docs/DESIGN_STUDIO_AND_QR.md](docs/DESIGN_STUDIO_AND_QR.md)**.
+
+1. **Design Studio — credit-free recolour & typography.** The design variety
+   built above was invisible to merchants: the only way to change a colour was a
+   full AI regenerate that cost a credit and moved the copy. `PATCH
+   /websites/{id}/theme` now rewrites the colour/typography tokens *in the page
+   that already exists* — 12 palettes, 27 font pairings, light/dark, and a
+   reproducible shuffle. No AI call, no quota, no content drift; a test asserts
+   the page's word list is unchanged by a repaint. Publish safety mirrors the
+   contact-edit path (live-snapshot base, balanced-HTML gate, honest reporting).
+   Shipped with a picker in the editor.
+
+2. **`design_system.build(variant=…, palette_override=…, style_override=…)`** —
+   the generation-time half of the same idea. `variant=0` reproduces every
+   existing site exactly; each increment walks all four pools forward one step.
+
+3. **QR Toolkit.** Published pages fetched their footer QR from
+   `api.qrserver.com` on every pageview — a third party on the render path of
+   every merchant's site. It is now rendered offline and inlined. Added
+   owner-only `qr.svg` and a print-ready A4 `qr-poster.html` in the site's own
+   palette, with per-table codes for dine-in.
+
+4. **Per-site `robots.txt` and `sitemap.xml`**, generated from the page actually
+   being served, so the sitemap can never advertise a section the generator
+   dropped. Locked sites serve `Disallow: /`.
+
+---
+
 ## Part 2 — Feature roadmap (prioritized)
 
 ### NOW — highest ROI, mostly unlocking things that already half-exist
 
 | Feature | Why | Existing hooks |
 |---|---|---|
-| **Brand kit UI** (logo upload → palette, colour pickers, font choice at create time + editor) | Backend now honours `request.colors`; the frontend `AssetsManager` with logo/palette/font pickers exists as dead code (`page-v2.tsx` unrouted) | `AssetsManager`, `request.colors/fonts/theme`, this branch |
-| **"Shuffle design" button + style picker** | The backend now contains multiple looks per type and 13 Style DNAs (`teh_tarik_warm`, `fine_dining_obsidian`…) that users can't reach; a re-roll/offset of the seed is trivial | `design_system` seeds, `style_dna.py`, `template_gallery` |
+| ~~**"Shuffle design" button + style picker**~~ ✅ **SHIPPED** | Merchants can now pick any of 12 palettes / 27 font pairings, toggle light-dark, or re-roll — instantly and credit-free. See [docs/DESIGN_STUDIO_AND_QR.md](docs/DESIGN_STUDIO_AND_QR.md) | `theme_patcher.py`, `design_studio.py`, `DesignStudioPanel.tsx` |
+| **Brand kit UI** (logo upload → palette extraction) | `PATCH /websites/{id}/theme` already accepts explicit brand hexes and the picker is live; what remains is **logo upload → auto-extract a palette from it** | Design Studio panel, `request.colors` |
 | **Real online payments at customer checkout** — ToyyibPay/Billplz FPX, DuitNow QR, TNG/GrabPay/Boost/ShopeePay | Orders currently settle by WhatsApp message + manual payment-screenshot verification; this is the single biggest conversion upgrade for merchants | ToyyibPay service already used for BinaApp subscriptions |
 | **Custom domains** (+ automated DNS guidance + SSL) | Hard credibility ceiling vs Wix/Shopify; already on the README roadmap and a `custom_domain` column exists | publish flow, `custom_domain` column |
-| **SEO pack** — editable meta/OG, auto sitemap.xml, LocalBusiness/Menu/Product JSON-LD, GA4 + Meta/TikTok pixel fields | Generated sites currently have no SEO tooling at all; big discoverability differentiator | `extract_theme_tokens`, publish pipeline |
+| **SEO pack** — *partially shipped:* ✅ per-site `robots.txt` + `sitemap.xml`, ✅ OG/JSON-LD. Still open: **editable** meta/OG, GA4 + Meta/TikTok pixel fields | Generated sites had no crawler-facing files at all; the editable/analytics half is still the discoverability differentiator | `site_seo_files.py`, `seo_metadata.py`, publish pipeline |
 
 ### NEXT — the editor & vertical depth
 
@@ -87,9 +117,12 @@ classic (variant 0) design; all 136 existing generation-related tests pass.
   edits in the preview iframe (saved via existing `PUT /websites/{id}`), per-section
   regenerate — so a typo or price fix never costs an AI credit or risks a redesign.
   Add **undo/version history** (currently a bad regenerate is permanent).
-- **Cheap theme patches instead of full regenerates**: colour/theme-only requests
-  ("tukar warna jadi merah", "dark theme") should rewrite the CSS-variable block,
-  not trigger a full regeneration that burns credits.
+- ~~**Cheap theme patches instead of full regenerates**~~ ✅ **SHIPPED** as the
+  Design Studio: `PATCH /websites/{id}/theme` rewrites the colour/typography
+  tokens in the live page — no AI call, no credit, no content drift. What
+  remains is routing the *typed* request ("tukar warna jadi merah" in the AI
+  assistant box) into this path instead of the regenerate path, so the saving
+  applies without the merchant having to find the picker.
 - **Real booking engine** for salon/clinic/services: staff calendars, slot
   availability, deposits, WhatsApp/SMS reminders (today "booking" is just fields
   prefilled into a WhatsApp message).
@@ -99,7 +132,11 @@ classic (variant 0) design; all 136 existing generation-related tests pass.
   Reviews + Instagram embeds, newsletter capture with broadcast, simple loyalty
   points for repeat F&B customers.
 - **QR table-ordering mode** for dine-in restaurants — reuses the existing
-  menu/ordering/rider stack with no delivery leg.
+  menu/ordering/rider stack with no delivery leg. The **physical half is
+  shipped**: per-table QR codes and print-ready A4 posters
+  (`GET /websites/{id}/qr-poster.html?table=5`). What remains is the ordering
+  side — reading `?meja=N` in the order flow and routing a dine-in order to the
+  kitchen with no delivery leg.
 - **Courier integrations**: Lalamove/GrabExpress dispatch as an alternative to own
   riders; J&T/Pos Laju rate lookup + tracking numbers for parcel businesses
   (shipping is currently a hardcoded flat-fee list).

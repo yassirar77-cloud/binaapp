@@ -23,6 +23,7 @@ import {
   type IntentResult,
 } from '@/lib/aiAssistantIntent';
 import { pollMessageForElapsed } from '@/lib/regeneratePollMessages';
+import DesignStudioPanel from '@/components/DesignStudioPanel';
 
 // Backend API URL
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
@@ -672,6 +673,10 @@ export default function EditorPage() {
       {/* Body */}
       <main className="flex-1 w-full max-w-6xl mx-auto px-4 py-5 pb-24 sm:pb-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Left column: the two ways to change the site — AI (costs a
+              generation) and Design Studio (free). They stack; the preview
+              stays sticky in its own column. */}
+          <div className="flex flex-col gap-5">
           {/* AI Assistant — the hero of the page */}
           <section className="bg-white border border-indigo-100 rounded-2xl p-5 sm:p-6 shadow-sm ring-1 ring-indigo-50">
             <div className="flex items-center gap-2 mb-1">
@@ -826,6 +831,22 @@ export default function EditorPage() {
               )}
             </div>
           </section>
+
+          {/* Design Studio — credit-free recolour / typography.
+              Deliberately a SEPARATE surface from the AI assistant above:
+              a colour change here costs nothing and cannot move the copy,
+              which is the opposite of what a regenerate does. It writes
+              straight through to the stored site, so the local buffer is
+              refreshed and left clean rather than marked dirty. */}
+          <DesignStudioPanel
+            websiteId={id}
+            isPublished={!!website?.subdomain}
+            onHtmlChange={(next) => {
+              setHtml(next);
+              setDirty(false);
+            }}
+          />
+          </div>
 
           {/* Live preview */}
           <section className="lg:sticky lg:top-20 self-start w-full">
