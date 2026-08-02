@@ -152,6 +152,29 @@ own palette (read from the stored page), in Bahasa Melayu by default, with
 `@page size: A4` rules and a Print button that hides itself when printing —
 for the shop counter, a table tent, or a flyer insert.
 
+> ### ⚠️ Both endpoints need an `Authorization` header — do not navigate to them
+>
+> They are owner-only, and a **top-level browser navigation carries no
+> `Authorization` header**. So `window.open(posterUrl)` and
+> `<img src={qrSvgUrl}>` both come back **401**, always. (This shipped broken
+> once and showed up as a wall of
+> `GET /api/v1/websites/…/qr-poster.html 401 Unauthorized` in the API log.)
+>
+> Fetch them with the token and render the result yourself:
+>
+> ```ts
+> // Open the tab SYNCHRONOUSLY — a popup created after an await has lost the
+> // click's user-gesture and is blocked by default in every current browser.
+> const tab = window.open('', '_blank');
+> const html = await fetchPosterHtml(websiteId, { table }, token);
+> tab.document.open(); tab.document.write(html); tab.document.close();
+> ```
+>
+> `fetchPosterHtml` (`frontend/src/lib/designStudio.ts`) does the authenticated
+> fetch. Putting the token in the query string instead would "work", which is
+> exactly the trap: it leaks the credential into browser history, `Referer`
+> headers and the server's own access logs.
+
 `table=N` encodes `?meja=N` in the URL so each table's code is a distinct URL,
 and prints "Meja N" on the poster. `campaign=` does the same for a flyer batch.
 The page itself ignores unknown params, so this is always safe.

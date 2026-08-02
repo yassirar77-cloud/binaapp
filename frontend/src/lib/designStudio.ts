@@ -164,7 +164,35 @@ export async function applyTheme(
   return data as ThemePatchResult;
 }
 
-/** URL of the printable QR poster for a site (opened in a new tab). */
+/** Malay error copy for the QR endpoints' failure shapes. */
+export function qrErrorMessage(status: number, detail?: unknown): string {
+  if (status === 401 || status === 403) {
+    return 'Sesi tamat. Sila log masuk semula.';
+  }
+  if (status === 404) {
+    return 'Laman web tidak dijumpai.';
+  }
+  const code =
+    detail && typeof detail === 'object' && 'error' in (detail as object)
+      ? String((detail as { error: unknown }).error)
+      : '';
+  if (code === 'not_published') {
+    return 'Terbitkan laman web anda dahulu untuk menjana kod QR.';
+  }
+  if (status === 503) {
+    return 'Penjana kod QR tidak tersedia buat masa ini. Cuba lagi nanti.';
+  }
+  return 'Gagal menjana poster QR. Cuba lagi.';
+}
+
+/**
+ * URL of the printable QR poster for a site.
+ *
+ * NOTE: this endpoint is owner-only, so the URL cannot simply be handed to
+ * `window.open` — a top-level navigation carries no `Authorization` header
+ * and the request comes back 401. Use `fetchPosterHtml` instead; this
+ * function only builds the URL it fetches.
+ */
 export function qrPosterUrl(
   websiteId: string,
   opts: { table?: string; language?: 'ms' | 'en' } = {}
@@ -176,6 +204,30 @@ export function qrPosterUrl(
   return `${API_BASE}/api/v1/websites/${websiteId}/qr-poster.html${
     query ? `?${query}` : ''
   }`;
+}
+
+/**
+ * Fetch the printable poster's HTML with the owner's bearer token.
+ *
+ * The caller renders the returned markup into a tab it opened itself. That
+ * indirection is the whole point: the poster is owner-only data, so the
+ * request has to be an authenticated fetch rather than a navigation. Putting
+ * the token in the URL instead would leak it into browser history, referrers
+ * and the server's own access logs.
+ */
+export async function fetchPosterHtml(
+  websiteId: string,
+  opts: { table?: string; language?: 'ms' | 'en' },
+  token: string | null
+): Promise<string> {
+  const resp = await fetch(qrPosterUrl(websiteId, opts), {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(qrErrorMessage(resp.status, body?.detail));
+  }
+  return resp.text();
 }
 
 /**

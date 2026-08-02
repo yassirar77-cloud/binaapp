@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import toast from 'react-hot-toast';
 import DesignStudioPanel from './DesignStudioPanel';
 
 vi.mock('react-hot-toast', () => {
@@ -18,6 +19,7 @@ vi.mock('@/lib/supabase', () => ({
 const applyTheme = vi.fn();
 const fetchDesignOptions = vi.fn();
 const fetchCurrentTheme = vi.fn();
+const fetchPosterHtml = vi.fn();
 
 vi.mock('@/lib/designStudio', async () => {
   const actual = await vi.importActual<typeof import('@/lib/designStudio')>(
@@ -28,8 +30,26 @@ vi.mock('@/lib/designStudio', async () => {
     applyTheme: (...args: unknown[]) => applyTheme(...args),
     fetchDesignOptions: (...args: unknown[]) => fetchDesignOptions(...args),
     fetchCurrentTheme: (...args: unknown[]) => fetchCurrentTheme(...args),
+    fetchPosterHtml: (...args: unknown[]) => fetchPosterHtml(...args),
   };
 });
+
+/** A stand-in for the tab window.open returns, so we can inspect what we wrote. */
+function fakeTab() {
+  const written: string[] = [];
+  return {
+    closed: false,
+    written,
+    close: vi.fn(function (this: { closed: boolean }) {
+      this.closed = true;
+    }),
+    document: {
+      open: vi.fn(),
+      write: vi.fn((html: string) => written.push(html)),
+      close: vi.fn(),
+    },
+  };
+}
 
 const OPTIONS = {
   palettes: [
@@ -97,6 +117,14 @@ beforeEach(() => {
   applyTheme.mockReset();
   fetchDesignOptions.mockReset().mockResolvedValue(OPTIONS);
   fetchCurrentTheme.mockReset().mockResolvedValue(CURRENT);
+  fetchPosterHtml
+    .mockReset()
+    .mockResolvedValue('<!DOCTYPE html><html><body>Poster</body></html>');
+  // Shared across tests via the module mock — clear so a toast assertion
+  // cannot pass on a call made by an earlier test.
+  vi.mocked(toast).mockClear();
+  vi.mocked(toast.success).mockClear();
+  vi.mocked(toast.error).mockClear();
   applyTheme.mockResolvedValue({
     success: true,
     changed: true,
@@ -234,8 +262,12 @@ describe('DesignStudioPanel', () => {
     expect(screen.queryByTestId('open-qr-poster')).toBeNull();
   });
 
-  it('opens the poster with the table number the merchant typed', async () => {
-    const openSpy = vi.fn();
+  it('fetches the poster with auth and writes it into the tab', async () => {
+    // Regression: the poster endpoint is owner-only. Navigating a new tab
+    // straight at the URL sends no Authorization header and comes back 401,
+    // which is exactly what happened in production.
+    const tab = fakeTab();
+    const openSpy = vi.fn(() => tab);
     vi.stubGlobal('open', openSpy);
     renderPanel();
     await waitFor(() => screen.getByTestId('open-qr-poster'));
@@ -245,8 +277,56 @@ describe('DesignStudioPanel', () => {
     });
     fireEvent.click(screen.getByTestId('open-qr-poster'));
 
-    expect(openSpy).toHaveBeenCalled();
-    expect(String(openSpy.mock.calls[0][0])).toContain('table=7');
+    await waitFor(() => expect(fetchPosterHtml).toHaveBeenCalled());
+    // The tab is opened blank — never navigated at the protected URL.
+    expect(openSpy).toHaveBeenCalledWith('', '_blank');
+    expect(fetchPosterHtml.mock.calls[0][1]).toEqual({ table: '7' });
+    expect(fetchPosterHtml.mock.calls[0][2]).toBe('tok-123');
+    await waitFor(() => expect(tab.written.join('')).toContain('Poster'));
+    vi.unstubAllGlobals();
+  });
+
+  it('omits the table number when the field is left blank', async () => {
+    const tab = fakeTab();
+    vi.stubGlobal('open', vi.fn(() => tab));
+    renderPanel();
+    await waitFor(() => screen.getByTestId('open-qr-poster'));
+
+    fireEvent.click(screen.getByTestId('open-qr-poster'));
+
+    await waitFor(() => expect(fetchPosterHtml).toHaveBeenCalled());
+    expect(fetchPosterHtml.mock.calls[0][1]).toEqual({ table: undefined });
+    vi.unstubAllGlobals();
+  });
+
+  it('closes the blank tab and reports when the poster fails', async () => {
+    fetchPosterHtml.mockRejectedValue(
+      new Error('Terbitkan laman web anda dahulu untuk menjana kod QR.')
+    );
+    const tab = fakeTab();
+    vi.stubGlobal('open', vi.fn(() => tab));
+    renderPanel();
+    await waitFor(() => screen.getByTestId('open-qr-poster'));
+
+    fireEvent.click(screen.getByTestId('open-qr-poster'));
+
+    // No blank tab left sitting there looking like it is still loading.
+    await waitFor(() => expect(tab.close).toHaveBeenCalled());
+    expect(screen.getByText(/Terbitkan laman web anda dahulu/i)).toBeDefined();
+  });
+
+  it('tells the merchant when the popup blocker ate the tab', async () => {
+    vi.stubGlobal('open', vi.fn(() => null));
+    renderPanel();
+    await waitFor(() => screen.getByTestId('open-qr-poster'));
+
+    fireEvent.click(screen.getByTestId('open-qr-poster'));
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/pop-up/i))
+    );
+    // Nothing was fetched — there is nowhere to put it.
+    expect(fetchPosterHtml).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 
