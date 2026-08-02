@@ -2158,25 +2158,14 @@ async def _fetch_serving_snapshot(subdomain: str) -> Optional[str]:
     stale or truncated — see the mimba contact-edit regression). This snapshot is
     the content a visitor actually sees, and therefore the correct base for an
     in-place WhatsApp-number edit.
+
+    The implementation lives in services/serving_snapshot.py so every
+    credit-free edit path reads the live page identically; this wrapper is kept
+    so the behaviour (and the name tests patch) stays put.
     """
-    supabase_url = settings.SUPABASE_URL
-    bucket = settings.STORAGE_BUCKET_NAME
-    if not supabase_url or not subdomain:
-        return None
+    from app.services.serving_snapshot import fetch_published_snapshot
 
-    import httpx
-
-    base = f"{supabase_url}/storage/v1/object/public/{bucket}"
-    # Serving key first, then the legacy demo-user path (mirrors the middleware).
-    for path in (f"{subdomain}/index.html", f"demo-user/{subdomain}/index.html"):
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"{base}/{path}?cb=contact-edit")
-            if resp.status_code == 200 and resp.text:
-                return resp.text
-        except Exception as e:
-            logger.warning(f"[contact] snapshot fetch failed for {path}: {e}")
-    return None
+    return await fetch_published_snapshot(subdomain, cache_bust="contact-edit")
 
 
 @router.patch("/{website_id}/contact")

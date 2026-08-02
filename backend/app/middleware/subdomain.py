@@ -11,7 +11,7 @@ exception falls through to call_next() instead of killing the ASGI connection
 
 from fastapi import Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
 import httpx
 from loguru import logger
 import re
@@ -293,17 +293,54 @@ def _build_published_url(subdomain: str) -> str:
     return f"https://{subdomain}.{settings.MAIN_DOMAIN}"
 
 
+# Paths a crawler asks for before it asks for anything else. Served from the
+# page we already have rather than 404'd into the SPA.
+SEO_FILE_PATHS = ("/robots.txt", "/sitemap.xml")
+
+
+def _seo_file_response(path: str, subdomain: str, html: str = "", indexable: bool = True):
+    """robots.txt / sitemap.xml for a subdomain. See services/site_seo_files.py.
+
+    `indexable=False` (locked site, plan downgrade) emits a full disallow and
+    an empty sitemap so a temporary error page can never get indexed.
+    """
+    from app.services.site_seo_files import build_robots_txt, build_sitemap_xml
+
+    site_url = _build_published_url(subdomain)
+    headers = {"Cache-Control": "public, max-age=3600"}
+
+    if path == "/robots.txt":
+        return PlainTextResponse(
+            content=build_robots_txt(site_url, allow_indexing=indexable),
+            headers=headers,
+        )
+
+    if indexable:
+        body = build_sitemap_xml(site_url, html)
+    else:
+        # A locked/downgraded site advertises nothing at all.
+        body = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n</urlset>\n'
+        )
+    return Response(content=body, media_type="application/xml", headers=headers)
+
+
 def _inject_qr_block(html_content: str, subdomain: str, language: str = "ms") -> str:
     """
     Replace the generation-baked "Scan to Visit" QR block with a corrected one.
 
-    Fixes four defects in the baked block (see design-defects goal, P0 #2):
+    Fixes five defects in the baked block (see design-defects goal, P0 #2):
       1. It sat as an orphan strip AFTER </footer> → move it INSIDE the footer.
       2. It was left-aligned (Tailwind preflight sets img{display:block}, so a
          wrapper text-align:center did nothing) → center via the <img> itself
          with margin:0 auto;display:block.
       3. It was in English → localise to the site language.
       4. It encoded preview.binaapp.my → encode the REAL published URL.
+      5. It loaded the QR image from api.qrserver.com, putting a third party on
+         the render path of every merchant's page (and handing that host every
+         visitor's IP). The code is now rendered OFFLINE and inlined as a data
+         URI — no external request, no dependency, and crisp when printed.
 
     Idempotent-ish: strips any prior baked QR block first, so re-serving a
     cached page never stacks two QR blocks.
@@ -323,11 +360,13 @@ def _inject_qr_block(html_content: str, subdomain: str, language: str = "ms") ->
     )
 
     published_url = _build_published_url(subdomain)
-    from urllib.parse import quote
-    qr_src = (
-        "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data="
-        + quote(published_url, safe="")
-    )
+    from app.services.qr_service import qr_data_uri, remote_qr_url
+
+    # Offline render first; the remote renderer stays only as a safety net so a
+    # missing encoder degrades to the old behaviour instead of a broken image.
+    qr_src = qr_data_uri(published_url, scale=6, border=2, dark="#111827")
+    if not qr_src:
+        qr_src = remote_qr_url(published_url, size=200)
 
     label = "📱 Imbas untuk Lawat" if language == "ms" else "📱 Scan to Visit"
 
@@ -601,6 +640,11 @@ async def subdomain_middleware(request: Request, call_next):
             logger.info(f"[Subdomain] Redirecting {subdomain}{path} -> {target}")
             return RedirectResponse(url=target, status_code=302)
 
+        # robots.txt / sitemap.xml are answered from the served page further
+        # down; this flag lets the lock and plan gates below emit a "crawl
+        # nothing" version instead of handing a crawler an error page.
+        is_seo_file = path in SEO_FILE_PATHS
+
         logger.info(f"[Subdomain] Serving: {subdomain}.binaapp.my")
 
         # STEP 1: Look up website (60s in-process cache; the lookup result is
@@ -664,6 +708,8 @@ async def subdomain_middleware(request: Request, call_next):
             # expired site must never stay visible because of a cache.
             if await _check_website_lock(website_id):
                 logger.info(f"[Subdomain] Website {subdomain} is locked")
+                if is_seo_file:
+                    return _seo_file_response(path, subdomain, indexable=False)
                 return HTMLResponse(
                     content=_get_locked_page_html(),
                     status_code=200,
@@ -679,6 +725,8 @@ async def subdomain_middleware(request: Request, call_next):
             # REAL-TIME on every request (deliberately not cached).
             if owner_id and not await can_publish_subdomain(owner_id):
                 logger.info(f"[Subdomain] Owner {owner_id} cannot publish subdomain — serving upgrade page for {subdomain}")
+                if is_seo_file:
+                    return _seo_file_response(path, subdomain, indexable=False)
                 return HTMLResponse(
                     content=_get_upgrade_required_html(),
                     status_code=200,
@@ -743,6 +791,12 @@ async def subdomain_middleware(request: Request, call_next):
 
             except Exception as recovery_error:
                 logger.error(f"[Subdomain] Auto-recovery failed for {subdomain}: {recovery_error}")
+
+        # STEP 2.7: robots.txt / sitemap.xml, derived from the page we just
+        # fetched — the in-page anchors ARE the structure of a one-pager, so a
+        # sitemap can never advertise a section the site does not have.
+        if is_seo_file:
+            return _seo_file_response(path, subdomain, html=html_content, indexable=True)
 
         # STEP 3: Inject widgets if we have a website_id
         if website_id:
