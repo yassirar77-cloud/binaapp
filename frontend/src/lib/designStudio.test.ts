@@ -3,8 +3,10 @@ import {
   applyTheme,
   fetchCurrentTheme,
   fetchDesignOptions,
+  fetchPosterHtml,
   isActivePalette,
   normalizeHex,
+  qrErrorMessage,
   qrPosterUrl,
   readableTextOn,
   themeErrorMessage,
@@ -107,6 +109,27 @@ describe('qrPosterUrl', () => {
   it('carries the language through', () => {
     expect(qrPosterUrl('ws-1', { language: 'en' })).toContain('language=en');
   });
+
+  it('never puts the auth token in the url', () => {
+    // Regression: the poster is owner-only. Smuggling the bearer token into
+    // the query string would leak it into history, referrers and access logs.
+    const url = qrPosterUrl('ws-1', { table: '5' });
+    expect(url).not.toMatch(/token|auth|bearer|jwt/i);
+  });
+});
+
+describe('qrErrorMessage', () => {
+  it('tells an unpublished merchant to publish first', () => {
+    expect(qrErrorMessage(409, { error: 'not_published' })).toContain('Terbitkan');
+  });
+
+  it('maps auth failures to a re-login prompt', () => {
+    expect(qrErrorMessage(401)).toContain('log masuk');
+  });
+
+  it('explains an unavailable encoder', () => {
+    expect(qrErrorMessage(503)).toContain('tidak tersedia');
+  });
 });
 
 describe('API calls', () => {
@@ -163,6 +186,30 @@ describe('API calls', () => {
     await expect(applyTheme('ws-1', { palette: 'blue' }, 'tok')).rejects.toThrow(
       /jana semula/
     );
+  });
+
+  it('fetchPosterHtml sends the bearer token — a bare navigation would 401', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => '<!DOCTYPE html><html><body>poster</body></html>',
+    });
+
+    const html = await fetchPosterHtml('ws-1', { table: '7' }, 'tok-123');
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/qr-poster.html?table=7');
+    expect(init.headers.Authorization).toBe('Bearer tok-123');
+    expect(html).toContain('poster');
+  });
+
+  it('fetchPosterHtml maps an unpublished site to Malay copy', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ detail: { error: 'not_published' } }),
+    });
+    await expect(fetchPosterHtml('ws-1', {}, 'tok')).rejects.toThrow(/Terbitkan/);
   });
 
   it('applyTheme survives a non-JSON error body', async () => {

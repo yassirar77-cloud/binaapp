@@ -16,8 +16,8 @@ import {
   applyTheme,
   fetchCurrentTheme,
   fetchDesignOptions,
+  fetchPosterHtml,
   isActivePalette,
-  qrPosterUrl,
   readableTextOn,
   type CurrentTheme,
   type DesignOptions,
@@ -106,11 +106,44 @@ export default function DesignStudioPanel({
     [websiteId, colorMode, onHtmlChange]
   );
 
-  const openPoster = () => {
-    const url = qrPosterUrl(websiteId, {
-      table: tableNumber.trim() || undefined,
-    });
-    window.open(url, '_blank', 'noopener');
+  /**
+   * The poster endpoint is owner-only, so it cannot be reached by navigating
+   * a new tab at it — a top-level navigation sends no Authorization header
+   * and the response is a 401. Fetch it with the token instead and write the
+   * markup into a tab we opened ourselves.
+   *
+   * The tab is opened SYNCHRONOUSLY, before the first await: a popup created
+   * after an async hop has lost the click's user-gesture and is blocked by
+   * default in every current browser.
+   */
+  const openPoster = async () => {
+    const tab = window.open('', '_blank');
+    if (!tab) {
+      toast.error('Sila benarkan pop-up untuk membuka poster.');
+      return;
+    }
+    setBusy('poster');
+    setError(null);
+    try {
+      const token = await getApiAuthToken();
+      const html = await fetchPosterHtml(
+        websiteId,
+        { table: tableNumber.trim() || undefined },
+        token
+      );
+      tab.document.open();
+      tab.document.write(html);
+      tab.document.close();
+    } catch (err) {
+      // Never leave a blank tab sitting there as if it were loading.
+      tab.close();
+      const message =
+        err instanceof Error ? err.message : 'Gagal menjana poster QR.';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setBusy(null);
+    }
   };
 
   return (
@@ -276,9 +309,10 @@ export default function DesignStudioPanel({
               type="button"
               data-testid="open-qr-poster"
               onClick={openPoster}
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 transition-colors"
+              disabled={busy === 'poster'}
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors"
             >
-              Buka poster
+              {busy === 'poster' ? 'Menjana…' : 'Buka poster'}
             </button>
           </div>
         ) : (
