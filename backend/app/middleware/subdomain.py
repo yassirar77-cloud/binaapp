@@ -297,6 +297,90 @@ def _build_published_url(subdomain: str) -> str:
 # page we already have rather than 404'd into the SPA.
 SEO_FILE_PATHS = ("/robots.txt", "/sitemap.xml")
 
+# The Open Graph image for the site, rendered offline from the merchant's own
+# name/palette/description (services/share_card.py). Public by design: the
+# WhatsApp/Facebook/Telegram crawlers that unfurl a shared link fetch it
+# anonymously, so it must live on the subdomain host, not behind auth.
+SHARE_CARD_PATH = "/share-card.png"
+
+# key: subdomain -> (stored_at_monotonic, png_bytes). Same TTL discipline as
+# the HTML cache above; the card only changes when the page's palette or
+# name does, so 60s staleness is invisible.
+_share_card_cache: Dict[str, Tuple[float, bytes]] = {}
+
+
+def _share_card_response(subdomain: str, business_name: str, html: str):
+    """The site's og:image as a PNG response, or a plain 404.
+
+    Every input comes from data already fetched on this request path — no
+    extra DB or storage round trip. A render failure (Pillow missing) is a
+    404: crawlers treat that as "no preview image", which is exactly the
+    pre-feature behaviour.
+    """
+    png = _cache_get(_share_card_cache, subdomain)
+    if png is None:
+        try:
+            from app.services.promo_kit import extract_tagline
+            from app.services.share_card import render_share_card
+            from app.services.theme_patcher import detect_palette
+
+            png = render_share_card(
+                business_name or subdomain.replace("-", " ").title(),
+                _build_published_url(subdomain),
+                detect_palette(html),
+                extract_tagline(html),
+            )
+        except Exception as exc:
+            logger.error(f"[Subdomain] Share card render failed for {subdomain}: {exc}")
+            png = b""
+        if png:
+            _cache_set(_share_card_cache, subdomain, png)
+
+    if not png:
+        return Response(status_code=404)
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+_SHARE_CARD_META_MARKER = "<!-- BinaApp Share Card Meta -->"
+
+
+def _inject_social_meta(html_content: str, subdomain: str) -> str:
+    """Point og:image / twitter:image at the served share card.
+
+    Only when the page does not already carry an og:image of its own — a
+    generation-time hero image is the merchant's real photo and must win.
+    Idempotent: any previously-injected block is stripped first, so a cached
+    page re-served through here never stacks meta tags.
+    """
+    if not subdomain or "</head>" not in html_content:
+        return html_content
+
+    html_content = re.sub(
+        rf"{re.escape(_SHARE_CARD_META_MARKER)}.*?{re.escape(_SHARE_CARD_META_MARKER)}\n?",
+        "",
+        html_content,
+        flags=re.DOTALL,
+    )
+
+    if re.search(r"""<meta\s[^>]*property\s*=\s*["']og:image["']""", html_content):
+        return html_content
+
+    card_url = f"{_build_published_url(subdomain)}{SHARE_CARD_PATH}"
+    block = (
+        f"{_SHARE_CARD_META_MARKER}\n"
+        f'<meta property="og:image" content="{card_url}">\n'
+        f'<meta property="og:image:width" content="1200">\n'
+        f'<meta property="og:image:height" content="630">\n'
+        f'<meta name="twitter:card" content="summary_large_image">\n'
+        f'<meta name="twitter:image" content="{card_url}">\n'
+        f"{_SHARE_CARD_META_MARKER}\n"
+    )
+    return html_content.replace("</head>", block + "</head>", 1)
+
 
 def _seo_file_response(path: str, subdomain: str, html: str = "", indexable: bool = True):
     """robots.txt / sitemap.xml for a subdomain. See services/site_seo_files.py.
@@ -645,6 +729,10 @@ async def subdomain_middleware(request: Request, call_next):
         # nothing" version instead of handing a crawler an error page.
         is_seo_file = path in SEO_FILE_PATHS
 
+        # The og:image the injected meta tags advertise. Locked/gated sites
+        # 404 it (below) so a suspended page never unfurls a branded preview.
+        is_share_card = path == SHARE_CARD_PATH
+
         logger.info(f"[Subdomain] Serving: {subdomain}.binaapp.my")
 
         # STEP 1: Look up website (60s in-process cache; the lookup result is
@@ -653,6 +741,7 @@ async def subdomain_middleware(request: Request, call_next):
         # cached and run on every request).
         website_id = None
         owner_id = None
+        website_name = None
         business_type = "food"
         language = "ms"
         should_try_recovery = False
@@ -662,6 +751,7 @@ async def subdomain_middleware(request: Request, call_next):
         if cached_site is not None:
             website_id = cached_site["id"]
             owner_id = cached_site.get("user_id")
+            website_name = cached_site.get("name")
         else:
             supabase = _get_supabase_client()
 
@@ -674,7 +764,7 @@ async def subdomain_middleware(request: Request, call_next):
                     # middleware runs on every public pageview).
                     website_result = await run_in_threadpool(
                         supabase.table("websites")
-                        .select("id, user_id")
+                        .select("id, user_id, name")
                         .eq("subdomain", subdomain)
                         .limit(1)
                         .execute
@@ -684,13 +774,14 @@ async def subdomain_middleware(request: Request, call_next):
                         website_data = website_result.data[0]
                         website_id = str(website_data["id"])
                         owner_id = website_data.get("user_id")
+                        website_name = website_data.get("name")
                         logger.info(f"[Subdomain] Found website_id {website_id} for {subdomain}")
                         # Positive results only — a missing site must stay
                         # uncached so a fresh publish is visible immediately.
                         _cache_set(
                             _website_lookup_cache,
                             subdomain,
-                            {"id": website_id, "user_id": owner_id},
+                            {"id": website_id, "user_id": owner_id, "name": website_name},
                         )
                     else:
                         logger.warning(f"[Subdomain] Website '{subdomain}' NOT in database")
@@ -710,6 +801,8 @@ async def subdomain_middleware(request: Request, call_next):
                 logger.info(f"[Subdomain] Website {subdomain} is locked")
                 if is_seo_file:
                     return _seo_file_response(path, subdomain, indexable=False)
+                if is_share_card:
+                    return Response(status_code=404)
                 return HTMLResponse(
                     content=_get_locked_page_html(),
                     status_code=200,
@@ -727,6 +820,8 @@ async def subdomain_middleware(request: Request, call_next):
                 logger.info(f"[Subdomain] Owner {owner_id} cannot publish subdomain — serving upgrade page for {subdomain}")
                 if is_seo_file:
                     return _seo_file_response(path, subdomain, indexable=False)
+                if is_share_card:
+                    return Response(status_code=404)
                 return HTMLResponse(
                     content=_get_upgrade_required_html(),
                     status_code=200,
@@ -798,10 +893,20 @@ async def subdomain_middleware(request: Request, call_next):
         if is_seo_file:
             return _seo_file_response(path, subdomain, html=html_content, indexable=True)
 
+        # STEP 2.8: the site's Open Graph image, rendered from the page we
+        # just fetched (name, palette, meta description) — nothing extra.
+        if is_share_card:
+            return _share_card_response(subdomain, website_name, html_content)
+
         # STEP 3: Inject widgets if we have a website_id
         if website_id:
             html_content = _inject_widgets(html_content, website_id, business_type, language, subdomain)
             logger.info(f"[Subdomain] Injected widgets for {subdomain} (id: {website_id})")
+
+        # STEP 3.5: point og:image / twitter:image at the share card when the
+        # page has no preview image of its own — a bare WhatsApp link becomes
+        # a branded unfurl. No-op when the page already carries og:image.
+        html_content = _inject_social_meta(html_content, subdomain)
 
         return HTMLResponse(
             content=html_content,

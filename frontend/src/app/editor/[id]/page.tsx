@@ -24,6 +24,7 @@ import {
 } from '@/lib/aiAssistantIntent';
 import { pollMessageForElapsed } from '@/lib/regeneratePollMessages';
 import DesignStudioPanel from '@/components/DesignStudioPanel';
+import PromoKitPanel from '@/components/PromoKitPanel';
 
 // Backend API URL
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
@@ -845,6 +846,15 @@ export default function EditorPage() {
               setHtml(next);
               setDirty(false);
             }}
+          />
+
+          {/* Promo Kit — share card, story poster, vCard QR, Wi-Fi QR.
+              All rendered offline from the published site; nothing here
+              touches the stored HTML, so no onHtmlChange is needed. */}
+          <PromoKitPanel
+            websiteId={id}
+            isPublished={!!website?.subdomain}
+            subdomain={website?.subdomain}
           />
           </div>
 
