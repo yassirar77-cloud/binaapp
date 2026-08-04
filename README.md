@@ -22,6 +22,11 @@ BinaApp allows Malaysian SMEs to create fully functional websites by simply desc
   the site's own colours — one code per table for dine-in
 - 🔍 **SEO Files**: per-site `robots.txt` and `sitemap.xml`, generated from the
   page actually being served
+- 📣 **Promo Kit**: branded WhatsApp link previews (an auto-generated
+  `og:image` in the site's own palette, served at `/share-card.png`), a
+  1080×1920 story poster with the site QR, a "scan to save our number"
+  vCard QR poster, and a "scan to join our Wi-Fi" QR poster — all rendered
+  offline and **free** (see [docs/PROMO_KIT.md](docs/PROMO_KIT.md))
 
 ## Tech Stack
 
