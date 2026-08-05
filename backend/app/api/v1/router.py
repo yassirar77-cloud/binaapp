@@ -5,7 +5,7 @@ Combines all API endpoints
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports, design_studio, site_qr, promo_kit
+from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports, design_studio, site_qr, promo_kit, business_kit
 from app.api.admin import repair as admin_repair
 from app.api.admin import make_good as admin_make_good
 from app.api.admin import unstick_generation as admin_unstick
@@ -62,3 +62,6 @@ api_router.include_router(site_qr.router, prefix="/websites", tags=["QR Toolkit"
 # Promo Kit — offline share/story images, vCard QR and Wi-Fi QR posters.
 # Same contract as the QR toolkit: owner-only, published-only, no AI call.
 api_router.include_router(promo_kit.router, prefix="/websites", tags=["Promo Kit"])
+# Business Kit — printable menu/price list, Google-review QR and WhatsApp
+# order QR. Same contract again: owner-only, offline, no AI call.
+api_router.include_router(business_kit.router, prefix="/websites", tags=["Business Kit"])

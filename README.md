@@ -27,6 +27,11 @@ BinaApp allows Malaysian SMEs to create fully functional websites by simply desc
   1080×1920 story poster with the site QR, a "scan to save our number"
   vCard QR poster, and a "scan to join our Wi-Fi" QR poster — all rendered
   offline and **free** (see [docs/PROMO_KIT.md](docs/PROMO_KIT.md))
+- 🍽️ **Business Kit**: a print-ready A4 menu/price list generated from the
+  merchant's real menu data, a "beri kami 5 bintang" Google-review QR
+  poster, a scan-to-order WhatsApp QR (per-table), and a live
+  "Buka sekarang / Tutup" badge computed from the page's own opening hours —
+  all offline and **free** (see [docs/BUSINESS_KIT.md](docs/BUSINESS_KIT.md))
 
 ## Tech Stack
 
