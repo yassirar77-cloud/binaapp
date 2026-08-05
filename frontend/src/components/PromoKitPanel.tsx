@@ -37,6 +37,8 @@ export default function PromoKitPanel({ websiteId, isPublished, subdomain }: Pro
   const [error, setError] = useState<string | null>(null);
   const [ssid, setSsid] = useState('');
   const [wifiPassword, setWifiPassword] = useState('');
+  const [reviewUrl, setReviewUrl] = useState('');
+  const [waTable, setWaTable] = useState('');
 
   const fail = (err: unknown, fallback: string) => {
     const message = err instanceof Error ? err.message : fallback;
@@ -70,7 +72,12 @@ export default function PromoKitPanel({ websiteId, isPublished, subdomain }: Pro
    */
   const openPoster = async (
     key: string,
-    path: 'vcard-poster.html' | 'wifi-poster.html',
+    path:
+      | 'vcard-poster.html'
+      | 'wifi-poster.html'
+      | 'menu-poster.html'
+      | 'review-poster.html'
+      | 'whatsapp-poster.html',
     params: Record<string, string | undefined>
   ) => {
     const tab = window.open('', '_blank');
@@ -163,6 +170,96 @@ export default function PromoKitPanel({ websiteId, isPublished, subdomain }: Pro
             >
               {busy === 'story' ? 'Menjana…' : 'Muat turun poster'}
             </button>
+          </div>
+
+          {/* Menu poster */}
+          <div className="pt-4 border-t border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">
+              📄 Menu / Senarai Harga A4
+            </h3>
+            <p className="text-xs text-gray-500 mb-2">
+              Menu sedia cetak dalam warna laman anda — item dan harga diambil
+              terus daripada menu anda. Tukar harga, cetak semula, siap.
+            </p>
+            <button
+              type="button"
+              data-testid="open-menu-poster"
+              onClick={() => openPoster('menu', 'menu-poster.html', {})}
+              disabled={busy === 'menu'}
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors"
+            >
+              {busy === 'menu' ? 'Menjana…' : 'Buka menu A4'}
+            </button>
+          </div>
+
+          {/* WhatsApp order poster */}
+          <div className="pt-4 border-t border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">
+              💬 QR Pesan WhatsApp
+            </h3>
+            <p className="text-xs text-gray-500 mb-2">
+              Pelanggan imbas — WhatsApp terbuka dengan mesej pesanan siap
+              ditaip. Letak nombor meja untuk tahu pesanan datang dari meja
+              mana.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={waTable}
+                onChange={(e) => setWaTable(e.target.value.slice(0, 8))}
+                placeholder="No. meja (pilihan)"
+                aria-label="Nombor meja"
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-40 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <button
+                type="button"
+                data-testid="open-whatsapp-poster"
+                onClick={() =>
+                  openPoster('whatsapp', 'whatsapp-poster.html', {
+                    table: waTable.trim() || undefined,
+                  })
+                }
+                disabled={busy === 'whatsapp'}
+                className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors"
+              >
+                {busy === 'whatsapp' ? 'Menjana…' : 'Buka poster A4'}
+              </button>
+            </div>
+          </div>
+
+          {/* Google review poster */}
+          <div className="pt-4 border-t border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">
+              ⭐ QR Ulasan Google
+            </h3>
+            <p className="text-xs text-gray-500 mb-2">
+              Poster “beri kami 5 bintang” — QR terus ke halaman ulasan Google
+              anda. Tampal pautan ulasan Google anda (google.com, g.page atau
+              maps.app.goo.gl).
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="url"
+                value={reviewUrl}
+                onChange={(e) => setReviewUrl(e.target.value.slice(0, 500))}
+                placeholder="https://g.page/r/..."
+                aria-label="Pautan ulasan Google"
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <button
+                type="button"
+                data-testid="open-review-poster"
+                onClick={() =>
+                  openPoster('review', 'review-poster.html', {
+                    review_url: reviewUrl.trim(),
+                  })
+                }
+                disabled={busy === 'review' || !reviewUrl.trim()}
+                className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors"
+              >
+                {busy === 'review' ? 'Menjana…' : 'Buka poster A4'}
+              </button>
+            </div>
           </div>
 
           {/* vCard poster */}

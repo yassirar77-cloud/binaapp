@@ -345,6 +345,151 @@ def _share_card_response(subdomain: str, business_name: str, html: str):
     )
 
 
+# Live "Buka sekarang / Tutup" badge. The generated page already carries the
+# merchant's hours as schema.org openingHoursSpecification JSON-LD (see
+# services/seo_metadata.py) — this script reads THAT, so the badge can never
+# disagree with the hours printed on the page. Everything runs client-side in
+# Asia/Kuala_Lumpur time; any parse failure bails silently and no badge
+# appears, which is exactly the pre-feature behaviour.
+#
+# Positioning: bottom-LEFT. Bottom-right belongs to the chat widget and the
+# injected "Pesan Delivery" button; the layout safety guard pins floating
+# WhatsApp buttons bottom-right too. Left is the free corner.
+_OPEN_BADGE_SCRIPT = '''
+<!-- BinaApp Open Badge -->
+<script>
+(function(){
+  function specs(){
+    var out = [];
+    var blocks = document.querySelectorAll('script[type="application/ld+json"]');
+    for (var i = 0; i < blocks.length; i++) {
+      var data;
+      try { data = JSON.parse(blocks[i].textContent); } catch (e) { continue; }
+      var nodes = [].concat(data && data['@graph'] ? data['@graph'] : data);
+      for (var j = 0; j < nodes.length; j++) {
+        var spec = nodes[j] && nodes[j].openingHoursSpecification;
+        if (spec) out = out.concat(spec);
+      }
+    }
+    return out;
+  }
+  function minutes(t){
+    var m = /^(\\d{1,2}):(\\d{2})/.exec(String(t || ''));
+    return m ? (+m[1]) * 60 + (+m[2]) : null;
+  }
+  function daysOf(entry){
+    var raw = [].concat(entry && entry.dayOfWeek || []);
+    var names = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    var out = [];
+    for (var i = 0; i < raw.length; i++) {
+      for (var d = 0; d < 7; d++) {
+        if (String(raw[i]).indexOf(names[d]) !== -1) out.push(d);
+      }
+    }
+    return out;
+  }
+  function run(){
+    if (document.getElementById('binaapp-open-badge')) return;
+    var all = specs();
+    if (!all.length) return;
+
+    var parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Kuala_Lumpur', weekday: 'short',
+      hour: '2-digit', minute: '2-digit', hour12: false
+    }).formatToParts(new Date());
+    var get = function(type){
+      for (var i = 0; i < parts.length; i++) if (parts[i].type === type) return parts[i].value;
+      return '';
+    };
+    var dayIndex = {Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6}[get('weekday')];
+    var now = (+get('hour') % 24) * 60 + (+get('minute'));
+    if (dayIndex === undefined || isNaN(now)) return;
+
+    var open = false, closesAt = null;
+    for (var i = 0; i < all.length; i++) {
+      var opens = minutes(all[i].opens), closes = minutes(all[i].closes);
+      if (opens === null || closes === null) continue;
+      var days = daysOf(all[i]);
+      var today = days.indexOf(dayIndex) !== -1;
+      var yesterday = days.indexOf((dayIndex + 6) % 7) !== -1;
+      if (today && closes > opens && now >= opens && now < closes) { open = true; closesAt = all[i].closes; }
+      if (today && closes <= opens && now >= opens) { open = true; closesAt = all[i].closes; }
+      if (yesterday && closes <= opens && now < closes) { open = true; closesAt = all[i].closes; }
+    }
+
+    var nextOpens = null, nextDay = null;
+    if (!open) {
+      outer:
+      for (var ahead = 0; ahead < 7 && nextOpens === null; ahead++) {
+        var day = (dayIndex + ahead) % 7;
+        var best = null;
+        for (var k = 0; k < all.length; k++) {
+          var o = minutes(all[k].opens);
+          if (o === null || daysOf(all[k]).indexOf(day) === -1) continue;
+          if (ahead === 0 && o <= now) continue;
+          if (best === null || o < best) { best = o; nextOpens = all[k].opens; nextDay = ahead; }
+        }
+        if (nextOpens !== null) break outer;
+      }
+    }
+
+    var lang = (document.documentElement.lang || 'ms').toLowerCase();
+    var ms = lang.indexOf('en') !== 0;
+    var label, dotColor;
+    if (open) {
+      dotColor = '#22C55E';
+      label = (ms ? 'Buka sekarang' : 'Open now') +
+        (closesAt ? ' · ' + (ms ? 'tutup ' : 'closes ') + closesAt : '');
+    } else {
+      dotColor = '#F87171';
+      label = (ms ? 'Tutup' : 'Closed');
+      if (nextOpens !== null) {
+        var when = nextDay === 0 ? nextOpens
+          : (nextDay === 1 ? (ms ? 'esok ' : 'tomorrow ') + nextOpens : nextOpens);
+        label += ' · ' + (ms ? 'buka ' : 'opens ') + when;
+      }
+    }
+
+    var badge = document.createElement('div');
+    badge.id = 'binaapp-open-badge';
+    badge.setAttribute('role', 'status');
+    badge.style.cssText = 'position:fixed;bottom:24px;left:24px;z-index:999998;' +
+      'display:inline-flex;align-items:center;gap:8px;padding:10px 16px;' +
+      'background:rgba(17,24,39,.92);color:#fff;border-radius:999px;' +
+      'font-family:system-ui,-apple-system,sans-serif;font-size:13px;font-weight:600;' +
+      'box-shadow:0 4px 12px rgba(0,0,0,.25);pointer-events:none;';
+    var dot = document.createElement('span');
+    dot.style.cssText = 'width:8px;height:8px;border-radius:50%;background:' + dotColor + ';';
+    badge.appendChild(dot);
+    badge.appendChild(document.createTextNode(label));
+    document.body.appendChild(badge);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run);
+  } else {
+    run();
+  }
+})();
+</script>
+'''
+
+
+def _inject_open_badge(html_content: str) -> str:
+    """The live open/closed badge, only when the page carries hours data.
+
+    Gated on the JSON-LD marker so pages without structured hours pay
+    nothing. Idempotent both server-side (marker check) and client-side
+    (element id check).
+    """
+    if "openingHoursSpecification" not in html_content:
+        return html_content
+    if "BinaApp Open Badge" in html_content:
+        return html_content
+    if "</body>" in html_content:
+        return html_content.replace("</body>", _OPEN_BADGE_SCRIPT + "\n</body>", 1)
+    return html_content + _OPEN_BADGE_SCRIPT
+
+
 _SHARE_CARD_META_MARKER = "<!-- BinaApp Share Card Meta -->"
 
 
@@ -907,6 +1052,11 @@ async def subdomain_middleware(request: Request, call_next):
         # page has no preview image of its own — a bare WhatsApp link becomes
         # a branded unfurl. No-op when the page already carries og:image.
         html_content = _inject_social_meta(html_content, subdomain)
+
+        # STEP 3.6: live "Buka sekarang / Tutup" badge, computed client-side
+        # in Asia/Kuala_Lumpur from the page's own JSON-LD hours. No-op for
+        # pages without structured hours.
+        html_content = _inject_open_badge(html_content)
 
         return HTMLResponse(
             content=html_content,

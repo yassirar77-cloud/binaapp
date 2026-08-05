@@ -36,6 +36,12 @@ export function kitErrorMessage(status: number, detail?: unknown): string {
   if (code === 'no_phone_found') {
     return 'Tiada nombor telefon di laman web anda. Tambah pautan WhatsApp dahulu.';
   }
+  if (code === 'no_menu_found') {
+    return 'Tiada item menu untuk laman web ini. Tambah menu anda di papan pemuka dahulu.';
+  }
+  if (code === 'invalid_review_url') {
+    return 'Pautan mesti pautan ulasan Google anda (google.com, g.page, maps.app.goo.gl).';
+  }
   if (status === 503) {
     return 'Penjana imej tidak tersedia buat masa ini. Cuba lagi nanti.';
   }
@@ -71,10 +77,15 @@ async function kitFetch(
   return resp;
 }
 
-/** Printable poster HTML (vcard-poster.html / wifi-poster.html). */
+/** Printable poster HTML (vCard / Wi-Fi / menu / review / WhatsApp). */
 export async function fetchKitHtml(
   websiteId: string,
-  path: 'vcard-poster.html' | 'wifi-poster.html',
+  path:
+    | 'vcard-poster.html'
+    | 'wifi-poster.html'
+    | 'menu-poster.html'
+    | 'review-poster.html'
+    | 'whatsapp-poster.html',
   params: Record<string, string | undefined>,
   token: string | null
 ): Promise<string> {
