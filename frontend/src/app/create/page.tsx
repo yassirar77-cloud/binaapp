@@ -1426,7 +1426,7 @@ export default function CreatePage() {
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {([
                       { key: null, label: 'Auto', hint: 'Ikut bisnes anda' },
-                      { key: 'doodle', label: '✏️ Doodle Kartun', hint: 'Lukisan tangan · fun' },
+                      { key: 'doodle', label: '✏️ Doodle Kartun', hint: 'Lukisan tangan · gambar kartun' },
                       { key: 'elegant', label: 'Mewah', hint: 'Premium · elegan' },
                       { key: 'minimal', label: 'Minimalis', hint: 'Bersih · ringkas' },
                       { key: 'playful', label: 'Ceria', hint: 'Lembut · mesra' },

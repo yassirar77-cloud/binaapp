@@ -16,7 +16,9 @@ BinaApp allows Malaysian SMEs to create fully functional websites by simply desc
 - 🔐 **Secure Authentication**: Powered by Supabase Auth
 - ✏️ **Doodle Cartoon style**: a hand-drawn sketchbook look (wobbly borders,
   sticker shadows, speech bubbles, handwritten fonts) merchants pick on the
-  create page — or trigger by typing "doodle"/"kartun" in their description
+  create page — or trigger by typing "doodle"/"kartun" in their description.
+  Free AI images follow the style: doodle sites get cartoon *illustrations*
+  (same dishes and products, drawn instead of photographed)
 - 🖌️ **Design Studio**: 12 palettes, 28 font pairings, light/dark and a "shuffle"
   re-roll — applied instantly and **free**, because a recolour rewrites the
   live page's colour tokens instead of regenerating it (see
