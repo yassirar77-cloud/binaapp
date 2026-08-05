@@ -1697,7 +1697,7 @@ Respond ONLY with valid JSON, no other text."""
         return {"hero": hero, "gallery": gallery}
 
     async def generate_food_image(
-        self, food_name: str, zai_phase: Optional[Dict] = None
+        self, food_name: str, zai_phase: Optional[Dict] = None, doodle: bool = False
     ) -> Optional[str]:
         """
         Generate AI image for a food item using the full pipeline:
@@ -1736,7 +1736,9 @@ Respond ONLY with valid JSON, no other text."""
             # Step 2: Generate image with the selected provider (IMAGE_PROVIDER:
             # Z.ai with Stability fallback, or Stability directly) using the
             # detailed description
-            image_url = await self._generate_image(detailed_description, zai_phase=zai_phase)
+            image_url = await self._generate_image(
+                detailed_description, zai_phase=zai_phase, doodle=doodle
+            )
 
             if image_url:
                 logger.info(f"✅ Generated image: {image_url[:60]}...")
@@ -1858,7 +1860,9 @@ Format: Just the image description, no explanations."""
             logger.error(f"Error generating food description: {e}")
             return None
 
-    async def _generate_stability_image(self, prompt: str, food: bool = True) -> Optional[str]:
+    async def _generate_stability_image(
+        self, prompt: str, food: bool = True, doodle: bool = False
+    ) -> Optional[str]:
         """Generate image with Stability AI and upload to Cloudinary.
 
         Args:
@@ -1879,11 +1883,9 @@ Format: Just the image description, no explanations."""
             # Smart prompt for Malaysian context (food path only). Non-food
             # prompts pass through subject-unchanged but still get the
             # no-text suffix (idempotent) — no generated image may carry
-            # lettering.
-            smart_prompt = (
-                self._get_malaysian_prompt(prompt) if food
-                else self._with_no_text_suffix(prompt)
-            )
+            # lettering. doodle=True restyles the result into a cartoon
+            # illustration (Doodle Cartoon sites must not get photos).
+            smart_prompt = self._shape_image_prompt(prompt, food, doodle)
             logger.info(f"🎨 Prompt: {smart_prompt[:80]}...")
 
             async with httpx.AsyncClient(timeout=60) as client:
@@ -1896,7 +1898,10 @@ Format: Just the image description, no explanations."""
                     files={"none": ""},
                     data={
                         "prompt": smart_prompt,
-                        "negative_prompt": self._IMAGE_NEGATIVE_PROMPT,
+                        "negative_prompt": (
+                            f"{self._IMAGE_NEGATIVE_PROMPT}, {self._DOODLE_NEGATIVE_TERMS}"
+                            if doodle else self._IMAGE_NEGATIVE_PROMPT
+                        ),
                         "output_format": "png",
                         "aspect_ratio": "16:9"
                     }
@@ -2144,6 +2149,7 @@ Format: Just the image description, no explanations."""
         prompt: str,
         food: bool = True,
         zai_phase: Optional[Dict] = None,
+        doodle: bool = False,
     ) -> Optional[str]:
         """Provider-selecting wrapper around single-image generation.
 
@@ -2162,11 +2168,9 @@ Format: Just the image description, no explanations."""
             # Same Malaysian-food prompt mapping the Stability path applies
             # internally, so a raw dish name still becomes a curated prompt.
             # Non-food prompts get the (idempotent) no-text suffix here for
-            # the same reason the Stability path does.
-            zai_prompt = (
-                self._get_malaysian_prompt(prompt) if food
-                else self._with_no_text_suffix(prompt)
-            )
+            # the same reason the Stability path does. doodle=True restyles
+            # the result into a cartoon illustration.
+            zai_prompt = self._shape_image_prompt(prompt, food, doodle)
             url = None
             if not self._zai_phase_exhausted(zai_phase):
                 async with self._get_zai_image_lock():
@@ -2186,13 +2190,13 @@ Format: Just the image description, no explanations."""
                 return url
             if self.stability_api_key:
                 logger.warning("🎨 Z.ai image failed/skipped — falling back to Stability")
-                url = await self._generate_stability_image(prompt, food=food)
+                url = await self._generate_stability_image(prompt, food=food, doodle=doodle)
                 if url:
                     logger.info(f"🖼️ Image served by provider=stability (fallback): {url[:60]}...")
                 return url
             return None
 
-        url = await self._generate_stability_image(prompt, food=food)
+        url = await self._generate_stability_image(prompt, food=food, doodle=doodle)
         if url:
             logger.info(f"🖼️ Image served by provider=stability: {url[:60]}...")
         return url
@@ -5549,6 +5553,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         max_images: Optional[int] = None,
         zai_phase: Optional[Dict] = None,
         business_description: str = "",
+        doodle: bool = False,
     ) -> tuple:
         """
         Replace Unsplash food images with AI-generated images
@@ -5660,7 +5665,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             async with food_image_semaphore:
                 try:
                     logger.info(f"   🎨 Generating AI image for: {item_name}")
-                    ai_url = await self.generate_food_image(item_name, zai_phase=zai_phase)
+                    ai_url = await self.generate_food_image(
+                        item_name, zai_phase=zai_phase, doodle=doodle
+                    )
                     if ai_url and 'cloudinary' in ai_url.lower():
                         logger.info(f"   ✅ Generated: {ai_url[:60]}...")
                         return (old_url, item_name, ai_url)
@@ -6739,6 +6746,21 @@ IMPORTANT RULES:
     # Legacy alias — earlier code/tests reference the hero-specific name.
     _HERO_NO_TEXT_SUFFIX = _NO_TEXT_SUFFIX
 
+    # Style clause for sites built with the Doodle Cartoon design
+    # personality: their AI images must be cartoon illustrations, not
+    # photographs — a photorealistic nasi lemak inside a hand-drawn page
+    # breaks the whole look. Stated as a strong POSITIVE clause because the
+    # Z.ai / GLM-Image endpoint accepts no negative prompt; the Stability
+    # path adds photo-exclusion negatives as defence in depth.
+    _DOODLE_IMAGE_STYLE = (
+        "cute hand-drawn cartoon illustration, doodle art style, thick clean "
+        "dark outlines, flat bright cheerful colors, playful sticker-like "
+        "composition, simple cream paper background, kawaii charm, 2D flat "
+        "vector illustration, NOT a photograph, no photorealism"
+    )
+    #: Extra Stability negatives for doodle images only.
+    _DOODLE_NEGATIVE_TERMS = "photorealistic, photograph, realistic photo, 3d render"
+
     # Couple-composition clause baked into every wedding/creative image prompt
     # (hero + portfolio items). BinaApp serves Malaysian merchants — largely
     # Muslim wedding/photography vendors — and the image models were otherwise
@@ -6777,6 +6799,61 @@ IMPORTANT RULES:
         if "no text" in prompt.lower():
             return prompt
         return f"{prompt}, {self._NO_TEXT_SUFFIX}"
+
+    def _apply_doodle_image_style(self, prompt: str) -> str:
+        """Restyle an image prompt from photography to cartoon illustration.
+
+        Photography wording is REPLACED (not merely outweighed): diffusion
+        models blend contradictory style words, and "professional food
+        photography ... cartoon illustration" comes back as a half-real
+        uncanny middle. Idempotent via the style-clause substring check.
+        """
+        if not prompt:
+            return prompt
+        if "doodle art style" in prompt:
+            return prompt
+        styled = re.sub(
+            r"photorealistic|photography|photograph",
+            "illustration",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+        styled = re.sub(r"\brealistic\b", "charming", styled, flags=re.IGNORECASE)
+        return f"{styled}, {self._DOODLE_IMAGE_STYLE}"
+
+    def _shape_image_prompt(self, prompt: str, food: bool, doodle: bool = False) -> str:
+        """The final prompt every provider path sends.
+
+        food=True routes through the Malaysian-dish mapping (curated,
+        appetizing, photo-styled); doodle=True then restyles whatever came
+        out into a cartoon illustration — so a doodle site's nasi lemak is
+        still recognisably nasi lemak, just drawn instead of shot.
+        """
+        shaped = (
+            self._get_malaysian_prompt(prompt) if food
+            else self._with_no_text_suffix(prompt)
+        )
+        if doodle:
+            shaped = self._apply_doodle_image_style(shaped)
+        return shaped
+
+    @staticmethod
+    def _is_doodle_request(request) -> bool:
+        """True when this generation asked for the Doodle Cartoon design.
+
+        Mirrors DesignSystem.build()'s resolution: the explicit picker choice
+        (design_style) wins, else doodle words in the description. The seeded
+        pools never produce doodle on their own, so nothing else can.
+        """
+        if getattr(request, "design_style", None) == "doodle":
+            return True
+        try:
+            from app.services.design_system import extract_design_preferences
+
+            description = getattr(request, "description", "") or ""
+            return extract_design_preferences(description)["style_hint"] == "doodle"
+        except Exception:
+            return False
 
     @staticmethod
     def _autofill_business_context(business_name: str, description: str) -> str:
@@ -6970,6 +7047,13 @@ IMPORTANT RULES:
 
         category = self._autofill_prompt_category(request.description)
         is_food = category == "food"
+        # Doodle Cartoon sites get cartoon ILLUSTRATIONS in their free image
+        # slots — the photography prompts below are restyled at dispatch
+        # (see _shape_image_prompt), so subjects stay identical, only the
+        # rendering style changes.
+        is_doodle = self._is_doodle_request(request)
+        if is_doodle:
+            logger.info("✏️ Doodle site — free AI images will be cartoon illustrations")
 
         # Item names already covered by uploads — never generate a duplicate
         # card for something the merchant photographed themselves.
@@ -7083,7 +7167,10 @@ IMPORTANT RULES:
         # with spacing) — only Stability calls actually run in parallel.
         _gen_started = time.monotonic()
         results = await asyncio.gather(
-            *[self._generate_image(_p, food=is_food, zai_phase=zai_phase) for _, _, _p in work],
+            *[
+                self._generate_image(_p, food=is_food, zai_phase=zai_phase, doodle=is_doodle)
+                for _, _, _p in work
+            ],
             return_exceptions=True,
         )
         _gen_elapsed = time.monotonic() - _gen_started
@@ -7278,6 +7365,7 @@ IMPORTANT RULES:
                                     max_images=_food_budget,
                                     zai_phase=_zai_image_phase,
                                     business_description=request.description,
+                                    doodle=self._is_doodle_request(request),
                                 )
                                 ai_images_generated += food_images_count
                         with _timed_step("final_cleanup", step_timings):
@@ -7788,6 +7876,7 @@ IMPORTANT INSTRUCTIONS:
                     max_images=_food_budget,
                     zai_phase=_zai_image_phase,
                     business_description=request.description,
+                    doodle=self._is_doodle_request(request),
                 )
                 ai_images_generated += food_images_count
 
@@ -8060,7 +8149,9 @@ IMPORTANT INSTRUCTIONS:
                 style_ai_images = 0
                 if not (request.uploaded_images and len(request.uploaded_images) > 0):
                     html, style_ai_images = await self._generate_ai_food_images(
-                        html, business_description=request.description
+                        html,
+                        business_description=request.description,
+                        doodle=self._is_doodle_request(request),
                     )
 
                 # FINAL SAFETY NET: Fix any remaining broken/empty image URLs

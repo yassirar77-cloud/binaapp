@@ -384,7 +384,7 @@ class TestZaiRateLimitAndSerialization:
 
         state = {"active": 0, "max_active": 0}
 
-        async def fake_stability(prompt, food=True):
+        async def fake_stability(prompt, food=True, doodle=False):
             state["active"] += 1
             state["max_active"] = max(state["max_active"], state["active"])
             await asyncio.sleep(0.02)
@@ -596,7 +596,7 @@ class TestProviderSelection:
         service = self._service()
         url = await service._generate_image("nasi lemak")
         assert url == "https://res.cloudinary.com/stability.png"
-        service._generate_stability_image.assert_awaited_once_with("nasi lemak", food=True)
+        service._generate_stability_image.assert_awaited_once_with("nasi lemak", food=True, doodle=False)
         service._generate_image_zai.assert_not_awaited()
 
     async def test_unknown_provider_value_falls_back_to_stability(self, zai_env, monkeypatch):
@@ -641,7 +641,7 @@ class TestProviderSelection:
         service._generate_image_zai = AsyncMock(return_value=None)  # Z.ai fails/times out
         url = await service._generate_image("nasi lemak")
         assert url == "https://res.cloudinary.com/stability.png"
-        service._generate_stability_image.assert_awaited_once_with("nasi lemak", food=True)
+        service._generate_stability_image.assert_awaited_once_with("nasi lemak", food=True, doodle=False)
 
     async def test_both_providers_fail_returns_none(self, zai_env, monkeypatch):
         monkeypatch.setenv("IMAGE_PROVIDER", "zai")
@@ -748,7 +748,7 @@ def autofill_service(zai_env, monkeypatch):
 
     counter = {"n": 0}
 
-    async def _fake_generate(prompt, food=True, zai_phase=None):
+    async def _fake_generate(prompt, food=True, zai_phase=None, doodle=False):
         counter["n"] += 1
         return f"https://res.cloudinary.com/gen{counter['n']}.png"
 

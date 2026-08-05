@@ -243,7 +243,7 @@ class TestServiceSubjectsAndCardNames:
 
         sent_prompts = []
 
-        async def _fake_generate(prompt, food=True, zai_phase=None):
+        async def _fake_generate(prompt, food=True, zai_phase=None, doodle=False):
             sent_prompts.append((prompt, food))
             return f"https://res.cloudinary.com/gen{len(sent_prompts)}.png"
 
@@ -290,7 +290,7 @@ class TestServiceSubjectsAndCardNames:
             side_effect=AssertionError("service extractor must not run for a boutique")
         )
 
-        async def _fake_generate(prompt, food=True, zai_phase=None):
+        async def _fake_generate(prompt, food=True, zai_phase=None, doodle=False):
             return "https://res.cloudinary.com/gen.png"
 
         service._generate_image = AsyncMock(side_effect=_fake_generate)
@@ -387,7 +387,7 @@ class TestBusinessContextInPrompts:
 
         sent_prompts = []
 
-        async def _fake_generate(prompt, food=True, zai_phase=None):
+        async def _fake_generate(prompt, food=True, zai_phase=None, doodle=False):
             sent_prompts.append(prompt)
             return f"https://res.cloudinary.com/gen{len(sent_prompts)}.png"
 
