@@ -14,7 +14,10 @@ BinaApp allows Malaysian SMEs to create fully functional websites by simply desc
 - 💳 **Payment Ready**: Stripe integration for subscriptions
 - 🎨 **Live Preview**: See your website as it's being generated
 - 🔐 **Secure Authentication**: Powered by Supabase Auth
-- 🖌️ **Design Studio**: 12 palettes, 27 font pairings, light/dark and a "shuffle"
+- ✏️ **Doodle Cartoon style**: a hand-drawn sketchbook look (wobbly borders,
+  sticker shadows, speech bubbles, handwritten fonts) merchants pick on the
+  create page — or trigger by typing "doodle"/"kartun" in their description
+- 🖌️ **Design Studio**: 12 palettes, 28 font pairings, light/dark and a "shuffle"
   re-roll — applied instantly and **free**, because a recolour rewrites the
   live page's colour tokens instead of regenerating it (see
   [docs/DESIGN_STUDIO_AND_QR.md](docs/DESIGN_STUDIO_AND_QR.md))

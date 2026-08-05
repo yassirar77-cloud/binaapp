@@ -226,6 +226,8 @@ export default function CreatePage() {
   // Business type state - for dynamic categories and labels
   const [businessType, setBusinessType] = useState<'auto' | 'food' | 'clothing' | 'salon' | 'services' | 'bakery' | 'general'>('auto')
   const [colorMode, setColorMode] = useState<'light' | 'dark'>('light')
+  // Explicit design-style pick; null = "Auto" (the design system decides).
+  const [designStyle, setDesignStyle] = useState<string | null>(null)
 
   // STRICT IMAGE CONTROL - Explicit user choice for images
   // 'none' = No images (text-only website)
@@ -743,6 +745,7 @@ export default function CreatePage() {
           // STRICT IMAGE CONTROL: Send explicit image choice
           image_choice: finalImageChoice,
           color_mode: colorMode,
+          design_style: designStyle || undefined,
           // Template gallery: pass selected design template if any
           template_id: selectedTemplateId || undefined,
           delivery: selectedFeatures.deliverySystem ? {
@@ -1414,6 +1417,32 @@ export default function CreatePage() {
                         <div style={{ fontSize: 11, color: '#86869A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Dark · premium</div>
                       </div>
                     </div>
+                  </div>
+                </div>
+                {/* Design style — explicit personality pick. "Auto" lets the
+                    design system choose; Doodle is the fun hand-drawn look. */}
+                <div className="cr-card cr-card-hairline" style={{ padding: 18, minWidth: 0, gridColumn: '1 / -1' }}>
+                  <div className="eyebrow" style={{ marginBottom: 12 }}>Gaya design</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {([
+                      { key: null, label: 'Auto', hint: 'Ikut bisnes anda' },
+                      { key: 'doodle', label: '✏️ Doodle Kartun', hint: 'Lukisan tangan · fun' },
+                      { key: 'elegant', label: 'Mewah', hint: 'Premium · elegan' },
+                      { key: 'minimal', label: 'Minimalis', hint: 'Bersih · ringkas' },
+                      { key: 'playful', label: 'Ceria', hint: 'Lembut · mesra' },
+                      { key: 'bold', label: 'Berani', hint: 'Kontras · impak' },
+                      { key: 'classic', label: 'Klasik', hint: 'Warisan · hangat' },
+                    ] as { key: string | null; label: string; hint: string }[]).map((opt) => (
+                      <div
+                        key={opt.key ?? 'auto'}
+                        className={'opt ' + (designStyle === opt.key ? 'selected' : '')}
+                        onClick={() => setDesignStyle(opt.key)}
+                        style={{ flex: '1 1 120px', padding: '12px 10px', minWidth: 0, cursor: 'pointer' }}
+                      >
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA', lineHeight: 1.2 }}>{opt.label}</div>
+                        <div style={{ fontSize: 11, color: '#86869A', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{opt.hint}</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>

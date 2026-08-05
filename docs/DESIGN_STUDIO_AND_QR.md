@@ -33,9 +33,11 @@ PATCH /api/v1/websites/{id}/theme
 ```
 
 `GET /design/options` is the picker catalogue — 12 named palettes (Malay
-labels, full 8-role swatches, light + dark), 27 font pairings and 5 style
-personalities. It is public: it holds no merchant data and the create page
-renders the picker before a website row exists.
+labels, full 8-role swatches, light + dark), 28 font pairings and 6 style
+personalities (including the opt-in **Doodle Cartoon** hand-drawn look —
+picker/description-words only, never a seeded pick, so existing sites'
+variant walks stay reproducible). It is public: it holds no merchant data
+and the create page renders the picker before a website row exists.
 
 `GET /{id}/theme` reports what the page is wearing right now, read from the
 **live storage snapshot** when the site is published (that is what visitors

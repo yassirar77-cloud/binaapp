@@ -1009,7 +1009,13 @@ _COLOR_WORDS = [
 ]
 
 # Style adjectives (Malay + English) → style hint key.
+# First match wins, so more SPECIFIC vocabularies must come before generic
+# ones: "website kartun comel" is a doodle ask ("kartun"), not merely a
+# playful one ("comel").
 _STYLE_WORDS = [
+    (("doodle", "kartun", "cartoon", "comic", "komik", "hand-drawn",
+      "hand drawn", "lukisan tangan", "sketch", "lakaran", "contengan"),
+     "doodle"),
     (("mewah", "luxury", "luxurious", "premium", "elegant", "elegan",
       "exclusive", "eksklusif", "classy", "berkelas"), "elegant"),
     (("minimalis", "minimalist", "minimal", "simple", "ringkas", "bersih",
@@ -1493,6 +1499,20 @@ DESIGN_PERSONALITIES = {
 - Icons and small illustrative touches in tinted circles; dotted or wavy divider accents
 - Conversational, warm copy tone""",
     },
+    "doodle_cartoon": {
+        "name": "Doodle Cartoon",
+        "prompt": """DESIGN PERSONALITY — DOODLE CARTOON (hand-drawn sketchbook look; commit to it on EVERY section):
+- Wobbly hand-drawn borders on cards, images and buttons using uneven border-radius, e.g. style="border-radius: 255px 25px 225px 25px / 25px 225px 25px 255px" (vary the numbers per element so no two look identical)
+- Thick dark outlines everywhere instead of shadows-only: border-[3px] with the palette text colour; sticker-style hard offset shadows: shadow-[5px_5px_0_0_rgba(17,24,39,0.9)]
+- Slight playful rotation on cards and images, alternating: rotate-[-1.5deg], rotate-[1deg], rotate-[2deg] — straighten on hover (hover:rotate-0 transition)
+- Hand-drawn accents as small inline SVGs in the primary colour: a scribbly underline under ONE key word per heading (wavy <path> with stroke-linecap="round" stroke-width="4" fill="none"), plus stars ✦, arrows, sparkles and squiggles scattered sparingly between sections
+- Buttons look like stickers: thick outline + offset shadow; on hover translate down-right 2px with the shadow shrinking (the "pressed" feel); pill or wobbly shapes, never sharp rectangles
+- One speech-bubble element (rounded bubble with a small triangle tail) used for the hero tagline or a testimonial
+- Section dividers: dashed borders (border-t-2 border-dashed) or a hand-drawn wavy SVG line — never plain hard rules
+- Polaroid/tape framing on at least one image: white padding, a small tilted "tape" rectangle (a rotated semi-transparent div) across the top corner
+- Bright, flat, cheerful colour use on a paper-like background; emoji welcome in headings and lists where they fit the business
+- Copy tone: fun, friendly, energetic — like a friend's handwritten note, in the site language""",
+    },
 }
 
 # Which personalities suit each design type (seeded pick from this list).
@@ -1509,12 +1529,32 @@ PERSONALITY_POOL = {
 }
 
 # Style hints extracted from the user's description force a personality.
+# NOTE: doodle_cartoon is deliberately NOT in any PERSONALITY_POOL — it is a
+# strong, opinionated look that only appears when the user explicitly asks
+# for it (picker choice or description words). Keeping it out of the seeded
+# pools also keeps every existing site's variant walk reproducible.
 _STYLE_HINT_TO_PERSONALITY = {
     "elegant": "refined_luxe",
     "minimal": "modern_minimal",
     "playful": "soft_organic",
     "bold": "bold_contrast",
     "classic": "warm_crafted",
+    "doodle": "doodle_cartoon",
+}
+
+# The doodle look needs hand-drawn typography to land; the business-type
+# font pools are all polished faces. When the doodle personality is chosen,
+# build() swaps the pairing for this one.
+DOODLE_FONT_PAIRING = {
+    "heading": "Gloria Hallelujah",
+    "heading_weights": "400",
+    "heading_fallback": "'Comic Sans MS', cursive",
+    "heading_category": "handwriting",
+    "body": "Comic Neue",
+    "body_weights": "400;700",
+    "body_fallback": "'Comic Sans MS', cursive",
+    "body_category": "handwriting",
+    "vibe": "Hand-drawn, fun",
 }
 
 
@@ -1727,6 +1767,12 @@ class DesignSystem:
             style_hint=prefs["style_hint"],
             variant=variant,
         )
+
+        # The doodle look collapses without hand-drawn typography — a serif
+        # display face over sticker shadows reads broken, not playful. When
+        # the doodle personality is the pick, it brings its own fonts.
+        if personality.get("key") == "doodle_cartoon":
+            fonts = self._build_font_cdn(DOODLE_FONT_PAIRING)
 
         tailwind_config = f"""<script>
 tailwind.config = {{
@@ -1966,6 +2012,7 @@ STYLE_LABELS = {
     "playful": ("Ceria", "Playful"),
     "bold": ("Berani", "Bold"),
     "classic": ("Klasik", "Classic"),
+    "doodle": ("Doodle Kartun", "Doodle Cartoon"),
 }
 
 
@@ -2051,24 +2098,34 @@ def list_font_pairings(business_type: str = None) -> list:
 
     seen = set()
     out = []
+
+    def add(pairing: dict, btype: str) -> None:
+        key = font_pairing_key(pairing)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({
+            "key": key,
+            "heading": pairing["heading"],
+            "body": pairing["body"],
+            "heading_weights": pairing.get("heading_weights", "400;600;700"),
+            "body_weights": pairing.get("body_weights", "400;500;600;700"),
+            "heading_fallback": pairing.get("heading_fallback", "Georgia, serif"),
+            "body_fallback": pairing.get("body_fallback", "system-ui, sans-serif"),
+            "vibe": pairing.get("vibe", ""),
+            "business_type": btype,
+        })
+
     for btype in types:
-        options = design_system._font_options(btype)
-        for pairing in options:
-            key = font_pairing_key(pairing)
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append({
-                "key": key,
-                "heading": pairing["heading"],
-                "body": pairing["body"],
-                "heading_weights": pairing.get("heading_weights", "400;600;700"),
-                "body_weights": pairing.get("body_weights", "400;500;600;700"),
-                "heading_fallback": pairing.get("heading_fallback", "Georgia, serif"),
-                "body_fallback": pairing.get("body_fallback", "system-ui, sans-serif"),
-                "vibe": pairing.get("vibe", ""),
-                "business_type": btype,
-            })
+        for pairing in design_system._font_options(btype):
+            add(pairing, btype)
+
+    # Catalogue-only extras (the doodle pairing): selectable in the Design
+    # Studio picker but NOT part of any seeded generation pool, so existing
+    # sites' variant walks stay reproducible.
+    if not business_type:
+        add(DOODLE_FONT_PAIRING, "general")
+
     return out
 
 

@@ -99,7 +99,11 @@ class TestDesignOptions:
         assert body["success"] is True
         assert len(body["palettes"]) >= 12
         assert len(body["fonts"]) >= 10
-        assert len(body["styles"]) == 5
+        # 5 original personalities + the opt-in Doodle Cartoon style.
+        assert len(body["styles"]) == 6
+        assert {s["key"] for s in body["styles"]} >= {
+            "elegant", "minimal", "playful", "bold", "classic", "doodle"
+        }
 
     def test_every_palette_carries_a_full_swatch_and_malay_label(self, client):
         body = client.get("/api/v1/websites/design/options").json()
