@@ -129,6 +129,15 @@ class WebsiteGenerationRequest(BaseModel):
     colors: Optional[dict] = Field(default=None, description="Color scheme with primary, secondary, accent colors")
     theme: Optional[str] = Field(default=None, description="Detected theme name (e.g., 'Purrfect Paws Theme')")
     color_mode: Optional[str] = Field(default="light", description="Color mode: 'light' or 'dark'")
+    design_style: Optional[str] = Field(
+        default=None,
+        max_length=20,
+        description=(
+            "Explicit design-style pick from the create-page picker "
+            "('doodle', 'elegant', 'minimal', 'playful', 'bold', 'classic'). "
+            "None = let the design system choose."
+        ),
+    )
     template_id: Optional[str] = Field(default=None, description="Design template ID from template gallery (e.g., 'elegance_dark', 'fresh_clean')")
     menu_items: Optional[List[MenuItemInput]] = Field(
         default=[],

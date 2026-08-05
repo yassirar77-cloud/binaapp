@@ -3689,6 +3689,7 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         include_chat: bool = True,
         brand_colors: Optional[dict] = None,
         menu_items: Optional[list] = None,
+        design_style: Optional[str] = None,
     ) -> str:
         """Build STRICT prompt with premium design system
 
@@ -3721,6 +3722,9 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
                 description=desc,
                 has_images=(image_choice != "none"),
                 brand_colors=brand_colors,
+                # Explicit style pick from the create-page picker ("doodle",
+                # "elegant", ...). Beats description sniffing.
+                style_override=design_style,
             )
             fonts = bundle["fonts"]
             palette = bundle["palette"]
@@ -7370,6 +7374,7 @@ IMPORTANT RULES:
             include_maps=request.include_maps,
             brand_colors=getattr(request, "colors", None),
             menu_items=getattr(request, "menu_items", None),
+            design_style=getattr(request, "design_style", None),
         )
 
         # Add image URLs to prompt with STRONG emphasis.
@@ -7893,6 +7898,7 @@ IMPORTANT INSTRUCTIONS:
                 include_ecommerce=request.include_ecommerce,
                 brand_colors=getattr(request, "colors", None),
                 menu_items=getattr(request, "menu_items", None),
+                design_style=getattr(request, "design_style", None),
             )
 
             # GLM (Z.ai) primary path — strictly PREPENDED, gated by
