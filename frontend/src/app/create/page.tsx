@@ -9,7 +9,7 @@ import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout, FileText,
 import VisualImageUpload from './components/VisualImageUpload'
 import DevicePreview from './components/DevicePreview'
 import MultiDevicePreview from './components/MultiDevicePreview'
-// CodeAnimation removed — loading overlay uses pure CSS spinner
+import LiveBuildStudio from './components/LiveBuildStudio'
 import { UpgradeModal } from '@/components/UpgradeModal'
 import InstallAppButton from '@/components/pwa/InstallAppButton'
 import { AddonPurchaseModal } from '@/components/AddonPurchaseModal'
@@ -2092,7 +2092,7 @@ export default function CreatePage() {
             </div>
 
             {loading && (
-              <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(5,5,12,.92)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+              <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(5,5,12,.92)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
                 {/* Background dotgrid + radial pulse */}
                 <div className="dotgrid" style={{ position: 'absolute', inset: 0, opacity: .5, maskImage: 'radial-gradient(ellipse at center, black 20%, transparent 70%)', WebkitMaskImage: 'radial-gradient(ellipse at center, black 20%, transparent 70%)', pointerEvents: 'none' }} />
                 <div className="ai-pulse" style={{ position: 'absolute', top: '40%', left: '50%', width: 600, height: 600, marginLeft: -300, marginTop: -300, borderRadius: '50%', background: 'radial-gradient(circle, rgba(79,61,255,.3), transparent 60%)', pointerEvents: 'none' }} />
@@ -2113,83 +2113,12 @@ export default function CreatePage() {
                     </div>
                   </div>
                 ) : (
-                  <div style={{ position: 'relative', textAlign: 'center', maxWidth: 480, zIndex: 1 }}>
-                    {/* Orbital ring + gradient sphere */}
-                    <div style={{ position: 'relative', width: 120, height: 120, margin: '0 auto 36px' }}>
-                      <svg width="120" height="120" style={{ position: 'absolute', inset: 0, animation: 'orbit 6s linear infinite' }}>
-                        <circle cx="60" cy="60" r="54" stroke="rgba(255,255,255,.06)" strokeWidth="1" fill="none" />
-                        <circle
-                          cx="60" cy="60" r="54"
-                          stroke="#C7FF3D" strokeWidth="2" fill="none"
-                          strokeDasharray={`${Math.max(0, Math.min(progress, 100)) * 3.39} 339`}
-                          strokeLinecap="round"
-                          transform="rotate(-90 60 60)"
-                          style={{ filter: 'drop-shadow(0 0 8px #C7FF3D)', transition: 'stroke-dasharray 500ms cubic-bezier(.25,1,.5,1)' }}
-                        />
-                      </svg>
-                      <div style={{ position: 'absolute', inset: 18, borderRadius: '50%', background: 'linear-gradient(135deg, #6B5CFF, #4F3DFF)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 60px rgba(79,61,255,.6), inset 0 1px 0 rgba(255,255,255,.2)', color: '#fff' }}>
-                        <Sparkles size={32} />
-                      </div>
-                    </div>
-
-                    <div className="eyebrow ai-pulse" style={{ color: '#C7FF3D', marginBottom: 14, fontSize: 11 }}>AI is working · {progress}%</div>
-                    <h2 style={{ fontSize: 36, fontWeight: 700, letterSpacing: '-0.035em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>
-                      Building your website…
-                    </h2>
-
-                    {/* Indigo→volt progress bar */}
-                    <div style={{ marginTop: 22, maxWidth: 380, marginLeft: 'auto', marginRight: 'auto' }}>
-                      <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,.06)', borderRadius: 99, overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, #4F3DFF, #C7FF3D)', borderRadius: 99, boxShadow: '0 0 12px rgba(199,255,61,.4)', transition: 'width 500ms cubic-bezier(.25,1,.5,1)' }} />
-                      </div>
-                      <div style={{ textAlign: 'center', marginTop: 8 }}>
-                        <span className="num" style={{ fontSize: 13, color: '#C7FF3D', fontWeight: 600 }}>{progress}%</span>
-                        <span style={{ fontSize: 13, color: '#5A5A6E', marginLeft: 6 }}>Complete</span>
-                      </div>
-                    </div>
-
-                    {/* 5-step list (existing labels preserved per locked decision) */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 28, textAlign: 'left' }}>
-                      {[
-                        { label: 'Analyzing your business description', start: 10, end: 30 },
-                        { label: 'Generating Modern style', start: 30, end: 50 },
-                        { label: 'Generating Minimal style', start: 50, end: 70 },
-                        { label: 'Generating Bold style', start: 70, end: 90 },
-                        { label: 'Finalizing website', start: 90, end: 100 },
-                      ].map((step, i) => {
-                        const done = progress >= step.end
-                        const active = progress >= step.start && progress < step.end
-                        return (
-                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: active ? 'rgba(199,255,61,.06)' : 'transparent', transition: 'all 300ms' }}>
-                            <div style={{ width: 16, height: 16, borderRadius: '50%', border: done ? 'none' : `1.5px solid ${active ? '#C7FF3D' : 'rgba(255,255,255,.1)'}`, background: done ? '#22C08F' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              {done && <Check size={10} stroke="#05050C" strokeWidth={3} />}
-                              {active && <div className="ai-pulse" style={{ width: 6, height: 6, borderRadius: 50, background: '#C7FF3D', boxShadow: '0 0 8px #C7FF3D' }} />}
-                            </div>
-                            <span style={{ fontSize: 13, color: (done || active) ? '#F5F5FA' : '#5A5A6E', fontWeight: active ? 500 : 400 }}>{step.label}</span>
-                            {done && <span className="num" style={{ marginLeft: 'auto', fontSize: 10, color: '#22C08F' }}>✓</span>}
-                          </div>
-                        )
-                      })}
-                    </div>
-
-                    {/* Stale Progress Warning */}
-                    {staleWarning && (
-                      <div className="banner-accent" style={{ marginTop: 20, marginBottom: 0, background: 'linear-gradient(90deg, rgba(255,176,32,.06), transparent)', border: '1px solid rgba(255,176,32,.22)', textAlign: 'left' }}>
-                        <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#FFB020' }} />
-                        <span style={{ fontSize: 13, color: '#FFB020' }}>Progress appears stuck at {progress}%. The backend may be experiencing issues. Job may still complete.</span>
-                      </div>
-                    )}
-
-                    <p style={{ fontSize: 12, color: '#5A5A6E', marginTop: 20 }}>
-                      This usually takes 45-90 seconds. Progress updates every 3 seconds.
-                    </p>
-
-                    {currentJobId && (
-                      <p className="num" style={{ fontSize: 11, color: '#3A3A4A', marginTop: 8 }}>
-                        Job: {currentJobId.slice(0, 8)}…
-                      </p>
-                    )}
-                  </div>
+                  <LiveBuildStudio
+                    progress={progress}
+                    jobId={currentJobId}
+                    staleWarning={staleWarning}
+                    businessHint={description}
+                  />
                 )}
               </div>
             )}
