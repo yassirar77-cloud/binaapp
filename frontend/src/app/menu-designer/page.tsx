@@ -129,18 +129,25 @@ export default function MenuDesigner() {
     setLoading(true)
     setPdfUrl('')
     try {
-      // NOTE: backend currently accepts A4 | A5 | banner. Letter is UI-only this
-      // phase and maps to A4 for the PDF generator (closest dimensions).
-      // Theme is also UI/preview-only — backend rendering is unchanged.
-      // Phase 2: wire size=Letter and theme into reportlab.
-      const backendSize =
-        size === 'Letter' ? 'A4' : size === 'Banner' ? 'banner' : size
+      const backendSize = size === 'Banner' ? 'banner' : size
 
       const payload = {
         business_name: businessName,
-        items: items.map(({ name, price, description }) => ({ name, price, description })),
+        subtitle,
+        items: items.map(({ name, price, description, cat }) => ({
+          name,
+          price,
+          description,
+          category: catLabel(cat),
+        })),
         size: backendSize,
-        style: 'modern',
+        style: theme.id,
+        theme: {
+          id: theme.id,
+          paper: theme.paper,
+          ink: theme.ink,
+          accent: theme.accent,
+        },
       }
 
       const res = await fetch(`${API_BASE_URL}/api/generate-menu`, {
@@ -236,7 +243,7 @@ export default function MenuDesigner() {
             <div className="rounded-2xl border border-ink-100 bg-white p-5 shadow-sm">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-ink-900">Tema</h2>
-                <span className="text-xs text-ink-400">Pratonton sahaja buat masa ini</span>
+                <span className="text-xs text-ink-400">Dipakai pada PDF anda</span>
               </div>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {THEMES.map(t => {
