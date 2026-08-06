@@ -1496,18 +1496,22 @@ async def generate_simple(request: GenerateRequest):
     if not desc:
         return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
 
-    # Check rate limit (founders bypass limit)
-    rate_limit = check_rate_limit(user_id, user_email)
-    if not rate_limit["allowed"]:
-        return JSONResponse(
-            status_code=429,
-            content={
-                "success": False,
-                "error": "Daily limit reached",
-                "message": f"You've used all {FREE_LIMIT} free generations today!",
-                "usage": rate_limit
-            }
-        )
+    # Legacy in-memory 3/day guard — anonymous/guest traffic only. Logged-in
+    # users are governed by the subscription system (websites_limit, admin
+    # bypass), which /api/v1/subscription/check-limit already reports on; a
+    # paying user must never be 429'd by the free-tier counter.
+    if not user_id or user_id in ("anonymous", "demo-user", "guest"):
+        rate_limit = check_rate_limit(user_id, user_email)
+        if not rate_limit["allowed"]:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "success": False,
+                    "error": "Daily limit reached",
+                    "message": f"You've used all {FREE_LIMIT} free generations today!",
+                    "usage": rate_limit
+                }
+            )
 
     # Initialize progress
     generation_progress[session_id] = {
@@ -2501,18 +2505,22 @@ MANDATORY REQUIREMENTS:
     if not description:
         return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
 
-    # Check rate limit (founders bypass)
-    rate_limit = check_rate_limit(user_id, user_email)
-    if not rate_limit["allowed"]:
-        return JSONResponse(
-            status_code=429,
-            content={
-                "success": False,
-                "error": "Daily limit reached",
-                "message": f"You've used all {FREE_LIMIT} free generations today!",
-                "usage": rate_limit
-            }
-        )
+    # Legacy in-memory 3/day guard — anonymous/guest traffic only. Logged-in
+    # users fall through to the subscription website-limit check below
+    # (source of truth, with admin bypass); a paying user must never be
+    # 429'd by the free-tier counter while their plan still allows builds.
+    if not user_id or user_id in ("anonymous", "demo-user", "guest"):
+        rate_limit = check_rate_limit(user_id, user_email)
+        if not rate_limit["allowed"]:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "success": False,
+                    "error": "Daily limit reached",
+                    "message": f"You've used all {FREE_LIMIT} free generations today!",
+                    "usage": rate_limit
+                }
+            )
 
     # Idempotency / debounce — one build = one website row.
     # In prod the UI fired two builds 6s apart for a single click (website_ids
