@@ -77,7 +77,7 @@ async function kitFetch(
   return resp;
 }
 
-/** Printable poster HTML (vCard / Wi-Fi / menu / review / WhatsApp). */
+/** Printable poster/sheet HTML (Promo, Business and Counter Kit surfaces). */
 export async function fetchKitHtml(
   websiteId: string,
   path:
@@ -85,7 +85,11 @@ export async function fetchKitHtml(
     | 'wifi-poster.html'
     | 'menu-poster.html'
     | 'review-poster.html'
-    | 'whatsapp-poster.html',
+    | 'whatsapp-poster.html'
+    | 'loyalty-cards.html'
+    | 'business-cards.html'
+    | 'voucher-sheet.html'
+    | 'closure-poster.html',
   params: Record<string, string | undefined>,
   token: string | null
 ): Promise<string> {
