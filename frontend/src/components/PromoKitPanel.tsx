@@ -39,6 +39,13 @@ export default function PromoKitPanel({ websiteId, isPublished, subdomain }: Pro
   const [wifiPassword, setWifiPassword] = useState('');
   const [reviewUrl, setReviewUrl] = useState('');
   const [waTable, setWaTable] = useState('');
+  const [stamps, setStamps] = useState('10');
+  const [reward, setReward] = useState('');
+  const [voucherOffer, setVoucherOffer] = useState('');
+  const [voucherCode, setVoucherCode] = useState('');
+  const [voucherExpiry, setVoucherExpiry] = useState('');
+  const [reopenDate, setReopenDate] = useState('');
+  const [closedFrom, setClosedFrom] = useState('');
 
   const fail = (err: unknown, fallback: string) => {
     const message = err instanceof Error ? err.message : fallback;
@@ -77,7 +84,11 @@ export default function PromoKitPanel({ websiteId, isPublished, subdomain }: Pro
       | 'wifi-poster.html'
       | 'menu-poster.html'
       | 'review-poster.html'
-      | 'whatsapp-poster.html',
+      | 'whatsapp-poster.html'
+      | 'loyalty-cards.html'
+      | 'business-cards.html'
+      | 'voucher-sheet.html'
+      | 'closure-poster.html',
     params: Record<string, string | undefined>
   ) => {
     const tab = window.open('', '_blank');
@@ -111,8 +122,9 @@ export default function PromoKitPanel({ websiteId, isPublished, subdomain }: Pro
         </span>
       </div>
       <p className="text-sm text-gray-500 mb-4">
-        Imej kongsi, poster story, QR simpan-nombor dan QR Wi-Fi — semua dijana
-        serta-merta daripada laman web anda, dalam warna jenama anda sendiri.
+        Imej kongsi, poster story, QR simpan-nombor, QR Wi-Fi, kad setia, kad
+        nama, baucar dan notis cuti — semua dijana serta-merta daripada laman
+        web anda, dalam warna jenama anda sendiri.
       </p>
 
       {error && (
@@ -322,6 +334,170 @@ export default function PromoKitPanel({ websiteId, isPublished, subdomain }: Pro
                 className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors"
               >
                 {busy === 'wifi' ? 'Menjana…' : 'Buka poster A4'}
+              </button>
+            </div>
+          </div>
+
+          {/* Loyalty stamp cards */}
+          <div className="pt-4 border-t border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">
+              🎟️ Kad Setia (Kad Cop)
+            </h3>
+            <p className="text-xs text-gray-500 mb-2">
+              8 kad setia saiz dompet setiap helaian A4 — pelanggan kumpul cop,
+              cop penuh dapat ganjaran. Guna cop atau pen sahaja, tiada apl
+              diperlukan.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="number"
+                min={4}
+                max={20}
+                value={stamps}
+                onChange={(e) => setStamps(e.target.value)}
+                aria-label="Jumlah cop"
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-20 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <input
+                type="text"
+                value={reward}
+                onChange={(e) => setReward(e.target.value.slice(0, 80))}
+                placeholder="Ganjaran (pilihan)"
+                aria-label="Ganjaran kad setia"
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-56 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <button
+                type="button"
+                data-testid="open-loyalty-cards"
+                onClick={() =>
+                  openPoster('loyalty', 'loyalty-cards.html', {
+                    stamps: stamps.trim() || undefined,
+                    reward: reward.trim() || undefined,
+                  })
+                }
+                disabled={busy === 'loyalty'}
+                className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors"
+              >
+                {busy === 'loyalty' ? 'Menjana…' : 'Buka helaian A4'}
+              </button>
+            </div>
+          </div>
+
+          {/* Business cards */}
+          <div className="pt-4 border-t border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">
+              💼 Kad Nama
+            </h3>
+            <p className="text-xs text-gray-500 mb-2">
+              10 kad nama (90×50mm) setiap helaian A4 — nama kedai, nombor
+              telefon dari laman anda, dan QR terus ke laman web. Gunting dan
+              edarkan.
+            </p>
+            <button
+              type="button"
+              data-testid="open-business-cards"
+              onClick={() => openPoster('bizcards', 'business-cards.html', {})}
+              disabled={busy === 'bizcards'}
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors"
+            >
+              {busy === 'bizcards' ? 'Menjana…' : 'Buka helaian A4'}
+            </button>
+          </div>
+
+          {/* Voucher sheet */}
+          <div className="pt-4 border-t border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">
+              🏷️ Baucar Diskaun
+            </h3>
+            <p className="text-xs text-gray-500 mb-2">
+              6 baucar gunting-sendiri setiap helaian A4 — tulis tawaran anda
+              (cth. &ldquo;10% OFF&rdquo;), kod dan tarikh luput jika mahu.
+              Edarkan bersama setiap pesanan supaya pelanggan datang lagi.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={voucherOffer}
+                onChange={(e) => setVoucherOffer(e.target.value.slice(0, 60))}
+                placeholder="Tawaran (cth. 10% OFF)"
+                aria-label="Tawaran baucar"
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <input
+                type="text"
+                value={voucherCode}
+                onChange={(e) => setVoucherCode(e.target.value.slice(0, 24))}
+                placeholder="Kod (pilihan)"
+                aria-label="Kod baucar"
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-32 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <input
+                type="text"
+                value={voucherExpiry}
+                onChange={(e) => setVoucherExpiry(e.target.value.slice(0, 40))}
+                placeholder="Luput (pilihan)"
+                aria-label="Tarikh luput baucar"
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-36 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <button
+                type="button"
+                data-testid="open-voucher-sheet"
+                onClick={() =>
+                  openPoster('voucher', 'voucher-sheet.html', {
+                    offer: voucherOffer.trim(),
+                    code: voucherCode.trim() || undefined,
+                    expiry: voucherExpiry.trim() || undefined,
+                  })
+                }
+                disabled={busy === 'voucher' || !voucherOffer.trim()}
+                className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors"
+              >
+                {busy === 'voucher' ? 'Menjana…' : 'Buka helaian A4'}
+              </button>
+            </div>
+          </div>
+
+          {/* Closure notice */}
+          <div className="pt-4 border-t border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">
+              🏖️ Notis Cuti / Tutup
+            </h3>
+            <p className="text-xs text-gray-500 mb-2">
+              Poster &ldquo;kami bercuti&rdquo; untuk pintu kedai — tarikh buka
+              semula dan QR ke laman web anda supaya pelanggan masih boleh
+              lihat menu dan hubungi anda. Taip tarikh ikut suka (cth.
+              &ldquo;2 Jun&rdquo; atau &ldquo;selepas Raya&rdquo;).
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={closedFrom}
+                onChange={(e) => setClosedFrom(e.target.value.slice(0, 40))}
+                placeholder="Tutup mulai (pilihan)"
+                aria-label="Tarikh mula tutup"
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-44 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <input
+                type="text"
+                value={reopenDate}
+                onChange={(e) => setReopenDate(e.target.value.slice(0, 40))}
+                placeholder="Buka semula (cth. 5 Jun)"
+                aria-label="Tarikh buka semula"
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-48 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              <button
+                type="button"
+                data-testid="open-closure-poster"
+                onClick={() =>
+                  openPoster('closure', 'closure-poster.html', {
+                    reopen: reopenDate.trim(),
+                    closed_from: closedFrom.trim() || undefined,
+                  })
+                }
+                disabled={busy === 'closure' || !reopenDate.trim()}
+                className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors"
+              >
+                {busy === 'closure' ? 'Menjana…' : 'Buka poster A4'}
               </button>
             </div>
           </div>

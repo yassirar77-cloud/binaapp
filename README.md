@@ -37,6 +37,11 @@ BinaApp allows Malaysian SMEs to create fully functional websites by simply desc
   poster, a scan-to-order WhatsApp QR (per-table), and a live
   "Buka sekarang / Tutup" badge computed from the page's own opening hours —
   all offline and **free** (see [docs/BUSINESS_KIT.md](docs/BUSINESS_KIT.md))
+- 🎟️ **Counter Kit**: print-ready A4 sheets of loyalty stamp cards ("kad
+  setia" — buy 9, free 1, stamped with any chop or pen), 10-up business
+  cards with a site QR, cut-out discount vouchers with the merchant's own
+  offer, and a "kami bercuti" holiday-closure poster with the reopen date —
+  all offline and **free** (see [docs/COUNTER_KIT.md](docs/COUNTER_KIT.md))
 
 ## Tech Stack
 
