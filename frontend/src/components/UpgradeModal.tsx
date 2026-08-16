@@ -2,13 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
+import { Check, MailCheck, Rocket } from 'lucide-react';
+import { Modal } from '@/components/ui/popups';
 import {
   getCurrentUser,
   getStoredToken,
   verifyEmail,
   resendVerification,
 } from '@/lib/supabase';
-import './UpgradeModal.css';
 
 interface UpgradeModalProps {
   show: boolean;
@@ -201,122 +202,126 @@ export function UpgradeModal({ show, currentTier, targetTier, onClose }: Upgrade
     }
   };
 
-  if (!show || !targetTier) return null;
-
   const tierPrice = prices[targetTier] || 0;
   const tierFeatures = features[targetTier] || [];
   const isFreeToStarter = (currentTier || '').toLowerCase() === 'free' && targetTier === 'starter';
 
+  const primaryBtn =
+    'inline-flex h-11 w-full items-center justify-center rounded-xl bg-volt-400 px-4 text-sm font-semibold text-ink-900 transition-colors hover:bg-volt-300 active:bg-volt-500 disabled:cursor-not-allowed disabled:opacity-60';
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="upgrade-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="close-btn" onClick={onClose}>×</button>
+    <Modal open={show && !!targetTier} onClose={onClose} size="sm">
+      {needsVerification ? (
+        <>
+          <div
+            className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-info-400/15 text-info-400"
+            aria-hidden="true"
+          >
+            <MailCheck className="h-6 w-6" />
+          </div>
+          <h2 className="text-center font-geist text-lg font-bold tracking-tight text-ink-050">
+            Sahkan e-mel sekarang / Verify email now
+          </h2>
+          <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-ink-300">
+            Kami telah menghantar kod 6 digit
+            {userEmail ? ` ke ${userEmail}` : ' ke e-mel anda'}. Sahkan untuk
+            teruskan ke pembayaran.
+            <br />
+            We sent a 6-digit code{userEmail ? ` to ${userEmail}` : ' to your email'}.
+            Verify to continue to payment.
+          </p>
 
-        {needsVerification ? (
-          <>
-            <h2>Sahkan e-mel sekarang / Verify email now</h2>
-            <p style={{ marginTop: 8, marginBottom: 16, color: '#4b5563' }}>
-              Kami telah menghantar kod 6 digit
-              {userEmail ? ` ke ${userEmail}` : ' ke e-mel anda'}. Sahkan untuk
-              teruskan ke pembayaran.
-              <br />
-              We sent a 6-digit code{userEmail ? ` to ${userEmail}` : ' to your email'}.
-              Verify to continue to payment.
-            </p>
-
-            <form onSubmit={handleVerifyAndContinue}>
-              <input
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                placeholder="cth. 123456"
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                style={{
-                  width: '100%',
-                  padding: '12px 14px',
-                  fontSize: 22,
-                  letterSpacing: '0.35em',
-                  textAlign: 'center',
-                  border: '1px solid #d1d5db',
-                  borderRadius: 10,
-                  marginBottom: 12,
-                  boxSizing: 'border-box',
-                }}
-              />
-              <button
-                type="submit"
-                className="upgrade-btn"
-                disabled={verifying || code.length !== 6}
-              >
-                {verifying
-                  ? 'Mengesahkan... / Verifying...'
-                  : 'Sahkan & Teruskan Bayar / Verify & Continue'}
-              </button>
-            </form>
-
+          <form className="mt-5" onSubmit={handleVerifyAndContinue}>
+            <input
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="cth. 123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              data-autofocus
+              className="w-full rounded-xl bg-white/[0.04] px-3 py-3 text-center font-geist-mono text-xl font-semibold tracking-[0.35em] text-ink-050 ring-1 ring-white/[0.08] placeholder:tracking-normal placeholder:text-ink-500 focus:outline-none focus:ring-2 focus:ring-volt-400/60"
+            />
             <button
-              type="button"
-              onClick={sendCode}
-              disabled={resending || cooldown > 0}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#4f46e5',
-                cursor: resending || cooldown > 0 ? 'not-allowed' : 'pointer',
-                fontSize: 14,
-                marginTop: 14,
-                width: '100%',
-              }}
+              type="submit"
+              className={`mt-4 ${primaryBtn}`}
+              disabled={verifying || code.length !== 6}
             >
-              {cooldown > 0
-                ? `Hantar semula kod (${cooldown}s) / Resend code (${cooldown}s)`
-                : resending
-                ? 'Menghantar... / Sending...'
-                : 'Tidak menerima kod? Hantar semula / Resend code'}
+              {verifying
+                ? 'Mengesahkan... / Verifying...'
+                : 'Sahkan & Teruskan Bayar / Verify & Continue'}
             </button>
-          </>
-        ) : (
-          <>
-            {isFreeToStarter ? (
-              <>
-                <h2>Your site looks amazing! 🚀</h2>
-                <p style={{ marginTop: 8, marginBottom: 16, color: '#4b5563' }}>
-                  Upgrade to Starter (RM5/month) to publish at <strong>yourname.binaapp.my</strong>.
-                </p>
-              </>
-            ) : (
-              <h2>Upgrade ke {targetTier.toUpperCase()}</h2>
-            )}
+          </form>
 
-            <div className="price-box">
-              <div className="price">RM {tierPrice}</div>
-              <div className="period">/bulan</div>
-            </div>
+          <button
+            type="button"
+            onClick={sendCode}
+            disabled={resending || cooldown > 0}
+            className="mt-4 w-full text-center text-sm font-medium text-volt-400 transition-colors hover:text-volt-300 disabled:cursor-not-allowed disabled:text-ink-500"
+          >
+            {cooldown > 0
+              ? `Hantar semula kod (${cooldown}s) / Resend code (${cooldown}s)`
+              : resending
+              ? 'Menghantar... / Sending...'
+              : 'Tidak menerima kod? Hantar semula / Resend code'}
+          </button>
+        </>
+      ) : (
+        <>
+          <div
+            className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-volt-400/15 text-volt-400"
+            aria-hidden="true"
+          >
+            <Rocket className="h-6 w-6" />
+          </div>
 
-            <div className="features-list">
-              <h3>Anda akan dapat:</h3>
+          {isFreeToStarter ? (
+            <>
+              <h2 className="text-center font-geist text-lg font-bold tracking-tight text-ink-050">
+                Your site looks amazing! 🚀
+              </h2>
+              <p className="mx-auto mt-2 max-w-sm text-center text-sm leading-relaxed text-ink-300">
+                Upgrade to Starter (RM5/month) to publish at{' '}
+                <strong className="text-ink-100">yourname.binaapp.my</strong>.
+              </p>
+            </>
+          ) : (
+            <h2 className="text-center font-geist text-lg font-bold tracking-tight text-ink-050">
+              Upgrade ke {targetTier.toUpperCase()}
+            </h2>
+          )}
+
+          <div className="mt-4 flex items-baseline justify-center gap-1 rounded-2xl bg-white/[0.04] py-4 ring-1 ring-volt-400/40">
+            <span className="font-geist text-3xl font-bold text-volt-400">RM {tierPrice}</span>
+            <span className="text-sm text-ink-400">/bulan</span>
+          </div>
+
+          <div className="mt-5">
+            <h3 className="text-sm font-semibold text-ink-100">Anda akan dapat:</h3>
+            <ul className="mt-3 space-y-2.5">
               {tierFeatures.map((feature, i) => (
-                <div key={i} className="feature-item">
-                  <span className="check">✓</span> {feature}
-                </div>
+                <li key={i} className="flex items-start gap-2.5 text-sm text-ink-200">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-volt-400" aria-hidden="true" />
+                  {feature}
+                </li>
               ))}
-            </div>
+            </ul>
+          </div>
 
-            <button
-              className="upgrade-btn"
-              onClick={handleUpgrade}
-              disabled={loading}
-            >
-              {loading ? 'Memproses...' : `Upgrade Sekarang - RM${tierPrice}`}
-            </button>
+          <button
+            type="button"
+            className={`mt-6 ${primaryBtn}`}
+            onClick={handleUpgrade}
+            disabled={loading}
+          >
+            {loading ? 'Memproses...' : `Upgrade Sekarang - RM${tierPrice}`}
+          </button>
 
-            <p className="note">
-              Anda akan diarahkan ke ToyyibPay untuk pembayaran selamat.
-            </p>
-          </>
-        )}
-      </div>
-    </div>
+          <p className="mt-3 text-center text-xs text-ink-400">
+            Anda akan diarahkan ke ToyyibPay untuk pembayaran selamat.
+          </p>
+        </>
+      )}
+    </Modal>
   );
 }
 

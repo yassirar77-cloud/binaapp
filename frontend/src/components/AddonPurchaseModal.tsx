@@ -3,8 +3,9 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { PackagePlus } from 'lucide-react';
+import { Modal } from '@/components/ui/popups';
 import { getCurrentUser, getStoredToken, backupAuthState } from '@/lib/supabase';
-import './AddonPurchaseModal.css';
 
 interface Addon {
   type: string;
@@ -100,40 +101,57 @@ export function AddonPurchaseModal({ show, addon, onClose }: AddonPurchaseModalP
     }
   };
 
-  if (!show || !addon) return null;
-
-  const total = addon.price * quantity;
+  const total = (addon?.price ?? 0) * quantity;
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="addon-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="close-btn" onClick={onClose}>×</button>
+    <Modal open={show && !!addon} onClose={onClose} size="sm">
+      {addon && (
+        <>
+          <div
+            className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-volt-400/15 text-volt-400"
+            aria-hidden="true"
+          >
+            <PackagePlus className="h-6 w-6" />
+          </div>
 
-        <h2>Beli Addon</h2>
+          <h2 className="text-center font-geist text-lg font-bold tracking-tight text-ink-050">
+            Beli Addon
+          </h2>
 
-        <div className="addon-details">
-          <h3>{addon.label}</h3>
-          <p className="addon-price">
-            RM {addon.price} {addon.is_recurring ? '/bulan' : 'sekali'}
+          <div className="mt-4 rounded-2xl bg-white/[0.04] p-5 text-center ring-1 ring-white/[0.08]">
+            <h3 className="font-geist text-base font-semibold tracking-tight text-ink-050">
+              {addon.label}
+            </h3>
+            <p className="mt-1 text-sm font-semibold text-volt-400">
+              RM {addon.price} {addon.is_recurring ? '/bulan' : 'sekali'}
+            </p>
+          </div>
+
+          {/* ai_image / ai_hero quantity options removed: AI images are free
+              and those addons are no longer sold (backend rejects them). */}
+
+          <div className="mt-4 flex items-center justify-between rounded-xl bg-white/[0.04] px-4 py-3 ring-1 ring-white/[0.06]">
+            <span className="text-sm text-ink-300">Jumlah:</span>
+            <span className="font-geist text-lg font-bold text-volt-400">
+              RM {total.toFixed(2)}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            className="mt-5 inline-flex h-11 w-full items-center justify-center rounded-xl bg-volt-400 px-4 text-sm font-semibold text-ink-900 transition-colors hover:bg-volt-300 active:bg-volt-500 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={handlePurchase}
+            disabled={loading}
+          >
+            {loading ? 'Memproses...' : `Bayar RM${total.toFixed(2)}`}
+          </button>
+
+          <p className="mt-3 text-center text-xs text-ink-400">
+            Anda akan diarahkan ke ToyyibPay untuk pembayaran selamat.
           </p>
-        </div>
-
-        {/* ai_image / ai_hero quantity options removed: AI images are free
-            and those addons are no longer sold (backend rejects them). */}
-
-        <div className="total-price">
-          <strong>Jumlah: RM {total.toFixed(2)}</strong>
-        </div>
-
-        <button
-          className="purchase-btn"
-          onClick={handlePurchase}
-          disabled={loading}
-        >
-          {loading ? 'Memproses...' : `Bayar RM${total.toFixed(2)}`}
-        </button>
-      </div>
-    </div>
+        </>
+      )}
+    </Modal>
   );
 }
 

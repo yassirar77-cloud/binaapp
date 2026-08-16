@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { backupAuthState, getStoredToken } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
@@ -104,11 +105,11 @@ export default function BillingPage() {
           backupAuthState();
           window.location.href = data.payment_url;
         } else {
-          alert('Ralat: ' + (data.detail?.message || data.detail || 'Gagal memproses'));
+          toast.error('Ralat: ' + (data.detail?.message || data.detail || 'Gagal memproses'));
         }
       } catch (error) {
         console.error('Upgrade error:', error);
-        alert('Ralat semasa memproses naik taraf');
+        toast.error('Ralat semasa memproses naik taraf');
       } finally {
         setProcessing(false);
       }
@@ -139,11 +140,11 @@ export default function BillingPage() {
         backupAuthState();
         window.location.href = data.payment_url;
       } else {
-        alert('Ralat: ' + (data.detail || 'Gagal memproses'));
+        toast.error('Ralat: ' + (data.detail || 'Gagal memproses'));
       }
     } catch (error) {
       console.error('Renew error:', error);
-      alert('Ralat semasa memproses pembaharuan');
+      toast.error('Ralat semasa memproses pembaharuan');
     } finally {
       setProcessing(false);
     }
@@ -170,11 +171,11 @@ export default function BillingPage() {
           backupAuthState();
           window.location.href = data.payment_url;
         } else {
-          alert('Ralat: ' + (data.detail || 'Gagal memproses'));
+          toast.error('Ralat: ' + (data.detail || 'Gagal memproses'));
         }
       } catch (error) {
         console.error('Addon purchase error:', error);
-        alert('Ralat semasa memproses pembelian');
+        toast.error('Ralat semasa memproses pembelian');
       } finally {
         setProcessing(false);
       }
