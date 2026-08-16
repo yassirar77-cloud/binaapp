@@ -26,6 +26,9 @@ import type {
 } from './lib/types';
 import LeftColumn from './components/LeftColumn';
 import TopBar from './components/TopBar';
+import TabBar, { type DeliveryTab } from './components/TabBar';
+import RidersPanel from './components/riders-tab/RidersPanel';
+import SettingsPanel from './components/settings-tab/SettingsPanel';
 import RingSettingsModal, {
   makeDraftForNewRing,
   makeDraftFromZone,
@@ -62,6 +65,19 @@ export default function PenghantaranClient({
   const [selectedOutletId, setSelectedOutletId] = useState<string | null>(
     outlets[0]?.id ?? null,
   );
+  const [activeTab, setActiveTab] = useState<DeliveryTab>('ring');
+  // Lazy-mount Rider/Tetapan panels on first visit, then keep them mounted
+  // (hidden) so their state survives tab switches.
+  const [mountedTabs, setMountedTabs] = useState<Record<DeliveryTab, boolean>>({
+    ring: true,
+    rider: false,
+    tetapan: false,
+  });
+
+  const handleTabChange = useCallback((tab: DeliveryTab) => {
+    setActiveTab(tab);
+    setMountedTabs((m) => (m[tab] ? m : { ...m, [tab]: true }));
+  }, []);
   // Local outlet record we can mutate after location updates without
   // reloading the page.
   const [outletInfo, setOutletInfo] = useState<Outlet | null>(null);
@@ -445,8 +461,20 @@ export default function PenghantaranClient({
         onOutletChange={setSelectedOutletId}
         zones={sortedZones}
       />
+      <TabBar
+        activeTab={activeTab}
+        onChange={handleTabChange}
+        ringCount={sortedZones.length}
+      />
 
-      <div className="flex-1 grid grid-cols-1 grid-rows-[auto_minmax(0,1fr)] md:grid-cols-[40%_60%] md:grid-rows-1 overflow-hidden">
+      {/* Ring tab — map layout. Kept mounted (hidden) so Leaflet state survives tab switches. */}
+      <div
+        className={
+          activeTab === 'ring'
+            ? 'flex-1 grid grid-cols-1 grid-rows-[auto_minmax(0,1fr)] md:grid-cols-[40%_60%] md:grid-rows-1 overflow-hidden'
+            : 'hidden'
+        }
+      >
         <div className="order-2 md:order-1 h-full min-h-0 overflow-hidden border-t md:border-t-0 md:border-r border-white/[0.08]">
           <LeftColumn
             zones={sortedZones}
@@ -476,6 +504,34 @@ export default function PenghantaranClient({
           />
         </div>
       </div>
+
+      {/* Rider tab — full-width single column */}
+      {mountedTabs.rider && (
+        <div
+          className={
+            activeTab === 'rider' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'
+          }
+        >
+          <div className="max-w-[860px] mx-auto px-4 lg:px-6 py-6">
+            <RidersPanel websiteId={selectedOutletId} />
+          </div>
+        </div>
+      )}
+
+      {/* Tetapan tab — full-width single column */}
+      {mountedTabs.tetapan && (
+        <div
+          className={
+            activeTab === 'tetapan'
+              ? 'flex-1 min-h-0 overflow-y-auto'
+              : 'hidden'
+          }
+        >
+          <div className="max-w-[820px] mx-auto px-4 lg:px-6 py-6">
+            <SettingsPanel websiteId={selectedOutletId} />
+          </div>
+        </div>
+      )}
 
       {draft && (
         <RingSettingsModal

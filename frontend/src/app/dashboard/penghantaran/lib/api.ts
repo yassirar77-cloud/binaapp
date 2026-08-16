@@ -4,8 +4,13 @@
 
 import { supabase, ensureValidToken } from '@/lib/supabase';
 import type {
+  DeliverySettings,
+  DeliverySettingsUpdate,
   GeoJSONPolygon,
   PostcodeTestResult,
+  Rider,
+  RiderCreateInput,
+  RiderUpdateInput,
   Zone,
   ZoneInput,
 } from './types';
@@ -32,6 +37,23 @@ interface FetchOptions extends RequestInit {
   allow404?: boolean;
 }
 
+/**
+ * Error thrown by authFetch on non-2xx responses. Carries the HTTP status
+ * and the raw `detail` payload — the backend sometimes returns a structured
+ * object (e.g. `{error: 'limit_reached', message, ...}`) instead of a string.
+ */
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(message: string, status: number, detail: unknown = null) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 async function authFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
   const token = await getToken();
   const url = `${API_BASE}${path}`;
@@ -53,14 +75,21 @@ async function authFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
     if (res.status === 404 && opts.allow404) {
       return null as unknown as T;
     }
-    let detail = res.statusText;
+    let message = res.statusText || `HTTP ${res.status}`;
+    let detail: unknown = null;
     try {
       const body = await res.json();
-      detail = body?.detail || detail;
+      detail = body?.detail ?? null;
+      if (typeof detail === 'string' && detail) {
+        message = detail;
+      } else if (detail && typeof detail === 'object') {
+        const m = (detail as { message?: unknown }).message;
+        if (typeof m === 'string' && m) message = m;
+      }
     } catch {
       /* ignore */
     }
-    throw new Error(detail || `HTTP ${res.status}`);
+    throw new ApiError(message, res.status, detail);
   }
 
   return (await res.json()) as T;
@@ -190,6 +219,66 @@ export function setOutletLocation(
     method: 'PUT',
     body: JSON.stringify({ lat, lng }),
   });
+}
+
+// ----- Riders -----
+
+export function listRiders(websiteId: string): Promise<Rider[]> {
+  return authFetch<Rider[]>(
+    `/api/v1/delivery/admin/websites/${websiteId}/riders`,
+  );
+}
+
+export function createRider(
+  websiteId: string,
+  input: RiderCreateInput,
+): Promise<Rider> {
+  return authFetch<Rider>(
+    `/api/v1/delivery/admin/websites/${websiteId}/riders`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function updateRider(
+  riderId: string,
+  patch: RiderUpdateInput,
+): Promise<Rider> {
+  return authFetch<Rider>(`/api/v1/delivery/riders/${riderId}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteRider(riderId: string): Promise<void> {
+  await authFetch<null>(`/api/v1/delivery/riders/${riderId}`, {
+    method: 'DELETE',
+  });
+}
+
+// ----- Delivery settings -----
+
+export function getDeliverySettings(
+  websiteId: string,
+): Promise<DeliverySettings> {
+  return authFetch<DeliverySettings>(
+    `/api/v1/delivery/admin/websites/${websiteId}/settings`,
+  );
+}
+
+export function updateDeliverySettings(
+  websiteId: string,
+  patch: DeliverySettingsUpdate,
+): Promise<DeliverySettings> {
+  return authFetch<DeliverySettings>(
+    `/api/v1/delivery/admin/websites/${websiteId}/settings`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    },
+  );
 }
 
 // ----- Utility for building ZoneInput from a GeoJSON polygon + form draft -----

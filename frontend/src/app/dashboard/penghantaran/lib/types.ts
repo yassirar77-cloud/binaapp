@@ -86,3 +86,103 @@ export interface PostcodeTestResult {
   min_order_cents: number | null;
   color: string | null;
 }
+
+// ----- Riders -----
+// Backend contract: /api/v1/delivery/admin/websites/{websiteId}/riders
+//                   /api/v1/delivery/riders/{riderId}
+
+export type VehicleType = 'motorcycle' | 'car' | 'bicycle' | 'scooter';
+
+export interface Rider {
+  id: string;
+  website_id: string;
+  name: string;
+  phone: string;
+  email: string | null;
+  photo_url: string | null;
+  vehicle_type: string | null;
+  vehicle_plate: string | null;
+  vehicle_model: string | null;
+  is_active: boolean;
+  is_online: boolean;
+  total_deliveries: number;
+  /** May come back as a decimal string from the API. */
+  rating: number | string | null;
+  total_ratings: number;
+  last_location_update: string | null;
+  created_at: string;
+}
+
+/** Payload for POST .../riders */
+export interface RiderCreateInput {
+  name: string;
+  phone: string;
+  email?: string;
+  vehicle_type?: string;
+  vehicle_plate?: string;
+  vehicle_model?: string;
+  is_active: boolean;
+  /** Min 6 characters. */
+  password: string;
+}
+
+/** Payload for PUT /riders/{riderId} — any subset; password (min 6) resets login. */
+export interface RiderUpdateInput {
+  name?: string;
+  phone?: string;
+  email?: string;
+  vehicle_type?: string;
+  vehicle_plate?: string;
+  vehicle_model?: string;
+  is_active?: boolean;
+  password?: string;
+}
+
+/** Structured 403 detail returned when the plan's rider limit is reached. */
+export interface RiderLimitDetail {
+  error: 'limit_reached';
+  message?: string;
+  can_buy_addon?: boolean;
+  addon_price?: number;
+  [key: string]: unknown;
+}
+
+// ----- Delivery settings -----
+// Backend contract: /api/v1/delivery/admin/websites/{websiteId}/settings
+
+/**
+ * Numeric fields may come back as strings (decimals) from the API —
+ * normalise with Number() before displaying.
+ */
+export interface DeliverySettings {
+  delivery_enabled: boolean;
+  default_delivery_fee: number | string;
+  minimum_order: number | string;
+  max_delivery_distance: number | string;
+  pickup_enabled: boolean;
+  pickup_address: string | null;
+  accept_cod: boolean;
+  accept_online: boolean;
+  accept_ewallet: boolean;
+  notify_whatsapp: boolean;
+  whatsapp_number: string | null;
+  notify_email: boolean;
+  notify_sound: boolean;
+}
+
+/** Partial update — send only modified keys (exclude_unset semantics). */
+export interface DeliverySettingsUpdate {
+  delivery_enabled?: boolean;
+  default_delivery_fee?: number;
+  minimum_order?: number;
+  max_delivery_distance?: number;
+  pickup_enabled?: boolean;
+  pickup_address?: string;
+  accept_cod?: boolean;
+  accept_online?: boolean;
+  accept_ewallet?: boolean;
+  notify_whatsapp?: boolean;
+  whatsapp_number?: string;
+  notify_email?: boolean;
+  notify_sound?: boolean;
+}
