@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { getStoredToken } from '@/lib/supabase';
 import './SubscriptionExpiredBanner.css';
 
@@ -66,7 +67,7 @@ export function SubscriptionExpiredBanner({ onRenewClick }: SubscriptionExpiredB
     try {
       const token = getStoredToken();
       if (!token) {
-        alert('Sila log masuk semula');
+        toast.error('Sila log masuk semula');
         setRenewLoading(false);
         return;
       }
@@ -88,11 +89,11 @@ export function SubscriptionExpiredBanner({ onRenewClick }: SubscriptionExpiredB
         localStorage.setItem('pending_renewal', 'true');
         window.location.href = data.payment_url;
       } else {
-        alert('Ralat: ' + (data.detail || 'Gagal mencipta pembayaran'));
+        toast.error('Ralat: ' + (data.detail || 'Gagal mencipta pembayaran'));
       }
     } catch (error) {
       console.error('Renew error:', error);
-      alert('Ralat semasa memproses pembaharuan');
+      toast.error('Ralat semasa memproses pembaharuan');
     } finally {
       setRenewLoading(false);
     }

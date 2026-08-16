@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { getConversation, uploadChatImage, type ChatMessage as ApiChatMessage } from '@/lib/chatApi';
 import { getApiAuthToken } from '@/lib/supabase';
 import { checkImageSafety } from '@/utils/imageModeration';
+import toast from 'react-hot-toast';
 
 // Type declarations for Leaflet
 declare global {
@@ -460,7 +461,7 @@ export default function BinaChat({
         // Moderation check before upload
         const moderationResult = await checkImageSafety(file);
         if (!moderationResult.allowed) {
-            alert(moderationResult.message);
+            toast.error(moderationResult.message);
             return;
         }
 
