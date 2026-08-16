@@ -150,6 +150,10 @@ class ReassignBody(BaseModel):
     new_rider_id: Optional[str] = None  # null → unassign
 
 
+class RiderPresenceBody(BaseModel):
+    is_online: bool
+
+
 class CancelBody(BaseModel):
     reason: str
 
@@ -339,6 +343,43 @@ async def reassign_order_rider_endpoint(
         raise
     except Exception as e:
         raise _map_rpc_error(e, "reassign_order_rider")
+    return Response(status_code=204)
+
+
+@router.patch("/riders/{rider_id}/presence", status_code=204)
+async def set_rider_presence_endpoint(
+    rider_id: str,
+    body: RiderPresenceBody,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase_client),
+):
+    """Force a rider online/offline from the live dashboard ("Tetapkan
+    offline"). Owner-only: the rider's website must belong to the caller."""
+    res = (
+        supabase.table("riders")
+        .select("id, website_id")
+        .eq("id", rider_id)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Rider tidak dijumpai")
+    website_id = res.data[0].get("website_id")
+    if not website_id:
+        raise HTTPException(
+            status_code=403, detail="Rider ini tiada website berkaitan"
+        )
+    _verify_website_ownership(supabase, website_id, current_user["sub"])
+    try:
+        supabase.table("riders").update(
+            {"is_online": body.is_online}
+        ).eq("id", rider_id).execute()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"set_rider_presence failed: {e}")
+        raise HTTPException(
+            status_code=500, detail="Gagal mengemas kini status rider"
+        )
     return Response(status_code=204)
 
 

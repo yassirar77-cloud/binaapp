@@ -43,6 +43,7 @@ from app.models.delivery_schemas import (
     RiderResponse,
     RiderCreateBusiness,
     RiderUpdate,
+    RiderStatusUpdate,
     AssignRiderRequest,
     DeliverySettingsResponse,
     DeliverySettingsUpdate,
@@ -87,6 +88,59 @@ def get_current_rider(
             detail="Rider authentication required",
         )
     return payload
+
+
+def _require_rider_self(current_rider: dict, rider_id: str) -> None:
+    """403 unless the rider JWT belongs to rider_id (same check as accept/status)."""
+    if current_rider.get("sub") != rider_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token does not match rider",
+        )
+
+
+def _verify_rider_ownership(
+    supabase: Client, rider_id: str, user_id: str
+) -> dict:
+    """Return the rider row after confirming its website belongs to user_id.
+
+    Owner-side rider mutations (update / status / delete) were previously
+    unauthenticated; every caller must now hold a merchant JWT whose user owns
+    the rider's website. Riders with NULL website_id have no establishable
+    owner, so they are rejected too.
+    """
+    res = (
+        supabase.table("riders")
+        .select("id, name, website_id")
+        .eq("id", rider_id)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Rider tidak dijumpai",
+        )
+    rider = res.data[0]
+    website_id = rider.get("website_id")
+    if not website_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Rider ini tiada website berkaitan",
+        )
+    owner = (
+        supabase.table("websites")
+        .select("id")
+        .eq("id", website_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    if not owner.data:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Rider ini bukan milik anda",
+        )
+    return rider
 
 
 # =====================================================
@@ -1824,18 +1878,20 @@ async def create_rider(
 async def update_rider(
     rider_id: str,
     update_data: RiderUpdate,
+    current_user: dict = Depends(get_current_user),
     supabase: Client = Depends(get_supabase_client),
 ):
     """
     Update a rider (Admin endpoint - uses service role to bypass RLS).
 
-    CRITICAL FIX: Changed from get_supabase_rls_client to get_supabase_client
-    to match create_rider and list_riders endpoints.
+    Requires a merchant JWT; the rider must belong to a website owned by the
+    caller (this endpoint used to be completely unauthenticated).
 
     Supports updating all rider fields including password reset.
     Password will be hashed before storage.
     """
     try:
+        _verify_rider_ownership(supabase, rider_id, current_user["sub"])
         # Convert to dict and filter out None values
         data = {k: v for k, v in update_data.dict().items() if v is not None}
 
@@ -1873,10 +1929,13 @@ async def update_rider(
 async def update_rider_status(
     rider_id: str,
     status_data: dict,
+    current_user: dict = Depends(get_current_user),
     supabase: Client = Depends(get_supabase_client),
 ):
     """
     Update rider status (activate/deactivate).
+
+    Requires a merchant JWT owning the rider's website (was unauthenticated).
 
     Body:
     - status: "active" or "inactive"
@@ -1884,6 +1943,7 @@ async def update_rider_status(
     This is a soft delete - rider remains in database but is marked inactive.
     """
     try:
+        _verify_rider_ownership(supabase, rider_id, current_user["sub"])
         new_status = status_data.get("status", "inactive")
 
         # Validate status value
@@ -1926,25 +1986,20 @@ async def update_rider_status(
 @router.delete("/riders/{rider_id}")
 async def delete_rider(
     rider_id: str,
+    current_user: dict = Depends(get_current_user),
     supabase: Client = Depends(get_supabase_client),
 ):
     """
     Permanently delete a rider (hard delete).
 
+    Requires a merchant JWT owning the rider's website (was unauthenticated).
+
     Warning: This cannot be undone. Use PUT /riders/{rider_id}/status
     for soft delete (deactivation) instead.
     """
     try:
-        # First check if rider exists
-        check_resp = supabase.table("riders").select("id, name").eq("id", rider_id).execute()
-
-        if not check_resp.data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Rider tidak dijumpai"
-            )
-
-        rider_name = check_resp.data[0].get("name", "Unknown")
+        rider = _verify_rider_ownership(supabase, rider_id, current_user["sub"])
+        rider_name = rider.get("name", "Unknown")
 
         # Delete the rider
         resp = supabase.table("riders").delete().eq("id", rider_id).execute()
@@ -1966,13 +2021,38 @@ async def delete_rider(
         )
 
 
+def _verify_website_owner(supabase: Client, website_id: str, user_id: str) -> None:
+    """403 unless website_id belongs to user_id (zones-style ownership check)."""
+    check = (
+        supabase.table("websites")
+        .select("id")
+        .eq("id", website_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
+    )
+    if not check.data:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bukan website anda",
+        )
+
+
 @router.get("/admin/websites/{website_id}/settings", response_model=DeliverySettingsResponse)
 async def get_delivery_settings_admin(
     website_id: str,
-    supabase: Client = Depends(get_supabase_rls_client),
+    current_user: dict = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase_client),
 ):
-    """Get delivery settings for a website (RLS enforced). Creates defaults if missing."""
+    """Get delivery settings for a website. Creates defaults if missing.
+
+    Uses the zones auth pattern (JWT verified in FastAPI + service-role client
+    + Python ownership check) because custom backend JWTs break Supabase RLS.
+    """
     try:
+        _verify_website_owner(
+            supabase, website_id, current_user.get("sub") or current_user.get("id")
+        )
         resp = supabase.table("delivery_settings").select("*").eq("website_id", website_id).execute()
         if resp.data:
             return convert_db_row_to_dict(resp.data[0])
@@ -1996,10 +2076,14 @@ async def get_delivery_settings_admin(
 async def update_delivery_settings_admin(
     website_id: str,
     update: DeliverySettingsUpdate,
-    supabase: Client = Depends(get_supabase_rls_client),
+    current_user: dict = Depends(get_current_user),
+    supabase: Client = Depends(get_supabase_client),
 ):
-    """Update delivery settings for a website (RLS enforced)."""
+    """Update delivery settings for a website (ownership checked in Python)."""
     try:
+        _verify_website_owner(
+            supabase, website_id, current_user.get("sub") or current_user.get("id")
+        )
         # Ensure row exists
         existing = supabase.table("delivery_settings").select("id").eq("website_id", website_id).execute()
         if not existing.data:
@@ -2904,23 +2988,26 @@ async def update_rider_location(
     rider_id: str,
     location: RiderLocationUpdate,
     order_id: Optional[str] = None,
+    current_rider: dict = Depends(get_current_rider),
     supabase: Client = Depends(get_supabase_client),
 ):
     """
     Update rider's GPS location (Phase 2).
 
     Called by rider mobile app to send GPS updates every 15 seconds.
+    Requires the rider's own JWT — previously public, which allowed GPS
+    spoofing for any rider UUID.
 
     Updates:
     - riders.current_latitude
     - riders.current_longitude
     - riders.last_location_update
 
-    Also logs to rider_locations table for tracking history.
-
-    **Phase 2 Note:** Authentication will be added in Feature #3 (rider app).
-    For now, this is a public endpoint to enable testing.
+    Also logs to rider_locations table for tracking history. The active
+    order id is read from the body (location.order_id); the legacy query
+    parameter is still honoured as a fallback.
     """
+    _require_rider_self(current_rider, rider_id)
     try:
         # Validate rider exists
         rider_response = supabase.table("riders").select("id, name, is_active").eq(
@@ -2961,7 +3048,8 @@ async def update_rider_location(
         # Log to rider_locations history table
         location_history = {
             "rider_id": rider_id,
-            "order_id": order_id,  # Optional: associate with specific order
+            # Body field wins; legacy query param kept for old clients.
+            "order_id": location.order_id or order_id,
             "latitude": float(location.latitude),
             "longitude": float(location.longitude),
             "recorded_at": datetime.utcnow().isoformat()
@@ -3073,12 +3161,16 @@ async def get_rider_location_history(
 
 
 # Columns returned to the rider app for both assigned and available orders.
+# order_items(...) is a PostgREST embedded resource — it joins the items in a
+# single round trip so the rider app can finally render the item list.
 _RIDER_ORDER_COLUMNS = (
     "id, order_number, customer_name, customer_phone, customer_email, "
-    "delivery_address, delivery_latitude, delivery_longitude, "
+    "delivery_address, delivery_latitude, delivery_longitude, delivery_notes, "
     "subtotal, delivery_fee, total_amount, payment_method, payment_status, "
+    "payment_received, "
     "status, created_at, confirmed_at, ready_at, picked_up_at, delivered_at, "
-    "estimated_prep_time, estimated_delivery_time"
+    "estimated_prep_time, estimated_delivery_time, "
+    "order_items(id, item_name, quantity, unit_price, total_price, notes)"
 )
 
 
@@ -3087,10 +3179,26 @@ def _rider_order_view(row: dict) -> dict:
 
     The rider frontend reads `total` (not `total_amount`); expose both so the
     banner/rows render correctly without changing the DB field name.
+
+    order_items rows are reshaped to the rider app's OrderItem contract
+    ({name, qty, price}) so the client needs no extra mapping.
     """
     view = convert_db_row_to_dict(row)
     if "total_amount" in view and "total" not in view:
         view["total"] = view["total_amount"]
+    raw_items = view.pop("order_items", None) or []
+    view["items"] = [
+        {
+            "id": it.get("id"),
+            "name": it.get("item_name") or "",
+            "qty": int(it.get("quantity") or 0),
+            "price": float(it.get("unit_price") or 0),
+            "total": float(it.get("total_price") or 0),
+            "notes": it.get("notes"),
+        }
+        for it in raw_items
+        if isinstance(it, dict)
+    ]
     return view
 
 
@@ -3098,10 +3206,14 @@ def _rider_order_view(row: dict) -> dict:
 async def get_rider_orders(
     rider_id: str,
     status_filter: Optional[str] = None,
+    current_rider: dict = Depends(get_current_rider),
     supabase: Client = Depends(get_supabase_client),
 ):
     """
     Get orders for a specific rider (Phase 2).
+
+    Requires the rider's own JWT — this endpoint used to be public, which let
+    anyone with a rider UUID enumerate customer names/phones/addresses.
 
     Returns:
     - orders:    deliveries already assigned to this rider (rider_id matches).
@@ -3114,6 +3226,7 @@ async def get_rider_orders(
     - status_filter: Filter assigned orders by status (does not affect the
       available list, which is always unassigned `pending`).
     """
+    _require_rider_self(current_rider, rider_id)
     try:
         # Validate rider exists (website_id scopes the broadcast list)
         rider_response = supabase.table("riders").select(
@@ -3469,8 +3582,17 @@ async def accept_order_by_rider(
 
 
 @router.get("/riders/{rider_id}/today")
-async def get_rider_today(rider_id: str):
-    """Today's stats — count + earnings for the Saya screen."""
+async def get_rider_today(
+    rider_id: str,
+    current_rider: dict = Depends(get_current_rider),
+):
+    """Today's stats — count + earnings for the Saya screen.
+
+    "Today" is the Malaysian calendar day (Asia/Kuala_Lumpur), not UTC —
+    deliveries between midnight and 8am MYT used to be counted under the
+    previous day.
+    """
+    _require_rider_self(current_rider, rider_id)
     try:
         import uuid
         try:
@@ -3479,9 +3601,11 @@ async def get_rider_today(rider_id: str):
             raise HTTPException(404, "Penghantar tidak dijumpai")
 
         supabase = get_supabase_client()
-        today_start = datetime.now(timezone.utc).replace(
+        from zoneinfo import ZoneInfo
+        now_kl = datetime.now(ZoneInfo("Asia/Kuala_Lumpur"))
+        today_start = now_kl.replace(
             hour=0, minute=0, second=0, microsecond=0
-        ).isoformat()
+        ).astimezone(timezone.utc).isoformat()
         result = (
             supabase.table('delivery_orders')
             .select('delivery_fee, status, delivered_at')
@@ -3503,6 +3627,39 @@ async def get_rider_today(rider_id: str):
     except Exception as e:
         logger.warning(f"get_rider_today failed for {rider_id}: {e}")
         return {'count': 0, 'earnings': '0.00'}
+
+
+@router.put("/riders/{rider_id}/online")
+async def set_rider_online(
+    rider_id: str,
+    body: RiderStatusUpdate,
+    current_rider: dict = Depends(get_current_rider),
+    supabase: Client = Depends(get_supabase_client),
+):
+    """Rider self-service online/offline toggle (Saya screen).
+
+    Persists riders.is_online so the owner's live dashboard shows real
+    presence instead of a localStorage-only toggle.
+    """
+    _require_rider_self(current_rider, rider_id)
+    try:
+        resp = supabase.table("riders").update(
+            {"is_online": body.is_online}
+        ).eq("id", rider_id).execute()
+        if not resp.data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Penghantar tidak dijumpai",
+            )
+        return {"success": True, "is_online": body.is_online}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"set_rider_online failed for {rider_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Gagal mengemas kini status online",
+        )
 
 
 # =====================================================
