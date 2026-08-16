@@ -1,8 +1,9 @@
 // /rider — API client.
 // The rider PWA does NOT use Supabase auth — it logs in directly against
 // /api/v1/delivery/riders/login (bcrypt), which returns a rider JWT stored in
-// localStorage (audit C4). Rider-only endpoints (order status updates) send
-// that token as a bearer; other rider endpoints remain keyed by rider_id.
+// localStorage (audit C4). ALL rider endpoints now require that token as a
+// bearer (Authorization: Bearer <jwt>, role=rider) — the backend rejects
+// unauthenticated calls with 401.
 
 import type { OrderStatus, Rider, RiderOrder, TodayStats } from './types';
 import { loadRiderToken, saveRiderToken } from './storage';
@@ -21,9 +22,27 @@ export class ApiError extends Error {
   }
 }
 
+// Module-level 401 hook. RiderApp registers a callback (in a useEffect)
+// that clears the stored session and bounces to the login screen when the
+// 30-day rider JWT expires. Not invoked for the login endpoint itself —
+// a wrong password there is a normal 401, not an expired session.
+let onAuthError: (() => void) | null = null;
+
+export function setOnAuthError(cb: (() => void) | null): void {
+  onAuthError = cb;
+}
+
+/** Authorization header for the stored rider JWT. Empty when no token is
+ *  saved (the request then 401s and the auth-error hook takes over). */
+function authHeaders(): Record<string, string> {
+  const token = loadRiderToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function riderFetch<T>(
   path: string,
   opts: RequestInit = {},
+  { isLogin = false }: { isLogin?: boolean } = {},
 ): Promise<T> {
   let res: Response;
   try {
@@ -52,6 +71,12 @@ async function riderFetch<T>(
       detail = body?.detail || body?.message || detail;
     } catch {
       /* ignore — body may not be JSON */
+    }
+    // Expired/invalid rider JWT — hand off to the app-level logout hook
+    // before throwing so the UI shows the login screen instead of an
+    // endless stream of failing-toast polls.
+    if (res.status === 401 && !isLogin) {
+      onAuthError?.();
     }
     throw new ApiError(detail || `HTTP ${res.status}`, res.status);
   }
@@ -84,6 +109,7 @@ export async function loginRider(
         password,
       }),
     },
+    { isLogin: true },
   );
   if (!res?.success || !res?.rider) {
     throw new ApiError('Login gagal. Sila cuba lagi.', 401);
@@ -115,6 +141,7 @@ export async function fetchRiderOrders(
 ): Promise<RiderOrders> {
   const res = await riderFetch<OrdersResponse>(
     `/api/v1/delivery/riders/${riderId}/orders`,
+    { headers: authHeaders() },
   );
   return {
     orders: res?.orders ?? [],
@@ -129,12 +156,11 @@ export async function acceptOrder(
   riderId: string,
   orderId: string,
 ): Promise<void> {
-  const token = loadRiderToken();
   await riderFetch<unknown>(
     `/api/v1/delivery/riders/${riderId}/orders/${orderId}/accept`,
     {
       method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: authHeaders(),
     },
   );
 }
@@ -148,12 +174,11 @@ export async function updateOrderStatus(
   status: OrderStatus,
   options?: { notes?: string; payment_received?: boolean | null },
 ): Promise<void> {
-  const token = loadRiderToken();
   await riderFetch<void>(
     `/api/v1/delivery/riders/${riderId}/orders/${orderId}/status`,
     {
       method: 'PUT',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: authHeaders(),
       body: JSON.stringify({
         status,
         notes: options?.notes,
@@ -164,8 +189,9 @@ export async function updateOrderStatus(
 }
 
 /** PUT /api/v1/delivery/riders/{rider_id}/location — the periodic GPS ping
- *  (every 15s via useGeolocation). The optional order_id lets the backend
- *  associate the fix with an active delivery. */
+ *  (every 15s via useGeolocation). The optional order_id travels inside the
+ *  JSON body (RiderLocationUpdate) so the backend can associate the fix
+ *  with an active delivery. */
 export async function updateRiderLocation(
   riderId: string,
   lat: number,
@@ -176,6 +202,7 @@ export async function updateRiderLocation(
     `/api/v1/delivery/riders/${riderId}/location`,
     {
       method: 'PUT',
+      headers: authHeaders(),
       body: JSON.stringify({
         latitude: lat,
         longitude: lng,
@@ -186,6 +213,24 @@ export async function updateRiderLocation(
   );
 }
 
+/** PUT /api/v1/delivery/riders/{rider_id}/online — flip the rider's
+ *  broadcast availability. Returns {success, is_online}; callers only need
+ *  the resolved flag. */
+export async function setRiderOnline(
+  riderId: string,
+  isOnline: boolean,
+): Promise<boolean> {
+  const res = await riderFetch<{ success: boolean; is_online: boolean }>(
+    `/api/v1/delivery/riders/${riderId}/online`,
+    {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({ is_online: isOnline }),
+    },
+  );
+  return res?.is_online ?? isOnline;
+}
+
 /** GET /api/v1/delivery/riders/{rider_id}/today — Phase 4 endpoint. Falls
  *  back to zeros if the endpoint is not yet deployed. */
 export async function fetchTodayStats(
@@ -194,6 +239,7 @@ export async function fetchTodayStats(
   try {
     return await riderFetch<TodayStats>(
       `/api/v1/delivery/riders/${riderId}/today`,
+      { headers: authHeaders() },
     );
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) {

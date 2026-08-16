@@ -29,7 +29,7 @@ import {
   Zap,
 } from 'lucide-react';
 
-import { fetchTodayStats } from '../lib/api';
+import { ApiError, fetchTodayStats, setRiderOnline } from '../lib/api';
 import {
   loadBatterySaverPref,
   loadOnlinePref,
@@ -42,6 +42,8 @@ import type { Rider, TodayStats } from '../lib/types';
 
 interface ProfileScreenProps {
   rider: Rider;
+  /** ?demo=1 preview — skip all network calls. */
+  demo?: boolean;
   onLogout: () => void;
 }
 
@@ -55,6 +57,7 @@ function initials(name: string): string {
 
 export default function ProfileScreen({
   rider,
+  demo,
   onLogout,
 }: ProfileScreenProps) {
   const [stats, setStats] = useState<TodayStats | null>(null);
@@ -68,8 +71,14 @@ export default function ProfileScreen({
   const [confirmLogout, setConfirmLogout] = useState(false);
 
   // One-shot fetch on mount. The parent unmounts the screen when the
-  // rider taps another nav, so we don't need to poll here.
+  // rider taps another nav, so we don't need to poll here. Demo mode
+  // short-circuits with figures matching the demo orders.
   useEffect(() => {
+    if (demo) {
+      setStats({ count: 3, earnings: '154.70' });
+      setStatsLoading(false);
+      return;
+    }
     let cancelled = false;
     setStatsLoading(true);
     fetchTodayStats(rider.id)
@@ -87,21 +96,42 @@ export default function ProfileScreen({
     return () => {
       cancelled = true;
     };
-  }, [rider.id]);
+  }, [rider.id, demo]);
 
   const handleOnlineToggle = () => {
     const next = !online;
+    // Optimistic flip (persisted locally too), then sync to the server via
+    // PUT /riders/{id}/online. Rollback + error toast on failure. Demo mode
+    // stays local-only.
     setOnline(next);
     saveOnlinePref(next);
-    // TODO(post-merge): once the rider-callable status endpoint lands,
-    // PUT /api/v1/delivery/riders/{id}/status here. The owner-auth
-    // endpoint is not callable from the PWA.
-    toast(
-      next
-        ? 'Anda kini Online — boleh terima pesanan.'
-        : 'Anda kini Offline — tiada pesanan baru.',
-      { icon: next ? '🟢' : '⚫' },
-    );
+    if (demo) {
+      toast(
+        next
+          ? 'Anda kini Online — boleh terima pesanan.'
+          : 'Anda kini Offline — tiada pesanan baru.',
+        { icon: next ? '🟢' : '⚫' },
+      );
+      return;
+    }
+    setRiderOnline(rider.id, next)
+      .then(() => {
+        toast(
+          next
+            ? 'Anda kini Online — boleh terima pesanan.'
+            : 'Anda kini Offline — tiada pesanan baru.',
+          { icon: next ? '🟢' : '⚫' },
+        );
+      })
+      .catch((e) => {
+        setOnline(!next);
+        saveOnlinePref(!next);
+        toast.error(
+          e instanceof ApiError && e.status !== 0
+            ? e.message
+            : 'Gagal kemas kini status online.',
+        );
+      });
   };
 
   const handleSoundToggle = () => {

@@ -21,22 +21,34 @@ import {
   acceptOrder as apiAcceptOrder,
   ApiError,
   fetchRiderOrders,
+  setOnAuthError,
   updateOrderStatus as apiUpdateStatus,
   updateRiderLocation,
 } from './lib/api';
-import { FETCH_INTERVAL_MS, GPS_INTERVAL_MS } from './lib/constants';
+import {
+  FETCH_INTERVAL_MS,
+  GPS_INTERVAL_MS,
+  GPS_SAVER_INTERVAL_MS,
+} from './lib/constants';
+import { playNewOrderAlert, primeAudioOnInteraction } from './lib/sound';
 import {
   clearRider,
+  loadBatterySaverPref,
   loadCachedOrders,
+  loadRejectedOrderIds,
   loadRider,
+  loadSoundPref,
   markNotificationAsked,
+  PREF_CHANGE_EVENT,
   saveCachedOrders,
+  saveRejectedOrderIds,
   saveRider,
   saveRiderPhone,
   wasNotificationAsked,
 } from './lib/storage';
 import { useGeolocation } from './lib/useGeolocation';
 import { useIsOnline } from './lib/useIsOnline';
+import { useWakeLock } from './lib/useWakeLock';
 import type {
   OrderStatus,
   Rider,
@@ -72,9 +84,9 @@ function buildDemoOrders(): RiderOrder[] {
       eta_minutes: 8,
       created_at: iso(2 * 60_000),
       items: [
-        { qty: 2, name: 'Nasi Lemak Special',  price: '12.00' },
-        { qty: 1, name: 'Teh Tarik Ais',        price: '4.00' },
-        { qty: 1, name: 'Roti Canai (Sapingen)', price: '4.00' },
+        { qty: 2, name: 'Nasi Lemak Special',  price: 12, notes: 'Kurang pedas' },
+        { qty: 1, name: 'Teh Tarik Ais',        price: 4 },
+        { qty: 1, name: 'Roti Canai (Sapingen)', price: 4 },
       ],
     },
     {
@@ -95,9 +107,9 @@ function buildDemoOrders(): RiderOrder[] {
       created_at: iso(8 * 60_000),
       picked_up_at: iso(1 * 60_000),
       items: [
-        { qty: 1, name: 'Burger Set Beef',  price: '24.20' },
-        { qty: 1, name: 'Burger Set Chicken', price: '22.00' },
-        { qty: 2, name: 'Sprite (Can)',     price: '6.00' },
+        { qty: 1, name: 'Burger Set Beef',  price: 24.2 },
+        { qty: 1, name: 'Burger Set Chicken', price: 22 },
+        { qty: 2, name: 'Sprite (Can)',     price: 6 },
       ],
     },
     {
@@ -119,8 +131,8 @@ function buildDemoOrders(): RiderOrder[] {
       created_at: iso(22 * 60_000),
       picked_up_at: iso(15 * 60_000),
       items: [
-        { qty: 1, name: 'Pizza Pepperoni Large', price: '38.00' },
-        { qty: 1, name: 'Garlic Bread',           price: '8.00' },
+        { qty: 1, name: 'Pizza Pepperoni Large', price: 38 },
+        { qty: 1, name: 'Garlic Bread',           price: 8 },
       ],
     },
   ];
@@ -148,6 +160,12 @@ export default function RiderApp() {
   const [codModalOrderId, setCodModalOrderId] = useState<string | null>(null);
   const online = useIsOnline();
   const [showNotifPrompt, setShowNotifPrompt] = useState(false);
+  // "Mode Jimat Bateri" — read reactively (via PREF_CHANGE_EVENT from
+  // storage.ts) so toggling in ProfileScreen re-tunes the GPS cadence
+  // without a reload.
+  const [batterySaver, setBatterySaver] = useState<boolean>(() =>
+    loadBatterySaverPref(),
+  );
 
   // Ref to the latest rider so the polling interval avoids re-binding on
   // every render.
@@ -155,6 +173,11 @@ export default function RiderApp() {
   useEffect(() => {
     riderRef.current = rider;
   }, [rider]);
+
+  // Broadcast order ids already seen this session — used to detect brand-new
+  // orders for the sound/vibration alert. `null` until the first fetch so
+  // the initial load stays silent.
+  const seenAvailableIdsRef = useRef<Set<string> | null>(null);
 
   // GPS pipeline. The `onLocation` callback is held by the hook in a
   // ref, so this closure can read riderRef.current directly without
@@ -179,16 +202,26 @@ export default function RiderApp() {
     lastUpdate: lastGpsUpdate,
   } = useGeolocation({
     enabled: !!rider && route !== 'login',
-    intervalMs: GPS_INTERVAL_MS,
+    intervalMs: batterySaver ? GPS_SAVER_INTERVAL_MS : GPS_INTERVAL_MS,
+    highAccuracy: !batterySaver,
     onLocation: handleLocationFix,
   });
 
+  // Keep the screen awake while logged in — the phone is usually mounted
+  // and letting it sleep kills GPS uploads mid-delivery.
+  useWakeLock(!!rider && route !== 'login');
+
   // Hydrate rider session + cached orders from localStorage on mount.
   // Also flip into demo mode if the URL has ?demo=1 so reviewers can
-  // see the list without a real account.
+  // see the list without a real account, and honour the manifest
+  // shortcut's ?tab=active deep link.
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam === 'active' || tabParam === 'aktif') {
+        setTab('aktif');
+      }
       if (params.get('demo') === '1') {
         setDemoMode(true);
         setOrders(buildDemoOrders());
@@ -210,9 +243,41 @@ export default function RiderApp() {
       setRoute('orders');
       const cached = loadCachedOrders();
       if (cached?.length) setOrders(cached);
+      setRejectedOrderIds(new Set(loadRejectedOrderIds()));
     } else {
       setRoute('login');
     }
+  }, []);
+
+  // Arm the Web Audio unlock (autoplay policy) + track the battery-saver
+  // pref so ProfileScreen toggles apply live.
+  useEffect(() => {
+    primeAudioOnInteraction();
+    const onPrefChange = () => setBatterySaver(loadBatterySaverPref());
+    window.addEventListener(PREF_CHANGE_EVENT, onPrefChange);
+    return () => window.removeEventListener(PREF_CHANGE_EVENT, onPrefChange);
+  }, []);
+
+  // 401 from any authenticated endpoint = the 30-day rider JWT expired.
+  // Clear the stored session and force the login screen once instead of
+  // letting every poll fail with a toast.
+  useEffect(() => {
+    setOnAuthError(() => {
+      if (!riderRef.current) return; // already logged out
+      riderRef.current = null;
+      clearRider();
+      setRider(null);
+      setOrders([]);
+      setAvailable([]);
+      setRejectedOrderIds(new Set());
+      setActiveOrderId(null);
+      setRoute('login');
+      // Stable id so concurrent 401s collapse into a single toast.
+      toast.error('Sesi tamat. Sila log masuk semula.', {
+        id: 'rider-session-expired',
+      });
+    });
+    return () => setOnAuthError(null);
   }, []);
 
   // Fetch + 30s poll while logged in. Demo mode skips the network entirely.
@@ -226,6 +291,19 @@ export default function RiderApp() {
         setOrders(list);
         setAvailable(avail);
         saveCachedOrders(list);
+        // New-broadcast alert: beep + vibrate when a fresh (unseen) order id
+        // arrives and the "Bunyi Notifikasi" setting is on. The first fetch
+        // of a session just seeds the baseline so reload/login stays quiet.
+        const seen = seenAvailableIdsRef.current;
+        if (seen === null) {
+          seenAvailableIdsRef.current = new Set(avail.map((o) => o.id));
+        } else {
+          const fresh = avail.filter((o) => !seen.has(o.id));
+          fresh.forEach((o) => seen.add(o.id));
+          if (fresh.length > 0 && loadSoundPref()) {
+            playNewOrderAlert();
+          }
+        }
       } catch (e) {
         // Keep cached orders on network failure — the offline banner is
         // surfaced by useIsOnline at the screen level.
@@ -409,13 +487,17 @@ export default function RiderApp() {
     [demoMode, refreshOrders],
   );
 
-  // Dismiss a broadcast order for this session — it stays claimable by others.
+  // Dismiss a broadcast order — it stays claimable by others. Persisted
+  // (capped at the most recent 100 ids) so it doesn't reappear on reload.
   const handleRejectNew = useCallback((order: RiderOrder) => {
     setRejectedOrderIds((prev) => {
       const next = new Set(prev);
       next.add(order.id);
       return next;
     });
+    const ids = loadRejectedOrderIds().filter((id) => id !== order.id);
+    ids.push(order.id);
+    saveRejectedOrderIds(ids);
     toast(`Pesanan #${order.order_number} ditolak.`);
   }, []);
 
@@ -426,6 +508,7 @@ export default function RiderApp() {
     setAvailable([]);
     setRejectedOrderIds(new Set());
     setActiveOrderId(null);
+    seenAvailableIdsRef.current = null;
     setRoute('login');
   }, []);
 
@@ -496,7 +579,7 @@ export default function RiderApp() {
       )}
 
       {route === 'profile' && rider && (
-        <ProfileScreen rider={rider} onLogout={handleLogout} />
+        <ProfileScreen rider={rider} demo={demoMode} onLogout={handleLogout} />
       )}
 
       {rider && (route === 'orders' || route === 'profile') && (
