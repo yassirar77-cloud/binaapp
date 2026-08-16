@@ -1,10 +1,20 @@
 'use client';
 
-import { ChevronDown, Store } from 'lucide-react';
+import { ChevronDown, RefreshCw, Store, Volume2, VolumeX } from 'lucide-react';
 import type { ActiveOrder, LiveRider, Outlet } from '../lib/types';
 import { computeRiderPresence } from '../lib/types';
 
 const IN_PROGRESS_STATUSES = new Set(['picked_up', 'delivering']);
+
+function formatClock(d: Date | null): string {
+  if (!d) return '—';
+  return d.toLocaleTimeString('ms-MY', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
 
 export default function TopBar({
   outlets,
@@ -13,6 +23,12 @@ export default function TopBar({
   orders,
   riders,
   stuckCount,
+  realtimeUp,
+  lastUpdatedAt,
+  refreshing,
+  onRefresh,
+  soundEnabled,
+  onToggleSound,
 }: {
   outlets: Outlet[];
   selectedOutletId: string | null;
@@ -20,6 +36,12 @@ export default function TopBar({
   orders: ActiveOrder[];
   riders: LiveRider[];
   stuckCount: number;
+  realtimeUp: boolean;
+  lastUpdatedAt: Date | null;
+  refreshing: boolean;
+  onRefresh: () => void;
+  soundEnabled: boolean;
+  onToggleSound: () => void;
 }) {
   const inProgress = orders.filter((o) => IN_PROGRESS_STATUSES.has(o.status)).length;
   const onlineRiders = riders.filter(
@@ -64,6 +86,74 @@ export default function TopBar({
               />
             </div>
           )}
+
+          {/* Feed health: realtime vs polling + last successful refetch. */}
+          <div
+            className="hidden sm:flex items-center gap-2 shrink-0"
+            title={
+              realtimeUp
+                ? 'Sambungan masa nyata aktif'
+                : 'Mod tinjauan — data disegarkan setiap 15 saat'
+            }
+          >
+            <span
+              className={`inline-flex items-center gap-1.5 h-6 px-2 rounded-full font-mono text-[10px] tracking-wider uppercase ring-1 ${
+                realtimeUp
+                  ? 'text-emerald-300 bg-emerald-400/10 ring-emerald-400/20'
+                  : 'text-amber-300 bg-amber-400/10 ring-amber-400/20'
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  realtimeUp ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                }`}
+              />
+              {realtimeUp ? 'Live' : 'Tinjauan'}
+            </span>
+            <span className="font-mono text-[10px] text-white/40">
+              {formatClock(lastUpdatedAt)}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              aria-label="Segarkan data"
+              title="Segarkan data"
+              className="h-9 w-9 flex items-center justify-center rounded-lg text-white/60 hover:text-white hover:bg-white/[0.06] transition disabled:opacity-50"
+            >
+              <RefreshCw
+                size={15}
+                strokeWidth={1.5}
+                className={refreshing ? 'animate-spin' : ''}
+              />
+            </button>
+            <button
+              type="button"
+              onClick={onToggleSound}
+              aria-label={
+                soundEnabled ? 'Matikan bunyi amaran' : 'Hidupkan bunyi amaran'
+              }
+              title={
+                soundEnabled
+                  ? 'Bunyi amaran: hidup (pesanan baru & tersangkut)'
+                  : 'Bunyi amaran: mati'
+              }
+              className={`h-9 w-9 flex items-center justify-center rounded-lg transition ${
+                soundEnabled
+                  ? 'text-[#C7FF3D] hover:bg-white/[0.06]'
+                  : 'text-white/40 hover:text-white hover:bg-white/[0.06]'
+              }`}
+            >
+              {soundEnabled ? (
+                <Volume2 size={15} strokeWidth={1.5} />
+              ) : (
+                <VolumeX size={15} strokeWidth={1.5} />
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Compact mobile stat: single line, hides on md+. */}

@@ -35,28 +35,34 @@ const EMPTY_STATE: Record<Tab, string> = {
   selesai: 'Belum siap pesanan hari ini.',
 };
 
-// Returns ISO timestamp at UTC midnight today — used to scope the
-// `selesai` (today) tab.
-function utcDayStartIso(): string {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  return d.toISOString();
+// Start of "today" in Asia/Kuala_Lumpur (MYT, UTC+8, no DST), as epoch
+// millis — used to scope the `selesai` (today) tab to Malaysian days.
+// Intl gives us the Y-M-D the rider sees; 00:00 MYT on that date is the
+// same instant as 16:00 UTC the previous day.
+function mytDayStartMs(): number {
+  const ymd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kuala_Lumpur',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date()); // "YYYY-MM-DD"
+  return new Date(`${ymd}T00:00:00+08:00`).getTime();
 }
 
 function filterByTab(orders: RiderOrder[], tab: Tab): RiderOrder[] {
   const meta = TABS.find((t) => t.id === tab);
   if (!meta) return orders;
   const allowed = new Set<OrderStatus>(meta.statuses);
-  const todayStart = tab === 'selesai' ? utcDayStartIso() : null;
+  const todayStart = tab === 'selesai' ? mytDayStartMs() : null;
 
   return orders
     .filter((o) => {
       if (!allowed.has(o.status)) return false;
-      if (todayStart) {
+      if (todayStart !== null) {
         // Use delivered_at when available, fall back to created_at so a
         // stale row without delivered_at doesn't disappear forever.
         const ts = o.delivered_at || o.created_at;
-        return ts >= todayStart;
+        return new Date(ts).getTime() >= todayStart;
       }
       return true;
     })

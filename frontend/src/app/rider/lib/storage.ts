@@ -46,6 +46,7 @@ export function clearRider(): void {
   localStorage.removeItem(KEY_RIDER_DATA);
   localStorage.removeItem(KEY_CACHED_ORDERS);
   localStorage.removeItem(KEY_RIDER_TOKEN);
+  localStorage.removeItem(KEY_REJECTED_ORDERS);
 }
 
 export function loadRiderToken(): string | null {
@@ -90,6 +91,35 @@ export function saveCachedOrders(orders: RiderOrder[]): void {
   localStorage.setItem(KEY_CACHED_ORDERS, JSON.stringify(orders));
 }
 
+// Broadcast orders the rider dismissed — persisted so a rejected order
+// doesn't reappear in the banner after a reload. Capped at the most recent
+// 100 ids so the key can't grow unbounded. Cleared on logout (clearRider).
+const KEY_REJECTED_ORDERS = 'rider_rejected_orders';
+const MAX_REJECTED_ORDER_IDS = 100;
+
+export function loadRejectedOrderIds(): string[] {
+  if (!hasWindow()) return [];
+  const raw = localStorage.getItem(KEY_REJECTED_ORDERS);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((id): id is string => typeof id === 'string')
+      : [];
+  } catch {
+    localStorage.removeItem(KEY_REJECTED_ORDERS);
+    return [];
+  }
+}
+
+export function saveRejectedOrderIds(ids: string[]): void {
+  if (!hasWindow()) return;
+  localStorage.setItem(
+    KEY_REJECTED_ORDERS,
+    JSON.stringify(ids.slice(-MAX_REJECTED_ORDER_IDS)),
+  );
+}
+
 // Boolean preferences with explicit defaults. Each helper falls back to
 // the default when localStorage is missing or unparseable so the UI
 // never sees `undefined`.
@@ -112,10 +142,22 @@ export const saveOnlinePref = (v: boolean) => saveBool(KEY_PREF_ONLINE, v);
 export const loadSoundPref = () => loadBool(KEY_PREF_SOUND, true);
 export const saveSoundPref = (v: boolean) => saveBool(KEY_PREF_SOUND, v);
 
+// Fired on window whenever a pref that RiderApp reads reactively changes
+// (battery saver → GPS cadence). The `storage` event only fires in OTHER
+// tabs, so same-tab listeners need this custom event.
+export const PREF_CHANGE_EVENT = 'rider-pref-change';
+
+function notifyPrefChange(): void {
+  if (!hasWindow()) return;
+  window.dispatchEvent(new Event(PREF_CHANGE_EVENT));
+}
+
 export const loadBatterySaverPref = () =>
   loadBool(KEY_PREF_BATTERY_SAVER, false);
-export const saveBatterySaverPref = (v: boolean) =>
+export const saveBatterySaverPref = (v: boolean) => {
   saveBool(KEY_PREF_BATTERY_SAVER, v);
+  notifyPrefChange();
+};
 
 // Tracks whether we've shown the Phase-10 notification permission
 // prompt at least once. The decision (granted vs dismissed) is owned

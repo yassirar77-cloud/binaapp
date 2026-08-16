@@ -20,6 +20,9 @@ import type { GpsStatus } from './types';
 interface UseGeolocationArgs {
   enabled: boolean;
   intervalMs: number;
+  /** Pass false while "Mode Jimat Bateri" is on — coarser fixes, less
+   *  radio/GPS wakeup. Defaults to true. */
+  highAccuracy?: boolean;
   onLocation: (lat: number, lng: number) => void;
 }
 
@@ -33,7 +36,7 @@ interface UseGeolocationResult {
 export function useGeolocation(
   args: UseGeolocationArgs,
 ): UseGeolocationResult {
-  const { enabled, intervalMs } = args;
+  const { enabled, intervalMs, highAccuracy = true } = args;
 
   const [status, setStatus] = useState<GpsStatus>('inactive');
   const [currentLocation, setCurrentLocation] = useState<
@@ -92,7 +95,7 @@ export function useGeolocation(
           setStatus('error');
         }
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 },
+      { enableHighAccuracy: highAccuracy, timeout: 10000, maximumAge: 5000 },
     );
 
     // Send an immediate one-shot fix so we don't wait for the first
@@ -109,7 +112,7 @@ export function useGeolocation(
       () => {
         /* swallow — watchPosition will surface a status */
       },
-      { enableHighAccuracy: true, timeout: 10000 },
+      { enableHighAccuracy: highAccuracy, timeout: 10000 },
     );
 
     // Backup interval: even when watchPosition is quiet (rider standing
@@ -126,7 +129,7 @@ export function useGeolocation(
       clearInterval(backupId);
       setStatus('inactive');
     };
-  }, [enabled, intervalMs, emit]);
+  }, [enabled, intervalMs, highAccuracy, emit]);
 
   return {
     status,

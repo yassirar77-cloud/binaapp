@@ -36,10 +36,15 @@ export interface Rider {
   is_online?: boolean;
 }
 
+// Server-reshaped order item — /api/v1/delivery rider endpoints send exactly
+// this shape on every order.
 export interface OrderItem {
-  qty: number;
+  id?: string | null;
   name: string;
-  price: string;
+  qty: number;
+  price: number;
+  total?: number;
+  notes?: string | null;
 }
 
 export interface RiderOrder {
@@ -48,7 +53,7 @@ export interface RiderOrder {
   customer_name: string;
   customer_phone: string;
   delivery_address: string;
-  delivery_notes?: string;
+  delivery_notes?: string | null;
   delivery_latitude?: number | null;
   delivery_longitude?: number | null;
   status: OrderStatus;

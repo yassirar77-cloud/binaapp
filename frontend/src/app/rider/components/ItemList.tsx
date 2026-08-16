@@ -1,6 +1,8 @@
 'use client';
 
-// ItemList — order items + totals + payment-method pill.
+// ItemList — order items (+ per-item notes) + totals + payment-method pill.
+// For delivered COD orders a second pill reports whether cash was collected
+// (payment_received; null = unknown → no pill).
 
 import { Banknote, CreditCard } from 'lucide-react';
 
@@ -15,8 +17,17 @@ function isFree(amount: string | undefined | null): boolean {
   return Number.isFinite(n) && n <= 0;
 }
 
+// Server sends item prices as numbers — format for the RM column.
+function fmtPrice(n: number): string {
+  return Number.isFinite(n) ? n.toFixed(2) : '0.00';
+}
+
 export default function ItemList({ order }: ItemListProps) {
   const isCod = order.payment_method === 'cod';
+  const isDone =
+    order.status === 'delivered' || order.status === 'completed';
+  const showCashPill =
+    isCod && isDone && typeof order.payment_received === 'boolean';
 
   return (
     <section className="mx-4 mt-3 rounded-2xl bg-[var(--rider-surface)] border border-[var(--rider-border)] p-4">
@@ -31,17 +42,21 @@ export default function ItemList({ order }: ItemListProps) {
           </li>
         ) : (
           order.items!.map((it, idx) => (
-            <li
-              key={`${idx}-${it.name}`}
-              className="flex items-baseline gap-2 text-[13px]"
-            >
-              <span className="font-mono text-[var(--rider-text-2)] shrink-0">
-                {it.qty}×
-              </span>
-              <span className="flex-1 text-white truncate">{it.name}</span>
-              <span className="font-mono text-[var(--rider-text-2)] shrink-0">
-                RM{it.price}
-              </span>
+            <li key={it.id ?? `${idx}-${it.name}`} className="text-[13px]">
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono text-[var(--rider-text-2)] shrink-0">
+                  {it.qty}×
+                </span>
+                <span className="flex-1 text-white truncate">{it.name}</span>
+                <span className="font-mono text-[var(--rider-text-2)] shrink-0">
+                  RM{fmtPrice(it.price)}
+                </span>
+              </div>
+              {it.notes && (
+                <p className="mt-0.5 pl-7 text-[12px] text-[var(--rider-muted)] leading-snug">
+                  {it.notes}
+                </p>
+              )}
             </li>
           ))
         )}
@@ -66,23 +81,36 @@ export default function ItemList({ order }: ItemListProps) {
         </div>
       </div>
 
-      <div
-        className={`mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[12px] font-semibold ${
-          isCod
-            ? 'text-[var(--rider-amber)] bg-[rgba(255,176,32,0.10)] border-[rgba(255,176,32,0.30)]'
-            : 'text-[var(--rider-lime)] bg-[rgba(199,255,61,0.10)] border-[rgba(199,255,61,0.30)]'
-        }`}
-      >
-        {isCod ? (
-          <>
-            <Banknote className="w-3.5 h-3.5" />
-            Tunai (COD)
-          </>
-        ) : (
-          <>
-            <CreditCard className="w-3.5 h-3.5" />
-            Online
-          </>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div
+          className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[12px] font-semibold ${
+            isCod
+              ? 'text-[var(--rider-amber)] bg-[rgba(255,176,32,0.10)] border-[rgba(255,176,32,0.30)]'
+              : 'text-[var(--rider-lime)] bg-[rgba(199,255,61,0.10)] border-[rgba(199,255,61,0.30)]'
+          }`}
+        >
+          {isCod ? (
+            <>
+              <Banknote className="w-3.5 h-3.5" />
+              Tunai (COD)
+            </>
+          ) : (
+            <>
+              <CreditCard className="w-3.5 h-3.5" />
+              Online
+            </>
+          )}
+        </div>
+        {showCashPill && (
+          <div
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-[12px] font-semibold ${
+              order.payment_received
+                ? 'text-[var(--rider-green)] bg-[rgba(34,192,143,0.10)] border-[rgba(34,192,143,0.30)]'
+                : 'text-[var(--rider-red)] bg-[rgba(255,90,95,0.10)] border-[rgba(255,90,95,0.30)]'
+            }`}
+          >
+            {order.payment_received ? 'Tunai diterima' : 'Tunai belum diterima'}
+          </div>
         )}
       </div>
     </section>

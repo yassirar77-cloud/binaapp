@@ -3,11 +3,12 @@
 // OrderDetailPanel — right-side slide-in showing a single order's details.
 //
 // Action buttons render here but the actual modal openings (Re-assign,
-// Batalkan) are wired in commit 6. tel: / wa.me anchors are live now.
+// Batalkan) open the reassign/cancel modals. tel: / wa.me anchors are live.
 
 import { Bike, MapPin, Package, Phone, X } from 'lucide-react';
 import type { ActiveOrder } from '../lib/types';
 import StatusPill from './StatusPill';
+import { cleanPhoneDigits, formatPhoneForWA } from '../lib/phone';
 
 function formatCurrency(n: number): string {
   return `RM ${n.toFixed(2)}`;
@@ -35,11 +36,6 @@ function formatBigEta(etaAt: string | null): { primary: string; secondary: strin
   };
 }
 
-function cleanPhone(raw: string | null | undefined): string {
-  if (!raw) return '';
-  // Strip everything except digits; wa.me wants no leading +.
-  return raw.replace(/\D/g, '');
-}
 
 export default function OrderDetailPanel({
   order,
@@ -55,11 +51,13 @@ export default function OrderDetailPanel({
   onCancelClick: () => void;
 }) {
   const eta = formatBigEta(order.eta_at);
-  const customerTel = cleanPhone(order.customer_phone);
-  const riderTel = cleanPhone(order.rider_phone);
+  const customerTel = cleanPhoneDigits(order.customer_phone);
+  const riderTel = cleanPhoneDigits(order.rider_phone);
+  // wa.me needs the country code — local 01x numbers made broken links before.
+  const riderWa = formatPhoneForWA(order.rider_phone);
   const waMsg = `Hai ${order.rider_name ?? ''}, pasal pesanan ${order.order_number}…`;
-  const waHref = riderTel
-    ? `https://wa.me/${riderTel}?text=${encodeURIComponent(waMsg)}`
+  const waHref = riderWa
+    ? `https://wa.me/${riderWa}?text=${encodeURIComponent(waMsg)}`
     : null;
 
   return (

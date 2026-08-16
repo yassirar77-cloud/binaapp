@@ -2,15 +2,23 @@
 
 // Penghantar Live — main client wrapper.
 // Desktop layout: TopBar (sticky) + 320px left column (Orders top, Riders bottom)
-// + MapView fills the rest. Mobile bottom-sheet variant lands in a later commit.
+// + MapView fills the rest. Under md the aside is replaced by MobileBottomSheet.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import toast from 'react-hot-toast';
 import { getCurrentUser } from '@/lib/supabase';
 import DashboardHeader from '@/components/dashboard-new/DashboardHeader';
-import { getActiveOrders, getRiders, getZones } from './lib/api';
+import { getActiveOrders, getRiders, getZones, setRiderPresence } from './lib/api';
+import {
+  loadSoundPref,
+  playNewOrderChime,
+  playStuckAlert,
+  saveSoundPref,
+} from './lib/sound';
 import type { ActiveOrder, LiteZone, LiveRider, Outlet } from './lib/types';
 import TopBar from './components/TopBar';
+import SearchBox from './components/SearchBox';
 import OrdersPanel from './components/OrdersPanel';
 import RidersPanel from './components/RidersPanel';
 import MapView, { type MapViewHandle } from './components/MapView';
@@ -34,13 +42,28 @@ const POLL_INTERVAL_MS = 15_000;
 // While realtime is up we still poll, just slower — a safety net so a new
 // order can never sit unseen if a realtime event is missed or dropped.
 const SAFETY_POLL_INTERVAL_MS = 60_000;
+// Relative times (ETA, "GPS x min lalu") and the stuck set otherwise only
+// change on a refetch; a 30s wall-clock tick keeps them honest in between.
+const CLOCK_TICK_MS = 30_000;
+
+const OUTLET_STORAGE_KEY = 'phl_selected_outlet';
 
 export default function PenghantarLiveClient({ outlets }: Props) {
   const router = useRouter();
   const [userName, setUserName] = useState('Pengguna');
-  const [selectedOutletId, setSelectedOutletId] = useState<string | null>(
-    outlets[0]?.id ?? null,
-  );
+  const [selectedOutletId, setSelectedOutletId] = useState<string | null>(() => {
+    // Restore the last-viewed outlet so a refresh doesn't snap back to the
+    // first one. Falls back to the first outlet when the stored id is gone.
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(OUTLET_STORAGE_KEY);
+        if (stored && outlets.some((o) => o.id === stored)) return stored;
+      } catch {
+        /* ignore */
+      }
+    }
+    return outlets[0]?.id ?? null;
+  });
   const [orders, setOrders] = useState<ActiveOrder[]>([]);
   const [riders, setRiders] = useState<LiveRider[]>([]);
   const [zones, setZones] = useState<LiteZone[]>([]);
@@ -67,6 +90,33 @@ export default function PenghantarLiveClient({ outlets }: Props) {
   // Realtime channel up-state. When true we pause polling (Supabase pushes
   // rider updates directly); when false we fall back to setInterval.
   const [realtimeUp, setRealtimeUp] = useState(false);
+
+  // Feed freshness + manual refresh state (surfaced in TopBar).
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Sound alerts (new order / stuck) — preference persisted per browser.
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  useEffect(() => {
+    setSoundEnabled(loadSoundPref());
+  }, []);
+  const toggleSound = useCallback(() => {
+    setSoundEnabled((v) => {
+      saveSoundPref(!v);
+      return !v;
+    });
+  }, []);
+
+  // Search across orders (number / customer / address) and riders (name /
+  // plate / phone). Filters the list panels only — the map keeps everything.
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // 30s wall-clock tick — see CLOCK_TICK_MS.
+  const [nowTick, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick((t) => t + 1), CLOCK_TICK_MS);
+    return () => window.clearInterval(id);
+  }, []);
 
   // Debounce burst-rate realtime events (rider apps ping ~every 5s). Collapse
   // any cluster within 800ms into one refetch.
@@ -124,6 +174,7 @@ export default function PenghantarLiveClient({ outlets }: Props) {
       setOrders(o);
       setRiders(r);
       setError(null);
+      setLastUpdatedAt(new Date());
     } catch (e) {
       if (!mountedRef.current) return;
       setError(e instanceof Error ? e.message : 'Ralat tidak diketahui');
@@ -192,11 +243,45 @@ export default function PenghantarLiveClient({ outlets }: Props) {
     return () => window.clearInterval(id);
   }, [selectedOutletId, refetchLive, realtimeUp]);
 
-  // Reset selection on outlet change.
+  // Reset selection on outlet change + remember the choice.
   useEffect(() => {
     setSelectedOrderId(null);
     setSelectedRiderId(null);
+    if (selectedOutletId) {
+      try {
+        localStorage.setItem(OUTLET_STORAGE_KEY, selectedOutletId);
+      } catch {
+        /* ignore */
+      }
+    }
   }, [selectedOutletId]);
+
+  // Manual refresh — spins the TopBar icon while both lists reload.
+  const handleManualRefresh = useCallback(async () => {
+    if (!selectedOutletId || refreshing) return;
+    setRefreshing(true);
+    try {
+      await refetchLive(selectedOutletId);
+    } finally {
+      if (mountedRef.current) setRefreshing(false);
+    }
+  }, [selectedOutletId, refreshing, refetchLive]);
+
+  // Owner force-offline for a rider (RiderDetailPanel action).
+  const handleSetRiderOffline = useCallback(
+    async (riderId: string) => {
+      try {
+        await setRiderPresence(riderId, false);
+        toast.success('Rider ditetapkan offline');
+        if (selectedOutletId) await refetchLive(selectedOutletId);
+      } catch (e) {
+        toast.error(
+          e instanceof Error ? e.message : 'Gagal menetapkan rider offline',
+        );
+      }
+    },
+    [selectedOutletId, refetchLive],
+  );
 
   const handleOrderSelect = useCallback((id: string) => {
     setSelectedOrderId((prev) => (prev === id ? null : id));
@@ -233,16 +318,90 @@ export default function PenghantarLiveClient({ outlets }: Props) {
     if (selectedRiderId && !selectedRider) setSelectedRiderId(null);
   }, [selectedRiderId, selectedRider]);
 
-  // Stuck order set — recomputed each render so it reacts to time passing
-  // on the next poll/realtime tick. (Pure function over orders + riders.)
+  // Stuck order set — pure function over orders + riders. nowTick makes it
+  // re-evaluate every 30s so an order crossing the threshold between polls
+  // is flagged without waiting for the next refetch.
   const stuckOrderIds = useMemo(
     () => computeStuckOrderIds(orders, riders),
-    [orders, riders],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [orders, riders, nowTick],
   );
-  const firstStuckOrderId = useMemo(
-    () => (stuckOrderIds.size > 0 ? stuckOrderIds.values().next().value ?? null : null),
-    [stuckOrderIds],
-  );
+  // The banner should jump to the MOST overdue stuck order, not the newest.
+  const firstStuckOrderId = useMemo(() => {
+    if (stuckOrderIds.size === 0) return null;
+    let worst: string | null = null;
+    let worstEta = Infinity;
+    for (const o of orders) {
+      if (!stuckOrderIds.has(o.id)) continue;
+      const eta = o.eta_at ? new Date(o.eta_at).getTime() : Infinity;
+      if (eta < worstEta) {
+        worstEta = eta;
+        worst = o.id;
+      }
+    }
+    return worst ?? stuckOrderIds.values().next().value ?? null;
+  }, [stuckOrderIds, orders]);
+
+  // ---- Sound alerts ----
+  // New order chime: any order id not present in the previous snapshot.
+  // Stuck alert: any id newly entering the stuck set. Both are suppressed on
+  // the first load per outlet (prev === null) so opening the page is silent.
+  const prevOrderIdsRef = useRef<Set<string> | null>(null);
+  const prevStuckIdsRef = useRef<ReadonlySet<string> | null>(null);
+  useEffect(() => {
+    prevOrderIdsRef.current = null;
+    prevStuckIdsRef.current = null;
+  }, [selectedOutletId]);
+  useEffect(() => {
+    const prev = prevOrderIdsRef.current;
+    const current = new Set(orders.map((o) => o.id));
+    if (prev && soundEnabled) {
+      let hasNew = false;
+      for (const id of current) {
+        if (!prev.has(id)) {
+          hasNew = true;
+          break;
+        }
+      }
+      if (hasNew) playNewOrderChime();
+    }
+    prevOrderIdsRef.current = current;
+  }, [orders, soundEnabled]);
+  useEffect(() => {
+    const prev = prevStuckIdsRef.current;
+    if (prev && soundEnabled) {
+      let hasNewStuck = false;
+      for (const id of stuckOrderIds) {
+        if (!prev.has(id)) {
+          hasNewStuck = true;
+          break;
+        }
+      }
+      if (hasNewStuck) playStuckAlert();
+    }
+    prevStuckIdsRef.current = stuckOrderIds;
+  }, [stuckOrderIds, soundEnabled]);
+
+  // ---- Search filtering (list panels only; the map shows everything) ----
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const filteredOrders = useMemo(() => {
+    if (!normalizedQuery) return orders;
+    return orders.filter((o) =>
+      [o.order_number, o.customer_name, o.delivery_address, o.rider_name ?? '']
+        .join(' ')
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [orders, normalizedQuery]);
+  const filteredRiders = useMemo(() => {
+    if (!normalizedQuery) return riders;
+    return riders.filter((r) =>
+      [r.name, r.phone, r.vehicle_plate ?? '']
+        .join(' ')
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [riders, normalizedQuery]);
 
   if (outlets.length === 0) {
     return (
@@ -268,14 +427,22 @@ export default function PenghantarLiveClient({ outlets }: Props) {
         orders={orders}
         riders={riders}
         stuckCount={stuckOrderIds.size}
+        realtimeUp={realtimeUp}
+        lastUpdatedAt={lastUpdatedAt}
+        refreshing={refreshing}
+        onRefresh={handleManualRefresh}
+        soundEnabled={soundEnabled}
+        onToggleSound={toggleSound}
       />
 
       <div className="flex-1 min-h-0 flex">
         {/* Desktop left column — 320px; replaced by MobileBottomSheet under md. */}
         <aside className="hidden md:flex w-[320px] shrink-0 flex-col border-r border-white/[0.06]">
+          <SearchBox value={searchQuery} onChange={setSearchQuery} />
           <div className="flex-1 min-h-0">
             <OrdersPanel
-              orders={orders}
+              orders={filteredOrders}
+              totalCount={orders.length}
               selectedId={selectedOrderId}
               stuckOrderIds={stuckOrderIds}
               onSelect={handleOrderSelect}
@@ -284,7 +451,8 @@ export default function PenghantarLiveClient({ outlets }: Props) {
           </div>
           <div className="flex-1 min-h-0">
             <RidersPanel
-              riders={riders}
+              riders={filteredRiders}
+              totalCount={riders.length}
               selectedId={selectedRiderId}
               showOffline={showOfflineRiders}
               onSelect={handleRiderSelect}
@@ -342,8 +510,7 @@ export default function PenghantarLiveClient({ outlets }: Props) {
           )}
         </main>
 
-        {/* Right detail panel — slides in when an order or rider is selected.
-            Modal openings are wired in commit 6; placeholders for now. */}
+        {/* Right detail panel — slides in when an order or rider is selected. */}
         {selectedOrder && (
           <OrderDetailPanel
             order={selectedOrder}
@@ -359,6 +526,7 @@ export default function PenghantarLiveClient({ outlets }: Props) {
             variant={isMobile ? 'mobile' : 'desktop'}
             onClose={() => setSelectedRiderId(null)}
             onActiveOrderClick={(orderId) => handleOrderSelect(orderId)}
+            onSetOffline={handleSetRiderOffline}
           />
         )}
       </div>

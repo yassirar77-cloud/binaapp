@@ -17,6 +17,16 @@ function formatEta(etaAt: string | null): { text: string; tone: 'normal' | 'late
   return { text: `${Math.round(minutes / 60)}j lagi`, tone: 'normal' };
 }
 
+// Order age — the metric ops staff actually watch for orders sitting at
+// pending/confirmed with no rider movement yet.
+function formatAge(createdAt: string): string {
+  const minutes = Math.floor((Date.now() - new Date(createdAt).getTime()) / 60_000);
+  if (minutes < 1) return 'baru';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}j ${minutes % 60}m`;
+}
+
 export default function OrderCard({
   order,
   selected,
@@ -63,19 +73,27 @@ export default function OrderCard({
       </div>
 
       <div className="mt-2 flex items-center justify-between text-[11px]">
-        <div className="flex items-center gap-1.5 text-white/60">
+        <div className="flex items-center gap-1.5 text-white/60 min-w-0">
           <Bike size={12} strokeWidth={1.5} className="shrink-0" />
           <span className="truncate">
             {order.rider_name ?? <span className="text-white/40">Belum ada rider</span>}
           </span>
         </div>
-        <div
-          className={`flex items-center gap-1 font-mono ${
-            eta.tone === 'late' ? 'text-red-300' : 'text-white/60'
-          }`}
-        >
-          <Clock size={12} strokeWidth={1.5} className="shrink-0" />
-          {eta.text}
+        <div className="flex items-center gap-2 shrink-0">
+          <span
+            className="font-mono text-white/40"
+            title="Umur pesanan sejak dibuat"
+          >
+            {formatAge(order.created_at)}
+          </span>
+          <div
+            className={`flex items-center gap-1 font-mono ${
+              eta.tone === 'late' ? 'text-red-300' : 'text-white/60'
+            }`}
+          >
+            <Clock size={12} strokeWidth={1.5} className="shrink-0" />
+            {eta.text}
+          </div>
         </div>
       </div>
     </button>

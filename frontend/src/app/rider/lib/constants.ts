@@ -21,14 +21,15 @@ export const STATUS_META: Record<
   rejected:   { label: 'Ditolak',       color: '#FF5A5F', bg: 'rgba(255,90,95,0.10)',   border: 'rgba(255,90,95,0.30)' },
 };
 
-// Status → next-step action shown on order rows and bottom CTA. Mirrors
+// Status → next-step CTA. SINGLE source of truth for the action label used
+// by BOTH the OrderRow pill and the detail-screen BottomActionBar. Mirrors
 // the backend state machine in delivery.update_order_status_by_rider.
 export const ACTION_LABELS: Partial<
   Record<OrderStatus, { label: string; nextStatus: OrderStatus }>
 > = {
-  ready:      { label: 'Mula Ambil',  nextStatus: 'picked_up'  },
-  picked_up:  { label: 'Mula Hantar', nextStatus: 'delivering' },
-  delivering: { label: 'Selesai',    nextStatus: 'delivered'  },
+  ready:      { label: 'Ambil Pesanan',  nextStatus: 'picked_up'  },
+  picked_up:  { label: 'Mula Hantar',    nextStatus: 'delivering' },
+  delivering: { label: 'Selesai Hantar', nextStatus: 'delivered'  },
 };
 
 // Order-list filter pills. `selesai` is filtered to today only by the
@@ -42,6 +43,10 @@ export const TABS: Array<{ id: Tab; label: string; statuses: OrderStatus[] }> = 
 // GPS upload cadence — must stay at 15s to match the backend rate limits
 // and keep parity with the pre-redesign behavior.
 export const GPS_INTERVAL_MS = 15000;
+
+// Relaxed GPS cadence while "Mode Jimat Bateri" is on — fewer radio wakeups
+// at the cost of a staler pin on the customer's tracking map.
+export const GPS_SAVER_INTERVAL_MS = 45000;
 
 // Poll orders this often while logged in.
 export const FETCH_INTERVAL_MS = 30000;

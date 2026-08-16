@@ -7,8 +7,8 @@
   "id": "/rider",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#ffffff",
-  "theme_color": "#ea580c",
+  "background_color": "#0a0e1a",
+  "theme_color": "#0a0e1a",
   "categories": ["business", "logistics"],
   "lang": "ms",
   "icons": [

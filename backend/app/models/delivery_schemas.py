@@ -44,6 +44,7 @@ class VehicleType(str, Enum):
     MOTORCYCLE = "motorcycle"
     BICYCLE = "bicycle"
     CAR = "car"
+    SCOOTER = "scooter"
 
 
 # =====================================================
@@ -423,6 +424,10 @@ class RiderResponse(RiderBase):
 class RiderLocationUpdate(BaseModel):
     latitude: Decimal
     longitude: Decimal
+    # Order the rider is currently delivering, for the rider_locations
+    # breadcrumb trail. Sent in the body by the rider PWA (the legacy query
+    # parameter is still accepted for backwards compatibility).
+    order_id: Optional[str] = None
 
 
 class RiderStatusUpdate(BaseModel):
@@ -464,6 +469,12 @@ class DeliverySettingsBase(BaseModel):
     accept_online: bool = False
     accept_ewallet: bool = False
     use_own_riders: bool = True
+    # Extended columns from migration 004_delivery_settings_extensions.sql
+    delivery_enabled: bool = True
+    pickup_enabled: bool = True
+    pickup_address: Optional[str] = None
+    default_delivery_fee: Decimal = Decimal("5.00")
+    qr_payment_image: Optional[str] = None
 
 
 class DeliverySettingsCreate(DeliverySettingsBase):
@@ -483,6 +494,11 @@ class DeliverySettingsUpdate(BaseModel):
     accept_online: Optional[bool] = None
     accept_ewallet: Optional[bool] = None
     use_own_riders: Optional[bool] = None
+    delivery_enabled: Optional[bool] = None
+    pickup_enabled: Optional[bool] = None
+    pickup_address: Optional[str] = None
+    default_delivery_fee: Optional[Decimal] = None
+    qr_payment_image: Optional[str] = None
 
 
 class DeliverySettingsResponse(DeliverySettingsBase):

@@ -23,6 +23,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Pesanan', href: '/pesanan', badge: 3 },
   { label: 'Chat', href: '/chat' },
   { label: 'Penghantar', href: '/rider', requiresRiders: true },
+  { label: 'Penghantaran', href: '/dashboard/penghantaran' },
   { label: 'Penghantar Live', href: '/dashboard/penghantar-live', requiresRiders: true },
   { label: 'Menu', href: '/menu-designer' },
   { label: 'Analitik', href: '/dashboard/analitik' },

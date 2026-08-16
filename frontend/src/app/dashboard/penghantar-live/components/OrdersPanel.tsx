@@ -26,12 +26,15 @@ function applyFilter(orders: ActiveOrder[], key: FilterKey): ActiveOrder[] {
 
 export default function OrdersPanel({
   orders,
+  totalCount,
   selectedId,
   stuckOrderIds,
   onSelect,
   onHover,
 }: {
   orders: ActiveOrder[];
+  /** Unfiltered total — shown as "shown/total" when a search narrows the list. */
+  totalCount?: number;
   selectedId: string | null;
   stuckOrderIds: ReadonlySet<string>;
   onSelect: (orderId: string) => void;
@@ -39,6 +42,7 @@ export default function OrdersPanel({
 }) {
   const [filter, setFilter] = useState<FilterKey>('all');
   const filtered = useMemo(() => applyFilter(orders, filter), [orders, filter]);
+  const total = totalCount ?? orders.length;
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-[#0a0e1a]">
@@ -48,7 +52,7 @@ export default function OrdersPanel({
             Pesanan Aktif
           </h2>
           <span className="font-mono text-[11px] text-white/40">
-            {orders.length}
+            {orders.length === total ? total : `${orders.length}/${total}`}
           </span>
         </div>
         <div className="flex gap-1.5">
