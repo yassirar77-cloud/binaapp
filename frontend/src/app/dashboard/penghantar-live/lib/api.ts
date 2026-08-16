@@ -86,3 +86,14 @@ export async function cancelOrder(
     body: JSON.stringify({ reason }),
   });
 }
+
+/** Force a rider online/offline (owner action). 204 No Content. */
+export async function setRiderPresence(
+  riderId: string,
+  isOnline: boolean,
+): Promise<void> {
+  await authFetch<null>(`/api/v1/live/riders/${riderId}/presence`, {
+    method: 'PATCH',
+    body: JSON.stringify({ is_online: isOnline }),
+  });
+}

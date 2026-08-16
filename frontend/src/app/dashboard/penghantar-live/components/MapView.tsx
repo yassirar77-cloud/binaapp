@@ -140,7 +140,7 @@ const MapView = forwardRef<MapViewHandle, Props>(function MapView({
     const map = L.map(containerRef.current, {
       center,
       zoom: DEFAULT_ZOOM,
-      zoomControl: false, // custom controls land in commit 5
+      zoomControl: false, // zoom is driven by the custom MapControls stack
       attributionControl: true,
     });
     L.tileLayer(TILE_URL, {

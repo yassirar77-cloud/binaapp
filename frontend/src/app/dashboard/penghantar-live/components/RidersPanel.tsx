@@ -28,12 +28,15 @@ function applyFilter(riders: LiveRider[], key: FilterKey): LiveRider[] {
 
 export default function RidersPanel({
   riders,
+  totalCount,
   selectedId,
   showOffline,
   onSelect,
   onHover,
 }: {
   riders: LiveRider[];
+  /** Unfiltered total — shown as "shown/total" when a search narrows the list. */
+  totalCount?: number;
   selectedId: string | null;
   showOffline: boolean;
   onSelect: (riderId: string) => void;
@@ -53,7 +56,9 @@ export default function RidersPanel({
         <div className="flex items-center justify-between mb-2">
           <h2 className="font-geist text-sm font-semibold text-white">Rider</h2>
           <span className="font-mono text-[11px] text-white/40">
-            {riders.length}
+            {totalCount != null && totalCount !== riders.length
+              ? `${riders.length}/${totalCount}`
+              : riders.length}
           </span>
         </div>
         <div className="flex gap-1.5">

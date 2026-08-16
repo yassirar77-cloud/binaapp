@@ -2,6 +2,8 @@
 
 // ReassignModal — pick an idle rider for an order.
 // "Idle" = is_online AND no active_order_id. Calls PATCH /live/orders/{id}/rider.
+// Riders are ranked by straight-line distance to the delivery point so the
+// nearest sensible choice is pre-selected.
 
 import { useMemo, useState } from 'react';
 import { Bike } from 'lucide-react';
@@ -22,11 +24,53 @@ function isIdle(r: LiveRider): boolean {
   return computeRiderPresence(r) !== 'offline' && !r.active_order_id;
 }
 
+function haversineKm(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(a));
+}
+
+type RankedRider = LiveRider & { distanceKm: number | null };
+
 export default function ReassignModal({ order, riders, onClose, onSuccess }: Props) {
-  const idleRiders = useMemo(
-    () => riders.filter((r) => isIdle(r) && r.id !== order.rider_id),
-    [riders, order.rider_id],
-  );
+  const idleRiders = useMemo<RankedRider[]>(() => {
+    const dest =
+      order.delivery_latitude != null && order.delivery_longitude != null
+        ? { lat: order.delivery_latitude, lng: order.delivery_longitude }
+        : null;
+    return riders
+      .filter((r) => isIdle(r) && r.id !== order.rider_id)
+      .map((r) => ({
+        ...r,
+        distanceKm:
+          dest && r.current_latitude != null && r.current_longitude != null
+            ? haversineKm(
+                r.current_latitude,
+                r.current_longitude,
+                dest.lat,
+                dest.lng,
+              )
+            : null,
+      }))
+      // Nearest first; riders without GPS sink to the bottom, then by workload.
+      .sort((a, b) => {
+        if (a.distanceKm != null && b.distanceKm != null) {
+          return a.distanceKm - b.distanceKm;
+        }
+        if (a.distanceKm != null) return -1;
+        if (b.distanceKm != null) return 1;
+        return a.today_deliveries - b.today_deliveries;
+      });
+  }, [riders, order.rider_id, order.delivery_latitude, order.delivery_longitude]);
 
   const [pickedId, setPickedId] = useState<string | null>(
     idleRiders[0]?.id ?? null,
@@ -66,7 +110,7 @@ export default function ReassignModal({ order, riders, onClose, onSuccess }: Pro
         </div>
       ) : (
         <ul className="space-y-1.5 max-h-[300px] overflow-y-auto">
-          {idleRiders.map((r) => (
+          {idleRiders.map((r, idx) => (
             <li key={r.id}>
               <label
                 className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2.5 cursor-pointer border transition ${
@@ -84,8 +128,15 @@ export default function ReassignModal({ order, riders, onClose, onSuccess }: Pro
                     className="accent-[#C7FF3D] w-4 h-4 shrink-0"
                   />
                   <span className="min-w-0">
-                    <span className="block text-sm font-geist text-white truncate">
-                      {r.name}
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-sm font-geist text-white truncate">
+                        {r.name}
+                      </span>
+                      {idx === 0 && r.distanceKm != null && (
+                        <span className="shrink-0 h-4 px-1.5 rounded-full font-mono text-[9px] tracking-wider uppercase bg-[#C7FF3D]/15 text-[#C7FF3D] ring-1 ring-[#C7FF3D]/25">
+                          Terdekat
+                        </span>
+                      )}
                     </span>
                     {r.vehicle_plate && (
                       <span className="block font-mono text-[11px] text-white/50">
@@ -94,8 +145,17 @@ export default function ReassignModal({ order, riders, onClose, onSuccess }: Pro
                     )}
                   </span>
                 </span>
-                <span className="font-mono text-[11px] text-white/50">
-                  {r.today_deliveries} hantaran
+                <span className="text-right shrink-0">
+                  {r.distanceKm != null && (
+                    <span className="block font-mono text-[11px] text-white/70">
+                      {r.distanceKm < 10
+                        ? `${r.distanceKm.toFixed(1)} km`
+                        : `${Math.round(r.distanceKm)} km`}
+                    </span>
+                  )}
+                  <span className="block font-mono text-[11px] text-white/50">
+                    {r.today_deliveries} hantaran
+                  </span>
                 </span>
               </label>
             </li>

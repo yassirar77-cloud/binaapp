@@ -1,15 +1,13 @@
 'use client';
 
 // RiderDetailPanel — right-side slide-in for a single rider's details.
-//
-// The "Set offline" action would call PUT /api/v1/delivery/riders/{id}/status,
-// which exists but is owned by the legacy delivery router. Out of scope for
-// this PR; rendered disabled with a TODO.
+// "Tetapkan offline" calls PATCH /live/riders/{id}/presence via the parent.
 
+import { useState } from 'react';
 import { Bike, Hash, Package, Phone, X } from 'lucide-react';
-import toast from 'react-hot-toast';
 import type { LiveRider } from '../lib/types';
 import { computeRiderPresence } from '../lib/types';
+import { cleanPhoneDigits, formatPhoneForWA } from '../lib/phone';
 
 function relativeTime(iso: string | null): string {
   if (!iso) return '—';
@@ -24,11 +22,6 @@ function relativeTime(iso: string | null): string {
   return `${days} hari lalu`;
 }
 
-function cleanPhone(raw: string | null | undefined): string {
-  if (!raw) return '';
-  return raw.replace(/\D/g, '');
-}
-
 const PRESENCE_LABEL = {
   online: { label: 'Online', dot: 'bg-emerald-400', tone: 'text-emerald-300' },
   online_stale_gps: { label: 'Online (GPS lapuk)', dot: 'bg-amber-400', tone: 'text-amber-300' },
@@ -40,17 +33,31 @@ export default function RiderDetailPanel({
   variant = 'desktop',
   onClose,
   onActiveOrderClick,
+  onSetOffline,
 }: {
   rider: LiveRider;
   variant?: 'desktop' | 'mobile';
   onClose: () => void;
   onActiveOrderClick: (orderId: string) => void;
+  onSetOffline?: (riderId: string) => Promise<void>;
 }) {
+  const [settingOffline, setSettingOffline] = useState(false);
   const presence = computeRiderPresence(rider);
   const tone = PRESENCE_LABEL[presence];
-  const tel = cleanPhone(rider.phone);
+  const tel = cleanPhoneDigits(rider.phone);
+  const wa = formatPhoneForWA(rider.phone);
   const waMsg = `Hai ${rider.name}, dari outlet…`;
-  const waHref = tel ? `https://wa.me/${tel}?text=${encodeURIComponent(waMsg)}` : null;
+  const waHref = wa ? `https://wa.me/${wa}?text=${encodeURIComponent(waMsg)}` : null;
+
+  const handleSetOffline = async () => {
+    if (!onSetOffline || settingOffline) return;
+    setSettingOffline(true);
+    try {
+      await onSetOffline(rider.id);
+    } finally {
+      setSettingOffline(false);
+    }
+  };
 
   return (
     <aside
@@ -172,21 +179,16 @@ export default function RiderDetailPanel({
             Mesej rider (WhatsApp)
           </ActionLink>
         )}
-        {/* TODO v2: wire to PUT /api/v1/delivery/riders/{id}/status when added
-            to lib/api.ts. For now we surface the action so owners discover it
-            and redirect them to the existing Penghantar page. */}
-        <button
-          type="button"
-          onClick={() =>
-            toast(
-              'Akan datang dalam v2. Untuk sekarang, rider boleh set offline dari Penghantar page.',
-              { duration: 5000 },
-            )
-          }
-          className="w-full inline-flex items-center justify-center h-11 px-3 rounded-lg text-sm font-geist font-medium bg-white/[0.06] text-white hover:bg-white/[0.10] ring-1 ring-white/[0.08] transition"
-        >
-          Tetapkan offline
-        </button>
+        {presence !== 'offline' && onSetOffline && (
+          <button
+            type="button"
+            onClick={handleSetOffline}
+            disabled={settingOffline}
+            className="w-full inline-flex items-center justify-center h-11 px-3 rounded-lg text-sm font-geist font-medium bg-white/[0.06] text-white hover:bg-white/[0.10] ring-1 ring-white/[0.08] transition disabled:opacity-50"
+          >
+            {settingOffline ? 'Menetapkan…' : 'Tetapkan offline'}
+          </button>
+        )}
       </div>
     </aside>
   );
