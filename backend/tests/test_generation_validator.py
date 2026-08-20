@@ -45,7 +45,7 @@ KAK_ROPIAH_BRIEF = GenerationBrief(
         {"name": "Gulai Nangka", "price": "RM4.00"},
         {"name": "Pakej Katering A", "price": "RM18/pax", "category": "Katering"},
     ],
-    model="glm-5.2",
+    model="glm-5.3",
 )
 
 GOOD_KAK_ROPIAH_HTML = """<!DOCTYPE html>
@@ -108,8 +108,8 @@ class TestFixtureKakRopiah:
 
     def test_model_is_recorded_for_fallback_tuning(self):
         result = validate_generated_site(FABRICATED_KAK_ROPIAH_HTML, KAK_ROPIAH_BRIEF)
-        assert result.model == "glm-5.2"
-        assert result.as_dict()["model"] == "glm-5.2"
+        assert result.model == "glm-5.3"
+        assert result.as_dict()["model"] == "glm-5.3"
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +181,7 @@ THIN_BRIEF = GenerationBrief(
     location_address=None,
     operating_hours=None,
     menu_items=[],
-    model="glm-5.2",
+    model="glm-5.3",
 )
 
 THIN_PLACEHOLDER_HTML = """<!DOCTYPE html>
@@ -431,13 +431,13 @@ class TestBriefFromRequest:
             whatsapp_number="0193456781",
             menu_items=[{"name": "Nasi Campur Biasa", "price": "RM7.00"}],
         )
-        brief = brief_from_request(request, model="glm-5.2")
+        brief = brief_from_request(request, model="glm-5.3")
         assert brief.business_name == "Warung Kak Ropiah"
         assert brief.menu_items == [
             {"name": "Nasi Campur Biasa", "price": "RM7.00", "category": ""}
         ]
         assert brief.language == "ms"
-        assert brief.model == "glm-5.2"
+        assert brief.model == "glm-5.3"
 
     def test_legacy_string_trace_counts_as_bare_deletion(self):
         brief = brief_from_request(
