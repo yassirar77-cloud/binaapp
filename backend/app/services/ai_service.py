@@ -777,7 +777,7 @@ class AIService:
             or os.getenv("ZAI_BASE_URL")
             or "https://api.z.ai/api/paas/v4"
         )
-        self.zai_model = os.getenv("ZAI_MODEL", "glm-5.2")
+        self.zai_model = os.getenv("ZAI_MODEL", "glm-5.3")
         # Z.ai IMAGE model (images/generations endpoint) — separate from the
         # HTML-generation chat model above. Valid model codes on that
         # endpoint are 'glm-image' (default) and 'cogview-4-250304'; plain
@@ -4549,7 +4549,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         GLM-specific differences:
 
         - Request body carries `"thinking": {"type": "disabled"}` — without
-          it glm-5.2 spends the whole output budget on reasoning and returns
+          it glm-5.3 spends the whole output budget on reasoning and returns
           empty content.
         - Any preamble before the first '<' is stripped (GLM sometimes adds
           explanation text before the HTML despite instructions).
@@ -4597,7 +4597,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                         ],
                         "temperature": temperature,
                         "max_tokens": AI_GLM_MAX_TOKENS,
-                        # CRITICAL: without this glm-5.2 burns the entire
+                        # CRITICAL: without this glm-5.3 burns the entire
                         # token budget on reasoning and returns empty content.
                         "thinking": {"type": "disabled"},
                     }

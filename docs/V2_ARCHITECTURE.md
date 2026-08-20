@@ -649,13 +649,13 @@ Flip the default to `v2` after Phase 4 is complete and tested.
 ### 9.4 Multi-Model Fallback Chain — Reused
 
 The GLM -> DeepSeek -> Qwen fallback chain is reused for Stage 1. GLM (Z.ai,
-`glm-5.2` via `ZAI_MODEL`) is the primary HTML generator, gated behind the
+`glm-5.3` via `ZAI_MODEL`) is the primary HTML generator, gated behind the
 `USE_GLM_FOR_HTML` env flag (default off): with the flag on, `_call_glm()` runs
 first and any failure — error, empty content, truncation, timeout — falls
 through to the untouched `_call_deepseek()` path (Qwen remains the
 validation-retry/refine fallback). Flipping the flag off in Render is an
 instant rollback to pure DeepSeek, no deploy needed. The GLM call sends
-`"thinking": {"type": "disabled"}` (required — otherwise glm-5.2 spends its
+`"thinking": {"type": "disabled"}` (required — otherwise glm-5.3 spends its
 whole output budget on reasoning) and uses `PHOTO_SLOT_N` image tokens that
 `_replace_photo_slots()` binds to real Cloudinary/Stability URLs
 deterministically. The only change for Stage 1:

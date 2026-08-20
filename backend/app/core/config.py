@@ -81,7 +81,7 @@ class Settings(BaseSettings):
         env="ZAI_API_URL"
     )
     ZAI_MODEL: str = Field(
-        default="glm-5.2",
+        default="glm-5.3",
         env="ZAI_MODEL"
     )
     # Z.ai IMAGE model for the /images/generations endpoint (separate from

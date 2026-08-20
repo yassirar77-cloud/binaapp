@@ -55,7 +55,7 @@ def glm_service():
     service = AIService()
     service.zai_api_key = "test-zai-key"
     service.zai_base_url = "https://api.z.ai/api/paas/v4"
-    service.zai_model = "glm-5.2"
+    service.zai_model = "glm-5.3"
     return service
 
 
@@ -66,14 +66,14 @@ class TestCallGlm:
     @pytest.mark.asyncio
     async def test_request_disables_thinking(self, glm_service):
         """The request body MUST carry thinking.type=disabled — without it
-        glm-5.2 burns the whole output budget on reasoning."""
+        glm-5.3 burns the whole output budget on reasoning."""
         patcher, mock_post = _patch_async_client(_mock_httpx_response("<html></html>"))
         with patcher:
             await glm_service._call_glm("make a website")
 
         body = mock_post.call_args.kwargs["json"]
         assert body["thinking"] == {"type": "disabled"}
-        assert body["model"] == "glm-5.2"
+        assert body["model"] == "glm-5.3"
         assert body["max_tokens"] == ai_service_module.AI_GLM_MAX_TOKENS
         # Posted to the Z.ai chat-completions endpoint with the bearer key
         url = mock_post.call_args.args[0]

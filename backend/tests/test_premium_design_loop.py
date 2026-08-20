@@ -64,7 +64,7 @@ def service():
     svc.deepseek_base_url = "https://api.deepseek.com/v1"
     svc.zai_api_key = "test-zai-key"
     svc.zai_base_url = "https://api.z.ai/api/paas/v4"
-    svc.zai_model = "glm-5.2"
+    svc.zai_model = "glm-5.3"
     return svc
 
 
