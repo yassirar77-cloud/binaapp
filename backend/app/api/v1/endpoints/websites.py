@@ -28,6 +28,7 @@ from app.services.templates import TemplateService
 from app.core.config import settings
 from app.middleware.subscription_guard import SubscriptionGuard
 from app.services.subscription_service import subscription_service
+from app.utils.html_inject import insert_before_body
 
 router = APIRouter()
 
@@ -1394,7 +1395,7 @@ async def repair_website_delivery(website_id: str):
 
         # Inject before </body>
         if "</body>" in html_content:
-            new_html = html_content.replace("</body>", delivery_button + "\n</body>")
+            new_html = insert_before_body(html_content, delivery_button)
         else:
             new_html = html_content + delivery_button
 
@@ -1494,7 +1495,7 @@ async def repair_all_websites_delivery():
 
                 # Inject before </body>
                 if "</body>" in html_content:
-                    new_html = html_content.replace("</body>", delivery_button + "\n</body>")
+                    new_html = insert_before_body(html_content, delivery_button)
                 else:
                     new_html = html_content + delivery_button
 

@@ -13,6 +13,7 @@ import re
 import httpx
 from typing import Optional
 from loguru import logger
+from app.utils.html_inject import insert_before_body
 
 
 # ============================================================================
@@ -248,7 +249,7 @@ def _inject_animation(html: str, animation_code: str) -> str:
         # Try to split by detecting CSS vs JS patterns
         logger.warning("🎭 Animation code has no <style>/<script> tags - attempting to wrap")
         # Just inject everything before </body> wrapped in a script
-        html = html.replace('</body>', f'\n<script>\n{animation_code}\n</script>\n</body>', 1)
+        html = insert_before_body(html, f'\n<script>\n{animation_code}\n</script>\n')
         return html
 
     # Inject <style> before </head>
@@ -262,7 +263,7 @@ def _inject_animation(html: str, animation_code: str) -> str:
     # Inject <script> before </body>
     if script_code:
         if '</body>' in html:
-            html = html.replace('</body>', f'\n<!-- Template Animation Scripts -->\n{script_code}\n</body>', 1)
+            html = insert_before_body(html, f'\n<!-- Template Animation Scripts -->\n{script_code}\n')
         else:
             # Fallback: append at end
             html += f'\n{script_code}'

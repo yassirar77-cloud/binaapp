@@ -38,6 +38,7 @@ from app.services.generation_validator import (
 from difflib import SequenceMatcher
 import cloudinary
 import cloudinary.uploader
+from app.utils.html_inject import insert_before_body
 
 
 # Per-call timeout for the DeepSeek primary generation in
@@ -5769,7 +5770,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 f'align-items:center;justify-content:center;width:56px;height:56px;">'
                 f'<span>💬</span></a>'
             )
-            html = html.replace("</body>", f"{wa_button}\n</body>", 1)
+            html = insert_before_body(html, f"{wa_button}\n")
             logger.info(f"   🔧 Injected missing WhatsApp link (wa.me/{wa_digits})")
 
         # Normalize wa.me links to digits-only (no leading '+', no spaces/dashes).

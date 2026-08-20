@@ -27,6 +27,7 @@ from app.services.supabase_client import supabase_service
 from app.services.toyyibpay_service import toyyibpay_service
 from app.core.security import get_current_user, require_verified_email
 from app.core.config import settings
+from app.utils.html_inject import insert_before_body
 
 router = APIRouter()
 
@@ -978,7 +979,7 @@ async def _promote_pending_draft_for_user(user_id: str, bill_code: Optional[str]
             '        data-api-url="https://binaapp-backend.onrender.com"></script>'
         )
         if "</body>" in html_content:
-            html_content = html_content.replace("</body>", chat_widget_tag + "\n</body>")
+            html_content = insert_before_body(html_content, chat_widget_tag)
         else:
             html_content += chat_widget_tag
 
