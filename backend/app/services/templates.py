@@ -18,6 +18,7 @@ from app.services.business_types import (
 )
 from app.services.menu_validator import log_menu_flow
 from app.services.widget_catalogue import WIDGETS, WidgetSpec
+from app.utils.html_inject import insert_before_body
 
 
 # ─── Widget theme (delivery/ordering UI) ────────────────────────────────────
@@ -426,7 +427,7 @@ class TemplateService:
 
         # Inject before closing body tag
         if "</body>" in html:
-            html = html.replace("</body>", whatsapp_html + "\n</body>")
+            html = insert_before_body(html, whatsapp_html)
         else:
             html += whatsapp_html
 
@@ -493,7 +494,7 @@ class TemplateService:
             f'<section id="location" style="background:#f9fafb;">{maps_inner}</section>\n'
         )
         if "</body>" in html:
-            html = html.replace("</body>", maps_html + "\n</body>")
+            html = insert_before_body(html, maps_html)
         else:
             html += maps_html
         return html
@@ -625,7 +626,7 @@ updateCartUI();
 
         # Inject before closing body tag
         if "</body>" in html:
-            html = html.replace("</body>", cart_js + "\n</body>")
+            html = insert_before_body(html, cart_js)
         else:
             html += cart_js
 
@@ -743,7 +744,7 @@ function handleContactSubmit(e) {{
 
         # Inject before closing body tag
         if "</body>" in html:
-            html = html.replace("</body>", form_html + "\n</body>")
+            html = insert_before_body(html, form_html)
         else:
             html += form_html
 
@@ -839,7 +840,7 @@ function handleContactSubmit(e) {{
 
         # Inject before closing body tag
         if "</body>" in html:
-            html = html.replace("</body>", qr_html + "\n</body>")
+            html = insert_before_body(html, qr_html)
         else:
             html += qr_html
 
@@ -910,7 +911,7 @@ function handleContactSubmit(e) {{
 
         # Inject before closing body tag
         if "</body>" in html:
-            html = html.replace("</body>", delivery_html + "\n</body>")
+            html = insert_before_body(html, delivery_html)
         else:
             html += delivery_html
 
@@ -1859,7 +1860,7 @@ __BINAAPP_WIDGET_THEME_VARS__
 
         # Always inject the button before </body> if not already present
         if "binaapp-delivery-btn" not in html and "</body>" in html:
-            html = html.replace("</body>", delivery_button_inline + "\n</body>")
+            html = insert_before_body(html, delivery_button_inline)
 
         # STEP 3.5: Add floating chat button - always visible (site theme, separate ID from chat-widget.js)
         chat_button_inline = '''
@@ -1899,7 +1900,7 @@ __BINAAPP_WIDGET_THEME_VARS__
             and "widgets/chat-widget.js" not in html
             and "</body>" in html
         ):
-            html = html.replace("</body>", chat_button_inline + "\n</body>")
+            html = insert_before_body(html, chat_button_inline)
 
         # Convert Python booleans to JavaScript string for injection
         payment_qr_enabled_js = "true" if payment_qr_enabled else "false"
@@ -3419,7 +3420,7 @@ __BINAAPP_WIDGET_THEME_VARS__
         script = _theme_widget_fragment(script)
 
         if "</body>" in html:
-            html = html.replace("</body>", script + "\n</body>")
+            html = insert_before_body(html, script)
         else:
             html += script
 
@@ -3499,7 +3500,7 @@ __BINAAPP_WIDGET_THEME_VARS__
 
         # Inject before </body>
         if "</body>" in html:
-            html = html.replace("</body>", delivery_button + "\n</body>")
+            html = insert_before_body(html, delivery_button)
         else:
             # Fallback: append to end
             html += delivery_button
@@ -3563,7 +3564,7 @@ __BINAAPP_WIDGET_THEME_VARS__
 
         # Inject before </body>
         if "</body>" in html:
-            html = html.replace("</body>", chat_widget + "\n</body>")
+            html = insert_before_body(html, chat_widget)
         else:
             html += chat_widget
 

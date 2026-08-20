@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from app.core.config import settings
 from app.services.plan_features import can_publish_subdomain
+from app.utils.html_inject import insert_before_body
 
 
 # Load locked page template once at startup
@@ -486,7 +487,7 @@ def _inject_open_badge(html_content: str) -> str:
     if "BinaApp Open Badge" in html_content:
         return html_content
     if "</body>" in html_content:
-        return html_content.replace("</body>", _OPEN_BADGE_SCRIPT + "\n</body>", 1)
+        return insert_before_body(html_content, _OPEN_BADGE_SCRIPT)
     return html_content + _OPEN_BADGE_SCRIPT
 
 
@@ -615,7 +616,7 @@ def _inject_qr_block(html_content: str, subdomain: str, language: str = "ms") ->
     if "</footer>" in html_content:
         html_content = html_content.replace("</footer>", qr_block + "</footer>", 1)
     elif "</body>" in html_content:
-        html_content = html_content.replace("</body>", qr_block + "\n</body>", 1)
+        html_content = insert_before_body(html_content, qr_block)
     else:
         html_content += qr_block
 
@@ -784,7 +785,7 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
 
     # Inject before </body> or at end
     if "</body>" in html_content:
-        html_content = html_content.replace("</body>", widget_injection + "\n</body>")
+        html_content = insert_before_body(html_content, widget_injection)
     else:
         html_content += widget_injection
 
@@ -796,7 +797,7 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
     if 'aos.css' in html_content.lower() and 'aos.js' not in html_content.lower():
         aos_script = '<script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>\n<script>if(typeof AOS!=="undefined"){document.documentElement.classList.add("aos-initialized");AOS.init({once:true,duration:600});}</script>\n'
         if '</body>' in html_content:
-            html_content = html_content.replace('</body>', aos_script + '</body>', 1)
+            html_content = insert_before_body(html_content, aos_script)
 
     # QR block: replace the generation-baked "Scan to Visit" block (English,
     # left-aligned, encoding preview.binaapp.my, orphaned after </footer>) with
@@ -809,9 +810,7 @@ def _inject_widgets(html_content: str, website_id: str, business_type: str = "fo
     # 320px white box. Placed before </body>.
     if 'binaapp-contact-slot' in html_content:
         if '</body>' in html_content:
-            html_content = html_content.replace(
-                '</body>', _CONTACT_SLOT_FALLBACK_SCRIPT + '\n</body>', 1
-            )
+            html_content = insert_before_body(html_content, _CONTACT_SLOT_FALLBACK_SCRIPT)
         else:
             html_content += _CONTACT_SLOT_FALLBACK_SCRIPT
 

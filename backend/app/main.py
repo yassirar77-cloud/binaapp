@@ -54,6 +54,7 @@ from app.services.analytics_tracking import (
 
 # Email polling system
 from app.api.v1.endpoints.email_polling import router as email_polling_router
+from app.utils.html_inject import insert_before_body
 
 # Initialize AI service
 ai_service = AIService()
@@ -604,7 +605,7 @@ def _inject_attribution_footer(html: str, white_label: bool = False) -> str:
     if white_label:
         return html
     if '</body>' in html:
-        return html.replace('</body>', f'{_ATTRIBUTION_FOOTER_HTML}</body>')
+        return insert_before_body(html, f'{_ATTRIBUTION_FOOTER_HTML}')
     return html + _ATTRIBUTION_FOOTER_HTML
 
 
@@ -868,7 +869,7 @@ Output ONLY improved HTML."""
 
             # Add analytics script (cookieless, DNT-aware — shared constant)
             if '</body>' in final_html:
-                final_html = final_html.replace('</body>', f'{ANALYTICS_TRACKING_SNIPPET}</body>')
+                final_html = insert_before_body(final_html, f'{ANALYTICS_TRACKING_SNIPPET}')
 
             # Inject attribution footer for non-white-label merchants
             final_html = _inject_attribution_footer(
@@ -1682,7 +1683,7 @@ Output ONLY improved HTML."""
 
             # Add analytics script (cookieless, DNT-aware — shared constant)
             if '</body>' in final_html:
-                final_html = final_html.replace('</body>', f'{ANALYTICS_TRACKING_SNIPPET}</body>')
+                final_html = insert_before_body(final_html, f'{ANALYTICS_TRACKING_SNIPPET}')
 
             # Inject attribution footer for non-white-label merchants
             final_html = _inject_attribution_footer(
@@ -1829,7 +1830,7 @@ Output ONLY improved HTML."""
 
     # Add analytics script (cookieless, DNT-aware — shared constant)
     if '</body>' in final_html:
-        final_html = final_html.replace('</body>', f'{ANALYTICS_TRACKING_SNIPPET}</body>')
+        final_html = insert_before_body(final_html, f'{ANALYTICS_TRACKING_SNIPPET}')
     else:
         final_html += ANALYTICS_TRACKING_SNIPPET
 
@@ -3435,7 +3436,7 @@ async def publish_website(
         data-website-id="{website_id}"
         data-api-url="https://binaapp-backend.onrender.com"></script>'''
             if "</body>" in html_content:
-                html_content = html_content.replace("</body>", chat_widget_tag + "\n</body>")
+                html_content = insert_before_body(html_content, chat_widget_tag)
             else:
                 html_content += chat_widget_tag
             logger.info(f"✅ Chat widget injected for website {website_id}")
@@ -3542,7 +3543,7 @@ async def publish_website(
 <div id="binaapp-widget"></div>
 """
                 if "</body>" in html_content:
-                    html_content = html_content.replace("</body>", widget_init + "\n</body>")
+                    html_content = insert_before_body(html_content, widget_init)
                 else:
                     html_content += widget_init
 
@@ -3750,7 +3751,7 @@ async def admin_republish_websites(
         data-api-url="{api_url}"></script>'''
 
                 if "</body>" in html_content:
-                    updated_html = html_content.replace("</body>", chat_widget_tag + "\n</body>")
+                    updated_html = insert_before_body(html_content, chat_widget_tag)
                 else:
                     updated_html = html_content + chat_widget_tag
 

@@ -21,6 +21,7 @@ from app.services.supabase_client import supabase_service
 from app.core.security import get_optional_current_user
 from app.core.config import settings
 from app.services.subscription_service import subscription_service
+from app.utils.html_inject import insert_before_body
 
 router = APIRouter()
 
@@ -849,7 +850,7 @@ def inject_delivery_widget_if_needed(html: str, website_id: str, business_name: 
         data-language="{language}"></script>'''
 
     if "</body>" in html:
-        return html.replace("</body>", delivery_widget + "\n</body>")
+        return insert_before_body(html, delivery_widget)
     return html + delivery_widget
 
 
@@ -868,7 +869,7 @@ def inject_chat_widget_if_needed(html: str, website_id: str, api_url: str = "htt
         data-api-url="{api_url}"></script>'''
 
     if "</body>" in html:
-        return html.replace("</body>", chat_widget + "\n</body>")
+        return insert_before_body(html, chat_widget)
     return html + chat_widget
 
 
