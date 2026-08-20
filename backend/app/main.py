@@ -2904,7 +2904,12 @@ def replace_template_placeholders(html: str, request_data: dict) -> str:
             wa_number = '60' + wa_number[1:]
         elif not wa_number.startswith('60'):
             wa_number = '60' + wa_number
-        html = re.sub(r'wa\.me/\d+', f'wa.me/{wa_number}', html)
+        # The injected WhatsApp button uses the '+60...' default, which
+        # 'wa\.me/\d+' never matched — the plain replaces below then swapped
+        # the default for the RAW user phone (e.g. wa.me/019-5551234), a link
+        # WhatsApp rejects. Match '+', spaces and dashes in the phone segment
+        # so every wa.me link ends up as the normalized digits-only number.
+        html = re.sub(r'wa\.me/[+\d][\d\s\-+]*', f'wa.me/{wa_number}', html)
         html = html.replace('+60123456789', phone)
         html = html.replace('60123456789', phone)
 
