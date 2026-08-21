@@ -63,6 +63,36 @@ ai_service = AIService()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+# ============================================
+# HEALTH-CHECK ACCESS LOG FILTER
+# ============================================
+# Render's health checker hits GET /health every ~5 seconds, and uvicorn
+# logs every one of them. That's ~17k lines/day of pure noise that buries
+# real traffic and errors in the log stream. Drop *successful* health-check
+# access-log lines only — a failing health check (non-2xx) still gets
+# logged so outages remain visible.
+_HEALTH_CHECK_PATHS = {"/health", "/api/health"}
+
+
+class _HealthCheckAccessFilter(logging.Filter):
+    """Suppress uvicorn access-log lines for successful health checks."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # uvicorn.access log args: (client_addr, method, path, http_version, status_code)
+        args = record.args
+        if not isinstance(args, tuple) or len(args) != 5:
+            return True
+        method, path, status = args[1], args[2], args[4]
+        if method != "GET" or not isinstance(path, str):
+            return True
+        if path.split("?", 1)[0] not in _HEALTH_CHECK_PATHS:
+            return True
+        return not (isinstance(status, int) and 200 <= status < 300)
+
+
+logging.getLogger("uvicorn.access").addFilter(_HealthCheckAccessFilter())
+
 # ============================================
 # SUPABASE INITIALIZATION - CRITICAL SECTION
 # ============================================
