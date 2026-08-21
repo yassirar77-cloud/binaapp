@@ -92,15 +92,15 @@ function RegisterPageContent() {
       </div>
 
       {/* Headline */}
-      <h1 className="font-geist font-extrabold text-4xl sm:text-5xl text-white tracking-[-0.045em] text-center mb-3">
+      <h1 className="font-display font-medium text-4xl sm:text-5xl text-carbon-900 tracking-[-0.02em] text-center mb-3">
         Mula Bina Sekarang.
       </h1>
-      <p className="font-geist text-base text-ink-300 text-center mb-8">
+      <p className="font-geist text-base text-carbon-400 text-center mb-8">
         Cipta akaun — percuma untuk bermula
       </p>
 
       {/* Form card */}
-      <div className="bg-ink-800 border border-white/[.08] rounded-2xl p-6 sm:p-8">
+      <div className="bg-white border border-oat-300 shadow-card-warm rounded-2xl p-6 sm:p-8">
         <form onSubmit={handleSubmit} className="space-y-5">
           <AuthInput
             label="Nama Penuh"
@@ -154,15 +154,15 @@ function RegisterPageContent() {
                 checked={agreedToTerms}
                 onChange={(e) => setAgreedToTerms(e.target.checked)}
                 required
-                className="mt-1 w-4 h-4 accent-volt-400 rounded border-white/20 bg-ink-700"
+                className="mt-1 w-4 h-4 accent-clay-500 rounded border-oat-400 bg-white"
               />
-              <span className="font-geist text-sm text-ink-300">
+              <span className="font-geist text-sm text-carbon-400">
                 Saya telah membaca dan bersetuju dengan{' '}
                 <a
                   href="/polisi-privasi"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-brand-300 hover:text-brand-200 transition-colors"
+                  className="text-clay-600 hover:text-clay-700 transition-colors"
                 >
                   Polisi Privasi
                 </a>
@@ -171,13 +171,13 @@ function RegisterPageContent() {
                   href="/terma-perkhidmatan"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-brand-300 hover:text-brand-200 transition-colors"
+                  className="text-clay-600 hover:text-clay-700 transition-colors"
                 >
                   Terma Perkhidmatan
                 </a>
               </span>
             </label>
-            <p className="font-geist text-xs text-ink-400 pl-7">
+            <p className="font-geist text-xs text-carbon-300 pl-7">
               Dengan mendaftar, anda bersetuju dengan amalan pengumpulan data kami seperti yang diterangkan dalam Polisi Privasi
             </p>
           </div>
@@ -185,22 +185,22 @@ function RegisterPageContent() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full font-geist font-bold text-sm text-ink-950 bg-volt-400 px-5 py-3.5 rounded-xl shadow-[0_0_0_1px_theme(colors.volt.500),0_8px_20px_rgba(199,255,61,.4)] hover:bg-volt-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors tracking-tight"
+            className="w-full font-geist font-semibold text-sm text-white bg-clay-500 px-5 py-3.5 rounded-xl shadow-card-warm hover:bg-clay-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors tracking-tight"
           >
             {loading ? 'Memuatkan...' : 'Daftar Sekarang'}
           </button>
         </form>
 
-        <p className="font-geist text-sm text-ink-400 text-center mt-6">
+        <p className="font-geist text-sm text-carbon-300 text-center mt-6">
           Sudah ada akaun?{' '}
-          <Link href="/login" className="text-brand-300 hover:text-brand-200 font-medium transition-colors">
+          <Link href="/login" className="text-clay-600 hover:text-clay-700 font-medium transition-colors">
             Log masuk
           </Link>
         </p>
       </div>
 
       {/* Trust line */}
-      <div className="flex justify-center gap-6 mt-7 font-geist-mono text-[11px] text-ink-400 tracking-[.06em]">
+      <div className="flex justify-center gap-6 mt-7 font-geist-mono text-[11px] text-carbon-300 tracking-[.06em]">
         <span>✓ PERCUMA UNTUK BERMULA</span>
         <span>✓ TANPA KAD KREDIT</span>
       </div>

@@ -49,15 +49,15 @@ function LoginPageContent() {
       </div>
 
       {/* Headline */}
-      <h1 className="font-geist font-extrabold text-4xl sm:text-5xl text-white tracking-[-0.045em] text-center mb-3">
+      <h1 className="font-display font-medium text-4xl sm:text-5xl text-carbon-900 tracking-[-0.02em] text-center mb-3">
         Selamat Kembali.
       </h1>
-      <p className="font-geist text-base text-ink-300 text-center mb-8">
+      <p className="font-geist text-base text-carbon-400 text-center mb-8">
         Log masuk untuk urus website anda
       </p>
 
       {/* Form card */}
-      <div className="bg-ink-800 border border-white/[.08] rounded-2xl p-6 sm:p-8">
+      <div className="bg-white border border-oat-300 shadow-card-warm rounded-2xl p-6 sm:p-8">
         <form onSubmit={handleSubmit} className="space-y-5">
           <AuthInput
             label="E-mel"
@@ -84,7 +84,7 @@ function LoginPageContent() {
           <div className="text-right">
             <Link
               href="/lupa-password"
-              className="font-geist text-sm text-brand-300 hover:text-brand-200 font-medium transition-colors"
+              className="font-geist text-sm text-clay-600 hover:text-clay-700 font-medium transition-colors"
             >
               Lupa kata laluan?
             </Link>
@@ -93,22 +93,22 @@ function LoginPageContent() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full font-geist font-bold text-sm text-ink-950 bg-volt-400 px-5 py-3.5 rounded-xl shadow-[0_0_0_1px_theme(colors.volt.500),0_8px_20px_rgba(199,255,61,.4)] hover:bg-volt-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors tracking-tight"
+            className="w-full font-geist font-semibold text-sm text-white bg-clay-500 px-5 py-3.5 rounded-xl shadow-card-warm hover:bg-clay-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors tracking-tight"
           >
             {loading ? 'Memuatkan...' : 'Log Masuk'}
           </button>
         </form>
 
-        <p className="font-geist text-sm text-ink-400 text-center mt-6">
+        <p className="font-geist text-sm text-carbon-300 text-center mt-6">
           Belum ada akaun?{' '}
-          <Link href="/register" className="text-brand-300 hover:text-brand-200 font-medium transition-colors">
+          <Link href="/register" className="text-clay-600 hover:text-clay-700 font-medium transition-colors">
             Daftar percuma
           </Link>
         </p>
       </div>
 
       {/* Trust line */}
-      <div className="flex justify-center gap-6 mt-7 font-geist-mono text-[11px] text-ink-400 tracking-[.06em]">
+      <div className="flex justify-center gap-6 mt-7 font-geist-mono text-[11px] text-carbon-300 tracking-[.06em]">
         <span>✓ PERCUMA UNTUK BERMULA</span>
         <span>✓ AI BINA DALAM 60 SAAT</span>
       </div>

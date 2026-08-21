@@ -11,8 +11,8 @@ export default function AuthLogo() {
         height={30}
         className="rounded-lg"
       />
-      <span className="font-geist font-bold text-lg text-white tracking-tight">
-        bina<span className="text-brand-300">app</span>
+      <span className="font-geist font-bold text-lg text-carbon-900 tracking-tight">
+        bina<span className="text-clay-500">app</span>
       </span>
     </Link>
   )

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,12 +6,15 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Claude-style warm neutrals: cream ground, warm near-black ink,
+       terracotta accent. */
+    --background: 48 33% 97%;      /* #FAF9F5 */
+    --foreground: 60 2% 8%;        /* #141413 */
+    --accent: 15 63% 59%;          /* #D97757 */
   }
 
   body {
-    @apply bg-white text-gray-900 antialiased;
+    @apply bg-oat-50 text-carbon-900 antialiased;
   }
 }
 
@@ -21,23 +24,23 @@
   }
 
   .btn-primary {
-    @apply bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+    @apply bg-clay-500 text-white hover:bg-clay-600 focus:ring-clay-500;
   }
 
   .btn-secondary {
-    @apply bg-gray-200 text-gray-900 hover:bg-gray-300 focus:ring-gray-500;
+    @apply bg-white text-carbon-900 border border-oat-400 hover:bg-oat-100 focus:ring-carbon-400;
   }
 
   .btn-outline {
-    @apply border-2 border-primary-600 text-primary-600 hover:bg-primary-50 focus:ring-primary-500;
+    @apply border-2 border-clay-500 text-clay-600 hover:bg-clay-50 focus:ring-clay-500;
   }
 
   .input {
-    @apply w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+    @apply w-full px-4 py-2 bg-white border border-oat-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-clay-500 focus:border-transparent placeholder:text-carbon-300;
   }
 
   .card {
-    @apply bg-white rounded-lg shadow-md p-6;
+    @apply bg-white rounded-2xl border border-oat-300 shadow-card-warm p-6;
   }
 
   .container {

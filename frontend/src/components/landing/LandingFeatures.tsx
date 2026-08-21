@@ -23,16 +23,16 @@ const features = [
 
 export default function LandingFeatures() {
   return (
-    <section id="ciri" className="bg-ink-050 py-20 lg:py-28 px-8">
+    <section id="ciri" className="bg-oat-200 py-20 lg:py-28 px-8">
       <div className="max-w-[1200px] mx-auto">
 
         {/* Eyebrow */}
-        <div className="font-geist-mono text-xs tracking-[.12em] uppercase text-brand-500 font-semibold mb-3">
+        <div className="font-geist text-xs tracking-[.12em] uppercase text-clay-600 font-semibold mb-3">
           — Ciri-ciri
         </div>
 
-        {/* Section headline */}
-        <h2 className="font-geist font-bold text-3xl sm:text-4xl lg:text-[56px] leading-[1.02] tracking-[-0.045em] text-ink-900 mb-14 max-w-[760px]">
+        {/* Section headline — serif display */}
+        <h2 className="font-display font-medium text-3xl sm:text-4xl lg:text-[52px] leading-[1.08] tracking-[-0.02em] text-carbon-900 mb-14 max-w-[760px]">
           Semua yang restoran perlu.<br />
           Takde yang anda tak perlu.
         </h2>
@@ -42,15 +42,15 @@ export default function LandingFeatures() {
           {features.map((f) => (
             <div
               key={f.num}
-              className="bg-white rounded-2xl p-8 border border-ink-200"
+              className="bg-oat-50 rounded-2xl p-8 border border-oat-400/60 shadow-card-warm hover:shadow-lift-warm hover:-translate-y-0.5 transition-all duration-200"
             >
-              <div className="font-geist-mono text-[11px] tracking-[.12em] text-ink-400 mb-5">
+              <div className="font-geist-mono text-[11px] tracking-[.12em] text-clay-500 mb-5">
                 {f.num}
               </div>
-              <h3 className="font-geist font-bold text-xl sm:text-2xl lg:text-[28px] tracking-[-0.03em] text-ink-900 mb-2.5">
+              <h3 className="font-display font-medium text-xl sm:text-2xl lg:text-[26px] tracking-[-0.01em] text-carbon-900 mb-2.5">
                 {f.title}
               </h3>
-              <p className="font-geist text-[15px] leading-relaxed text-ink-500">
+              <p className="font-geist text-[15px] leading-relaxed text-carbon-400">
                 {f.body}
               </p>
             </div>

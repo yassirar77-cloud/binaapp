@@ -29,7 +29,7 @@ export default function AuthInput({
     <div>
       <label
         htmlFor={id}
-        className="block font-geist text-sm font-medium text-ink-300 mb-2"
+        className="block font-geist text-sm font-medium text-carbon-600 mb-2"
       >
         {label}
       </label>
@@ -43,10 +43,10 @@ export default function AuthInput({
         autoComplete={autoComplete}
         inputMode={inputMode}
         required={required}
-        className="w-full bg-ink-700 border border-white/10 rounded-xl px-4 py-3 font-geist text-sm text-white placeholder:text-ink-400 outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors"
+        className="w-full bg-white border border-oat-400 rounded-xl px-4 py-3 font-geist text-sm text-carbon-900 placeholder:text-carbon-300 outline-none focus:border-clay-500 focus:ring-1 focus:ring-clay-500 transition-colors"
       />
       {helperText && (
-        <p className="mt-1.5 font-geist text-xs text-ink-400">{helperText}</p>
+        <p className="mt-1.5 font-geist text-xs text-carbon-400">{helperText}</p>
       )}
     </div>
   )

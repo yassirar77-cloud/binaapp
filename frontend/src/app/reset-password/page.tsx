@@ -95,22 +95,22 @@ export default function ResetPasswordPage() {
 
       {invalid ? (
         <>
-          <h1 className="font-geist font-extrabold text-4xl sm:text-5xl text-white tracking-[-0.045em] text-center mb-3">
+          <h1 className="font-display font-medium text-4xl sm:text-5xl text-carbon-900 tracking-[-0.02em] text-center mb-3">
             Pautan Tidak Sah.
           </h1>
-          <p className="font-geist text-base text-ink-300 text-center mb-8">
+          <p className="font-geist text-base text-carbon-400 text-center mb-8">
             Pautan set semula ini telah tamat tempoh atau sudah digunakan.
           </p>
 
-          <div className="bg-ink-800 border border-white/[.08] rounded-2xl p-6 sm:p-8 space-y-4">
+          <div className="bg-white border border-oat-300 shadow-card-warm rounded-2xl p-6 sm:p-8 space-y-4">
             <Link
               href="/lupa-password"
-              className="block w-full text-center font-geist font-bold text-sm text-ink-950 bg-volt-400 px-5 py-3.5 rounded-xl shadow-[0_0_0_1px_theme(colors.volt.500),0_8px_20px_rgba(199,255,61,.4)] hover:bg-volt-300 transition-colors tracking-tight"
+              className="block w-full text-center font-geist font-semibold text-sm text-white bg-clay-500 px-5 py-3.5 rounded-xl shadow-card-warm hover:bg-clay-600 transition-colors tracking-tight"
             >
               Minta Pautan Baharu
             </Link>
-            <p className="font-geist text-sm text-ink-400 text-center">
-              <Link href="/login" className="text-brand-300 hover:text-brand-200 font-medium transition-colors">
+            <p className="font-geist text-sm text-carbon-300 text-center">
+              <Link href="/login" className="text-clay-600 hover:text-clay-700 font-medium transition-colors">
                 Kembali ke log masuk
               </Link>
             </p>
@@ -118,14 +118,14 @@ export default function ResetPasswordPage() {
         </>
       ) : (
         <>
-          <h1 className="font-geist font-extrabold text-4xl sm:text-5xl text-white tracking-[-0.045em] text-center mb-3">
+          <h1 className="font-display font-medium text-4xl sm:text-5xl text-carbon-900 tracking-[-0.02em] text-center mb-3">
             Set Kata Laluan Baharu.
           </h1>
-          <p className="font-geist text-base text-ink-300 text-center mb-8">
+          <p className="font-geist text-base text-carbon-400 text-center mb-8">
             Pilih kata laluan baharu untuk akaun anda
           </p>
 
-          <div className="bg-ink-800 border border-white/[.08] rounded-2xl p-6 sm:p-8">
+          <div className="bg-white border border-oat-300 shadow-card-warm rounded-2xl p-6 sm:p-8">
             <form onSubmit={handleSubmit} className="space-y-5">
               <AuthInput
                 label="Kata Laluan Baharu"
@@ -153,7 +153,7 @@ export default function ResetPasswordPage() {
               <button
                 type="submit"
                 disabled={loading || !ready}
-                className="w-full font-geist font-bold text-sm text-ink-950 bg-volt-400 px-5 py-3.5 rounded-xl shadow-[0_0_0_1px_theme(colors.volt.500),0_8px_20px_rgba(199,255,61,.4)] hover:bg-volt-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors tracking-tight"
+                className="w-full font-geist font-semibold text-sm text-white bg-clay-500 px-5 py-3.5 rounded-xl shadow-card-warm hover:bg-clay-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors tracking-tight"
               >
                 {loading ? 'Mengemaskini...' : ready ? 'Kemaskini Kata Laluan' : 'Memuatkan...'}
               </button>
