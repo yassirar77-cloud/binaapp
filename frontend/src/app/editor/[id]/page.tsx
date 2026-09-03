@@ -23,6 +23,7 @@ import {
   type IntentResult,
 } from '@/lib/aiAssistantIntent';
 import { pollMessageForElapsed } from '@/lib/regeneratePollMessages';
+import { DESIGN_BRIEF_MAX, normalizeDesignBrief } from '@/lib/designBrief';
 import DesignStudioPanel from '@/components/DesignStudioPanel';
 import PromoKitPanel from '@/components/PromoKitPanel';
 
@@ -82,6 +83,10 @@ export default function EditorPage() {
   // for everything the user wants to do — `detectIntent` decides whether
   // it's a quick edit or a full regenerate.
   const [prompt, setPrompt] = useState('');
+  // Senior Designer mode: optional design direction sent with a full
+  // regenerate ("buat lagi gelap, aksen emas"). Never persisted — it
+  // applies to that one regeneration.
+  const [designBrief, setDesignBrief] = useState('');
   const [applying, setApplying] = useState(false);
   const [assistantMode, setAssistantMode] = useState<
     'quick_edit' | 'full_regenerate' | null
@@ -476,6 +481,8 @@ export default function EditorPage() {
       const body: Record<string, string> = {};
       const trimmed = prompt.trim();
       if (trimmed.length > 0) body.description = trimmed;
+      const brief = normalizeDesignBrief(designBrief);
+      if (brief) body.design_brief = brief;
 
       const response = await fetch(
         `${API_BASE}/api/v1/websites/${id}/regenerate`,
@@ -754,6 +761,33 @@ export default function EditorPage() {
               }
               className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:cursor-not-allowed resize-vertical"
             />
+
+            {/* Senior Designer brief — only meaningful for a full regenerate,
+                where the AI designer reads it as the top design priority. */}
+            {(!detected || detected.intent === 'full_regenerate') && (
+              <div className="mt-3">
+                <label
+                  htmlFor="ai-design-brief"
+                  className="block text-xs font-semibold text-gray-600 mb-1"
+                >
+                  🎨 Arahan design untuk jana semula (pilihan)
+                </label>
+                <textarea
+                  id="ai-design-brief"
+                  data-testid="ai-design-brief"
+                  value={designBrief}
+                  onChange={(e) => setDesignBrief(e.target.value.slice(0, DESIGN_BRIEF_MAX))}
+                  disabled={applying}
+                  rows={2}
+                  maxLength={DESIGN_BRIEF_MAX}
+                  placeholder='Cth: "Gelap dan mewah, satu aksen emas, heading serif besar, menu sebagai senarai"'
+                  className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-gray-50 disabled:cursor-not-allowed resize-vertical"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Designer AI ikut arahan ni dulu, kemudian reka concept sendiri. Fakta bisnes tak berubah.
+                </p>
+              </div>
+            )}
 
             {/* Quick suggestions */}
             <div className="mt-3 flex flex-wrap gap-2">

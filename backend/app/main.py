@@ -1863,6 +1863,8 @@ async def run_generation_task(
     color_mode: str = "light",
     template_id: Optional[str] = None,
     design_style: Optional[str] = None,
+    design_brief: Optional[str] = None,
+    design_freedom: Optional[str] = None,
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -1926,6 +1928,8 @@ async def run_generation_task(
             color_mode=color_mode,
             template_id=template_id,
             design_style=design_style,
+            design_brief=design_brief,
+            design_freedom=design_freedom,
         )
 
         # Create progress callback to update Supabase during generation
@@ -2434,6 +2438,17 @@ async def start_generation(request: Request):
     # Template gallery: optional design template selection
     template_id = body.get("template_id") or body.get("templateId") or None
 
+    # Senior Designer mode: the merchant's free-text design direction and
+    # the freedom mode. Both optional; both normalised by design_director so
+    # a malformed value degrades to "server default" instead of failing.
+    from app.services.design_director import normalize_design_brief, FREEDOM_MODES
+    design_brief = normalize_design_brief(body.get("design_brief") or body.get("designBrief"))
+    design_freedom = (body.get("design_freedom") or body.get("designFreedom") or "")
+    design_freedom = str(design_freedom).strip().lower() or None
+    if design_freedom and design_freedom not in FREEDOM_MODES:
+        logger.warning(f"🎨 Unknown design_freedom '{design_freedom}' — using server default")
+        design_freedom = None
+
     # Get dish names from request
     dish_names = body.get("dish_names", [])
     uploaded_images = body.get("uploaded_images", {})
@@ -2724,6 +2739,8 @@ MANDATORY REQUIREMENTS:
         color_mode=color_mode,
         template_id=template_id,
         design_style=design_style,
+        design_brief=design_brief,
+        design_freedom=design_freedom,
     ))
 
     logger.info(f"🚀 Job started: {job_id}")

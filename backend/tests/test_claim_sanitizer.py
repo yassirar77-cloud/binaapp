@@ -254,6 +254,9 @@ def _neutralize_post_processing(service):
     service._validate_and_repair = AsyncMock(
         side_effect=lambda html, request, **k: (html, _PASSING_VALIDATION)
     )
+    # The Senior-Designer concept step runs BEFORE the HTML call on the fast
+    # DeepSeek tier; here it would masquerade as a fallback DeepSeek hit.
+    service._direct_design_concept = AsyncMock(return_value=None)
 
 
 @pytest.fixture

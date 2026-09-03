@@ -1558,6 +1558,35 @@ DOODLE_FONT_PAIRING = {
 }
 
 
+def build_tailwind_config(palette: dict, fonts: dict) -> str:
+    """The ``tailwind.config`` script for a palette + font pairing.
+
+    Shared by the seeded design bundle and the AI design concept so both
+    paths emit the exact same token names (primary/secondary/accent/surface,
+    font-heading/font-body) — the Design Studio repaint, widget theme
+    extraction and layout guards all key off these.
+    """
+    return f"""<script>
+tailwind.config = {{
+  theme: {{
+    extend: {{
+      colors: {{
+        'primary': '{palette["primary"]}',
+        'secondary': '{palette["secondary"]}',
+        'accent': '{palette["accent"]}',
+        'surface': '{palette["surface"]}',
+      }},
+      fontFamily: {{
+        'sans': ['{fonts["body"]}', '{fonts["body_fallback"]}'],
+        'heading': ['{fonts["heading"]}', '{fonts["heading_fallback"]}'],
+        'body': ['{fonts["body"]}', '{fonts["body_fallback"]}'],
+      }}
+    }}
+  }}
+}}
+</script>"""
+
+
 class DesignSystem:
     """Complete design system for premium website generation"""
 
@@ -1774,25 +1803,7 @@ class DesignSystem:
         if personality.get("key") == "doodle_cartoon":
             fonts = self._build_font_cdn(DOODLE_FONT_PAIRING)
 
-        tailwind_config = f"""<script>
-tailwind.config = {{
-  theme: {{
-    extend: {{
-      colors: {{
-        'primary': '{palette["primary"]}',
-        'secondary': '{palette["secondary"]}',
-        'accent': '{palette["accent"]}',
-        'surface': '{palette["surface"]}',
-      }},
-      fontFamily: {{
-        'sans': ['{fonts["body"]}', '{fonts["body_fallback"]}'],
-        'heading': ['{fonts["heading"]}', '{fonts["heading_fallback"]}'],
-        'body': ['{fonts["body"]}', '{fonts["body_fallback"]}'],
-      }}
-    }}
-  }}
-}}
-</script>"""
+        tailwind_config = build_tailwind_config(palette, fonts)
 
         user_request_lines = []
         if brand_applied:

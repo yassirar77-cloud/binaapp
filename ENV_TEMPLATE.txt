@@ -83,6 +83,14 @@ AI_GLM_MAX_TOKENS=16000
 AI_GLM_TIMEOUT_SECONDS=240  # GLM call budget; on timeout we fall back to DeepSeek (tighter than the 300s primary budget)
 USE_GLM_FOR_HTML=false  # flip to true to route HTML through GLM first; flip off = instant rollback to DeepSeek
 
+# Senior Designer mode (docs/SENIOR_DESIGNER_MODE.md) — the AI writes its own
+# design concept and owns the visual design; facts + technical rules stay fixed.
+AI_DESIGN_FREEDOM_DEFAULT=designer  # 'designer' (default) or 'guided' = instant rollback to the seeded design system
+AI_DESIGN_CONCEPT_ENABLED=true  # run the concept step (fast model, JSON) before the HTML call
+AI_DESIGN_CONCEPT_TIMEOUT_SECONDS=75  # hard cap on the concept call; on timeout the seeded design system fills in
+AI_DESIGN_CONCEPT_MAX_TOKENS=2200
+AI_DESIGN_CONCEPT_TEMPERATURE=0.8  # creative step; the HTML step stays at 0.2
+
 # DeepSeek V3 (Fallback when GLM is off/fails)
 # Get from: https://platform.deepseek.com → API Keys
 DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

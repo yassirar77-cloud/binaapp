@@ -17,6 +17,15 @@ import { LimitReachedModal } from '@/components/LimitReachedModal'
 import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
 import { supabase, signOut as customSignOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
 import { checkCreateWebsiteAllowed } from '@/lib/quota'
+import {
+  BRIEF_EXAMPLES,
+  DESIGN_BRIEF_MAX,
+  FREEDOM_OPTIONS,
+  appendBriefExample,
+  buildDesignPayload,
+  freedomLabel,
+  type DesignFreedom,
+} from '@/lib/designBrief'
 import { User } from '@supabase/supabase-js'
 import { checkImageSafety } from '@/utils/imageModeration'
 import toast from 'react-hot-toast'
@@ -228,6 +237,11 @@ export default function CreatePage() {
   const [colorMode, setColorMode] = useState<'light' | 'dark'>('light')
   // Explicit design-style pick; null = "Auto" (the design system decides).
   const [designStyle, setDesignStyle] = useState<string | null>(null)
+  // Senior Designer mode: the merchant's free-text design direction (the
+  // highest-priority design input for the AI designer) and how much
+  // freedom the AI gets. 'designer' = AI writes its own concept (default).
+  const [designBrief, setDesignBrief] = useState('')
+  const [designFreedom, setDesignFreedom] = useState<DesignFreedom>('designer')
 
   // STRICT IMAGE CONTROL - Explicit user choice for images
   // 'none' = No images (text-only website)
@@ -745,7 +759,8 @@ export default function CreatePage() {
           // STRICT IMAGE CONTROL: Send explicit image choice
           image_choice: finalImageChoice,
           color_mode: colorMode,
-          design_style: designStyle || undefined,
+          // design_style + design_brief + design_freedom (Senior Designer mode)
+          ...buildDesignPayload({ designBrief, designFreedom, designStyle }),
           // Template gallery: pass selected design template if any
           template_id: selectedTemplateId || undefined,
           delivery: selectedFeatures.deliverySystem ? {
@@ -1444,6 +1459,84 @@ export default function CreatePage() {
                       </div>
                     ))}
                   </div>
+                </div>
+                {/* Senior Designer mode — the merchant briefs the AI designer
+                    in their own words, and chooses how much freedom it gets. */}
+                <div className="cr-card cr-card-hairline" style={{ padding: 18, minWidth: 0, gridColumn: '1 / -1' }} data-testid="design-brief-card">
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                    <div>
+                      <div className="eyebrow" style={{ marginBottom: 4 }}>Arahan untuk designer AI</div>
+                      <div style={{ fontSize: 12, color: '#86869A', lineHeight: 1.5, maxWidth: 520 }}>
+                        Cakap macam anda brief seorang designer: rupa, warna, mood, rujukan, section yang anda nak. AI akan reka concept ikut arahan ni dulu, baru bina website.
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }} role="radiogroup" aria-label="Kebebasan designer AI">
+                      {FREEDOM_OPTIONS.map((opt) => (
+                        <div
+                          key={opt.key}
+                          role="radio"
+                          aria-checked={designFreedom === opt.key}
+                          tabIndex={0}
+                          className={'opt ' + (designFreedom === opt.key ? 'selected' : '')}
+                          onClick={() => setDesignFreedom(opt.key)}
+                          onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setDesignFreedom(opt.key) } }}
+                          style={{ padding: '10px 12px', minWidth: 0, cursor: 'pointer' }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F5FA', lineHeight: 1.2 }}>{opt.label}</div>
+                          <div style={{ fontSize: 11, color: '#86869A', marginTop: 3, whiteSpace: 'nowrap' }}>{opt.hint}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ position: 'relative', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 12, overflow: 'hidden' }}>
+                    <textarea
+                      value={designBrief}
+                      data-testid="design-brief"
+                      aria-label="Arahan design untuk AI"
+                      onChange={(e) => setDesignBrief(e.target.value.slice(0, DESIGN_BRIEF_MAX))}
+                      placeholder={
+                        language === 'ms'
+                          ? 'Contoh: Saya nak website gelap dan mewah macam hotel butik, satu aksen emas, heading serif besar. Letak menu sebagai senarai panjang bukan kad. Ada section "Kenapa pilih kami" dengan 3 poin.'
+                          : 'Example: I want a dark, luxurious site like a boutique hotel — one gold accent, big serif headings. Show the menu as a long list, not cards. Add a "Why choose us" section with 3 points.'
+                      }
+                      rows={4}
+                      style={{
+                        width: '100%',
+                        background: 'transparent',
+                        border: 'none',
+                        fontSize: 14,
+                        padding: '14px 16px 36px',
+                        outline: 'none',
+                        resize: 'vertical',
+                        color: '#F5F5FA',
+                        lineHeight: 1.55,
+                        fontFamily: "'Geist', 'Inter', -apple-system, sans-serif",
+                        boxShadow: 'none',
+                      }}
+                    />
+                    <div className="num" style={{ position: 'absolute', right: 12, bottom: 10, fontSize: 11, color: designBrief.length > DESIGN_BRIEF_MAX - 100 ? '#FFB020' : '#5A5A6E' }}>
+                      {designBrief.length} / {DESIGN_BRIEF_MAX}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                    <span className="eyebrow" style={{ marginRight: 4 }}>Contoh:</span>
+                    {BRIEF_EXAMPLES[language === 'ms' ? 'ms' : 'en'].map((ex) => (
+                      <button
+                        key={ex.id}
+                        type="button"
+                        data-testid={`brief-example-${ex.id}`}
+                        onClick={() => setDesignBrief(appendBriefExample(designBrief, ex.text))}
+                        style={{ fontSize: 11, padding: '5px 10px', borderRadius: 999, background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.1)', color: '#B8B8C8', cursor: 'pointer' }}
+                      >
+                        {ex.label}
+                      </button>
+                    ))}
+                  </div>
+                  {designFreedom === 'guided' && (
+                    <div style={{ fontSize: 11, color: '#86869A', marginTop: 10, lineHeight: 1.5 }}>
+                      Mod ikut sistem: layout, hero dan warna ikut sistem design BinaApp. Arahan anda tetap dihantar kepada AI sebagai keutamaan tertinggi.
+                    </div>
+                  )}
                 </div>
               </div>
             </section>
@@ -2224,6 +2317,8 @@ export default function CreatePage() {
                         { l: 'Business',    v: bizLabels[businessType] },
                         { l: 'Language',    v: language === 'ms' ? 'Bahasa Malaysia' : 'English' },
                         { l: 'Theme',       v: colorMode === 'light' ? 'Light' : 'Dark' },
+                        { l: 'Designer',    v: freedomLabel(designFreedom) },
+                        { l: 'Brief',       v: designBrief.trim() ? `${designBrief.trim().length} aksara` : '—' },
                         { l: 'Menu items',  v: `${filledMenuCount} ${filledMenuCount === 1 ? 'item' : 'items'}` },
                         { l: 'Features',    v: `${featureCount} aktif` },
                         { l: 'Payment',     v: paymentMethods.cod && paymentMethods.qr ? 'COD + QR' : paymentMethods.qr ? 'QR / Online' : paymentMethods.cod ? 'COD' : '—' },

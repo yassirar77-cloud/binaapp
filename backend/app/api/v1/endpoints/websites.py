@@ -897,6 +897,11 @@ async def regenerate_website(
         # iteration can re-attach the original uploads if we persist
         # them on the websites row.
         uploaded_images=[],
+        # Senior Designer mode: an optional design direction + freedom mode
+        # for this regeneration ("buat lagi gelap, aksen emas"). Not
+        # persisted — it applies to this run only.
+        design_brief=request.design_brief,
+        design_freedom=request.design_freedom,
     )
 
     background_tasks.add_task(
