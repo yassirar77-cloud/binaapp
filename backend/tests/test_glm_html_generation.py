@@ -331,6 +331,11 @@ def _neutralize_post_processing(service):
     service._validate_and_repair = AsyncMock(
         side_effect=lambda html, request, **k: (html, _PASSING_VALIDATION)
     )
+    # The Senior-Designer concept step (design_director) runs BEFORE the
+    # HTML call and uses the fast DeepSeek tier for its JSON concept. It has
+    # its own tests; here it would masquerade as a fallback-chain DeepSeek
+    # hit and as the first wait_for in the pipeline.
+    service._direct_design_concept = AsyncMock(return_value=None)
 
 
 class TestGlmFallbackChain:

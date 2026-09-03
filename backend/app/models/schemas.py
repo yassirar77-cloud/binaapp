@@ -139,6 +139,29 @@ class WebsiteGenerationRequest(BaseModel):
         ),
     )
     template_id: Optional[str] = Field(default=None, description="Design template ID from template gallery (e.g., 'elegance_dark', 'fresh_clean')")
+    # Senior Designer mode (design_director.py). The merchant's free-text
+    # design direction — "gelap & mewah, aksen emas, ala hotel butik" — is
+    # the highest-priority DESIGN input: it steers the AI's own design
+    # concept and is repeated in the HTML prompt with an explicit
+    # precedence rule (facts > brief > concept > house defaults).
+    design_brief: Optional[str] = Field(
+        default=None,
+        max_length=1500,
+        description=(
+            "Free-text design direction from the merchant (look, feel, "
+            "colours, references, sections). Optional; steers the AI "
+            "designer and overrides stylistic defaults, never facts."
+        ),
+    )
+    design_freedom: Optional[str] = Field(
+        default=None,
+        max_length=20,
+        description=(
+            "'designer' = the AI writes its own concept and owns the visual "
+            "design (default); 'guided' = the pre-upgrade seeded design "
+            "system with fixed hero/layout. None = server default."
+        ),
+    )
     menu_items: Optional[List[MenuItemInput]] = Field(
         default=[],
         description=(
@@ -169,6 +192,24 @@ class WebsiteGenerationRequest(BaseModel):
         # This validation is simplified - consider adding model_validator if cross-field check is critical
         # For now, we just return the value as-is
         return v
+
+    @field_validator("design_freedom")
+    @classmethod
+    def validate_design_freedom(cls, v):
+        """Lenient: unknown values mean 'server default', never a 422 — an
+        older client or a typo must not block a generation."""
+        if v is None:
+            return None
+        value = str(v).strip().lower()
+        return value if value in ("designer", "guided") else None
+
+    @field_validator("design_brief")
+    @classmethod
+    def validate_design_brief(cls, v):
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
 
 
 class WebsiteResponse(BaseModel):
@@ -219,6 +260,26 @@ class WebsiteRegenerateRequest(BaseModel):
             "stored description on the website row is reused."
         ),
     )
+    # Same semantics as on WebsiteGenerationRequest: an optional design
+    # direction for the AI designer, and an optional freedom-mode override.
+    design_brief: Optional[str] = Field(default=None, max_length=1500)
+    design_freedom: Optional[str] = Field(default=None, max_length=20)
+
+    @field_validator("design_freedom")
+    @classmethod
+    def validate_design_freedom(cls, v):
+        if v is None:
+            return None
+        value = str(v).strip().lower()
+        return value if value in ("designer", "guided") else None
+
+    @field_validator("design_brief")
+    @classmethod
+    def validate_design_brief(cls, v):
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
 
 
 # AI Generation Schemas

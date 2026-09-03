@@ -14,6 +14,14 @@ BinaApp allows Malaysian SMEs to create fully functional websites by simply desc
 - 💳 **Payment Ready**: Stripe integration for subscriptions
 - 🎨 **Live Preview**: See your website as it's being generated
 - 🔐 **Secure Authentication**: Powered by Supabase Auth
+- 🧑‍🎨 **Senior Designer mode**: the AI designs like a senior designer on a
+  client project instead of filling a template — it writes its own design
+  concept (mood, palette, Google Fonts pairing, hero idea, page plan) first,
+  the pipeline validates it (contrast, light/dark, font catalogue) and wires
+  it into the page tokens, then the AI builds the site. Merchants brief the
+  designer in their own words ("gelap & mewah, aksen emas, ala hotel butik")
+  and that brief is the top design priority; facts and technical rules stay
+  non-negotiable (see [docs/SENIOR_DESIGNER_MODE.md](docs/SENIOR_DESIGNER_MODE.md))
 - ✏️ **Doodle Cartoon style**: a hand-drawn sketchbook look (wobbly borders,
   sticker shadows, speech bubbles, handwritten fonts) merchants pick on the
   create page — or trigger by typing "doodle"/"kartun" in their description.

@@ -8,7 +8,6 @@ publishing links like wa.me/019-5551234, which WhatsApp rejects (it requires
 the international digits-only form).
 """
 
-import pytest
 
 from app.main import replace_template_placeholders
 

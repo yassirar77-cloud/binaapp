@@ -18,13 +18,25 @@ from loguru import logger
 from typing import Optional, List, Dict, Tuple, Callable, Awaitable
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
 from app.services.business_types import detect_business_type, get_design_type
-from app.services.design_system import DesignSystem
+from app.services.design_system import DesignSystem, build_tailwind_config
+from app.services.design_director import (
+    ConceptBrief,
+    DesignConcept,
+    DESIGNER_ROLE_BLOCK,
+    FREEDOM_DESIGNER,
+    PRECEDENCE_BLOCK,
+    build_concept_prompt,
+    design_brief_block,
+    design_concept_enabled,
+    normalize_design_brief,
+    parse_concept,
+    resolve_design_freedom,
+)
 from app.services.widget_catalogue import (
     widgets_for_request,
     build_prompt_context_block,
 )
 from app.services.claim_sanitizer import (
-    sanitize_sensitive_claims,
     sanitize_sensitive_claims_traced,
     sensitive_claim_patterns,
 )
@@ -203,6 +215,37 @@ DESIGN_REVIEW_TIMEOUT_SECONDS = float(os.getenv("DESIGN_REVIEW_TIMEOUT_SECONDS",
 # Output cap for the critique JSON — {pass, violations, improvements} never
 # legitimately needs more than this.
 DESIGN_REVIEW_MAX_TOKENS = int(os.getenv("DESIGN_REVIEW_MAX_TOKENS", "2000"))
+
+# Senior Designer mode — the design CONCEPT step (design_director.py). Before
+# the HTML call, a fast model writes the site's own design concept (mood,
+# palette, Google Fonts pairing, hero idea, page plan, signature details) as
+# JSON; the pipeline validates it and wires its palette/fonts into the
+# tailwind.config + Google Fonts <link> the HTML prompt injects. Strictly
+# best-effort: any failure/timeout means "no concept" and the seeded design
+# system fills in, exactly as before. Bounded tightly so it can never
+# meaningfully delay a generation. Temperature is deliberately high — this
+# is the creative step; the HTML step stays low-temperature for fidelity.
+AI_DESIGN_CONCEPT_TIMEOUT_SECONDS = float(os.getenv("AI_DESIGN_CONCEPT_TIMEOUT_SECONDS", "75"))
+AI_DESIGN_CONCEPT_MAX_TOKENS = int(os.getenv("AI_DESIGN_CONCEPT_MAX_TOKENS", "2200"))
+AI_DESIGN_CONCEPT_TEMPERATURE = float(os.getenv("AI_DESIGN_CONCEPT_TEMPERATURE", "0.8"))
+
+# System prompt for the DeepSeek HTML call in designer mode. The guided-mode
+# prompt ("follow constraints exactly") is kept verbatim as the default of
+# _call_deepseek so every other caller is untouched.
+DESIGNER_SYSTEM_PROMPT = (
+    "You are a senior web designer and front-end developer at a boutique "
+    "studio, building a real client's website. You own the visual design "
+    "completely — composition, hierarchy, typography, colour, rhythm, "
+    "detail — and you design for THIS business, never from a template. "
+    "Two things are never yours to change: the client's facts (never invent "
+    "or embellish data) and the technical contract in the brief (exact URLs, "
+    "links, mobile layout, free icons, language). Output ONLY the complete "
+    "HTML document — no explanations, no markdown."
+)
+CONCEPT_SYSTEM_PROMPT = (
+    "You are a senior designer writing a design concept for a client. "
+    "Respond with ONLY a single JSON object — no markdown fences, no prose."
+)
 
 
 # Per-call timeout for the optional Qwen copywriting refinement pass in
@@ -767,6 +810,10 @@ class AIService:
         self._last_sanitizer_trace: List[Dict[str, str]] = []
         # Structured operating hours from the template copywriting pass.
         self._last_template_hours: list = []
+        # The validated design concept (as a dict) from the most recent
+        # Senior-Designer-mode generation, for logs/diagnostics. None when
+        # the last build ran guided or the concept step was skipped/failed.
+        self._last_design_concept: Optional[Dict] = None
         self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
         self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-v4-pro")
         # GLM / Z.ai — primary HTML generator when USE_GLM_FOR_HTML is on.
@@ -3675,6 +3722,141 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
                 continue
         return out
 
+    # ------------------------------------------------------------------
+    # Senior Designer mode — the design CONCEPT step
+    # ------------------------------------------------------------------
+    def _concept_brief_for(
+        self,
+        request: WebsiteGenerationRequest,
+        color_mode: str,
+        has_images: bool,
+        image_count: int,
+        design_brief: Optional[str],
+        language: str,
+    ) -> Tuple[ConceptBrief, dict]:
+        """Build the ConceptBrief + the seeded design bundle it falls back to."""
+        desc = request.description or ""
+        try:
+            detected = detect_business_type(desc)
+        except Exception:
+            detected = "general"
+        design_type = get_design_type(detected, desc)
+        design_text = f"{desc}\n{design_brief}" if design_brief else desc
+        bundle = DesignSystem().build(
+            design_type,
+            color_mode=color_mode,
+            business_name=request.business_name,
+            description=design_text,
+            has_images=has_images,
+            brand_colors=getattr(request, "colors", None),
+            style_override=getattr(request, "design_style", None),
+        )
+        prefs = bundle.get("preferences") or {}
+        brand_colors = None
+        raw_brand = getattr(request, "colors", None)
+        if isinstance(raw_brand, dict):
+            brand_colors = {
+                k: str(v).strip()
+                for k, v in raw_brand.items()
+                if k in ("primary", "secondary", "accent")
+                and isinstance(v, str)
+                and re.fullmatch(r"#[0-9A-Fa-f]{6}", str(v).strip())
+            } or None
+        brief = ConceptBrief(
+            business_name=request.business_name,
+            description=desc,
+            business_type=detected,
+            language=language,
+            color_mode=color_mode,
+            design_brief=design_brief,
+            style_hint=prefs.get("style_hint"),
+            color_hint=prefs.get("color"),
+            brand_colors=brand_colors,
+            has_images=has_images,
+            image_count=image_count,
+            menu_item_count=len(self._normalize_supplied_menu_items(getattr(request, "menu_items", None))),
+            include_ecommerce=bool(getattr(request, "include_ecommerce", False)),
+        )
+        return brief, bundle
+
+    async def _call_concept_model(self, prompt: str) -> Optional[str]:
+        """One fast, creative model call for the concept JSON.
+
+        DeepSeek (fast tier) first because it is the always-on provider;
+        GLM as the fallback when it is enabled. Both use a small output cap
+        and a high temperature — this is the creative step.
+        """
+        raw = None
+        if self.deepseek_api_key:
+            raw = await self._call_deepseek(
+                prompt,
+                temperature=AI_DESIGN_CONCEPT_TEMPERATURE,
+                model=self.deepseek_model,
+                system_prompt=CONCEPT_SYSTEM_PROMPT,
+                max_tokens=AI_DESIGN_CONCEPT_MAX_TOKENS,
+            )
+        if not raw and USE_GLM_FOR_HTML and self.zai_api_key:
+            raw = await self._call_glm(
+                prompt,
+                temperature=AI_DESIGN_CONCEPT_TEMPERATURE,
+                system_prompt=CONCEPT_SYSTEM_PROMPT,
+                max_tokens=AI_DESIGN_CONCEPT_MAX_TOKENS,
+            )
+        return raw
+
+    async def _direct_design_concept(
+        self,
+        request: WebsiteGenerationRequest,
+        color_mode: str,
+        has_images: bool,
+        image_count: int,
+        design_brief: Optional[str],
+        language: str,
+    ) -> Optional[DesignConcept]:
+        """Ask the AI, as senior designer, for this site's design concept.
+
+        Strictly best-effort and bounded by AI_DESIGN_CONCEPT_TIMEOUT_SECONDS:
+        any failure returns None and the caller proceeds with the seeded
+        design system, exactly as before this feature existed. Never raises.
+        """
+        try:
+            brief, bundle = self._concept_brief_for(
+                request, color_mode, has_images, image_count, design_brief, language
+            )
+            prompt = build_concept_prompt(brief)
+            logger.info(
+                f"🎨 Concept step: asking the designer for a concept "
+                f"(brief={'yes' if design_brief else 'no'}, style={brief.style_hint}, "
+                f"colour={brief.color_hint}, images={image_count}, cap {AI_DESIGN_CONCEPT_TIMEOUT_SECONDS:.0f}s)"
+            )
+            raw = await asyncio.wait_for(
+                self._call_concept_model(prompt),
+                timeout=AI_DESIGN_CONCEPT_TIMEOUT_SECONDS,
+            )
+            if not raw:
+                logger.warning("🎨 Concept step returned nothing — using the seeded design system")
+                return None
+            concept = parse_concept(
+                raw,
+                brief=brief,
+                fallback_fonts=bundle["fonts"],
+                fallback_palette=bundle["palette"],
+            )
+            if concept is None:
+                logger.warning(f"🎨 Concept step returned no usable JSON — {raw[:200]!r}")
+                return None
+            logger.info(f"🎨 Concept: {json.dumps(concept.as_dict(), ensure_ascii=False)[:1500]}")
+            self._last_design_concept = concept.as_dict()
+            return concept
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"🎨 Concept step timed out after {AI_DESIGN_CONCEPT_TIMEOUT_SECONDS:.0f}s — "
+                "using the seeded design system"
+            )
+        except Exception as err:
+            logger.warning(f"🎨 Concept step failed ({err}) — using the seeded design system")
+        return None
+
     def _build_strict_prompt(
         self,
         name: str,
@@ -3695,8 +3877,23 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         brand_colors: Optional[dict] = None,
         menu_items: Optional[list] = None,
         design_style: Optional[str] = None,
+        design_brief: Optional[str] = None,
+        design_freedom: str = "guided",
+        concept: Optional[DesignConcept] = None,
     ) -> str:
-        """Build STRICT prompt with premium design system
+        """Build the HTML generation prompt.
+
+        Two modes (design_freedom):
+          - "guided": the pre-upgrade prompt — seeded design system, hero
+            blueprint, numbered layout, art direction as NON-NEGOTIABLE.
+          - "designer" (Senior Designer mode): the model is framed as the
+            senior designer with full creative ownership. The house design
+            rules become defaults it may deliberately override; the
+            merchant's design_brief is the top design priority; and when a
+            validated DesignConcept is supplied, ITS palette/fonts are wired
+            into the tailwind.config + Google Fonts link and ITS page plan
+            replaces the numbered layout. Facts, links, images, mobile and
+            icon rules are non-negotiable in both modes.
 
         menu_items: merchant-supplied MenuItemInput objects (or dicts). When
         present they are the source of truth — every item is rendered
@@ -3705,6 +3902,12 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         """
         biz_type = self._detect_type(desc)
         imgs = self.IMAGES.get(biz_type, self.IMAGES["default"])
+        designer_mode = design_freedom == FREEDOM_DESIGNER
+        design_brief = normalize_design_brief(design_brief)
+        # Colour/style words in the brief ("warna biru", "mewah") count as
+        # explicit user requests for the seeded system too, so the fallback
+        # (no concept) path still honours them.
+        _design_text = f"{desc}\n{design_brief}" if design_brief else desc
 
         # Detect business type and get design type
         try:
@@ -3724,7 +3927,7 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
                 design_type,
                 color_mode=color_mode,
                 business_name=name,
-                description=desc,
+                description=_design_text,
                 has_images=(image_choice != "none"),
                 brand_colors=brand_colors,
                 # Explicit style pick from the create-page picker ("doodle",
@@ -3742,6 +3945,29 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             animations = design.get_animation_config()
             typography = design.get_typography_rules()
             design_patterns = design.get_design_patterns(color_mode)
+
+            # Senior Designer mode with a validated concept: the AI's own
+            # palette and fonts become the page tokens. The doodle look is
+            # the one exception — it is an explicit merchant pick whose
+            # hand-drawn fonts and drawing directives must survive, so the
+            # concept block is ADDED to the doodle personality, not swapped in.
+            if designer_mode and concept is not None:
+                _is_doodle = bundle["personality"].get("key") == "doodle_cartoon"
+                if not _is_doodle:
+                    fonts = DesignSystem._build_font_cdn(concept.fonts)
+                palette = {**palette, **concept.palette}
+                tw_config = build_tailwind_config(palette, fonts)
+                if _is_doodle:
+                    personality_block = (
+                        concept.to_prompt_block(fonts=fonts) + "\n\n" + personality_block
+                    )
+                else:
+                    personality_block = concept.to_prompt_block()
+                logger.info(
+                    f"🎨 Concept '{concept.name}' applied: fonts={fonts.get('heading')}/"
+                    f"{fonts.get('body')}, primary={palette.get('primary')}, "
+                    f"sections={len(concept.sections)}, source={concept.source}"
+                )
         except Exception as e:
             logger.error(f"DesignSystem error: {e}")
             # Fallback to basic values
@@ -4186,9 +4412,34 @@ The merchant did NOT provide {_noun} items, and none could be read from the desc
         else:
             _purple_rule = "- FORBIDDEN: purple/violet text or fills on a white or near-white background (low contrast, generic SaaS look)."
 
+        # ---- HERO ----
+        # Guided: the seeded hero blueprint is the structure to follow.
+        # Designer + concept: the designer composes the hero from the
+        # concept (no HTML skeleton at all). Designer without a concept: the
+        # blueprint is offered as one proven option, not a mandate.
         _hero_blueprint = ""
-        if hero_variant:
-            _hero_blueprint = f"""===== HERO BLUEPRINT (follow the structure, replace the content) =====
+        if designer_mode and concept is not None:
+            _hero_pattern = concept.hero_pattern or "your choice"
+            _hero_idea = concept.hero_description or "as described in your concept"
+            _hero_blueprint = f"""===== HERO (DESIGN IT YOURSELF — pattern from your concept: {_hero_pattern.upper()}) =====
+- Compose the hero from your concept: {_hero_idea}
+- It MUST carry the full business name "{name}", a tagline grounded in the description, and the primary CTA.
+- If a HERO IMAGE URL is listed in the IMAGE section, use it EXACTLY there — it is the strongest asset on the page. With no image, the hero is typography- and colour-led.
+- Any kicker/badge text comes ONLY from real business data — never an invented "Est." year, certification, rating or ownership claim.
+- On a 375px phone the name, tagline and CTA are visible without scrolling.
+"""
+        elif hero_variant:
+            if designer_mode:
+                _hero_heading = "===== HERO REFERENCE (one proven option — design your own hero instead if your direction calls for it) ====="
+                _hero_tail = (
+                    "- This blueprint is a REFERENCE, not a mandate. A different composition is welcome as long as "
+                    "it uses the exact hero image URL (when one is listed), the full business name, a real "
+                    "tagline and the primary CTA, and stays legible on a 375px phone.\n"
+                )
+            else:
+                _hero_heading = "===== HERO BLUEPRINT (follow the structure, replace the content) ====="
+                _hero_tail = ""
+            _hero_blueprint = f"""{_hero_heading}
 {hero_variant}
 
 HERO BLUEPRINT RULES:
@@ -4196,10 +4447,74 @@ HERO BLUEPRINT RULES:
 - HERO_ALT_TEXT = a short factual description of what the hero photo shows for this business (e.g. "Hidangan nasi campur di kaunter"). Never the literal word "Hero".
 - HERO_IMAGE_URL = the exact hero image URL from the IMAGE section of this prompt.
 - Drop optional decorative sub-elements (floating cards, kickers) if you have no real content for them — never ship a placeholder.
-"""
+{_hero_tail}"""
+
+        # ---- MODE FRAMING ----
+        # Designer mode reframes every STYLISTIC rule as a house default the
+        # designer may override deliberately; every FACT/TECHNICAL rule stays
+        # non-negotiable in both modes (they live in their own block below).
+        _brief_block = design_brief_block(design_brief)
+        if designer_mode:
+            _intro = (
+                f"{DESIGNER_ROLE_BLOCK}\n\n"
+                "Design and build a COMPLETE production-ready single-file HTML website."
+            )
+            _style_heading = (
+                "STUDIO STANDARDS (house defaults — strong starting points; depart from them "
+                "DELIBERATELY when the merchant's brief or your concept calls for it)"
+            )
+            _font_generic_rule = (
+                "- Avoid Inter, Roboto, Arial or system-ui as the VISIBLE typeface — they read as "
+                "defaults — unless the merchant's brief asks for a plain corporate look."
+            )
+            _house_rules_preface = (
+                "===== HOUSE DEFAULTS (typography sizes, spacing, card patterns, animations) =====\n"
+                "Apply these unless your concept or the merchant's brief says otherwise. Whatever you "
+                "choose, keep a clear type hierarchy and one consistent spacing rhythm across the page.\n"
+            )
+        else:
+            _intro = "Generate a COMPLETE production-ready HTML website."
+            _style_heading = "ART DIRECTION (NON-NEGOTIABLE)"
+            _font_generic_rule = "- Do NOT use Inter or Roboto — they read as generic defaults."
+            _house_rules_preface = ""
+
+        # ---- LAYOUT ----
+        if designer_mode:
+            if concept is not None:
+                _layout_block = f"""===== PAGE PLAN (from your concept — build these sections in this order) =====
+{concept.section_checklist()}
+
+REQUIRED CONTENT (must exist somewhere on the page, whatever the plan): hero (first); the offerings section rendered from the merchant {_noun} data in this prompt; an about/story section; a contact/order section; footer (last).
+Reference only — the house layout for a {detected_biz_type} business, in case a section in your plan wants a proven structure:
+{layout}"""
+            else:
+                _layout_block = f"""===== {layout} =====
+
+(For this build the structure above is a REFERENCE checklist, not a mandate: every listed CONTENT must exist on the page, but you own the order, grouping and composition of the middle sections.)"""
+            _flex_block = """LAYOUT OWNERSHIP:
+- Hero FIRST and footer LAST are fixed. Everything between is yours: reorder, merge, split, add a section that serves this business, drop a reference section that has no real content behind it.
+- Compose for rhythm: vary alignment and structure between sections — a split, a full-bleed band, an editorial stack, a plain list, a bento grid — never a page of identical centered card grids.
+- Alternate section backgrounds with intent (page → surface → tint → one strong colour band) so the page has a visible beat when scrolled."""
+        else:
+            _layout_block = f"===== {layout} ====="
+            _flex_block = """LAYOUT FLEXIBILITY (design freedom within the checklist):
+- The layout above is the required CONTENT checklist — every listed section's content must exist on the page.
+- Hero FIRST and footer LAST are fixed. You MAY reorder the middle sections, merge two small ones, or add ONE extra tasteful section when it serves the design personality.
+- Create section rhythm: alternate backgrounds (page background → surface → a subtle accent tint), and include ONE full-width band in the primary colour (CTA or signature highlight) with white text.
+- Do NOT make every section centered text over a grid of identical cards — vary alignment and structure between sections."""
+
+        # ---- CLOSING FREEDOM ----
+        if designer_mode:
+            _freedom_block = f"""{PRECEDENCE_BLOCK}
+
+===== CREATIVE OWNERSHIP =====
+You are not filling a template. Layout, composition, hierarchy, colour usage, decorative details, hover states, section backgrounds, copy tone and personality are your decisions — make them the way a senior designer would for {name} specifically, after studying this exact business. Avoid the generic AI-site look: no endless rows of three identical cards, no every-section-centered monotony, no decoration without purpose. One strong idea executed with craft beats ten safe ones. Surprise us — within the NON-NEGOTIABLE rules."""
+        else:
+            _freedom_block = f"""===== CREATIVE FREEDOM =====
+Everything not covered by a hard rule above is yours: micro-layout, decorative details, hover states, section backgrounds, copy tone and personality. Make the site feel INDIVIDUALLY DESIGNED for {name} — like a designer studied this exact business — not assembled from a template. Avoid the generic AI-site look: no endless rows of three identical cards, no every-section-centered monotony. Surprise us — within the rules."""
 
         # ---- ASSEMBLE PROMPT ----
-        return f"""Generate a COMPLETE production-ready HTML website.
+        return f"""{_intro}
 
 BUSINESS: {name}
 DESCRIPTION: {desc}
@@ -4207,6 +4522,7 @@ BUSINESS TYPE: {detected_biz_type.upper()}
 STYLE: {style.upper()}
 COLOR MODE: {color_mode.upper()}
 TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
+DESIGN MODE: {"SENIOR DESIGNER — you own the visual design" if designer_mode else "GUIDED — follow the design system"}
 
 ===== HEAD SECTION (MUST INCLUDE ALL) =====
 {fonts['cdn_link']}
@@ -4224,13 +4540,15 @@ body {{ background-color: var(--bg-color); font-family: '{fonts['body']}', {font
 <script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>
 <script>AOS.init({{ duration: 800, once: true, offset: 100 }}); document.documentElement.classList.add('aos-initialized');</script>
 
+{_brief_block}
+
 ===== DESIGN SYSTEM =====
 
 {user_design_block}
 
 {personality_block}
 
-===== ART DIRECTION (NON-NEGOTIABLE) =====
+===== {_style_heading} =====
 TYPE SCALE — use a clear modular scale, never ad-hoc sizes. Keep a strict hierarchy, at most these five steps:
 - Display/hero: 48-72px (3rem-4.5rem), font-bold, tracking-tight, tight leading — prefer FLUID sizing via clamp(), e.g. style="font-size: clamp(2.5rem, 6vw, 4.5rem)"
 - H2 section heading: 32-40px (2rem-2.5rem), font-bold
@@ -4246,7 +4564,7 @@ COLOUR — ONE dominant colour + ONE accent only:
 {_purple_rule}
 
 TYPOGRAPHY — fonts (FONT LOCK, non-negotiable):
-- Do NOT use Inter or Roboto — they read as generic defaults.
+{_font_generic_rule}
 - Use ONLY the heading/body fonts provided in the HEAD section above.
 - Do NOT add any other <link> to fonts.googleapis.com — the only font <link> allowed is the one already in the HEAD section.
 - NEVER write font-family: Inter, Roboto, or system-ui anywhere — not in <style>, not in the Tailwind config, not in inline styles, not in class names. The page's base font is already set; do not override it.
@@ -4259,6 +4577,7 @@ DEPTH and SHADOWS:
 - Create depth with layered soft shadows (shadow-lg / shadow-xl), subtle borders, and slight elevation on hover.
 - Cards lift on hover. Avoid flat, borderless boxes that blend into the background.
 
+===== INTEGRITY & TECHNICAL RULES (NON-NEGOTIABLE IN EVERY MODE) =====
 STAT / NUMBERS ROWS (hero mini-stats, stats bar) MUST NEVER OVERLAP:
 - Every stat cell MUST carry min-w-0 and its label MUST carry break-words.
 - Stat labels use a small size (text-xs md:text-sm); Malay words are long ("Berpatutan", "Perkhidmatan") — the label must wrap inside its own column, never collide with the neighbouring one.
@@ -4305,6 +4624,7 @@ FOOTER:
 - Render the copyright year DYNAMICALLY, never a hardcoded year. Use:
   &copy; <script>document.write(new Date().getFullYear())</script> {name}
 
+{_house_rules_preface}
 {typography}
 
 {design_patterns}
@@ -4321,13 +4641,9 @@ FOOTER:
 
 {menu_data_block}
 
-===== {layout} =====
+{_layout_block}
 
-LAYOUT FLEXIBILITY (design freedom within the checklist):
-- The layout above is the required CONTENT checklist — every listed section's content must exist on the page.
-- Hero FIRST and footer LAST are fixed. You MAY reorder the middle sections, merge two small ones, or add ONE extra tasteful section when it serves the design personality.
-- Create section rhythm: alternate backgrounds (page background → surface → a subtle accent tint), and include ONE full-width band in the primary colour (CTA or signature highlight) with white text.
-- Do NOT make every section centered text over a grid of identical cards — vary alignment and structure between sections.
+{_flex_block}
 
 ===== {image_section} =====
 
@@ -4369,8 +4685,7 @@ MOBILE & POLISH (NON-NEGOTIABLE):
 - Keyboard focus must stay visible — never add outline-none without a :focus-visible replacement.
 - Icon-only links (social icons, WhatsApp float) need aria-label attributes.
 
-===== CREATIVE FREEDOM =====
-Everything not covered by a hard rule above is yours: micro-layout, decorative details, hover states, section backgrounds, copy tone and personality. Make the site feel INDIVIDUALLY DESIGNED for {name} — like a designer studied this exact business — not assembled from a template. Avoid the generic AI-site look: no endless rows of three identical cards, no every-section-centered monotony. Surprise us — within the rules.
+{_freedom_block}
 
 Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HTML."""
 
@@ -4458,6 +4773,27 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         "flourishes. Make the site feel individually designed, not "
         "templated. Surprise us — within the rules."
     )
+    # Senior Designer mode wrappers around the same GOAL → RULES → FREEDOM
+    # core (the rules are byte-identical, so the design reviewer, which is
+    # composed from the same fragments, stays in sync). The role preface
+    # sets the posture; the tail states the precedence ladder so a
+    # merchant's brief beats the house defaults but never a hard rule.
+    _GLM_PROMPT_DESIGNER_ROLE = (
+        "ROLE: You are the senior designer at a boutique web studio, "
+        "building this site for a paying Malaysian merchant. You own the "
+        "visual design completely — composition, hierarchy, typography, "
+        "colour, rhythm, detail — and you design for THIS business, never "
+        "from a template.\n\n"
+    )
+    _GLM_PROMPT_DESIGNER_TAIL = (
+        "\n\nPRECEDENCE: when instructions in the brief conflict, the hard "
+        "rules win, then the merchant's explicit design brief and picks "
+        "(colour theme, light/dark, chosen style), then your own design "
+        "concept, then the studio's house defaults (type scale, spacing, "
+        "card patterns) — which are strong starting points you may depart "
+        "from deliberately. Deliver the merchant's brief visibly, on the "
+        "first scroll."
+    )
     # Back-compat alias: the has-images composition (previous single-string form).
     _GLM_HTML_SYSTEM_PROMPT = (
         _GLM_PROMPT_GOAL
@@ -4536,6 +4872,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         temperature: float = 0.2,
         model: Optional[str] = None,
         has_images: bool = True,
+        designer_mode: bool = False,
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> Optional[str]:
         """Call GLM (Z.ai) API. Mirrors _call_deepseek: same signature (plus
         has_images), same return shape, same _last_api_call truncation
@@ -4564,13 +4903,17 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             return None
 
         chosen_model = model or self.zai_model
-        system_prompt = (
-            self._GLM_PROMPT_GOAL
-            + self._GLM_PROMPT_RULES_HEAD
-            + (self._GLM_PHOTO_SLOT_CLAUSE if has_images else self._GLM_NO_PHOTO_CLAUSE)
-            + self._GLM_PROMPT_RULES_TAIL
-            + self._GLM_PROMPT_FREEDOM
-        )
+        chosen_max_tokens = max_tokens or AI_GLM_MAX_TOKENS
+        if system_prompt is None:
+            system_prompt = (
+                (self._GLM_PROMPT_DESIGNER_ROLE if designer_mode else "")
+                + self._GLM_PROMPT_GOAL
+                + self._GLM_PROMPT_RULES_HEAD
+                + (self._GLM_PHOTO_SLOT_CLAUSE if has_images else self._GLM_NO_PHOTO_CLAUSE)
+                + self._GLM_PROMPT_RULES_TAIL
+                + self._GLM_PROMPT_FREEDOM
+                + (self._GLM_PROMPT_DESIGNER_TAIL if designer_mode else "")
+            )
         try:
             logger.info(
                 f"🟣 Calling GLM (Z.ai) API ({chosen_model})... "
@@ -4597,7 +4940,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": temperature,
-                        "max_tokens": AI_GLM_MAX_TOKENS,
+                        "max_tokens": chosen_max_tokens,
                         # CRITICAL: without this glm-5.3 burns the entire
                         # token budget on reasoning and returns empty content.
                         "thinking": {"type": "disabled"},
@@ -4617,9 +4960,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     # Output-cap headroom logging — same rationale as DeepSeek:
                     # near-cap completions signal the cap may need raising.
                     if completion_tokens is not None:
-                        _pct = completion_tokens / AI_GLM_MAX_TOKENS * 100
+                        _pct = completion_tokens / chosen_max_tokens * 100
                         logger.info(
-                            f"🟣 GLM output usage: {completion_tokens}/{AI_GLM_MAX_TOKENS} "
+                            f"🟣 GLM output usage: {completion_tokens}/{chosen_max_tokens} "
                             f"tokens ({_pct:.0f}% of cap)"
                         )
                     truncated_at_api = finish_reason in self._TRUNCATED_FINISH_REASONS
@@ -4631,7 +4974,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     if truncated_at_api:
                         logger.error(
                             f"🚨 GLM hit output cap (finish_reason={finish_reason}, "
-                            f"max_tokens={AI_GLM_MAX_TOKENS}). Response was truncated at generation time."
+                            f"max_tokens={chosen_max_tokens}). Response was truncated at generation time."
                         )
                     # GLM sometimes prepends explanation text before the HTML
                     # despite instructions — slice from the first '<'.
@@ -4685,11 +5028,25 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         '"improvements" has at most 5 entries.\n\n'
     )
 
-    def _build_design_review_prompt(self, has_images: bool = True) -> str:
+    def _build_design_review_prompt(
+        self, has_images: bool = True, design_brief: Optional[str] = None
+    ) -> str:
         """System prompt for the DeepSeek design review: reviewer instructions
-        + the exact 8 hard rules the generator was given."""
+        + the exact 8 hard rules the generator was given. When the merchant
+        wrote a design brief, the reviewer also checks the page delivers it —
+        a senior designer's review covers the client's ask, not just rules."""
+        brief = normalize_design_brief(design_brief)
+        brief_check = ""
+        if brief:
+            brief_check = (
+                "BRIEF ADHERENCE CHECK: the merchant asked for the following "
+                "look and feel. If the page does not visibly deliver it, add an "
+                "improvement that says exactly what to change to deliver it "
+                f"(this never overrides a hard rule):\n\"\"\"{brief}\"\"\"\n\n"
+            )
         return (
             self._DESIGN_REVIEW_INSTRUCTIONS
+            + brief_check
             + self._GLM_PROMPT_RULES_HEAD
             + (self._GLM_PHOTO_SLOT_CLAUSE if has_images else self._GLM_NO_PHOTO_CLAUSE)
             + self._GLM_PROMPT_RULES_TAIL
@@ -4728,7 +5085,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         }
 
     async def _review_design_with_deepseek(
-        self, html: str, has_images: bool = True
+        self, html: str, has_images: bool = True, design_brief: Optional[str] = None
     ) -> Optional[Dict]:
         """Send generated HTML to the DeepSeek reviewer and return the parsed
         critique dict, or None on ANY failure (no key, HTTP error, timeout,
@@ -4746,7 +5103,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 "messages": [
                     {
                         "role": "system",
-                        "content": self._build_design_review_prompt(has_images),
+                        "content": self._build_design_review_prompt(
+                            has_images, design_brief=design_brief
+                        ),
                     },
                     {"role": "user", "content": html},
                 ],
@@ -4801,7 +5160,13 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"🎨 Design review ❌ {e}")
         return None
 
-    async def _run_premium_design_loop(self, html: str, has_images: bool = True) -> str:
+    async def _run_premium_design_loop(
+        self,
+        html: str,
+        has_images: bool = True,
+        design_brief: Optional[str] = None,
+        designer_mode: bool = False,
+    ) -> str:
         """Premium design critique loop: DeepSeek reviews the GLM HTML against
         the 8 hard rules; if the critique lists violations or improvements,
         GLM gets exactly ONE revision request. Returns the revised HTML, or
@@ -4815,7 +5180,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         if not PREMIUM_DESIGN_LOOP:
             return html
 
-        critique = await self._review_design_with_deepseek(html, has_images=has_images)
+        critique = await self._review_design_with_deepseek(
+            html, has_images=has_images, design_brief=design_brief
+        )
         if critique is None:
             logger.info("🎨 Design review unavailable — shipping original HTML")
             return html
@@ -4856,7 +5223,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         )
         try:
             revised = await asyncio.wait_for(
-                self._call_glm(revision_prompt, has_images=has_images),
+                self._call_glm(
+                    revision_prompt, has_images=has_images, designer_mode=designer_mode
+                ),
                 timeout=AI_GLM_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
@@ -4886,13 +5255,20 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         prompt: str,
         temperature: float = 0.2,
         model: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> Optional[str]:
         """Call DeepSeek API. Pass model=self.deepseek_model_pro for Expert (V4-Pro).
 
         Surfaces the response's `finish_reason` on `self._last_api_call` so
-        upstream can detect an output-cap hit. max_tokens is
+        upstream can detect an output-cap hit. max_tokens defaults to
         AI_DEEPSEEK_MAX_TOKENS (default 24000, overridable via env); well under
         deepseek-reasoner's 384K output ceiling.
+
+        system_prompt: optional override. Default keeps the strict HTML
+        contract every existing caller relies on; designer mode passes
+        DESIGNER_SYSTEM_PROMPT and the concept step passes
+        CONCEPT_SYSTEM_PROMPT.
         """
         # Reset per-call API state — see _call_qwen for rationale.
         self._last_api_call = {"provider": "deepseek", "finish_reason": None, "truncated": False}
@@ -4901,6 +5277,10 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             return None
 
         chosen_model = model or self.deepseek_model
+        chosen_system = system_prompt or (
+            "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML."
+        )
+        chosen_max_tokens = max_tokens or AI_DEEPSEEK_MAX_TOKENS
         try:
             logger.info(f"🔷 Calling DeepSeek API ({chosen_model})... (prompt length: {len(prompt)} chars)")
             async with httpx.AsyncClient(timeout=AI_PRIMARY_TIMEOUT_SECONDS + 30) as client:
@@ -4915,12 +5295,12 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                         "messages": [
                             {
                                 "role": "system",
-                                "content": "You generate production-ready HTML only. Follow constraints exactly. Do not invent facts. Output ONLY HTML.",
+                                "content": chosen_system,
                             },
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": temperature,
-                        "max_tokens": AI_DEEPSEEK_MAX_TOKENS,
+                        "max_tokens": chosen_max_tokens,
                     }
                 )
                 if r.status_code == 200:
@@ -4939,9 +5319,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     # prod even when finish_reason='stop' (a near-cap completion
                     # is a signal the cap may need raising further).
                     if completion_tokens is not None:
-                        _pct = completion_tokens / AI_DEEPSEEK_MAX_TOKENS * 100
+                        _pct = completion_tokens / chosen_max_tokens * 100
                         logger.info(
-                            f"🔷 DeepSeek output usage: {completion_tokens}/{AI_DEEPSEEK_MAX_TOKENS} "
+                            f"🔷 DeepSeek output usage: {completion_tokens}/{chosen_max_tokens} "
                             f"tokens ({_pct:.0f}% of cap)"
                         )
                     truncated_at_api = finish_reason in self._TRUNCATED_FINISH_REASONS
@@ -4953,7 +5333,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                     if truncated_at_api:
                         logger.error(
                             f"🚨 DeepSeek hit output cap (finish_reason={finish_reason}, "
-                            f"max_tokens={AI_DEEPSEEK_MAX_TOKENS}). Response was truncated at generation time."
+                            f"max_tokens={chosen_max_tokens}). Response was truncated at generation time."
                         )
                     return content
                 else:
@@ -6368,6 +6748,11 @@ IMPORTANT RULES:
         # Extract phone number. Empty when unusable — the template must then
         # omit WhatsApp rather than render the old "60123456789" placeholder.
         wa_digits = self._normalize_wa_digits(request.whatsapp_number)
+        # Display form of the number (as the merchant typed it) — only when
+        # the digits are usable, so an unusable number never reaches the
+        # page. (Was an undefined name after #744: every pre-built-template
+        # build raised NameError and silently fell back to AI generation.)
+        wa_raw = str(request.whatsapp_number or "").strip() if wa_digits else ""
 
         # Build menu items from uploaded images if available
         menu_items_input = []
@@ -7447,6 +7832,35 @@ IMPORTANT RULES:
             except Exception as e:
                 logger.warning(f"⚠️ Failed to read template color_mode: {e}")
 
+        # ---- Senior Designer mode ----
+        # Freedom mode: request override > env default; a gallery template
+        # always runs guided (the merchant chose that exact look). In
+        # designer mode the AI first writes its own design concept, which
+        # the prompt builder then wires into the page tokens.
+        design_freedom = resolve_design_freedom(
+            getattr(request, "design_freedom", None), template_id=_tpl_id
+        )
+        design_brief = normalize_design_brief(getattr(request, "design_brief", None))
+        designer_mode = design_freedom == FREEDOM_DESIGNER
+        concept: Optional[DesignConcept] = None
+        self._last_design_concept = None
+        if designer_mode and design_concept_enabled():
+            await update_progress(48, "Designer drafting the concept")
+            _ordered_for_concept = self._ordered_prompt_image_urls(image_urls)
+            with _timed_step("design_concept", step_timings):
+                concept = await self._direct_design_concept(
+                    request,
+                    color_mode=color_mode,
+                    has_images=(image_choice != "none" and bool(_ordered_for_concept)),
+                    image_count=len(_ordered_for_concept),
+                    design_brief=design_brief,
+                    language=language,
+                )
+        logger.info(
+            f"🎨 Design freedom: {design_freedom} | brief: {'yes' if design_brief else 'no'} | "
+            f"concept: {concept.name if concept else 'none (seeded design system)'}"
+        )
+
         prompt = self._build_strict_prompt(
             request.business_name,
             request.description,
@@ -7464,6 +7878,9 @@ IMPORTANT RULES:
             brand_colors=getattr(request, "colors", None),
             menu_items=getattr(request, "menu_items", None),
             design_style=getattr(request, "design_style", None),
+            design_brief=design_brief,
+            design_freedom=design_freedom,
+            concept=concept,
         )
 
         # Add image URLs to prompt with STRONG emphasis.
@@ -7630,7 +8047,11 @@ IMPORTANT INSTRUCTIONS:
                 _glm_image_urls = self._ordered_prompt_image_urls(image_urls)
                 try:
                     html_raw = await asyncio.wait_for(
-                        self._call_glm(prompt, has_images=bool(_glm_image_urls)),
+                        self._call_glm(
+                            prompt,
+                            has_images=bool(_glm_image_urls),
+                            designer_mode=designer_mode,
+                        ),
                         timeout=AI_GLM_TIMEOUT_SECONDS,
                     )
                 except asyncio.TimeoutError:
@@ -7651,7 +8072,10 @@ IMPORTANT INSTRUCTIONS:
                     # Runs before PHOTO_SLOT binding so a revision keeps the
                     # slot contract; no-op (zero calls) with the flag off.
                     html_raw = await self._run_premium_design_loop(
-                        html_raw, has_images=bool(_glm_image_urls)
+                        html_raw,
+                        has_images=bool(_glm_image_urls),
+                        design_brief=design_brief,
+                        designer_mode=designer_mode,
                     )
                     # Bind PHOTO_SLOT_N tokens to the real image URLs at the
                     # same boundary where the DeepSeek pipeline's exact-URL
@@ -7670,7 +8094,11 @@ IMPORTANT INSTRUCTIONS:
             # timed out" message.
             if not html_raw:
                 html_raw = await asyncio.wait_for(
-                    self._call_deepseek(prompt, model=self.deepseek_model_pro),
+                    self._call_deepseek(
+                        prompt,
+                        model=self.deepseek_model_pro,
+                        system_prompt=DESIGNER_SYSTEM_PROMPT if designer_mode else None,
+                    ),
                     timeout=AI_PRIMARY_TIMEOUT_SECONDS,
                 )
                 if html_raw:
@@ -7974,6 +8402,16 @@ IMPORTANT INSTRUCTIONS:
             if color_mode not in ('light', 'dark'):
                 color_mode = 'light'
 
+            # Senior Designer mode on the multi-style path: same freedom
+            # mode + brief as generate_website, but no concept step — the
+            # three named styles (modern/minimal/bold) ARE the direction here.
+            _ms_freedom = resolve_design_freedom(
+                getattr(request, "design_freedom", None),
+                template_id=getattr(request, "template_id", None),
+            )
+            _ms_brief = normalize_design_brief(getattr(request, "design_brief", None))
+            _ms_designer = _ms_freedom == FREEDOM_DESIGNER
+
             prompt = self._build_strict_prompt(
                 request.business_name,
                 request.description,
@@ -7989,6 +8427,8 @@ IMPORTANT INSTRUCTIONS:
                 brand_colors=getattr(request, "colors", None),
                 menu_items=getattr(request, "menu_items", None),
                 design_style=getattr(request, "design_style", None),
+                design_brief=_ms_brief,
+                design_freedom=_ms_freedom,
             )
 
             # GLM (Z.ai) primary path — strictly PREPENDED, gated by
@@ -8011,7 +8451,11 @@ IMPORTANT INSTRUCTIONS:
                         _ordered_urls.append(_u)
                 try:
                     html = await asyncio.wait_for(
-                        self._call_glm(prompt, has_images=bool(_ordered_urls)),
+                        self._call_glm(
+                            prompt,
+                            has_images=bool(_ordered_urls),
+                            designer_mode=_ms_designer,
+                        ),
                         timeout=AI_GLM_TIMEOUT_SECONDS,
                     )
                 except asyncio.TimeoutError:
@@ -8031,7 +8475,10 @@ IMPORTANT INSTRUCTIONS:
                     # generate_website hook: one review, max one revision,
                     # zero calls with the flag off.
                     html = await self._run_premium_design_loop(
-                        html, has_images=bool(_ordered_urls)
+                        html,
+                        has_images=bool(_ordered_urls),
+                        design_brief=_ms_brief,
+                        designer_mode=_ms_designer,
                     )
                     # Bind PHOTO_SLOT_N tokens to the uploaded image URLs in
                     # order of appearance. No-op in no-photo mode.
@@ -8046,7 +8493,11 @@ IMPORTANT INSTRUCTIONS:
             if not html:
                 try:
                     html = await asyncio.wait_for(
-                        self._call_deepseek(prompt, model=self.deepseek_model_pro),
+                        self._call_deepseek(
+                            prompt,
+                            model=self.deepseek_model_pro,
+                            system_prompt=DESIGNER_SYSTEM_PROMPT if _ms_designer else None,
+                        ),
                         timeout=AI_PRIMARY_TIMEOUT_SECONDS,
                     )
                 except asyncio.TimeoutError:
