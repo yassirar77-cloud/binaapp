@@ -5,7 +5,7 @@ Combines all API endpoints
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports, design_studio, site_qr, promo_kit, business_kit, counter_kit
+from app.api.v1.endpoints import auth, websites, payments, templates, delivery, delivery_zones, menu_delivery, chat, subscription, scheduled_tasks, email_support, moderation, template_gallery, disputes, customers, penghantar_live, analytics, issue_reports, design_studio, site_qr, promo_kit, business_kit, counter_kit, hero_video
 from app.api.admin import repair as admin_repair
 from app.api.admin import make_good as admin_make_good
 from app.api.admin import unstick_generation as admin_unstick
@@ -69,3 +69,9 @@ api_router.include_router(business_kit.router, prefix="/websites", tags=["Busine
 # sheets and a holiday-closure notice. Same contract again: owner-only,
 # offline, no AI call.
 api_router.include_router(counter_kit.router, prefix="/websites", tags=["Counter Kit"])
+# Hero Video Background — a GLM (Z.ai CogVideoX) clip behind the hero.
+# Flag-gated (HERO_VIDEO_ENABLED, default off → every route 404s). Making
+# the clip is the only AI call; applying/adjusting/removing it is a
+# credit-free HTML patch in the Design Studio shape. Paths:
+# GET /websites/hero-video/options, /websites/{id}/hero-video[/generate|/jobs/{job}].
+api_router.include_router(hero_video.router, prefix="/websites", tags=["Hero Video"])

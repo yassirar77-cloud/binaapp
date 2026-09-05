@@ -1,0 +1,247 @@
+"""Tests for the hero video background HTML patch.
+
+The patch is a credit-free, deterministic string edit, so the properties
+that matter are the theme_patcher ones: finds the hero the generator emits,
+adds ONLY its own markup, is idempotent under re-apply, removes itself
+byte-exactly, and never lets a URL break out of an attribute.
+"""
+
+import pytest
+
+from app.services.hero_video_patcher import (
+    BLOCK_END,
+    BLOCK_START,
+    HERO_MARKER_ATTR,
+    STYLE_ID,
+    apply_hero_video,
+    build_settings,
+    detect_hero_video,
+    find_hero_open_tag,
+    remove_hero_video,
+)
+
+VIDEO = "https://res.cloudinary.com/demo/video/upload/v1/binaapp/hero-videos/ws-1-abc.mp4"
+POSTER = "https://res.cloudinary.com/demo/video/upload/v1/binaapp/hero-videos/ws-1-abc.jpg"
+
+TEMPLATE_PAGE = (
+    "<!DOCTYPE html><html><head><title>Kedai Ali</title>"
+    "<style>:root{--primary-color:#EA580C}</style></head>"
+    "<body>"
+    '<header class="fixed top-0"><nav><a href="#home">Utama</a></nav></header>'
+    '<section id="home" class="pt-32 min-h-screen flex items-center bg-gradient-to-br">'
+    '<div class="max-w-7xl relative z-10"><h1 class="text-[#0F172A]">Kedai Ali</h1>'
+    "<p>Nasi lemak terbaik</p>"
+    '<a href="#menu" class="bg-[#EA580C] text-white">Pesan</a></div>'
+    "</section>"
+    '<section id="menu"><h2>Menu</h2></section>'
+    "<footer>foot</footer></body></html>"
+)
+
+GENERATED_PAGE = (
+    "<html><head></head><body>"
+    "<nav>nav</nav>"
+    '<section class="hero-section relative overflow-hidden"><h1>Hai</h1></section>'
+    "<section><h2>Tentang</h2></section>"
+    "</body></html>"
+)
+
+NO_ID_PAGE = (
+    "<html><head></head><body><div>wrap"
+    "<section><h1>First</h1></section><section><h2>Second</h2></section>"
+    "</div></body></html>"
+)
+
+
+def _settings(**overrides):
+    kwargs = {"video_url": VIDEO, "poster_url": POSTER}
+    kwargs.update(overrides)
+    return build_settings(**kwargs)
+
+
+class TestFindHero:
+    def test_id_home_wins(self):
+        match, how = find_hero_open_tag(TEMPLATE_PAGE)
+        assert how == "id"
+        assert 'id="home"' in match.group(0)
+
+    def test_hero_class_is_second_choice(self):
+        match, how = find_hero_open_tag(GENERATED_PAGE)
+        assert how == "class"
+        assert "hero-section" in match.group(0)
+
+    def test_first_section_is_the_fallback(self):
+        match, how = find_hero_open_tag(NO_ID_PAGE)
+        assert how == "first-section"
+        assert "<h1>First</h1>" in NO_ID_PAGE[match.end():match.end() + 20]
+
+    def test_nothing_to_match(self):
+        match, how = find_hero_open_tag("<html><body><p>hi</p></body></html>")
+        assert match is None and how == ""
+
+    def test_a_hero_id_inside_head_is_ignored(self):
+        # The search starts at <body>; a style hook in <head> must not win.
+        html = '<html><head><style>#home{}</style></head><body><section id="home">x</section></body></html>'
+        match, how = find_hero_open_tag(html)
+        assert how == "id"
+        assert match.start() > html.index("<body")
+
+
+class TestApply:
+    def test_injects_layer_style_and_marker(self):
+        result = apply_hero_video(TEMPLATE_PAGE, _settings())
+        assert result.changed and result.hero_match == "id"
+        html = result.html
+        assert f'<section id="home" class="pt-32 min-h-screen flex items-center bg-gradient-to-br" {HERO_MARKER_ATTR}="1">' in html
+        assert html.count(BLOCK_START) == 1 and html.count(BLOCK_END) == 1
+        assert html.count(f'id="{STYLE_ID}"') == 1
+        # Style lands in <head>, the layer is the hero's FIRST child.
+        assert html.index(STYLE_ID) < html.index("<body")
+        assert html.index(BLOCK_START) < html.index("<h1")
+
+    def test_video_element_shape_is_autoplay_safe(self):
+        html = apply_hero_video(TEMPLATE_PAGE, _settings()).html
+        video_tag = html[html.index("<video"):html.index("</video>")]
+        for attr in ("autoplay", "muted", "loop", "playsinline", 'preload="metadata"', 'tabindex="-1"'):
+            assert attr in video_tag
+        assert f'<source src="{VIDEO}" type="video/mp4">' in video_tag
+        assert f'poster="{POSTER}"' in video_tag
+        assert 'aria-hidden="true"' in html[html.index(BLOCK_START):html.index(BLOCK_END)]
+
+    def test_merchant_markup_is_untouched(self):
+        html = apply_hero_video(TEMPLATE_PAGE, _settings()).html
+        for fragment in (
+            '<h1 class="text-[#0F172A]">Kedai Ali</h1>',
+            "<p>Nasi lemak terbaik</p>",
+            '<a href="#menu" class="bg-[#EA580C] text-white">Pesan</a>',
+            '<section id="menu"><h2>Menu</h2></section>',
+            "<footer>foot</footer>",
+        ):
+            assert fragment in html
+
+    def test_css_is_scoped_to_the_marker_only(self):
+        html = apply_hero_video(TEMPLATE_PAGE, _settings()).html
+        style = html[html.index(f'<style id="{STYLE_ID}">'):html.index("</style>", html.index(STYLE_ID))]
+        assert f"[{HERO_MARKER_ATTR}]" in style
+        # Never depends on the merchant's ids or classes.
+        assert "#home" not in style and ".pt-32" not in style
+        assert "prefers-reduced-motion" in style
+        # Dark overlay → light text on headings/paragraphs (auto mode).
+        assert "color:#FFFFFF !important" in style
+
+    def test_light_overlay_flips_text_dark_and_none_keeps(self):
+        light = apply_hero_video(TEMPLATE_PAGE, _settings(overlay="light")).html
+        assert "color:#0F172A !important" in light
+        assert "rgba(255,255,255,0.45)" in light
+        none = apply_hero_video(TEMPLATE_PAGE, _settings(overlay="none")).html
+        assert "!important" not in none[none.index(STYLE_ID):none.index("</style>")]
+        assert "background:transparent" in none
+
+    def test_explicit_text_mode_keep_never_forces_colour(self):
+        html = apply_hero_video(TEMPLATE_PAGE, _settings(text_mode="keep")).html
+        assert "!important" not in html
+
+    def test_poster_only_on_mobile_adds_media_query(self):
+        html = apply_hero_video(TEMPLATE_PAGE, _settings(show_on_mobile=False)).html
+        assert "@media (max-width:640px)" in html
+        assert 'data-binaapp-mobile="poster"' in html
+        default = apply_hero_video(TEMPLATE_PAGE, _settings()).html
+        assert "@media (max-width:640px)" not in default
+
+    def test_works_on_generated_page_with_hero_class(self):
+        result = apply_hero_video(GENERATED_PAGE, _settings())
+        assert result.changed and result.hero_match == "class"
+        assert f'class="hero-section relative overflow-hidden" {HERO_MARKER_ATTR}="1"' in result.html
+
+    def test_no_head_inlines_the_style_before_the_layer(self):
+        fragment = '<section id="home"><h1>x</h1></section>'
+        result = apply_hero_video(fragment, _settings())
+        assert result.changed
+        assert "style_inlined_without_head" in result.notes
+        assert result.html.index(STYLE_ID) < result.html.index(BLOCK_START)
+
+    def test_missing_hero_changes_nothing(self):
+        result = apply_hero_video("<html><body><p>hi</p></body></html>", _settings())
+        assert not result.changed and "hero_not_found" in result.notes
+        assert result.html == "<html><body><p>hi</p></body></html>"
+
+    def test_empty_html_changes_nothing(self):
+        assert not apply_hero_video("", _settings()).changed
+
+
+class TestIdempotence:
+    def test_reapply_replaces_rather_than_stacks(self):
+        once = apply_hero_video(TEMPLATE_PAGE, _settings()).html
+        twice = apply_hero_video(once, _settings(overlay="light", overlay_opacity=0.3)).html
+        assert twice.count(BLOCK_START) == 1
+        assert twice.count(STYLE_ID) == 1
+        assert twice.count(f'{HERO_MARKER_ATTR}="1"') == 1
+        assert 'data-binaapp-overlay="light"' in twice
+        assert 'data-binaapp-overlay="dark"' not in twice
+
+    def test_same_settings_twice_is_a_fixed_point(self):
+        once = apply_hero_video(TEMPLATE_PAGE, _settings()).html
+        again = apply_hero_video(once, _settings()).html
+        assert once == again
+
+    def test_remove_restores_the_exact_original_bytes(self):
+        patched = apply_hero_video(TEMPLATE_PAGE, _settings()).html
+        restored = remove_hero_video(patched)
+        assert restored.changed
+        assert restored.html == TEMPLATE_PAGE
+
+    def test_remove_on_a_clean_page_is_a_noop(self):
+        result = remove_hero_video(TEMPLATE_PAGE)
+        assert not result.changed and result.html == TEMPLATE_PAGE
+
+
+class TestDetect:
+    def test_reads_back_what_was_written(self):
+        patched = apply_hero_video(
+            TEMPLATE_PAGE,
+            _settings(overlay="light", overlay_opacity=0.25, text_mode="keep", show_on_mobile=False),
+        ).html
+        state = detect_hero_video(patched)
+        assert state == {
+            "video_url": VIDEO,
+            "poster_url": POSTER,
+            "overlay": "light",
+            "overlay_opacity": 0.25,
+            "text_mode": "keep",
+            "show_on_mobile": False,
+        }
+
+    def test_clean_page_has_no_video(self):
+        assert detect_hero_video(TEMPLATE_PAGE) is None
+        assert detect_hero_video("") is None
+
+    def test_poster_is_optional(self):
+        patched = apply_hero_video(TEMPLATE_PAGE, build_settings(video_url=VIDEO)).html
+        assert "poster=" not in patched
+        assert detect_hero_video(patched)["poster_url"] is None
+
+
+class TestSettingsValidation:
+    def test_rejects_non_https_video(self):
+        for bad in ("http://x/y.mp4", "javascript:alert(1)", "", '  https://x/"onload="'):
+            with pytest.raises(ValueError):
+                build_settings(video_url=bad)
+
+    def test_bad_poster_is_dropped_not_fatal(self):
+        s = build_settings(video_url=VIDEO, poster_url='https://x/"><script>')
+        assert s.poster_url is None
+
+    def test_unknown_modes_fall_back_to_defaults(self):
+        s = build_settings(video_url=VIDEO, overlay="neon", text_mode="rainbow", overlay_opacity=7)
+        assert s.overlay == "dark" and s.text_mode == "auto" and s.overlay_opacity == 0.9
+
+    def test_url_is_escaped_in_attributes(self):
+        url = "https://res.cloudinary.com/x/v.mp4?a=1&b=2"
+        html = apply_hero_video(TEMPLATE_PAGE, build_settings(video_url=url)).html
+        assert 'data-binaapp-video-url="https://res.cloudinary.com/x/v.mp4?a=1&amp;b=2"' in html
+        assert detect_hero_video(html)["video_url"] == url
+
+    def test_output_stays_balanced(self):
+        from app.utils.html_balance import is_html_balanced
+
+        html = apply_hero_video(TEMPLATE_PAGE, _settings()).html
+        assert is_html_balanced(html)[0]

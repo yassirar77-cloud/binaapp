@@ -125,6 +125,24 @@ ZAI_IMAGE_REQUEST_DELAY_SECONDS=1.0  # spacing between consecutive Z.ai requests
 ZAI_IMAGE_PHASE_BUDGET_SECONDS=300  # max cumulative Z.ai image time per build; beyond it remaining images go to Stability
 ZAI_IMAGE_B64=false  # request response_format=b64_json and upload bytes directly, skipping the mfile.z.ai download (falls back to URL path if the API rejects/omits it)
 
+# ── Hero Video Background (GLM / Z.ai CogVideoX) ─────────────────────────
+# A short AI-generated clip that loops behind the hero. Uses the SAME
+# ZAI_API_KEY / ZAI_API_URL as GLM HTML + image generation above. Making the
+# clip is the only AI call; applying/adjusting/removing it is a credit-free
+# HTML patch (see backend/app/services/hero_video_patcher.py).
+HERO_VIDEO_ENABLED=false            # master flag — off: every /hero-video route 404s
+HERO_VIDEO_ALLOW_ALL_PLANS=false    # true: skip the plan check (admins always pass);
+                                    # false: plan features need can_use_hero_video=true
+HERO_VIDEO_MAX_PER_SITE_PER_DAY=5   # cost guard, per website (in-memory)
+ZAI_VIDEO_MODEL=cogvideox-3         # Z.ai /videos/generations model code
+ZAI_VIDEO_SIZE=1280x720             # 1280x720 | 1920x1080 | 720x1280 | 1080x1920 | 1024x1024
+ZAI_VIDEO_DURATION=5                # 5 | 10 seconds
+ZAI_VIDEO_FPS=30                    # 30 | 60
+ZAI_VIDEO_QUALITY=speed             # speed | quality
+ZAI_VIDEO_TIMEOUT_SECONDS=90        # per HTTP call (submit / poll / download)
+ZAI_VIDEO_MAX_WAIT_SECONDS=600      # give up on a task still PROCESSING after this
+ZAI_VIDEO_MAX_BYTES=62914560        # refuse clips bigger than this (60 MB)
+
 # Free-by-default AI images per generated site (auto-fill of missing
 # hero/gallery slots). A caller-supplied lower quota still wins.
 FREE_AI_IMAGES_PER_SITE=6

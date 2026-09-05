@@ -1,0 +1,580 @@
+"""GLM video generation (Z.ai CogVideoX) for hero video backgrounds.
+
+The Z.ai video API is asynchronous:
+
+    POST {ZAI_API_URL}/videos/generations      → {"id", "task_status": "PROCESSING"}
+    GET  {ZAI_API_URL}/async-result/{id}       → {"task_status": "SUCCESS",
+                                                  "video_result": [{"url", "cover_image_url"}]}
+
+A 5-second clip takes anywhere from ~30s to a few minutes, far past what a
+single HTTP request from the dashboard should hold open, so the flow is
+split in two exactly like the API itself:
+
+    task_id = await zai_video_service.submit(prompt)       # instant
+    result  = await zai_video_service.fetch_result(task_id) # poll from the client
+    stored  = await zai_video_service.store(result)         # → Cloudinary URLs
+
+The Z.ai download URL is temporary; ``store`` pushes the bytes into
+Cloudinary (``resource_type="video"``) so the page keeps working after the
+Z.ai link expires. The poster is a Cloudinary-derived first frame of the
+same asset — no second upload, no second thing to expire.
+
+Feature flag: HERO_VIDEO_ENABLED (env, default false, read per call). With
+it off the endpoints 404 and nothing in this module is reached.
+
+In-memory job registry
+----------------------
+Jobs live in a process-local dict, the same shape as ``job_service`` for
+website generation: a Render restart forgets in-flight tasks and the
+dashboard simply asks the merchant to try again. Nothing here touches the
+database, quota counters or subscription rows.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Dict, Optional
+from urllib.parse import quote, urlsplit
+
+import cloudinary
+import cloudinary.uploader
+import httpx
+from loguru import logger
+
+
+# ---------------------------------------------------------------------------
+# Configuration (read at call time so Render env changes need no redeploy)
+# ---------------------------------------------------------------------------
+
+def hero_video_enabled() -> bool:
+    """HERO_VIDEO_ENABLED=true turns the feature on. Default off."""
+    return os.getenv("HERO_VIDEO_ENABLED", "false").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+def _zai_api_key() -> Optional[str]:
+    return os.getenv("ZAI_API_KEY") or None
+
+
+def _zai_base_url() -> str:
+    # Same precedence as ai_service: the Render var is ZAI_BASE_URL,
+    # ZAI_API_URL also works and wins when both are set.
+    return (
+        os.getenv("ZAI_API_URL")
+        or os.getenv("ZAI_BASE_URL")
+        or "https://api.z.ai/api/paas/v4"
+    ).rstrip("/")
+
+
+def zai_video_model() -> str:
+    """The Z.ai video model code. ``cogvideox-3`` is the current one."""
+    return os.getenv("ZAI_VIDEO_MODEL", "cogvideox-3").strip() or "cogvideox-3"
+
+
+#: Landscape 720p: a hero is wide, and 1080p doubles the bytes every visitor
+#: downloads for no visible gain behind a text scrim.
+DEFAULT_VIDEO_SIZE = "1280x720"
+ALLOWED_VIDEO_SIZES = (
+    "1280x720", "1920x1080", "720x1280", "1080x1920", "1024x1024",
+)
+ALLOWED_DURATIONS = (5, 10)
+
+
+def zai_video_size() -> str:
+    size = os.getenv("ZAI_VIDEO_SIZE", DEFAULT_VIDEO_SIZE).strip()
+    return size if size in ALLOWED_VIDEO_SIZES else DEFAULT_VIDEO_SIZE
+
+
+def zai_video_duration() -> int:
+    try:
+        value = int(os.getenv("ZAI_VIDEO_DURATION", "5"))
+    except ValueError:
+        value = 5
+    return value if value in ALLOWED_DURATIONS else 5
+
+
+def zai_video_fps() -> int:
+    try:
+        value = int(os.getenv("ZAI_VIDEO_FPS", "30"))
+    except ValueError:
+        value = 30
+    return 60 if value == 60 else 30
+
+
+def zai_video_quality() -> str:
+    """``speed`` (default) or ``quality``."""
+    value = os.getenv("ZAI_VIDEO_QUALITY", "speed").strip().lower()
+    return "quality" if value == "quality" else "speed"
+
+
+def zai_video_timeout_seconds() -> float:
+    """Per-HTTP-call cap (submit, poll, download)."""
+    try:
+        return float(os.getenv("ZAI_VIDEO_TIMEOUT_SECONDS", "90"))
+    except ValueError:
+        return 90.0
+
+
+def zai_video_max_wait_seconds() -> float:
+    """How long a task may stay PROCESSING before the job is marked failed."""
+    try:
+        return float(os.getenv("ZAI_VIDEO_MAX_WAIT_SECONDS", "600"))
+    except ValueError:
+        return 600.0
+
+
+def zai_video_max_bytes() -> int:
+    """Refuse to store anything bigger — a hero clip should be a few MB."""
+    try:
+        return int(os.getenv("ZAI_VIDEO_MAX_BYTES", str(60 * 1024 * 1024)))
+    except ValueError:
+        return 60 * 1024 * 1024
+
+
+#: Z.ai caps the prompt at 512 characters.
+ZAI_PROMPT_MAX_CHARS = 512
+
+_DOWNLOAD_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
+
+# ---------------------------------------------------------------------------
+# Prompt building
+# ---------------------------------------------------------------------------
+
+#: Ambience presets the dashboard offers. Each is a short, loop-friendly
+#: scene description; the merchant's business is prepended by the builder.
+VIDEO_STYLE_PRESETS: Dict[str, Dict[str, str]] = {
+    "cinematic": {
+        "label_ms": "Sinematik",
+        "label_en": "Cinematic",
+        "scene": (
+            "slow cinematic camera drift, warm golden-hour light, shallow depth "
+            "of field, soft bokeh, gentle continuous motion"
+        ),
+    },
+    "ambient": {
+        "label_ms": "Tenang",
+        "label_en": "Ambient",
+        "scene": (
+            "calm ambient atmosphere, soft diffused daylight, very slow push-in, "
+            "subtle steam and light movement, serene mood"
+        ),
+    },
+    "energetic": {
+        "label_ms": "Bertenaga",
+        "label_en": "Energetic",
+        "scene": (
+            "vibrant lively scene, dynamic but smooth camera motion, rich "
+            "saturated colours, upbeat energy"
+        ),
+    },
+    "elegant": {
+        "label_ms": "Elegan",
+        "label_en": "Elegant",
+        "scene": (
+            "luxurious minimal composition, dark moody lighting with soft "
+            "highlights, slow elegant camera glide, premium feel"
+        ),
+    },
+    "nature": {
+        "label_ms": "Alam semula jadi",
+        "label_en": "Nature",
+        "scene": (
+            "lush natural setting, gentle breeze moving leaves, soft sunlight "
+            "through foliage, tranquil slow motion"
+        ),
+    },
+}
+DEFAULT_VIDEO_STYLE = "cinematic"
+
+#: Rules appended to every prompt. Text and logos render as gibberish in
+#: generated video, and a hero background must never fight the copy on top.
+_PROMPT_SUFFIX = (
+    "Background video for a website hero: no text, no letters, no logos, "
+    "no watermarks, no captions, no people looking at camera, seamless loop, "
+    "smooth motion, high quality, 16:9."
+)
+
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _squash(text: str) -> str:
+    return _WHITESPACE_RE.sub(" ", (text or "")).strip()
+
+
+def build_hero_video_prompt(
+    *,
+    business_name: str = "",
+    business_type: str = "",
+    description: str = "",
+    style: str = DEFAULT_VIDEO_STYLE,
+    custom_prompt: str = "",
+) -> str:
+    """Compose the CogVideoX prompt.
+
+    A merchant-written ``custom_prompt`` replaces the business/style scene but
+    still gets the safety suffix; otherwise the business description and the
+    chosen preset become the scene. Always ≤ 512 characters.
+    """
+    preset = VIDEO_STYLE_PRESETS.get(style) or VIDEO_STYLE_PRESETS[DEFAULT_VIDEO_STYLE]
+
+    custom = _squash(custom_prompt)
+    if custom:
+        scene = custom
+    else:
+        subject_bits = []
+        kind = _squash(business_type).replace("_", " ")
+        if kind:
+            subject_bits.append(f"a {kind} business")
+        if business_name:
+            subject_bits.append(f"called {_squash(business_name)}")
+        subject = " ".join(subject_bits) or "a small business"
+        desc = _squash(description)
+        if len(desc) > 160:
+            desc = desc[:157].rstrip() + "..."
+        scene = f"Atmospheric scene for {subject}"
+        if desc:
+            scene += f": {desc}"
+        scene += f". {preset['scene']}."
+
+    suffix_room = ZAI_PROMPT_MAX_CHARS - len(_PROMPT_SUFFIX) - 1
+    if len(scene) > suffix_room:
+        scene = scene[: suffix_room - 3].rstrip() + "..."
+    return f"{scene} {_PROMPT_SUFFIX}"
+
+
+# ---------------------------------------------------------------------------
+# Job registry
+# ---------------------------------------------------------------------------
+
+JOB_STATUS_PROCESSING = "processing"
+JOB_STATUS_STORING = "storing"
+JOB_STATUS_COMPLETED = "completed"
+JOB_STATUS_FAILED = "failed"
+
+#: Forget finished jobs after this long; in-flight ones after max-wait + slack.
+_JOB_TTL_SECONDS = 2 * 60 * 60
+
+
+@dataclass
+class HeroVideoJob:
+    job_id: str
+    task_id: str
+    website_id: str
+    user_id: str
+    prompt: str
+    settings: Dict
+    created_at: float = field(default_factory=time.monotonic)
+    status: str = JOB_STATUS_PROCESSING
+    error: Optional[str] = None
+    video_url: Optional[str] = None
+    poster_url: Optional[str] = None
+    applied: bool = False
+    live_site_updated: bool = False
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+
+    def age_seconds(self) -> float:
+        return time.monotonic() - self.created_at
+
+    def to_dict(self) -> Dict:
+        return {
+            "job_id": self.job_id,
+            "website_id": self.website_id,
+            "status": self.status,
+            "error": self.error,
+            "video_url": self.video_url,
+            "poster_url": self.poster_url,
+            "applied": self.applied,
+            "live_site_updated": self.live_site_updated,
+            "elapsed_seconds": round(self.age_seconds()),
+        }
+
+
+class ZaiVideoError(Exception):
+    """A Z.ai call failed in a way the caller should surface, not retry."""
+
+
+class ZaiVideoService:
+    def __init__(self) -> None:
+        self._jobs: Dict[str, HeroVideoJob] = {}
+
+    # ---- registry ---------------------------------------------------------
+
+    def _sweep(self) -> None:
+        stale = [
+            job_id
+            for job_id, job in self._jobs.items()
+            if job.age_seconds() > _JOB_TTL_SECONDS
+        ]
+        for job_id in stale:
+            self._jobs.pop(job_id, None)
+
+    def get_job(self, job_id: str) -> Optional[HeroVideoJob]:
+        self._sweep()
+        return self._jobs.get(job_id)
+
+    def active_job_for_website(self, website_id: str) -> Optional[HeroVideoJob]:
+        """The in-flight job for a site, if any — one at a time per site."""
+        self._sweep()
+        for job in self._jobs.values():
+            if job.website_id == website_id and job.status in (
+                JOB_STATUS_PROCESSING, JOB_STATUS_STORING,
+            ):
+                return job
+        return None
+
+    def active_jobs_for_user(self, user_id: str) -> int:
+        self._sweep()
+        return sum(
+            1
+            for job in self._jobs.values()
+            if job.user_id == user_id
+            and job.status in (JOB_STATUS_PROCESSING, JOB_STATUS_STORING)
+        )
+
+    def register_job(
+        self,
+        *,
+        task_id: str,
+        website_id: str,
+        user_id: str,
+        prompt: str,
+        settings: Dict,
+    ) -> HeroVideoJob:
+        job = HeroVideoJob(
+            job_id=uuid.uuid4().hex,
+            task_id=task_id,
+            website_id=website_id,
+            user_id=user_id,
+            prompt=prompt,
+            settings=settings,
+        )
+        self._jobs[job.job_id] = job
+        return job
+
+    def drop_job(self, job_id: str) -> None:
+        self._jobs.pop(job_id, None)
+
+    # ---- Z.ai calls -------------------------------------------------------
+
+    def _headers(self) -> Dict[str, str]:
+        return {
+            "Authorization": f"Bearer {_zai_api_key()}",
+            "Content-Type": "application/json",
+        }
+
+    async def submit(
+        self,
+        prompt: str,
+        *,
+        duration: Optional[int] = None,
+        size: Optional[str] = None,
+        image_url: Optional[str] = None,
+    ) -> str:
+        """Start a generation. Returns the Z.ai task id.
+
+        ``with_audio`` is always false: the clip plays muted behind the hero,
+        and audio would only make the file heavier.
+        """
+        if not _zai_api_key():
+            raise ZaiVideoError("ZAI_API_KEY is not configured")
+
+        payload: Dict = {
+            "model": zai_video_model(),
+            "prompt": prompt[:ZAI_PROMPT_MAX_CHARS],
+            "quality": zai_video_quality(),
+            "with_audio": False,
+            "size": size if size in ALLOWED_VIDEO_SIZES else zai_video_size(),
+            "duration": duration if duration in ALLOWED_DURATIONS else zai_video_duration(),
+            "fps": zai_video_fps(),
+        }
+        if image_url:
+            # Image-to-video: animate the merchant's own hero photo.
+            payload["image_url"] = image_url
+
+        logger.info(
+            f"🎬 Z.ai video submit ({payload['model']}, {payload['size']}, "
+            f"{payload['duration']}s): {prompt[:80]}..."
+        )
+        try:
+            async with httpx.AsyncClient(timeout=zai_video_timeout_seconds()) as client:
+                response = await client.post(
+                    f"{_zai_base_url()}/videos/generations",
+                    headers=self._headers(),
+                    json=payload,
+                )
+        except httpx.TimeoutException as exc:
+            raise ZaiVideoError("Z.ai video submit timed out") from exc
+        except httpx.HTTPError as exc:
+            raise ZaiVideoError(f"Z.ai video submit failed: {exc}") from exc
+
+        if response.status_code == 429:
+            raise ZaiVideoError("Z.ai video rate limit — try again in a minute")
+        if response.status_code != 200:
+            logger.error(
+                f"🎬 Z.ai video submit failed: {response.status_code} - {response.text[:200]}"
+            )
+            raise ZaiVideoError(f"Z.ai video submit failed ({response.status_code})")
+
+        data = response.json() or {}
+        task_id = data.get("id")
+        if not task_id:
+            raise ZaiVideoError("Z.ai video submit returned no task id")
+        if str(data.get("task_status", "")).upper() == "FAIL":
+            raise ZaiVideoError("Z.ai rejected the video request")
+        logger.info(f"🎬 Z.ai video task {task_id} accepted")
+        return str(task_id)
+
+    async def fetch_result(self, task_id: str) -> Dict:
+        """One poll of ``/async-result/{id}``.
+
+        Returns ``{"status": "processing"|"success"|"fail",
+                   "video_url": str|None, "cover_image_url": str|None}``.
+        """
+        if not _zai_api_key():
+            raise ZaiVideoError("ZAI_API_KEY is not configured")
+        try:
+            async with httpx.AsyncClient(timeout=zai_video_timeout_seconds()) as client:
+                response = await client.get(
+                    f"{_zai_base_url()}/async-result/{task_id}",
+                    headers=self._headers(),
+                )
+        except httpx.TimeoutException as exc:
+            raise ZaiVideoError("Z.ai video poll timed out") from exc
+        except httpx.HTTPError as exc:
+            raise ZaiVideoError(f"Z.ai video poll failed: {exc}") from exc
+
+        if response.status_code == 429:
+            # Rate-limited poll: report "still processing" so the client
+            # simply asks again after its normal interval.
+            return {"status": "processing", "video_url": None, "cover_image_url": None}
+        if response.status_code != 200:
+            logger.error(
+                f"🎬 Z.ai video poll failed: {response.status_code} - {response.text[:200]}"
+            )
+            raise ZaiVideoError(f"Z.ai video poll failed ({response.status_code})")
+
+        data = response.json() or {}
+        state = str(data.get("task_status", "")).upper()
+        if state == "SUCCESS":
+            results = data.get("video_result") or []
+            first = (results[0] or {}) if results else {}
+            video_url = first.get("url")
+            if not video_url:
+                raise ZaiVideoError("Z.ai reported success but returned no video URL")
+            return {
+                "status": "success",
+                "video_url": video_url,
+                "cover_image_url": first.get("cover_image_url"),
+            }
+        if state == "FAIL":
+            return {"status": "fail", "video_url": None, "cover_image_url": None}
+        return {"status": "processing", "video_url": None, "cover_image_url": None}
+
+    # ---- storage ----------------------------------------------------------
+
+    @staticmethod
+    def _verbatim_download_url(url: str):
+        """Keep the Z.ai CDN URL byte-for-byte — see ai_service for why."""
+        try:
+            parts = urlsplit(url)
+            target = parts.path + (f"?{parts.query}" if parts.query else "")
+            wire_target = "".join(
+                ch if 0x20 < ord(ch) < 0x7F else quote(ch) for ch in target
+            )
+            return httpx.URL(
+                scheme=parts.scheme,
+                host=parts.hostname,
+                port=parts.port,
+                raw_path=wire_target.encode("ascii"),
+            )
+        except Exception:
+            return url
+
+    async def download(self, url: str) -> bytes:
+        limit = zai_video_max_bytes()
+        try:
+            async with httpx.AsyncClient(
+                timeout=zai_video_timeout_seconds(), follow_redirects=True
+            ) as client:
+                response = await client.get(
+                    self._verbatim_download_url(url),
+                    headers={
+                        "User-Agent": _DOWNLOAD_USER_AGENT,
+                        "Accept": "video/*,*/*;q=0.8",
+                    },
+                )
+        except httpx.TimeoutException as exc:
+            raise ZaiVideoError("Video download timed out") from exc
+        except httpx.HTTPError as exc:
+            raise ZaiVideoError(f"Video download failed: {exc}") from exc
+
+        if response.status_code != 200:
+            raise ZaiVideoError(f"Video download failed ({response.status_code})")
+        content = response.content
+        if not content:
+            raise ZaiVideoError("Video download was empty")
+        if len(content) > limit:
+            raise ZaiVideoError(
+                f"Video is too large ({len(content) // 1024 // 1024} MB)"
+            )
+        return content
+
+    @staticmethod
+    def _upload_sync(video_bytes: bytes, public_id: str) -> Dict:
+        return cloudinary.uploader.upload(
+            video_bytes,
+            resource_type="video",
+            folder="binaapp/hero-videos",
+            public_id=public_id,
+            overwrite=True,
+        )
+
+    @staticmethod
+    def poster_url_for(video_secure_url: str) -> Optional[str]:
+        """Cloudinary derives a still by swapping the video extension for
+        ``.jpg`` — the first frame, no extra upload."""
+        if not video_secure_url:
+            return None
+        base, dot, ext = video_secure_url.rpartition(".")
+        if not dot or "/" in ext:
+            return None
+        return f"{base}.jpg"
+
+    async def store(self, video_url: str, *, website_id: str) -> Dict[str, Optional[str]]:
+        """Download the Z.ai clip and push it to Cloudinary.
+
+        Returns ``{"video_url", "poster_url"}`` on Cloudinary. The upload is
+        a blocking HTTP call, so it runs in a worker thread rather than on
+        the event loop.
+        """
+        video_bytes = await self.download(video_url)
+        public_id = f"{website_id}-{uuid.uuid4().hex[:8]}"
+        try:
+            result = await asyncio.to_thread(self._upload_sync, video_bytes, public_id)
+        except Exception as exc:
+            logger.error(f"☁️ Cloudinary video upload failed: {exc}")
+            raise ZaiVideoError("Video storage failed") from exc
+
+        secure_url = result.get("secure_url") if result else None
+        if not secure_url:
+            raise ZaiVideoError("Video storage returned no URL")
+        logger.info(
+            f"☁️ Hero video stored ({len(video_bytes) // 1024} KB): {secure_url[:60]}..."
+        )
+        return {
+            "video_url": secure_url,
+            "poster_url": self.poster_url_for(secure_url),
+        }
+
+
+zai_video_service = ZaiVideoService()

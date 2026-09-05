@@ -25,6 +25,7 @@ import {
 import { pollMessageForElapsed } from '@/lib/regeneratePollMessages';
 import { DESIGN_BRIEF_MAX, normalizeDesignBrief } from '@/lib/designBrief';
 import DesignStudioPanel from '@/components/DesignStudioPanel';
+import HeroVideoPanel from '@/components/HeroVideoPanel';
 import PromoKitPanel from '@/components/PromoKitPanel';
 
 // Backend API URL
@@ -876,6 +877,20 @@ export default function EditorPage() {
           <DesignStudioPanel
             websiteId={id}
             isPublished={!!website?.subdomain}
+            onHtmlChange={(next) => {
+              setHtml(next);
+              setDirty(false);
+            }}
+          />
+
+          {/* Hero Video Background — a GLM-generated clip behind the hero.
+              Generating the clip is the one AI call; applying, adjusting
+              and removing it are credit-free HTML patches, so like the
+              Design Studio it writes straight through to the stored site
+              and leaves the local buffer clean. Renders nothing while the
+              server-side flag (HERO_VIDEO_ENABLED) is off. */}
+          <HeroVideoPanel
+            websiteId={id}
             onHtmlChange={(next) => {
               setHtml(next);
               setDirty(false);

@@ -10,6 +10,7 @@ the requested feature is denied. This matches the existing limit-check
 behaviour in main.py:/api/publish.
 """
 
+import os
 from typing import Any, Dict, Optional
 
 import httpx
@@ -81,3 +82,33 @@ async def can_publish_subdomain(user_id: str) -> bool:
     if features is None:
         return False
     return bool(features.get("can_publish_subdomain", False))
+
+
+#: Either key unlocks the hero video background; ``can_use_hero_video`` is
+#: the canonical one, the second is accepted so a plan row written with the
+#: descriptive name still works.
+HERO_VIDEO_FEATURE_KEYS = ("can_use_hero_video", "can_use_video_background")
+
+
+def hero_video_open_to_all_plans() -> bool:
+    """HERO_VIDEO_ALLOW_ALL_PLANS=true skips the plan check (launch/testing).
+    The HERO_VIDEO_ENABLED master flag still applies."""
+    return os.getenv("HERO_VIDEO_ALLOW_ALL_PLANS", "false").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
+async def can_use_hero_video(user_id: str) -> bool:
+    """
+    True if the user's plan permits generating a hero video background.
+    Admin (founder) accounts always pass; HERO_VIDEO_ALLOW_ALL_PLANS opens it
+    to every active plan. Otherwise fails closed like can_publish_subdomain.
+    """
+    if await _is_admin_user(user_id):
+        return True
+    if hero_video_open_to_all_plans():
+        return True
+    features = await get_plan_features(user_id)
+    if features is None:
+        return False
+    return any(bool(features.get(key, False)) for key in HERO_VIDEO_FEATURE_KEYS)
