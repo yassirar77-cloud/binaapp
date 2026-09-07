@@ -113,9 +113,17 @@ def _page_response(html_content: str, request: Optional[Request], website_id: Op
     }
     if request is not None:
         inm = request.headers.get("if-none-match") or ""
-        if inm and etag in [t.strip() for t in inm.split(",")]:
+        # Weak comparison (RFC 7232 §3.2): the CDN/proxy in front gzips the
+        # body and downgrades our strong ETag to W/"…", and browsers echo
+        # that weak form back. Strip the marker on both sides.
+        if inm and _weak_etag(etag) in [_weak_etag(t) for t in inm.split(",")]:
             return Response(status_code=304, headers=headers)
     return HTMLResponse(content=html_content, status_code=200, headers=headers)
+
+
+def _weak_etag(value: str) -> str:
+    value = value.strip()
+    return value[2:] if value.startswith("W/") else value
 
 
 def _get_locked_page_html() -> str:

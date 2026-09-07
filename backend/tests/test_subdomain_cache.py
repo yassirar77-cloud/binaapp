@@ -71,6 +71,15 @@ class TestPageResponseFreshness:
         )
         assert resp.status_code == 304
 
+    def test_weak_etag_echoed_by_a_gzipping_proxy_still_matches(self):
+        # Cloudflare/Render compress the body and rewrite "abc" → W/"abc";
+        # browsers send the weak form back in If-None-Match.
+        etag = mw._page_response("<html>v1</html>", _request(), "ws-1").headers["etag"]
+        resp = mw._page_response(
+            "<html>v1</html>", _request({"If-None-Match": "W/" + etag}), "ws-1"
+        )
+        assert resp.status_code == 304
+
     def test_legacy_page_without_a_row_keeps_the_long_max_age(self):
         resp = mw._page_response("<html>legacy</html>", _request(), None)
         assert resp.headers["cache-control"] == "public, max-age=3600"
