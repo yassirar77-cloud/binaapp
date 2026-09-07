@@ -6,7 +6,12 @@
  * job (which carries html_content on success) → stop when asked to.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runHeroVideoJob, type HeroVideoJob } from './heroVideo';
+import {
+  HERO_VIDEO_MAX_POLL_FAILURES,
+  isTransientFetchError,
+  runHeroVideoJob,
+  type HeroVideoJob,
+} from './heroVideo';
 
 const WS = 'ws-1';
 
@@ -155,4 +160,62 @@ describe('runHeroVideoJob', () => {
     expect(result?.status).toBe('failed');
     expect(result?.error).toBe('timeout');
   });
+
+  it('keeps polling through a dropped connection and still completes', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(202, START_OK))
+      .mockResolvedValueOnce(jsonResponse(200, job({ status: 'processing' })))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(
+        jsonResponse(200, job({ status: 'completed', applied: true, html_content: '<html>v</html>' }))
+      );
+    const transient: number[] = [];
+
+    const result = await runHeroVideoJob(WS, {}, 'tok', {
+      sleep,
+      onTransientError: (n) => transient.push(n),
+    });
+
+    expect(result?.status).toBe('completed');
+    expect(result?.html_content).toBe('<html>v</html>');
+    expect(transient).toEqual([1, 2]);
+    // Backoff grows with the failure streak: 8s → 16s → 24s (capped at 30s).
+    expect(sleeps).toEqual([3000, 8000, 16000, 24000]);
+  });
+
+  it('gives up after too many consecutive dropped polls', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(202, START_OK));
+    for (let i = 0; i < HERO_VIDEO_MAX_POLL_FAILURES; i += 1) {
+      fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    }
+    await expect(runHeroVideoJob(WS, {}, 'tok', { sleep })).rejects.toThrow(/failed to fetch/i);
+    expect(fetchMock).toHaveBeenCalledTimes(1 + HERO_VIDEO_MAX_POLL_FAILURES);
+  });
+
+  it('does not retry an HTTP error the server actually sent', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(202, START_OK))
+      .mockResolvedValueOnce(jsonResponse(404, { detail: { error: 'job_not_found' } }));
+    await expect(runHeroVideoJob(WS, {}, 'tok', { sleep })).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
+
+describe('isTransientFetchError', () => {
+  it('recognises the errors fetch throws before any response exists', () => {
+    expect(isTransientFetchError(new TypeError('Failed to fetch'))).toBe(true);
+    expect(isTransientFetchError(new TypeError('NetworkError when attempting to fetch resource.'))).toBe(true);
+    expect(isTransientFetchError(new TypeError('Load failed'))).toBe(true);
+    const abort = new Error('aborted');
+    abort.name = 'AbortError';
+    expect(isTransientFetchError(abort)).toBe(true);
+  });
+
+  it('leaves real errors alone', () => {
+    expect(isTransientFetchError(new Error('Pelan anda tidak termasuk video latar.'))).toBe(false);
+    expect(isTransientFetchError('Failed to fetch')).toBe(false);
+    expect(isTransientFetchError(null)).toBe(false);
+  });
+});
+

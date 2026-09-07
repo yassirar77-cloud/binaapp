@@ -19,7 +19,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
+  HERO_VIDEO_CONNECTION_LOST,
+  HERO_VIDEO_MAX_POLL_FAILURES,
   fetchHeroVideoOptions,
+  isTransientFetchError,
   fetchHeroVideoState,
   heroVideoJobErrorMessage,
   isHeroVideoJobActive,
@@ -78,6 +81,8 @@ export default function HeroVideoPanel({ websiteId, onHtmlChange }: Props) {
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tickTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const unmounted = useRef(false);
+  // Consecutive dropped polls in the current watch; reset by any success.
+  const pollFailures = useRef(0);
 
   const stopTimers = useCallback(() => {
     if (pollTimer.current) clearTimeout(pollTimer.current);
@@ -120,6 +125,10 @@ export default function HeroVideoPanel({ websiteId, onHtmlChange }: Props) {
           const token = await getApiAuthToken();
           const next = await pollHeroVideoJob(websiteId, jobId, token);
           if (unmounted.current) return;
+          if (pollFailures.current > 0) {
+            pollFailures.current = 0;
+            setError((prev) => (prev === HERO_VIDEO_CONNECTION_LOST ? null : prev));
+          }
           setJob(next);
           if (isHeroVideoJobActive(next)) {
             pollTimer.current = setTimeout(tick, intervalSeconds * 1000);
@@ -148,14 +157,29 @@ export default function HeroVideoPanel({ websiteId, onHtmlChange }: Props) {
           }
         } catch (err) {
           if (unmounted.current) return;
+          // A dropped request (mobile data blip, tab sent to background) is
+          // not a failed job — the clip is still being made on the server.
+          // Keep the job, say so in Malay, and poll again a little slower.
+          if (isTransientFetchError(err) && ++pollFailures.current < HERO_VIDEO_MAX_POLL_FAILURES) {
+            setError(HERO_VIDEO_CONNECTION_LOST);
+            pollTimer.current = setTimeout(
+              tick,
+              Math.min(intervalSeconds * (1 + pollFailures.current), 30) * 1000
+            );
+            return;
+          }
           stopTimers();
-          const message =
-            err instanceof Error ? err.message : 'Gagal menyemak status video.';
+          const message = isTransientFetchError(err)
+            ? 'Sambungan terputus berulang kali. Muat semula halaman ini untuk menyambung semula penjanaan video.'
+            : err instanceof Error
+              ? err.message
+              : 'Gagal menyemak status video.';
           setError(message);
           setJob(null);
         }
       };
 
+      pollFailures.current = 0;
       pollTimer.current = setTimeout(tick, Math.min(intervalSeconds, 3) * 1000);
     },
     [websiteId, onHtmlChange, stopTimers, syncLookFrom]
@@ -182,7 +206,13 @@ export default function HeroVideoPanel({ websiteId, onHtmlChange }: Props) {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Gagal memuatkan video latar.');
+          setError(
+            isTransientFetchError(err)
+              ? 'Sambungan terputus semasa memuatkan video latar. Muat semula halaman ini.'
+              : err instanceof Error
+                ? err.message
+                : 'Gagal memuatkan video latar.'
+          );
         }
       }
     })();

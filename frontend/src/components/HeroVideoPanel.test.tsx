@@ -164,6 +164,48 @@ describe('HeroVideoPanel', () => {
     expect(screen.getByTestId('overlay-light').getAttribute('aria-pressed')).toBe('true');
   });
 
+  it('keeps the job alive through a dropped poll and still applies the clip', async () => {
+    const onHtmlChange = vi.fn();
+    startHeroVideo.mockResolvedValue({
+      job_id: 'job-1',
+      status: 'processing',
+      poll_interval_seconds: 1,
+      prompt: 'p',
+      message: 'Video sedang dijana.',
+    });
+    pollHeroVideoJob
+      // The phone's connection drops for one poll — fetch throws before any
+      // response exists. This must NOT read as a failed job.
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(
+        job('completed', {
+          applied: true,
+          live_site_updated: true,
+          video_url: SETTINGS.video_url,
+          poster_url: SETTINGS.poster_url,
+          settings: SETTINGS,
+          html_content: '<html>with video</html>',
+          message: 'Video latar hero telah dipasang.',
+        })
+      );
+
+    render(<HeroVideoPanel websiteId="ws-1" onHtmlChange={onHtmlChange} />);
+    fireEvent.click(await screen.findByTestId('generate-hero-video'));
+
+    // Malay notice, not the browser's raw text — and the job is still shown.
+    expect(await screen.findByText(/Sambungan terputus/, {}, { timeout: 4000 })).toBeTruthy();
+    expect(screen.queryByText('Failed to fetch')).toBeNull();
+    expect(screen.getByTestId('hero-video-progress')).toBeTruthy();
+
+    await waitFor(() => expect(onHtmlChange).toHaveBeenCalledWith('<html>with video</html>'), {
+      timeout: 8000,
+    });
+    expect(pollHeroVideoJob).toHaveBeenCalledTimes(2);
+    expect(toast.success).toHaveBeenCalledWith('Video latar hero telah dipasang.');
+    expect(screen.queryByText(/Sambungan terputus/)).toBeNull();
+    expect(screen.getByTestId('hero-video-current')).toBeTruthy();
+  }, 15000);
+
   it('shows a Malay error when the job fails and leaves the page alone', async () => {
     const onHtmlChange = vi.fn();
     startHeroVideo.mockResolvedValue({ job_id: 'job-1', status: 'processing', poll_interval_seconds: 1, prompt: 'p', message: '' });
