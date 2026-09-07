@@ -138,10 +138,17 @@ class TestFlag:
 class TestOptions:
     def test_catalogue_is_public(self, client):
         body = client.get("/api/v1/websites/hero-video/options").json()
-        assert body["success"] and body["model"] == "cogvideox-3"
+        # DashScope HappyHorse is the default provider.
+        assert body["success"] and body["model"] == "happyhorse-1.1-t2v"
+        assert body["provider"] == "dashscope"
         assert {s["key"] for s in body["styles"]} >= {"cinematic", "ambient", "elegant"}
         assert all(s["label_ms"] for s in body["styles"])
         assert body["overlays"] == ["dark", "light", "none"]
+
+    def test_catalogue_follows_the_provider_switch(self, client, monkeypatch):
+        monkeypatch.setenv("HERO_VIDEO_PROVIDER", "zai")
+        body = client.get("/api/v1/websites/hero-video/options").json()
+        assert body["model"] == "cogvideox-3" and body["provider"] == "zai"
 
 
 class TestReadState:

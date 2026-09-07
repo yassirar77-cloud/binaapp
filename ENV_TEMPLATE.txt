@@ -134,6 +134,19 @@ HERO_VIDEO_ENABLED=false            # master flag — off: every /hero-video rou
 HERO_VIDEO_ALLOW_ALL_PLANS=false    # true: skip the plan check (admins always pass);
                                     # false: plan features need can_use_hero_video=true
 HERO_VIDEO_MAX_PER_SITE_PER_DAY=5   # cost guard, per website (in-memory)
+# Which text-to-video API makes the hero clip. 'dashscope' (default) uses
+# Alibaba Model Studio's async video-synthesis endpoint (HappyHorse); 'zai'
+# is the original CogVideoX path. Everything after the clip exists
+# (download, Cloudinary, patch, publish) is the same for both.
+HERO_VIDEO_PROVIDER=dashscope
+# DashScope: the same key as the Qwen text path (DASHSCOPE_API_KEY or
+# QWEN_API_KEY). DASHSCOPE_API_URL is the NATIVE API root, not the
+# OpenAI-compatible one in QWEN_BASE_URL.
+DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+DASHSCOPE_API_URL=https://dashscope-intl.aliyuncs.com/api/v1
+DASHSCOPE_VIDEO_MODEL=happyhorse-1.1-t2v
+DASHSCOPE_VIDEO_RESOLUTION=720P     # 480P / 720P / 1080P (priced per second: 480P cheapest)
+DASHSCOPE_VIDEO_RATIO=16:9          # 16:9 / 9:16 / 1:1 / 4:3 / 3:4
 ZAI_VIDEO_MODEL=cogvideox-3         # Z.ai /videos/generations model code
 ZAI_VIDEO_SIZE=1280x720             # 1280x720 | 1920x1080 | 720x1280 | 1080x1920 | 1024x1024
 ZAI_VIDEO_DURATION=5                # 5 | 10 seconds

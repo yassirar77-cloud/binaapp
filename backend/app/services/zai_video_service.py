@@ -77,6 +77,63 @@ def zai_video_model() -> str:
     return os.getenv("ZAI_VIDEO_MODEL", "cogvideox-3").strip() or "cogvideox-3"
 
 
+# ---------------------------------------------------------------------------
+# Provider switch — DashScope (Alibaba Model Studio) or Z.ai
+# ---------------------------------------------------------------------------
+
+PROVIDER_DASHSCOPE = "dashscope"
+PROVIDER_ZAI = "zai"
+PROVIDERS = (PROVIDER_DASHSCOPE, PROVIDER_ZAI)
+
+
+def hero_video_provider() -> str:
+    """Which text-to-video API makes the clip. ``dashscope`` (default) is
+    Alibaba Model Studio's async video-synthesis endpoint running
+    HappyHorse; ``zai`` is the original CogVideoX path. Everything after the
+    clip exists (download, Cloudinary, patch, publish) is provider-agnostic."""
+    value = os.getenv("HERO_VIDEO_PROVIDER", PROVIDER_DASHSCOPE).strip().lower()
+    return value if value in PROVIDERS else PROVIDER_DASHSCOPE
+
+
+def _dashscope_api_key() -> Optional[str]:
+    # Same key the Qwen text path uses; either spelling works.
+    return os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY") or None
+
+
+def _dashscope_base_url() -> str:
+    # The NATIVE DashScope API root (not the OpenAI-compatible one QWEN_BASE_URL
+    # points at). International endpoint by default.
+    return (
+        os.getenv("DASHSCOPE_API_URL") or "https://dashscope-intl.aliyuncs.com/api/v1"
+    ).rstrip("/")
+
+
+def dashscope_video_model() -> str:
+    """DashScope text-to-video model. ``happyhorse-1.1-t2v`` by default."""
+    return os.getenv("DASHSCOPE_VIDEO_MODEL", "happyhorse-1.1-t2v").strip() or "happyhorse-1.1-t2v"
+
+
+DASHSCOPE_RESOLUTIONS = ("480P", "720P", "1080P")
+DASHSCOPE_RATIOS = ("16:9", "9:16", "1:1", "4:3", "3:4")
+
+
+def dashscope_video_resolution() -> str:
+    """480P / 720P / 1080P. 720P by default — the hero is wide and 1080P
+    costs more per second and doubles what every visitor downloads."""
+    value = os.getenv("DASHSCOPE_VIDEO_RESOLUTION", "720P").strip().upper()
+    return value if value in DASHSCOPE_RESOLUTIONS else "720P"
+
+
+def dashscope_video_ratio() -> str:
+    value = os.getenv("DASHSCOPE_VIDEO_RATIO", "16:9").strip()
+    return value if value in DASHSCOPE_RATIOS else "16:9"
+
+
+def hero_video_model() -> str:
+    """The model name shown in the picker, for whichever provider is active."""
+    return dashscope_video_model() if hero_video_provider() == PROVIDER_DASHSCOPE else zai_video_model()
+
+
 #: Landscape 720p: a hero is wide, and 1080p doubles the bytes every visitor
 #: downloads for no visible gain behind a text scrim.
 DEFAULT_VIDEO_SIZE = "1280x720"
@@ -380,11 +437,13 @@ class ZaiVideoService:
         size: Optional[str] = None,
         image_url: Optional[str] = None,
     ) -> str:
-        """Start a generation. Returns the Z.ai task id.
+        """Start a generation. Returns the provider's task id.
 
         ``with_audio`` is always false: the clip plays muted behind the hero,
         and audio would only make the file heavier.
         """
+        if hero_video_provider() == PROVIDER_DASHSCOPE:
+            return await self._submit_dashscope(prompt, duration=duration, image_url=image_url)
         if not _zai_api_key():
             raise ZaiVideoError("ZAI_API_KEY is not configured")
 
@@ -440,6 +499,8 @@ class ZaiVideoService:
         Returns ``{"status": "processing"|"success"|"fail",
                    "video_url": str|None, "cover_image_url": str|None}``.
         """
+        if hero_video_provider() == PROVIDER_DASHSCOPE:
+            return await self._fetch_result_dashscope(task_id)
         if not _zai_api_key():
             raise ZaiVideoError("ZAI_API_KEY is not configured")
         try:
@@ -477,6 +538,121 @@ class ZaiVideoService:
                 "cover_image_url": first.get("cover_image_url"),
             }
         if state == "FAIL":
+            return {"status": "fail", "video_url": None, "cover_image_url": None}
+        return {"status": "processing", "video_url": None, "cover_image_url": None}
+
+    # ---- DashScope (Alibaba Model Studio) ---------------------------------
+
+    def _dashscope_headers(self) -> Dict[str, str]:
+        return {
+            "Authorization": f"Bearer {_dashscope_api_key()}",
+            "Content-Type": "application/json",
+            # Video synthesis is async-only: the create call returns a task id
+            # and GET /tasks/{id} is polled until SUCCEEDED/FAILED.
+            "X-DashScope-Async": "enable",
+        }
+
+    async def _submit_dashscope(
+        self,
+        prompt: str,
+        *,
+        duration: Optional[int] = None,
+        image_url: Optional[str] = None,
+    ) -> str:
+        if not _dashscope_api_key():
+            raise ZaiVideoError("DASHSCOPE_API_KEY is not configured")
+        if image_url:
+            # HappyHorse-T2V is text-to-video only; the merchant's photo stays
+            # on the page as the poster fallback, it is not animated.
+            logger.info("🎬 DashScope: image_url ignored (text-to-video model)")
+
+        payload: Dict = {
+            "model": dashscope_video_model(),
+            "input": {"prompt": prompt[:ZAI_PROMPT_MAX_CHARS]},
+            "parameters": {
+                "resolution": dashscope_video_resolution(),
+                "ratio": dashscope_video_ratio(),
+                "duration": duration if duration in ALLOWED_DURATIONS else zai_video_duration(),
+            },
+        }
+        logger.info(
+            f"🎬 DashScope video submit ({payload['model']}, "
+            f"{payload['parameters']['resolution']} {payload['parameters']['ratio']}, "
+            f"{payload['parameters']['duration']}s): {prompt[:80]}..."
+        )
+        try:
+            async with httpx.AsyncClient(timeout=zai_video_timeout_seconds()) as client:
+                response = await client.post(
+                    f"{_dashscope_base_url()}/services/aigc/video-generation/video-synthesis",
+                    headers=self._dashscope_headers(),
+                    json=payload,
+                )
+        except httpx.TimeoutException as exc:
+            raise ZaiVideoError("DashScope video submit timed out") from exc
+        except httpx.HTTPError as exc:
+            raise ZaiVideoError(f"DashScope video submit failed: {exc}") from exc
+
+        if response.status_code == 429:
+            raise ZaiVideoError("DashScope video rate limit — try again in a minute")
+        if response.status_code != 200:
+            logger.error(
+                f"🎬 DashScope video submit failed: {response.status_code} - {response.text[:300]}"
+            )
+            raise ZaiVideoError(f"DashScope video submit failed ({response.status_code})")
+
+        data = response.json() or {}
+        output = data.get("output") or {}
+        task_id = output.get("task_id")
+        if not task_id:
+            logger.error(f"🎬 DashScope video submit returned no task id: {str(data)[:300]}")
+            raise ZaiVideoError("DashScope video submit returned no task id")
+        state = str(output.get("task_status", "")).upper()
+        if state in ("FAILED", "CANCELED"):
+            raise ZaiVideoError(f"DashScope rejected the video request ({output.get('message') or state})")
+        logger.info(f"🎬 DashScope video task {task_id} accepted ({state or 'PENDING'})")
+        return str(task_id)
+
+    async def _fetch_result_dashscope(self, task_id: str) -> Dict:
+        """One poll of ``GET /tasks/{task_id}``.
+
+        DashScope states: PENDING / RUNNING → processing; SUCCEEDED → success
+        with ``output.video_url`` (valid 24h — we copy it to Cloudinary at
+        once); FAILED / CANCELED / UNKNOWN → fail.
+        """
+        if not _dashscope_api_key():
+            raise ZaiVideoError("DASHSCOPE_API_KEY is not configured")
+        try:
+            async with httpx.AsyncClient(timeout=zai_video_timeout_seconds()) as client:
+                response = await client.get(
+                    f"{_dashscope_base_url()}/tasks/{task_id}",
+                    headers={"Authorization": f"Bearer {_dashscope_api_key()}"},
+                )
+        except httpx.TimeoutException as exc:
+            raise ZaiVideoError("DashScope video poll timed out") from exc
+        except httpx.HTTPError as exc:
+            raise ZaiVideoError(f"DashScope video poll failed: {exc}") from exc
+
+        if response.status_code == 429:
+            return {"status": "processing", "video_url": None, "cover_image_url": None}
+        if response.status_code != 200:
+            logger.error(
+                f"🎬 DashScope video poll failed: {response.status_code} - {response.text[:300]}"
+            )
+            raise ZaiVideoError(f"DashScope video poll failed ({response.status_code})")
+
+        data = response.json() or {}
+        output = data.get("output") or {}
+        state = str(output.get("task_status", "")).upper()
+        if state == "SUCCEEDED":
+            video_url = output.get("video_url")
+            if not video_url:
+                raise ZaiVideoError("DashScope reported success but returned no video URL")
+            return {"status": "success", "video_url": video_url, "cover_image_url": None}
+        if state in ("FAILED", "CANCELED", "UNKNOWN"):
+            logger.error(
+                f"🎬 DashScope video task {task_id} {state}: "
+                f"{output.get('code')} {str(output.get('message'))[:200]}"
+            )
             return {"status": "fail", "video_url": None, "cover_image_url": None}
         return {"status": "processing", "video_url": None, "cover_image_url": None}
 
