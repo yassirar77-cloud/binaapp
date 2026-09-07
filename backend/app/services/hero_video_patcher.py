@@ -18,6 +18,7 @@ One self-contained block, fenced by HTML comments so removal is exact:
     <!--binaapp:hero-video-->
     <div class="binaapp-hero-video-layer" data-binaapp-video-url="..." ...>
       <video class="binaapp-hero-video" autoplay muted loop playsinline …>
+      <script>…playback bootstrap: force muted, play() now + on first touch…</script>
       <div class="binaapp-hero-video-scrim"></div>
     </div>
     <!--/binaapp:hero-video-->
@@ -340,14 +341,45 @@ def _build_layer(settings: HeroVideoSettings) -> str:
         f' data-binaapp-mobile="{"video" if settings.show_on_mobile else "poster"}"'
         f"{poster_style}>"
         f'<video class="binaapp-hero-video" autoplay muted loop playsinline'
-        f' preload="metadata" disablepictureinpicture tabindex="-1"'
+        f' preload="auto" disablepictureinpicture tabindex="-1"'
         f'{poster_attr}>'
         f'<source src="{video_url}" type="video/mp4">'
         f"</video>"
         f'<div class="binaapp-hero-video-scrim"></div>'
+        f"{PLAYBACK_BOOTSTRAP}"
         f"</div>"
         f"{BLOCK_END}"
     )
+
+
+#: Inline playback bootstrap, emitted inside the layer so the comment fence
+#: still removes it byte-exactly. The HTML attributes alone are not enough on
+#: every phone: some Android/Samsung browsers and iOS Low Power Mode refuse
+#: the initial autoplay and just sit on the poster, and a few browsers ignore
+#: the ``muted`` attribute until the property is set from script (autoplay is
+#: only ever allowed for muted media). So: force muted, call play() at once,
+#: and call it again on the first touch/scroll/key and whenever the tab comes
+#: back — each of those is a user gesture or visibility change the autoplay
+#: policy accepts. Honours prefers-reduced-motion (the CSS hides the video
+#: there; we simply do not try to play it). Stamps
+#: ``data-binaapp-video-playing`` on the hero once frames are really moving,
+#: so "is it playing?" can be answered from the page itself.
+PLAYBACK_BOOTSTRAP = (
+    "<script>(function(){"
+    "var s=document.currentScript,l=s&&s.parentNode,v=l&&l.querySelector('video.binaapp-hero-video');"
+    "if(!v)return;"
+    "if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;"
+    "v.muted=true;v.defaultMuted=true;v.setAttribute('muted','');"
+    "var h=l.parentNode;"
+    "v.addEventListener('playing',function(){if(h&&h.setAttribute)h.setAttribute('data-binaapp-video-playing','1');});"
+    "function go(){try{var p=v.play();if(p&&p.catch)p.catch(function(){});}catch(e){}}"
+    "go();"
+    "['touchstart','pointerdown','scroll','keydown'].forEach(function(t){"
+    "window.addEventListener(t,go,{once:true,passive:true});});"
+    "document.addEventListener('visibilitychange',function(){if(!document.hidden)go();});"
+    "if(v.readyState<2){v.addEventListener('loadeddata',go,{once:true});}"
+    "})();</script>"
+)
 
 
 _TEXT_ELEMENTS = ("h1", "h2", "h3", "h4", "p", "li", "blockquote")
@@ -436,15 +468,21 @@ LEGACY_CHILD_RULE = (
 
 
 def needs_style_upgrade(html: str) -> bool:
-    """True when the page has a hero video whose injected CSS predates the
-    z-index:-1 layer (see LEGACY_CHILD_RULE). False for pages without a
-    video and for pages already on the current CSS."""
+    """True when the page has a hero video whose injected markup predates
+    the current release: the child-restyling CSS (LEGACY_CHILD_RULE) or a
+    layer without the playback bootstrap. False for pages without a video
+    and for pages already on the current output."""
     if not html:
         return False
     style = _STYLE_RE.search(html)
     if not style:
         return False
-    return LEGACY_CHILD_RULE in style.group(0)
+    if LEGACY_CHILD_RULE in style.group(0):
+        return True
+    # Second generation: the block exists but predates the playback
+    # bootstrap (poster-only on phones that refuse the initial autoplay).
+    block = _BLOCK_RE.search(html)
+    return bool(block) and "v.play()" not in block.group(0)
 
 
 def remove_hero_video(html: str) -> HeroVideoResult:

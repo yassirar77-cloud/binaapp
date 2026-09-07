@@ -103,7 +103,7 @@ class TestApply:
     def test_video_element_shape_is_autoplay_safe(self):
         html = apply_hero_video(TEMPLATE_PAGE, _settings()).html
         video_tag = html[html.index("<video"):html.index("</video>")]
-        for attr in ("autoplay", "muted", "loop", "playsinline", 'preload="metadata"', 'tabindex="-1"'):
+        for attr in ("autoplay", "muted", "loop", "playsinline", 'preload="auto"', 'tabindex="-1"'):
             assert attr in video_tag
         assert f'<source src="{VIDEO}" type="video/mp4">' in video_tag
         assert f'poster="{POSTER}"' in video_tag
@@ -317,4 +317,34 @@ class TestStackingKeepsChildrenUntouched:
             "</head>", "<style>" + LEGACY_CHILD_RULE + "</style></head>", 1
         )
         assert needs_style_upgrade(html) is False
+
+
+class TestPlaybackBootstrap:
+    def test_layer_carries_the_bootstrap_inside_the_fence(self):
+        html = apply_hero_video(DECORATED_HERO_HTML, _settings()).html
+        block = html[html.index(BLOCK_START):html.index(BLOCK_END)]
+        assert "<script>" in block and "v.play()" in block
+        assert "prefers-reduced-motion" in block
+        assert "data-binaapp-video-playing" in block
+        assert 'preload="auto"' in block
+        # One script per page, and nothing of it survives removal.
+        assert html.count("v.play()") == 1
+        assert remove_hero_video(html).html == DECORATED_HERO_HTML
+
+    def test_bootstrap_never_touches_merchant_scripts(self):
+        page = DECORATED_HERO_HTML.replace("</body>", "<script>AOS.init()</script></body>")
+        html = apply_hero_video(page, _settings()).html
+        assert "AOS.init()" in html
+        assert remove_hero_video(html).html == page
+
+    def test_block_without_the_bootstrap_needs_an_upgrade(self):
+        fresh = apply_hero_video(DECORATED_HERO_HTML, _settings()).html
+        start = fresh.index("<script>", fresh.index(BLOCK_START))
+        end = fresh.index("</script>", start) + len("</script>")
+        older = fresh[:start] + fresh[end:]
+        assert needs_style_upgrade(older) is True
+        current = detect_hero_video(older)
+        upgraded = apply_hero_video(older, build_settings(**current)).html
+        assert needs_style_upgrade(upgraded) is False
+        assert upgraded == fresh
 
