@@ -59,7 +59,7 @@ def hero_video_enabled() -> bool:
 
 
 def _zai_api_key() -> Optional[str]:
-    return os.getenv("ZAI_API_KEY") or None
+    return (os.getenv("ZAI_API_KEY") or "").strip() or None
 
 
 def _zai_base_url() -> str:
@@ -95,9 +95,28 @@ def hero_video_provider() -> str:
     return value if value in PROVIDERS else PROVIDER_DASHSCOPE
 
 
+def _dashscope_key_source() -> Tuple[Optional[str], str]:
+    """(key, env var name it came from). Whitespace is stripped: a key pasted
+    from a phone often arrives with a trailing newline, which the API rejects
+    as InvalidApiKey. DASHSCOPE_API_KEY wins over the Qwen text key."""
+    for name in ("DASHSCOPE_API_KEY", "QWEN_API_KEY"):
+        value = (os.getenv(name) or "").strip()
+        if value:
+            return value, name
+    return None, ""
+
+
 def _dashscope_api_key() -> Optional[str]:
-    # Same key the Qwen text path uses; either spelling works.
-    return os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY") or None
+    return _dashscope_key_source()[0]
+
+
+def _key_fingerprint(key: Optional[str]) -> str:
+    """Enough to tell two keys apart in a log, never enough to use one."""
+    if not key:
+        return "none"
+    if len(key) <= 10:
+        return f"{key[:2]}…({len(key)} chars)"
+    return f"{key[:6]}…{key[-4:]} ({len(key)} chars)"
 
 
 def _dashscope_base_url() -> str:
@@ -654,6 +673,13 @@ class ZaiVideoService:
             logger.error(
                 f"🎬 DashScope video submit failed: {response.status_code} - {response.text[:300]}"
             )
+            if response.status_code in (401, 403):
+                key, source = _dashscope_key_source()
+                logger.error(
+                    f"🎬 DashScope rejected the key from {source or 'no env var'} "
+                    f"[{_key_fingerprint(key)}] at {_dashscope_base_url()} — check it is an "
+                    f"API key for THIS region (intl keys only work on dashscope-intl)"
+                )
             raise ZaiVideoError(f"DashScope video submit failed ({response.status_code})")
 
         data = response.json() or {}
