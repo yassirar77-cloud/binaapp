@@ -22,6 +22,7 @@ from app.services.zai_video_service import (
     dashscope_video_model,
     dashscope_video_resolution,
     hero_video_enabled,
+    hero_video_fallback_provider,
     hero_video_model,
     hero_video_provider,
 )
@@ -473,4 +474,113 @@ class TestDashScopeFetchResult:
         with patch.object(httpx, "AsyncClient", client):
             with pytest.raises(ZaiVideoError):
                 await ZaiVideoService().fetch_result("t")
+
+
+# ---------------------------------------------------------------------------
+# Fallback chain + per-job provider
+# ---------------------------------------------------------------------------
+
+ZAI_SUBMIT_OK = {"id": "zai-task-9", "task_status": "PROCESSING", "request_id": "r"}
+
+
+def two_step_client(first, second):
+    """POST answers `first` on the first call and `second` afterwards; GET is unused."""
+    calls = {"post": [], "get": []}
+    answers = [first, second]
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            calls["post"].append({"url": str(url), "headers": headers, "json": json})
+            return answers[min(len(calls["post"]) - 1, 1)]
+
+        async def get(self, url, headers=None):
+            calls["get"].append({"url": str(url), "headers": headers})
+            return FakeResponse(200, {})
+
+    return _Client, calls
+
+
+class TestFallbackProvider:
+    def test_defaults_to_zai_when_dashscope_is_primary(self, monkeypatch):
+        monkeypatch.delenv("HERO_VIDEO_PROVIDER", raising=False)
+        monkeypatch.delenv("HERO_VIDEO_FALLBACK_PROVIDER", raising=False)
+        assert hero_video_fallback_provider() == PROVIDER_ZAI
+
+    def test_no_fallback_when_zai_is_primary(self, monkeypatch):
+        monkeypatch.setenv("HERO_VIDEO_PROVIDER", "zai")
+        monkeypatch.delenv("HERO_VIDEO_FALLBACK_PROVIDER", raising=False)
+        assert hero_video_fallback_provider() is None
+
+    def test_none_disables_and_same_as_primary_is_ignored(self, monkeypatch):
+        monkeypatch.delenv("HERO_VIDEO_PROVIDER", raising=False)
+        monkeypatch.setenv("HERO_VIDEO_FALLBACK_PROVIDER", "none")
+        assert hero_video_fallback_provider() is None
+        monkeypatch.setenv("HERO_VIDEO_FALLBACK_PROVIDER", "dashscope")
+        assert hero_video_fallback_provider() is None
+
+    async def test_primary_accepts_returns_primary(self, dashscope_env, monkeypatch):
+        monkeypatch.setenv("ZAI_API_KEY", "zai-key")
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            assert await ZaiVideoService().submit_with_fallback("p") == ("ds-task-1", "dashscope")
+        assert len(calls["post"]) == 1
+
+    async def test_rejected_key_falls_back_to_zai(self, dashscope_env, monkeypatch):
+        monkeypatch.setenv("ZAI_API_KEY", "zai-key")
+        client, calls = two_step_client(
+            FakeResponse(401, {"code": "InvalidApiKey", "message": "Invalid API-key provided."}),
+            FakeResponse(200, ZAI_SUBMIT_OK),
+        )
+        with patch.object(httpx, "AsyncClient", client):
+            assert await ZaiVideoService().submit_with_fallback("p") == ("zai-task-9", "zai")
+        assert "dashscope-intl" in calls["post"][0]["url"]
+        assert calls["post"][1]["url"].endswith("/videos/generations")
+        assert calls["post"][1]["headers"]["Authorization"] == "Bearer zai-key"
+
+    async def test_no_fallback_key_means_primary_error_surfaces(self, dashscope_env, monkeypatch):
+        monkeypatch.delenv("ZAI_API_KEY", raising=False)
+        client, calls = fake_client(post_response=FakeResponse(401, {"code": "InvalidApiKey"}))
+        with patch.object(httpx, "AsyncClient", client):
+            with pytest.raises(ZaiVideoError, match="401"):
+                await ZaiVideoService().submit_with_fallback("p")
+        assert len(calls["post"]) == 1
+
+    async def test_both_fail_raises_the_primary_error(self, dashscope_env, monkeypatch):
+        monkeypatch.setenv("ZAI_API_KEY", "zai-key")
+        client, calls = two_step_client(
+            FakeResponse(401, {"code": "InvalidApiKey"}), FakeResponse(500, {})
+        )
+        with patch.object(httpx, "AsyncClient", client):
+            with pytest.raises(ZaiVideoError, match="DashScope video submit failed \\(401\\)"):
+                await ZaiVideoService().submit_with_fallback("p")
+        assert len(calls["post"]) == 2
+
+    async def test_fetch_result_follows_the_jobs_provider_not_the_env(self, dashscope_env, monkeypatch):
+        monkeypatch.setenv("ZAI_API_KEY", "zai-key")
+        client, calls = fake_client(get_response=FakeResponse(
+            200, {"task_status": "PROCESSING", "video_result": [], "model": "cogvideox-3", "request_id": "r"}
+        ))
+        with patch.object(httpx, "AsyncClient", client):
+            result = await ZaiVideoService().fetch_result("zai-task-9", provider="zai")
+        assert calls["get"][0]["url"].endswith("/async-result/zai-task-9")
+        assert result["status"] == "processing"
+
+    def test_register_job_records_the_provider(self, dashscope_env):
+        service = ZaiVideoService()
+        job = service.register_job(
+            task_id="zai-task-9", website_id="ws", user_id="u", prompt="p", settings={}, provider="zai"
+        )
+        assert job.provider == "zai"
+        assert job.to_dict()["provider"] == "zai"
+        default = service.register_job(task_id="t2", website_id="ws2", user_id="u", prompt="p", settings={})
+        assert default.provider == "dashscope"
 

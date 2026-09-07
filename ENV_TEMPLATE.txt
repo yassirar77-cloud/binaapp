@@ -139,6 +139,11 @@ HERO_VIDEO_MAX_PER_SITE_PER_DAY=5   # cost guard, per website (in-memory)
 # is the original CogVideoX path. Everything after the clip exists
 # (download, Cloudinary, patch, publish) is the same for both.
 HERO_VIDEO_PROVIDER=dashscope
+# Provider to try when the primary cannot ACCEPT a job (rejected key, quota,
+# outage — anything failing at submit). Defaults to 'zai' when the primary
+# is dashscope. 'none' disables it. Never used for a job that was accepted
+# and then failed.
+HERO_VIDEO_FALLBACK_PROVIDER=zai
 # DashScope: the same key as the Qwen text path (DASHSCOPE_API_KEY or
 # QWEN_API_KEY). DASHSCOPE_API_URL is the NATIVE API root, not the
 # OpenAI-compatible one in QWEN_BASE_URL.

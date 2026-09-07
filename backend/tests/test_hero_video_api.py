@@ -92,7 +92,10 @@ def patches():
         ) as publish_website,
         patch.object(ep, "_fetch_serving_snapshot", new=AsyncMock(return_value=None)) as fetch_snapshot,
         patch.object(ep, "can_use_hero_video", new=AsyncMock(return_value=True)) as plan_gate,
-        patch.object(svc.zai_video_service, "submit", new=AsyncMock(return_value="task-1")) as submit,
+        patch.object(
+            svc.zai_video_service, "submit_with_fallback",
+            new=AsyncMock(return_value=("task-1", "dashscope")),
+        ) as submit,
         patch.object(
             svc.zai_video_service, "fetch_result",
             new=AsyncMock(return_value={"status": "processing", "video_url": None, "cover_image_url": None}),
@@ -466,4 +469,26 @@ class TestLegacyCssSelfHeal:
         assert body["upgraded_css"] is False
         # Still reports the video the page has — from the unmodified HTML.
         assert body["has_video"] is True
+
+
+class TestProviderConfigurationErrors:
+    def test_rejected_key_is_reported_as_configuration(self, client, auth_headers, patches):
+        patches["submit"].side_effect = svc.ZaiVideoError("DashScope video submit failed (401)")
+        resp = client.post("/api/v1/websites/ws-1/hero-video/generate", json={}, headers=auth_headers)
+        assert resp.status_code == 502
+        detail = resp.json()["detail"]
+        assert detail["error"] == "provider_not_configured"
+        assert "kunci API" in detail["message"]
+
+    def test_transient_submit_failure_keeps_the_retry_message(self, client, auth_headers, patches):
+        patches["submit"].side_effect = svc.ZaiVideoError("DashScope video submit timed out")
+        resp = client.post("/api/v1/websites/ws-1/hero-video/generate", json={}, headers=auth_headers)
+        assert resp.status_code == 502
+        assert resp.json()["detail"]["error"] == "video_submit_failed"
+
+    def test_job_polls_the_provider_it_was_submitted_to(self, client, auth_headers, patches):
+        patches["submit"].return_value = ("zai-task-9", "zai")
+        job_id = _start_job(client, auth_headers)
+        client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers)
+        assert patches["fetch_result"].call_args.kwargs.get("provider") == "zai"
 
