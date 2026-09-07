@@ -267,6 +267,16 @@ export default function CreatePage() {
   // (the card hides itself), object = the style presets.
   const [heroVideoOptions, setHeroVideoOptions] = useState<HeroVideoOptions | null | undefined>(undefined)
   const [heroVideoWanted, setHeroVideoWanted] = useState(false)
+  const HERO_VIDEO_WANTED_KEY = 'binaapp:hero-video:wanted'
+  const HERO_VIDEO_STYLE_KEY = 'binaapp:hero-video:style'
+  const setHeroVideoWantedRemembered = (next: boolean) => {
+    setHeroVideoWanted(next)
+    try { window.localStorage.setItem(HERO_VIDEO_WANTED_KEY, next ? '1' : '0') } catch { /* ignore */ }
+  }
+  const setHeroVideoStyleRemembered = (next: string) => {
+    setHeroVideoStyle(next)
+    try { window.localStorage.setItem(HERO_VIDEO_STYLE_KEY, next) } catch { /* ignore */ }
+  }
   const [heroVideoStyle, setHeroVideoStyle] = useState('cinematic')
   const [heroVideoPrompt, setHeroVideoPrompt] = useState('')
   const [heroVideoJob, setHeroVideoJob] = useState<HeroVideoJob | null>(null)
@@ -277,6 +287,13 @@ export default function CreatePage() {
   useEffect(() => {
     heroVideoStopped.current = false
     let cancelled = false
+    // Remember the merchant's last choice across sites: a founder building
+    // several sites in a row should not have to re-arm the toggle each time.
+    try {
+      if (window.localStorage.getItem(HERO_VIDEO_WANTED_KEY) === '1') setHeroVideoWanted(true)
+      const savedStyle = window.localStorage.getItem(HERO_VIDEO_STYLE_KEY)
+      if (savedStyle) setHeroVideoStyle(savedStyle)
+    } catch { /* storage unavailable — defaults stand */ }
     fetchHeroVideoOptions()
       .then((opts) => { if (!cancelled) setHeroVideoOptions(opts) })
       .catch(() => { if (!cancelled) setHeroVideoOptions(null) })
@@ -1238,6 +1255,7 @@ export default function CreatePage() {
       setShowPublishModal(false)
 
       // The website row now exists — the hero video can be generated against it.
+      heroVideoWebsiteId.current = websiteId
       if (heroVideoWanted && heroVideoOptions) {
         toast('🎬 Video latar hero sedang dijana… (1–2 minit)')
         void launchHeroVideo(websiteId, accessToken)
@@ -1891,7 +1909,7 @@ export default function CreatePage() {
                       role="switch"
                       aria-checked={heroVideoWanted}
                       aria-label="Tambah video latar hero"
-                      onClick={() => setHeroVideoWanted((v) => !v)}
+                      onClick={() => setHeroVideoWantedRemembered(!heroVideoWanted)}
                       style={{ width: 46, height: 26, borderRadius: 13, border: '1px solid rgba(255,255,255,.14)', background: heroVideoWanted ? 'linear-gradient(180deg, #DDFF7A, #C7FF3D)' : 'rgba(255,255,255,.06)', position: 'relative', cursor: 'pointer', flexShrink: 0, transition: 'background 180ms', padding: 0 }}
                     >
                       <span style={{ position: 'absolute', top: 2, left: heroVideoWanted ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: heroVideoWanted ? '#05050C' : '#F5F5FA', transition: 'left 180ms' }} />
@@ -1907,7 +1925,7 @@ export default function CreatePage() {
                             <button
                               key={preset.key}
                               type="button"
-                              onClick={() => setHeroVideoStyle(preset.key)}
+                              onClick={() => setHeroVideoStyleRemembered(preset.key)}
                               aria-pressed={active}
                               className="cr-btn cr-btn-ghost"
                               style={{ height: 34, padding: '0 12px', fontSize: 12, borderColor: active ? 'rgba(199,255,61,.6)' : undefined, background: active ? 'rgba(199,255,61,.1)' : undefined, color: active ? '#C7FF3D' : undefined }}
@@ -2638,6 +2656,16 @@ export default function CreatePage() {
                     <Eye size={14} /> View Live
                   </a>
                 </div>
+                {!heroVideoWanted && heroVideoOptions && !heroVideoJob && !heroVideoError && (
+                  <div data-testid="hero-video-nudge" style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.08)', fontSize: 13, color: '#86869A', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span>🎬 Tiada video latar hero dipilih untuk laman ini.</span>
+                    {heroVideoWebsiteId.current ? (
+                      <a href={`/editor/${heroVideoWebsiteId.current}`} style={{ color: '#BAB0FF', fontWeight: 600, textDecoration: 'none' }}>
+                        Tambah di Editor →
+                      </a>
+                    ) : null}
+                  </div>
+                )}
                 {(heroVideoJob || heroVideoError) && (
                   <div data-testid="hero-video-status" style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
                     {heroVideoError ? (
