@@ -2685,7 +2685,7 @@ export default function CreatePage() {
                       </>
                     ) : heroVideoJob?.status === 'completed' ? (
                       <span style={{ color: '#C7FF3D' }}>
-                        ✅ Video latar hero dipasang{heroVideoJob.live_site_updated ? ' — laman langsung dikemas kini.' : '. Laman langsung akan dikemas kini sebentar lagi.'}
+                        ✅ Video latar hero dipasang{heroVideoJob.live_site_updated ? ' — laman langsung dikemas kini. Jika laman sudah dibuka di tab lain, muat semula tab itu.' : '. Laman langsung akan dikemas kini sebentar lagi.'}
                       </span>
                     ) : null}
                   </div>
