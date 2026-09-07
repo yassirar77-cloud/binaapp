@@ -163,6 +163,24 @@ export function heroVideoJobErrorMessage(code: string | null | undefined): strin
   }
 }
 
+/**
+ * True for the errors `fetch` throws BEFORE any HTTP response exists — a
+ * dropped mobile connection, a backgrounded tab, DNS, an aborted request.
+ * These are worth retrying; an HTTP error the server actually sent is not.
+ */
+export function isTransientFetchError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === 'AbortError' || err.name === 'TypeError') return true;
+  return /failed to fetch|networkerror|load failed|network request failed/i.test(err.message);
+}
+
+/** Malay copy for a transport failure, in place of the browser's raw text. */
+export const HERO_VIDEO_CONNECTION_LOST =
+  'Sambungan terputus. Video masih dijana di pelayan — kami akan cuba semula secara automatik.';
+
+/** How many consecutive dropped polls before a job is given up on. */
+export const HERO_VIDEO_MAX_POLL_FAILURES = 6;
+
 async function authedFetch(
   path: string,
   token: string | null,
@@ -279,6 +297,8 @@ export interface RunHeroVideoJobOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Hard cap so a stuck job can never poll forever. */
   maxWaitSeconds?: number;
+  /** Called on each dropped poll that will be retried (1-based count). */
+  onTransientError?: (consecutiveFailures: number, err: unknown) => void;
 }
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -325,6 +345,7 @@ export async function runHeroVideoJob(
   // First poll comes sooner: a 'speed' clip can land inside the first interval.
   await sleep(Math.min(interval, 3) * 1000);
 
+  let failures = 0;
   while (isHeroVideoJobActive(job)) {
     if (opts.shouldStop?.()) return null;
     if (Date.now() > deadline) {
@@ -333,7 +354,18 @@ export async function runHeroVideoJob(
       return job;
     }
     const pollToken = opts.getToken ? await opts.getToken() : token;
-    job = await pollHeroVideoJob(websiteId, started.job_id, pollToken);
+    try {
+      job = await pollHeroVideoJob(websiteId, started.job_id, pollToken);
+      failures = 0;
+    } catch (err) {
+      // A dropped connection is not a failed job: the clip is still being
+      // made server-side. Keep the job alive and poll again, a little
+      // slower each time, until it is clearly not coming back.
+      if (!isTransientFetchError(err) || ++failures >= HERO_VIDEO_MAX_POLL_FAILURES) throw err;
+      opts.onTransientError?.(failures, err);
+      await sleep(Math.min(interval * (1 + failures), 30) * 1000);
+      continue;
+    }
     opts.onUpdate?.(job);
     if (isHeroVideoJobActive(job)) await sleep(interval * 1000);
   }
