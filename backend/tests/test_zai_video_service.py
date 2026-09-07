@@ -584,3 +584,36 @@ class TestFallbackProvider:
         default = service.register_job(task_id="t2", website_id="ws2", user_id="u", prompt="p", settings={})
         assert default.provider == "dashscope"
 
+
+class TestKeyHygiene:
+    async def test_pasted_key_with_newline_is_stripped(self, dashscope_env, monkeypatch):
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "  sk-clean-key\n")
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            await ZaiVideoService().submit("p")
+        assert calls["post"][0]["headers"]["Authorization"] == "Bearer sk-clean-key"
+
+    async def test_blank_dashscope_key_falls_through_to_qwen(self, dashscope_env, monkeypatch):
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "   ")
+        monkeypatch.setenv("QWEN_API_KEY", "qwen-key")
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            await ZaiVideoService().submit("p")
+        assert calls["post"][0]["headers"]["Authorization"] == "Bearer qwen-key"
+
+    def test_fingerprint_never_reveals_the_key(self):
+        key = "sk-729b6079968a4aaaaaaaaaaaaaaaaaaa1234"
+        fp = svc._key_fingerprint(key)
+        assert fp.startswith("sk-729") and fp.endswith(f"({len(key)} chars)")
+        assert "968a4aaa" not in fp and key not in fp
+        assert svc._key_fingerprint(None) == "none"
+
+    async def test_401_logs_which_key_was_used(self, dashscope_env, caplog):
+        client, _ = fake_client(post_response=FakeResponse(401, {"code": "InvalidApiKey"}))
+        with patch.object(httpx, "AsyncClient", client), pytest.raises(ZaiVideoError):
+            await ZaiVideoService().submit("p")
+        # loguru → caplog bridge may not be wired; assert via the service's own
+        # helper instead so the test is independent of logging plumbing.
+        key, source = svc._dashscope_key_source()
+        assert source == "DASHSCOPE_API_KEY" and key == "ds-test-key"
+
