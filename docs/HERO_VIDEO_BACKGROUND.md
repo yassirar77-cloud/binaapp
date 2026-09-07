@@ -139,6 +139,13 @@ after the clip exists (download, Cloudinary, patch, publish) is shared.
 | Alibaba Model Studio (default) | `dashscope` | `happyhorse-1.1-t2v` | `POST {DASHSCOPE_API_URL}/services/aigc/video-generation/video-synthesis` with `X-DashScope-Async: enable` → `output.task_id` | `GET {DASHSCOPE_API_URL}/tasks/{task_id}` → `output.task_status` PENDING/RUNNING → processing, SUCCEEDED → `output.video_url` (valid 24 h), FAILED/CANCELED/UNKNOWN → failed |
 | Z.ai | `zai` | `cogvideox-3` | `POST /videos/generations` → `id` | `GET /async-result/{id}` → `task_status`, `video_result[0].url` |
 
+**Fallback.** `HERO_VIDEO_FALLBACK_PROVIDER` (default `zai` when DashScope is
+primary; `none` to disable) is tried only when the primary cannot *accept* the
+job — a rejected key (`401 InvalidApiKey`), quota, outage. Each job records the
+provider that holds its task, so polling always goes back to the same API. When
+every provider refuses, the merchant sees `provider_not_configured` with a
+Malay message pointing at server configuration rather than a retry.
+
 DashScope uses the same key as the Qwen text path (`DASHSCOPE_API_KEY`, or
 `QWEN_API_KEY`). `DASHSCOPE_VIDEO_RESOLUTION` (480P/720P/1080P, default 720P)
 and `DASHSCOPE_VIDEO_RATIO` (default 16:9) set the clip; DashScope prices per

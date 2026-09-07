@@ -454,16 +454,25 @@ async def generate_hero_video(
         image_url = None
 
     try:
-        task_id = await zai_video_service.submit(
+        task_id, provider = await zai_video_service.submit_with_fallback(
             prompt, duration=body.duration, image_url=image_url
         )
     except ZaiVideoError as exc:
         logger.error(f"[hero-video] submit failed for {website_id}: {exc}")
+        text = str(exc)
+        # A key/permission problem is a server-side configuration issue, not
+        # something the merchant can retry their way out of — say so.
+        config_problem = "401" in text or "403" in text or "not configured" in text
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={
-                "error": "video_submit_failed",
-                "message": "Penjanaan video gagal dimulakan. Sila cuba lagi sebentar.",
+                "error": "provider_not_configured" if config_problem else "video_submit_failed",
+                "message": (
+                    "Penyedia video belum dikonfigurasi dengan betul di pelayan "
+                    "(kunci API ditolak). Sila hubungi sokongan BinaApp."
+                    if config_problem
+                    else "Penjanaan video gagal dimulakan. Sila cuba lagi sebentar."
+                ),
             },
         )
 
@@ -474,10 +483,11 @@ async def generate_hero_video(
         user_id=user_id,
         prompt=prompt,
         settings=HeroVideoLook(**body.model_dump(include=set(HeroVideoLook.model_fields))).model_dump(),
+        provider=provider,
     )
     logger.info(
         f"🎬 Hero video job {job.job_id} started for {website_id} "
-        f"(style={style}, task={task_id})"
+        f"(style={style}, provider={provider}, task={task_id})"
     )
     return {
         "success": True,
@@ -526,7 +536,7 @@ async def poll_hero_video_job(
             return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
 
         try:
-            result = await zai_video_service.fetch_result(job.task_id)
+            result = await zai_video_service.fetch_result(job.task_id, provider=job.provider)
         except ZaiVideoError as exc:
             # A transient poll error is not a failed job — report processing
             # and let the client ask again.

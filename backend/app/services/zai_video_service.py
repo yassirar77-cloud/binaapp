@@ -38,7 +38,7 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Tuple, Dict, Optional
 from urllib.parse import quote, urlsplit
 
 import cloudinary
@@ -132,6 +132,26 @@ def dashscope_video_ratio() -> str:
 def hero_video_model() -> str:
     """The model name shown in the picker, for whichever provider is active."""
     return dashscope_video_model() if hero_video_provider() == PROVIDER_DASHSCOPE else zai_video_model()
+
+
+def hero_video_fallback_provider() -> Optional[str]:
+    """Provider to try when the primary cannot ACCEPT a job (bad key, quota,
+    outage — anything that fails at submit). Defaults to Z.ai when DashScope
+    is primary, so a misconfigured DashScope key degrades to the older path
+    instead of a dead feature. ``none`` disables the fallback. Never used for
+    a job that was accepted and then failed — that is a real failure."""
+    raw = os.getenv("HERO_VIDEO_FALLBACK_PROVIDER", "").strip().lower()
+    if raw in ("none", "off", "false", "0"):
+        return None
+    if raw in PROVIDERS:
+        return raw if raw != hero_video_provider() else None
+    return PROVIDER_ZAI if hero_video_provider() == PROVIDER_DASHSCOPE else None
+
+
+def _provider_configured(provider: str) -> bool:
+    if provider == PROVIDER_DASHSCOPE:
+        return bool(_dashscope_api_key())
+    return bool(_zai_api_key())
 
 
 #: Landscape 720p: a hero is wide, and 1080p doubles the bytes every visitor
@@ -337,6 +357,9 @@ class HeroVideoJob:
     poster_url: Optional[str] = None
     applied: bool = False
     live_site_updated: bool = False
+    #: Which API holds this task — polling must go back to the same one even
+    #: if HERO_VIDEO_PROVIDER changes or the job came from the fallback.
+    provider: str = ""
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
     def age_seconds(self) -> float:
@@ -353,6 +376,7 @@ class HeroVideoJob:
             "applied": self.applied,
             "live_site_updated": self.live_site_updated,
             "elapsed_seconds": round(self.age_seconds()),
+            "provider": self.provider or hero_video_provider(),
         }
 
 
@@ -406,6 +430,7 @@ class ZaiVideoService:
         user_id: str,
         prompt: str,
         settings: Dict,
+        provider: Optional[str] = None,
     ) -> HeroVideoJob:
         job = HeroVideoJob(
             job_id=uuid.uuid4().hex,
@@ -414,6 +439,7 @@ class ZaiVideoService:
             user_id=user_id,
             prompt=prompt,
             settings=settings,
+            provider=provider or hero_video_provider(),
         )
         self._jobs[job.job_id] = job
         return job
@@ -436,13 +462,14 @@ class ZaiVideoService:
         duration: Optional[int] = None,
         size: Optional[str] = None,
         image_url: Optional[str] = None,
+        provider: Optional[str] = None,
     ) -> str:
         """Start a generation. Returns the provider's task id.
 
         ``with_audio`` is always false: the clip plays muted behind the hero,
         and audio would only make the file heavier.
         """
-        if hero_video_provider() == PROVIDER_DASHSCOPE:
+        if (provider or hero_video_provider()) == PROVIDER_DASHSCOPE:
             return await self._submit_dashscope(prompt, duration=duration, image_url=image_url)
         if not _zai_api_key():
             raise ZaiVideoError("ZAI_API_KEY is not configured")
@@ -493,13 +520,13 @@ class ZaiVideoService:
         logger.info(f"🎬 Z.ai video task {task_id} accepted")
         return str(task_id)
 
-    async def fetch_result(self, task_id: str) -> Dict:
+    async def fetch_result(self, task_id: str, provider: Optional[str] = None) -> Dict:
         """One poll of ``/async-result/{id}``.
 
         Returns ``{"status": "processing"|"success"|"fail",
                    "video_url": str|None, "cover_image_url": str|None}``.
         """
-        if hero_video_provider() == PROVIDER_DASHSCOPE:
+        if (provider or hero_video_provider()) == PROVIDER_DASHSCOPE:
             return await self._fetch_result_dashscope(task_id)
         if not _zai_api_key():
             raise ZaiVideoError("ZAI_API_KEY is not configured")
@@ -540,6 +567,35 @@ class ZaiVideoService:
         if state == "FAIL":
             return {"status": "fail", "video_url": None, "cover_image_url": None}
         return {"status": "processing", "video_url": None, "cover_image_url": None}
+
+    async def submit_with_fallback(
+        self,
+        prompt: str,
+        *,
+        duration: Optional[int] = None,
+        image_url: Optional[str] = None,
+    ) -> Tuple[str, str]:
+        """Submit to the primary provider; if it cannot accept the job, try
+        the fallback. Returns ``(task_id, provider)`` so the job remembers
+        where to poll. Raises ZaiVideoError (the primary's) when nothing
+        accepted the job."""
+        primary = hero_video_provider()
+        try:
+            return await self.submit(prompt, duration=duration, image_url=image_url, provider=primary), primary
+        except ZaiVideoError as primary_exc:
+            fallback = hero_video_fallback_provider()
+            if not fallback or not _provider_configured(fallback):
+                raise
+            logger.warning(
+                f"🎬 {primary} could not accept the video job ({primary_exc}) — "
+                f"falling back to {fallback}"
+            )
+            try:
+                task_id = await self.submit(prompt, duration=duration, image_url=image_url, provider=fallback)
+            except ZaiVideoError as fallback_exc:
+                logger.error(f"🎬 fallback {fallback} failed too: {fallback_exc}")
+                raise primary_exc from fallback_exc
+            return task_id, fallback
 
     # ---- DashScope (Alibaba Model Studio) ---------------------------------
 

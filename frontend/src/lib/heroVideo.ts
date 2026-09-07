@@ -131,6 +131,8 @@ export function heroVideoErrorMessage(status: number, detail?: unknown): string 
       return 'Had harian video untuk laman web ini telah dicapai. Cuba lagi esok.';
     case 'video_submit_failed':
       return 'Penjanaan video gagal dimulakan. Sila cuba lagi sebentar.';
+    case 'provider_not_configured':
+      return 'Penyedia video belum dikonfigurasi dengan betul di pelayan (kunci API ditolak). Sila hubungi sokongan BinaApp.';
     case 'job_not_found':
       return 'Tugasan video tidak dijumpai atau telah tamat. Sila mula semula.';
     case 'no_hero_video':
