@@ -67,8 +67,8 @@ Injected once, fenced by comments so removal is exact:
   class, then the first `<section>` in the body — the order the generator
   and the pre-built templates emit.
 * Every CSS rule is scoped to `[data-binaapp-hero-video]`; nothing depends
-  on the merchant's own classes. Direct children of the hero are lifted to
-  `z-index:1`; the layer sits at `z-index:0` inside the hero, over its own
+  on the merchant's own classes. The hero's children are never restyled. The layer sits at `z-index:-1`
+  inside the hero's own `isolation:isolate` stacking context, so it paints over the section's own
   background gradient/image.
 * `overlay` (`dark` / `light` / `none`) + `overlay_opacity` paint the scrim.
   `text_mode: auto` forces hero headings/paragraphs white over a dark scrim

@@ -28,9 +28,13 @@ only CSS hook — the rules never depend on the merchant's own class names).
 
 SAFETY RULES
 ------------
-* The layer is ``position:absolute; inset:0`` INSIDE the hero, so it paints
-  over the hero's own background and under its content. Existing hero
-  children are lifted to ``z-index:1`` — no re-ordering, no unwrapping.
+* The layer is ``position:absolute; inset:0; z-index:-1`` INSIDE the hero,
+  which gets ``isolation:isolate`` so that negative z-index stays local: the
+  clip paints above the hero's own background and below every one of its
+  children. The children themselves are never restyled — no re-ordering,
+  no unwrapping, no forced ``position``. (Forcing ``position:relative`` on
+  them, as an earlier version did, turned absolutely-positioned decorative
+  blobs into in-flow blocks that pushed the hero copy off-screen.)
 * Everything is inert to the reader: ``aria-hidden``, ``tabindex="-1"``,
   ``pointer-events:none``. A muted, looping, ``playsinline`` video is the
   only shape mobile Safari/Chrome will autoplay.
@@ -370,17 +374,20 @@ def _build_style(settings: HeroVideoSettings) -> str:
         # The hero becomes the positioning context. `isolation` keeps the new
         # stacking context local so nothing outside the hero is reordered.
         f"{hero}{{position:relative;isolation:isolate;overflow:hidden;}}",
+        # z-index:-1 INSIDE the hero's own stacking context (isolation:isolate
+        # above) paints the layer above the hero's background and below every
+        # one of its children — without touching those children at all. The
+        # earlier approach (force children to position:relative; z-index:1)
+        # broke heroes whose decorative blobs are absolutely positioned: they
+        # became in-flow blocks and shoved the real content down the page.
         f"{hero} > .binaapp-hero-video-layer{{position:absolute;inset:0;"
-        "z-index:0;pointer-events:none;background-size:cover;"
+        "z-index:-1;pointer-events:none;background-size:cover;"
         "background-position:center;background-repeat:no-repeat;}",
         f"{hero} > .binaapp-hero-video-layer .binaapp-hero-video{{position:absolute;"
         "inset:0;width:100%;height:100%;object-fit:cover;border:0;"
         "pointer-events:none;}",
         f"{hero} > .binaapp-hero-video-layer .binaapp-hero-video-scrim{{"
         f"position:absolute;inset:0;{scrim}}}",
-        # Lift the hero's own children above the layer. Only DIRECT children
-        # are touched, so nothing inside the merchant's markup is restacked.
-        f"{hero} > *:not(.binaapp-hero-video-layer){{position:relative;z-index:1;}}",
     ]
 
     text_mode = settings.resolved_text_mode()
@@ -416,6 +423,29 @@ def _build_style(settings: HeroVideoSettings) -> str:
 # ---------------------------------------------------------------------------
 # Patch entry points
 # ---------------------------------------------------------------------------
+
+#: The stacking rule the first release emitted. It forced every direct child
+#: of the hero to ``position:relative`` so it would sit above a ``z-index:0``
+#: layer — which turned absolutely-positioned decorative blobs into in-flow
+#: blocks and pushed the hero copy below the fold. Pages still carrying it
+#: are re-applied with the current CSS on their next owner visit.
+LEGACY_CHILD_RULE = (
+    f"[{HERO_MARKER_ATTR}] > *:not(.binaapp-hero-video-layer)"
+    "{position:relative;z-index:1;}"
+)
+
+
+def needs_style_upgrade(html: str) -> bool:
+    """True when the page has a hero video whose injected CSS predates the
+    z-index:-1 layer (see LEGACY_CHILD_RULE). False for pages without a
+    video and for pages already on the current CSS."""
+    if not html:
+        return False
+    style = _STYLE_RE.search(html)
+    if not style:
+        return False
+    return LEGACY_CHILD_RULE in style.group(0)
+
 
 def remove_hero_video(html: str) -> HeroVideoResult:
     """Strip the injected block, its stylesheet and the hero marker.

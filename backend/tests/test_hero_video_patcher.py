@@ -12,11 +12,13 @@ from app.services.hero_video_patcher import (
     BLOCK_END,
     BLOCK_START,
     HERO_MARKER_ATTR,
+    LEGACY_CHILD_RULE,
     STYLE_ID,
     apply_hero_video,
     build_settings,
     detect_hero_video,
     find_hero_open_tag,
+    needs_style_upgrade,
     remove_hero_video,
 )
 
@@ -245,3 +247,74 @@ class TestSettingsValidation:
 
         html = apply_hero_video(TEMPLATE_PAGE, _settings()).html
         assert is_html_balanced(html)[0]
+
+
+# ---------------------------------------------------------------------------
+# Stacking: the layer sits BELOW the hero's children without restyling them
+# ---------------------------------------------------------------------------
+
+# A hero in the shape the generator actually emits for premium designs:
+# absolutely-positioned decorative layers (a dot grid, two blurred blobs)
+# ahead of the real content. The first release forced these to
+# position:relative, which turned the blobs into in-flow 480px/280px blocks
+# and pushed the headline below the fold.
+DECORATED_HERO_HTML = (
+    "<!DOCTYPE html><html><head><title>Kedai Emas</title></head><body>"
+    '<section id="home" class="relative overflow-hidden bg-charcoal">'
+    '<div aria-hidden="true" class="absolute inset-0 bg-dot-grid opacity-60"></div>'
+    '<div aria-hidden="true" class="absolute -top-40 right-[-10%] w-[480px] h-[480px] blur-3xl"></div>'
+    '<div class="relative max-w-7xl mx-auto"><h1>Keindahan Emas</h1><p>Damansara</p></div>'
+    "</section><footer>foot</footer></body></html>"
+)
+
+
+def _style_of(html: str) -> str:
+    start = html.index(f'<style id="{STYLE_ID}">')
+    return html[start:html.index("</style>", start)]
+
+
+class TestStackingKeepsChildrenUntouched:
+    def test_layer_sits_at_negative_z_inside_an_isolated_hero(self):
+        html = apply_hero_video(DECORATED_HERO_HTML, _settings()).html
+        style = _style_of(html)
+        assert f"[{HERO_MARKER_ATTR}]{{position:relative;isolation:isolate;overflow:hidden;}}" in style
+        assert "binaapp-hero-video-layer{position:absolute;inset:0;z-index:-1;" in style
+
+    def test_no_rule_targets_the_heros_children(self):
+        html = apply_hero_video(DECORATED_HERO_HTML, _settings()).html
+        style = _style_of(html)
+        assert LEGACY_CHILD_RULE not in style
+        assert "> *:not(" not in style
+        # The decorative markup itself is byte-identical.
+        assert 'class="absolute inset-0 bg-dot-grid opacity-60"' in html
+        assert 'class="absolute -top-40 right-[-10%] w-[480px] h-[480px] blur-3xl"' in html
+
+    def test_fresh_output_needs_no_upgrade(self):
+        html = apply_hero_video(DECORATED_HERO_HTML, _settings()).html
+        assert needs_style_upgrade(html) is False
+
+    def test_clean_page_needs_no_upgrade(self):
+        assert needs_style_upgrade(DECORATED_HERO_HTML) is False
+        assert needs_style_upgrade("") is False
+
+    def test_legacy_page_is_detected_and_reapply_clears_it(self):
+        fresh = apply_hero_video(DECORATED_HERO_HTML, _settings()).html
+        # Splice the first release's rule into the page's own style block.
+        legacy = fresh.replace("</style>", LEGACY_CHILD_RULE + "</style>", 1)
+        assert needs_style_upgrade(legacy) is True
+
+        current = detect_hero_video(legacy)
+        assert current and current["video_url"] == _settings().video_url
+        upgraded = apply_hero_video(legacy, build_settings(**current)).html
+        assert needs_style_upgrade(upgraded) is False
+        assert LEGACY_CHILD_RULE not in upgraded
+        assert upgraded == fresh
+
+    def test_legacy_rule_outside_our_style_block_is_not_ours(self):
+        # A merchant stylesheet that happens to contain the text is not a
+        # reason to rewrite their page.
+        html = DECORATED_HERO_HTML.replace(
+            "</head>", "<style>" + LEGACY_CHILD_RULE + "</style></head>", 1
+        )
+        assert needs_style_upgrade(html) is False
+

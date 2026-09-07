@@ -27,9 +27,11 @@ from app.services import zai_video_service as svc
 from app.services.hero_video_patcher import (
     BLOCK_START,
     HERO_MARKER_ATTR,
+    LEGACY_CHILD_RULE,
     STYLE_ID,
     apply_hero_video,
     build_settings,
+    needs_style_upgrade,
 )
 
 LIVE_HTML = (
@@ -399,3 +401,62 @@ class TestRemove:
         resp = client.delete("/api/v1/websites/ws-1/hero-video", headers=auth_headers)
         assert resp.status_code == 422
         patches["publish_website"].assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Self-heal: pages patched by the first release get the current CSS
+# ---------------------------------------------------------------------------
+
+# WITH_VIDEO_HTML with the first release's child-restyling rule spliced into
+# the page's own style block — exactly what a site patched before the fix
+# carries in storage.
+LEGACY_CSS_HTML = WITH_VIDEO_HTML.replace("</style>", LEGACY_CHILD_RULE + "</style>", 1)
+assert needs_style_upgrade(LEGACY_CSS_HTML)
+
+
+class TestLegacyCssSelfHeal:
+    def test_state_read_reapplies_current_css_and_republishes(self, client, auth_headers, patches):
+        patches["get_website"].return_value = _row(html_content=LEGACY_CSS_HTML)
+
+        resp = client.get("/api/v1/websites/ws-1/hero-video", headers=auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["upgraded_css"] is True
+        assert body["has_video"] is True
+        assert body["settings"]["video_url"] == CLOUD_VIDEO
+
+        published = _published_html(patches)
+        assert LEGACY_CHILD_RULE not in published
+        assert needs_style_upgrade(published) is False
+        assert "z-index:-1;" in published
+        # The clip and its settings survive the rewrite untouched.
+        assert CLOUD_VIDEO in published and CLOUD_POSTER in published
+        assert patches["update_website"].called
+
+    def test_state_read_on_current_css_is_read_only(self, client, auth_headers, patches):
+        patches["get_website"].return_value = _row(html_content=WITH_VIDEO_HTML)
+
+        resp = client.get("/api/v1/websites/ws-1/hero-video", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["upgraded_css"] is False
+        assert not patches["publish_website"].called
+        assert not patches["update_website"].called
+
+    def test_state_read_without_video_is_read_only(self, client, auth_headers, patches):
+        resp = client.get("/api/v1/websites/ws-1/hero-video", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["upgraded_css"] is False
+        assert resp.json()["has_video"] is False
+        assert not patches["publish_website"].called
+
+    def test_persist_failure_never_breaks_the_read(self, client, auth_headers, patches):
+        patches["get_website"].return_value = _row(html_content=LEGACY_CSS_HTML)
+        patches["update_website"].side_effect = RuntimeError("db down")
+
+        resp = client.get("/api/v1/websites/ws-1/hero-video", headers=auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["upgraded_css"] is False
+        # Still reports the video the page has — from the unmodified HTML.
+        assert body["has_video"] is True
+

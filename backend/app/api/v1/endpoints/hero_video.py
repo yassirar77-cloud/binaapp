@@ -58,6 +58,7 @@ from app.services.hero_video_patcher import (
     build_settings,
     detect_hero_video,
     find_hero_open_tag,
+    needs_style_upgrade,
     remove_hero_video,
 )
 from app.services.plan_features import can_use_hero_video
@@ -255,6 +256,34 @@ async def _persist(website: dict, user_id: str, new_html: str) -> Tuple[bool, Op
     return live_site_updated, warning
 
 
+async def _upgrade_legacy_css(website: dict, user_id: str, html: str) -> Tuple[str, bool]:
+    """Re-apply the page's own video settings with the current CSS.
+
+    Returns (html_to_report, upgraded). On any failure the original HTML is
+    reported unchanged and the reason is logged — the state read must still
+    succeed so the editor panel can render.
+    """
+    from app.utils.html_balance import is_html_balanced
+
+    try:
+        current = detect_hero_video(html)
+        if not current or not is_html_balanced(html)[0]:
+            return html, False
+        settings = build_settings(**current)
+        patched = apply_hero_video(html, settings)
+        if not patched.changed or patched.html == html:
+            return html, False
+        live, warning = await _persist(website, user_id, patched.html)
+        logger.info(
+            f"🎬 Hero video CSS upgraded for {website.get('id')} "
+            f"(live={live}, warning={warning})"
+        )
+        return patched.html, True
+    except Exception as exc:  # noqa: BLE001 - a read must never fail on this
+        logger.warning(f"🎬 Hero video CSS upgrade skipped for {website.get('id')}: {exc}")
+        return html, False
+
+
 def _current_state(html: str) -> Dict:
     current = detect_hero_video(html or "")
     hero, how = find_hero_open_tag(remove_hero_video(html or "").html) if html else (None, "")
@@ -323,6 +352,14 @@ async def get_hero_video(
         html = website.get("html_content") or ""
         source = "db" if html else source
 
+    upgraded = False
+    if html and needs_style_upgrade(html):
+        # Self-heal: the page carries the first release's stacking CSS, which
+        # broke heroes with absolutely-positioned decoration. Re-apply the
+        # same clip and settings with the current CSS and republish. Wrapped
+        # so a persist failure can never turn a read into an error.
+        html, upgraded = await _upgrade_legacy_css(website, user_id, html)
+
     job = zai_video_service.active_job_for_website(website_id)
     return {
         "success": True,
@@ -331,6 +368,7 @@ async def get_hero_video(
         "allowed": await can_use_hero_video(user_id),
         "job": job.to_dict() if job else None,
         "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+        "upgraded_css": upgraded,
         **_current_state(html),
     }
 
