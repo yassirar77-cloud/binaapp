@@ -148,6 +148,16 @@ def dashscope_video_ratio() -> str:
     return value if value in DASHSCOPE_RATIOS else "16:9"
 
 
+def dashscope_video_watermark() -> bool:
+    """Whether DashScope may stamp its provider mark ("Happy Horse" /
+    "AI generated") in the clip's corner. Off by default: the clip sits
+    behind a merchant's own brand, and the first HappyHorse output arrived
+    with the mark burned into the bottom-right corner."""
+    return os.getenv("DASHSCOPE_VIDEO_WATERMARK", "false").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+
+
 def hero_video_model() -> str:
     """The model name shown in the picker, for whichever provider is active."""
     return dashscope_video_model() if hero_video_provider() == PROVIDER_DASHSCOPE else zai_video_model()
@@ -648,6 +658,7 @@ class ZaiVideoService:
                 "resolution": dashscope_video_resolution(),
                 "ratio": dashscope_video_ratio(),
                 "duration": duration if duration in ALLOWED_DURATIONS else zai_video_duration(),
+                "watermark": dashscope_video_watermark(),
             },
         }
         logger.info(

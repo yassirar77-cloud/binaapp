@@ -360,7 +360,9 @@ class TestDashScopeSubmit:
         assert headers["X-DashScope-Async"] == "enable"
         assert body["model"] == "happyhorse-1.1-t2v"
         assert body["input"] == {"prompt": "A slow pan across a bright salon"}
-        assert body["parameters"] == {"resolution": "720P", "ratio": "16:9", "duration": 5}
+        assert body["parameters"] == {
+            "resolution": "720P", "ratio": "16:9", "duration": 5, "watermark": False,
+        }
         assert "with_audio" not in body and "size" not in body
 
     async def test_qwen_key_is_accepted_as_fallback(self, dashscope_env, monkeypatch):
@@ -382,7 +384,16 @@ class TestDashScopeSubmit:
         url, body = calls["post"][0]["url"], calls["post"][0]["json"]
         assert url.startswith("https://dashscope.aliyuncs.com/api/v1/services/")
         assert body["model"] == "wan2.7-t2v"
-        assert body["parameters"] == {"resolution": "480P", "ratio": "9:16", "duration": 10}
+        assert body["parameters"] == {
+            "resolution": "480P", "ratio": "9:16", "duration": 10, "watermark": False,
+        }
+
+    async def test_watermark_can_be_switched_on(self, dashscope_env, monkeypatch):
+        monkeypatch.setenv("DASHSCOPE_VIDEO_WATERMARK", "true")
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            await ZaiVideoService().submit("p")
+        assert calls["post"][0]["json"]["parameters"]["watermark"] is True
 
     async def test_image_url_is_ignored_for_text_to_video(self, dashscope_env):
         client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
