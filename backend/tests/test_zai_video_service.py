@@ -13,11 +13,17 @@ import pytest
 
 from app.services import zai_video_service as svc
 from app.services.zai_video_service import (
+    PROVIDER_DASHSCOPE,
+    PROVIDER_ZAI,
     ZAI_PROMPT_MAX_CHARS,
     ZaiVideoError,
     ZaiVideoService,
     build_hero_video_prompt,
+    dashscope_video_model,
+    dashscope_video_resolution,
     hero_video_enabled,
+    hero_video_model,
+    hero_video_provider,
 )
 
 
@@ -62,6 +68,8 @@ def fake_client(post_response=None, get_response=None, post_exc=None, get_exc=No
 
 @pytest.fixture
 def zai_env(monkeypatch):
+    # These tests exercise the Z.ai path explicitly; DashScope is the default.
+    monkeypatch.setenv("HERO_VIDEO_PROVIDER", "zai")
     monkeypatch.setenv("ZAI_API_KEY", "zai-test-key")
     monkeypatch.setenv("ZAI_API_URL", "https://api.z.ai/api/paas/v4")
     monkeypatch.delenv("ZAI_VIDEO_MODEL", raising=False)
@@ -151,6 +159,7 @@ class TestSubmit:
         assert body["quality"] == "quality"
 
     async def test_no_api_key(self, monkeypatch):
+        monkeypatch.setenv("HERO_VIDEO_PROVIDER", "zai")
         monkeypatch.delenv("ZAI_API_KEY", raising=False)
         with pytest.raises(ZaiVideoError, match="ZAI_API_KEY"):
             await ZaiVideoService().submit("scene")
@@ -294,3 +303,174 @@ class TestJobRegistry:
         payload = job.to_dict()
         assert "secret-task" not in str(payload)
         assert set(payload) >= {"job_id", "status", "video_url", "poster_url", "applied", "elapsed_seconds"}
+
+
+# ---------------------------------------------------------------------------
+# Provider switch + DashScope (Alibaba Model Studio) path
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def dashscope_env(monkeypatch):
+    monkeypatch.delenv("HERO_VIDEO_PROVIDER", raising=False)  # default → dashscope
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "ds-test-key")
+    monkeypatch.delenv("QWEN_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_URL", raising=False)
+    monkeypatch.delenv("DASHSCOPE_VIDEO_MODEL", raising=False)
+    monkeypatch.delenv("DASHSCOPE_VIDEO_RESOLUTION", raising=False)
+    monkeypatch.delenv("DASHSCOPE_VIDEO_RATIO", raising=False)
+    monkeypatch.delenv("ZAI_VIDEO_DURATION", raising=False)
+
+
+DS_SUBMIT_OK = {"output": {"task_id": "ds-task-1", "task_status": "PENDING"}, "request_id": "r1"}
+
+
+class TestProviderSwitch:
+    def test_dashscope_is_the_default(self, monkeypatch):
+        monkeypatch.delenv("HERO_VIDEO_PROVIDER", raising=False)
+        assert hero_video_provider() == PROVIDER_DASHSCOPE
+        assert hero_video_model() == "happyhorse-1.1-t2v"
+
+    def test_zai_can_be_selected(self, monkeypatch):
+        monkeypatch.setenv("HERO_VIDEO_PROVIDER", "zai")
+        assert hero_video_provider() == PROVIDER_ZAI
+        assert hero_video_model() == "cogvideox-3"
+
+    def test_unknown_value_falls_back_to_dashscope(self, monkeypatch):
+        monkeypatch.setenv("HERO_VIDEO_PROVIDER", "runway")
+        assert hero_video_provider() == PROVIDER_DASHSCOPE
+
+    def test_resolution_is_validated(self, monkeypatch):
+        monkeypatch.setenv("DASHSCOPE_VIDEO_RESOLUTION", "4k")
+        assert dashscope_video_resolution() == "720P"
+        monkeypatch.setenv("DASHSCOPE_VIDEO_RESOLUTION", "480p")
+        assert dashscope_video_resolution() == "480P"
+
+
+class TestDashScopeSubmit:
+    async def test_request_shape(self, dashscope_env):
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            task_id = await ZaiVideoService().submit("A slow pan across a bright salon", duration=5)
+        assert task_id == "ds-task-1"
+        post = calls["post"][0]
+        url, headers, body = post["url"], post["headers"], post["json"]
+        assert url == "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"
+        assert headers["Authorization"] == "Bearer ds-test-key"
+        assert headers["X-DashScope-Async"] == "enable"
+        assert body["model"] == "happyhorse-1.1-t2v"
+        assert body["input"] == {"prompt": "A slow pan across a bright salon"}
+        assert body["parameters"] == {"resolution": "720P", "ratio": "16:9", "duration": 5}
+        assert "with_audio" not in body and "size" not in body
+
+    async def test_qwen_key_is_accepted_as_fallback(self, dashscope_env, monkeypatch):
+        monkeypatch.delenv("DASHSCOPE_API_KEY")
+        monkeypatch.setenv("QWEN_API_KEY", "qwen-key")
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            await ZaiVideoService().submit("p")
+        assert calls["post"][0]["headers"]["Authorization"] == "Bearer qwen-key"
+
+    async def test_env_overrides(self, dashscope_env, monkeypatch):
+        monkeypatch.setenv("DASHSCOPE_API_URL", "https://dashscope.aliyuncs.com/api/v1/")
+        monkeypatch.setenv("DASHSCOPE_VIDEO_MODEL", "wan2.7-t2v")
+        monkeypatch.setenv("DASHSCOPE_VIDEO_RESOLUTION", "480P")
+        monkeypatch.setenv("DASHSCOPE_VIDEO_RATIO", "9:16")
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            await ZaiVideoService().submit("p", duration=10)
+        url, body = calls["post"][0]["url"], calls["post"][0]["json"]
+        assert url.startswith("https://dashscope.aliyuncs.com/api/v1/services/")
+        assert body["model"] == "wan2.7-t2v"
+        assert body["parameters"] == {"resolution": "480P", "ratio": "9:16", "duration": 10}
+
+    async def test_image_url_is_ignored_for_text_to_video(self, dashscope_env):
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            await ZaiVideoService().submit("p", image_url="https://x/hero.jpg")
+        assert "image_url" not in calls["post"][0]["json"]["input"]
+
+    async def test_no_key_raises_before_any_call(self, dashscope_env, monkeypatch):
+        monkeypatch.delenv("DASHSCOPE_API_KEY")
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            with pytest.raises(ZaiVideoError, match="DASHSCOPE_API_KEY"):
+                await ZaiVideoService().submit("p")
+        assert calls["post"] == []
+
+    @pytest.mark.parametrize("status_code", [400, 401, 403, 500])
+    async def test_non_200_raises(self, dashscope_env, status_code):
+        client, _ = fake_client(post_response=FakeResponse(status_code, {"code": "InvalidParameter", "message": "bad"}))
+        with patch.object(httpx, "AsyncClient", client):
+            with pytest.raises(ZaiVideoError, match=str(status_code)):
+                await ZaiVideoService().submit("p")
+
+    async def test_rate_limit_has_its_own_message(self, dashscope_env):
+        client, _ = fake_client(post_response=FakeResponse(429, {}))
+        with patch.object(httpx, "AsyncClient", client):
+            with pytest.raises(ZaiVideoError, match="rate limit"):
+                await ZaiVideoService().submit("p")
+
+    async def test_missing_task_id_raises(self, dashscope_env):
+        client, _ = fake_client(post_response=FakeResponse(200, {"output": {}}))
+        with patch.object(httpx, "AsyncClient", client):
+            with pytest.raises(ZaiVideoError, match="no task id"):
+                await ZaiVideoService().submit("p")
+
+
+def _ds_task(status, **output):
+    return {"request_id": "r", "output": {"task_id": "ds-task-1", "task_status": status, **output}}
+
+
+class TestDashScopeFetchResult:
+    async def test_polls_the_tasks_endpoint(self, dashscope_env):
+        client, calls = fake_client(get_response=FakeResponse(200, _ds_task("RUNNING")))
+        with patch.object(httpx, "AsyncClient", client):
+            result = await ZaiVideoService().fetch_result("ds-task-1")
+        url, headers = calls["get"][0]["url"], calls["get"][0]["headers"]
+        assert url == "https://dashscope-intl.aliyuncs.com/api/v1/tasks/ds-task-1"
+        assert headers["Authorization"] == "Bearer ds-test-key"
+        assert result["status"] == "processing"
+
+    @pytest.mark.parametrize("state", ["PENDING", "RUNNING", "pending"])
+    async def test_pending_states_are_processing(self, dashscope_env, state):
+        client, _ = fake_client(get_response=FakeResponse(200, _ds_task(state)))
+        with patch.object(httpx, "AsyncClient", client):
+            assert (await ZaiVideoService().fetch_result("t"))["status"] == "processing"
+
+    async def test_succeeded_returns_the_video_url(self, dashscope_env):
+        client, _ = fake_client(get_response=FakeResponse(
+            200, _ds_task("SUCCEEDED", video_url="https://dashscope-result.oss.example/clip.mp4?Expires=1&Signature=abc")
+        ))
+        with patch.object(httpx, "AsyncClient", client):
+            result = await ZaiVideoService().fetch_result("t")
+        assert result == {
+            "status": "success",
+            "video_url": "https://dashscope-result.oss.example/clip.mp4?Expires=1&Signature=abc",
+            "cover_image_url": None,
+        }
+
+    @pytest.mark.parametrize("state", ["FAILED", "CANCELED", "UNKNOWN"])
+    async def test_terminal_failures(self, dashscope_env, state):
+        client, _ = fake_client(get_response=FakeResponse(
+            200, _ds_task(state, code="DataInspectionFailed", message="prompt blocked")
+        ))
+        with patch.object(httpx, "AsyncClient", client):
+            assert (await ZaiVideoService().fetch_result("t"))["status"] == "fail"
+
+    async def test_succeeded_without_url_raises(self, dashscope_env):
+        client, _ = fake_client(get_response=FakeResponse(200, _ds_task("SUCCEEDED")))
+        with patch.object(httpx, "AsyncClient", client):
+            with pytest.raises(ZaiVideoError, match="no video URL"):
+                await ZaiVideoService().fetch_result("t")
+
+    async def test_rate_limited_poll_reads_as_processing(self, dashscope_env):
+        client, _ = fake_client(get_response=FakeResponse(429, {}))
+        with patch.object(httpx, "AsyncClient", client):
+            assert (await ZaiVideoService().fetch_result("t"))["status"] == "processing"
+
+    async def test_server_error_raises(self, dashscope_env):
+        client, _ = fake_client(get_response=FakeResponse(500, {}))
+        with patch.object(httpx, "AsyncClient", client):
+            with pytest.raises(ZaiVideoError):
+                await ZaiVideoService().fetch_result("t")
+

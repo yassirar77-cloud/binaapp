@@ -76,7 +76,8 @@ from app.services.zai_video_service import (
     hero_video_enabled,
     zai_video_duration,
     zai_video_max_wait_seconds,
-    zai_video_model,
+    hero_video_model,
+    hero_video_provider,
     zai_video_service,
 )
 
@@ -320,7 +321,8 @@ async def get_hero_video_options():
     _feature_gate()
     return {
         "success": True,
-        "model": zai_video_model(),
+        "model": hero_video_model(),
+        "provider": hero_video_provider(),
         "duration_seconds": zai_video_duration(),
         "durations": list(ALLOWED_DURATIONS),
         "poll_interval_seconds": POLL_INTERVAL_SECONDS,

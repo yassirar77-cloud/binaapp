@@ -1,4 +1,4 @@
-# Hero Video Background (GLM / Z.ai CogVideoX)
+# Hero Video Background (DashScope HappyHorse / Z.ai CogVideoX)
 
 A short, muted, looping AI-generated clip that plays behind the hero section
 of a merchant's website, with a readable scrim over it.
@@ -128,6 +128,22 @@ patch the live storage snapshot when published (DB blob as fallback), only
 accept a balanced base, refuse to publish an unbalanced result, and report
 `live_site_updated=false` + `warning=storage_refresh_failed` honestly when
 storage rejects the republish.
+
+## Provider
+
+`HERO_VIDEO_PROVIDER` picks the text-to-video API that makes the clip; everything
+after the clip exists (download, Cloudinary, patch, publish) is shared.
+
+| Provider | Value | Model (default) | Submit | Poll |
+|---|---|---|---|---|
+| Alibaba Model Studio (default) | `dashscope` | `happyhorse-1.1-t2v` | `POST {DASHSCOPE_API_URL}/services/aigc/video-generation/video-synthesis` with `X-DashScope-Async: enable` → `output.task_id` | `GET {DASHSCOPE_API_URL}/tasks/{task_id}` → `output.task_status` PENDING/RUNNING → processing, SUCCEEDED → `output.video_url` (valid 24 h), FAILED/CANCELED/UNKNOWN → failed |
+| Z.ai | `zai` | `cogvideox-3` | `POST /videos/generations` → `id` | `GET /async-result/{id}` → `task_status`, `video_result[0].url` |
+
+DashScope uses the same key as the Qwen text path (`DASHSCOPE_API_KEY`, or
+`QWEN_API_KEY`). `DASHSCOPE_VIDEO_RESOLUTION` (480P/720P/1080P, default 720P)
+and `DASHSCOPE_VIDEO_RATIO` (default 16:9) set the clip; DashScope prices per
+second of output, so 480P is the cheap option. HappyHorse is text-to-video
+only: an `image_url` on the request is ignored for this provider.
 
 ## Configuration
 
