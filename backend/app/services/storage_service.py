@@ -16,6 +16,18 @@ from app.services.supabase_client import supabase_service
 TOMBSTONE_FILENAME = ".deleted"
 
 
+def _invalidate_served_page(subdomain: str) -> None:
+    """Forget the middleware's cached copy of a subdomain's page. Imported
+    lazily: the middleware imports services, not the other way round."""
+    try:
+        from app.middleware.subdomain import invalidate_site_cache
+
+        invalidate_site_cache(subdomain)
+    except Exception as exc:  # never let a cache miss break a publish
+        logger.warning(f"Could not invalidate served page for {subdomain}: {exc}")
+
+
+
 class StorageService:
     """Service for Supabase Storage operations using REST API"""
 
@@ -84,6 +96,12 @@ class StorageService:
             logger.info("Website uploaded successfully!")
             logger.info(f"  Subdomain URL: {subdomain_url}")
             logger.info(f"  Fallback URL: {proxy_url}")
+
+            # The serving middleware keeps a 60s in-process copy of the page.
+            # Drop it now so this upload is what the next visitor sees — the
+            # merchant checking their site seconds after a hero-video job
+            # landed was still getting the old page.
+            _invalidate_served_page(subdomain)
 
             return subdomain_url
 
@@ -230,7 +248,8 @@ class StorageService:
             existing_website = await self.supabase.get_website_by_subdomain(subdomain)
             if existing_website:
                 logger.info(f"✅ Subdomain '{subdomain}' found in database (id: {existing_website.get('id')})")
-                return True
+                _invalidate_served_page(subdomain)
+            return True
 
             # Also check storage as fallback (for orphaned websites)
             import httpx

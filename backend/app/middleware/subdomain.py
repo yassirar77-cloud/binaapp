@@ -12,6 +12,7 @@ exception falls through to call_next() instead of killing the ASGI connection
 from fastapi import Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+import hashlib
 import httpx
 from loguru import logger
 import re
@@ -43,7 +44,7 @@ _UPGRADE_PAGE_TEMPLATE = None
 #
 # Only positive results are cached (never "not found"), so a just-published
 # site becomes visible immediately. Staleness of served HTML is bounded at
-# TTL (60s), consistent with the existing Cache-Control: max-age=300 header.
+# TTL (60s). Republishing invalidates it at once (invalidate_site_cache).
 # =============================================================================
 _SUBDOMAIN_CACHE_TTL_SECONDS = 60.0
 _SUBDOMAIN_CACHE_MAX_ENTRIES = 512
@@ -73,6 +74,48 @@ def _cache_set(cache: Dict[str, Tuple[float, Any]], key: str, value: Any) -> Non
         while len(cache) >= _SUBDOMAIN_CACHE_MAX_ENTRIES:
             cache.pop(next(iter(cache)), None)
     cache[key] = (time.monotonic(), value)
+
+
+def invalidate_site_cache(subdomain: str) -> None:
+    """Forget the served copy of a site the moment it is republished.
+
+    Called by storage_service after every successful upload/delete, so an
+    edit (theme, contact, hero video, editor save) is visible on the very
+    next request instead of up to 60s later. In-process only: on a single
+    Render instance that is the whole cache; with several instances the TTL
+    still bounds staleness on the others.
+    """
+    if not subdomain:
+        return
+    _storage_html_cache.pop(subdomain, None)
+    _website_lookup_cache.pop(subdomain, None)
+
+
+def _page_etag(html_content: str) -> str:
+    return '"' + hashlib.sha1(html_content.encode("utf-8")).hexdigest()[:20] + '"'
+
+
+def _page_response(html_content: str, request: Optional[Request], website_id: Optional[str]) -> Response:
+    """The site's HTML with freshness headers that let edits show at once.
+
+    Merchant sites are served ``Cache-Control: no-cache`` + ``ETag``: the
+    browser keeps a copy but revalidates on every load, and gets a cheap 304
+    while the page is unchanged. The old ``max-age=300`` meant a visitor —
+    typically the merchant, checking their own site seconds after publishing
+    — kept seeing the pre-edit page for up to five minutes. Legacy sites
+    without a row keep the long max-age; nothing edits them.
+    """
+    etag = _page_etag(html_content)
+    headers = {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-cache" if website_id else "public, max-age=3600",
+        "ETag": etag,
+    }
+    if request is not None:
+        inm = request.headers.get("if-none-match") or ""
+        if inm and etag in [t.strip() for t in inm.split(",")]:
+            return Response(status_code=304, headers=headers)
+    return HTMLResponse(content=html_content, status_code=200, headers=headers)
 
 
 def _get_locked_page_html() -> str:
@@ -1057,14 +1100,7 @@ async def subdomain_middleware(request: Request, call_next):
         # pages without structured hours.
         html_content = _inject_open_badge(html_content)
 
-        return HTMLResponse(
-            content=html_content,
-            status_code=200,
-            headers={
-                "Content-Type": "text/html; charset=utf-8",
-                "Cache-Control": "public, max-age=300" if website_id else "public, max-age=3600"
-            }
-        )
+        return _page_response(html_content, request, website_id)
 
     except Exception as e:
         # CRITICAL: This outermost catch prevents the middleware from crashing
