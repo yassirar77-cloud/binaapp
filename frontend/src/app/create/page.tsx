@@ -15,7 +15,15 @@ import InstallAppButton from '@/components/pwa/InstallAppButton'
 import { AddonPurchaseModal } from '@/components/AddonPurchaseModal'
 import { LimitReachedModal } from '@/components/LimitReachedModal'
 import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
-import { supabase, signOut as customSignOut, getCurrentUser, getStoredToken } from '@/lib/supabase'
+import { supabase, signOut as customSignOut, getCurrentUser, getStoredToken, getApiAuthToken } from '@/lib/supabase'
+import {
+  fetchHeroVideoOptions,
+  runHeroVideoJob,
+  heroVideoJobErrorMessage,
+  isHeroVideoJobActive,
+  type HeroVideoOptions,
+  type HeroVideoJob,
+} from '@/lib/heroVideo'
 import { checkCreateWebsiteAllowed } from '@/lib/quota'
 import {
   BRIEF_EXAMPLES,
@@ -250,6 +258,33 @@ export default function CreatePage() {
   // AI images are free (glm-image, free-by-default budget) — default to
   // 'ai' so every new site ships with pictures unless the user opts out.
   const [imageChoice, setImageChoice] = useState<'none' | 'upload' | 'ai'>('ai')
+
+  // Hero VIDEO background (GLM CogVideoX, see lib/heroVideo.ts). The clip is
+  // generated against the stored site, so it can only start once Publish has
+  // created the website row — the card here records the wish, handlePublish
+  // launches the job, and the "Website Published!" bar shows its progress.
+  // options: undefined = loading, null = feature switched off server-side
+  // (the card hides itself), object = the style presets.
+  const [heroVideoOptions, setHeroVideoOptions] = useState<HeroVideoOptions | null | undefined>(undefined)
+  const [heroVideoWanted, setHeroVideoWanted] = useState(false)
+  const [heroVideoStyle, setHeroVideoStyle] = useState('cinematic')
+  const [heroVideoPrompt, setHeroVideoPrompt] = useState('')
+  const [heroVideoJob, setHeroVideoJob] = useState<HeroVideoJob | null>(null)
+  const [heroVideoError, setHeroVideoError] = useState<string | null>(null)
+  const heroVideoWebsiteId = useRef<string | null>(null)
+  const heroVideoStopped = useRef(false)
+
+  useEffect(() => {
+    heroVideoStopped.current = false
+    let cancelled = false
+    fetchHeroVideoOptions()
+      .then((opts) => { if (!cancelled) setHeroVideoOptions(opts) })
+      .catch(() => { if (!cancelled) setHeroVideoOptions(null) })
+    return () => {
+      cancelled = true
+      heroVideoStopped.current = true
+    }
+  }, [])
 
   // Delivery system states
   const [deliveryArea, setDeliveryArea] = useState('')
@@ -1201,11 +1236,62 @@ export default function CreatePage() {
 
       setPublishedUrl(publishedWebsiteUrl)
       setShowPublishModal(false)
+
+      // The website row now exists — the hero video can be generated against it.
+      if (heroVideoWanted && heroVideoOptions) {
+        toast('🎬 Video latar hero sedang dijana… (1–2 minit)')
+        void launchHeroVideo(websiteId, accessToken)
+      }
     } catch (err: any) {
       setError(err.message || 'Gagal menerbitkan website. Sila cuba lagi.')
     } finally {
       setPublishing(false)
     }
+  }
+
+  /**
+   * Start the hero-video job for a freshly published site and follow it to
+   * the end. Never blocks publishing: called fire-and-forget after the
+   * publish succeeds. The poll that completes the job returns the patched
+   * page, which replaces the preview so what the merchant sees matches the
+   * live site.
+   */
+  const launchHeroVideo = async (websiteId: string, token: string | null) => {
+    heroVideoWebsiteId.current = websiteId
+    setHeroVideoError(null)
+    setHeroVideoJob(null)
+    try {
+      const done = await runHeroVideoJob(
+        websiteId,
+        { style: heroVideoStyle, prompt: heroVideoPrompt.trim() || undefined },
+        token,
+        {
+          onUpdate: setHeroVideoJob,
+          shouldStop: () => heroVideoStopped.current,
+          getToken: async () => (await getApiAuthToken()) || token,
+        }
+      )
+      if (!done) return
+      if (done.status === 'completed') {
+        if (done.html_content) setGeneratedHtml(done.html_content)
+        toast.success(done.message || 'Video latar hero telah dipasang.')
+      } else {
+        const msg = heroVideoJobErrorMessage(done.error)
+        setHeroVideoError(msg)
+        toast.error(msg)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Penjanaan video gagal. Sila cuba lagi.'
+      setHeroVideoError(msg)
+      toast.error(msg)
+    }
+  }
+
+  const retryHeroVideo = async () => {
+    const websiteId = heroVideoWebsiteId.current
+    if (!websiteId) return
+    const token = (await getApiAuthToken()) || getStoredToken()
+    void launchHeroVideo(websiteId, token)
   }
 
   const fillExample = (example: typeof EXAMPLE_DESCRIPTIONS[0]) => {
@@ -1785,6 +1871,68 @@ export default function CreatePage() {
                   </button>
                 </div>
               </div>
+
+              {/* Hero VIDEO background — hidden while HERO_VIDEO_ENABLED is off server-side */}
+              {heroVideoOptions && (
+                <div className="cr-card cr-card-hairline" style={{ padding: 16, marginTop: 14 }} data-testid="hero-video-card">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(79,61,255,.1)', border: '1px solid rgba(107,92,255,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>🎬</div>
+                    <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: '#F5F5FA' }}>Video latar hero</span>
+                        <span className="pill pill-volt" style={{ padding: '2px 8px', fontSize: 9 }}><span className="led" /> BARU</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#86869A', marginTop: 3, lineHeight: 1.45 }}>
+                        AI jana klip {heroVideoOptions.duration_seconds} saat yang bergerak perlahan di belakang header — tanpa bunyi, diulang tanpa henti. Dijana selepas anda <strong style={{ color: '#BAB0FF', fontWeight: 600 }}>Publish</strong> (~1–2 minit).
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={heroVideoWanted}
+                      aria-label="Tambah video latar hero"
+                      onClick={() => setHeroVideoWanted((v) => !v)}
+                      style={{ width: 46, height: 26, borderRadius: 13, border: '1px solid rgba(255,255,255,.14)', background: heroVideoWanted ? 'linear-gradient(180deg, #DDFF7A, #C7FF3D)' : 'rgba(255,255,255,.06)', position: 'relative', cursor: 'pointer', flexShrink: 0, transition: 'background 180ms', padding: 0 }}
+                    >
+                      <span style={{ position: 'absolute', top: 2, left: heroVideoWanted ? 22 : 2, width: 20, height: 20, borderRadius: '50%', background: heroVideoWanted ? '#05050C' : '#F5F5FA', transition: 'left 180ms' }} />
+                    </button>
+                  </div>
+
+                  {heroVideoWanted && (
+                    <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {heroVideoOptions.styles.map((preset) => {
+                          const active = preset.key === heroVideoStyle
+                          return (
+                            <button
+                              key={preset.key}
+                              type="button"
+                              onClick={() => setHeroVideoStyle(preset.key)}
+                              aria-pressed={active}
+                              className="cr-btn cr-btn-ghost"
+                              style={{ height: 34, padding: '0 12px', fontSize: 12, borderColor: active ? 'rgba(199,255,61,.6)' : undefined, background: active ? 'rgba(199,255,61,.1)' : undefined, color: active ? '#C7FF3D' : undefined }}
+                            >
+                              {preset.label_ms}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <input
+                        type="text"
+                        className="cr-input"
+                        value={heroVideoPrompt}
+                        onChange={(e) => setHeroVideoPrompt(e.target.value.slice(0, 200))}
+                        placeholder="Pilihan: apa yang bergerak dalam video? cth. kopi dituang perlahan, asap sate, kain dilipat"
+                        aria-label="Adegan video latar (pilihan)"
+                        maxLength={200}
+                      />
+                      <div style={{ fontSize: 11, color: '#5A5A6E' }}>
+                        Tanpa teks atau logo dalam klip. Boleh ubah atau buang bila-bila masa di Editor.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </section>
 
             {/* ── 06 Menu items ── */}
@@ -2490,6 +2638,30 @@ export default function CreatePage() {
                     <Eye size={14} /> View Live
                   </a>
                 </div>
+                {(heroVideoJob || heroVideoError) && (
+                  <div data-testid="hero-video-status" style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.08)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 13 }}>
+                    {heroVideoError ? (
+                      <>
+                        <span style={{ color: '#FF7A7A' }}>🎬 {heroVideoError}</span>
+                        <button type="button" onClick={retryHeroVideo} className="cr-btn cr-btn-ghost" style={{ height: 30, padding: '0 10px', fontSize: 12 }}>Cuba lagi</button>
+                      </>
+                    ) : isHeroVideoJobActive(heroVideoJob) ? (
+                      <>
+                        <div style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,.25)', borderTopColor: '#C7FF3D', borderRadius: '50%', animation: 'spin .8s linear infinite', flexShrink: 0 }} />
+                        <span style={{ color: '#F5F5FA' }}>
+                          {heroVideoJob?.status === 'storing' ? 'Video siap — sedang dipasang ke header…' : 'Video latar hero sedang dijana…'}
+                        </span>
+                        <span style={{ color: '#86869A', fontSize: 12 }}>
+                          {heroVideoJob?.elapsed_seconds ? `${heroVideoJob.elapsed_seconds}s · ` : ''}biasanya 1–2 minit. Jangan tutup tab ini.
+                        </span>
+                      </>
+                    ) : heroVideoJob?.status === 'completed' ? (
+                      <span style={{ color: '#C7FF3D' }}>
+                        ✅ Video latar hero dipasang{heroVideoJob.live_site_updated ? ' — laman langsung dikemas kini.' : '. Laman langsung akan dikemas kini sebentar lagi.'}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
               </div>
             )}
 
@@ -2532,7 +2704,7 @@ export default function CreatePage() {
                 </div>
               </div>
 
-              <button onClick={() => { setGeneratedHtml(''); setStyleVariations([]); setSelectedStyle(null); setError(''); setPublishedUrl(''); }} className="cr-btn cr-btn-ghost">Create Another</button>
+              <button onClick={() => { setGeneratedHtml(''); setStyleVariations([]); setSelectedStyle(null); setError(''); setPublishedUrl(''); setHeroVideoJob(null); setHeroVideoError(null); }} className="cr-btn cr-btn-ghost">Create Another</button>
             </div>
 
             {previewMode === 'single' ? (

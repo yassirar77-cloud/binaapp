@@ -261,3 +261,81 @@ export async function removeHeroVideo(
 export function isHeroVideoJobActive(job: HeroVideoJob | null | undefined): boolean {
   return !!job && (job.status === 'processing' || job.status === 'storing');
 }
+
+// ---------------------------------------------------------------------------
+// Start-and-wait runner (create page)
+// ---------------------------------------------------------------------------
+
+export interface RunHeroVideoJobOptions {
+  /** Called with every poll result, including the terminal one. */
+  onUpdate?: (job: HeroVideoJob) => void;
+  /** Return true to abandon polling (e.g. the component unmounted). */
+  shouldStop?: () => boolean;
+  /** Fresh token for each poll; falls back to the start token. */
+  getToken?: () => Promise<string | null>;
+  /** Seconds between polls; the server's poll_interval_seconds wins when set. */
+  intervalSeconds?: number;
+  /** Test seam — defaults to setTimeout-based sleep. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Hard cap so a stuck job can never poll forever. */
+  maxWaitSeconds?: number;
+}
+
+const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Kick off a hero-video job and poll it to a terminal state.
+ *
+ * The create page has no persistent panel to resume from, so it needs the
+ * whole lifecycle in one awaitable: start → poll every N seconds → return
+ * the completed/failed job. The poll that observes completion carries the
+ * patched `html_content`, which the caller pushes into its preview.
+ *
+ * Resolves with the terminal job, or `null` when `shouldStop()` asked us to
+ * abandon it. Throws on a failed start or a poll transport error, with a
+ * Malay message ready for the UI.
+ */
+export async function runHeroVideoJob(
+  websiteId: string,
+  body: StartHeroVideoRequest,
+  token: string | null,
+  opts: RunHeroVideoJobOptions = {}
+): Promise<HeroVideoJob | null> {
+  const started = await startHeroVideo(websiteId, body, token);
+  const interval = Math.max(
+    2,
+    started.poll_interval_seconds || opts.intervalSeconds || 8
+  );
+  const sleep = opts.sleep || defaultSleep;
+  const deadline = Date.now() + (opts.maxWaitSeconds ?? 600) * 1000;
+
+  let job: HeroVideoJob = {
+    job_id: started.job_id,
+    status: started.status,
+    error: null,
+    video_url: null,
+    poster_url: null,
+    applied: false,
+    live_site_updated: false,
+    elapsed_seconds: 0,
+    message: started.message,
+  };
+  opts.onUpdate?.(job);
+
+  // First poll comes sooner: a 'speed' clip can land inside the first interval.
+  await sleep(Math.min(interval, 3) * 1000);
+
+  while (isHeroVideoJobActive(job)) {
+    if (opts.shouldStop?.()) return null;
+    if (Date.now() > deadline) {
+      job = { ...job, status: 'failed', error: 'timeout' };
+      opts.onUpdate?.(job);
+      return job;
+    }
+    const pollToken = opts.getToken ? await opts.getToken() : token;
+    job = await pollHeroVideoJob(websiteId, started.job_id, pollToken);
+    opts.onUpdate?.(job);
+    if (isHeroVideoJobActive(job)) await sleep(interval * 1000);
+  }
+  return job;
+}
