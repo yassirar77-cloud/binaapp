@@ -148,7 +148,7 @@ Malay message pointing at server configuration rather than a retry.
 
 DashScope uses the same key as the Qwen text path (`DASHSCOPE_API_KEY`, or
 `QWEN_API_KEY`). `DASHSCOPE_VIDEO_RESOLUTION` (480P/720P/1080P, default 720P)
-and `DASHSCOPE_VIDEO_RATIO` (default 16:9) set the clip; DashScope prices per
+and `DASHSCOPE_VIDEO_RATIO` (default 16:9) set the clip; `DASHSCOPE_VIDEO_WATERMARK` (default false) is sent as `parameters.watermark` — HappyHorse burns a "Happy Horse" mark into the corner unless it is false; DashScope prices per
 second of output, so 480P is the cheap option. HappyHorse is text-to-video
 only: an `image_url` on the request is ignored for this provider.
 

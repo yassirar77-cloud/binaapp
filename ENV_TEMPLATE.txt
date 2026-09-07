@@ -152,6 +152,7 @@ DASHSCOPE_API_URL=https://dashscope-intl.aliyuncs.com/api/v1
 DASHSCOPE_VIDEO_MODEL=happyhorse-1.1-t2v
 DASHSCOPE_VIDEO_RESOLUTION=720P     # 480P / 720P / 1080P (priced per second: 480P cheapest)
 DASHSCOPE_VIDEO_RATIO=16:9          # 16:9 / 9:16 / 1:1 / 4:3 / 3:4
+DASHSCOPE_VIDEO_WATERMARK=false     # HappyHorse stamps 'Happy Horse' in the corner unless told not to
 ZAI_VIDEO_MODEL=cogvideox-3         # Z.ai /videos/generations model code
 ZAI_VIDEO_SIZE=1280x720             # 1280x720 | 1920x1080 | 720x1280 | 1080x1920 | 1024x1024
 ZAI_VIDEO_DURATION=5                # 5 | 10 seconds
