@@ -13,6 +13,7 @@ also ate a paid slot. These tests pin the corrected model.
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 
+from app.services import plan_features
 from app.services.subscription_service import (
     subscription_service,
     WEBSITE_QUOTA_STATUS_FILTER,
@@ -121,11 +122,13 @@ class TestCheckLimitWebsiteSlots:
                 svc, "get_available_addon_credits",
                 AsyncMock(side_effect=AssertionError("credit path used for websites")),
             ),
+            # A paid plan: the blocked branch may offer the slot add-on.
+            patch.object(plan_features, "can_publish_subdomain", AsyncMock(return_value=True)),
         )
 
     async def _check(self, **kw):
         p = self._patches(**kw)
-        with p[0], p[1], p[2], p[3], p[4], p[5]:
+        with p[0], p[1], p[2], p[3], p[4], p[5], p[6]:
             return await subscription_service.check_limit(USER, "create_website")
 
     @pytest.mark.asyncio

@@ -123,6 +123,25 @@ HERO_VIDEO_ADDON_TYPE = "hero_video"
 #: Shown in the UI; the charge itself is one addon credit.
 HERO_VIDEO_PRICE_RM = 5.0
 
+#: Add-ons that only make sense on a plan that can publish to a subdomain.
+#: The Free plan is preview-only, so an extra website slot or a hero video
+#: clip bought there can never be used — refuse the sale and point at the
+#: Starter upgrade instead (a founder paid RM5 for a slot on a Free account
+#: and read it as the RM5/month plan).
+PAID_PLAN_ADDONS = ("website", HERO_VIDEO_ADDON_TYPE)
+PAID_PLAN_ADDON_MESSAGE = (
+    "Addon ini memerlukan pelan berbayar. Pelan Percuma hanya untuk pratonton — "
+    "naik taraf ke Starter (RM5/bulan) dahulu untuk terbit laman web anda."
+)
+
+
+async def addon_requires_paid_plan(user_id: str, addon_type: str) -> bool:
+    """True when ``addon_type`` is a paid-plan add-on and this user's plan
+    cannot publish (Free / no active plan). Admin accounts never trip it."""
+    if addon_type not in PAID_PLAN_ADDONS:
+        return False
+    return not await can_publish_subdomain(user_id)
+
 
 async def hero_video_access(user_id: str) -> Dict[str, Any]:
     """How this user may generate a hero video.
@@ -134,7 +153,10 @@ async def hero_video_access(user_id: str) -> Dict[str, Any]:
     """
     free = await can_use_hero_video(user_id)
     credits = 0
+    requires_upgrade = False
     if not free:
+        # Preview-only plans cannot buy a clip; existing credits stay usable.
+        requires_upgrade = not await can_publish_subdomain(user_id)
         try:
             from app.services.subscription_service import subscription_service
 
@@ -151,5 +173,7 @@ async def hero_video_access(user_id: str) -> Dict[str, Any]:
         "allowed": free or credits > 0,
         "price_rm": HERO_VIDEO_PRICE_RM,
         "addon_type": HERO_VIDEO_ADDON_TYPE,
+        # Free plan: no purchase offered — upgrade to Starter first.
+        "requires_upgrade": requires_upgrade,
     }
 

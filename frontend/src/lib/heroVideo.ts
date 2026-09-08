@@ -49,6 +49,8 @@ export interface HeroVideoAccess {
   allowed: boolean;
   price_rm: number;
   addon_type: string;
+  /** Free (preview-only) plan: credits cannot be bought — upgrade first. */
+  requires_upgrade?: boolean;
 }
 
 export interface HeroVideoSettings {
@@ -95,6 +97,7 @@ export interface HeroVideoState {
   credits?: number;
   price_rm?: number;
   addon_type?: string;
+  requires_upgrade?: boolean;
   job: HeroVideoJob | null;
   poll_interval_seconds: number;
   source: string;

@@ -10,6 +10,7 @@ from datetime import datetime
 from loguru import logger
 
 from app.services.subscription_service import subscription_service
+from app.services import plan_features
 from app.services.supabase_client import supabase_service
 from app.services.toyyibpay_service import toyyibpay_service
 from app.core.security import get_current_user, require_verified_email
@@ -528,6 +529,14 @@ async def purchase_addon(
                         "Sila naik taraf dahulu."
                     )
                 )
+
+        # Website slots and hero video clips are useless on the preview-only
+        # Free plan — refuse the sale and point at the Starter upgrade.
+        if await plan_features.addon_requires_paid_plan(user_id, addon_type):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=plan_features.PAID_PLAN_ADDON_MESSAGE,
+            )
 
         unit_price = subscription_service.ADDON_PRICES[addon_type]
         total_price = unit_price * quantity

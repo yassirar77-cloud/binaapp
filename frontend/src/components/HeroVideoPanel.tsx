@@ -308,6 +308,7 @@ export default function HeroVideoPanel({ websiteId, onHtmlChange }: Props) {
   const heroFound = state?.hero_found ?? true;
   const freeAccess = state?.free_access ?? true;
   const credits = state?.credits ?? 0;
+  const requiresUpgrade = !!state?.requires_upgrade;
   const priceRm = state?.price_rm ?? options?.price_rm ?? 5;
   const disableAll = busy !== null || jobActive;
 
@@ -433,18 +434,30 @@ export default function HeroVideoPanel({ websiteId, onHtmlChange }: Props) {
                 <div className="text-xs opacity-80 mt-0.5">
                   {allowed
                     ? `Setiap penjanaan menggunakan 1 kredit (RM${priceRm.toFixed(0)}). Kredit dipulangkan jika video gagal dijana.`
-                    : 'Anda belum ada kredit. Beli 1 kredit untuk menjana video latar.'}
+                    : requiresUpgrade
+                      ? 'Pelan Percuma hanya untuk pratonton. Naik taraf ke Starter (RM5/bulan) untuk terbit laman web dan beli kredit video.'
+                      : 'Anda belum ada kredit. Beli 1 kredit untuk menjana video latar.'}
                 </div>
               </div>
-              <button
-                type="button"
-                data-testid="buy-hero-video-credit"
-                onClick={buyCredit}
-                disabled={disableAll}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-900 text-white hover:bg-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {busy === 'buy' ? '⏳ Menghubungi ToyyibPay…' : `Beli 1 kredit — RM${priceRm.toFixed(0)}`}
-              </button>
+              {requiresUpgrade && !allowed ? (
+                <a
+                  href="/dashboard/billing"
+                  data-testid="upgrade-for-hero-video"
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-900 text-white hover:bg-black transition-colors"
+                >
+                  Naik taraf ke Starter — RM5/bulan
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="buy-hero-video-credit"
+                  onClick={buyCredit}
+                  disabled={disableAll}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-900 text-white hover:bg-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {busy === 'buy' ? '⏳ Menghubungi ToyyibPay…' : `Beli 1 kredit — RM${priceRm.toFixed(0)}`}
+                </button>
+              )}
             </div>
           )}
           {!heroFound && (
