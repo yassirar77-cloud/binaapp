@@ -14,6 +14,7 @@ vi.mock('react-hot-toast', () => {
 
 vi.mock('@/lib/supabase', () => ({
   getApiAuthToken: vi.fn(async () => 'tok-123'),
+  getCurrentUser: vi.fn(async () => ({ id: 'user-1', email: 'u@x.my' })),
 }));
 
 const fetchHeroVideoOptions = vi.fn();
@@ -22,6 +23,7 @@ const startHeroVideo = vi.fn();
 const pollHeroVideoJob = vi.fn();
 const updateHeroVideoLook = vi.fn();
 const removeHeroVideo = vi.fn();
+const startHeroVideoPurchase = vi.fn(async (..._args: unknown[]) => undefined);
 
 vi.mock('@/lib/heroVideo', async () => {
   const actual = await vi.importActual<typeof import('@/lib/heroVideo')>('@/lib/heroVideo');
@@ -33,6 +35,7 @@ vi.mock('@/lib/heroVideo', async () => {
     pollHeroVideoJob: (...args: unknown[]) => pollHeroVideoJob(...args),
     updateHeroVideoLook: (...args: unknown[]) => updateHeroVideoLook(...args),
     removeHeroVideo: (...args: unknown[]) => removeHeroVideo(...args),
+    startHeroVideoPurchase: (...args: unknown[]) => startHeroVideoPurchase(...args),
   };
 });
 
@@ -65,6 +68,10 @@ function cleanState(overrides: Record<string, unknown> = {}) {
     hero_found: true,
     hero_match: 'id',
     allowed: true,
+    free_access: true,
+    credits: 0,
+    price_rm: 5,
+    addon_type: 'hero_video',
     job: null,
     poll_interval_seconds: 1,
     source: 'db',
@@ -293,12 +300,13 @@ describe('HeroVideoPanel', () => {
     confirmSpy.mockRestore();
   });
 
-  it('disables generation when the plan does not allow it', async () => {
-    fetchHeroVideoState.mockResolvedValue(cleanState({ allowed: false }));
+  it('disables generation when the account has no free access and no credit', async () => {
+    fetchHeroVideoState.mockResolvedValue(
+      cleanState({ allowed: false, free_access: false, credits: 0 })
+    );
     render(<HeroVideoPanel websiteId="ws-1" onHtmlChange={vi.fn()} />);
-    const button = (await screen.findByTestId('generate-hero-video')) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    expect(screen.getByText(/tidak termasuk dalam pelan anda/)).toBeTruthy();
+    expect((await screen.findByTestId('hero-video-credits')).textContent).toContain('setiap klip');
+    expect(screen.getByTestId('generate-hero-video').hasAttribute('disabled')).toBe(true);
   });
 
   it('disables generation when the page has no hero', async () => {
@@ -307,5 +315,34 @@ describe('HeroVideoPanel', () => {
     const button = (await screen.findByTestId('generate-hero-video')) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(screen.getByText(/Bahagian hero tidak dijumpai/)).toBeTruthy();
+  });
+
+  it('sells a RM5 credit when the account has none, and sends the merchant back to the editor', async () => {
+    fetchHeroVideoState.mockResolvedValue(
+      cleanState({ allowed: false, free_access: false, credits: 0, price_rm: 5 })
+    );
+    render(<HeroVideoPanel websiteId="ws-1" onHtmlChange={vi.fn()} />);
+    const buy = await screen.findByTestId('buy-hero-video-credit');
+    expect(buy.textContent).toContain('RM5');
+    expect(screen.getByTestId('generate-hero-video').hasAttribute('disabled')).toBe(true);
+    expect(screen.getByTestId('hero-video-credits').textContent).toContain('belum ada kredit');
+
+    fireEvent.click(buy);
+    await waitFor(() => expect(startHeroVideoPurchase).toHaveBeenCalled());
+    expect(startHeroVideoPurchase.mock.calls[0]?.[0]).toMatchObject({
+      userId: 'user-1',
+      token: 'tok-123',
+      returnTo: window.location.pathname,
+    });
+  });
+
+  it('shows the credit balance and charges one credit per generation for paid accounts', async () => {
+    fetchHeroVideoState.mockResolvedValue(
+      cleanState({ allowed: true, free_access: false, credits: 2, price_rm: 5 })
+    );
+    render(<HeroVideoPanel websiteId="ws-1" onHtmlChange={vi.fn()} />);
+    expect((await screen.findByTestId('hero-video-credits')).textContent).toContain('Baki kredit video: 2');
+    expect(screen.getByTestId('generate-hero-video').textContent).toContain('(1 kredit)');
+    expect(screen.getByTestId('generate-hero-video').hasAttribute('disabled')).toBe(false);
   });
 });

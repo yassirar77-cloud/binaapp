@@ -29,12 +29,26 @@ export interface HeroVideoStyle {
 
 export interface HeroVideoOptions {
   model: string;
+  provider?: string;
   duration_seconds: number;
   durations: number[];
   poll_interval_seconds: number;
   styles: HeroVideoStyle[];
   overlays: HeroVideoOverlay[];
   text_modes: HeroVideoTextMode[];
+  /** RM per clip for accounts without free access. */
+  price_rm?: number;
+  /** addon_purchases.addon_type to buy one clip credit. */
+  addon_type?: string;
+}
+
+/** How this account may generate: free, or by prepaid RM5 credits. */
+export interface HeroVideoAccess {
+  free: boolean;
+  credits: number;
+  allowed: boolean;
+  price_rm: number;
+  addon_type: string;
 }
 
 export interface HeroVideoSettings {
@@ -61,6 +75,9 @@ export interface HeroVideoJob {
   applied: boolean;
   live_site_updated: boolean;
   elapsed_seconds: number;
+  /** One RM5 credit was consumed for this job; refunded if it never delivers. */
+  charged?: boolean;
+  refunded?: boolean;
   /** Present on the poll that completes the job. */
   html_content?: string;
   settings?: HeroVideoSettings;
@@ -74,6 +91,10 @@ export interface HeroVideoState {
   hero_found: boolean;
   hero_match: string;
   allowed: boolean;
+  free_access?: boolean;
+  credits?: number;
+  price_rm?: number;
+  addon_type?: string;
   job: HeroVideoJob | null;
   poll_interval_seconds: number;
   source: string;
@@ -131,6 +152,8 @@ export function heroVideoErrorMessage(status: number, detail?: unknown): string 
       return 'Had harian video untuk laman web ini telah dicapai. Cuba lagi esok.';
     case 'video_submit_failed':
       return 'Penjanaan video gagal dimulakan. Sila cuba lagi sebentar.';
+    case 'payment_required':
+      return 'Video latar hero berharga RM5 setiap klip. Beli 1 kredit video untuk meneruskan.';
     case 'provider_not_configured':
       return 'Penyedia video belum dikonfigurasi dengan betul di pelayan (kunci API ditolak). Sila hubungi sokongan BinaApp.';
     case 'job_not_found':
@@ -224,6 +247,61 @@ export async function fetchHeroVideoState(
 ): Promise<HeroVideoState> {
   const resp = await authedFetch(`/api/v1/websites/${websiteId}/hero-video`, token);
   return parseOrThrow<HeroVideoState>(resp);
+}
+
+/** Free access or prepaid credits for the signed-in account (no site needed). */
+export async function fetchHeroVideoAccess(token: string | null): Promise<HeroVideoAccess> {
+  const resp = await authedFetch('/api/v1/websites/hero-video/access', token);
+  return parseOrThrow<HeroVideoAccess>(resp);
+}
+
+export const HERO_VIDEO_PENDING_RETURN_KEY = 'pending_return_to';
+
+/**
+ * Buy one hero-video credit (RM5) through the existing add-on checkout and
+ * send the browser to ToyyibPay. The payment-success page reads
+ * `pending_return_to` and brings the merchant back to `returnTo` (the
+ * editor they came from) instead of the billing page.
+ */
+export async function startHeroVideoPurchase(params: {
+  userId: string;
+  token: string | null;
+  returnTo: string;
+  quantity?: number;
+}): Promise<void> {
+  const quantity = Math.max(1, params.quantity ?? 1);
+  const resp = await fetch(`${API_BASE}/api/v1/payments/addon/purchase`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(params.token ? { Authorization: `Bearer ${params.token}` } : {}),
+    },
+    body: JSON.stringify({ user_id: params.userId, addon_type: 'hero_video', quantity }),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data?.success || !data?.payment_url) {
+    throw new Error(
+      (data && typeof data.detail === 'string' && data.detail) ||
+        'Gagal memulakan pembayaran. Sila cuba lagi.'
+    );
+  }
+  try {
+    localStorage.setItem('pending_payment_id', String(data.payment_id ?? ''));
+    localStorage.setItem('pending_bill_code', String(data.bill_code ?? ''));
+    localStorage.setItem('pending_addon_type', 'hero_video');
+    localStorage.setItem('pending_addon_quantity', String(quantity));
+    localStorage.setItem(HERO_VIDEO_PENDING_RETURN_KEY, params.returnTo);
+    localStorage.removeItem('pending_tier');
+  } catch {
+    /* storage unavailable — the success page falls back to billing */
+  }
+  try {
+    const { backupAuthState } = await import('@/lib/supabase');
+    backupAuthState();
+  } catch {
+    /* ignore */
+  }
+  window.location.href = data.payment_url;
 }
 
 /** Kick off a GLM video generation. Returns the job to poll. */

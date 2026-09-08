@@ -451,6 +451,12 @@ async def get_available_addons():
                 "name": "Zon Penghantaran Tambahan",
                 "description": "Tambah 1 zon penghantaran",
                 "price": 2.00
+            },
+            {
+                "type": "hero_video",
+                "name": "Video Latar Hero",
+                "description": "1 klip video AI (5 saat) untuk latar hero laman web anda",
+                "price": 5.00
             }
         ]
 
