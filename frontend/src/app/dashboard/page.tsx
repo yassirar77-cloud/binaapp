@@ -220,7 +220,10 @@ export default function DashboardPage() {
       setLimitModalData({
         resourceType: 'website',
         currentUsage: quota.currentUsage,
-        limit: quota.limit,
+        // Show the capacity the user actually owns (plan + purchased slots),
+        // not the bare plan limit — "3/3" is a full account, "3/1" reads as
+        // if two paid slots had vanished.
+        limit: quota.totalAllowed ?? quota.limit,
         canBuyAddon: quota.canBuyAddon,
         addonPrice: quota.addonPrice ?? 5,
       })

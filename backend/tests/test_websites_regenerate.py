@@ -451,3 +451,108 @@ class TestAITimeoutDeepSeekOnly:
             # generate website" path, not the Qwen fallback.
             assert "Failed to generate website" in str(exc_info.value)
         qwen_should_never_be_called.assert_not_awaited()
+
+
+class TestRegenerateFailedSiteSlotCheck:
+    """A failed row does not occupy a website slot, so regenerating it is
+    the moment it starts counting again: it must pass the create_website
+    slot check before any AI work (or hero quota) is touched."""
+
+    @pytest.fixture
+    def patches(self):
+        with (
+            patch(
+                "app.api.v1.endpoints.websites.supabase_service.get_website",
+                new=AsyncMock(),
+            ) as get_website,
+            patch(
+                "app.api.v1.endpoints.websites.supabase_service.update_website",
+                new=AsyncMock(return_value=True),
+            ) as update_website,
+            patch(
+                "app.api.v1.endpoints.websites.subscription_service.check_limit",
+                new=AsyncMock(),
+            ) as check_limit,
+        ):
+            yield {
+                "get_website": get_website,
+                "update_website": update_website,
+                "check_limit": check_limit,
+            }
+
+    def _failed_row(self, owner_id: str) -> dict:
+        return {
+            "id": "ws-1",
+            "user_id": owner_id,
+            "business_name": "Test Cafe",
+            "business_type": "restaurant",
+            "subdomain": "testcafe",
+            "language": "ms",
+            "status": "failed",
+            "include_whatsapp": True,
+            "whatsapp_number": "+60123456789",
+            "include_maps": False,
+            "include_ecommerce": True,
+            "description": "stored description from create flow",
+            "generation_count": 1,
+            "created_at": "2026-05-22T00:00:00",
+            "updated_at": "2026-05-22T00:00:00",
+            "published_at": None,
+        }
+
+    def test_403_when_no_website_slot_left(
+        self, client, auth_headers, test_user_id, patches
+    ):
+        patches["get_website"].return_value = self._failed_row(test_user_id)
+
+        async def _check(user_id, action):
+            assert action == "create_website"
+            return {
+                "allowed": False,
+                "message": "Had laman web tercapai (3/3).",
+                "current_usage": 3,
+                "limit": 1,
+                "total_allowed": 3,
+                "can_buy_addon": True,
+                "addon_type": "website",
+                "addon_price": 5.0,
+            }
+
+        patches["check_limit"].side_effect = _check
+        resp = client.patch(
+            "/api/v1/websites/ws-1/regenerate",
+            headers=auth_headers,
+            json={},
+        )
+        assert resp.status_code == 403
+        body = resp.json()["detail"]
+        assert body["error"] == "subscription_limit_reached"
+        assert body["total_allowed"] == 3
+        assert body["addon_type"] == "website"
+        # Only the slot check ran — the hero quota is never consulted for a
+        # request that is rejected.
+        assert patches["check_limit"].await_count == 1
+        patches["update_website"].assert_not_called()
+
+    def test_slot_check_precedes_hero_quota_when_allowed(
+        self, client, auth_headers, test_user_id, patches
+    ):
+        patches["get_website"].return_value = self._failed_row(test_user_id)
+        seen = []
+
+        async def _check(user_id, action):
+            seen.append(action)
+            return {"allowed": True}
+
+        patches["check_limit"].side_effect = _check
+        with patch(
+            "app.api.v1.endpoints.websites.generate_website_content",
+            new=AsyncMock(return_value=None),
+        ):
+            resp = client.patch(
+                "/api/v1/websites/ws-1/regenerate",
+                headers=auth_headers,
+                json={},
+            )
+        assert resp.status_code == 200, resp.text
+        assert seen[:2] == ["create_website", "generate_ai_hero"]
