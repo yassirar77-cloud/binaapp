@@ -300,6 +300,8 @@ def _access_fields(access: Dict) -> Dict:
         "credits": access["credits"],
         "price_rm": access["price_rm"],
         "addon_type": access["addon_type"],
+        # Free plan: the panel offers the Starter upgrade instead of a credit.
+        "requires_upgrade": bool(access.get("requires_upgrade", False)),
     }
 
 

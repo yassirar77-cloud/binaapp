@@ -84,7 +84,7 @@ interface RawDispute {
 }
 
 const TOAST_TIMEOUT = 2200
-const VALID_TIERS: PlanTier[] = ['starter', 'basic', 'pro']
+const VALID_TIERS: PlanTier[] = ['free', 'starter', 'basic', 'pro']
 const VALID_STATUSES: PlanStatus[] = ['active', 'expired', 'cancelled']
 const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
 const TOYYIBPAY_BILL_BASE = 'https://toyyibpay.com'

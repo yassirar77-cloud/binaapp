@@ -1937,6 +1937,15 @@ async def purchase_addon(
                     )
                 )
 
+        # Website slots and hero video clips are useless on the preview-only
+        # Free plan — refuse the sale and point at the Starter upgrade.
+        from app.services import plan_features as _plan_features
+        if await _plan_features.addon_requires_paid_plan(user_id, addon_type):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=_plan_features.PAID_PLAN_ADDON_MESSAGE,
+            )
+
         logger.info(f"Creating addon purchase: type={addon_type}, qty={quantity}, user={user_id[:8]}...")
 
         # Get user email from database (try multiple sources)

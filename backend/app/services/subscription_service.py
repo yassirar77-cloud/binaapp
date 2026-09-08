@@ -761,6 +761,24 @@ class SubscriptionService:
                 "message": f"Menggunakan slot laman web tambahan ({current}/{total_allowed})",
             }
 
+        # Preview-only plans (Free) cannot publish, so an extra slot would
+        # be wasted money: send them to the Starter upgrade, never the
+        # add-on purchase.
+        from app.services.plan_features import can_publish_subdomain
+
+        if not await can_publish_subdomain(user_id):
+            return {
+                **base,
+                "allowed": False,
+                "can_buy_addon": False,
+                "requires_upgrade": True,
+                "message": (
+                    f"Had laman web tercapai ({current}/{total_allowed}). "
+                    "Pelan Percuma hanya untuk pratonton — naik taraf ke "
+                    "Starter (RM5/bulan) untuk terbit laman web anda."
+                ),
+            }
+
         return {
             **base,
             "allowed": False,

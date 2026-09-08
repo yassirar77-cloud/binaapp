@@ -336,6 +336,27 @@ describe('HeroVideoPanel', () => {
     });
   });
 
+  it('offers the Starter upgrade instead of a credit on the Free plan', async () => {
+    fetchHeroVideoState.mockResolvedValue(
+      cleanState({ allowed: false, free_access: false, credits: 0, price_rm: 5, requires_upgrade: true })
+    );
+    render(<HeroVideoPanel websiteId="ws-1" onHtmlChange={vi.fn()} />);
+    const upgrade = await screen.findByTestId('upgrade-for-hero-video');
+    expect(upgrade.getAttribute('href')).toBe('/dashboard/billing');
+    expect(screen.queryByTestId('buy-hero-video-credit')).toBeNull();
+    expect(screen.getByTestId('hero-video-credits').textContent).toContain('Pelan Percuma');
+    expect(screen.getByTestId('generate-hero-video').hasAttribute('disabled')).toBe(true);
+  });
+
+  it('lets a Free-plan account spend a credit it already holds', async () => {
+    fetchHeroVideoState.mockResolvedValue(
+      cleanState({ allowed: true, free_access: false, credits: 1, price_rm: 5, requires_upgrade: true })
+    );
+    render(<HeroVideoPanel websiteId="ws-1" onHtmlChange={vi.fn()} />);
+    expect((await screen.findByTestId('hero-video-credits')).textContent).toContain('Baki kredit video: 1');
+    expect(screen.queryByTestId('upgrade-for-hero-video')).toBeNull();
+  });
+
   it('shows the credit balance and charges one credit per generation for paid accounts', async () => {
     fetchHeroVideoState.mockResolvedValue(
       cleanState({ allowed: true, free_access: false, credits: 2, price_rm: 5 })

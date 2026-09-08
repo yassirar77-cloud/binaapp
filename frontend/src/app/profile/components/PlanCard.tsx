@@ -10,16 +10,21 @@ const BM_MONTHS = [
   'Julai', 'Ogos', 'September', 'Oktober', 'November', 'Disember',
 ]
 
-export type PlanTier = 'starter' | 'basic' | 'pro'
+export type PlanTier = 'free' | 'starter' | 'basic' | 'pro'
 export type PlanStatus = 'active' | 'expired' | 'cancelled'
 
 const PRICE: Record<PlanTier, number> = {
+  free: 0,
   starter: 5,
   basic: 29,
   pro: 49,
 } as const
 
 const TIER_DISPLAY: Record<PlanTier, string> = {
+  // Preview-only plan: must never be labelled Starter, or a merchant reads
+  // an RM5 add-on receipt as the RM5/month plan and wonders why publish
+  // still asks them to upgrade.
+  free: 'Percuma',
   starter: 'Starter',
   basic: 'Basic',
   pro: 'Pro',
@@ -99,7 +104,12 @@ export function PlanCard({
   const pill = statusPill(status, isExpired)
   const showUpgrade = tier !== 'pro'
 
-  const subtitle = renewal ? `RM${price}/bulan · perbaharui ${renewal}` : `RM${price}/bulan`
+  const subtitle =
+    tier === 'free'
+      ? 'Pratonton sahaja · naik taraf ke Starter (RM5/bulan) untuk terbit'
+      : renewal
+        ? `RM${price}/bulan · perbaharui ${renewal}`
+        : `RM${price}/bulan`
 
   return (
     <Card>

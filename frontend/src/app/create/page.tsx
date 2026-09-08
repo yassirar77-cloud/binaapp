@@ -1923,7 +1923,10 @@ export default function CreatePage() {
                         {heroVideoAccess && !heroVideoAccess.free && (
                           <span style={{ display: 'block', marginTop: 4, color: heroVideoAccess.allowed ? '#C7FF3D' : '#FFB86B' }}>
                             RM{heroVideoAccess.price_rm.toFixed(0)} setiap klip · Baki kredit anda: {heroVideoAccess.credits}
-                            {!heroVideoAccess.allowed && ' — beli kredit di Editor selepas publish.'}
+                            {!heroVideoAccess.allowed &&
+                              (heroVideoAccess.requires_upgrade
+                                ? ' — naik taraf ke Starter (RM5/bulan) untuk terbit dan beli kredit.'
+                                : ' — beli kredit di Editor selepas publish.')}
                           </span>
                         )}
                       </div>
