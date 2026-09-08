@@ -44,7 +44,7 @@ DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
 # Subscription lock system
 from app.middleware.subscription_guard import subscription_check_middleware
 from app.api.v1.endpoints import subscription_status
-from app.services.subscription_service import subscription_service as sub_service
+from app.services.subscription_service import subscription_service as sub_service, WEBSITE_QUOTA_STATUS_FILTER
 from app.services.supabase_client import supabase_service
 from app.services.analytics_tracking import (
     client_ip_from_headers,
@@ -2591,15 +2591,16 @@ MANDATORY REQUIREMENTS:
             _svc_headers = supabase_service.headers
 
             # 1. Count actual websites owned by this user.
-            # status=neq.pending_payment excludes pre-payment drafts so a saved
-            # but unpublished draft never consumes the user's website slot.
+            # WEBSITE_QUOTA_STATUS_FILTER excludes pre-payment drafts (a saved
+            # but unpublished draft never consumes a slot) and failed
+            # generations (no site was produced).
             async with httpx.AsyncClient() as _client:
                 _count_resp = await _client.get(
                     f"{_base_url}/rest/v1/websites",
                     headers={**_svc_headers, "Prefer": "count=exact"},
                     params={
                         "user_id": f"eq.{user_id}",
-                        "status": "neq.pending_payment",
+                        "status": WEBSITE_QUOTA_STATUS_FILTER,
                         "select": "id",
                     }
                 )
@@ -2642,24 +2643,13 @@ MANDATORY REQUIREMENTS:
             websites_limit = _sub_data["subscription_plans"]["websites_limit"]
             plan_name = _sub_data["subscription_plans"]["plan_name"]
 
-            # 3. Addon credits (None websites_limit = unlimited plan, skip)
+            # 3. Website slot add-ons (None websites_limit = unlimited plan,
+            #    skip). A purchased slot is permanent capacity and keeps
+            #    counting after it is marked used — see
+            #    SubscriptionService._check_website_slots.
             if websites_limit is not None:
-                async with httpx.AsyncClient() as _client:
-                    _addon_resp = await _client.get(
-                        f"{_base_url}/rest/v1/addon_purchases",
-                        headers=_svc_headers,
-                        params={
-                            "user_id": f"eq.{user_id}",
-                            "addon_type": "eq.website",
-                            "status": "eq.active",
-                            "select": "id,quantity,quantity_used"
-                        }
-                    )
-                _addon_rows = _addon_resp.json() if _addon_resp.status_code == 200 else []
-                addon_credits = sum(
-                    max(0, (r.get("quantity") or 0) - (r.get("quantity_used") or 0))
-                    for r in _addon_rows
-                )
+                _slots = await sub_service.get_website_slot_purchases(user_id)
+                addon_credits = _slots["purchased"]
                 total_allowed = websites_limit + addon_credits
 
                 logger.info(

@@ -535,7 +535,7 @@ export default function CreatePage() {
         setLimitModalData({
           resourceType: 'website',
           currentUsage: quota.currentUsage,
-          limit: quota.limit,
+          limit: quota.totalAllowed ?? quota.limit,
           canBuyAddon: quota.canBuyAddon,
           addonPrice: quota.addonPrice ?? 5,
         })

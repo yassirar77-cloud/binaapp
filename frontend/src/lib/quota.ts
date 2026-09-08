@@ -115,6 +115,8 @@ export interface CreateWebsiteCheck {
   allowed: boolean
   currentUsage: number
   limit: number | null // null = unlimited / unknown
+  /** Plan limit + purchased website slots. What the user may actually build on. */
+  totalAllowed: number | null
   unlimited: boolean
   canBuyAddon: boolean
   addonPrice?: number
@@ -132,6 +134,7 @@ export async function checkCreateWebsiteAllowed(): Promise<CreateWebsiteCheck> {
     allowed: true,
     currentUsage: 0,
     limit: null,
+    totalAllowed: null,
     unlimited: true,
     canBuyAddon: false,
     requiresRenewal: false,
@@ -154,6 +157,7 @@ export async function checkCreateWebsiteAllowed(): Promise<CreateWebsiteCheck> {
       allowed: !!d.allowed,
       currentUsage: d.current_usage ?? 0,
       limit,
+      totalAllowed: d.total_allowed ?? limit,
       unlimited: !!d.unlimited || limit === null,
       canBuyAddon: !!d.can_buy_addon,
       addonPrice: d.addon_price ?? undefined,

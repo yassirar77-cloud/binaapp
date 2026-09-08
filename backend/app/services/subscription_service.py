@@ -10,6 +10,15 @@ from loguru import logger
 from app.core.config import settings
 import secrets
 
+# Website rows that never occupy a website slot:
+#   pending_payment - pre-payment draft (the generator keeps the HTML so the
+#                     work is never lost; it starts counting at publish time)
+#   failed          - the AI run never produced a site. A failed generation
+#                     must not eat a paid slot; a later regenerate/publish of
+#                     that row re-runs the slot check before it counts.
+WEBSITE_NON_COUNTING_STATUSES = ("pending_payment", "failed")
+WEBSITE_QUOTA_STATUS_FILTER = "not.in.(" + ",".join(WEBSITE_NON_COUNTING_STATUSES) + ")"
+
 
 class SubscriptionService:
     """Service for managing subscriptions, usage tracking, and limits"""
@@ -271,18 +280,17 @@ class SubscriptionService:
 
         try:
             async with httpx.AsyncClient() as client:
-                # Count websites.
-                # status=neq.pending_payment EXCLUDES pre-payment drafts: the
-                # generator persists generated HTML as a status='pending_payment'
-                # row so the work is never lost, but a draft must not consume the
-                # user's website slot (quota gates publishing, not saving). The
-                # draft flips to 'published' at publish time and starts counting.
+                # Count websites. WEBSITE_QUOTA_STATUS_FILTER excludes
+                # pre-payment drafts (the generator persists generated HTML as
+                # a status='pending_payment' row so the work is never lost, but
+                # a draft must not consume a slot until it publishes) and
+                # failed generations (no site was produced).
                 response = await client.get(
                     f"{self.url}/rest/v1/websites",
                     headers={**self.headers, "Prefer": "count=exact"},
                     params={
                         "user_id": f"eq.{user_id}",
-                        "status": "neq.pending_payment",
+                        "status": WEBSITE_QUOTA_STATUS_FILTER,
                         "select": "id",
                     }
                 )
@@ -301,7 +309,7 @@ class SubscriptionService:
                     headers=self.headers,
                     params={
                         "user_id": f"eq.{user_id}",
-                        "status": "neq.pending_payment",
+                        "status": WEBSITE_QUOTA_STATUS_FILTER,
                         "select": "id",
                     }
                 )
@@ -498,6 +506,7 @@ class SubscriptionService:
         limits = await self.get_user_limits(user_id)
         usage = await self.get_or_create_usage_tracking(user_id)
         addons = await self.get_available_addon_credits(user_id)
+        website_slots = await self.get_website_slot_purchases(user_id)
 
         def calc_usage(used: int, limit: Optional[int], addon_credits: int = 0) -> Dict[str, Any]:
             if limit is None:
@@ -518,7 +527,11 @@ class SubscriptionService:
                 "websites": calc_usage(
                     usage.get("websites_count", 0),
                     limits.get("websites_limit"),
-                    addons.get("website", 0)
+                    # Website slots are permanent capacity, not consumable
+                    # credits: a slot already holding a site must keep
+                    # counting or the dashboard reads "3/1" for a user who
+                    # legitimately owns three slots.
+                    website_slots["purchased"],
                 ),
                 "menu_items": calc_usage(
                     usage.get("menu_items_count", 0),
@@ -612,6 +625,13 @@ class SubscriptionService:
                 "message": "Tiada had"
             }
 
+        # Website slots are capacity, not consumable credits — see
+        # _check_website_slots. Every other action keeps the monthly
+        # credit model below.
+        if action == "create_website":
+            return await self._check_website_slots(user_id, current, limit)
+
+
         # Check if within limit
         if current < limit:
             return {
@@ -688,6 +708,120 @@ class SubscriptionService:
             "can_buy_addon": False,
             "message": f"Had tercapai ({current}/{limit}). Sila naik taraf pelan anda."
         }
+
+    async def _check_website_slots(self, user_id: str, current: int, limit: int) -> Dict[str, Any]:
+        """create_website quota, slot model.
+
+        A "Laman Web Tambahan" purchase is a permanent extra slot (RM5, one
+        site, for as long as the site lives), not a monthly credit. The user
+        may build on
+
+            plan websites_limit + every website slot ever purchased
+
+        sites at once, whether or not the slot is already marked used. The
+        old check compared the live site count against limit + *unused*
+        credits, so the moment a slot was consumed the site it funded still
+        counted but the slot no longer did — buying a second slot could
+        never unblock the user ("I paid, still shows the popup").
+
+        `using_addon` tells the caller to mark one unused slot as used (pure
+        bookkeeping: it drives the non-refundable "sudah digunakan" state on
+        the billing page and never changes the entitlement). Deleting a site
+        frees its slot again because the count drops.
+        """
+        slots = await self.get_website_slot_purchases(user_id)
+        purchased = slots["purchased"]
+        available = slots["available"]
+        total_allowed = limit + purchased
+
+        base = {
+            "current_usage": current,
+            "limit": limit,
+            "addon_credits": purchased,
+            "addon_credits_available": available,
+            "total_allowed": total_allowed,
+        }
+
+        if current < limit:
+            return {
+                **base,
+                "allowed": True,
+                "remaining": total_allowed - current,
+                "message": f"Dalam had ({current}/{total_allowed})",
+            }
+
+        if current < total_allowed:
+            return {
+                **base,
+                "allowed": True,
+                "remaining": total_allowed - current,
+                # Only ask the caller to consume a slot when an unused one
+                # exists; a slot freed by deleting a site is reused as-is.
+                "using_addon": available > 0,
+                "message": f"Menggunakan slot laman web tambahan ({current}/{total_allowed})",
+            }
+
+        return {
+            **base,
+            "allowed": False,
+            "can_buy_addon": True,
+            "addon_type": "website",
+            "addon_price": self.ADDON_PRICES.get("website"),
+            "message": (
+                f"Had laman web tercapai ({current}/{total_allowed}). "
+                "Naik taraf pelan atau beli slot laman web tambahan."
+            ),
+        }
+
+    async def get_website_slot_purchases(self, user_id: str) -> Dict[str, Any]:
+        """Website slot add-ons for a user.
+
+        Returns
+            purchased: total slots ever bought and still valid (status
+                       active OR depleted — a used slot still holds a site)
+            available: slots not yet marked used (active rows only)
+            rows:      the active, not-fully-used purchase rows, oldest
+                       first, for callers that mark one as used
+        Rows in any other status (refunded, cancelled, ...) are ignored.
+        """
+        empty = {"purchased": 0, "available": 0, "rows": []}
+        try:
+            url = f"{self.url}/rest/v1/addon_purchases"
+            params = {
+                "user_id": f"eq.{user_id}",
+                "addon_type": "eq.website",
+                "status": "in.(active,depleted)",
+                "select": "id,quantity,quantity_used,status,created_at",
+                "order": "created_at.asc",
+            }
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.headers, params=params)
+            if response.status_code != 200:
+                logger.warning(
+                    f"⚠️ Failed to query website slot purchases: "
+                    f"{response.status_code} {response.text[:200]}"
+                )
+                return empty
+
+            purchased = 0
+            available = 0
+            rows: List[Dict[str, Any]] = []
+            for record in response.json():
+                qty = int(record.get("quantity") or 0)
+                used = int(record.get("quantity_used") or 0)
+                purchased += qty
+                if record.get("status") == "active" and qty - used > 0:
+                    available += qty - used
+                    rows.append(record)
+
+            logger.info(
+                f"🪑 Website slots for user {user_id[:8]}...: "
+                f"purchased={purchased} available={available}"
+            )
+            return {"purchased": purchased, "available": available, "rows": rows}
+        except Exception as e:
+            logger.error(f"Error getting website slot purchases: {e}")
+            return empty
 
     async def increment_usage(self, user_id: str, action: str, count: int = 1) -> bool:
         """Increment usage counter for a specific action"""

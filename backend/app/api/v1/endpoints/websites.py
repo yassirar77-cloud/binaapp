@@ -27,7 +27,7 @@ from app.services.storage_service import storage_service
 from app.services.templates import TemplateService
 from app.core.config import settings
 from app.middleware.subscription_guard import SubscriptionGuard
-from app.services.subscription_service import subscription_service
+from app.services.subscription_service import subscription_service, WEBSITE_QUOTA_STATUS_FILTER
 from app.utils.html_inject import insert_before_body
 
 router = APIRouter()
@@ -68,15 +68,16 @@ async def generate_website(
             logger.info(f"[LIMIT CHECK] admin bypass for user={user_id}")
 
         # 1. Count actual websites owned by this user (source of truth).
-        # status=neq.pending_payment excludes pre-payment drafts so they never
-        # consume a website slot (they flip to 'published' at publish time).
+        # WEBSITE_QUOTA_STATUS_FILTER excludes pre-payment drafts (they flip
+        # to 'published' at publish time) and failed generations (no site
+        # was produced) so neither occupies a website slot.
         async with _httpx.AsyncClient() as _client:
             _count_resp = await _client.get(
                 f"{_base_url}/rest/v1/websites",
                 headers={**_svc_headers, "Prefer": "count=exact"},
                 params={
                     "user_id": f"eq.{user_id}",
-                    "status": "neq.pending_payment",
+                    "status": WEBSITE_QUOTA_STATUS_FILTER,
                     "select": "id",
                 }
             )
@@ -126,33 +127,18 @@ async def generate_website(
 
         # Handle unlimited plans (websites_limit = None) and admin bypass.
         if websites_limit is not None and not _is_admin_bypass:
-            # 3. Check addon credits. Schema (migrations 015 + 024) has
-            #    quantity + quantity_used; available = quantity - quantity_used.
-            #    PostgREST can't express arithmetic in URL filters, so we
-            #    fetch all active rows and filter in code (same pattern as
-            #    subscription_service.get_available_addon_credits).
-            async with _httpx.AsyncClient() as _client:
-                _addon_resp = await _client.get(
-                    f"{_base_url}/rest/v1/addon_purchases",
-                    headers=_svc_headers,
-                    params={
-                        "user_id": f"eq.{user_id}",
-                        "addon_type": "eq.website",
-                        "status": "eq.active",
-                        "select": "id,quantity,quantity_used"
-                    }
-                )
-            _addon_rows = _addon_resp.json() if _addon_resp.status_code == 200 else []
-            _addon_data = [
-                {**r, "available": max(0, (r.get("quantity") or 0) - (r.get("quantity_used") or 0))}
-                for r in _addon_rows
-            ]
-            _addon_data = [r for r in _addon_data if r["available"] > 0]
-            addon_credits = sum(r["available"] for r in _addon_data)
+            # 3. Website slot add-ons. A purchased slot is permanent capacity:
+            #    it keeps counting after it is marked used (the site it funded
+            #    is still live), so total_allowed = plan limit + every slot
+            #    bought. Only unused rows are candidates for the bookkeeping
+            #    deduction in step 5. See SubscriptionService._check_website_slots.
+            _slots = await subscription_service.get_website_slot_purchases(user_id)
+            _addon_data = _slots["rows"]
+            addon_credits = _slots["purchased"]
 
             total_allowed = websites_limit + addon_credits
 
-            logger.info(f"[LIMIT CHECK] user={user_id} actual={actual_count} plan_limit={websites_limit} addon_credits={addon_credits} total_allowed={total_allowed}")
+            logger.info(f"[LIMIT CHECK] user={user_id} actual={actual_count} plan_limit={websites_limit} addon_slots={addon_credits} unused={_slots['available']} total_allowed={total_allowed}")
 
             # 4. BLOCK if at or over limit
             if actual_count >= total_allowed:
@@ -170,9 +156,11 @@ async def generate_website(
                     }
                 )
 
-            # 5. If using addon credit, deduct one immediately (before generation starts).
-            #    Increment quantity_used; flip status to 'depleted' when fully consumed.
-            if actual_count >= websites_limit and addon_credits > 0:
+            # 5. If this site lands on a purchased slot, mark one unused slot as
+            #    used now (before generation starts). Increment quantity_used;
+            #    flip status to 'depleted' when fully consumed. Bookkeeping only:
+            #    the slot keeps counting toward total_allowed either way.
+            if actual_count >= websites_limit and _addon_data:
                 _addon_to_use = _addon_data[0]
                 _prev_qty_used = _addon_to_use.get("quantity_used") or 0
                 _new_qty_used = _prev_qty_used + 1
@@ -293,12 +281,10 @@ async def generate_website(
 
         website = await supabase_service.create_website(website_data)
 
-        # CRITICAL: Track usage + consume addon credit if applicable
+        # CRITICAL: Track usage. The website slot (if any) was already marked
+        # used in step 5 above, with rollback on failure — do NOT consume it a
+        # second time here off the guard's `using_addon` flag.
         try:
-            if _limit_check and _limit_check.get("using_addon"):
-                await subscription_service.use_addon_credit(user_id, "website")
-                logger.info(f"🧾 Consumed website addon credit for user {user_id}")
-
             await subscription_service.increment_usage(user_id, "create_website")
             logger.info(f"📊 Incremented websites_count for user {user_id}")
         except Exception as usage_err:
@@ -789,6 +775,32 @@ async def regenerate_website(
             status_code=status.HTTP_409_CONFLICT,
             detail="A generation is already in progress for this website. Please wait until it completes.",
         )
+
+    # 2b. A failed row does not occupy a website slot (it never produced a
+    # site), so regenerating it is the moment it starts counting again —
+    # run the same slot check a brand-new site gets. No slot is marked used
+    # here: the original create already did that bookkeeping.
+    if website.get("status") == WebsiteStatus.FAILED:
+        slot_check = await subscription_service.check_limit(user_id, "create_website")
+        if not slot_check.get("allowed"):
+            logger.warning(
+                f"[REGENERATE] website slot limit reached for user {user_id} "
+                f"on failed website {website_id}: {slot_check.get('message')}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "subscription_limit_reached",
+                    "message": slot_check.get("message"),
+                    "current_usage": slot_check.get("current_usage"),
+                    "limit": slot_check.get("limit"),
+                    "total_allowed": slot_check.get("total_allowed"),
+                    "can_buy_addon": slot_check.get("can_buy_addon", False),
+                    "addon_type": slot_check.get("addon_type"),
+                    "addon_price": slot_check.get("addon_price"),
+                    "upgrade_url": "/dashboard/billing",
+                },
+            )
 
     # 3. Resolve description: explicit override wins, otherwise reuse
     # the persisted one. If neither exists (legacy row with no stored
