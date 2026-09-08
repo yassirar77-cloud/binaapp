@@ -22,6 +22,7 @@ import {
   HERO_VIDEO_CONNECTION_LOST,
   HERO_VIDEO_MAX_POLL_FAILURES,
   fetchHeroVideoOptions,
+  startHeroVideoPurchase,
   isTransientFetchError,
   fetchHeroVideoState,
   heroVideoJobErrorMessage,
@@ -37,7 +38,7 @@ import {
   type HeroVideoSettings,
   type HeroVideoState,
 } from '@/lib/heroVideo';
-import { getApiAuthToken } from '@/lib/supabase';
+import { getApiAuthToken, getCurrentUser } from '@/lib/supabase';
 
 interface Props {
   websiteId: string;
@@ -305,7 +306,32 @@ export default function HeroVideoPanel({ websiteId, onHtmlChange }: Props) {
   const hasVideo = !!state?.has_video;
   const allowed = state?.allowed ?? true;
   const heroFound = state?.hero_found ?? true;
+  const freeAccess = state?.free_access ?? true;
+  const credits = state?.credits ?? 0;
+  const priceRm = state?.price_rm ?? options?.price_rm ?? 5;
   const disableAll = busy !== null || jobActive;
+
+  const buyCredit = async () => {
+    setBusy('buy');
+    setError(null);
+    try {
+      const [user, token] = await Promise.all([getCurrentUser(), getApiAuthToken()]);
+      if (!user?.id) {
+        throw new Error('Sila log masuk semula untuk meneruskan pembayaran.');
+      }
+      await startHeroVideoPurchase({
+        userId: user.id,
+        token,
+        returnTo: window.location.pathname,
+      });
+      // The browser is now on its way to ToyyibPay.
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Gagal memulakan pembayaran.';
+      setError(message);
+      toast.error(message);
+      setBusy(null);
+    }
+  };
 
   return (
     <section
@@ -391,10 +417,34 @@ export default function HeroVideoPanel({ websiteId, onHtmlChange }: Props) {
             </div>
           )}
 
-          {!allowed && (
-            <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg p-3">
-              Video latar hero tidak termasuk dalam pelan anda. Naik taraf pelan
-              untuk menggunakannya.
+          {!freeAccess && (
+            <div
+              data-testid="hero-video-credits"
+              className={`mb-4 border text-sm rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 ${
+                allowed ? 'bg-violet-50 border-violet-200 text-violet-900' : 'bg-amber-50 border-amber-200 text-amber-900'
+              }`}
+            >
+              <div>
+                <div className="font-semibold">
+                  {allowed
+                    ? `Baki kredit video: ${credits}`
+                    : `Video latar hero berharga RM${priceRm.toFixed(0)} setiap klip.`}
+                </div>
+                <div className="text-xs opacity-80 mt-0.5">
+                  {allowed
+                    ? `Setiap penjanaan menggunakan 1 kredit (RM${priceRm.toFixed(0)}). Kredit dipulangkan jika video gagal dijana.`
+                    : 'Anda belum ada kredit. Beli 1 kredit untuk menjana video latar.'}
+                </div>
+              </div>
+              <button
+                type="button"
+                data-testid="buy-hero-video-credit"
+                onClick={buyCredit}
+                disabled={disableAll}
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-900 text-white hover:bg-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {busy === 'buy' ? '⏳ Menghubungi ToyyibPay…' : `Beli 1 kredit — RM${priceRm.toFixed(0)}`}
+              </button>
             </div>
           )}
           {!heroFound && (
@@ -460,8 +510,8 @@ export default function HeroVideoPanel({ websiteId, onHtmlChange }: Props) {
               : jobActive
                 ? '🎬 Sedang dijana…'
                 : hasVideo
-                  ? '🎬 Jana video baharu'
-                  : '🎬 Jana video latar'}
+                  ? `🎬 Jana video baharu${freeAccess ? '' : ' (1 kredit)'}`
+                  : `🎬 Jana video latar${freeAccess ? '' : ' (1 kredit)'}`}
           </button>
           <p className="mt-2 text-[11px] text-gray-400">
             Klip {options.duration_seconds} saat, tanpa bunyi, diulang tanpa henti.

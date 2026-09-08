@@ -389,6 +389,10 @@ class HeroVideoJob:
     #: Which API holds this task — polling must go back to the same one even
     #: if HERO_VIDEO_PROVIDER changes or the job came from the fallback.
     provider: str = ""
+    #: One hero_video add-on credit was consumed for this job (paid users).
+    #: A job that then fails to deliver gives it back exactly once.
+    charged: bool = False
+    refunded: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
     def age_seconds(self) -> float:
@@ -406,6 +410,8 @@ class HeroVideoJob:
             "live_site_updated": self.live_site_updated,
             "elapsed_seconds": round(self.age_seconds()),
             "provider": self.provider or hero_video_provider(),
+            "charged": self.charged,
+            "refunded": self.refunded,
         }
 
 
@@ -460,6 +466,7 @@ class ZaiVideoService:
         prompt: str,
         settings: Dict,
         provider: Optional[str] = None,
+        charged: bool = False,
     ) -> HeroVideoJob:
         job = HeroVideoJob(
             job_id=uuid.uuid4().hex,
@@ -469,6 +476,7 @@ class ZaiVideoService:
             prompt=prompt,
             settings=settings,
             provider=provider or hero_video_provider(),
+            charged=charged,
         )
         self._jobs[job.job_id] = job
         return job

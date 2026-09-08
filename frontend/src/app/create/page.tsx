@@ -17,10 +17,12 @@ import { LimitReachedModal } from '@/components/LimitReachedModal'
 import { API_BASE_URL, DIRECT_BACKEND_URL } from '@/lib/env'
 import { supabase, signOut as customSignOut, getCurrentUser, getStoredToken, getApiAuthToken } from '@/lib/supabase'
 import {
+  fetchHeroVideoAccess,
   fetchHeroVideoOptions,
   runHeroVideoJob,
   heroVideoJobErrorMessage,
   isHeroVideoJobActive,
+  type HeroVideoAccess,
   type HeroVideoOptions,
   type HeroVideoJob,
 } from '@/lib/heroVideo'
@@ -280,6 +282,8 @@ export default function CreatePage() {
   const [heroVideoStyle, setHeroVideoStyle] = useState('cinematic')
   const [heroVideoPrompt, setHeroVideoPrompt] = useState('')
   const [heroVideoJob, setHeroVideoJob] = useState<HeroVideoJob | null>(null)
+  // Free access (admin / plan) or prepaid RM5 credits. null = not loaded.
+  const [heroVideoAccess, setHeroVideoAccess] = useState<HeroVideoAccess | null>(null)
   const [heroVideoError, setHeroVideoError] = useState<string | null>(null)
   const heroVideoWebsiteId = useRef<string | null>(null)
   const heroVideoStopped = useRef(false)
@@ -295,7 +299,17 @@ export default function CreatePage() {
       if (savedStyle) setHeroVideoStyle(savedStyle)
     } catch { /* storage unavailable — defaults stand */ }
     fetchHeroVideoOptions()
-      .then((opts) => { if (!cancelled) setHeroVideoOptions(opts) })
+      .then(async (opts) => {
+        if (cancelled) return
+        setHeroVideoOptions(opts)
+        if (!opts) return
+        try {
+          const access = await fetchHeroVideoAccess(await getApiAuthToken())
+          if (!cancelled) setHeroVideoAccess(access)
+        } catch {
+          if (!cancelled) setHeroVideoAccess(null)
+        }
+      })
       .catch(() => { if (!cancelled) setHeroVideoOptions(null) })
     return () => {
       cancelled = true
@@ -1256,7 +1270,11 @@ export default function CreatePage() {
 
       // The website row now exists — the hero video can be generated against it.
       heroVideoWebsiteId.current = websiteId
-      if (heroVideoWanted && heroVideoOptions) {
+      if (heroVideoWanted && heroVideoOptions && heroVideoAccess && !heroVideoAccess.allowed) {
+        // No free access and no credit: the job would be refused (402).
+        // Say so here; the editor sells the credit and generates in place.
+        toast('🎬 Video latar memerlukan 1 kredit (RM5) — beli di Editor.')
+      } else if (heroVideoWanted && heroVideoOptions) {
         toast('🎬 Video latar hero sedang dijana… (1–2 minit)')
         void launchHeroVideo(websiteId, accessToken)
       }
@@ -1902,6 +1920,12 @@ export default function CreatePage() {
                       </div>
                       <div style={{ fontSize: 12, color: '#86869A', marginTop: 3, lineHeight: 1.45 }}>
                         AI jana klip {heroVideoOptions.duration_seconds} saat yang bergerak perlahan di belakang header — tanpa bunyi, diulang tanpa henti. Dijana selepas anda <strong style={{ color: '#BAB0FF', fontWeight: 600 }}>Publish</strong> (~1–2 minit).
+                        {heroVideoAccess && !heroVideoAccess.free && (
+                          <span style={{ display: 'block', marginTop: 4, color: heroVideoAccess.allowed ? '#C7FF3D' : '#FFB86B' }}>
+                            RM{heroVideoAccess.price_rm.toFixed(0)} setiap klip · Baki kredit anda: {heroVideoAccess.credits}
+                            {!heroVideoAccess.allowed && ' — beli kredit di Editor selepas publish.'}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <button
@@ -2656,12 +2680,16 @@ export default function CreatePage() {
                     <Eye size={14} /> View Live
                   </a>
                 </div>
-                {!heroVideoWanted && heroVideoOptions && !heroVideoJob && !heroVideoError && (
+                {heroVideoOptions && !heroVideoJob && !heroVideoError && (!heroVideoWanted || (heroVideoAccess && !heroVideoAccess.allowed)) && (
                   <div data-testid="hero-video-nudge" style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,.08)', fontSize: 13, color: '#86869A', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span>🎬 Tiada video latar hero dipilih untuk laman ini.</span>
+                    <span>
+                      {heroVideoWanted
+                        ? `🎬 Video latar memerlukan 1 kredit (RM${heroVideoAccess?.price_rm?.toFixed(0) ?? '5'}).`
+                        : '🎬 Tiada video latar hero dipilih untuk laman ini.'}
+                    </span>
                     {heroVideoWebsiteId.current ? (
                       <a href={`/editor/${heroVideoWebsiteId.current}`} style={{ color: '#BAB0FF', fontWeight: 600, textDecoration: 'none' }}>
-                        Tambah di Editor →
+                        {heroVideoWanted ? 'Beli & jana di Editor →' : 'Tambah di Editor →'}
                       </a>
                     ) : null}
                   </div>

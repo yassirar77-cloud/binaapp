@@ -138,6 +138,9 @@ HERO_VIDEO_MAX_PER_SITE_PER_DAY=5   # cost guard, per website (in-memory)
 # Alibaba Model Studio's async video-synthesis endpoint (HappyHorse); 'zai'
 # is the original CogVideoX path. Everything after the clip exists
 # (download, Cloudinary, patch, publish) is the same for both.
+# Hero video is PAID per clip (one 'hero_video' add-on credit, RM5) unless the
+# account has free access: admin, HERO_VIDEO_ALLOW_ALL_PLANS=true, or a plan
+# feature. Keep ALLOW_ALL_PLANS false in production — it makes clips free.
 HERO_VIDEO_PROVIDER=dashscope
 # Provider to try when the primary cannot ACCEPT a job (rejected key, quota,
 # outage — anything failing at submit). Defaults to 'zai' when the primary

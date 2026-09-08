@@ -35,6 +35,12 @@ function PaymentSuccessContent() {
     // Check if this is an addon payment
     const pendingAddonType = localStorage.getItem('pending_addon_type');
     const pendingAddonQty = localStorage.getItem('pending_addon_quantity');
+    // Where an add-on bought from inside a page (e.g. the editor's hero
+    // video panel) wants the merchant sent back afterwards. Same-origin
+    // paths only.
+    const rawReturnTo = localStorage.getItem('pending_return_to') || '';
+    const pendingReturnTo =
+      rawReturnTo.startsWith('/') && !rawReturnTo.startsWith('//') ? rawReturnTo : '';
     const isAddonPayment = !!pendingAddonType;
 
     // Use billcode from URL or localStorage
@@ -178,7 +184,9 @@ function PaymentSuccessContent() {
           // - Other addons: go to billing page to see updated limits
           // - Subscription: go to dashboard
           setTimeout(() => {
-            if (isAddonPayment && pendingAddonType === 'website') {
+            if (isAddonPayment && pendingReturnTo) {
+              router.push(`${pendingReturnTo}${pendingReturnTo.includes('?') ? '&' : '?'}payment=success`);
+            } else if (isAddonPayment && pendingAddonType === 'website') {
               router.push('/create?payment=success');
             } else if (isAddonPayment) {
               router.push('/dashboard/billing?payment=success');
@@ -227,7 +235,9 @@ function PaymentSuccessContent() {
       // - Other addons: go to billing page to see updated limits
       // - Subscription: go to dashboard
       setTimeout(() => {
-        if (isAddonPayment && pendingAddonType === 'website') {
+        if (isAddonPayment && pendingReturnTo) {
+          router.push(`${pendingReturnTo}${pendingReturnTo.includes('?') ? '&' : '?'}payment=success`);
+        } else if (isAddonPayment && pendingAddonType === 'website') {
           router.push('/create?payment=success');
         } else if (isAddonPayment) {
           router.push('/dashboard/billing?payment=success');
@@ -258,7 +268,9 @@ function PaymentSuccessContent() {
             setMessage(isAddonPayment ? 'Kredit Addon Berjaya Ditambah!' : 'Pembayaran Berjaya!');
             clearPendingPaymentData();
             setTimeout(() => {
-              if (isAddonPayment && pendingAddonType === 'website') {
+              if (isAddonPayment && pendingReturnTo) {
+                router.push(`${pendingReturnTo}${pendingReturnTo.includes('?') ? '&' : '?'}payment=success`);
+              } else if (isAddonPayment && pendingAddonType === 'website') {
                 router.push('/create?payment=success');
               } else if (isAddonPayment) {
                 router.push('/dashboard/billing?payment=success');
@@ -290,6 +302,7 @@ function PaymentSuccessContent() {
     localStorage.removeItem('pending_bill_code');
     localStorage.removeItem('pending_addon_type');
     localStorage.removeItem('pending_addon_quantity');
+    localStorage.removeItem('pending_return_to');
     localStorage.removeItem('pendingPaymentVerification');
   };
 

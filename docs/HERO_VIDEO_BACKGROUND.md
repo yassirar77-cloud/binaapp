@@ -109,6 +109,25 @@ Error codes (`detail.error`): `plan_not_allowed` 403, `hero_not_found` 422,
 
 ## Gates and cost guards
 
+**Paid per clip.** A hero video costs one `hero_video` add-on credit (RM5;
+HappyHorse charges ~USD 0.70 to make a 5-second clip). `plan_features.
+hero_video_access(user_id)` decides: admins, `HERO_VIDEO_ALLOW_ALL_PLANS=true`
+and plans whose `features` carry `can_use_hero_video` generate for free;
+everyone else needs a credit. `POST …/generate` answers **402
+`payment_required`** (with `price_rm` and `addon_type`) when there is
+neither. The credit is consumed only after the provider has *accepted* the
+job — a rejected submit costs nothing — and is refunded on every failure
+path (provider FAIL, timeout, storage or apply failure), exactly once.
+Credits are bought through the existing add-on checkout (`POST
+/payments/addon/purchase` or `/subscription/addons/purchase`, `addon_type:
+hero_video`); the editor panel sells them in place and the payment-success
+page returns the merchant to the editor via `pending_return_to`.
+`GET /websites/hero-video/access` reports `free`/`credits`/`price_rm` for
+the signed-in account (used by the create page). Migration 008 widens the
+`addon_purchases.addon_type` check to admit `hero_video` and lets `status`
+carry `depleted`.
+
+
 * `HERO_VIDEO_ENABLED` — master flag, read per request.
 * Plan: `plan_features.can_use_hero_video(user_id)` — admins pass;
   `HERO_VIDEO_ALLOW_ALL_PLANS=true` opens it to every active plan; otherwise

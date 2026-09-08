@@ -1697,7 +1697,8 @@ ADDON_PRICES = {
     "ai_hero": 2.00,
     "website": 5.00,
     "rider": 3.00,
-    "zone": 2.00
+    "zone": 2.00,
+    "hero_video": 5.00,
 }
 
 

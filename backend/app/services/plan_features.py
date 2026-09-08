@@ -112,3 +112,44 @@ async def can_use_hero_video(user_id: str) -> bool:
     if features is None:
         return False
     return any(bool(features.get(key, False)) for key in HERO_VIDEO_FEATURE_KEYS)
+
+
+# ---------------------------------------------------------------------------
+# Hero video: paid per clip
+# ---------------------------------------------------------------------------
+
+#: addon_purchases.addon_type for one hero video clip (migration 008).
+HERO_VIDEO_ADDON_TYPE = "hero_video"
+#: Shown in the UI; the charge itself is one addon credit.
+HERO_VIDEO_PRICE_RM = 5.0
+
+
+async def hero_video_access(user_id: str) -> Dict[str, Any]:
+    """How this user may generate a hero video.
+
+    ``free``   — admin, HERO_VIDEO_ALLOW_ALL_PLANS, or a plan feature: no
+                 credit is consumed.
+    ``credits`` — prepaid hero_video add-on credits available.
+    ``allowed`` — free or at least one credit.
+    """
+    free = await can_use_hero_video(user_id)
+    credits = 0
+    if not free:
+        try:
+            from app.services.subscription_service import subscription_service
+
+            available = await subscription_service.get_available_addon_credits(
+                user_id, HERO_VIDEO_ADDON_TYPE
+            )
+            credits = int(available.get(HERO_VIDEO_ADDON_TYPE, 0) or 0)
+        except Exception as exc:  # fail closed: no credit, no clip
+            logger.warning(f"[plan_features] hero video credit lookup failed for {user_id}: {exc}")
+            credits = 0
+    return {
+        "free": free,
+        "credits": credits,
+        "allowed": free or credits > 0,
+        "price_rm": HERO_VIDEO_PRICE_RM,
+        "addon_type": HERO_VIDEO_ADDON_TYPE,
+    }
+

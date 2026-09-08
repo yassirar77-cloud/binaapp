@@ -33,7 +33,11 @@ class SubscriptionService:
         "ai_hero": 2.00,
         "website": 5.00,
         "rider": 3.00,
-        "zone": 2.00
+        "zone": 2.00,
+        # One AI hero video background clip (HappyHorse costs ~USD 0.70 to
+        # make; RM5 covers it). Consumed on a successful submit, refunded
+        # if the provider then fails to deliver.
+        "hero_video": 5.00,
     }
 
     # Addons retired from sale: AI images are free product-wide, so paid AI
@@ -986,6 +990,42 @@ class SubscriptionService:
 
         except Exception as e:
             logger.error(f"Error using addon credit: {e}")
+            return False
+
+    async def refund_addon_credit(self, user_id: str, addon_type: str) -> bool:
+        """Give one consumed credit back (a paid job the provider never
+        delivered). Decrements quantity_used on the most recently used
+        purchase and re-activates it. False when nothing was consumed."""
+        try:
+            url = f"{self.url}/rest/v1/addon_purchases"
+            params = {
+                "user_id": f"eq.{user_id}",
+                "addon_type": f"eq.{addon_type}",
+                "quantity_used": "gt.0",
+                "status": "in.(active,depleted)",
+                "order": "updated_at.desc.nullslast,created_at.desc",
+                "limit": 1,
+            }
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=self.headers, params=params)
+            if response.status_code != 200 or not response.json():
+                return False
+            addon = response.json()[0]
+            record_id = addon.get("id") or addon.get("addon_id")
+            new_qty_used = max(0, int(addon.get("quantity_used", 0)) - 1)
+            async with httpx.AsyncClient() as client:
+                response = await client.patch(
+                    url,
+                    headers={**self.headers, "Prefer": "return=minimal"},
+                    params={"id": f"eq.{record_id}"},
+                    json={"quantity_used": new_qty_used, "status": "active"},
+                )
+            ok = response.status_code in [200, 204]
+            if ok:
+                logger.info(f"↩️ Refunded 1 {addon_type} credit to user {user_id[:8]}...")
+            return ok
+        except Exception as e:
+            logger.error(f"Error refunding addon credit: {e}")
             return False
 
     async def create_subscription(self, user_id: str, tier: str, toyyibpay_bill_code: str = None) -> bool:

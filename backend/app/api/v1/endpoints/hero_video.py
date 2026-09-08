@@ -22,12 +22,15 @@ TWO HALVES
 GATES
 -----
 * HERO_VIDEO_ENABLED (env, default false): off → every route 404s.
-* Plan: ``plan_features.can_use_hero_video`` (admin bypass; fail closed).
+* Paid per clip: ``plan_features.hero_video_access`` — free for admin /
+  plan feature / env switch, otherwise one hero_video add-on credit (RM5)
+  consumed once the provider accepts and refunded if it never delivers.
 * One in-flight job per site, a small per-user concurrency cap, and a
   per-site daily submit cap — generation costs real money.
 
-QUOTA NOTE (protected zone): nothing here touches check_limit,
-subscription_service, usage_tracking or any credit counter.
+QUOTA NOTE (protected zone): nothing here touches check_limit or
+usage_tracking. The ONLY credit it moves is the hero_video add-on credit
+(use_addon_credit on accept, refund_addon_credit on a failed delivery).
 
 PUBLISH SAFETY
 --------------
@@ -61,7 +64,12 @@ from app.services.hero_video_patcher import (
     needs_style_upgrade,
     remove_hero_video,
 )
-from app.services.plan_features import can_use_hero_video
+from app.services.plan_features import (
+    HERO_VIDEO_ADDON_TYPE,
+    HERO_VIDEO_PRICE_RM,
+    hero_video_access,
+)
+from app.services.subscription_service import subscription_service
 from app.services.storage_service import storage_service
 from app.services.supabase_client import supabase_service
 from app.services.zai_video_service import (
@@ -285,6 +293,33 @@ async def _upgrade_legacy_css(website: dict, user_id: str, html: str) -> Tuple[s
         return html, False
 
 
+def _access_fields(access: Dict) -> Dict:
+    return {
+        "allowed": access["allowed"],
+        "free_access": access["free"],
+        "credits": access["credits"],
+        "price_rm": access["price_rm"],
+        "addon_type": access["addon_type"],
+    }
+
+
+async def _refund_if_charged(job) -> None:
+    """A paid job the provider never delivered gives its credit back, once.
+    Logged loudly either way; a refund that fails is a support case, not a
+    reason to fail the poll."""
+    if not job.charged or job.refunded:
+        return
+    ok = await subscription_service.refund_addon_credit(job.user_id, HERO_VIDEO_ADDON_TYPE)
+    job.refunded = ok
+    if ok:
+        logger.info(f"↩️ Hero video credit refunded for job {job.job_id} ({job.error})")
+    else:
+        logger.error(
+            f"🎬 Hero video credit refund FAILED for job {job.job_id} "
+            f"(user {job.user_id}, error={job.error}) — refund manually"
+        )
+
+
 def _current_state(html: str) -> Dict:
     current = detect_hero_video(html or "")
     hero, how = find_hero_open_tag(remove_hero_video(html or "").html) if html else (None, "")
@@ -323,6 +358,10 @@ async def get_hero_video_options():
         "success": True,
         "model": hero_video_model(),
         "provider": hero_video_provider(),
+        # Paid per clip: one hero_video add-on credit (RM5) unless the
+        # account has free access (admin / plan feature / env switch).
+        "price_rm": HERO_VIDEO_PRICE_RM,
+        "addon_type": HERO_VIDEO_ADDON_TYPE,
         "duration_seconds": zai_video_duration(),
         "durations": list(ALLOWED_DURATIONS),
         "poll_interval_seconds": POLL_INTERVAL_SECONDS,
@@ -333,6 +372,17 @@ async def get_hero_video_options():
         "overlays": ["dark", "light", "none"],
         "text_modes": ["auto", "light", "dark", "keep"],
     }
+
+
+@router.get("/hero-video/access")
+async def get_hero_video_access(current_user: dict = Depends(get_current_user)):
+    """Whether THIS account may generate: free access, or prepaid credits.
+
+    The create page asks this before there is a website to ask about, so it
+    can show the price and the credit balance next to the toggle.
+    """
+    _feature_gate()
+    return {"success": True, **await hero_video_access(current_user.get("sub"))}
 
 
 @router.get("/{website_id}/hero-video")
@@ -367,7 +417,7 @@ async def get_hero_video(
         "success": True,
         "website_id": website_id,
         "source": source,
-        "allowed": await can_use_hero_video(user_id),
+        **_access_fields(await hero_video_access(user_id)),
         "job": job.to_dict() if job else None,
         "poll_interval_seconds": POLL_INTERVAL_SECONDS,
         "upgraded_css": upgraded,
@@ -390,15 +440,21 @@ async def generate_hero_video(
     user_id = current_user.get("sub")
     website = await _load_owned_website(website_id, user_id)
 
-    if not await can_use_hero_video(user_id):
+    access = await hero_video_access(user_id)
+    if not access["allowed"]:
+        # Paid per clip. No free access and no prepaid credit → 402 with
+        # what it costs, so the UI can offer the purchase right there.
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail={
-                "error": "plan_not_allowed",
+                "error": "payment_required",
                 "message": (
-                    "Video latar hero tidak termasuk dalam pelan anda. "
-                    "Naik taraf pelan untuk menggunakannya."
+                    f"Video latar hero berharga RM{HERO_VIDEO_PRICE_RM:.0f} setiap klip. "
+                    "Beli 1 kredit video untuk meneruskan."
                 ),
+                "price_rm": HERO_VIDEO_PRICE_RM,
+                "addon_type": HERO_VIDEO_ADDON_TYPE,
+                "credits": access["credits"],
             },
         )
 
@@ -477,12 +533,26 @@ async def generate_hero_video(
         )
 
     _record_submit(website_id)
+
+    # Charge only now: the provider has ACCEPTED the job, so a rejected
+    # submit never costs the merchant anything. If the clip then fails to
+    # arrive, the poll refunds this credit.
+    charged = False
+    if not access["free"]:
+        charged = await subscription_service.use_addon_credit(user_id, HERO_VIDEO_ADDON_TYPE)
+        if not charged:
+            logger.error(
+                f"🎬 Hero video credit could NOT be consumed for {user_id} "
+                f"(website {website_id}) although the provider accepted task {task_id}"
+            )
+
     job = zai_video_service.register_job(
         task_id=task_id,
         website_id=website_id,
         user_id=user_id,
         prompt=prompt,
         settings=HeroVideoLook(**body.model_dump(include=set(HeroVideoLook.model_fields))).model_dump(),
+        charged=charged,
         provider=provider,
     )
     logger.info(
@@ -533,6 +603,7 @@ async def poll_hero_video_job(
             job.status = JOB_STATUS_FAILED
             job.error = "timeout"
             logger.warning(f"[hero-video] job {job.job_id} timed out")
+            await _refund_if_charged(job)
             return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
 
         try:
@@ -546,6 +617,7 @@ async def poll_hero_video_job(
         if result["status"] == "fail":
             job.status = JOB_STATUS_FAILED
             job.error = "generation_failed"
+            await _refund_if_charged(job)
             return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
         if result["status"] != "success":
             return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
@@ -557,6 +629,7 @@ async def poll_hero_video_job(
             job.status = JOB_STATUS_FAILED
             job.error = "storage_failed"
             logger.error(f"[hero-video] storage failed for {job.job_id}: {exc}")
+            await _refund_if_charged(job)
             return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
 
         job.video_url = stored["video_url"]
@@ -581,6 +654,7 @@ async def poll_hero_video_job(
                 exc.detail.get("error") if isinstance(exc.detail, dict) else "apply_failed"
             )
             logger.error(f"[hero-video] apply failed for {job.job_id}: {exc.detail}")
+            await _refund_if_charged(job)
             return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
 
         job.status = JOB_STATUS_COMPLETED

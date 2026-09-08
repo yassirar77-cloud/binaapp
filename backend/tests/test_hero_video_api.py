@@ -56,6 +56,16 @@ WITH_VIDEO_HTML = apply_hero_video(
 ).html
 
 
+def _access(free=False, credits=0):
+    return {
+        "free": free,
+        "credits": credits,
+        "allowed": free or credits > 0,
+        "price_rm": 5.0,
+        "addon_type": "hero_video",
+    }
+
+
 def _row(**overrides):
     row = {
         "id": "ws-1",
@@ -91,7 +101,9 @@ def patches():
             new=AsyncMock(return_value="https://kedaiali.binaapp.my"),
         ) as publish_website,
         patch.object(ep, "_fetch_serving_snapshot", new=AsyncMock(return_value=None)) as fetch_snapshot,
-        patch.object(ep, "can_use_hero_video", new=AsyncMock(return_value=True)) as plan_gate,
+        patch.object(ep, "hero_video_access", new=AsyncMock(return_value=_access(free=True))) as plan_gate,
+        patch.object(ep.subscription_service, "use_addon_credit", new=AsyncMock(return_value=True)) as use_credit,
+        patch.object(ep.subscription_service, "refund_addon_credit", new=AsyncMock(return_value=True)) as refund_credit,
         patch.object(
             svc.zai_video_service, "submit_with_fallback",
             new=AsyncMock(return_value=("task-1", "dashscope")),
@@ -111,6 +123,8 @@ def patches():
             "publish_website": publish_website,
             "fetch_snapshot": fetch_snapshot,
             "plan_gate": plan_gate,
+            "use_credit": use_credit,
+            "refund_credit": refund_credit,
             "submit": submit,
             "fetch_result": fetch_result,
             "store": store,
@@ -202,10 +216,11 @@ class TestGenerate:
         assert patches["submit"].call_args.args[0].startswith("asap naik dari wok ")
 
     def test_plan_gate_blocks_before_spending(self, client, auth_headers, patches):
-        patches["plan_gate"].return_value = False
+        patches["plan_gate"].return_value = _access(free=False, credits=0)
         resp = client.post("/api/v1/websites/ws-1/hero-video/generate", json={}, headers=auth_headers)
-        assert resp.status_code == 403
-        assert resp.json()["detail"]["error"] == "plan_not_allowed"
+        assert resp.status_code == 402
+        assert resp.json()["detail"]["error"] == "payment_required"
+        assert resp.json()["detail"]["price_rm"] == 5.0
         patches["submit"].assert_not_called()
 
     def test_no_hero_blocks_before_spending(self, client, auth_headers, patches):
@@ -491,4 +506,70 @@ class TestProviderConfigurationErrors:
         job_id = _start_job(client, auth_headers)
         client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers)
         assert patches["fetch_result"].call_args.kwargs.get("provider") == "zai"
+
+
+# ---------------------------------------------------------------------------
+# Paid per clip: RM5 add-on credit, charged on accept, refunded on failure
+# ---------------------------------------------------------------------------
+
+class TestPaidCredits:
+    def test_free_access_never_consumes_a_credit(self, client, auth_headers, patches):
+        _start_job(client, auth_headers)
+        assert not patches["use_credit"].called
+
+    def test_credit_is_consumed_once_the_provider_accepts(self, client, auth_headers, patches):
+        patches["plan_gate"].return_value = _access(free=False, credits=2)
+        job_id = _start_job(client, auth_headers)
+        patches["use_credit"].assert_awaited_once_with("test-user-id-12345", "hero_video")
+        job = svc.zai_video_service.get_job(job_id)
+        assert job.charged is True
+
+    def test_rejected_submit_costs_nothing(self, client, auth_headers, patches):
+        patches["plan_gate"].return_value = _access(free=False, credits=1)
+        patches["submit"].side_effect = svc.ZaiVideoError("DashScope video submit failed (500)")
+        resp = client.post("/api/v1/websites/ws-1/hero-video/generate", headers=auth_headers, json={})
+        assert resp.status_code == 502
+        assert not patches["use_credit"].called
+
+    def test_failed_generation_refunds_the_credit(self, client, auth_headers, patches):
+        patches["plan_gate"].return_value = _access(free=False, credits=1)
+        job_id = _start_job(client, auth_headers)
+        patches["fetch_result"].return_value = {"status": "fail", "video_url": None, "cover_image_url": None}
+        body = client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers).json()
+        assert body["status"] == "failed" and body["error"] == "generation_failed"
+        patches["refund_credit"].assert_awaited_once_with("test-user-id-12345", "hero_video")
+        assert body["refunded"] is True
+        # A second poll of the same failed job never refunds twice.
+        client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers)
+        assert patches["refund_credit"].await_count == 1
+
+    def test_storage_failure_refunds_too(self, client, auth_headers, patches):
+        patches["plan_gate"].return_value = _access(free=False, credits=1)
+        job_id = _start_job(client, auth_headers)
+        patches["fetch_result"].return_value = {"status": "success", "video_url": "https://p/v.mp4", "cover_image_url": None}
+        patches["store"].side_effect = svc.ZaiVideoError("storage failed")
+        body = client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers).json()
+        assert body["error"] == "storage_failed"
+        assert patches["refund_credit"].await_count == 1
+
+    def test_successful_job_keeps_the_charge(self, client, auth_headers, patches):
+        patches["plan_gate"].return_value = _access(free=False, credits=1)
+        job_id = _start_job(client, auth_headers)
+        patches["fetch_result"].return_value = {"status": "success", "video_url": "https://p/v.mp4", "cover_image_url": None}
+        body = client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers).json()
+        assert body["status"] == "completed" and body["charged"] is True and body["refunded"] is False
+        assert not patches["refund_credit"].called
+
+    def test_state_and_options_expose_price_and_credits(self, client, auth_headers, patches):
+        patches["plan_gate"].return_value = _access(free=False, credits=3)
+        state = client.get("/api/v1/websites/ws-1/hero-video", headers=auth_headers).json()
+        assert state["allowed"] is True and state["free_access"] is False and state["credits"] == 3
+        assert state["price_rm"] == 5.0 and state["addon_type"] == "hero_video"
+        options = client.get("/api/v1/websites/hero-video/options").json()
+        assert options["price_rm"] == 5.0 and options["addon_type"] == "hero_video"
+
+    def test_access_endpoint(self, client, auth_headers, patches):
+        patches["plan_gate"].return_value = _access(free=False, credits=0)
+        body = client.get("/api/v1/websites/hero-video/access", headers=auth_headers).json()
+        assert body["allowed"] is False and body["credits"] == 0 and body["price_rm"] == 5.0
 
