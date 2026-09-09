@@ -42,6 +42,7 @@ unbalanced result, and change nothing when no safe base exists.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from datetime import datetime
@@ -54,7 +55,6 @@ from pydantic import BaseModel, Field
 from app.core.security import get_current_user
 from app.services.hero_video_patcher import (
     DEFAULT_OVERLAY,
-    DEFAULT_OVERLAY_OPACITY,
     DEFAULT_TEXT_MODE,
     HeroVideoSettings,
     apply_hero_video,
@@ -71,6 +71,7 @@ from app.services.plan_features import (
 )
 from app.services.subscription_service import subscription_service
 from app.services.storage_service import storage_service
+from app.services.hero_luminance import auto_overlay_opacity
 from app.services.supabase_client import supabase_service
 from app.services.zai_video_service import (
     ALLOWED_DURATIONS,
@@ -135,7 +136,10 @@ class HeroVideoLook(BaseModel):
     """The presentation knobs — shared by generate and PATCH."""
 
     overlay: Literal["dark", "light", "none"] = DEFAULT_OVERLAY
-    overlay_opacity: float = Field(default=DEFAULT_OVERLAY_OPACITY, ge=0.0, le=0.9)
+    #: None = choose from the clip's own first-frame luminance (≈0.35 over
+    #: dark footage, up to 0.70 over bright footage). A number is the
+    #: merchant's explicit choice and is used as-is.
+    overlay_opacity: Optional[float] = Field(default=None, ge=0.0, le=0.9)
     text_mode: Literal["auto", "light", "dark", "keep"] = DEFAULT_TEXT_MODE
     show_on_mobile: bool = True
 
@@ -501,10 +505,13 @@ async def generate_hero_video(
     style = body.style if body.style in VIDEO_STYLE_PRESETS else DEFAULT_VIDEO_STYLE
     prompt = build_hero_video_prompt(
         business_name=website.get("business_name") or website.get("name") or "",
+        # Real since migration 055 — was '' on every row before it.
         business_type=website.get("business_type") or "",
         description=website.get("description") or "",
         style=style,
         custom_prompt=body.prompt or "",
+        # The same hero visual the still image was generated from.
+        hero_image_prompt=website.get("hero_image_prompt") or "",
     )
 
     image_url = (body.image_url or "").strip() or None
@@ -593,12 +600,25 @@ async def poll_hero_video_job(
             },
         )
 
+    def _terminal():
+        return {
+            "success": True,
+            **job.to_dict(),
+            **(job.result_payload or {}),
+            "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+        }
+
     if job.status in (JOB_STATUS_COMPLETED, JOB_STATUS_FAILED):
+        return _terminal()
+    if job.status == JOB_STATUS_STORING:
+        # Finaliser is running in the background — just report progress.
         return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
 
-    # Two dashboard tabs polling the same job must not both store + publish.
+    # Two dashboard tabs polling the same job must not both hand off.
     async with job.lock:
         if job.status in (JOB_STATUS_COMPLETED, JOB_STATUS_FAILED):
+            return _terminal()
+        if job.status == JOB_STATUS_STORING:
             return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
 
         if job.age_seconds() > zai_video_max_wait_seconds():
@@ -624,23 +644,51 @@ async def poll_hero_video_job(
         if result["status"] != "success":
             return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
 
+        # The provider is done. Everything that follows — download the MP4,
+        # upload to Cloudinary, patch the page, write two storage paths and
+        # the DB — used to run INSIDE this poll request, which the browser
+        # fires every few seconds: a 3.9-second GET on a hot path. It now
+        # runs as a background task; this and every later poll only read
+        # job state. The dashboard already treats 'storing' as in-progress.
         job.status = JOB_STATUS_STORING
+        job.finalize_task = asyncio.create_task(
+            _finalize_hero_video_job(job, website, user_id, result["video_url"])
+        )
+        return {
+            "success": True,
+            **job.to_dict(),
+            "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+            "message": "Video sedia — sedang dipasang pada laman web.",
+        }
+
+
+async def _finalize_hero_video_job(job, website: dict, user_id: str, provider_video_url: str) -> None:
+    """Store the clip, choose the overlay, patch the page, publish. Runs off
+    the request path; the poll reads the outcome from the job."""
+    website_id = website["id"]
+    try:
         try:
-            stored = await zai_video_service.store(result["video_url"], website_id=website_id)
+            stored = await zai_video_service.store(provider_video_url, website_id=website_id)
         except ZaiVideoError as exc:
             job.status = JOB_STATUS_FAILED
             job.error = "storage_failed"
             logger.error(f"[hero-video] storage failed for {job.job_id}: {exc}")
             await _refund_if_charged(job)
-            return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
+            return
 
         job.video_url = stored["video_url"]
         job.poster_url = stored["poster_url"]
 
+        look = HeroVideoLook(**job.settings)
+        if look.overlay_opacity is None and look.overlay != "none":
+            # Bug 5: a fixed 0.45 was fine over dark footage and unreadable
+            # over bright footage. Measure the first frame instead.
+            look.overlay_opacity = await auto_overlay_opacity(job.poster_url)
+            job.settings = look.model_dump()
+        settings = _settings_from_look(look, job.video_url, job.poster_url)
+
         # Apply to the page. A failure here keeps the stored URLs on the job
         # so the merchant can retry the apply without regenerating.
-        look = HeroVideoLook(**job.settings)
-        settings = _settings_from_look(look, job.video_url, job.poster_url)
         try:
             base_html, base_source = await _load_base_html(website)
             patched = apply_hero_video(base_html, settings)
@@ -657,19 +705,11 @@ async def poll_hero_video_job(
             )
             logger.error(f"[hero-video] apply failed for {job.job_id}: {exc.detail}")
             await _refund_if_charged(job)
-            return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
+            return
 
-        job.status = JOB_STATUS_COMPLETED
         job.applied = True
         job.live_site_updated = live
-        logger.info(
-            f"🎬 Hero video applied for {website_id} "
-            f"(base={base_source}, live={live}, {patched.summary()})"
-        )
-        response = {
-            "success": True,
-            **job.to_dict(),
-            "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+        job.result_payload = {
             "settings": patched.settings,
             "base_source": base_source,
             "html_content": patched.html,
@@ -680,8 +720,17 @@ async def poll_hero_video_job(
             ),
         }
         if warning:
-            response["warning"] = warning
-        return response
+            job.result_payload["warning"] = warning
+        job.status = JOB_STATUS_COMPLETED
+        logger.info(
+            f"🎬 Hero video applied for {website_id} "
+            f"(base={base_source}, live={live}, {patched.summary()})"
+        )
+    except Exception as exc:  # never leave a job stuck in 'storing'
+        job.status = JOB_STATUS_FAILED
+        job.error = "apply_failed"
+        logger.exception(f"[hero-video] finaliser crashed for {job.job_id}: {exc}")
+        await _refund_if_charged(job)
 
 
 @router.patch("/{website_id}/hero-video")

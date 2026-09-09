@@ -281,6 +281,9 @@ export default function CreatePage() {
   }
   const [heroVideoStyle, setHeroVideoStyle] = useState('cinematic')
   const [heroVideoPrompt, setHeroVideoPrompt] = useState('')
+  // The hero VISUAL the merchant wants. Distinct from heroVideoPrompt,
+  // which describes MOTION applied to that visual after publish.
+  const [heroImagePrompt, setHeroImagePrompt] = useState('')
   const [heroVideoJob, setHeroVideoJob] = useState<HeroVideoJob | null>(null)
   // Free access (admin / plan) or prepaid RM5 credits. null = not loaded.
   const [heroVideoAccess, setHeroVideoAccess] = useState<HeroVideoAccess | null>(null)
@@ -787,9 +790,28 @@ export default function CreatePage() {
         price: g.price || ''  // Include price
       }));
 
+      // Only rows that actually carry a URL are images. A row with a name
+      // and a price but no photo is an ITEM, not an upload — it travels in
+      // menu_items below. Counting those as uploads made
+      // finalImageChoice flip to 'upload' the moment a merchant typed an
+      // item name, silently overriding an explicit "Generate AI" pick and
+      // leaving the site with no images at all.
+      const uploadedGalleryImages = galleryWithMetadata.filter(g => !!g.url);
       const allImages = uploadedImages.hero
-        ? [{ url: uploadedImages.hero, name: 'Hero Image' }, ...galleryWithMetadata]
-        : galleryWithMetadata;
+        ? [{ url: uploadedImages.hero, name: 'Hero Image' }, ...uploadedGalleryImages]
+        : uploadedGalleryImages;
+
+      // The merchant's items with their prices — the SOURCE OF TRUTH the
+      // backend schema documents ("names and prices are rendered verbatim;
+      // the generator may not rename, merge, round, or invent items").
+      // These rows were collected by the UI and sent in the body, but the
+      // generation endpoint read neither key, so every merchant's prices
+      // were dropped and the model wrote "Atas permintaan" instead. A row
+      // needs only a NAME — an item with no photo and no price is still the
+      // merchant telling us what they sell.
+      const menuItemsForGeneration = uploadedImages.gallery
+        .map(g => ({ name: (g.name || '').trim(), price: (g.price || '').trim() }))
+        .filter(it => it.name.length > 0);
 
       // STRICT IMAGE CONTROL: Determine final image choice
       // If user uploaded images, force 'upload' mode
@@ -822,6 +844,9 @@ export default function CreatePage() {
           gallery_metadata: uploadedImages.gallery,  // Pass full gallery metadata separately for AI context
           features: selectedFeatures,  // Pass selected features
           business_type: businessType === 'auto' ? null : businessType,  // Pass business type for dynamic categories
+          // Merchant's own hero visual description — overrides the auto-built prompt.
+          hero_image_prompt: heroImagePrompt.trim() || undefined,
+          menu_items: menuItemsForGeneration,
           // STRICT IMAGE CONTROL: Send explicit image choice
           image_choice: finalImageChoice,
           color_mode: colorMode,
@@ -1187,6 +1212,10 @@ export default function CreatePage() {
           // row lands with description=null and the editor can't offer
           // "leave blank to reuse" — see PR for description-persistence-bug.
           description: description,
+          business_type: businessType === 'auto' ? null : businessType,
+          hero_image_prompt: heroImagePrompt.trim() || undefined,
+          // Geocoded at publish so the map shows a pin, not a region.
+          address: fullAddress || null,
           features: selectedFeatures,
           delivery: selectedFeatures.deliverySystem ? {
             area: deliveryArea,
@@ -1746,22 +1775,34 @@ export default function CreatePage() {
             {/* ── 04 Cerita pasal kedai anda ── */}
             {(() => {
               const DESC_MIN = 200;
-              const DESC_MAX = 1000;
+              // Matches WebsiteGenerationRequest.description (max_length=5000).
+              // Was 1000, which silently truncated mid-sentence and ate
+              // merchants' contact details before they reached generation.
+              const DESC_MAX = 5000;
               const len = description.length;
               const pct = Math.min(100, (len / DESC_MIN) * 100);
-              type DescStatus = 'empty' | 'tooshort' | 'ok' | 'great' | 'plenty';
+              // Thresholds rescaled for DESC_MAX=5000 (they were tuned for 1000).
+              // 'nearmax' exists so the cap announces itself BEFORE the input
+              // starts dropping characters — the old behaviour cut mid-sentence
+              // with no warning and silently ate merchants' contact details.
+              const DESC_WARN = DESC_MAX - 500;
+              type DescStatus = 'empty' | 'tooshort' | 'ok' | 'great' | 'plenty' | 'nearmax';
               const status: DescStatus =
                 len === 0 ? 'empty'
                 : len < DESC_MIN ? 'tooshort'
                 : len < 600 ? 'ok'
-                : len < 900 ? 'great'
-                : 'plenty';
+                : len < 1200 ? 'great'
+                : len < DESC_WARN ? 'plenty'
+                : 'nearmax';
               const helpers: Record<DescStatus, { c: string; t: string }> = {
                 empty:    { c: '#5A5A6E', t: 'AI akan tanya soalan dengan deskripsi anda.' },
                 tooshort: { c: '#FFB020', t: `Tambah ${DESC_MIN - len} aksara lagi untuk hasil terbaik.` },
                 ok:       { c: '#22C08F', t: 'Bagus — AI dah ada cukup info.' },
                 great:    { c: '#C7FF3D', t: 'Premium quality output dijangka. AI ready.' },
                 plenty:   { c: '#C7FF3D', t: `Sangat detailed. ${DESC_MAX - len} aksara baki.` },
+                nearmax:  { c: '#FFB020', t: len >= DESC_MAX
+                              ? `Had ${DESC_MAX} aksara dicapai — teks selepas ini tidak akan dihantar.`
+                              : `Hampir penuh: tinggal ${DESC_MAX - len} aksara sebelum had ${DESC_MAX}.` },
               };
               const helper = helpers[status];
               return (
@@ -1908,6 +1949,33 @@ export default function CreatePage() {
                 </div>
               </div>
 
+              {/* Hero IMAGE prompt — the merchant's own description of the
+                  still hero visual. Only meaningful while no hero image has
+                  been uploaded: an upload IS the hero, so there is nothing to
+                  generate. Deliberately separate from the hero VIDEO prompt
+                  below, which describes MOTION applied to this image after
+                  publish and cannot change what the image depicts. */}
+              {!uploadedImages.hero && (
+                <div className="cr-card cr-card-hairline" style={{ padding: 16, marginTop: 14 }} data-testid="hero-image-prompt-card">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: '#F5F5FA' }}>Gambar hero yang anda mahu</span>
+                    <span style={{ fontSize: 11, color: '#5A5A6E' }}>(pilihan)</span>
+                  </div>
+                  <input
+                    type="text"
+                    className="cr-input"
+                    value={heroImagePrompt}
+                    onChange={(e) => setHeroImagePrompt(e.target.value.slice(0, 400))}
+                    placeholder="cth. interior salon rambut mewah gelap, cahaya emas suam, kerusi styling kosong, sinematik"
+                    aria-label="Gambar hero yang anda mahu (pilihan)"
+                    maxLength={400}
+                  />
+                  <div style={{ fontSize: 11, color: '#5A5A6E', marginTop: 6, lineHeight: 1.5 }}>
+                    Biar kosong dan AI akan bina prompt dari jenis perniagaan anda. Kalau diisi, inilah yang dijana &mdash; bukan tekaan sistem.
+                  </div>
+                </div>
+              )}
+
               {/* Hero VIDEO background — hidden while HERO_VIDEO_ENABLED is off server-side */}
               {heroVideoOptions && (
                 <div className="cr-card cr-card-hairline" style={{ padding: 16, marginTop: 14 }} data-testid="hero-video-card">
@@ -1972,7 +2040,7 @@ export default function CreatePage() {
                         maxLength={200}
                       />
                       <div style={{ fontSize: 11, color: '#5A5A6E' }}>
-                        Tanpa teks atau logo dalam klip. Boleh ubah atau buang bila-bila masa di Editor.
+                        Ini menerangkan <strong style={{ color: '#BAB0FF', fontWeight: 600 }}>pergerakan</strong> sahaja &mdash; adegan video diambil daripada &ldquo;Gambar hero yang anda mahu&rdquo; di atas, jadi video dan gambar sepadan. Tanpa teks atau logo dalam klip. Boleh ubah atau buang bila-bila masa di Editor.
                       </div>
                     </div>
                   )}

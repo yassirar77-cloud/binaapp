@@ -11,6 +11,15 @@
 #         — intermediate locals are kept for readability/debugging; auto-removing
 #           them risks dropping side-effecting calls.
 #
-# All other default rules remain enabled.
+# All other rules in the selection below remain enabled.
+#
+# `select` is EXPLICIT on purpose. CI installs an unpinned `ruff`, and ruff
+# 0.16 changed the built-in default rule set (adding UP/B/BLE/I/DTZ/SIM/...).
+# With only `ignore` here, that upgrade turned a clean tree into 4,437
+# violations overnight and failed every PR without a code change. Pinning
+# the selection to the rules this codebase was written against makes the
+# lint result a property of the code, not of whichever ruff pip served.
+# Widening it is a deliberate, separate change with its own fix-up commit.
 [lint]
+select = ["E4", "E7", "E9", "F"]
 ignore = ["E402", "F841"]

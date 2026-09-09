@@ -24,6 +24,8 @@ from app.data.malaysian_prompts import (
 )
 from app.services.ai_service import AIService
 from app.models.schemas import WebsiteGenerationRequest, Language
+from app.services.business_types import normalize_business_type
+from app.services.menu_validator import is_valid_menu_item_name
 from app.api.upload import router as upload_router
 from app.api.v1.endpoints.menu_delivery import router as menu_delivery_router
 from app.api.v1.endpoints.health import router as health_router
@@ -1865,6 +1867,10 @@ async def run_generation_task(
     design_style: Optional[str] = None,
     design_brief: Optional[str] = None,
     design_freedom: Optional[str] = None,
+    business_type: Optional[str] = None,
+    hero_image_prompt: Optional[str] = None,
+    menu_items: Optional[list] = None,
+    show_prices: bool = True,
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -1892,7 +1898,17 @@ async def run_generation_task(
             whatsapp_enabled = bool(selected_features.get("whatsapp"))
 
         # Normalize image choice so "upload without uploads" becomes "none"
-        user_has_uploaded_images = bool(images and len(images) > 0)
+        # An entry only counts as an upload if it actually carries a URL.
+        # Item rows (name + price, no photo) travel in this list on older
+        # clients, and counting them here forced image_choice to 'upload'
+        # with nothing to upload — which then normalised to 'none' and left
+        # the merchant with no images despite them asking for AI ones.
+        def _is_real_upload(entry) -> bool:
+            if isinstance(entry, dict):
+                return bool(str(entry.get("url") or "").strip())
+            return bool(str(entry or "").strip())
+
+        user_has_uploaded_images = any(_is_real_upload(e) for e in (images or []))
         normalized_image_choice = (image_choice or "none").lower().strip()
         if normalized_image_choice not in ["none", "upload", "ai"]:
             normalized_image_choice = "none"
@@ -1914,13 +1930,23 @@ async def run_generation_task(
         ai_request = WebsiteGenerationRequest(
             description=description,
             business_name=description.split()[0] if description else "Business",  # Simple extraction
-            business_type="business",  # Generic type
+            # The merchant's EXPLICIT pick from the create-page picker, already
+            # canonicalised at the endpoint. None means they chose "auto", and
+            # only then may the description classifier decide the vertical.
+            # This used to be hardcoded to "business" — a value that is not a
+            # real vertical — which is why every downstream consumer ignored
+            # request.business_type and guessed from free text instead, and why
+            # websites.business_type was empty for every row ever written.
+            business_type=business_type,
             language=Language.MALAY if lang == "ms" else Language.ENGLISH,
             subdomain="preview",
             include_whatsapp=whatsapp_enabled,
             whatsapp_number="+60123456789" if whatsapp_enabled else None,
             include_maps=False,
-            location_address="",
+            # The address the merchant typed. Was hardcoded to "" — the prompt's
+            # "use EXACTLY, do not invent" address line only exists when this
+            # is set, so the model was reading the address out of the prose.
+            location_address=(address or "").strip(),
             include_ecommerce=False,
             contact_email=None,
             # If user chose "none", do not pass any uploaded images through.
@@ -1930,6 +1956,9 @@ async def run_generation_task(
             design_style=design_style,
             design_brief=design_brief,
             design_freedom=design_freedom,
+            hero_image_prompt=hero_image_prompt,
+            menu_items=menu_items or [],
+            show_prices=show_prices,
         )
 
         # Create progress callback to update Supabase during generation
@@ -2059,7 +2088,7 @@ async def run_generation_task(
 
             # Detect business type from description for proper category assignment
             from app.services.business_types import detect_business_type, detect_item_category
-            from app.api.simple.generate import is_valid_menu_item_name
+            from app.services.menu_validator import is_valid_menu_item_name
             business_type = detect_business_type(description)
             logger.info(f"🏢 Detected business type: {business_type}")
 
@@ -2449,6 +2478,67 @@ async def start_generation(request: Request):
         logger.warning(f"🎨 Unknown design_freedom '{design_freedom}' — using server default")
         design_freedom = None
 
+    # ── Vertical resolution (explicit merchant pick beats text classification)
+    # The create page sends the picker value, 'auto' → null. Until now this
+    # key was read by nobody: the AI request hardcoded business_type="business"
+    # and websites.business_type was never written, so EVERY vertical decision
+    # in the product came from keyword-guessing the description. One
+    # incidental word ("kopi" in a salon's ambience copy) was enough to
+    # classify a hair salon as a drinks business.
+    explicit_business_type = normalize_business_type(
+        body.get("business_type") or body.get("businessType")
+    )
+
+    # The merchant's own hero VISUAL description. Overrides the auto-built
+    # hero prompt outright. Distinct from the hero VIDEO prompt (motion),
+    # which is collected separately and applied after publish.
+    hero_image_prompt = (body.get("hero_image_prompt") or body.get("heroImagePrompt") or "")
+    hero_image_prompt = str(hero_image_prompt).strip()[:400] or None
+
+    # ── Merchant-supplied items: names AND prices (the SOURCE OF TRUTH
+    # contract already documented on WebsiteGenerationRequest.menu_items and
+    # already implemented in the HTML prompt). Nothing populated it on this
+    # route, so the model was handed service names with no prices and wrote
+    # "Atas permintaan" — a string that appears nowhere in this codebase —
+    # for six services the merchant had priced.
+    #
+    # Newer clients send menu_items directly. Older ones only send the
+    # gallery rows (images / gallery_metadata), which carry the same
+    # {name, price} the create page collects, so those are accepted as a
+    # fallback: frontend and backend deploy independently and prices must
+    # not vanish again in the window between them.
+    def _coerce_menu_items(raw) -> list:
+        items = []
+        for entry in (raw or []):
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip()
+            if not name or not is_valid_menu_item_name(name):
+                continue
+            price = entry.get("price")
+            price = "" if price is None else str(price).strip()
+            item = {"name": name[:120], "price": price[:40]}
+            _desc = str(entry.get("description") or "").strip()
+            if _desc:
+                item["description"] = _desc[:400]
+            _cat = str(entry.get("category") or "").strip()
+            if _cat:
+                item["category"] = _cat[:60]
+            items.append(item)
+        return items
+
+    supplied_menu_items = _coerce_menu_items(body.get("menu_items"))
+    _items_source = "menu_items"
+    if not supplied_menu_items:
+        supplied_menu_items = _coerce_menu_items(
+            body.get("gallery_metadata") or body.get("images")
+        )
+        _items_source = "gallery rows (legacy client)"
+
+    # 'Senarai Harga'. Read into selected_features and then dropped: the only
+    # handler for it lives in a module that is never mounted.
+    show_prices = bool((body.get("features") or {}).get("priceList", True))
+
     # Get dish names from request
     dish_names = body.get("dish_names", [])
     uploaded_images = body.get("uploaded_images", {})
@@ -2689,6 +2779,24 @@ MANDATORY REQUIREMENTS:
     logger.info(f"   Description: {description[:60]}...")
     logger.info(f"   Images: {len(images) if images else 0} uploaded")
     logger.info(f"   Dish names: {dish_names if dish_names else 'None'}")
+    # Vertical provenance: whoever reads this log must be able to tell an
+    # explicit merchant pick from a guess WITHOUT re-running the classifier.
+    logger.info(
+        f"   🏷️ business_type: {explicit_business_type or '(none)'} "
+        f"[source={'explicit' if explicit_business_type else 'auto → will classify from description'}] "
+        f"(raw={body.get('business_type')!r})"
+    )
+    logger.info(
+        f"   💰 menu_items: {len(supplied_menu_items)} supplied via {_items_source}"
+        + (f" — {', '.join(repr(i['name'] + (' @ ' + i['price'] if i['price'] else '')) for i in supplied_menu_items[:8])}"
+           if supplied_menu_items else " (none — page will render an honest placeholder)")
+    )
+    logger.info(f"   🏷️ show_prices (Senarai Harga): {show_prices}")
+    logger.info(
+        "   🖼️ hero_image_prompt: "
+        + (f"MERCHANT-SUPPLIED — {hero_image_prompt!r}" if hero_image_prompt
+           else "(none — will auto-build from vertical)")
+    )
     logger.info(f"   Uploaded images: {len(uploaded_images)} items" if uploaded_images else "   Uploaded images: None")
 
     # Create job in Supabase (keep schema minimal to avoid column mismatch)
@@ -2731,6 +2839,10 @@ MANDATORY REQUIREMENTS:
         design_style=design_style,
         design_brief=design_brief,
         design_freedom=design_freedom,
+        business_type=explicit_business_type,
+        hero_image_prompt=hero_image_prompt,
+        menu_items=supplied_menu_items,
+        show_prices=show_prices,
     ))
 
     logger.info(f"🚀 Job started: {job_id}")
@@ -3448,6 +3560,37 @@ async def publish_website(
                 html_content += chat_widget_tag
             logger.info(f"✅ Chat widget injected for website {website_id}")
 
+        # ── Bug 3: a map that shows where the business is ──────────────
+        # Resolve the address (sent explicitly, or whatever the page's map is
+        # already searching for), geocode it once, and point every map iframe
+        # at the coordinates with a pin at zoom 16. Failure of any step
+        # leaves the page as generated and never blocks the publish.
+        map_geo = {"lat": None, "lng": None, "address": None}
+        try:
+            from app.services.map_embed import (
+                build_map_embed_src, extract_map_address, has_map_embed, rewrite_map_embeds,
+            )
+            _addr = (body.get("address") or body.get("location_address") or "").strip() \
+                or (extract_map_address(html_content) or "")
+            if _addr and has_map_embed(html_content):
+                map_geo["address"] = _addr[:300]
+                try:
+                    from app.core.geocoder import geocode_address
+                    _geo = await asyncio.wait_for(geocode_address(_addr), timeout=8.0)
+                    if getattr(_geo, "found", False):
+                        map_geo["lat"], map_geo["lng"] = float(_geo.lat), float(_geo.lng)
+                except Exception as _geo_err:
+                    logger.warning(f"🗺️ Geocode failed for {_addr[:60]!r}: {_geo_err} — using address search embed")
+                _src = build_map_embed_src(lat=map_geo["lat"], lng=map_geo["lng"], address=_addr)
+                if _src:
+                    html_content = rewrite_map_embeds(html_content, _src)
+                logger.info(
+                    f"🗺️ Map: address={_addr[:60]!r} lat={map_geo['lat']} lng={map_geo['lng']} "
+                    f"mode={'pin@z16' if map_geo['lat'] is not None else 'encoded-search'}"
+                )
+        except Exception as _map_err:
+            logger.warning(f"🗺️ Map embed step skipped: {_map_err}")
+
         delivery_enabled = bool(features.get("deliverySystem")) or bool(delivery)
 
         # CRITICAL FIX: ALWAYS create database record BEFORE storage upload
@@ -3481,11 +3624,61 @@ async def publish_website(
                 _description = body.get("description")
                 if _description:
                     upsert_payload["description"] = _description
+                # Migration 055: persist the merchant's vertical and hero-visual
+                # intent. Both are only written when the client actually sends
+                # them — a republish that omits them must not wipe the stored
+                # value (same contract as description above). business_type is
+                # canonicalised here too: the row must only ever hold a value
+                # from BUSINESS_TYPE_VALUES, never a raw picker string.
+                _biz_type = normalize_business_type(
+                    body.get("business_type") or body.get("businessType")
+                )
+                if _biz_type:
+                    upsert_payload["business_type"] = _biz_type
+                _hero_prompt = (body.get("hero_image_prompt") or body.get("heroImagePrompt") or "")
+                _hero_prompt = str(_hero_prompt).strip()[:400]
+                if _hero_prompt:
+                    upsert_payload["hero_image_prompt"] = _hero_prompt
+                if map_geo.get("lat") is not None and map_geo.get("lng") is not None:
+                    upsert_payload["lat"] = map_geo["lat"]
+                    upsert_payload["lng"] = map_geo["lng"]
+                if map_geo.get("address"):
+                    upsert_payload["location_address"] = map_geo["address"]
+                logger.info(
+                    f"🏷️ [PUBLISH] business_type={_biz_type or '(not sent — leaving stored value)'} "
+                    f"hero_image_prompt={'set' if _hero_prompt else '(not sent)'}"
+                )
                 if is_new_website:
                     upsert_payload["generation_count"] = 1
-                supabase.table("websites").upsert(
-                    upsert_payload, on_conflict="id"
-                ).execute()
+                # Migration 055 may not have been applied yet (production is
+                # the only environment, so code and schema can land in either
+                # order). These two columns are OPTIONAL metadata: if the
+                # write fails because they don't exist, drop them and save the
+                # row anyway. Losing the merchant's vertical is a bad day;
+                # losing their website because of an optional column is an
+                # outage, and the whole point of this change is that a wrong
+                # hero beats no hero only when nothing worse is on offer.
+                _OPTIONAL_055_COLUMNS = ("business_type", "hero_image_prompt")
+                try:
+                    supabase.table("websites").upsert(
+                        upsert_payload, on_conflict="id"
+                    ).execute()
+                except Exception as _upsert_err:
+                    _present = [c for c in _OPTIONAL_055_COLUMNS if c in upsert_payload]
+                    _looks_like_missing_column = _present and any(
+                        c in str(_upsert_err) for c in _present
+                    )
+                    if not _looks_like_missing_column:
+                        raise
+                    logger.warning(
+                        f"⚠️ [WEBSITES INSERT] retrying without {_present} — "
+                        f"migration 055 may not be applied yet: {_upsert_err}"
+                    )
+                    for _col in _present:
+                        upsert_payload.pop(_col, None)
+                    supabase.table("websites").upsert(
+                        upsert_payload, on_conflict="id"
+                    ).execute()
                 _publish_mode = (
                     "promote-draft" if is_promotion
                     else "insert-new" if is_new_website

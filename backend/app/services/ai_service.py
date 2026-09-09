@@ -17,7 +17,11 @@ from contextlib import contextmanager
 from loguru import logger
 from typing import Optional, List, Dict, Tuple, Callable, Awaitable
 from app.models.schemas import WebsiteGenerationRequest, AIGenerationResponse
-from app.services.business_types import detect_business_type, get_design_type
+from app.services.business_types import (
+    detect_business_type,
+    get_design_type,
+    normalize_business_type,
+)
 from app.services.design_system import DesignSystem, build_tailwind_config
 from app.services.design_director import (
     ConceptBrief,
@@ -2212,6 +2216,17 @@ Format: Just the image description, no explanations."""
         a Cloudinary URL, or None when every configured provider fails
         (existing no-image behaviour applies downstream).
         """
+        # The FULL, untruncated prompt actually leaving for the provider.
+        # Every other prompt log in this file truncates (80 chars at the Z.ai
+        # call, 50-60 elsewhere), which is exactly why a wrong hero could not
+        # be diagnosed from production logs: the substring that proved which
+        # template fired was always past the cut. A silent prompt substitution
+        # is itself a bug, so this line is INFO and never truncated.
+        logger.info(
+            f"🎨 IMAGE PROMPT [provider={image_provider()} food={food} "
+            f"doodle={doodle}]: {prompt}"
+        )
+
         if image_provider() == "zai":
             # Same Malaysian-food prompt mapping the Stability path applies
             # internally, so a raw dish name still becomes a curated prompt.
@@ -2643,10 +2658,40 @@ Generate prompts now:"""
     def _is_food_business(self, description: str) -> bool:
         """True if the description looks like a food / restaurant business.
 
-        Matches on WORD BOUNDARIES, not raw substrings: 'ikan' (fish) is a
-        substring of 'kecantikan' (beauty), which classified beauty salons
-        as food businesses and gave them dish-based gallery prompts.
+        COMPARATIVE, not first-match. detect_business_type() scores every
+        vertical's keywords against the description and returns the winner;
+        this asks that question first and only accepts 'food'/'bakery'. If
+        some OTHER vertical scored highest, a food word appearing in passing
+        does not overrule it.
+
+        That ordering is the whole fix. This used to be a bare any() over a
+        40-term food list, evaluated BEFORE the scorer and short-circuiting
+        it, so one incidental word anywhere in the description decided the
+        vertical outright. A hair salon whose ambience copy said customers
+        like to "duduk lama, minum kopi" matched 'kopi', was classified as a
+        food business, then as the 'drinks' sub-type, and shipped with a hero
+        image of iced beverages. The same single-word flip hit gyms
+        ('smoothie', 'juice'), co-working spaces ('kopi'), and wedding
+        photographers ('catering', 'kek kahwin').
+
+        Word boundaries were never the problem — several rounds of fixes
+        tightened them ('ikan' inside 'kecantikan', 'spa' inside 'spare
+        parts') while leaving the first-match ordering that actually caused
+        the misclassification.
+
+        The keyword list below is kept as a LAST RESORT, reached only when
+        the scorer finds no vertical signal at all ('general'). There a lone
+        food word is the only evidence available, so it is allowed to decide.
         """
+        btype = detect_business_type(description)
+        if btype in ("food", "bakery"):
+            return True
+        if btype != "general":
+            # Another vertical won on evidence. A passing food word cannot
+            # overrule it — this is the branch the salon/gym/photographer
+            # cases now take.
+            return False
+
         desc_lower = description.lower()
         return any(
             re.search(rf"\b{re.escape(word)}\b", desc_lower)
@@ -2691,6 +2736,22 @@ Generate prompts now:"""
         'teh', 'tea', 'milkshake', 'kombucha', 'soda', 'mocktail',
     )
 
+    # Savoury / main-meal signals. Needed because the sub-type choice has the
+    # same shape of bug as the vertical choice above: 'drinks' used to win on
+    # a single hit as long as no bakery word was present, so a nasi kandar
+    # shop that lists "teh tarik" among its drinks was given a beverage hero
+    # instead of a spread of dishes. Weighing savoury evidence against the
+    # other two makes the sub-type reflect what the shop actually sells.
+    _SAVOURY_SUBTYPE_KEYWORDS = (
+        'nasi', 'mee', 'mi', 'bihun', 'kuey teow', 'kway teow', 'laksa',
+        'ayam', 'chicken', 'ikan', 'fish', 'daging', 'beef', 'kambing',
+        'udang', 'ketam', 'sotong', 'seafood', 'telur', 'sayur',
+        'kandar', 'lemak', 'goreng', 'bakar', 'rendang', 'kari', 'curry',
+        'sambal', 'satay', 'sate', 'masakan', 'lauk', 'hidangan',
+        'restoran', 'restaurant', 'warung', 'mamak', 'kedai makan',
+        'catering', 'set meal', 'bento', 'burger', 'pizza', 'roti canai',
+    )
+
     def _food_subtype(self, description: str) -> str:
         """Sub-type of a food business: 'bakery' | 'drinks' | 'general'.
 
@@ -2705,6 +2766,11 @@ Generate prompts now:"""
         low = (description or "").lower()
         bakery_hits = sum(1 for k in self._BAKERY_SUBTYPE_KEYWORDS if self._has_word(low, k))
         drinks_hits = sum(1 for k in self._DRINKS_SUBTYPE_KEYWORDS if self._has_word(low, k))
+        savoury_hits = sum(1 for k in self._SAVOURY_SUBTYPE_KEYWORDS if self._has_word(low, k))
+        # Savoury outweighing the others means a main-meal shop that merely
+        # lists drinks or a dessert on the side — the 'general' spread.
+        if savoury_hits > bakery_hits and savoury_hits > drinks_hits:
+            return "general"
         if bakery_hits and bakery_hits >= drinks_hits:
             return "bakery"
         if drinks_hits:
@@ -3876,6 +3942,7 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         include_chat: bool = True,
         brand_colors: Optional[dict] = None,
         menu_items: Optional[list] = None,
+        show_prices: bool = True,
         design_style: Optional[str] = None,
         design_brief: Optional[str] = None,
         design_freedom: str = "guided",
@@ -4351,15 +4418,39 @@ The merchant's own business data states the following: {_labels}.
         _has_slot_names = any(
             (images or {}).get(f"gallery{i}_name") for i in range(1, 5)
         )
-        _noun = "menu" if detected_biz_type in ("food", "bakery") else "product"
+        # Three-way, not two: a salon sells SERVICES. Calling them "products"
+        # produced retail product-shot language and card names on businesses
+        # that sell work performed on a client.
+        if detected_biz_type in ("food", "bakery"):
+            _noun = "menu"
+        elif detected_biz_type in ("salon", "services"):
+            _noun = "service"
+        else:
+            _noun = "product"
+        # 'Senarai Harga' off means the merchant wants the catalogue without
+        # prices so customers ask on WhatsApp — a deliberate choice, not a
+        # gap in the data. It must never be confused with "no price supplied".
+        if show_prices:
+            _price_rule = (
+                '- Copy each PRICE character-for-character, exactly as written (RM7.00 stays "RM7.00",\n'
+                '  RM18/pax stays "RM18/pax"). Never round, reformat, convert, or invent a price.'
+            )
+        else:
+            _price_rule = (
+                "- DO NOT render a price for any item. The merchant has turned prices OFF.\n"
+                "  No price element, no price range, no 'from RM..', and no substitute wording\n"
+                "  such as \"price on request\" / \"atas permintaan\". Point customers to the\n"
+                "  WhatsApp/contact CTA to ask instead."
+            )
         if _supplied_items:
             _lines = []
             for idx, it in enumerate(_supplied_items, 1):
                 line = f'{idx}. NAME: "{it["name"]}"'
-                if it.get("price"):
-                    line += f' | PRICE: "{it["price"]}"'
-                else:
-                    line += " | PRICE: (none supplied — omit the price element for this item)"
+                if show_prices:
+                    if it.get("price"):
+                        line += f' | PRICE: "{it["price"]}"'
+                    else:
+                        line += " | PRICE: (none supplied — omit the price element for this item)"
                 if it.get("category"):
                     line += f' | CATEGORY: "{it["category"]}"'
                 if it.get("description"):
@@ -4375,23 +4466,39 @@ ABSOLUTE RULES FOR THIS DATA:
 - Render EVERY item listed above. Do not drop, merge, or summarise any of them.
 - Copy each NAME character-for-character. Do NOT rename, translate, reorder words,
   add the business name, or append qualifiers like "Set", "Combo", "Istimewa", "Special".
-- Copy each PRICE character-for-character, exactly as written (RM7.00 stays "RM7.00",
-  RM18/pax stays "RM18/pax"). Never round, reformat, convert, or invent a price.
+{_price_rule}
 - Do NOT add any item that is not in this list.
 - Where an item has no supplied description you may write ONE short appetising line,
   but it must not assert facts absent from the data (no cooking times, no ingredient
   lists, no provenance, no awards, no spice levels).
 - If CATEGORY values are present, group the items under those categories."""
-        elif not _has_slot_names and detected_biz_type in ("food", "bakery", "clothing", "general"):
+        elif not _has_slot_names:
+            # Previously gated to ("food", "bakery", "clothing", "general") —
+            # which excluded salon and services, the two verticals with the
+            # LEAST structured data and therefore the most room to invent. A
+            # salon with no supplied items got no instruction at all here, so
+            # the model was free to invent both the service list AND a price
+            # substitute; that is where the published "Atas permintaan" came
+            # from. The honest placeholder now applies to every vertical.
             # Nothing real to show. Ask for an honest placeholder — never let
             # the model fill the gap from the business name (this is exactly
             # how "Kak Ropiah A0 / Set Kak Ropiah A0 / ... Combo / ... Istimewa"
             # reached a live site).
-            _ph_heading = "Menu Akan Datang" if language == "ms" else "Menu Coming Soon"
+            _ph_label_ms = {
+                "menu": "Menu", "service": "Senarai Perkhidmatan", "product": "Senarai Produk",
+            }[_noun]
+            _ph_label_en = {
+                "menu": "Menu", "service": "Service List", "product": "Product List",
+            }[_noun]
+            _ph_heading = (
+                f"{_ph_label_ms} Akan Datang" if language == "ms"
+                else f"{_ph_label_en} Coming Soon"
+            )
             _ph_body = (
-                "Menu penuh akan dikemas kini tidak lama lagi. Hubungi kami untuk pertanyaan."
+                f"{_ph_label_ms} penuh akan dikemas kini tidak lama lagi. "
+                "Hubungi kami untuk pertanyaan."
                 if language == "ms" else
-                "Our full menu is being updated. Contact us for enquiries."
+                f"Our full {_ph_label_en.lower()} is being updated. Contact us for enquiries."
             )
             menu_data_block = f"""===== NO {_noun.upper()} DATA SUPPLIED — RENDER A PLACEHOLDER =====
 The merchant did NOT provide {_noun} items, and none could be read from the description.
@@ -4402,7 +4509,10 @@ The merchant did NOT provide {_noun} items, and none could be read from the desc
 - NEVER derive an item name from the business name, the tagline, a section label,
   or a heading (e.g. a business called "Warung Kak Ropiah" must NEVER produce items
   named "Kak Ropiah", "Set Kak Ropiah", "Kak Ropiah Combo" or "Kak Ropiah Istimewa").
-- DO NOT invent prices. An empty, honest section is REQUIRED over a fabricated one."""
+- DO NOT invent prices, and do NOT substitute a stand-in for a missing price
+  such as "Atas permintaan", "Price on request", "Hubungi kami untuk harga",
+  "From RM.." or "TBA". Omit the price element entirely instead.
+- An empty, honest section is REQUIRED over a fabricated one."""
 
         # ---- USER OVERRIDE CONDITIONALS ----
         # An explicit user colour request lifts the matching generic ban
@@ -7087,7 +7197,9 @@ IMPORTANT RULES:
         "event coverage",
     )
 
-    def _autofill_prompt_category(self, description: str) -> str:
+    def _autofill_prompt_category(
+        self, description: str, business_type: Optional[str] = None
+    ) -> str:
         """Prompt-template category for auto-fill images.
 
         Returns 'food' | 'creative' | 'services' | 'retail' | 'generic'.
@@ -7101,22 +7213,56 @@ IMPORTANT RULES:
         'retail' or 'generic' — a hair salon must never get product-shot
         prompts or "Produk Pilihan"-style retail card names.
         """
-        if self._is_food_business(description):
-            return "food"
+        explicit = normalize_business_type(business_type)
+        # 'general' ("Lain-lain — Custom, bercerita AI") is the one picker
+        # value that is NOT an answer: the merchant is saying "none of these
+        # fit, you figure it out". Treating that click as a positive vote for
+        # retail reads more into it than they put there, and the risk is
+        # asymmetric — this market is F&B-heavy, so a caterer, food truck,
+        # kuih seller or home baker who doesn't see themselves as "Restoran"
+        # is far more likely than a retailer skipping "Pakaian". So an
+        # explicit 'general' defers to the scorer exactly as 'auto' does.
+        # Every other explicit pick stays authoritative and un-overridable.
+        authoritative = explicit if (explicit and explicit != "general") else None
+        btype = authoritative or detect_business_type(description)
         low = (description or "").lower()
-        if any(k in low for k in self._CREATIVE_BUSINESS_KEYWORDS):
-            return "creative"
-        btype = detect_business_type(description)
-        # Service businesses (salon/barber/beauty via 'salon'; repairs,
-        # cleaning, tuition, gym etc. via 'services'): the sellable output
-        # is the work performed on/for a client.
-        if btype in ("salon", "services"):
-            return "services"
-        # Goods-selling types (and undetected businesses, whose gallery names
-        # come from the product-category extractor) get clean product shots.
-        if btype in ("clothing", "bakery", "general"):
-            return "retail"
-        return "generic"
+
+        def _creative() -> bool:
+            return any(k in low for k in self._CREATIVE_BUSINESS_KEYWORDS)
+
+        if btype in ("food", "bakery"):
+            category = "food"
+        elif btype == "clothing":
+            category = "retail"
+        elif btype == "salon":
+            # A salon is never 'creative' — it sells the work done on a
+            # client, not photographs of it.
+            category = "services"
+        elif btype == "services":
+            # 'creative' has no value of its own in the create-page picker,
+            # so a photographer/videographer picks "services". Let the
+            # creative keywords refine that; never let food words touch it.
+            category = "creative" if _creative() else "services"
+        else:  # 'general' — the scorer found no vertical signal at all
+            if _creative():
+                category = "creative"
+            elif self._is_food_business(description):
+                # Nothing scored: a food word is the only evidence there is,
+                # so it may decide. Reached for 'auto' AND for an explicit
+                # 'lain-lain', which defers here by design (see above).
+                category = "food"
+            else:
+                category = "retail"
+
+        _source = "explicit" if authoritative else (
+            "explicit-general → deferred to classifier" if explicit
+            else "classified-from-description"
+        )
+        logger.info(
+            f"🏷️ Image prompt category={category} "
+            f"[business_type={btype} source={_source}]"
+        )
+        return category
 
     # Appended to EVERY AI-image prompt (hero, gallery/portfolio items,
     # food-pass images): glm-image renders text well only when deliberately
@@ -7266,7 +7412,7 @@ IMPORTANT RULES:
 
     def _autofill_hero_prompt(
         self, category: str, biz_type: str, business_context: str = "",
-        food_subtype: str = "general",
+        food_subtype: str = "general", merchant_prompt: Optional[str] = None,
     ) -> str:
         """Hero banner prompt per category.
 
@@ -7284,6 +7430,18 @@ IMPORTANT RULES:
         nasi-lemak spread (the "kedai cake shows kuih" mismatch), and a drinks
         stall must not get a plate of rice.
         """
+        # The merchant described the hero they want. That answer beats every
+        # template below — they are guessing at intent, and the merchant is
+        # not. Only the no-text suffix is appended (garbled AI lettering is
+        # never wanted, whoever wrote the prompt).
+        merchant_prompt = (merchant_prompt or "").strip()
+        if merchant_prompt:
+            logger.info(
+                f"🖼️ Hero prompt: MERCHANT-SUPPLIED (overriding category="
+                f"{category!r} template): {merchant_prompt!r}"
+            )
+            return f"{merchant_prompt}, {self._NO_TEXT_SUFFIX}"
+
         ctx = f", for the business: {business_context}" if business_context else ""
         if category == "food":
             if food_subtype == "bakery":
@@ -7431,7 +7589,9 @@ IMPORTANT RULES:
             logger.info("🚫 Auto-fill image cap is 0 — skipping AI image auto-fill")
             return 0
 
-        category = self._autofill_prompt_category(request.description)
+        category = self._autofill_prompt_category(
+            request.description, getattr(request, "business_type", None)
+        )
         is_food = category == "food"
         # Doodle Cartoon sites get cartoon ILLUSTRATIONS in their free image
         # slots — the photography prompts below are restyled at dispatch
@@ -7516,8 +7676,13 @@ IMPORTANT RULES:
         # food, the sub-type (bakery/drinks/general) keeps the hero on-subject
         # — a cake shop gets a cake hero, not a savoury Malaysian spread.
         _food_subtype = self._food_subtype(request.description) if is_food else "general"
+        # An explicit "bakery" pick names the sub-type directly — no need to
+        # re-derive it from prose that may not mention cake at all.
+        if normalize_business_type(getattr(request, "business_type", None)) == "bakery":
+            _food_subtype = "bakery"
         hero_prompt = self._autofill_hero_prompt(
-            category, _biz_type, _biz_context, food_subtype=_food_subtype
+            category, _biz_type, _biz_context, food_subtype=_food_subtype,
+            merchant_prompt=getattr(request, "hero_image_prompt", None),
         )
 
         # Work list: hero first, then one image per (missing slot, real item
@@ -7877,6 +8042,7 @@ IMPORTANT RULES:
             include_maps=request.include_maps,
             brand_colors=getattr(request, "colors", None),
             menu_items=getattr(request, "menu_items", None),
+            show_prices=bool(getattr(request, "show_prices", True)),
             design_style=getattr(request, "design_style", None),
             design_brief=design_brief,
             design_freedom=design_freedom,
@@ -8426,6 +8592,7 @@ IMPORTANT INSTRUCTIONS:
                 include_ecommerce=request.include_ecommerce,
                 brand_colors=getattr(request, "colors", None),
                 menu_items=getattr(request, "menu_items", None),
+                show_prices=bool(getattr(request, "show_prices", True)),
                 design_style=getattr(request, "design_style", None),
                 design_brief=_ms_brief,
                 design_freedom=_ms_freedom,

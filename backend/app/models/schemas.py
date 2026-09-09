@@ -162,6 +162,28 @@ class WebsiteGenerationRequest(BaseModel):
             "system with fixed hero/layout. None = server default."
         ),
     )
+    show_prices: bool = Field(
+        default=True,
+        description=(
+            "The create page's 'Senarai Harga' toggle. True renders each "
+            "item's price; False renders the items without prices so the "
+            "customer asks via WhatsApp. Until now this flag was read into "
+            "the request body and then dropped — the only handler for it "
+            "lived in a module that is never mounted."
+        ),
+    )
+    hero_image_prompt: Optional[str] = Field(
+        default=None,
+        max_length=400,
+        description=(
+            "Merchant's own description of the hero VISUAL (e.g. 'dark luxury "
+            "hair salon interior, warm gold lighting, empty styling chair, "
+            "cinematic'). When present this REPLACES the auto-built hero "
+            "prompt outright — the merchant asked for a specific picture and "
+            "must get it. Distinct from the hero VIDEO prompt, which "
+            "describes motion applied to this image afterwards."
+        ),
+    )
     menu_items: Optional[List[MenuItemInput]] = Field(
         default=[],
         description=(

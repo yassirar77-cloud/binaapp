@@ -350,3 +350,148 @@ def log_menu_flow(step: str, items: list):
         logger.info(f"   ... and {len(items) - 5} more items")
 
     logger.info('='*60 + '\n')
+
+
+# ============================================================================
+# MENU ITEM NAME VALIDATION (moved from app/api/simple/generate.py)
+# ============================================================================
+# Lifted verbatim out of app/api/simple/generate.py when that module was
+# deleted. It was the ONE thing app/main.py imported from a 2,400-line module
+# that defined its own /api/generate/start and had never served a production
+# request — a correct-looking dead copy of the live generation path, which is
+# how someone eventually fixes the file that is not running.
+#
+# Kept byte-for-byte rather than merged into is_valid_item_name() above: the
+# two have overlapping but NOT identical word lists, and quietly swapping one
+# for the other would change which merchant item names are accepted.
+
+INVALID_MENU_WORDS = [
+    # Feature/UI elements (NOT food!)
+    'whatsapp', 'hubungi', 'contact', 'call', 'message', 'chat',
+    'facebook', 'instagram', 'tiktok', 'twitter', 'youtube', 'social',
+    # Business name prefixes (NOT food!)
+    'saya', 'kami', 'nama', 'name', 'kedai', 'restoran', 'shop',
+    # Navigation/UI
+    'home', 'laman', 'menu', 'gallery', 'galeri', 'about', 'tentang',
+    'lokasi', 'location', 'alamat', 'address', 'order', 'pesanan',
+    'footer', 'header', 'nav', 'hero', 'banner',
+    # Generic greetings (NOT food!)
+    'welcome', 'selamat', 'hello', 'salam', 'professional',
+    # Operating hours
+    'waktu', 'operasi', 'operating', 'hours', 'buka', 'tutup', 'open', 'close',
+    # Section headers
+    'kenali', 'story', 'copyright', 'powered',
+    # Other non-food
+    'scan', 'imbas', 'download', 'subscribe', 'newsletter', 'book', 'booking', 'cart', 'checkout',
+    # =========================================================================
+    # SERVICE-TYPE HALLUCINATED TERMS - AI generates these for service businesses
+    # These appear alone without specific product context
+    # =========================================================================
+    'wedding',      # Photography hallucination
+    'model',        # Photography hallucination
+    'portrait',     # Photography hallucination
+    'photoshoot',   # Photography hallucination
+    'session',      # Generic session (e.g., "photo session")
+    'package',      # Generic package without specific name
+    'service',      # Generic service without specific name
+    'servis',       # Malay generic service
+    'perkhidmatan', # Malay generic service (when alone)
+    'consultation', # Generic consultation
+    'perundingan',  # Malay consultation
+    # Generic category names (NOT actual products)
+    'produk', 'product', 'item', 'barang', 'lain', 'other', 'misc',
+]
+
+# Phrase match - these should be substring matches
+INVALID_MENU_PHRASES = [
+    'selamat datang',  # Welcome greeting
+    'hubungi kami',    # Contact us
+    'contact us',
+    'get in touch',    # Contact section header
+    'ikuti kami',      # Follow us
+    'follow us',
+    'open shop',       # Store header
+    'shop now',
+    'learn more',
+    'read more',
+    'our story',
+    'about us',
+    'find us',
+    'visit us',
+    'call now',
+    'book now',
+    'order now',       # Only when full phrase (not just 'order')
+    'get started',
+    'join us',
+    'view menu',       # Navigation text
+    'see all',
+    'view all',
+    'show more',
+    # =========================================================================
+    # SERVICE-TYPE HALLUCINATED PHRASES - AI generates these descriptions
+    # =========================================================================
+    'perkhidmatan profesional',  # "Professional service" - generic AI description
+    'perkhidmatan berkualiti',   # "Quality service" - generic AI description
+    'professional service',
+    'quality service',
+    'our services',
+    'perkhidmatan kami',
+    # Default/placeholder patterns
+    'item name',
+    'nama item',
+    'product name',
+    'nama produk',
+    'untitled',
+    'no name',
+    'sample',
+]
+
+
+def is_valid_menu_item_name(name: str) -> bool:
+    """
+    CRITICAL VALIDATION: Check if a name is a valid menu item name
+    
+    Returns False if name contains invalid keywords that indicate
+    it's NOT a real food/product item (e.g., "WhatsApp", "SAYA", "Hubungi")
+    
+    This prevents AI from hallucinating menu items from generated HTML content.
+    """
+    if not name or not isinstance(name, str):
+        return False
+    
+    # Clean and normalize
+    name_clean = name.strip()
+    name_lower = name_clean.lower()
+    
+    # Must be at least 2 characters
+    if len(name_clean) < 2:
+        return False
+    
+    # Must not be too long (probably a sentence, not a dish name)
+    if len(name_clean) > 60:
+        return False
+    
+    # Must contain at least one letter
+    if not re.search(r'[a-zA-Z\u0080-\uFFFF]', name_clean):
+        return False
+    
+    # Check against invalid phrases (substring match)
+    for phrase in INVALID_MENU_PHRASES:
+        if phrase in name_lower:
+            logger.debug(f"   ✗ Rejected menu name '{name}' - contains phrase '{phrase}'")
+            return False
+    
+    # Check against invalid words (whole word match only)
+    # Split name into words and check if any word matches exactly
+    name_words = set(re.split(r'[\s\-_.,;:!?]+', name_lower))
+    for invalid in INVALID_MENU_WORDS:
+        if invalid in name_words:
+            logger.debug(f"   ✗ Rejected menu name '{name}' - contains word '{invalid}'")
+            return False
+    
+    # Check for time patterns (7am, 10:00 - these are operating hours, not food)
+    if re.search(r'\d{1,2}[:.]\d{2}|\d{1,2}\s*(am|pm|pagi|petang|malam)', name_lower):
+        logger.debug(f"   ✗ Rejected menu name '{name}' - looks like time")
+        return False
+    
+    return True

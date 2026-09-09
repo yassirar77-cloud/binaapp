@@ -12,7 +12,7 @@ Business Types:
 - general: General stores, other businesses (Produk, Lain-lain)
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 import logging
 import re
 
@@ -329,6 +329,68 @@ BUSINESS_TYPE_KEYWORDS = {
         "bread", "roti", "artisan bread", "sourdough", "bun", "muffin",
     ],
 }
+
+
+#: The canonical vertical vocabulary. These are the ONLY values that may be
+#: written to ``websites.business_type`` or passed as an explicit merchant
+#: selection — they line up 1:1 with BUSINESS_CONFIGS above and with the
+#: create-page picker ('auto' there means "no explicit pick", i.e. None here).
+BUSINESS_TYPE_VALUES = ("food", "clothing", "salon", "services", "bakery", "general")
+
+#: Aliases the create page / older clients may send for the same vertical.
+#: "lain-lain" (BM: "other") is the picker's own label for `general`.
+_BUSINESS_TYPE_ALIASES = {
+    "auto": None,          # explicit "let the system decide"
+    "": None,
+    "none": None,
+    "null": None,
+    "business": None,      # the legacy hardcoded placeholder — never a real pick
+    "lain-lain": "general",
+    "lain lain": "general",
+    "lainlain": "general",
+    "other": "general",
+    "restoran": "food",
+    "restaurant": "food",
+    "makanan": "food",
+    "f&b": "food",
+    "pakaian": "clothing",
+    "fashion": "clothing",
+    "butik": "clothing",
+    "boutique": "clothing",
+    "beauty": "salon",
+    "barber": "salon",
+    "kecantikan": "salon",
+    "servis": "services",
+    "service": "services",
+    "perkhidmatan": "services",
+    "bakeri": "bakery",
+    "umum": "general",
+}
+
+
+def normalize_business_type(value) -> Optional[str]:
+    """Canonicalise an explicit business-type selection, or None.
+
+    Returns one of BUSINESS_TYPE_VALUES for a recognised pick, or None when
+    the caller made no real choice ('auto', empty, unknown, or the legacy
+    "business" placeholder). None is the signal to fall back to
+    description-based classification — it must never be confused with a
+    genuine 'general' pick, which IS an explicit answer.
+    """
+    if not isinstance(value, str):
+        return None
+    key = value.strip().lower()
+    if not key:
+        return None
+    if key in BUSINESS_TYPE_VALUES:
+        return key
+    if key in _BUSINESS_TYPE_ALIASES:
+        return _BUSINESS_TYPE_ALIASES[key]
+    logger.warning(
+        f"🏷️ Unknown business_type '{value}' — treating as no explicit "
+        f"selection (will classify from description)"
+    )
+    return None
 
 
 def detect_business_type(description: str) -> str:
