@@ -113,10 +113,25 @@ class TestExplicitSelectionIsAuthoritative:
     def test_explicit_food_beats_a_salon_description(self, service):
         assert service._autofill_prompt_category(SALON_KOPI, "food") == "food"
 
-    def test_explicit_general_does_not_fall_back_to_food_keywords(self, service):
-        # 'general' is an answer, not an absence of one — the last-resort
-        # food-keyword branch must not run.
-        assert service._autofill_prompt_category("Kedai kopi dan barangan", "general") == "retail"
+    def test_explicit_general_defers_to_the_classifier(self, service):
+        # "Lain-lain" is the merchant saying "none of these fit, you figure
+        # it out" — an absence of an answer. It must behave exactly like
+        # 'auto' and let the scorer decide, including for food. This market
+        # is F&B-heavy: a caterer or home baker picking "lain-lain" over
+        # "Restoran" is the common case, so defaulting them to retail would
+        # be choosing the more frequent failure.
+        assert service._autofill_prompt_category(MAMAK, "general") == "food"
+        assert service._autofill_prompt_category(MAMAK, "general") == \
+            service._autofill_prompt_category(MAMAK, "auto")
+
+    def test_explicit_general_with_no_signal_still_lands_on_retail(self, service):
+        assert service._autofill_prompt_category("Sebuah perniagaan kecil.", "general") == "retail"
+
+    def test_other_explicit_picks_stay_authoritative(self, service):
+        # Only 'general' defers. A real pick is never overruled by prose.
+        assert service._autofill_prompt_category(MAMAK, "salon") == "services"
+        assert service._autofill_prompt_category(MAMAK, "clothing") == "retail"
+        assert service._autofill_prompt_category(SALON_KOPI, "food") == "food"
 
     @pytest.mark.parametrize("picked,expected", [
         ("food", "food"), ("bakery", "food"), ("salon", "services"),

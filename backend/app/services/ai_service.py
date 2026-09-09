@@ -7170,7 +7170,17 @@ IMPORTANT RULES:
         prompts or "Produk Pilihan"-style retail card names.
         """
         explicit = normalize_business_type(business_type)
-        btype = explicit or detect_business_type(description)
+        # 'general' ("Lain-lain — Custom, bercerita AI") is the one picker
+        # value that is NOT an answer: the merchant is saying "none of these
+        # fit, you figure it out". Treating that click as a positive vote for
+        # retail reads more into it than they put there, and the risk is
+        # asymmetric — this market is F&B-heavy, so a caterer, food truck,
+        # kuih seller or home baker who doesn't see themselves as "Restoran"
+        # is far more likely than a retailer skipping "Pakaian". So an
+        # explicit 'general' defers to the scorer exactly as 'auto' does.
+        # Every other explicit pick stays authoritative and un-overridable.
+        authoritative = explicit if (explicit and explicit != "general") else None
+        btype = authoritative or detect_business_type(description)
         low = (description or "").lower()
 
         def _creative() -> bool:
@@ -7189,21 +7199,24 @@ IMPORTANT RULES:
             # so a photographer/videographer picks "services". Let the
             # creative keywords refine that; never let food words touch it.
             category = "creative" if _creative() else "services"
-        else:  # 'general' — either an explicit "lain-lain" or no signal
+        else:  # 'general' — the scorer found no vertical signal at all
             if _creative():
                 category = "creative"
-            elif not explicit and self._is_food_business(description):
-                # No vertical scored at all: a food word is the only
-                # evidence there is, so it may decide. Never applied when
-                # the merchant explicitly chose 'general' — that is an
-                # answer, not an absence of one.
+            elif self._is_food_business(description):
+                # Nothing scored: a food word is the only evidence there is,
+                # so it may decide. Reached for 'auto' AND for an explicit
+                # 'lain-lain', which defers here by design (see above).
                 category = "food"
             else:
                 category = "retail"
 
+        _source = "explicit" if authoritative else (
+            "explicit-general → deferred to classifier" if explicit
+            else "classified-from-description"
+        )
         logger.info(
             f"🏷️ Image prompt category={category} "
-            f"[business_type={btype} source={'explicit' if explicit else 'classified-from-description'}]"
+            f"[business_type={btype} source={_source}]"
         )
         return category
 

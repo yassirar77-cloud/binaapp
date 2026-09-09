@@ -3544,9 +3544,35 @@ async def publish_website(
                 )
                 if is_new_website:
                     upsert_payload["generation_count"] = 1
-                supabase.table("websites").upsert(
-                    upsert_payload, on_conflict="id"
-                ).execute()
+                # Migration 055 may not have been applied yet (production is
+                # the only environment, so code and schema can land in either
+                # order). These two columns are OPTIONAL metadata: if the
+                # write fails because they don't exist, drop them and save the
+                # row anyway. Losing the merchant's vertical is a bad day;
+                # losing their website because of an optional column is an
+                # outage, and the whole point of this change is that a wrong
+                # hero beats no hero only when nothing worse is on offer.
+                _OPTIONAL_055_COLUMNS = ("business_type", "hero_image_prompt")
+                try:
+                    supabase.table("websites").upsert(
+                        upsert_payload, on_conflict="id"
+                    ).execute()
+                except Exception as _upsert_err:
+                    _present = [c for c in _OPTIONAL_055_COLUMNS if c in upsert_payload]
+                    _looks_like_missing_column = _present and any(
+                        c in str(_upsert_err) for c in _present
+                    )
+                    if not _looks_like_missing_column:
+                        raise
+                    logger.warning(
+                        f"⚠️ [WEBSITES INSERT] retrying without {_present} — "
+                        f"migration 055 may not be applied yet: {_upsert_err}"
+                    )
+                    for _col in _present:
+                        upsert_payload.pop(_col, None)
+                    supabase.table("websites").upsert(
+                        upsert_payload, on_conflict="id"
+                    ).execute()
                 _publish_mode = (
                     "promote-draft" if is_promotion
                     else "insert-new" if is_new_website
