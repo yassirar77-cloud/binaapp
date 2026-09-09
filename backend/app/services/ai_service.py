@@ -5375,13 +5375,28 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         AI_DEEPSEEK_MAX_TOKENS (default 24000, overridable via env); well under
         deepseek-reasoner's 384K output ceiling.
 
+        Sends `"thinking": {"type": "disabled"}` because the deepseek-v4 models
+        are reasoning models and max_tokens covers reasoning + content: with
+        thinking on, reasoning can consume the entire budget and the API returns
+        finish_reason=length with an empty `content`. If a deployment rejects
+        that field with a 400 the call is retried once without it, and a
+        reasoning-only response is salvaged from `reasoning_content` rather than
+        discarded. `self._last_api_call` carries `reasoning_burn` /
+        `empty_content` so callers can report the real cause.
+
         system_prompt: optional override. Default keeps the strict HTML
         contract every existing caller relies on; designer mode passes
         DESIGNER_SYSTEM_PROMPT and the concept step passes
         CONCEPT_SYSTEM_PROMPT.
         """
         # Reset per-call API state — see _call_qwen for rationale.
-        self._last_api_call = {"provider": "deepseek", "finish_reason": None, "truncated": False}
+        self._last_api_call = {
+            "provider": "deepseek",
+            "finish_reason": None,
+            "truncated": False,
+            "reasoning_burn": False,
+            "empty_content": False,
+        }
         if not self.deepseek_api_key:
             logger.warning("❌ DEEPSEEK_API_KEY not configured")
             return None
@@ -5393,36 +5408,71 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         chosen_max_tokens = max_tokens or AI_DEEPSEEK_MAX_TOKENS
         try:
             logger.info(f"🔷 Calling DeepSeek API ({chosen_model})... (prompt length: {len(prompt)} chars)")
+            body = {
+                "model": chosen_model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": chosen_system,
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": temperature,
+                "max_tokens": chosen_max_tokens,
+                # CRITICAL: the deepseek-v4 models are REASONING models, and
+                # max_tokens bounds reasoning + visible content together. Left
+                # thinking-enabled, a long reasoning pass eats the entire budget
+                # and the API returns finish_reason=length with an EMPTY
+                # `content` field (completion_tokens == cap) — the whole call is
+                # a total loss after several minutes. That is exactly how jobs
+                # were dying at progress 55%: 24001/24000 tokens burned, 0 chars
+                # of HTML. Same contract already used by _call_glm and
+                # _review_design_with_deepseek.
+                "thinking": {"type": "disabled"},
+            }
             async with httpx.AsyncClient(timeout=AI_PRIMARY_TIMEOUT_SECONDS + 30) as client:
+                headers = {
+                    "Authorization": f"Bearer {self.deepseek_api_key}",
+                    "Content-Type": "application/json",
+                }
                 r = await client.post(
                     f"{self.deepseek_base_url}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {self.deepseek_api_key}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "model": chosen_model,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": chosen_system,
-                            },
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": temperature,
-                        "max_tokens": chosen_max_tokens,
-                    }
+                    headers=headers,
+                    json=body,
                 )
+                # Some DeepSeek deployments reject the `thinking` field as an
+                # unknown parameter. Retry once without it so an API-contract
+                # mismatch can't turn every generation into a hard failure
+                # (mirrors _review_design_with_deepseek). The reasoning-burn
+                # salvage below is what keeps this path survivable.
+                if r.status_code == 400 and "thinking" in body:
+                    logger.warning(
+                        "🔷 DeepSeek got 400 with `thinking` param — retrying without it"
+                    )
+                    body.pop("thinking")
+                    r = await client.post(
+                        f"{self.deepseek_base_url}/chat/completions",
+                        headers=headers,
+                        json=body,
+                    )
                 if r.status_code == 200:
                     payload = r.json()
                     choice = (payload.get("choices") or [{}])[0]
-                    content = (choice.get("message") or {}).get("content", "")
+                    message = choice.get("message") or {}
+                    content = message.get("content", "") or ""
+                    # Reasoning models put their chain-of-thought here. Never
+                    # used as output before, which is why a reasoning-only
+                    # response looked like "generated nothing".
+                    reasoning = message.get("reasoning_content", "") or ""
                     finish_reason = choice.get("finish_reason") or "unknown"
                     usage = payload.get("usage") or {}
                     completion_tokens = usage.get("completion_tokens")
-                    logger.info(
-                        f"🔷 DeepSeek ✅ Generated {len(content)} chars "
-                        f"(finish_reason={finish_reason}, completion_tokens={completion_tokens})"
+                    _log = logger.info if content.strip() else logger.error
+                    _log(
+                        f"🔷 DeepSeek {'✅' if content.strip() else '❌'} Generated "
+                        f"{len(content)} chars (finish_reason={finish_reason}, "
+                        f"completion_tokens={completion_tokens}, "
+                        f"reasoning_chars={len(reasoning)})"
                     )
                     # Output-cap headroom: how close did this completion get to
                     # the configured max? Makes truncation pressure visible in
@@ -5435,15 +5485,49 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                             f"tokens ({_pct:.0f}% of cap)"
                         )
                     truncated_at_api = finish_reason in self._TRUNCATED_FINISH_REASONS
+                    # Budget burned on reasoning with nothing to show for it.
+                    # Tracked separately from plain truncation so callers can
+                    # report the real cause instead of "failed to generate".
+                    reasoning_burn = bool(not content.strip() and reasoning)
                     self._last_api_call = {
                         "provider": "deepseek",
                         "finish_reason": finish_reason,
                         "truncated": truncated_at_api,
+                        "reasoning_burn": reasoning_burn,
+                        "empty_content": not content.strip(),
                     }
                     if truncated_at_api:
                         logger.error(
                             f"🚨 DeepSeek hit output cap (finish_reason={finish_reason}, "
                             f"max_tokens={chosen_max_tokens}). Response was truncated at generation time."
+                        )
+                    # Salvage: the model spent the whole budget reasoning and
+                    # emitted no content, but a model asked for HTML usually
+                    # drafts that HTML inside its reasoning. Recovering it beats
+                    # throwing away a multi-minute call — _extract_html pulls the
+                    # markup out of the surrounding prose and auto-closes it, and
+                    # the truncation flags already set above make sure the result
+                    # is still marked for review rather than shipped as clean.
+                    if reasoning_burn:
+                        logger.error(
+                            f"🚨 DeepSeek spent its entire output budget on reasoning "
+                            f"({len(reasoning)} chars of reasoning_content, 0 chars of "
+                            f"content). Attempting to salvage HTML from the reasoning."
+                        )
+                        # Only salvage a real document root. Reasoning text is
+                        # mostly prose with stray tag fragments, and _extract_html
+                        # falls back to returning the text as-is when it finds no
+                        # <!DOCTYPE/<html to slice from — which would ship the
+                        # model's deliberation to the merchant as their website.
+                        # A hard failure is better than that.
+                        if "<!DOCTYPE" in reasoning or "<html" in reasoning:
+                            logger.warning(
+                                "🔷 DeepSeek: salvaging HTML document from reasoning_content"
+                            )
+                            return reasoning
+                        logger.error(
+                            "🔷 DeepSeek ❌ reasoning_content has no HTML document "
+                            "root — nothing safe to salvage"
                         )
                     return content
                 else:
@@ -5453,7 +5537,9 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                         error_body = "(unable to read response)"
                     logger.error(f"🔷 DeepSeek ❌ Status {r.status_code}: {error_body}")
         except httpx.TimeoutException as e:
-            logger.error(f"🔷 DeepSeek ❌ Timeout after 120s: {e}")
+            logger.error(
+                f"🔷 DeepSeek ❌ Timeout after {AI_PRIMARY_TIMEOUT_SECONDS + 30:.0f}s: {e}"
+            )
         except httpx.ConnectError as e:
             logger.error(f"🔷 DeepSeek ❌ Connection error: {e}")
         except Exception as e:
@@ -8275,8 +8361,23 @@ IMPORTANT INSTRUCTIONS:
                 api_finish_reason = self._last_api_call.get("finish_reason")
 
             if not html_raw:
-                logger.error("❌ DeepSeek failed to generate")
-                raise Exception("Failed to generate website")
+                # Say WHY. "Failed to generate website" on its own sent us to
+                # the logs to discover the budget had been burned on reasoning;
+                # the cause belongs on the job row where it is visible.
+                if self._last_api_call.get("reasoning_burn"):
+                    _cause = (
+                        "the model spent its entire output budget on reasoning and "
+                        "returned no HTML"
+                    )
+                elif self._last_api_call.get("empty_content"):
+                    _cause = "the model returned an empty response"
+                else:
+                    _cause = (
+                        f"no content from {self.deepseek_model_pro} "
+                        f"(finish_reason={self._last_api_call.get('finish_reason')})"
+                    )
+                logger.error(f"❌ DeepSeek failed to generate — {_cause}")
+                raise Exception(f"Failed to generate website: {_cause}")
 
             html = html_raw
 
