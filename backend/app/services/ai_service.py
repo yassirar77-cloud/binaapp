@@ -2212,6 +2212,17 @@ Format: Just the image description, no explanations."""
         a Cloudinary URL, or None when every configured provider fails
         (existing no-image behaviour applies downstream).
         """
+        # The FULL, untruncated prompt actually leaving for the provider.
+        # Every other prompt log in this file truncates (80 chars at the Z.ai
+        # call, 50-60 elsewhere), which is exactly why a wrong hero could not
+        # be diagnosed from production logs: the substring that proved which
+        # template fired was always past the cut. A silent prompt substitution
+        # is itself a bug, so this line is INFO and never truncated.
+        logger.info(
+            f"🎨 IMAGE PROMPT [provider={image_provider()} food={food} "
+            f"doodle={doodle}]: {prompt}"
+        )
+
         if image_provider() == "zai":
             # Same Malaysian-food prompt mapping the Stability path applies
             # internally, so a raw dish name still becomes a curated prompt.

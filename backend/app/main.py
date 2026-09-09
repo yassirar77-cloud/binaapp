@@ -24,6 +24,7 @@ from app.data.malaysian_prompts import (
 )
 from app.services.ai_service import AIService
 from app.models.schemas import WebsiteGenerationRequest, Language
+from app.services.business_types import normalize_business_type
 from app.api.upload import router as upload_router
 from app.api.v1.endpoints.menu_delivery import router as menu_delivery_router
 from app.api.v1.endpoints.health import router as health_router
@@ -1865,6 +1866,8 @@ async def run_generation_task(
     design_style: Optional[str] = None,
     design_brief: Optional[str] = None,
     design_freedom: Optional[str] = None,
+    business_type: Optional[str] = None,
+    hero_image_prompt: Optional[str] = None,
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -1914,7 +1917,14 @@ async def run_generation_task(
         ai_request = WebsiteGenerationRequest(
             description=description,
             business_name=description.split()[0] if description else "Business",  # Simple extraction
-            business_type="business",  # Generic type
+            # The merchant's EXPLICIT pick from the create-page picker, already
+            # canonicalised at the endpoint. None means they chose "auto", and
+            # only then may the description classifier decide the vertical.
+            # This used to be hardcoded to "business" — a value that is not a
+            # real vertical — which is why every downstream consumer ignored
+            # request.business_type and guessed from free text instead, and why
+            # websites.business_type was empty for every row ever written.
+            business_type=business_type,
             language=Language.MALAY if lang == "ms" else Language.ENGLISH,
             subdomain="preview",
             include_whatsapp=whatsapp_enabled,
@@ -1930,6 +1940,7 @@ async def run_generation_task(
             design_style=design_style,
             design_brief=design_brief,
             design_freedom=design_freedom,
+            hero_image_prompt=hero_image_prompt,
         )
 
         # Create progress callback to update Supabase during generation
@@ -2449,6 +2460,23 @@ async def start_generation(request: Request):
         logger.warning(f"🎨 Unknown design_freedom '{design_freedom}' — using server default")
         design_freedom = None
 
+    # ── Vertical resolution (explicit merchant pick beats text classification)
+    # The create page sends the picker value, 'auto' → null. Until now this
+    # key was read by nobody: the AI request hardcoded business_type="business"
+    # and websites.business_type was never written, so EVERY vertical decision
+    # in the product came from keyword-guessing the description. One
+    # incidental word ("kopi" in a salon's ambience copy) was enough to
+    # classify a hair salon as a drinks business.
+    explicit_business_type = normalize_business_type(
+        body.get("business_type") or body.get("businessType")
+    )
+
+    # The merchant's own hero VISUAL description. Overrides the auto-built
+    # hero prompt outright. Distinct from the hero VIDEO prompt (motion),
+    # which is collected separately and applied after publish.
+    hero_image_prompt = (body.get("hero_image_prompt") or body.get("heroImagePrompt") or "")
+    hero_image_prompt = str(hero_image_prompt).strip()[:400] or None
+
     # Get dish names from request
     dish_names = body.get("dish_names", [])
     uploaded_images = body.get("uploaded_images", {})
@@ -2689,6 +2717,18 @@ MANDATORY REQUIREMENTS:
     logger.info(f"   Description: {description[:60]}...")
     logger.info(f"   Images: {len(images) if images else 0} uploaded")
     logger.info(f"   Dish names: {dish_names if dish_names else 'None'}")
+    # Vertical provenance: whoever reads this log must be able to tell an
+    # explicit merchant pick from a guess WITHOUT re-running the classifier.
+    logger.info(
+        f"   🏷️ business_type: {explicit_business_type or '(none)'} "
+        f"[source={'explicit' if explicit_business_type else 'auto → will classify from description'}] "
+        f"(raw={body.get('business_type')!r})"
+    )
+    logger.info(
+        f"   🖼️ hero_image_prompt: "
+        + (f"MERCHANT-SUPPLIED — {hero_image_prompt!r}" if hero_image_prompt
+           else "(none — will auto-build from vertical)")
+    )
     logger.info(f"   Uploaded images: {len(uploaded_images)} items" if uploaded_images else "   Uploaded images: None")
 
     # Create job in Supabase (keep schema minimal to avoid column mismatch)
@@ -2731,6 +2771,8 @@ MANDATORY REQUIREMENTS:
         design_style=design_style,
         design_brief=design_brief,
         design_freedom=design_freedom,
+        business_type=explicit_business_type,
+        hero_image_prompt=hero_image_prompt,
     ))
 
     logger.info(f"🚀 Job started: {job_id}")
@@ -3481,6 +3523,25 @@ async def publish_website(
                 _description = body.get("description")
                 if _description:
                     upsert_payload["description"] = _description
+                # Migration 055: persist the merchant's vertical and hero-visual
+                # intent. Both are only written when the client actually sends
+                # them — a republish that omits them must not wipe the stored
+                # value (same contract as description above). business_type is
+                # canonicalised here too: the row must only ever hold a value
+                # from BUSINESS_TYPE_VALUES, never a raw picker string.
+                _biz_type = normalize_business_type(
+                    body.get("business_type") or body.get("businessType")
+                )
+                if _biz_type:
+                    upsert_payload["business_type"] = _biz_type
+                _hero_prompt = (body.get("hero_image_prompt") or body.get("heroImagePrompt") or "")
+                _hero_prompt = str(_hero_prompt).strip()[:400]
+                if _hero_prompt:
+                    upsert_payload["hero_image_prompt"] = _hero_prompt
+                logger.info(
+                    f"🏷️ [PUBLISH] business_type={_biz_type or '(not sent — leaving stored value)'} "
+                    f"hero_image_prompt={'set' if _hero_prompt else '(not sent)'}"
+                )
                 if is_new_website:
                     upsert_payload["generation_count"] = 1
                 supabase.table("websites").upsert(
