@@ -790,9 +790,28 @@ export default function CreatePage() {
         price: g.price || ''  // Include price
       }));
 
+      // Only rows that actually carry a URL are images. A row with a name
+      // and a price but no photo is an ITEM, not an upload — it travels in
+      // menu_items below. Counting those as uploads made
+      // finalImageChoice flip to 'upload' the moment a merchant typed an
+      // item name, silently overriding an explicit "Generate AI" pick and
+      // leaving the site with no images at all.
+      const uploadedGalleryImages = galleryWithMetadata.filter(g => !!g.url);
       const allImages = uploadedImages.hero
-        ? [{ url: uploadedImages.hero, name: 'Hero Image' }, ...galleryWithMetadata]
-        : galleryWithMetadata;
+        ? [{ url: uploadedImages.hero, name: 'Hero Image' }, ...uploadedGalleryImages]
+        : uploadedGalleryImages;
+
+      // The merchant's items with their prices — the SOURCE OF TRUTH the
+      // backend schema documents ("names and prices are rendered verbatim;
+      // the generator may not rename, merge, round, or invent items").
+      // These rows were collected by the UI and sent in the body, but the
+      // generation endpoint read neither key, so every merchant's prices
+      // were dropped and the model wrote "Atas permintaan" instead. A row
+      // needs only a NAME — an item with no photo and no price is still the
+      // merchant telling us what they sell.
+      const menuItemsForGeneration = uploadedImages.gallery
+        .map(g => ({ name: (g.name || '').trim(), price: (g.price || '').trim() }))
+        .filter(it => it.name.length > 0);
 
       // STRICT IMAGE CONTROL: Determine final image choice
       // If user uploaded images, force 'upload' mode
@@ -827,6 +846,7 @@ export default function CreatePage() {
           business_type: businessType === 'auto' ? null : businessType,  // Pass business type for dynamic categories
           // Merchant's own hero visual description — overrides the auto-built prompt.
           hero_image_prompt: heroImagePrompt.trim() || undefined,
+          menu_items: menuItemsForGeneration,
           // STRICT IMAGE CONTROL: Send explicit image choice
           image_choice: finalImageChoice,
           color_mode: colorMode,

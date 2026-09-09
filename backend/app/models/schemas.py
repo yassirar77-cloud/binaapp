@@ -162,6 +162,16 @@ class WebsiteGenerationRequest(BaseModel):
             "system with fixed hero/layout. None = server default."
         ),
     )
+    show_prices: bool = Field(
+        default=True,
+        description=(
+            "The create page's 'Senarai Harga' toggle. True renders each "
+            "item's price; False renders the items without prices so the "
+            "customer asks via WhatsApp. Until now this flag was read into "
+            "the request body and then dropped — the only handler for it "
+            "lived in a module that is never mounted."
+        ),
+    )
     hero_image_prompt: Optional[str] = Field(
         default=None,
         max_length=400,

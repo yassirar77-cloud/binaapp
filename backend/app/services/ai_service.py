@@ -3942,6 +3942,7 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         include_chat: bool = True,
         brand_colors: Optional[dict] = None,
         menu_items: Optional[list] = None,
+        show_prices: bool = True,
         design_style: Optional[str] = None,
         design_brief: Optional[str] = None,
         design_freedom: str = "guided",
@@ -4417,15 +4418,39 @@ The merchant's own business data states the following: {_labels}.
         _has_slot_names = any(
             (images or {}).get(f"gallery{i}_name") for i in range(1, 5)
         )
-        _noun = "menu" if detected_biz_type in ("food", "bakery") else "product"
+        # Three-way, not two: a salon sells SERVICES. Calling them "products"
+        # produced retail product-shot language and card names on businesses
+        # that sell work performed on a client.
+        if detected_biz_type in ("food", "bakery"):
+            _noun = "menu"
+        elif detected_biz_type in ("salon", "services"):
+            _noun = "service"
+        else:
+            _noun = "product"
+        # 'Senarai Harga' off means the merchant wants the catalogue without
+        # prices so customers ask on WhatsApp — a deliberate choice, not a
+        # gap in the data. It must never be confused with "no price supplied".
+        if show_prices:
+            _price_rule = (
+                '- Copy each PRICE character-for-character, exactly as written (RM7.00 stays "RM7.00",\n'
+                '  RM18/pax stays "RM18/pax"). Never round, reformat, convert, or invent a price.'
+            )
+        else:
+            _price_rule = (
+                "- DO NOT render a price for any item. The merchant has turned prices OFF.\n"
+                "  No price element, no price range, no 'from RM..', and no substitute wording\n"
+                "  such as \"price on request\" / \"atas permintaan\". Point customers to the\n"
+                "  WhatsApp/contact CTA to ask instead."
+            )
         if _supplied_items:
             _lines = []
             for idx, it in enumerate(_supplied_items, 1):
                 line = f'{idx}. NAME: "{it["name"]}"'
-                if it.get("price"):
-                    line += f' | PRICE: "{it["price"]}"'
-                else:
-                    line += " | PRICE: (none supplied — omit the price element for this item)"
+                if show_prices:
+                    if it.get("price"):
+                        line += f' | PRICE: "{it["price"]}"'
+                    else:
+                        line += " | PRICE: (none supplied — omit the price element for this item)"
                 if it.get("category"):
                     line += f' | CATEGORY: "{it["category"]}"'
                 if it.get("description"):
@@ -4441,23 +4466,39 @@ ABSOLUTE RULES FOR THIS DATA:
 - Render EVERY item listed above. Do not drop, merge, or summarise any of them.
 - Copy each NAME character-for-character. Do NOT rename, translate, reorder words,
   add the business name, or append qualifiers like "Set", "Combo", "Istimewa", "Special".
-- Copy each PRICE character-for-character, exactly as written (RM7.00 stays "RM7.00",
-  RM18/pax stays "RM18/pax"). Never round, reformat, convert, or invent a price.
+{_price_rule}
 - Do NOT add any item that is not in this list.
 - Where an item has no supplied description you may write ONE short appetising line,
   but it must not assert facts absent from the data (no cooking times, no ingredient
   lists, no provenance, no awards, no spice levels).
 - If CATEGORY values are present, group the items under those categories."""
-        elif not _has_slot_names and detected_biz_type in ("food", "bakery", "clothing", "general"):
+        elif not _has_slot_names:
+            # Previously gated to ("food", "bakery", "clothing", "general") —
+            # which excluded salon and services, the two verticals with the
+            # LEAST structured data and therefore the most room to invent. A
+            # salon with no supplied items got no instruction at all here, so
+            # the model was free to invent both the service list AND a price
+            # substitute; that is where the published "Atas permintaan" came
+            # from. The honest placeholder now applies to every vertical.
             # Nothing real to show. Ask for an honest placeholder — never let
             # the model fill the gap from the business name (this is exactly
             # how "Kak Ropiah A0 / Set Kak Ropiah A0 / ... Combo / ... Istimewa"
             # reached a live site).
-            _ph_heading = "Menu Akan Datang" if language == "ms" else "Menu Coming Soon"
+            _ph_label_ms = {
+                "menu": "Menu", "service": "Senarai Perkhidmatan", "product": "Senarai Produk",
+            }[_noun]
+            _ph_label_en = {
+                "menu": "Menu", "service": "Service List", "product": "Product List",
+            }[_noun]
+            _ph_heading = (
+                f"{_ph_label_ms} Akan Datang" if language == "ms"
+                else f"{_ph_label_en} Coming Soon"
+            )
             _ph_body = (
-                "Menu penuh akan dikemas kini tidak lama lagi. Hubungi kami untuk pertanyaan."
+                f"{_ph_label_ms} penuh akan dikemas kini tidak lama lagi. "
+                "Hubungi kami untuk pertanyaan."
                 if language == "ms" else
-                "Our full menu is being updated. Contact us for enquiries."
+                f"Our full {_ph_label_en.lower()} is being updated. Contact us for enquiries."
             )
             menu_data_block = f"""===== NO {_noun.upper()} DATA SUPPLIED — RENDER A PLACEHOLDER =====
 The merchant did NOT provide {_noun} items, and none could be read from the description.
@@ -4468,7 +4509,10 @@ The merchant did NOT provide {_noun} items, and none could be read from the desc
 - NEVER derive an item name from the business name, the tagline, a section label,
   or a heading (e.g. a business called "Warung Kak Ropiah" must NEVER produce items
   named "Kak Ropiah", "Set Kak Ropiah", "Kak Ropiah Combo" or "Kak Ropiah Istimewa").
-- DO NOT invent prices. An empty, honest section is REQUIRED over a fabricated one."""
+- DO NOT invent prices, and do NOT substitute a stand-in for a missing price
+  such as "Atas permintaan", "Price on request", "Hubungi kami untuk harga",
+  "From RM.." or "TBA". Omit the price element entirely instead.
+- An empty, honest section is REQUIRED over a fabricated one."""
 
         # ---- USER OVERRIDE CONDITIONALS ----
         # An explicit user colour request lifts the matching generic ban
@@ -7998,6 +8042,7 @@ IMPORTANT RULES:
             include_maps=request.include_maps,
             brand_colors=getattr(request, "colors", None),
             menu_items=getattr(request, "menu_items", None),
+            show_prices=bool(getattr(request, "show_prices", True)),
             design_style=getattr(request, "design_style", None),
             design_brief=design_brief,
             design_freedom=design_freedom,
@@ -8547,6 +8592,7 @@ IMPORTANT INSTRUCTIONS:
                 include_ecommerce=request.include_ecommerce,
                 brand_colors=getattr(request, "colors", None),
                 menu_items=getattr(request, "menu_items", None),
+                show_prices=bool(getattr(request, "show_prices", True)),
                 design_style=getattr(request, "design_style", None),
                 design_brief=_ms_brief,
                 design_freedom=_ms_freedom,

@@ -25,6 +25,7 @@ from app.data.malaysian_prompts import (
 from app.services.ai_service import AIService
 from app.models.schemas import WebsiteGenerationRequest, Language
 from app.services.business_types import normalize_business_type
+from app.services.menu_validator import is_valid_menu_item_name
 from app.api.upload import router as upload_router
 from app.api.v1.endpoints.menu_delivery import router as menu_delivery_router
 from app.api.v1.endpoints.health import router as health_router
@@ -1868,6 +1869,8 @@ async def run_generation_task(
     design_freedom: Optional[str] = None,
     business_type: Optional[str] = None,
     hero_image_prompt: Optional[str] = None,
+    menu_items: Optional[list] = None,
+    show_prices: bool = True,
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -1895,7 +1898,17 @@ async def run_generation_task(
             whatsapp_enabled = bool(selected_features.get("whatsapp"))
 
         # Normalize image choice so "upload without uploads" becomes "none"
-        user_has_uploaded_images = bool(images and len(images) > 0)
+        # An entry only counts as an upload if it actually carries a URL.
+        # Item rows (name + price, no photo) travel in this list on older
+        # clients, and counting them here forced image_choice to 'upload'
+        # with nothing to upload — which then normalised to 'none' and left
+        # the merchant with no images despite them asking for AI ones.
+        def _is_real_upload(entry) -> bool:
+            if isinstance(entry, dict):
+                return bool(str(entry.get("url") or "").strip())
+            return bool(str(entry or "").strip())
+
+        user_has_uploaded_images = any(_is_real_upload(e) for e in (images or []))
         normalized_image_choice = (image_choice or "none").lower().strip()
         if normalized_image_choice not in ["none", "upload", "ai"]:
             normalized_image_choice = "none"
@@ -1941,6 +1954,8 @@ async def run_generation_task(
             design_brief=design_brief,
             design_freedom=design_freedom,
             hero_image_prompt=hero_image_prompt,
+            menu_items=menu_items or [],
+            show_prices=show_prices,
         )
 
         # Create progress callback to update Supabase during generation
@@ -2070,7 +2085,7 @@ async def run_generation_task(
 
             # Detect business type from description for proper category assignment
             from app.services.business_types import detect_business_type, detect_item_category
-            from app.api.simple.generate import is_valid_menu_item_name
+            from app.services.menu_validator import is_valid_menu_item_name
             business_type = detect_business_type(description)
             logger.info(f"🏢 Detected business type: {business_type}")
 
@@ -2477,6 +2492,50 @@ async def start_generation(request: Request):
     hero_image_prompt = (body.get("hero_image_prompt") or body.get("heroImagePrompt") or "")
     hero_image_prompt = str(hero_image_prompt).strip()[:400] or None
 
+    # ── Merchant-supplied items: names AND prices (the SOURCE OF TRUTH
+    # contract already documented on WebsiteGenerationRequest.menu_items and
+    # already implemented in the HTML prompt). Nothing populated it on this
+    # route, so the model was handed service names with no prices and wrote
+    # "Atas permintaan" — a string that appears nowhere in this codebase —
+    # for six services the merchant had priced.
+    #
+    # Newer clients send menu_items directly. Older ones only send the
+    # gallery rows (images / gallery_metadata), which carry the same
+    # {name, price} the create page collects, so those are accepted as a
+    # fallback: frontend and backend deploy independently and prices must
+    # not vanish again in the window between them.
+    def _coerce_menu_items(raw) -> list:
+        items = []
+        for entry in (raw or []):
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip()
+            if not name or not is_valid_menu_item_name(name):
+                continue
+            price = entry.get("price")
+            price = "" if price is None else str(price).strip()
+            item = {"name": name[:120], "price": price[:40]}
+            _desc = str(entry.get("description") or "").strip()
+            if _desc:
+                item["description"] = _desc[:400]
+            _cat = str(entry.get("category") or "").strip()
+            if _cat:
+                item["category"] = _cat[:60]
+            items.append(item)
+        return items
+
+    supplied_menu_items = _coerce_menu_items(body.get("menu_items"))
+    _items_source = "menu_items"
+    if not supplied_menu_items:
+        supplied_menu_items = _coerce_menu_items(
+            body.get("gallery_metadata") or body.get("images")
+        )
+        _items_source = "gallery rows (legacy client)"
+
+    # 'Senarai Harga'. Read into selected_features and then dropped: the only
+    # handler for it lives in a module that is never mounted.
+    show_prices = bool((body.get("features") or {}).get("priceList", True))
+
     # Get dish names from request
     dish_names = body.get("dish_names", [])
     uploaded_images = body.get("uploaded_images", {})
@@ -2725,6 +2784,12 @@ MANDATORY REQUIREMENTS:
         f"(raw={body.get('business_type')!r})"
     )
     logger.info(
+        f"   💰 menu_items: {len(supplied_menu_items)} supplied via {_items_source}"
+        + (f" — {', '.join(repr(i['name'] + (' @ ' + i['price'] if i['price'] else '')) for i in supplied_menu_items[:8])}"
+           if supplied_menu_items else " (none — page will render an honest placeholder)")
+    )
+    logger.info(f"   🏷️ show_prices (Senarai Harga): {show_prices}")
+    logger.info(
         f"   🖼️ hero_image_prompt: "
         + (f"MERCHANT-SUPPLIED — {hero_image_prompt!r}" if hero_image_prompt
            else "(none — will auto-build from vertical)")
@@ -2773,6 +2838,8 @@ MANDATORY REQUIREMENTS:
         design_freedom=design_freedom,
         business_type=explicit_business_type,
         hero_image_prompt=hero_image_prompt,
+        menu_items=supplied_menu_items,
+        show_prices=show_prices,
     ))
 
     logger.info(f"🚀 Job started: {job_id}")
