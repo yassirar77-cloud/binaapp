@@ -19,7 +19,6 @@ from app.services.zai_video_service import (
     ZaiVideoError,
     ZaiVideoService,
     build_hero_video_prompt,
-    dashscope_video_model,
     dashscope_video_resolution,
     hero_video_enabled,
     hero_video_fallback_provider,

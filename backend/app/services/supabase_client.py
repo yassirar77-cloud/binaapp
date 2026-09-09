@@ -879,6 +879,29 @@ class SupabaseService:
             return None
 
 
+    async def storage_object_exists(self, bucket: str, path: str) -> bool:
+        """True if ``path`` exists in ``bucket``. Uses the list endpoint with
+        the object's own folder as prefix and its name as the search term, so
+        a miss costs one small request and no 400 in the logs."""
+        try:
+            folder, _, name = path.rpartition("/")
+            if not name:
+                return False
+            url = f"{self.url}/storage/v1/object/list/{bucket}"
+            async with self._client() as client:
+                response = await client.post(
+                    url,
+                    headers=self.service_headers,
+                    json={"prefix": folder, "search": name, "limit": 20, "offset": 0},
+                    timeout=15.0,
+                )
+            if response.status_code != 200:
+                return False
+            return any((item or {}).get("name") == name for item in response.json() or [])
+        except Exception as e:
+            print(f"❌ storage_object_exists error: {str(e)}")
+            return False
+
     async def list_storage_folders(self, bucket: str) -> list:
         """
         List all top-level folders in a storage bucket.

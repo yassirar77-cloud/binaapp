@@ -1214,6 +1214,8 @@ export default function CreatePage() {
           description: description,
           business_type: businessType === 'auto' ? null : businessType,
           hero_image_prompt: heroImagePrompt.trim() || undefined,
+          // Geocoded at publish so the map shows a pin, not a region.
+          address: fullAddress || null,
           features: selectedFeatures,
           delivery: selectedFeatures.deliverySystem ? {
             area: deliveryArea,
@@ -2038,7 +2040,7 @@ export default function CreatePage() {
                         maxLength={200}
                       />
                       <div style={{ fontSize: 11, color: '#5A5A6E' }}>
-                        Ini menerangkan <strong style={{ color: '#BAB0FF', fontWeight: 600 }}>pergerakan</strong> sahaja &mdash; ia menganimasikan gambar hero, bukan menukar isi gambar. Tanpa teks atau logo dalam klip. Boleh ubah atau buang bila-bila masa di Editor.
+                        Ini menerangkan <strong style={{ color: '#BAB0FF', fontWeight: 600 }}>pergerakan</strong> sahaja &mdash; adegan video diambil daripada &ldquo;Gambar hero yang anda mahu&rdquo; di atas, jadi video dan gambar sepadan. Tanpa teks atau logo dalam klip. Boleh ubah atau buang bila-bila masa di Editor.
                       </div>
                     </div>
                   )}

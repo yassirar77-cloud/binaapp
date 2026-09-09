@@ -11,7 +11,7 @@ also ate a paid slot. These tests pin the corrected model.
 """
 
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, AsyncMock
 
 from app.services import plan_features
 from app.services.subscription_service import (

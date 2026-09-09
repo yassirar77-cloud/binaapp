@@ -196,32 +196,57 @@ def is_route_allowed(path: str) -> bool:
 
 
 async def get_user_id_from_request(request: Request) -> Optional[str]:
-    """Extract user ID from request authorization header"""
+    """Extract the user ID from the Authorization header — LOCALLY.
+
+    This used to call ``GET {SUPABASE_URL}/auth/v1/user`` over the network on
+    every protected request. Two problems:
+
+    1. Noise: a BinaApp-issued JWT (signed with our own JWT_SECRET_KEY) is not
+       a Supabase session, so Supabase answered 403 — logged on every poll of
+       every dashboard, roughly every 9 seconds, and read by whoever looked
+       at the logs next as "the endpoint is unauthenticated". It was not: the
+       route dependency verifies the JWT itself and never falls through.
+    2. Worse than noise: on that 403 this returned None, and the middleware
+       treats None as "not authenticated — let the route handler deal with
+       it", i.e. it SKIPPED the subscription lock / grace checks entirely
+       for exactly the users carrying our own tokens.
+
+    Verifying with the same secrets the route dependency uses (see
+    app.core.security.get_current_user) is faster, quiet, and means the lock
+    check applies to everyone it should. Returns None on any failure; the
+    route's own dependency still produces the 401.
+    """
     try:
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             return None
-
-        token = auth_header.replace("Bearer ", "")
-        if not token:
+        token = auth_header[len("Bearer "):].strip()
+        if not token or token in ("undefined", "null", "None"):
             return None
 
-        # Verify token with Supabase
-        url = f"{settings.SUPABASE_URL}/auth/v1/user"
-        headers = {
-            "apikey": settings.SUPABASE_SERVICE_ROLE_KEY,
-            "Authorization": f"Bearer {token}",
-        }
+        from jose import JWTError, jwt as _jwt
+        from app.core.security import decode_access_token
 
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, headers=headers)
+        # 1. Our own tokens.
+        try:
+            payload = decode_access_token(token)
+            if payload.get("sub"):
+                return payload["sub"]
+        except Exception:
+            pass
 
-        if response.status_code == 200:
-            user_data = response.json()
-            return user_data.get("id")
-
+        # 2. Supabase-signed tokens.
+        if settings.SUPABASE_JWT_SECRET:
+            try:
+                payload = _jwt.decode(
+                    token, settings.SUPABASE_JWT_SECRET,
+                    algorithms=["HS256"], options={"verify_aud": False},
+                )
+                if payload.get("sub"):
+                    return payload["sub"]
+            except JWTError:
+                pass
         return None
-
     except Exception as e:
         logger.debug(f"Could not extract user ID: {e}")
         return None

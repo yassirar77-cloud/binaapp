@@ -9,7 +9,6 @@ the response carried Cache-Control: max-age=300.
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from starlette.requests import Request
 
 from app.middleware import subdomain as mw

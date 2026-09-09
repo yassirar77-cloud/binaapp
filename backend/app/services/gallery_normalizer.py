@@ -125,8 +125,80 @@ def dedupe_gallery_tags(html: str) -> str:
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 3) Omit gallery sections that have nothing in them
+# ---------------------------------------------------------------------------
+# A generated page keeps its "Galeri / Hasil Kerja Kami" section and nav link
+# even when no image ever landed in it — the model emitted PHOTO_SLOT tokens
+# for slots that had no URL, and those resolve to nothing. The result on a
+# customer's live site is a titled section of empty cards, which reads as
+# broken. This pass drops the section AND every nav link pointing at it.
+_GALLERY_ID_WORDS = ("galeri", "gallery", "portfolio", "portofolio", "hasil-kerja", "hasil_kerja", "showcase")
+_SECTION_RE = re.compile(r"<section\b([^>]*)>(.*?)</section\s*>", re.IGNORECASE | re.DOTALL)
+_ID_ATTR = re.compile(r"""\bid\s*=\s*(['"])(.*?)\1""", re.IGNORECASE)
+# Anything that actually paints a picture inside the section.
+_REAL_MEDIA_RE = re.compile(
+    r"""<img\b[^>]*\bsrc\s*=\s*['"]\s*(?:https?:)?//[^'"\s]+|"""
+    r"""<img\b[^>]*\bsrc\s*=\s*['"]\s*/[^/'"][^'"\s]*|"""
+    r"""<img\b[^>]*\bsrc\s*=\s*['"]\s*data:image/|"""
+    r"""<(?:video|picture|source)\b|"""
+    r"""url\(\s*['"]?\s*(?:https?:)?//""",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_gallery(open_attrs: str) -> bool:
+    low = open_attrs.lower()
+    return any(w in low for w in _GALLERY_ID_WORDS)
+
+
+def omit_empty_gallery_sections(html: str) -> str:
+    """Remove gallery/portfolio <section>s with no real media, plus their
+    in-page nav links. Nested sections are left alone (a non-greedy match
+    across a nested <section> would cut the outer one short)."""
+    removed_ids = []
+
+    def _sub(m: "re.Match") -> str:
+        attrs, body = m.group(1), m.group(2)
+        if not _looks_like_gallery(attrs):
+            return m.group(0)
+        if "<section" in body.lower():
+            return m.group(0)
+        if _REAL_MEDIA_RE.search(body):
+            return m.group(0)
+        id_m = _ID_ATTR.search(attrs)
+        if id_m:
+            removed_ids.append(id_m.group(2).strip())
+        return ""
+
+    out = _SECTION_RE.sub(_sub, html)
+    if out == html:
+        return html
+
+    for sec_id in removed_ids:
+        if not sec_id:
+            continue
+        # <a ... href="#galeri">Galeri</a>, in any nav, either quote style.
+        link_re = re.compile(
+            r"""<a\b[^>]*\bhref\s*=\s*['"]#""" + re.escape(sec_id) + r"""['"][^>]*>.*?</a\s*>""",
+            re.IGNORECASE | re.DOTALL,
+        )
+        out = link_re.sub("", out)
+    # Nav items that only wrapped a removed link.
+    out = re.sub(r"<li\b[^>]*>\s*</li\s*>", "", out, flags=re.IGNORECASE)
+    logger.info(
+        "🖼️ Omitted %d empty gallery section(s) and their nav links: %s",
+        len(removed_ids) or 1, removed_ids or ["(no id)"],
+    )
+    return out
+
+
 def normalize_gallery_html(html: str) -> str:
     """Apply all deterministic gallery fixes. Never raises."""
+    try:
+        html = omit_empty_gallery_sections(html)
+    except Exception as exc:  # never raise into the pipeline
+        logger.warning("omit_empty_gallery_sections skipped: %s", exc)
     if not html or "<img" not in html.lower():
         return html
     try:

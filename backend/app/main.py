@@ -1943,7 +1943,10 @@ async def run_generation_task(
             include_whatsapp=whatsapp_enabled,
             whatsapp_number="+60123456789" if whatsapp_enabled else None,
             include_maps=False,
-            location_address="",
+            # The address the merchant typed. Was hardcoded to "" — the prompt's
+            # "use EXACTLY, do not invent" address line only exists when this
+            # is set, so the model was reading the address out of the prose.
+            location_address=(address or "").strip(),
             include_ecommerce=False,
             contact_email=None,
             # If user chose "none", do not pass any uploaded images through.
@@ -2790,7 +2793,7 @@ MANDATORY REQUIREMENTS:
     )
     logger.info(f"   🏷️ show_prices (Senarai Harga): {show_prices}")
     logger.info(
-        f"   🖼️ hero_image_prompt: "
+        "   🖼️ hero_image_prompt: "
         + (f"MERCHANT-SUPPLIED — {hero_image_prompt!r}" if hero_image_prompt
            else "(none — will auto-build from vertical)")
     )
@@ -3557,6 +3560,37 @@ async def publish_website(
                 html_content += chat_widget_tag
             logger.info(f"✅ Chat widget injected for website {website_id}")
 
+        # ── Bug 3: a map that shows where the business is ──────────────
+        # Resolve the address (sent explicitly, or whatever the page's map is
+        # already searching for), geocode it once, and point every map iframe
+        # at the coordinates with a pin at zoom 16. Failure of any step
+        # leaves the page as generated and never blocks the publish.
+        map_geo = {"lat": None, "lng": None, "address": None}
+        try:
+            from app.services.map_embed import (
+                build_map_embed_src, extract_map_address, has_map_embed, rewrite_map_embeds,
+            )
+            _addr = (body.get("address") or body.get("location_address") or "").strip() \
+                or (extract_map_address(html_content) or "")
+            if _addr and has_map_embed(html_content):
+                map_geo["address"] = _addr[:300]
+                try:
+                    from app.core.geocoder import geocode_address
+                    _geo = await asyncio.wait_for(geocode_address(_addr), timeout=8.0)
+                    if getattr(_geo, "found", False):
+                        map_geo["lat"], map_geo["lng"] = float(_geo.lat), float(_geo.lng)
+                except Exception as _geo_err:
+                    logger.warning(f"🗺️ Geocode failed for {_addr[:60]!r}: {_geo_err} — using address search embed")
+                _src = build_map_embed_src(lat=map_geo["lat"], lng=map_geo["lng"], address=_addr)
+                if _src:
+                    html_content = rewrite_map_embeds(html_content, _src)
+                logger.info(
+                    f"🗺️ Map: address={_addr[:60]!r} lat={map_geo['lat']} lng={map_geo['lng']} "
+                    f"mode={'pin@z16' if map_geo['lat'] is not None else 'encoded-search'}"
+                )
+        except Exception as _map_err:
+            logger.warning(f"🗺️ Map embed step skipped: {_map_err}")
+
         delivery_enabled = bool(features.get("deliverySystem")) or bool(delivery)
 
         # CRITICAL FIX: ALWAYS create database record BEFORE storage upload
@@ -3605,6 +3639,11 @@ async def publish_website(
                 _hero_prompt = str(_hero_prompt).strip()[:400]
                 if _hero_prompt:
                     upsert_payload["hero_image_prompt"] = _hero_prompt
+                if map_geo.get("lat") is not None and map_geo.get("lng") is not None:
+                    upsert_payload["lat"] = map_geo["lat"]
+                    upsert_payload["lng"] = map_geo["lng"]
+                if map_geo.get("address"):
+                    upsert_payload["location_address"] = map_geo["address"]
                 logger.info(
                     f"🏷️ [PUBLISH] business_type={_biz_type or '(not sent — leaving stored value)'} "
                     f"hero_image_prompt={'set' if _hero_prompt else '(not sent)'}"

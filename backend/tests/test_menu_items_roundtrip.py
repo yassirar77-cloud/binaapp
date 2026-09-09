@@ -28,7 +28,6 @@ ending at the actual prompt text handed to the model.
 
 from unittest.mock import patch, MagicMock, AsyncMock
 
-import pytest
 
 SALON_DESC = (
     "Nadira Hair Studio ialah salon rambut & spa kepala untuk wanita di Shah Alam. "
@@ -197,7 +196,6 @@ class TestPricesReachThePromptVerbatim:
 
     def _prompt(self, items, show_prices=True):
         from app.services.ai_service import AIService
-        from app.models.schemas import WebsiteGenerationRequest, Language
 
         service = AIService.__new__(AIService)
         return service._build_strict_prompt(

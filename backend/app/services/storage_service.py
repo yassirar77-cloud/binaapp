@@ -49,6 +49,13 @@ class StorageService:
         1. {subdomain}/index.html - for subdomain routing (sitename.binaapp.my)
         2. {user_id}/{subdomain}/index.html - for API preview (/api/preview/...)
 
+        BOTH PATHS ARE LIVE. Neither is a leftover: the subdomain middleware
+        serves (1) and /api/preview/{user_id}/{subdomain} serves (2). Removing
+        either one breaks a real surface. This has been "cleaned up" before
+        by mistake — the delete path once removed only (2) and left deleted
+        sites serving from (1). If you want one path, redesign the preview
+        route first; do not drop an upload here.
+
         Returns the subdomain URL (e.g., https://kedai-ali.binaapp.my)
         """
         try:
@@ -80,10 +87,15 @@ class StorageService:
             # Publishing (or republishing) clears any prior deletion tombstone so
             # a subdomain that was deleted and later re-published serves normally
             # (audit C7).
+            # Existence check first: the tombstone only exists for a site that
+            # was deleted and is being re-published, so on the ordinary
+            # publish this DELETE 400'd every single time and left a
+            # "Bad Request" line in the logs of every healthy publish.
             try:
-                await self.supabase.delete_file(
-                    self.bucket_name, f"{subdomain}/{TOMBSTONE_FILENAME}"
-                )
+                tombstone = f"{subdomain}/{TOMBSTONE_FILENAME}"
+                if await self.supabase.storage_object_exists(self.bucket_name, tombstone):
+                    await self.supabase.delete_file(self.bucket_name, tombstone)
+                    logger.info(f"Cleared deletion tombstone for {subdomain}")
             except Exception as ts_err:
                 logger.warning(f"Could not clear tombstone for {subdomain}: {ts_err}")
 

@@ -324,17 +324,32 @@ def build_hero_video_prompt(
     description: str = "",
     style: str = DEFAULT_VIDEO_STYLE,
     custom_prompt: str = "",
+    hero_image_prompt: str = "",
 ) -> str:
-    """Compose the CogVideoX prompt.
+    """Compose the video prompt. Always ≤ 512 characters.
 
-    A merchant-written ``custom_prompt`` replaces the business/style scene but
-    still gets the safety suffix; otherwise the business description and the
-    chosen preset become the scene. Always ≤ 512 characters.
+    ONE hero visual, two renderings. ``hero_image_prompt`` is the merchant's
+    description of the hero picture (persisted on the website row and used
+    to generate the still hero). When present it is the SCENE of the video
+    too, so the clip animates the picture the merchant asked for instead of
+    a second guess at the business. ``custom_prompt`` is the video card's
+    own field — what MOVES — and is appended as the motion. With no hero
+    prompt, a custom prompt is the whole scene (previous behaviour); with
+    neither, the business description and the style preset become the scene.
     """
     preset = VIDEO_STYLE_PRESETS.get(style) or VIDEO_STYLE_PRESETS[DEFAULT_VIDEO_STYLE]
 
     custom = _squash(custom_prompt)
-    if custom:
+    hero_scene = _squash(hero_image_prompt)
+    if hero_scene:
+        scene = hero_scene
+        motion = custom or preset["scene"]
+        scene = f"{scene}. {motion}"
+        logger.info(
+            f"🎬 Video scene seeded from the merchant's hero image prompt "
+            f"({'merchant motion' if custom else 'preset ' + style})"
+        )
+    elif custom:
         scene = custom
     else:
         subject_bits = []
@@ -355,7 +370,10 @@ def build_hero_video_prompt(
     suffix_room = ZAI_PROMPT_MAX_CHARS - len(_PROMPT_SUFFIX) - 1
     if len(scene) > suffix_room:
         scene = scene[: suffix_room - 3].rstrip() + "..."
-    return f"{scene} {_PROMPT_SUFFIX}"
+    prompt = f"{scene} {_PROMPT_SUFFIX}"
+    # Full, untruncated — same rule as the image prompt log.
+    logger.info(f"🎬 VIDEO PROMPT [style={style}]: {prompt}")
+    return prompt
 
 
 # ---------------------------------------------------------------------------
@@ -393,6 +411,15 @@ class HeroVideoJob:
     #: A job that then fails to deliver gives it back exactly once.
     charged: bool = False
     refunded: bool = False
+    #: Filled by the background finaliser once the clip is on the page:
+    #: settings / base_source / html_content / message / warning. The poll
+    #: merges it into the completed response so the dashboard gets the
+    #: patched page without the request that observed SUCCESS having to do
+    #: the download + upload + patch + publish inline.
+    result_payload: Optional[Dict] = None
+    #: The asyncio task doing that finalising, so tests (and a shutdown
+    #: hook) can await it.
+    finalize_task: Optional["asyncio.Task"] = field(default=None, repr=False)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
     def age_seconds(self) -> float:
