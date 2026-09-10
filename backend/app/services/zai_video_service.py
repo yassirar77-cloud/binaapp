@@ -87,9 +87,9 @@ PROVIDERS = (PROVIDER_DASHSCOPE, PROVIDER_ZAI)
 
 
 def hero_video_provider() -> str:
-    """Which text-to-video API makes the clip. ``dashscope`` (default) is
-    Alibaba Model Studio's async video-synthesis endpoint running
-    HappyHorse; ``zai`` is the original CogVideoX path. Everything after the
+    """Which video API makes the clip. ``dashscope`` (default) is Alibaba
+    Model Studio's async video-synthesis endpoint running the unified
+    wan3.0-video model; ``zai`` is the original CogVideoX path. Everything after the
     clip exists (download, Cloudinary, patch, publish) is provider-agnostic."""
     value = os.getenv("HERO_VIDEO_PROVIDER", PROVIDER_DASHSCOPE).strip().lower()
     return value if value in PROVIDERS else PROVIDER_DASHSCOPE
@@ -127,13 +127,31 @@ def _dashscope_base_url() -> str:
     ).rstrip("/")
 
 
+#: Alibaba's unified video model: text-, image- AND video-to-video on the one
+#: video-synthesis endpoint. Replaced HappyHorse-T2V, which could only do
+#: text-to-video and silently dropped the merchant's hero photo.
+DEFAULT_DASHSCOPE_VIDEO_MODEL = "wan3.0-video"
+
+
 def dashscope_video_model() -> str:
-    """DashScope text-to-video model. ``happyhorse-1.1-t2v`` by default."""
-    return os.getenv("DASHSCOPE_VIDEO_MODEL", "happyhorse-1.1-t2v").strip() or "happyhorse-1.1-t2v"
+    """DashScope video model. ``wan3.0-video`` by default."""
+    return (
+        os.getenv("DASHSCOPE_VIDEO_MODEL", DEFAULT_DASHSCOPE_VIDEO_MODEL).strip()
+        or DEFAULT_DASHSCOPE_VIDEO_MODEL
+    )
+
+
+def _dashscope_is_unified(model: str) -> bool:
+    """wan3.x takes the request shape documented for the unified model:
+    ``input.media`` for image-to-video, ``audio`` (on by default, we turn it
+    off), ``ratio: adaptive``. Older / ``-t2v`` models keep the legacy shape
+    byte-for-byte so an operator who pins one is not broken."""
+    return (model or "").strip().lower().startswith("wan3")
 
 
 DASHSCOPE_RESOLUTIONS = ("480P", "720P", "1080P")
-DASHSCOPE_RATIOS = ("16:9", "9:16", "1:1", "4:3", "3:4")
+#: "adaptive" follows the input material's own aspect (wan3.x only).
+DASHSCOPE_RATIOS = ("16:9", "9:16", "1:1", "4:3", "3:4", "adaptive")
 
 
 def dashscope_video_resolution() -> str:
@@ -181,6 +199,16 @@ def _provider_configured(provider: str) -> bool:
     if provider == PROVIDER_DASHSCOPE:
         return bool(_dashscope_api_key())
     return bool(_zai_api_key())
+
+
+def _provider_animates_images(provider: str) -> bool:
+    """Can this provider make image-to-video? Z.ai's CogVideoX path always
+    can. DashScope can with the unified wan3.x model (the default); a pinned
+    ``-t2v`` model such as HappyHorse is text-to-video only and drops the
+    photo on the floor."""
+    if provider == PROVIDER_DASHSCOPE:
+        return _dashscope_is_unified(dashscope_video_model())
+    return True
 
 
 #: Landscape 720p: a hero is wide, and 1080p doubles the bytes every visitor
@@ -437,6 +465,10 @@ class HeroVideoJob:
     error: Optional[str] = None
     video_url: Optional[str] = None
     poster_url: Optional[str] = None
+    #: The merchant's hero photo the job was asked to animate, if any. Kept
+    #: so the finaliser can use it as the still fallback instead of the
+    #: clip's first frame.
+    image_url: Optional[str] = None
     applied: bool = False
     live_site_updated: bool = False
     #: Which API holds this task — polling must go back to the same one even
@@ -468,6 +500,7 @@ class HeroVideoJob:
             "error": self.error,
             "video_url": self.video_url,
             "poster_url": self.poster_url,
+            "image_url": self.image_url,
             "applied": self.applied,
             "live_site_updated": self.live_site_updated,
             "elapsed_seconds": round(self.age_seconds()),
@@ -529,6 +562,7 @@ class ZaiVideoService:
         settings: Dict,
         provider: Optional[str] = None,
         charged: bool = False,
+        image_url: Optional[str] = None,
     ) -> HeroVideoJob:
         job = HeroVideoJob(
             job_id=uuid.uuid4().hex,
@@ -539,6 +573,7 @@ class ZaiVideoService:
             settings=settings,
             provider=provider or hero_video_provider(),
             charged=charged,
+            image_url=image_url,
         )
         self._jobs[job.job_id] = job
         return job
@@ -677,12 +712,31 @@ class ZaiVideoService:
         """Submit to the primary provider; if it cannot accept the job, try
         the fallback. Returns ``(task_id, provider)`` so the job remembers
         where to poll. Raises ZaiVideoError (the primary's) when nothing
-        accepted the job."""
+        accepted the job.
+
+        An image job goes to a provider that can animate the image. The
+        default primary (DashScope) is text-to-video only and silently drops
+        ``image_url`` — which is how a merchant who uploaded their storefront
+        got a clip of strangers in a different restaurant. When a photo is
+        supplied and Z.ai is configured, Z.ai is tried FIRST and the usual
+        primary becomes the fallback, so an image job is never worse than a
+        text job; with no Z.ai key the order is exactly as before.
+        """
         primary = hero_video_provider()
+        fallback = hero_video_fallback_provider()
+        if (
+            image_url
+            and not _provider_animates_images(primary)
+            and _provider_configured(PROVIDER_ZAI)
+        ):
+            logger.info(
+                f"🎬 Hero photo supplied — routing to {PROVIDER_ZAI} (image-to-video); "
+                f"{primary} is the fallback"
+            )
+            primary, fallback = PROVIDER_ZAI, primary
         try:
             return await self.submit(prompt, duration=duration, image_url=image_url, provider=primary), primary
         except ZaiVideoError as primary_exc:
-            fallback = hero_video_fallback_provider()
             if not fallback or not _provider_configured(fallback):
                 raise
             logger.warning(
@@ -716,21 +770,44 @@ class ZaiVideoService:
     ) -> str:
         if not _dashscope_api_key():
             raise ZaiVideoError("DASHSCOPE_API_KEY is not configured")
-        if image_url:
-            # HappyHorse-T2V is text-to-video only; the merchant's photo stays
-            # on the page as the poster fallback, it is not animated.
-            logger.info("🎬 DashScope: image_url ignored (text-to-video model)")
+        model = dashscope_video_model()
+        unified = _dashscope_is_unified(model)
+        if image_url and not unified:
+            # A pinned text-to-video-only model. We only land here with a
+            # photo when Z.ai is not configured either (submit_with_fallback
+            # routes image jobs there first), so say loudly that the clip
+            # will not be based on it. The photo still serves as the poster.
+            logger.warning(
+                f"🎬 DashScope model {model} cannot animate a photo (text-to-video "
+                "only) — the clip will NOT be based on the merchant's hero image"
+            )
 
-        payload: Dict = {
-            "model": dashscope_video_model(),
-            "input": {"prompt": prompt[:ZAI_PROMPT_MAX_CHARS]},
-            "parameters": {
-                "resolution": dashscope_video_resolution(),
-                "ratio": dashscope_video_ratio(),
-                "duration": duration if duration in ALLOWED_DURATIONS else zai_video_duration(),
-                "watermark": dashscope_video_watermark(),
-            },
+        input_block: Dict = {"prompt": prompt[:ZAI_PROMPT_MAX_CHARS]}
+        parameters: Dict = {
+            "resolution": dashscope_video_resolution(),
+            "ratio": dashscope_video_ratio(),
+            "duration": duration if duration in ALLOWED_DURATIONS else zai_video_duration(),
         }
+        if unified:
+            if image_url:
+                # Image-to-video: the merchant's photo is the clip's first
+                # frame, and "adaptive" makes the clip follow the photo's own
+                # aspect — the pairing the wan3.0 reference documents.
+                input_block["media"] = [{"type": "first_frame", "url": image_url}]
+                parameters["ratio"] = "adaptive"
+            # wan3.x generates a soundtrack by default. The clip plays muted
+            # behind the hero, so audio only makes every visitor's download
+            # heavier (same call the Z.ai path makes with with_audio=False).
+            parameters["audio"] = False
+            # "watermark" is not in wan3.0's documented parameter list. Send
+            # it only when an operator explicitly opts in, rather than risk
+            # a rejected request on every job for a default of False.
+            if dashscope_video_watermark():
+                parameters["watermark"] = True
+        else:
+            parameters["watermark"] = dashscope_video_watermark()
+
+        payload: Dict = {"model": model, "input": input_block, "parameters": parameters}
         logger.info(
             f"🎬 DashScope video submit ({payload['model']}, "
             f"{payload['parameters']['resolution']} {payload['parameters']['ratio']}, "

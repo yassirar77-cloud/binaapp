@@ -49,3 +49,33 @@ describe('/create post-publish hero video target', () => {
     expect(publishHandler).not.toMatch(/heroVideoWebsiteId\.current\s*=\s*websiteId\b/)
   })
 })
+
+describe('/create hero video uses the merchant\'s own photo', () => {
+  // Regression: a merchant uploaded their storefront as the hero and asked
+  // for a video. The page never sent the photo, the description field that
+  // seeds the video scene was hidden the moment a photo was uploaded, and
+  // the copy promised the scene came from that hidden field. Result: a clip
+  // of a different restaurant laid over the photo of the merchant's own.
+
+  it('sends the uploaded hero photo as image_url when starting the job', () => {
+    const start = createSource.indexOf('const launchHeroVideo = async')
+    const end = createSource.indexOf('runHeroVideoJob(', start)
+    const bodyEnd = createSource.indexOf('token,', end)
+    expect(start).toBeGreaterThan(-1)
+    const jobBody = createSource.slice(end, bodyEnd)
+    expect(jobBody).toMatch(/image_url:\s*uploadedImages\.hero\s*\|\|\s*undefined/)
+  })
+
+  it('keeps the hero description field available when a photo is uploaded', () => {
+    // The card must not be gated behind !uploadedImages.hero any more.
+    expect(createSource).not.toMatch(/\{!uploadedImages\.hero && \(\s*<div[^>]*data-testid="hero-image-prompt-card"/)
+    expect(createSource).toMatch(/data-testid="hero-image-prompt-card"/)
+    // And it tells the merchant why it is still there.
+    expect(createSource).toContain('Terangkan gambar hero anda')
+  })
+
+  it('no longer promises a scene from a field that may be hidden', () => {
+    expect(createSource).not.toContain('adegan video diambil daripada &ldquo;Gambar hero yang anda mahu&rdquo;')
+    expect(createSource).toContain('adegan video diambil daripada gambar hero anda dan penerangannya di atas')
+  })
+})

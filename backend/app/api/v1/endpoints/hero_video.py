@@ -563,6 +563,7 @@ async def generate_hero_video(
         settings=HeroVideoLook(**body.model_dump(include=set(HeroVideoLook.model_fields))).model_dump(),
         charged=charged,
         provider=provider,
+        image_url=image_url,
     )
     logger.info(
         f"🎬 Hero video job {job.job_id} started for {website_id} "
@@ -677,13 +678,19 @@ async def _finalize_hero_video_job(job, website: dict, user_id: str, provider_vi
             return
 
         job.video_url = stored["video_url"]
-        job.poster_url = stored["poster_url"]
+        # The still shown while the clip loads, on data-saver phones, and
+        # under prefers-reduced-motion. When the job had a hero photo, that
+        # photo is the still: with image-to-video the clip opens on it
+        # anyway, and with text-to-video the generic first frame is exactly
+        # the "not my shop" picture we must not leave in the merchant's hero.
+        job.poster_url = job.image_url or stored["poster_url"]
 
         look = HeroVideoLook(**job.settings)
         if look.overlay_opacity is None and look.overlay != "none":
             # Bug 5: a fixed 0.45 was fine over dark footage and unreadable
-            # over bright footage. Measure the first frame instead.
-            look.overlay_opacity = await auto_overlay_opacity(job.poster_url)
+            # over bright footage. Measure the first frame instead — the
+            # clip's own frame, since the scrim sits over the playing video.
+            look.overlay_opacity = await auto_overlay_opacity(stored["poster_url"])
             job.settings = look.model_dump()
         settings = _settings_from_look(look, job.video_url, job.poster_url)
 

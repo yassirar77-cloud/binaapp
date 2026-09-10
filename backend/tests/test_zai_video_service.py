@@ -333,7 +333,7 @@ class TestProviderSwitch:
     def test_dashscope_is_the_default(self, monkeypatch):
         monkeypatch.delenv("HERO_VIDEO_PROVIDER", raising=False)
         assert hero_video_provider() == PROVIDER_DASHSCOPE
-        assert hero_video_model() == "happyhorse-1.1-t2v"
+        assert hero_video_model() == "wan3.0-video"
 
     def test_zai_can_be_selected(self, monkeypatch):
         monkeypatch.setenv("HERO_VIDEO_PROVIDER", "zai")
@@ -362,10 +362,13 @@ class TestDashScopeSubmit:
         assert url == "https://dashscope-intl.aliyuncs.com/api/v1/services/aigc/video-generation/video-synthesis"
         assert headers["Authorization"] == "Bearer ds-test-key"
         assert headers["X-DashScope-Async"] == "enable"
-        assert body["model"] == "happyhorse-1.1-t2v"
+        assert body["model"] == "wan3.0-video"
         assert body["input"] == {"prompt": "A slow pan across a bright salon"}
+        # audio is ON by default for wan3.x and the clip plays muted; the
+        # watermark key is absent because it is not in wan3.0's parameter
+        # list and the default is off anyway.
         assert body["parameters"] == {
-            "resolution": "720P", "ratio": "16:9", "duration": 5, "watermark": False,
+            "resolution": "720P", "ratio": "16:9", "duration": 5, "audio": False,
         }
         assert "with_audio" not in body and "size" not in body
 
@@ -399,11 +402,33 @@ class TestDashScopeSubmit:
             await ZaiVideoService().submit("p")
         assert calls["post"][0]["json"]["parameters"]["watermark"] is True
 
-    async def test_image_url_is_ignored_for_text_to_video(self, dashscope_env):
+    async def test_photo_becomes_the_first_frame(self, dashscope_env):
+        """wan3.0-video image-to-video: the merchant's photo is input.media
+        first_frame and the clip follows the photo's aspect."""
         client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
         with patch.object(httpx, "AsyncClient", client):
             await ZaiVideoService().submit("p", image_url="https://x/hero.jpg")
-        assert "image_url" not in calls["post"][0]["json"]["input"]
+        body = calls["post"][0]["json"]
+        assert body["input"] == {
+            "prompt": "p",
+            "media": [{"type": "first_frame", "url": "https://x/hero.jpg"}],
+        }
+        assert body["parameters"]["ratio"] == "adaptive"
+        assert body["parameters"]["audio"] is False
+
+    async def test_pinned_t2v_model_keeps_the_legacy_shape_and_ignores_the_photo(
+        self, dashscope_env, monkeypatch
+    ):
+        """An operator who pins HappyHorse gets the old request byte-for-byte."""
+        monkeypatch.setenv("DASHSCOPE_VIDEO_MODEL", "happyhorse-1.1-t2v")
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            await ZaiVideoService().submit("p", image_url="https://x/hero.jpg")
+        body = calls["post"][0]["json"]
+        assert body["input"] == {"prompt": "p"}
+        assert body["parameters"] == {
+            "resolution": "720P", "ratio": "16:9", "duration": 5, "watermark": False,
+        }
 
     async def test_no_key_raises_before_any_call(self, dashscope_env, monkeypatch):
         monkeypatch.delenv("DASHSCOPE_API_KEY")
@@ -632,3 +657,78 @@ class TestKeyHygiene:
         key, source = svc._dashscope_key_source()
         assert source == "DASHSCOPE_API_KEY" and key == "ds-test-key"
 
+
+
+# ── image jobs route to a provider that can animate the image ────────────────
+# Regression: website kilafa uploaded its storefront as the hero and asked for
+# a video. The default primary (DashScope, text-to-video) dropped image_url,
+# so the clip showed strangers in a different restaurant, laid over the
+# merchant's own photo.
+
+class TestImageJobRouting:
+    """With wan3.0-video (the default) DashScope animates the photo itself,
+    so an image job stays on the primary — one request, first_frame set.
+    The Z.ai detour exists only for an operator who pins a text-to-video-
+    only DashScope model such as HappyHorse."""
+
+    IMG = "https://res.cloudinary.com/x/shop.jpg"
+
+    async def test_photo_stays_on_dashscope_as_first_frame(self, dashscope_env, monkeypatch):
+        monkeypatch.setenv("ZAI_API_KEY", "zai-key")  # configured, and not needed
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            result = await ZaiVideoService().submit_with_fallback("p", image_url=self.IMG)
+        assert result == ("ds-task-1", "dashscope")
+        assert len(calls["post"]) == 1
+        assert "video-synthesis" in calls["post"][0]["url"]
+        body = calls["post"][0]["json"]
+        assert body["model"] == "wan3.0-video"
+        assert body["input"]["media"] == [{"type": "first_frame", "url": self.IMG}]
+        assert body["parameters"]["ratio"] == "adaptive"
+        assert body["parameters"]["audio"] is False
+
+    async def test_t2v_only_model_sends_the_photo_to_zai_first(self, dashscope_env, monkeypatch):
+        monkeypatch.setenv("DASHSCOPE_VIDEO_MODEL", "happyhorse-1.1-t2v")
+        monkeypatch.setenv("ZAI_API_KEY", "zai-key")
+        client, calls = fake_client(post_response=FakeResponse(200, ZAI_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            result = await ZaiVideoService().submit_with_fallback("p", image_url=self.IMG)
+        assert result == ("zai-task-9", "zai")
+        assert len(calls["post"]) == 1
+        assert "/videos/generations" in calls["post"][0]["url"]
+        assert calls["post"][0]["json"]["image_url"] == self.IMG
+
+    async def test_t2v_only_model_without_zai_key_keeps_dashscope(self, dashscope_env, monkeypatch):
+        """No Z.ai key → the pinned model, text-to-video, exactly as before."""
+        monkeypatch.setenv("DASHSCOPE_VIDEO_MODEL", "happyhorse-1.1-t2v")
+        monkeypatch.delenv("ZAI_API_KEY", raising=False)
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            result = await ZaiVideoService().submit_with_fallback("p", image_url=self.IMG)
+        assert result == ("ds-task-1", "dashscope")
+        assert len(calls["post"]) == 1
+        assert "media" not in calls["post"][0]["json"]["input"]
+
+    async def test_zai_rejection_falls_back_to_dashscope_for_a_photo(self, dashscope_env, monkeypatch):
+        """An image job is never worse than a text job."""
+        monkeypatch.setenv("DASHSCOPE_VIDEO_MODEL", "happyhorse-1.1-t2v")
+        monkeypatch.setenv("ZAI_API_KEY", "zai-key")
+        client, calls = two_step_client(
+            FakeResponse(401, {"error": {"code": "1000", "message": "invalid key"}}),
+            FakeResponse(200, DS_SUBMIT_OK),
+        )
+        with patch.object(httpx, "AsyncClient", client):
+            result = await ZaiVideoService().submit_with_fallback("p", image_url=self.IMG)
+        assert result == ("ds-task-1", "dashscope")
+        assert "/videos/generations" in calls["post"][0]["url"]
+        assert "video-synthesis" in calls["post"][1]["url"]
+
+    async def test_text_job_order_is_unchanged(self, dashscope_env, monkeypatch):
+        """Without a photo the routing is untouched even with Z.ai configured."""
+        monkeypatch.setenv("ZAI_API_KEY", "zai-key")
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            assert await ZaiVideoService().submit_with_fallback("p") == ("ds-task-1", "dashscope")
+        body = calls["post"][0]["json"]
+        assert "video-synthesis" in calls["post"][0]["url"]
+        assert "media" not in body["input"] and body["parameters"]["audio"] is False

@@ -175,8 +175,8 @@ class TestFlag:
 class TestOptions:
     def test_catalogue_is_public(self, client):
         body = client.get("/api/v1/websites/hero-video/options").json()
-        # DashScope HappyHorse is the default provider.
-        assert body["success"] and body["model"] == "happyhorse-1.1-t2v"
+        # DashScope running the unified wan3.0-video model is the default.
+        assert body["success"] and body["model"] == "wan3.0-video"
         assert body["provider"] == "dashscope"
         assert {s["key"] for s in body["styles"]} >= {"cinematic", "ambient", "elegant"}
         assert all(s["label_ms"] for s in body["styles"])
@@ -636,3 +636,34 @@ class TestPaidCredits:
         body = client.get("/api/v1/websites/hero-video/access", headers=auth_headers).json()
         assert body["allowed"] is False and body["credits"] == 0 and body["price_rm"] == 5.0
 
+
+
+class TestPhotoIsTheStill:
+    """When the job was asked to animate the merchant's hero photo, that
+    photo — not the clip's generic first frame — is the poster: the still
+    shown while the clip loads, on data-saver phones and under
+    prefers-reduced-motion. The scrim is still measured from the clip's own
+    frame, because that is what it sits over while playing."""
+
+    def test_poster_is_the_merchant_photo_and_scrim_reads_the_clip(self, client, auth_headers, patches):
+        job_id = _start_job(client, auth_headers, {"image_url": "https://res.cloudinary.com/x/shop.jpg"})
+        patches["fetch_result"].return_value = {
+            "status": "success", "video_url": "https://cdn.z.ai/v.mp4", "cover_image_url": None,
+        }
+        body = _poll_done(client, auth_headers, job_id).json()
+        assert body["status"] == "completed"
+        assert body["poster_url"] == "https://res.cloudinary.com/x/shop.jpg"
+        assert body["image_url"] == "https://res.cloudinary.com/x/shop.jpg"
+        # Overlay opacity was unset → measured, and from the CLIP's frame.
+        patches["auto_opacity"].assert_awaited_once_with(CLOUD_POSTER)
+        html = _published_html(patches)
+        assert 'poster="https://res.cloudinary.com/x/shop.jpg"' in html
+        assert CLOUD_POSTER not in html
+
+    def test_text_job_keeps_the_clip_frame_as_poster(self, client, auth_headers, patches):
+        job_id = _start_job(client, auth_headers)
+        patches["fetch_result"].return_value = {
+            "status": "success", "video_url": "https://cdn.z.ai/v.mp4", "cover_image_url": None,
+        }
+        body = _poll_done(client, auth_headers, job_id).json()
+        assert body["poster_url"] == CLOUD_POSTER and body["image_url"] is None
