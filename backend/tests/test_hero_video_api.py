@@ -233,7 +233,10 @@ class TestGenerate:
 
     def test_custom_prompt_is_forwarded(self, client, auth_headers, patches):
         _start_job(client, auth_headers, {"prompt": "asap naik dari wok"})
-        assert patches["submit"].call_args.args[0].startswith("asap naik dari wok ")
+        # Leads the prompt, closed with a full stop so the ambience and the
+        # boilerplate that follow read as their own sentences (this used to
+        # join with a bare space and run straight into "Background video...").
+        assert patches["submit"].call_args.args[0].startswith("asap naik dari wok. ")
 
     def test_plan_gate_blocks_before_spending(self, client, auth_headers, patches):
         patches["plan_gate"].return_value = _access(free=False, credits=0)

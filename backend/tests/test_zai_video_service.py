@@ -102,9 +102,14 @@ class TestPrompt:
         prompt = build_hero_video_prompt(
             business_name="Kedai Ali", custom_prompt="  steam rising   from a wok  ", style="elegant"
         )
-        assert prompt.startswith("steam rising from a wok ")
+        # Squashed, leading, and closed with a full stop — the business-derived
+        # scene is still replaced, but the merchant's text no longer runs on
+        # into the ambience and safety boilerplate that follow it.
+        assert prompt.startswith("steam rising from a wok. ")
         assert "Kedai Ali" not in prompt
         assert "no logos" in prompt
+        # The style they picked reaches the model instead of being dropped.
+        assert "luxurious minimal composition" in prompt
 
     def test_never_exceeds_the_api_cap(self):
         prompt = build_hero_video_prompt(custom_prompt="x" * 2000)
