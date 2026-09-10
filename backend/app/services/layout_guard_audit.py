@@ -60,10 +60,18 @@ def _needs_aos_rescue(html: str) -> bool:
 
 
 def _needs_section_height_cap(html: str) -> bool:
-    """(b1) min-h-screen / h-screen on a NON-hero section."""
+    """(b1) min-h-screen / h-screen on a NON-hero section.
+
+    Mirrors the rule's three hero exemptions: a hero id, the first section
+    on the page (the generator's heroes usually carry no id), and the
+    hero-video marker."""
+    first = True
     for match in re.finditer(r"<section\b([^>]*)>", _body(html), re.I):
         attrs = match.group(1)
+        is_first, first = first, False
         if not re.search(r"\b(?:min-h-screen|h-screen)\b", attrs):
+            continue
+        if is_first or "data-binaapp-hero-video" in attrs:
             continue
         ident = re.search(r'id=["\']([^"\']+)["\']', attrs)
         if not ident or ident.group(1).lower() not in (
