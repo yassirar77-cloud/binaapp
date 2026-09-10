@@ -184,10 +184,15 @@ class TestExport:
 
 class TestAggregationEndpoints:
     def test_revenue_daily_excludes_cancelled(self, client, auth_headers):
+        # All three orders share ONE timestamp, and the assertion reads the
+        # row for THAT day. "1, 2 and 3 hours ago" landed on yesterday's
+        # row whenever CI ran in the first three hours of a Malaysian day
+        # (00:42 MYT: "assert 0.0 == 80.0"), while [-1] is always today.
+        stamp = datetime.now(MYT) - timedelta(hours=1)
         orders = [
-            {"total_amount": 50.0, "status": "delivered", "created_at": _iso_hours_ago(1)},
-            {"total_amount": 30.0, "status": "pending", "created_at": _iso_hours_ago(2)},
-            {"total_amount": 99.0, "status": "cancelled", "created_at": _iso_hours_ago(3)},
+            {"total_amount": 50.0, "status": "delivered", "created_at": stamp.isoformat()},
+            {"total_amount": 30.0, "status": "pending", "created_at": stamp.isoformat()},
+            {"total_amount": 99.0, "status": "cancelled", "created_at": stamp.isoformat()},
         ]
         with patch(
             f"{ANALYTICS_MODULE}._db_query",
@@ -198,9 +203,11 @@ class TestAggregationEndpoints:
                 headers=auth_headers,
             )
         assert resp.status_code == 200
-        today_row = resp.json()["series"][-1]
-        assert today_row["revenue"] == 80.0
-        assert today_row["orders"] == 2
+        day = stamp.date().isoformat()
+        rows = {row["date"]: row for row in resp.json()["series"]}
+        assert day in rows, f"{day} missing from {sorted(rows)}"
+        assert rows[day]["revenue"] == 80.0
+        assert rows[day]["orders"] == 2
 
     def test_visitors_reads_rollups_only(self, client, auth_headers):
         extra = {
