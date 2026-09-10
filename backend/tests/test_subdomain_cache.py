@@ -104,3 +104,119 @@ class TestPublishInvalidates:
         ):
             url = await ss.storage_service.upload_website("user-1", "kedai", "<html>new</html>")
         assert url.startswith("https://kedai.")
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int, text: str = ""):
+        self.status_code = status_code
+        self.text = text
+
+
+class _FakeClient:
+    """Stands in for httpx.AsyncClient and records every URL requested."""
+
+    urls: list = []
+    responses: dict = {}
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get(self, url, **kwargs):
+        _FakeClient.urls.append(url)
+        for prefix, resp in _FakeClient.responses.items():
+            if url.startswith(prefix):
+                return resp
+        return _FakeResponse(404)
+
+
+class TestStorageCdnVersioning:
+    """The storage object is served with `cache-control: public, max-age=3600`
+    and the Smart CDN takes up to a minute to notice an upsert. Dropping the
+    in-process copy alone was not enough: the next visitor's fetch still came
+    back from the CDN with the pre-publish page (mibo: video injected and
+    uploaded at 12:43:14, the 12:44:00 visit served the page without it)."""
+
+    def setup_method(self):
+        mw._storage_versions.clear()
+        mw._storage_html_cache.clear()
+        _FakeClient.urls = []
+        _FakeClient.responses = {}
+
+    def test_never_published_in_this_process_uses_the_plain_cdn_url(self):
+        with patch.object(mw.settings, "SUPABASE_URL", "https://sb.test"):
+            url = mw.storage_object_url("kedai", "kedai/index.html")
+        assert url == "https://sb.test/storage/v1/object/public/websites/kedai/index.html"
+
+    def test_a_republish_gives_the_object_a_new_cdn_key(self):
+        with patch.object(mw.settings, "SUPABASE_URL", "https://sb.test"):
+            mw.invalidate_site_cache("kedai")
+            first = mw.storage_object_url("kedai", "kedai/index.html")
+            mw.invalidate_site_cache("kedai")
+            second = mw.storage_object_url("kedai", "kedai/index.html")
+            other = mw.storage_object_url("other", "other/index.html")
+        assert first.startswith("https://sb.test/storage/v1/object/public/websites/kedai/index.html?v=")
+        assert second != first
+        assert "?" not in other, "only the republished site is versioned"
+
+    async def test_fetch_after_a_publish_bypasses_the_cdn_copy(self):
+        _FakeClient.responses = {"https://sb.test/storage/v1/object/public/websites/kedai/index.html?v=": _FakeResponse(200, "<html>new</html>")}
+        with (
+            patch.object(mw.settings, "SUPABASE_URL", "https://sb.test"),
+            patch.object(mw.httpx, "AsyncClient", _FakeClient),
+        ):
+            mw.invalidate_site_cache("kedai")
+            html = await mw._fetch_html_from_storage("kedai")
+        assert html == "<html>new</html>"
+        assert len(_FakeClient.urls) == 1
+        assert "?v=" in _FakeClient.urls[0]
+        # and the fresh copy is what the in-process cache now holds
+        assert mw._cache_get(mw._storage_html_cache, "kedai") == "<html>new</html>"
+
+    async def test_legacy_path_is_versioned_too(self):
+        _FakeClient.responses = {"https://sb.test/storage/v1/object/public/websites/demo-user/kedai/index.html?v=": _FakeResponse(200, "<html>legacy</html>")}
+        with (
+            patch.object(mw.settings, "SUPABASE_URL", "https://sb.test"),
+            patch.object(mw.httpx, "AsyncClient", _FakeClient),
+        ):
+            mw.invalidate_site_cache("kedai")
+            html = await mw._fetch_html_from_storage("kedai")
+        assert html == "<html>legacy</html>"
+        assert all("?v=" in u for u in _FakeClient.urls)
+
+    def test_version_table_is_bounded(self):
+        for i in range(mw._SUBDOMAIN_CACHE_MAX_ENTRIES + 5):
+            mw.invalidate_site_cache(f"site-{i}")
+        assert len(mw._storage_versions) == mw._SUBDOMAIN_CACHE_MAX_ENTRIES
+        assert "site-0" not in mw._storage_versions
+        assert f"site-{mw._SUBDOMAIN_CACHE_MAX_ENTRIES + 4}" in mw._storage_versions
+
+
+class TestSnapshotReadsAreNeverCdnStale:
+    """Edit paths (hero video, theme, contact) read the live snapshot with a
+    constant `?cb=hero-video` style key — which the CDN then cached for an
+    hour, so the second edit within the hour rewrote a stale page."""
+
+    def setup_method(self):
+        _FakeClient.urls = []
+        _FakeClient.responses = {}
+
+    async def test_each_read_uses_a_fresh_cache_key(self):
+        from app.services import serving_snapshot as snap
+
+        _FakeClient.responses = {"https://sb.test/storage/v1/object/public/websites/kedai/index.html?cb=hero-video-": _FakeResponse(200, "<html>live</html>")}
+        with (
+            patch.object(snap.settings, "SUPABASE_URL", "https://sb.test"),
+            patch.object(snap.httpx, "AsyncClient", _FakeClient),
+        ):
+            a = await snap.fetch_published_snapshot("kedai", cache_bust="hero-video")
+            b = await snap.fetch_published_snapshot("kedai", cache_bust="hero-video")
+        assert a == b == "<html>live</html>"
+        assert len(_FakeClient.urls) == 2
+        assert _FakeClient.urls[0] != _FakeClient.urls[1]
+        assert all("?cb=hero-video-" in u for u in _FakeClient.urls)
