@@ -1335,7 +1335,14 @@ export default function CreatePage() {
     try {
       const done = await runHeroVideoJob(
         websiteId,
-        { style: heroVideoStyle, prompt: heroVideoPrompt.trim() || undefined },
+        {
+          style: heroVideoStyle,
+          prompt: heroVideoPrompt.trim() || undefined,
+          // The merchant's own hero photo. Without it the clip was pure
+          // text-to-video — a shop they've never been to, laid over the
+          // photo of the one they own.
+          image_url: uploadedImages.hero || undefined,
+        },
         token,
         {
           onUpdate: setHeroVideoJob,
@@ -1957,31 +1964,41 @@ export default function CreatePage() {
               </div>
 
               {/* Hero IMAGE prompt — the merchant's own description of the
-                  still hero visual. Only meaningful while no hero image has
-                  been uploaded: an upload IS the hero, so there is nothing to
-                  generate. Deliberately separate from the hero VIDEO prompt
-                  below, which describes MOTION applied to this image after
-                  publish and cannot change what the image depicts. */}
-              {!uploadedImages.hero && (
-                <div className="cr-card cr-card-hairline" style={{ padding: 16, marginTop: 14 }} data-testid="hero-image-prompt-card">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: '#F5F5FA' }}>Gambar hero yang anda mahu</span>
-                    <span style={{ fontSize: 11, color: '#5A5A6E' }}>(pilihan)</span>
-                  </div>
-                  <input
-                    type="text"
-                    className="cr-input"
-                    value={heroImagePrompt}
-                    onChange={(e) => setHeroImagePrompt(e.target.value.slice(0, 400))}
-                    placeholder="cth. interior salon rambut mewah gelap, cahaya emas suam, kerusi styling kosong, sinematik"
-                    aria-label="Gambar hero yang anda mahu (pilihan)"
-                    maxLength={400}
-                  />
-                  <div style={{ fontSize: 11, color: '#5A5A6E', marginTop: 6, lineHeight: 1.5 }}>
-                    Biar kosong dan AI akan bina prompt dari jenis perniagaan anda. Kalau diisi, inilah yang dijana &mdash; bukan tekaan sistem.
-                  </div>
+                  hero visual. Without an upload it drives the AI-generated
+                  hero. WITH an upload nothing is generated (the upload IS
+                  the hero — the backend only fills a missing slot), but the
+                  description is still what seeds the hero VIDEO's scene, so
+                  the clip depicts the merchant's actual place rather than a
+                  generic one. This card used to be hidden the moment a photo
+                  was uploaded, which is exactly the case where the video had
+                  nothing to go on. Deliberately separate from the hero VIDEO
+                  prompt below, which describes MOTION only. */}
+              <div className="cr-card cr-card-hairline" style={{ padding: 16, marginTop: 14 }} data-testid="hero-image-prompt-card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: '#F5F5FA' }}>
+                    {uploadedImages.hero ? 'Terangkan gambar hero anda' : 'Gambar hero yang anda mahu'}
+                  </span>
+                  <span style={{ fontSize: 11, color: '#5A5A6E' }}>(pilihan)</span>
                 </div>
-              )}
+                <input
+                  type="text"
+                  className="cr-input"
+                  value={heroImagePrompt}
+                  onChange={(e) => setHeroImagePrompt(e.target.value.slice(0, 400))}
+                  placeholder={
+                    uploadedImages.hero
+                      ? 'cth. bahagian depan restoran nasi kandar waktu malam, papan tanda neon kuning, meja luar'
+                      : 'cth. interior salon rambut mewah gelap, cahaya emas suam, kerusi styling kosong, sinematik'
+                  }
+                  aria-label={uploadedImages.hero ? 'Terangkan gambar hero anda (pilihan)' : 'Gambar hero yang anda mahu (pilihan)'}
+                  maxLength={400}
+                />
+                <div style={{ fontSize: 11, color: '#5A5A6E', marginTop: 6, lineHeight: 1.5 }}>
+                  {uploadedImages.hero
+                    ? 'Gambar anda kekal sebagai hero. Penerangan ini digunakan untuk video latar supaya adegan video sepadan dengan gambar anda.'
+                    : 'Biar kosong dan AI akan bina prompt dari jenis perniagaan anda. Kalau diisi, inilah yang dijana — bukan tekaan sistem.'}
+                </div>
+              </div>
 
               {/* Hero VIDEO background — hidden while HERO_VIDEO_ENABLED is off server-side */}
               {heroVideoOptions && (
@@ -2047,7 +2064,7 @@ export default function CreatePage() {
                         maxLength={200}
                       />
                       <div style={{ fontSize: 11, color: '#5A5A6E' }}>
-                        Ini menerangkan <strong style={{ color: '#BAB0FF', fontWeight: 600 }}>pergerakan</strong> sahaja &mdash; adegan video diambil daripada &ldquo;Gambar hero yang anda mahu&rdquo; di atas, jadi video dan gambar sepadan. Tanpa teks atau logo dalam klip. Boleh ubah atau buang bila-bila masa di Editor.
+                        Ini menerangkan <strong style={{ color: '#BAB0FF', fontWeight: 600 }}>pergerakan</strong> sahaja &mdash; adegan video diambil daripada gambar hero anda dan penerangannya di atas, jadi video dan gambar sepadan. Tanpa teks atau logo dalam klip. Boleh ubah atau buang bila-bila masa di Editor.
                       </div>
                     </div>
                   )}

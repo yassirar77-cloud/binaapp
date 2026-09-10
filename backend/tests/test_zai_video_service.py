@@ -632,3 +632,65 @@ class TestKeyHygiene:
         key, source = svc._dashscope_key_source()
         assert source == "DASHSCOPE_API_KEY" and key == "ds-test-key"
 
+
+
+# ── image jobs route to a provider that can animate the image ────────────────
+# Regression: website kilafa uploaded its storefront as the hero and asked for
+# a video. The default primary (DashScope, text-to-video) dropped image_url,
+# so the clip showed strangers in a different restaurant, laid over the
+# merchant's own photo.
+
+class TestImageJobRouting:
+
+    @pytest.mark.asyncio
+    async def test_photo_goes_to_zai_first_when_configured(self, dashscope_env, monkeypatch):
+        monkeypatch.setenv("ZAI_API_KEY", "zai-key")
+        client, calls = fake_client(post_response=FakeResponse(200, ZAI_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            result = await ZaiVideoService().submit_with_fallback(
+                "p", image_url="https://res.cloudinary.com/x/shop.jpg"
+            )
+        assert result == ("zai-task-9", "zai")
+        assert len(calls["post"]) == 1
+        url, body = calls["post"][0]["url"], calls["post"][0]["json"]
+        assert "/videos/generations" in url
+        assert body["image_url"] == "https://res.cloudinary.com/x/shop.jpg"
+
+    @pytest.mark.asyncio
+    async def test_photo_without_zai_key_keeps_dashscope(self, dashscope_env, monkeypatch):
+        """No Z.ai key → exactly today's behaviour: DashScope, text-to-video."""
+        monkeypatch.delenv("ZAI_API_KEY", raising=False)
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            result = await ZaiVideoService().submit_with_fallback(
+                "p", image_url="https://res.cloudinary.com/x/shop.jpg"
+            )
+        assert result == ("ds-task-1", "dashscope")
+        assert len(calls["post"]) == 1
+        assert "video-synthesis" in calls["post"][0]["url"]
+
+    @pytest.mark.asyncio
+    async def test_zai_rejection_falls_back_to_dashscope_for_a_photo(self, dashscope_env, monkeypatch):
+        """An image job is never worse than a text job: if Z.ai cannot take
+        it, the usual primary still makes a (text-to-video) clip."""
+        monkeypatch.setenv("ZAI_API_KEY", "zai-key")
+        client, calls = two_step_client(
+            FakeResponse(401, {"error": {"code": "1000", "message": "invalid key"}}),
+            FakeResponse(200, DS_SUBMIT_OK),
+        )
+        with patch.object(httpx, "AsyncClient", client):
+            result = await ZaiVideoService().submit_with_fallback(
+                "p", image_url="https://res.cloudinary.com/x/shop.jpg"
+            )
+        assert result == ("ds-task-1", "dashscope")
+        assert "/videos/generations" in calls["post"][0]["url"]
+        assert "video-synthesis" in calls["post"][1]["url"]
+
+    @pytest.mark.asyncio
+    async def test_text_job_order_is_unchanged(self, dashscope_env, monkeypatch):
+        """Without a photo the routing is untouched even with Z.ai configured."""
+        monkeypatch.setenv("ZAI_API_KEY", "zai-key")
+        client, calls = fake_client(post_response=FakeResponse(200, DS_SUBMIT_OK))
+        with patch.object(httpx, "AsyncClient", client):
+            assert await ZaiVideoService().submit_with_fallback("p") == ("ds-task-1", "dashscope")
+        assert "video-synthesis" in calls["post"][0]["url"]

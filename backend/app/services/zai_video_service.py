@@ -183,6 +183,13 @@ def _provider_configured(provider: str) -> bool:
     return bool(_zai_api_key())
 
 
+def _provider_animates_images(provider: str) -> bool:
+    """Can this provider make image-to-video? DashScope's HappyHorse-T2V is
+    text-to-video only and drops ``image_url`` on the floor; Z.ai's CogVideoX
+    path animates the supplied photo."""
+    return provider != PROVIDER_DASHSCOPE
+
+
 #: Landscape 720p: a hero is wide, and 1080p doubles the bytes every visitor
 #: downloads for no visible gain behind a text scrim.
 DEFAULT_VIDEO_SIZE = "1280x720"
@@ -437,6 +444,10 @@ class HeroVideoJob:
     error: Optional[str] = None
     video_url: Optional[str] = None
     poster_url: Optional[str] = None
+    #: The merchant's hero photo the job was asked to animate, if any. Kept
+    #: so the finaliser can use it as the still fallback instead of the
+    #: clip's first frame.
+    image_url: Optional[str] = None
     applied: bool = False
     live_site_updated: bool = False
     #: Which API holds this task — polling must go back to the same one even
@@ -468,6 +479,7 @@ class HeroVideoJob:
             "error": self.error,
             "video_url": self.video_url,
             "poster_url": self.poster_url,
+            "image_url": self.image_url,
             "applied": self.applied,
             "live_site_updated": self.live_site_updated,
             "elapsed_seconds": round(self.age_seconds()),
@@ -529,6 +541,7 @@ class ZaiVideoService:
         settings: Dict,
         provider: Optional[str] = None,
         charged: bool = False,
+        image_url: Optional[str] = None,
     ) -> HeroVideoJob:
         job = HeroVideoJob(
             job_id=uuid.uuid4().hex,
@@ -539,6 +552,7 @@ class ZaiVideoService:
             settings=settings,
             provider=provider or hero_video_provider(),
             charged=charged,
+            image_url=image_url,
         )
         self._jobs[job.job_id] = job
         return job
@@ -677,12 +691,31 @@ class ZaiVideoService:
         """Submit to the primary provider; if it cannot accept the job, try
         the fallback. Returns ``(task_id, provider)`` so the job remembers
         where to poll. Raises ZaiVideoError (the primary's) when nothing
-        accepted the job."""
+        accepted the job.
+
+        An image job goes to a provider that can animate the image. The
+        default primary (DashScope) is text-to-video only and silently drops
+        ``image_url`` — which is how a merchant who uploaded their storefront
+        got a clip of strangers in a different restaurant. When a photo is
+        supplied and Z.ai is configured, Z.ai is tried FIRST and the usual
+        primary becomes the fallback, so an image job is never worse than a
+        text job; with no Z.ai key the order is exactly as before.
+        """
         primary = hero_video_provider()
+        fallback = hero_video_fallback_provider()
+        if (
+            image_url
+            and not _provider_animates_images(primary)
+            and _provider_configured(PROVIDER_ZAI)
+        ):
+            logger.info(
+                f"🎬 Hero photo supplied — routing to {PROVIDER_ZAI} (image-to-video); "
+                f"{primary} is the fallback"
+            )
+            primary, fallback = PROVIDER_ZAI, primary
         try:
             return await self.submit(prompt, duration=duration, image_url=image_url, provider=primary), primary
         except ZaiVideoError as primary_exc:
-            fallback = hero_video_fallback_provider()
             if not fallback or not _provider_configured(fallback):
                 raise
             logger.warning(
@@ -717,9 +750,14 @@ class ZaiVideoService:
         if not _dashscope_api_key():
             raise ZaiVideoError("DASHSCOPE_API_KEY is not configured")
         if image_url:
-            # HappyHorse-T2V is text-to-video only; the merchant's photo stays
-            # on the page as the poster fallback, it is not animated.
-            logger.info("🎬 DashScope: image_url ignored (text-to-video model)")
+            # HappyHorse-T2V is text-to-video only. We only land here with a
+            # photo when Z.ai is not configured (submit_with_fallback routes
+            # image jobs there first), so say loudly that the clip will not
+            # be based on it. The photo still serves as the poster fallback.
+            logger.warning(
+                "🎬 DashScope cannot animate a photo (text-to-video model) — "
+                "the clip will NOT be based on the merchant's hero image"
+            )
 
         payload: Dict = {
             "model": dashscope_video_model(),
