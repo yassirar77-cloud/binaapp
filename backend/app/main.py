@@ -3610,6 +3610,12 @@ async def publish_website(
                 # generation_count is only set on initial create (=1);
                 # republishes leave it untouched so the regenerate counter
                 # in the editor stays accurate.
+                # One timestamp for both: this call IS the publish, whether
+                # the row is new or an existing subdomain being republished.
+                # published_at was never written on this path (the v1
+                # endpoint sets it; this production one didn't), so every
+                # site created via /create carried published_at=NULL.
+                _published_now = datetime.now().isoformat()
                 upsert_payload = {
                     "id": website_id,
                     "user_id": user_id,
@@ -3619,7 +3625,8 @@ async def publish_website(
                     "status": "published",
                     "public_url": published_url,
                     "html_content": html_content,
-                    "updated_at": datetime.now().isoformat()
+                    "published_at": _published_now,
+                    "updated_at": _published_now,
                 }
                 _description = body.get("description")
                 if _description:

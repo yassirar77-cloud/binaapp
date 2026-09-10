@@ -116,6 +116,13 @@ export default function DashboardPage() {
           .from('websites')
           .select('*')
           .eq('user_id', currentUser.id)
+          // Most recently worked-on first. Publishing to a subdomain the
+          // merchant already owns UPDATES that row and keeps its original
+          // created_at, so ordering by created_at filed a site published a
+          // minute ago as if it were months old — buried dozens of cards
+          // down and read by the merchant as "it never saved". updated_at
+          // is written on every publish; created_at only breaks ties.
+          .order('updated_at', { ascending: false })
           .order('created_at', { ascending: false }),
         // Plan limit is non-critical for display widgets — swallow failures
         getWebsiteLimit(currentUser.id).catch(() => null)

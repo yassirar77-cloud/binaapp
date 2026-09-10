@@ -1289,6 +1289,13 @@ export default function CreatePage() {
 
       const data = await response.json()
       const publishedWebsiteUrl = data.url
+      // The id the row ACTUALLY has. It is only the one we generated above
+      // for a brand-new site: when the merchant publishes to a subdomain
+      // they already own, /api/publish updates that existing row and keeps
+      // its id, so the client-side uuid never exists in the database.
+      // Generating the hero video against the client id in that case was a
+      // guaranteed 404 — the clip silently never started.
+      const publishedWebsiteId: string = data.website_id || websiteId
 
       // Backend publish now upserts `websites` + delivery tables (service role),
       // so we no longer duplicate inserts from the client.
@@ -1298,14 +1305,14 @@ export default function CreatePage() {
       setShowPublishModal(false)
 
       // The website row now exists — the hero video can be generated against it.
-      heroVideoWebsiteId.current = websiteId
+      heroVideoWebsiteId.current = publishedWebsiteId
       if (heroVideoWanted && heroVideoOptions && heroVideoAccess && !heroVideoAccess.allowed) {
         // No free access and no credit: the job would be refused (402).
         // Say so here; the editor sells the credit and generates in place.
         toast('🎬 Video latar memerlukan 1 kredit (RM5) — beli di Editor.')
       } else if (heroVideoWanted && heroVideoOptions) {
         toast('🎬 Video latar hero sedang dijana… (1–2 minit)')
-        void launchHeroVideo(websiteId, accessToken)
+        void launchHeroVideo(publishedWebsiteId, accessToken)
       }
     } catch (err: any) {
       setError(err.message || 'Gagal menerbitkan website. Sila cuba lagi.')

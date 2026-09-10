@@ -34,3 +34,21 @@ describe('dashboard edit-button routing', () => {
     expect(dashboardSource).not.toMatch(/router\.push\(`\/edit\//)
   })
 })
+
+describe('dashboard website ordering', () => {
+  // Publishing to a subdomain the merchant already owns updates that row
+  // and keeps its original created_at. Ordered by created_at, a site
+  // published a minute ago was filed as months old — buried dozens of
+  // cards down and read as "it never saved". Most recently worked-on
+  // must come first, with created_at only as the tie-break.
+  it('orders by updated_at first, created_at as tie-break', () => {
+    const websitesQuery = dashboardSource.match(
+      /\.from\('websites'\)[\s\S]*?\.order\('created_at'[^)]*\)/
+    )?.[0]
+    expect(websitesQuery).toBeDefined()
+    const updatedAt = websitesQuery!.indexOf(".order('updated_at', { ascending: false })")
+    const createdAt = websitesQuery!.indexOf(".order('created_at', { ascending: false })")
+    expect(updatedAt).toBeGreaterThan(-1)
+    expect(createdAt).toBeGreaterThan(updatedAt)
+  })
+})
