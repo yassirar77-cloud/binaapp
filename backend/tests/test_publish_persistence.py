@@ -15,6 +15,7 @@ upsert payload must include it, and a brand-new website must record
 generation_count=1.
 """
 
+import contextlib
 from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
@@ -213,6 +214,123 @@ class TestApiPublishPersistsDescription:
         # generation_count is owned by the regenerate endpoint on the
         # update path; publish must not silently reset it.
         assert "generation_count" not in payload
+
+
+
+    def _republish_env(self, existing_id, test_user_id, missing_id=None):
+        """Supabase + storage mocks for a subdomain the user already owns.
+
+        ``missing_id`` is an id whose lookup must MISS. The endpoint first
+        looks the client's website_id up by id and only falls through to the
+        subdomain check when that finds nothing — which is exactly the
+        /create flow, where the client sends a fresh uuid every time. A mock
+        that answers every query with the existing row "finds" the client
+        uuid and never reaches the rebind this test exists to pin.
+        """
+        existing_row = MagicMock()
+        existing_row.data = [{"id": existing_id, "user_id": test_user_id}]
+        empty = MagicMock()
+        empty.data = []
+        table_mock = MagicMock()
+        for method in (
+            "select", "insert", "update", "upsert", "delete",
+            "eq", "neq", "limit", "single", "order",
+        ):
+            getattr(table_mock, method).return_value = table_mock
+
+        def _execute():
+            last_eq = table_mock.eq.call_args
+            if missing_id and last_eq and tuple(last_eq.args) == ("id", missing_id):
+                return empty
+            return existing_row
+
+        table_mock.execute.side_effect = _execute
+        supabase_mock = MagicMock()
+        supabase_mock.table.return_value = table_mock
+
+        storage_response = MagicMock()
+        storage_response.status_code = 201
+        storage_response.text = ""
+        fake_async_client = MagicMock()
+        fake_async_client.__aenter__ = AsyncMock(return_value=fake_async_client)
+        fake_async_client.__aexit__ = AsyncMock(return_value=False)
+        fake_async_client.post = AsyncMock(return_value=storage_response)
+        return supabase_mock, fake_async_client
+
+    @contextlib.contextmanager
+    def _republish_patches(self, supabase_mock, fake_async_client):
+        """Same patch set as the republish test above, as one context."""
+        with (
+            patch("app.main.supabase", supabase_mock),
+            patch("app.main.sub_service.check_limit",
+                  new=AsyncMock(return_value={"allowed": True})),
+            patch("app.main.sub_service.increment_usage",
+                  new=AsyncMock(return_value=True)),
+            patch("app.services.plan_features.can_publish_subdomain",
+                  new=AsyncMock(return_value=True)),
+            patch("app.main.supabase_service.is_email_verified",
+                  new=AsyncMock(return_value=True)),
+            patch("app.main.httpx.AsyncClient", return_value=fake_async_client),
+        ):
+            yield
+
+    def test_republish_to_owned_subdomain_returns_the_existing_row_id(
+        self, client, auth_headers, test_user_id
+    ):
+        """Regression for the hero video that never started.
+
+        The /create page generates its own uuid and sends it as website_id.
+        When the subdomain is one the merchant already owns, the endpoint
+        UPDATES that row and keeps its id — so the client's uuid never
+        exists. The response's website_id is the only way the client can
+        learn the real id; it must be the existing row's, and the upsert
+        must target that row (not insert the client's id as a new one).
+        """
+        supabase_mock, fake_client = self._republish_env(
+            "ws-existing-1", test_user_id, missing_id="client-generated-uuid"
+        )
+        with self._republish_patches(supabase_mock, fake_client):
+            resp = client.post(
+                "/api/publish",
+                headers=auth_headers,
+                json={
+                    "html_content": VALID_BALANCED_HTML,
+                    "subdomain": "existingshop",
+                    "project_name": "Existing Shop",
+                    # A DIFFERENT id from the row that owns the subdomain —
+                    # exactly what the /create page sends on a republish.
+                    "website_id": "client-generated-uuid",
+                },
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["website_id"] == "ws-existing-1"
+        payload = self._captured_upsert_payload(supabase_mock)
+        assert payload["id"] == "ws-existing-1"
+
+    def test_publish_stamps_published_at(
+        self, client, auth_headers, test_user_id
+    ):
+        """published_at was never written on this path, so every site made
+        via /create had it NULL and the dashboard could not order by it.
+        Both a fresh publish and a republish are a publish — stamp it."""
+        supabase_mock, fake_client = self._republish_env("ws-existing-1", test_user_id)
+        with self._republish_patches(supabase_mock, fake_client):
+            resp = client.post(
+                "/api/publish",
+                headers=auth_headers,
+                json={
+                    "html_content": VALID_BALANCED_HTML,
+                    "subdomain": "existingshop",
+                    "project_name": "Existing Shop",
+                    "website_id": "ws-existing-1",
+                },
+            )
+
+        assert resp.status_code == 200, resp.text
+        payload = self._captured_upsert_payload(supabase_mock)
+        assert payload.get("published_at"), "published_at must be stamped on publish"
+        assert payload["published_at"] == payload["updated_at"]
 
 
 # ----------------------------------------------------------------------
