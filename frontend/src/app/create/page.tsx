@@ -1311,7 +1311,10 @@ export default function CreatePage() {
         // Say so here; the editor sells the credit and generates in place.
         toast('🎬 Video latar memerlukan 1 kredit (RM5) — beli di Editor.')
       } else if (heroVideoWanted && heroVideoOptions) {
-        toast('🎬 Video latar hero sedang dijana… (1–2 minit)')
+        // The server now drives the job to completion itself, so this is
+        // true even if the merchant leaves this page: the clip is applied
+        // whether or not the tab is still open.
+        toast('🎬 Video latar hero sedang dijana (1–3 minit) — akan dipasang secara automatik, anda boleh teruskan.')
         void launchHeroVideo(publishedWebsiteId, accessToken)
       }
     } catch (err: any) {

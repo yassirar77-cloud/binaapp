@@ -487,6 +487,9 @@ class HeroVideoJob:
     #: The asyncio task doing that finalising, so tests (and a shutdown
     #: hook) can await it.
     finalize_task: Optional["asyncio.Task"] = field(default=None, repr=False)
+    #: The server-side task that polls the provider until the job is
+    #: terminal, so the clip lands even when no browser is polling.
+    driver_task: Optional["asyncio.Task"] = field(default=None, repr=False)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
     def age_seconds(self) -> float:
