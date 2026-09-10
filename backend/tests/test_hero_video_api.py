@@ -48,7 +48,7 @@ NO_HERO_HTML = "<!DOCTYPE html><html><head></head><body><p>hi</p></body></html>"
 # Truncated mid-tag: no </body>, no </html>. The mimba failure shape.
 TRUNCATED_HTML = '<!DOCTYPE html><html><head></head><body><img src="https://x'
 
-CLOUD_VIDEO = "https://res.cloudinary.com/demo/video/upload/v1/binaapp/hero-videos/ws-1-ab.mp4"
+CLOUD_VIDEO = "https://res.cloudinary.com/demo/video/upload/q_auto:eco,w_1280,c_limit,ac_none/v1/binaapp/hero-videos/ws-1-ab.mp4"
 CLOUD_POSTER = "https://res.cloudinary.com/demo/video/upload/v1/binaapp/hero-videos/ws-1-ab.jpg"
 
 WITH_VIDEO_HTML = apply_hero_video(

@@ -22,7 +22,7 @@ from app.services.hero_video_patcher import (
     remove_hero_video,
 )
 
-VIDEO = "https://res.cloudinary.com/demo/video/upload/v1/binaapp/hero-videos/ws-1-abc.mp4"
+VIDEO = "https://res.cloudinary.com/demo/video/upload/q_auto:eco,w_1280,c_limit,ac_none/v1/binaapp/hero-videos/ws-1-abc.mp4"
 POSTER = "https://res.cloudinary.com/demo/video/upload/v1/binaapp/hero-videos/ws-1-abc.jpg"
 
 TEMPLATE_PAGE = (
@@ -348,3 +348,52 @@ class TestPlaybackBootstrap:
         assert needs_style_upgrade(upgraded) is False
         assert upgraded == fresh
 
+
+
+# ── delivery URL ─────────────────────────────────────────────────────────────
+# Regression: wan3.0-video returned a 12.9 MB, 20.7 Mbit/s clip for a
+# five-second hero. Every visitor downloaded it before a frame moved; on a
+# phone the hero sat on the poster (the merchant's own photo) for the whole
+# visit, and the merchant reported "no video". The same asset through
+# Cloudinary's delivery transform is ~620 KB.
+
+from app.services.hero_video_patcher import (  # noqa: E402
+    HERO_VIDEO_DELIVERY_TRANSFORM,
+    hero_video_delivery_url,
+)
+
+RAW = "https://res.cloudinary.com/demo/video/upload/v1789037467/binaapp/hero-videos/ws-1-af.mp4"
+SLIM = f"https://res.cloudinary.com/demo/video/upload/{HERO_VIDEO_DELIVERY_TRANSFORM}/v1789037467/binaapp/hero-videos/ws-1-af.mp4"
+
+
+class TestDeliveryUrl:
+    def test_inserts_the_transform_after_video_upload(self):
+        assert hero_video_delivery_url(RAW) == SLIM
+        assert HERO_VIDEO_DELIVERY_TRANSFORM == "q_auto:eco,w_1280,c_limit,ac_none"
+
+    def test_idempotent(self):
+        assert hero_video_delivery_url(SLIM) == SLIM
+        already = "https://res.cloudinary.com/demo/video/upload/w_640,q_auto/v1/a/b.mp4"
+        assert hero_video_delivery_url(already) == already
+
+    def test_versionless_folder_first_url_is_still_transformed(self):
+        url = "https://res.cloudinary.com/demo/video/upload/binaapp/hero-videos/x.mp4"
+        assert hero_video_delivery_url(url) == (
+            f"https://res.cloudinary.com/demo/video/upload/{HERO_VIDEO_DELIVERY_TRANSFORM}/binaapp/hero-videos/x.mp4"
+        )
+
+    def test_leaves_everything_else_alone(self):
+        for url in (
+            "https://res.cloudinary.com/demo/image/upload/v1/binaapp/user_uploads/p.jpg",
+            "https://res.cloudinary.com/x/v.mp4?a=1&b=2",
+            "https://cdn.example.com/video/upload/v1/clip.mp4",
+            "",
+            None,
+        ):
+            assert hero_video_delivery_url(url) == url
+
+    def test_build_settings_normalises_the_video_url(self):
+        assert build_settings(video_url=RAW).video_url == SLIM
+        # And embeds the slim URL, so a look tweak on an old page upgrades it.
+        html = apply_hero_video(TEMPLATE_PAGE, build_settings(video_url=RAW)).html
+        assert SLIM in html and RAW not in html

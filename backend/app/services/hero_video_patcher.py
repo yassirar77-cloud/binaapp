@@ -165,6 +165,49 @@ def is_safe_media_url(url: Optional[str]) -> bool:
     return bool(url) and bool(_SAFE_URL_RE.match(url.strip()))
 
 
+#: Cloudinary delivery transformation applied to every hero clip URL.
+#:
+#: The provider's MP4 is far too heavy for a background. wan3.0-video
+#: returned 12.9 MB for a five-second 1108×832 clip — 20.7 Mbit/s — so every
+#: visitor downloaded all of it before a single frame moved, and on a phone
+#: the hero sat on the poster for the whole visit. The merchant, whose poster
+#: is their own photo, saw "no video". The same asset through this transform
+#: is ~620 KB, at a quality nobody can tell apart behind a text scrim.
+#:
+#:   q_auto:eco     perceptual quality tuned for size
+#:   w_1280,c_limit cap width at the hero's display size, never upscale
+#:   ac_none        drop any audio track (the clip plays muted regardless)
+HERO_VIDEO_DELIVERY_TRANSFORM = "q_auto:eco,w_1280,c_limit,ac_none"
+
+_CLOUDINARY_VIDEO_UPLOAD_RE = re.compile(
+    r"^(https://res\.cloudinary\.com/[^/]+/video/upload/)(.+)$"
+)
+#: Cloudinary transformation parameters are short letter codes followed by
+#: an underscore (q_, w_, c_, ac_, br_, e_, so_ …). A version marker (v1789…)
+#: or a folder name (binaapp) is not one.
+_CLOUDINARY_TRANSFORM_SEGMENT_RE = re.compile(r"^[a-z]{1,3}_")
+
+
+def hero_video_delivery_url(url: Optional[str]) -> Optional[str]:
+    """The URL the page should embed for a stored hero clip: the Cloudinary
+    asset with HERO_VIDEO_DELIVERY_TRANSFORM inserted after ``/video/upload/``.
+
+    Idempotent — a URL that already carries a transformation segment comes
+    back unchanged — and a no-op for anything that is not a Cloudinary video
+    upload URL, so a merchant-supplied or legacy URL is never mangled.
+    """
+    if not url:
+        return url
+    match = _CLOUDINARY_VIDEO_UPLOAD_RE.match(url.strip())
+    if not match:
+        return url
+    head, rest = match.groups()
+    first = rest.split("/", 1)[0]
+    if "," in first or _CLOUDINARY_TRANSFORM_SEGMENT_RE.match(first):
+        return url
+    return f"{head}{HERO_VIDEO_DELIVERY_TRANSFORM}/{rest}"
+
+
 def clamp_opacity(value: Optional[float]) -> float:
     """Keep the scrim inside a range that stays readable and stays visible."""
     if value is None:
@@ -191,6 +234,10 @@ def build_settings(
     clean_video = (video_url or "").strip()
     if not is_safe_media_url(clean_video):
         raise ValueError("video_url must be an https URL")
+    # Normalised here as well as at store time so a page that was patched
+    # with the raw 12.9 MB asset picks up the slim delivery URL the next
+    # time its look is adjusted, without the merchant regenerating.
+    clean_video = hero_video_delivery_url(clean_video)
 
     clean_poster = (poster_url or "").strip() or None
     if clean_poster and not is_safe_media_url(clean_poster):
