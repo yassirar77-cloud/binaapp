@@ -79,3 +79,72 @@ describe('/create hero video uses the merchant\'s own photo', () => {
     expect(createSource).toContain('adegan video diambil daripada gambar hero anda dan penerangannya di atas')
   })
 })
+
+describe('/create makes the hero video WITH the page, not after publish', () => {
+  // Every site the merchant checked right after publishing was static for
+  // the minutes a post-publish clip took, and read as "again no video".
+  // The clip is now prepared the moment generation starts and the publish
+  // carries it; if it is still rendering, the publish attaches the site.
+
+  it('starts the prepared clip as soon as the generation job is accepted', () => {
+    const start = createSource.indexOf("console.log('✅ Job started:'")
+    expect(start).toBeGreaterThan(-1)
+    const afterStart = createSource.slice(start, start + 800)
+    expect(afterStart).toMatch(/void prepareHeroVideoEarly\(\)/)
+  })
+
+  it('prepares with no site and the form\'s own context', () => {
+    const start = createSource.indexOf('const prepareHeroVideoEarly = async')
+    expect(start).toBeGreaterThan(-1)
+    const fn = createSource.slice(start, createSource.indexOf('const followHeroVideoAfterPublish', start))
+    expect(fn).toMatch(/runPreparedHeroVideoJob\(/)
+    expect(fn).toMatch(/image_url:\s*uploadedImages\.hero\s*\|\|\s*undefined/)
+    expect(fn).toMatch(/hero_image_prompt:\s*heroImagePrompt\.trim\(\)\s*\|\|\s*undefined/)
+    expect(fn).toMatch(/description:\s*description/)
+    // Only when the merchant asked for one and may have one.
+    expect(fn).toMatch(/if \(!heroVideoWanted \|\| !heroVideoOptions \|\| !heroVideoAccess\?\.allowed\) return/)
+    // A prepare failure never becomes a page error: publish falls back.
+    expect(fn).toMatch(/preparedHeroVideoJobId\.current = null/)
+    expect(fn).not.toMatch(/toast\.error/)
+  })
+
+  it('hands the prepared job to /api/publish', () => {
+    const start = createSource.indexOf("fetch(`${API_BASE_URL}/api/publish`")
+    const end = createSource.indexOf('if (!response.ok)', start)
+    expect(start).toBeGreaterThan(-1)
+    const request = createSource.slice(start, end)
+    expect(request).toMatch(/hero_video_job_id:\s*preparedHeroVideoJobId\.current\s*\|\|\s*undefined/)
+  })
+
+  it('acts on what the publish did with it, and only starts a fresh job when there was nothing to claim', () => {
+    const start = createSource.indexOf('const publishedWebsiteUrl = data.url')
+    const end = createSource.indexOf('} catch (err', start)
+    const handler = createSource.slice(start, end)
+    expect(handler).toMatch(/data\.hero_video/)
+    // applied → the page already carries the clip: show it, no job to wait on.
+    const applied = handler.indexOf("heroVideoOutcome?.status === 'applied'")
+    expect(applied).toBeGreaterThan(-1)
+    expect(handler.slice(applied, applied + 900)).toMatch(/setGeneratedHtml\(heroVideoOutcome\.html_content\)/)
+    expect(handler.slice(applied, applied + 900)).toMatch(/status:\s*'completed'/)
+    // pending → the server applies it when it lands; only watch it.
+    const pending = handler.indexOf("heroVideoOutcome?.status === 'pending'")
+    expect(pending).toBeGreaterThan(applied)
+    expect(handler.slice(pending, pending + 500)).toMatch(/followHeroVideoAfterPublish\(publishedWebsiteId,/)
+    // The post-publish job is the fallback, decided AFTER both outcomes.
+    const fresh = handler.indexOf('launchHeroVideo(publishedWebsiteId,')
+    expect(fresh).toBeGreaterThan(pending)
+  })
+
+  it('tells the merchant the clip is being made alongside the page', () => {
+    expect(createSource).toContain('data-testid="hero-video-prepared"')
+    expect(createSource).toContain('Video latar hero sedia — akan dipasang serentak semasa anda terbitkan.')
+    expect(createSource).toContain('Video latar hero sedang dijana bersama laman')
+  })
+
+  it('forgets the prepared job when the merchant starts over', () => {
+    const resets = createSource.match(/preparedHeroVideoJobId\.current = null/g) || []
+    // prepare-failure ×2, publish applied, publish fallback, follow done, two start-over buttons
+    expect(resets.length).toBeGreaterThanOrEqual(6)
+    expect(createSource).toMatch(/setPublishedUrl\(''\); preparedHeroVideoJobId\.current = null; setHeroVideoJob\(null\); \}\}/)
+  })
+})

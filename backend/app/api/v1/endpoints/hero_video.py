@@ -2,11 +2,23 @@
 to apply and remove.
 
     GET    /api/v1/websites/hero-video/options            style presets
+    POST   /api/v1/websites/hero-video/prepare            start a clip with NO site yet
+    GET    /api/v1/websites/hero-video/jobs/{job_id}      poll it; `ready` = stored, waiting
     GET    /api/v1/websites/{id}/hero-video               what the page has now
-    POST   /api/v1/websites/{id}/hero-video/generate      start a GLM video job
+    POST   /api/v1/websites/{id}/hero-video/generate      start a video job for a site
     GET    /api/v1/websites/{id}/hero-video/jobs/{job_id} poll; applies on success
     PATCH  /api/v1/websites/{id}/hero-video               change overlay / text / mobile
     DELETE /api/v1/websites/{id}/hero-video               remove it
+
+WITH THE PAGE, NOT AFTER IT
+---------------------------
+The /create page prepares the clip the moment generation starts (photo,
+style and description are all known; the page takes minutes to build) and
+sends the job id to /api/publish, which stages a ``ready`` clip into the
+page it uploads (stage_prepared_hero_video) and confirms or attaches the
+job once the site is live (settle_prepared_hero_video). The site goes live
+carrying its video; a clip still rendering at publish is applied by the
+server driver the moment it lands.
 
 TWO HALVES
 ----------
@@ -79,6 +91,7 @@ from app.services.zai_video_service import (
     JOB_STATUS_COMPLETED,
     JOB_STATUS_FAILED,
     JOB_STATUS_PROCESSING,
+    JOB_STATUS_READY,
     JOB_STATUS_STORING,
     VIDEO_STYLE_PRESETS,
     ZaiVideoError,
@@ -96,6 +109,12 @@ router = APIRouter()
 
 #: Seconds the dashboard should wait between polls.
 POLL_INTERVAL_SECONDS = 8
+
+#: How long a clip prepared during page generation waits for the publish
+#: that will carry it. The page itself takes a few minutes to generate and
+#: the merchant then reviews it; a clip still unclaimed after this is not
+#: going to be — its credit goes back and the registry forgets it.
+PREPARED_CLAIM_WINDOW_SECONDS = 45 * 60
 
 #: Per-user in-flight jobs (across all their sites).
 MAX_ACTIVE_JOBS_PER_USER = 2
@@ -153,6 +172,18 @@ class GenerateHeroVideoRequest(HeroVideoLook):
     duration: Optional[int] = None
     #: Animate an existing photo (image-to-video) instead of text-to-video.
     image_url: Optional[str] = Field(default=None, max_length=1000)
+
+
+class PrepareHeroVideoRequest(GenerateHeroVideoRequest):
+    """Generate a clip BEFORE the site exists — while the page is still
+    being generated — so the publish that follows already carries it.
+    Without a website row the prompt's business context comes from the
+    form instead of the row."""
+
+    business_name: str = Field(default="", max_length=120)
+    business_type: str = Field(default="", max_length=60)
+    description: str = Field(default="", max_length=2000)
+    hero_image_prompt: str = Field(default="", max_length=400)
 
 
 class PatchHeroVideoRequest(BaseModel):
@@ -327,6 +358,86 @@ async def _refund_if_charged(job) -> None:
         )
 
 
+async def _submit_or_502(prompt: str, *, duration: Optional[int], image_url: Optional[str], label: str) -> Tuple[str, str]:
+    """Hand the prompt to the provider; a refusal becomes a 502 that says
+    whether it is the merchant's to retry or a server-side key problem."""
+    try:
+        return await zai_video_service.submit_with_fallback(
+            prompt, duration=duration, image_url=image_url
+        )
+    except ZaiVideoError as exc:
+        logger.error(f"[hero-video] submit failed for {label}: {exc}")
+        text = str(exc)
+        # A key/permission problem is a server-side configuration issue, not
+        # something the merchant can retry their way out of — say so.
+        config_problem = "401" in text or "403" in text or "not configured" in text
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": "provider_not_configured" if config_problem else "video_submit_failed",
+                "message": (
+                    "Penyedia video belum dikonfigurasi dengan betul di pelayan "
+                    "(kunci API ditolak). Sila hubungi sokongan BinaApp."
+                    if config_problem
+                    else "Penjanaan video gagal dimulakan. Sila cuba lagi sebentar."
+                ),
+            },
+        )
+
+
+def _payment_required(access: Dict) -> HTTPException:
+    # Paid per clip. No free access and no prepaid credit → 402 with
+    # what it costs, so the UI can offer the purchase right there.
+    return HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail={
+            "error": "payment_required",
+            "message": (
+                f"Video latar hero berharga RM{HERO_VIDEO_PRICE_RM:.0f} setiap klip. "
+                "Beli 1 kredit video untuk meneruskan."
+            ),
+            "price_rm": HERO_VIDEO_PRICE_RM,
+            "addon_type": HERO_VIDEO_ADDON_TYPE,
+            "credits": access["credits"],
+        },
+    )
+
+
+def _too_many_jobs() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail={
+            "error": "too_many_jobs",
+            "message": "Terlalu banyak video sedang dijana. Sila tunggu sebentar.",
+        },
+    )
+
+
+def _daily_limit_reached() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail={
+            "error": "daily_limit_reached",
+            "message": "Had harian video untuk laman web ini telah dicapai. Cuba lagi esok.",
+        },
+    )
+
+
+async def _charge_if_paid(access: Dict, user_id: str, task_id: str, label: str) -> bool:
+    """Charge only now: the provider has ACCEPTED the job, so a rejected
+    submit never costs the merchant anything. If the clip then fails to
+    arrive, the driver refunds this credit."""
+    if access["free"]:
+        return False
+    charged = await subscription_service.use_addon_credit(user_id, HERO_VIDEO_ADDON_TYPE)
+    if not charged:
+        logger.error(
+            f"🎬 Hero video credit could NOT be consumed for {user_id} "
+            f"({label}) although the provider accepted task {task_id}"
+        )
+    return charged
+
+
 def _current_state(html: str) -> Dict:
     current = detect_hero_video(html or "")
     hero, how = find_hero_open_tag(remove_hero_video(html or "").html) if html else (None, "")
@@ -392,6 +503,111 @@ async def get_hero_video_access(current_user: dict = Depends(get_current_user)):
     return {"success": True, **await hero_video_access(current_user.get("sub"))}
 
 
+@router.post("/hero-video/prepare", status_code=status.HTTP_202_ACCEPTED)
+async def prepare_hero_video(
+    body: PrepareHeroVideoRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Start the clip while the page is still being generated.
+
+    The merchant's hero photo, style and description are all known the
+    moment they press Generate, and the page takes minutes to build. Made
+    here, the clip is usually stored before the merchant has finished
+    reviewing the page — and the publish that follows sends this job's id
+    so the page goes live WITH its video, instead of static for the two or
+    three minutes a post-publish job took (the "again no video" report on
+    every site the merchant checked right after publishing).
+
+    No website row yet: the job is registered without one, the server
+    drives it to ``ready``, and ``/api/publish`` claims it. Unclaimed after
+    PREPARED_CLAIM_WINDOW_SECONDS → refunded and forgotten.
+    """
+    _feature_gate()
+    user_id = current_user.get("sub")
+
+    access = await hero_video_access(user_id)
+    if not access["allowed"]:
+        raise _payment_required(access)
+    if zai_video_service.active_jobs_for_user(user_id) >= MAX_ACTIVE_JOBS_PER_USER:
+        raise _too_many_jobs()
+    # No site to key the daily cap on yet: cap the account instead.
+    daily_key = f"user:{user_id}"
+    if _count_recent_submits(daily_key) >= _max_per_site_per_day():
+        raise _daily_limit_reached()
+
+    from app.services.business_types import normalize_business_type
+
+    style = body.style if body.style in VIDEO_STYLE_PRESETS else DEFAULT_VIDEO_STYLE
+    prompt = build_hero_video_prompt(
+        business_name=body.business_name,
+        business_type=normalize_business_type(body.business_type) or "",
+        description=body.description,
+        style=style,
+        custom_prompt=body.prompt or "",
+        hero_image_prompt=body.hero_image_prompt,
+    )
+
+    image_url = (body.image_url or "").strip() or None
+    if image_url and not image_url.startswith("https://"):
+        image_url = None
+
+    task_id, provider = await _submit_or_502(
+        prompt, duration=body.duration, image_url=image_url, label=f"prepare/{user_id}"
+    )
+    _record_submit(daily_key)
+    charged = await _charge_if_paid(access, user_id, task_id, "prepared, no site yet")
+
+    job = zai_video_service.register_job(
+        task_id=task_id,
+        website_id="",
+        user_id=user_id,
+        prompt=prompt,
+        settings=HeroVideoLook(**body.model_dump(include=set(HeroVideoLook.model_fields))).model_dump(),
+        charged=charged,
+        provider=provider,
+        image_url=image_url,
+    )
+    logger.info(
+        f"🎬 Hero video job {job.job_id} prepared ahead of publish for user {user_id} "
+        f"(style={style}, provider={provider}, task={task_id})"
+    )
+    job.driver_task = asyncio.create_task(_drive_hero_video_job(job, "", user_id))
+    return {
+        "success": True,
+        "job_id": job.job_id,
+        "status": job.status,
+        "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+        "prompt": prompt,
+        "message": "Video latar hero sedang dijana bersama laman anda dan akan dipasang semasa terbit.",
+    }
+
+
+@router.get("/hero-video/jobs/{job_id}")
+async def poll_prepared_hero_video_job(
+    job_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Poll a job prepared ahead of publish. ``ready`` means the clip is
+    stored and waiting for the publish that will carry it."""
+    _feature_gate()
+    user_id = current_user.get("sub")
+    job = zai_video_service.get_job(job_id)
+    if not job or job.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "job_not_found",
+                "message": "Tugasan video tidak dijumpai atau telah tamat. Sila cuba lagi.",
+            },
+        )
+    if job.status == JOB_STATUS_PROCESSING:
+        await _advance_hero_video_job(job, job.website_id, user_id)
+    body = {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
+    if job.status in (JOB_STATUS_READY, JOB_STATUS_COMPLETED, JOB_STATUS_FAILED):
+        body.update(job.result_payload or {})
+    return body
+
+
 @router.get("/{website_id}/hero-video")
 async def get_hero_video(
     website_id: str,
@@ -449,21 +665,7 @@ async def generate_hero_video(
 
     access = await hero_video_access(user_id)
     if not access["allowed"]:
-        # Paid per clip. No free access and no prepaid credit → 402 with
-        # what it costs, so the UI can offer the purchase right there.
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail={
-                "error": "payment_required",
-                "message": (
-                    f"Video latar hero berharga RM{HERO_VIDEO_PRICE_RM:.0f} setiap klip. "
-                    "Beli 1 kredit video untuk meneruskan."
-                ),
-                "price_rm": HERO_VIDEO_PRICE_RM,
-                "addon_type": HERO_VIDEO_ADDON_TYPE,
-                "credits": access["credits"],
-            },
-        )
+        raise _payment_required(access)
 
     # Confirm there is a page — and a hero — to put the video on BEFORE we
     # spend money generating one.
@@ -487,21 +689,9 @@ async def generate_hero_video(
             },
         )
     if zai_video_service.active_jobs_for_user(user_id) >= MAX_ACTIVE_JOBS_PER_USER:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "error": "too_many_jobs",
-                "message": "Terlalu banyak video sedang dijana. Sila tunggu sebentar.",
-            },
-        )
+        raise _too_many_jobs()
     if _count_recent_submits(website_id) >= _max_per_site_per_day():
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "error": "daily_limit_reached",
-                "message": "Had harian video untuk laman web ini telah dicapai. Cuba lagi esok.",
-            },
-        )
+        raise _daily_limit_reached()
 
     style = body.style if body.style in VIDEO_STYLE_PRESETS else DEFAULT_VIDEO_STYLE
     prompt = build_hero_video_prompt(
@@ -519,42 +709,11 @@ async def generate_hero_video(
     if image_url and not image_url.startswith("https://"):
         image_url = None
 
-    try:
-        task_id, provider = await zai_video_service.submit_with_fallback(
-            prompt, duration=body.duration, image_url=image_url
-        )
-    except ZaiVideoError as exc:
-        logger.error(f"[hero-video] submit failed for {website_id}: {exc}")
-        text = str(exc)
-        # A key/permission problem is a server-side configuration issue, not
-        # something the merchant can retry their way out of — say so.
-        config_problem = "401" in text or "403" in text or "not configured" in text
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={
-                "error": "provider_not_configured" if config_problem else "video_submit_failed",
-                "message": (
-                    "Penyedia video belum dikonfigurasi dengan betul di pelayan "
-                    "(kunci API ditolak). Sila hubungi sokongan BinaApp."
-                    if config_problem
-                    else "Penjanaan video gagal dimulakan. Sila cuba lagi sebentar."
-                ),
-            },
-        )
-
+    task_id, provider = await _submit_or_502(
+        prompt, duration=body.duration, image_url=image_url, label=website_id
+    )
     _record_submit(website_id)
-
-    # Charge only now: the provider has ACCEPTED the job, so a rejected
-    # submit never costs the merchant anything. If the clip then fails to
-    # arrive, the poll refunds this credit.
-    charged = False
-    if not access["free"]:
-        charged = await subscription_service.use_addon_credit(user_id, HERO_VIDEO_ADDON_TYPE)
-        if not charged:
-            logger.error(
-                f"🎬 Hero video credit could NOT be consumed for {user_id} "
-                f"(website {website_id}) although the provider accepted task {task_id}"
-            )
+    charged = await _charge_if_paid(access, user_id, task_id, f"website {website_id}")
 
     job = zai_video_service.register_job(
         task_id=task_id,
@@ -677,9 +836,15 @@ async def _advance_hero_video_job(
         if result["status"] != "success":
             return False
 
-        if website is None:
+        # A job prepared ahead of publish has no site yet (job.website_id
+        # is empty until /api/publish claims it): the finaliser stores the
+        # clip and parks it as `ready`. Once attached — by the publish that
+        # happened while the provider was still rendering — the finaliser
+        # applies it to that site like any other job.
+        target_id = job.website_id or website_id
+        if website is None and target_id:
             try:
-                website = await _load_owned_website(website_id, user_id)
+                website = await _load_owned_website(target_id, user_id)
             except HTTPException as exc:
                 # The site vanished or changed hands mid-job. Nothing to
                 # patch; do not keep the merchant's money for it.
@@ -713,87 +878,245 @@ async def _drive_hero_video_job(job, website_id: str, user_id: str) -> None:
             if zai_video_service.get_job(job.job_id) is not job:
                 return
             await _advance_hero_video_job(job, website_id, user_id)
+        if job.website_id:
+            return
+        # Prepared ahead of publish and still unattached: wait for the
+        # clip to be stored, then give the publish its claim window. A
+        # clip nobody published is not delivered — hand the credit back
+        # rather than keep it for a video that never reached a page.
+        if job.finalize_task is not None:
+            await asyncio.shield(job.finalize_task)
+        if job.status != JOB_STATUS_READY:
+            return
+        await asyncio.sleep(PREPARED_CLAIM_WINDOW_SECONDS)
+        async with job.lock:
+            if job.status != JOB_STATUS_READY:
+                return
+            job.status = JOB_STATUS_FAILED
+            job.error = "unclaimed"
+            logger.warning(
+                f"[hero-video] prepared job {job.job_id} was never published "
+                f"within {PREPARED_CLAIM_WINDOW_SECONDS}s — releasing it"
+            )
+            await _refund_if_charged(job)
     except asyncio.CancelledError:
         raise
     except Exception:  # noqa: BLE001 — a driver must never die silently
         logger.exception(f"[hero-video] driver for job {job.job_id} crashed")
 
 
-async def _finalize_hero_video_job(job, website: dict, user_id: str, provider_video_url: str) -> None:
-    """Store the clip, choose the overlay, patch the page, publish. Runs off
-    the request path; the poll reads the outcome from the job."""
-    website_id = website["id"]
+async def _store_clip(job, provider_video_url: str, *, website_id: str) -> bool:
+    """Download the provider's clip into Cloudinary and settle the look.
+    False (with the job failed and refunded) when storage fails."""
     try:
-        try:
-            stored = await zai_video_service.store(provider_video_url, website_id=website_id)
-        except ZaiVideoError as exc:
-            job.status = JOB_STATUS_FAILED
-            job.error = "storage_failed"
-            logger.error(f"[hero-video] storage failed for {job.job_id}: {exc}")
-            await _refund_if_charged(job)
-            return
+        stored = await zai_video_service.store(provider_video_url, website_id=website_id)
+    except ZaiVideoError as exc:
+        job.status = JOB_STATUS_FAILED
+        job.error = "storage_failed"
+        logger.error(f"[hero-video] storage failed for {job.job_id}: {exc}")
+        await _refund_if_charged(job)
+        return False
 
-        job.video_url = stored["video_url"]
-        # The still shown while the clip loads, on data-saver phones, and
-        # under prefers-reduced-motion. When the job had a hero photo, that
-        # photo is the still: with image-to-video the clip opens on it
-        # anyway, and with text-to-video the generic first frame is exactly
-        # the "not my shop" picture we must not leave in the merchant's hero.
-        job.poster_url = job.image_url or stored["poster_url"]
+    job.video_url = stored["video_url"]
+    # The still shown while the clip loads, on data-saver phones, and
+    # under prefers-reduced-motion. When the job had a hero photo, that
+    # photo is the still: with image-to-video the clip opens on it
+    # anyway, and with text-to-video the generic first frame is exactly
+    # the "not my shop" picture we must not leave in the merchant's hero.
+    job.poster_url = job.image_url or stored["poster_url"]
 
-        look = HeroVideoLook(**job.settings)
-        if look.overlay_opacity is None and look.overlay != "none":
-            # Bug 5: a fixed 0.45 was fine over dark footage and unreadable
-            # over bright footage. Measure the first frame instead — the
-            # clip's own frame, since the scrim sits over the playing video.
-            look.overlay_opacity = await auto_overlay_opacity(stored["poster_url"])
-            job.settings = look.model_dump()
-        settings = _settings_from_look(look, job.video_url, job.poster_url)
+    look = HeroVideoLook(**job.settings)
+    if look.overlay_opacity is None and look.overlay != "none":
+        # Bug 5: a fixed 0.45 was fine over dark footage and unreadable
+        # over bright footage. Measure the first frame instead — the
+        # clip's own frame, since the scrim sits over the playing video.
+        look.overlay_opacity = await auto_overlay_opacity(stored["poster_url"])
+        job.settings = look.model_dump()
+    return True
 
-        # Apply to the page. A failure here keeps the stored URLs on the job
-        # so the merchant can retry the apply without regenerating.
-        try:
-            base_html, base_source = await _load_base_html(website)
-            patched = apply_hero_video(base_html, settings)
-            if not patched.changed:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail={"error": "hero_not_found", "message": "Bahagian hero tidak dijumpai."},
-                )
-            live, warning = await _persist(website, user_id, patched.html)
-        except HTTPException as exc:
-            job.status = JOB_STATUS_FAILED
-            job.error = (
-                exc.detail.get("error") if isinstance(exc.detail, dict) else "apply_failed"
+
+def _stored_settings(job) -> HeroVideoSettings:
+    return _settings_from_look(HeroVideoLook(**job.settings), job.video_url, job.poster_url)
+
+
+def _mark_applied(job, website: dict, patched, base_source: str, live: bool, warning: Optional[str]) -> None:
+    job.applied = True
+    job.live_site_updated = live
+    job.result_payload = {
+        "settings": patched.settings,
+        "base_source": base_source,
+        "html_content": patched.html,
+        "message": (
+            "Video latar hero telah dipasang."
+            if live or website.get("status") != "published"
+            else "Video disimpan, tetapi laman web langsung belum dikemas kini. Sila cuba lagi sebentar."
+        ),
+    }
+    if warning:
+        job.result_payload["warning"] = warning
+    job.status = JOB_STATUS_COMPLETED
+    logger.info(
+        f"🎬 Hero video applied for {website['id']} "
+        f"(base={base_source}, live={live}, {patched.summary()})"
+    )
+
+
+async def _apply_stored_clip(job, website: dict, user_id: str) -> None:
+    """Patch the stored clip into the site's page and publish it. A failure
+    here keeps the stored URLs on the job so the merchant can retry the
+    apply without regenerating."""
+    settings = _stored_settings(job)
+    try:
+        base_html, base_source = await _load_base_html(website)
+        patched = apply_hero_video(base_html, settings)
+        if not patched.changed:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"error": "hero_not_found", "message": "Bahagian hero tidak dijumpai."},
             )
-            logger.error(f"[hero-video] apply failed for {job.job_id}: {exc.detail}")
-            await _refund_if_charged(job)
+        live, warning = await _persist(website, user_id, patched.html)
+    except HTTPException as exc:
+        job.status = JOB_STATUS_FAILED
+        job.error = (
+            exc.detail.get("error") if isinstance(exc.detail, dict) else "apply_failed"
+        )
+        logger.error(f"[hero-video] apply failed for {job.job_id}: {exc.detail}")
+        await _refund_if_charged(job)
+        return
+    _mark_applied(job, website, patched, base_source, live, warning)
+
+
+async def _finalize_hero_video_job(job, website: Optional[dict], user_id: str, provider_video_url: str) -> None:
+    """Store the clip, choose the overlay, patch the page, publish. Runs off
+    the request path; the poll reads the outcome from the job.
+
+    ``website`` is None for a job prepared ahead of publish: the clip is
+    stored under the job's own id and parked as ``ready`` for the publish
+    to claim — unless that publish already happened while the provider was
+    rendering, in which case the site it attached is patched right away.
+    """
+    try:
+        if not await _store_clip(
+            job, provider_video_url, website_id=website["id"] if website else job.job_id
+        ):
             return
 
-        job.applied = True
-        job.live_site_updated = live
-        job.result_payload = {
-            "settings": patched.settings,
-            "base_source": base_source,
-            "html_content": patched.html,
-            "message": (
-                "Video latar hero telah dipasang."
-                if live or website.get("status") != "published"
-                else "Video disimpan, tetapi laman web langsung belum dikemas kini. Sila cuba lagi sebentar."
-            ),
-        }
-        if warning:
-            job.result_payload["warning"] = warning
-        job.status = JOB_STATUS_COMPLETED
-        logger.info(
-            f"🎬 Hero video applied for {website_id} "
-            f"(base={base_source}, live={live}, {patched.summary()})"
-        )
+        if website is None:
+            async with job.lock:
+                if not job.website_id:
+                    job.status = JOB_STATUS_READY
+                    job.result_payload = {
+                        "message": "Video sedia — akan dipasang semasa laman diterbitkan."
+                    }
+                    logger.info(f"🎬 Hero video {job.job_id} ready ahead of publish")
+                    return
+            try:
+                website = await _load_owned_website(job.website_id, user_id)
+            except HTTPException as exc:
+                job.status = JOB_STATUS_FAILED
+                job.error = "website_unavailable"
+                logger.error(f"[hero-video] job {job.job_id}: website unavailable ({exc.detail})")
+                await _refund_if_charged(job)
+                return
+
+        await _apply_stored_clip(job, website, user_id)
     except Exception as exc:  # never leave a job stuck in 'storing'
         job.status = JOB_STATUS_FAILED
         job.error = "apply_failed"
         logger.exception(f"[hero-video] finaliser crashed for {job.job_id}: {exc}")
         await _refund_if_charged(job)
+
+
+# ---------------------------------------------------------------------------
+# Publish-time claim of a prepared clip (called from /api/publish)
+# ---------------------------------------------------------------------------
+
+def stage_prepared_hero_video(job_id: Optional[str], user_id: str, html: str) -> Tuple[str, Dict]:
+    """Patch a ``ready`` clip into the page that is ABOUT to be published.
+
+    Pure string work, no I/O, and the job is left untouched: if the publish
+    then fails nothing has been consumed and the next attempt can stage it
+    again. Returns the page to publish and what happened — ``staged`` for
+    the publish to confirm afterwards (settle_prepared_hero_video), or the
+    job's state for it to act on then.
+    """
+    job = zai_video_service.get_job(job_id) if job_id else None
+    if not job or job.user_id != user_id:
+        return html, {"status": "none", "job_id": job_id, "reason": "job_not_found"}
+    if job.status in (JOB_STATUS_PROCESSING, JOB_STATUS_STORING):
+        return html, {"status": "pending", "job_id": job_id}
+    if job.status != JOB_STATUS_READY:
+        return html, {"status": "none", "job_id": job_id, "reason": job.error or job.status}
+    patched = apply_hero_video(html, _stored_settings(job))
+    if not patched.changed:
+        return html, {"status": "none", "job_id": job_id, "reason": "hero_not_found"}
+    return patched.html, {
+        "status": "staged",
+        "job_id": job_id,
+        "settings": patched.settings,
+        "hero_match": patched.hero_match,
+    }
+
+
+async def settle_prepared_hero_video(job_id: Optional[str], user_id: str, website: dict, staged: Dict) -> Dict:
+    """After the publish has gone live: confirm a staged clip, or attach an
+    in-flight job to the new site so the driver applies it when it lands.
+    A clip that became ready between staging and upload is applied now.
+
+    Returns the ``hero_video`` block of the publish response:
+    ``applied`` (the live page carries the clip), ``pending`` (it will be
+    applied automatically; poll ``jobs/{job_id}`` on the site), ``failed``
+    or ``none``.
+    """
+    job = zai_video_service.get_job(job_id) if job_id else None
+    if not job or job.user_id != user_id:
+        return {"status": "none", "job_id": job_id, "reason": "job_not_found"}
+    website_id = website["id"]
+
+    if staged.get("status") == "staged":
+        async with job.lock:
+            job.website_id = website_id
+            job.applied = True
+            job.live_site_updated = True
+            job.result_payload = {
+                "settings": staged.get("settings"),
+                "base_source": "publish",
+                "message": "Video latar hero dipasang bersama laman.",
+            }
+            job.status = JOB_STATUS_COMPLETED
+        logger.info(
+            f"🎬 Hero video {job.job_id} published together with {website_id} "
+            f"(hero matched by {staged.get('hero_match') or 'unknown'})"
+        )
+        return {"status": "applied", "job_id": job_id, "message": job.result_payload["message"]}
+
+    async with job.lock:
+        if job.status in (JOB_STATUS_PROCESSING, JOB_STATUS_STORING):
+            if not job.website_id:
+                job.website_id = website_id
+            if job.website_id != website_id:
+                return {"status": "none", "job_id": job_id, "reason": "attached_elsewhere"}
+            logger.info(f"🎬 Hero video {job.job_id} attached to {website_id}; applies when the clip lands")
+            return {
+                "status": "pending",
+                "job_id": job_id,
+                "message": "Video latar hero hampir siap dan akan dipasang secara automatik.",
+            }
+        if job.status != JOB_STATUS_READY:
+            return {"status": "none", "job_id": job_id, "reason": job.error or job.status}
+        # Became ready after staging looked, before the upload finished.
+        job.website_id = website_id
+        job.status = JOB_STATUS_STORING
+
+    await _apply_stored_clip(job, website, user_id)
+    if job.status == JOB_STATUS_COMPLETED:
+        return {
+            "status": "applied",
+            "job_id": job_id,
+            "message": job.result_payload.get("message"),
+            "html_content": job.result_payload.get("html_content"),
+        }
+    return {"status": "failed", "job_id": job_id, "error": job.error}
 
 
 @router.patch("/{website_id}/hero-video")

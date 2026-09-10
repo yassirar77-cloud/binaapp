@@ -752,3 +752,236 @@ class TestServerDrivesTheJob:
         assert job.status == "completed"
         patches["store"].assert_awaited_once()
         patches["publish_website"].assert_called_once()
+
+
+class TestPreparedAheadOfPublish:
+    """The clip is made while the page is still being generated, so the
+    publish that follows goes live WITH its video.
+
+    Every site the merchant checked right after publishing was static for
+    the two or three minutes a post-publish job took, and read as "again
+    no video". The hero photo, style and description are all known when
+    they press Generate; the page takes minutes to build. So: prepare the
+    clip then (no site yet), park it as `ready`, and let /api/publish
+    stage it into the page it is about to upload."""
+
+    PREPARE = "/api/v1/websites/hero-video/prepare"
+
+    def _body(self, **extra):
+        body = {
+            "style": "cinematic",
+            "prompt": "the whale glides past",
+            "image_url": "https://res.cloudinary.com/demo/image/upload/whale.jpg",
+            "business_name": "Kedai Ikan",
+            "business_type": "food",
+            "description": "Kedai ikan unik di Kota Damansara",
+        }
+        body.update(extra)
+        return body
+
+    def _prepared(self, user_id, **kw):
+        job = svc.zai_video_service.register_job(
+            task_id="task-p", website_id="", user_id=user_id, prompt="p",
+            settings=ep.HeroVideoLook().model_dump(), provider="dashscope",
+            image_url="https://res.cloudinary.com/demo/image/upload/whale.jpg", **kw,
+        )
+        return job
+
+    def _ready(self, user_id, **kw):
+        job = self._prepared(user_id, **kw)
+        job.status = svc.JOB_STATUS_READY
+        job.video_url = CLOUD_VIDEO
+        job.poster_url = job.image_url
+        return job
+
+    # -- prepare ------------------------------------------------------------
+
+    def test_prepare_starts_a_job_with_no_site(self, client, auth_headers, patches, test_user_id):
+        resp = client.post(self.PREPARE, json=self._body(), headers=auth_headers)
+        assert resp.status_code == 202, resp.text
+        data = resp.json()
+        job = svc.zai_video_service.get_job(data["job_id"])
+        assert job is not None and job.website_id == "" and job.user_id == test_user_id
+        assert job.driver_task is not None
+        assert data["status"] == "processing"
+        # The form's context reaches the prompt the way the row's would.
+        prompt = patches["submit"].call_args.args[0]
+        assert "the whale glides past" in prompt
+        assert patches["submit"].call_args.kwargs["image_url"].endswith("whale.jpg")
+        # No site was read or written.
+        patches["get_website"].assert_not_called()
+        patches["publish_website"].assert_not_called()
+
+    def test_prepare_is_gated_like_generate(self, client, auth_headers, patches, test_user_id):
+        patches["plan_gate"].return_value = _access(free=False, credits=0)
+        assert client.post(self.PREPARE, json=self._body(), headers=auth_headers).status_code == 402
+        patches["submit"].assert_not_called()
+
+        patches["plan_gate"].return_value = _access(free=True)
+        for _ in range(ep.MAX_ACTIVE_JOBS_PER_USER):
+            self._prepared(test_user_id)
+        resp = client.post(self.PREPARE, json=self._body(), headers=auth_headers)
+        assert resp.status_code == 429 and resp.json()["detail"]["error"] == "too_many_jobs"
+
+    def test_prepare_charges_a_paid_account_once_accepted(self, client, auth_headers, patches):
+        patches["plan_gate"].return_value = _access(free=False, credits=2)
+        resp = client.post(self.PREPARE, json=self._body(), headers=auth_headers)
+        assert resp.status_code == 202
+        patches["use_credit"].assert_awaited_once()
+        assert svc.zai_video_service.get_job(resp.json()["job_id"]).charged is True
+
+    def test_prepare_requires_the_flag(self, client, auth_headers, patches, monkeypatch):
+        monkeypatch.setenv("HERO_VIDEO_ENABLED", "false")
+        assert client.post(self.PREPARE, json=self._body(), headers=auth_headers).status_code == 404
+
+    # -- the clip lands before any site exists ---------------------------------
+
+    async def test_clip_parks_as_ready_when_no_site_has_claimed_it(self, patches, test_user_id):
+        patches["fetch_result"].return_value = {
+            "status": "success", "video_url": "https://cdn.z.ai/v.mp4", "cover_image_url": None,
+        }
+        job = self._prepared(test_user_id)
+        handed = await ep._advance_hero_video_job(job, "", test_user_id)
+        assert handed and job.status == "storing"
+        await job.finalize_task
+        assert job.status == "ready"
+        assert job.video_url == CLOUD_VIDEO
+        # Stored under the job's own id — there is no site to file it under.
+        patches["store"].assert_awaited_once_with("https://cdn.z.ai/v.mp4", website_id=job.job_id)
+        # The merchant's photo is the still, as for any image job.
+        assert job.poster_url == job.image_url
+        patches["get_website"].assert_not_called()
+        patches["publish_website"].assert_not_called()
+        assert job.refunded is False
+
+    async def test_unclaimed_clip_is_refunded_after_the_window(self, patches, test_user_id, monkeypatch):
+        monkeypatch.setattr(ep, "POLL_INTERVAL_SECONDS", 0.01)
+        monkeypatch.setattr(ep, "PREPARED_CLAIM_WINDOW_SECONDS", 0.01)
+        patches["fetch_result"].return_value = {
+            "status": "success", "video_url": "https://cdn.z.ai/v.mp4", "cover_image_url": None,
+        }
+        job = self._prepared(test_user_id, charged=True)
+        await ep._drive_hero_video_job(job, "", test_user_id)
+        assert job.status == "failed" and job.error == "unclaimed"
+        patches["refund_credit"].assert_awaited_once()
+
+    async def test_a_claimed_clip_is_never_expired(self, patches, test_user_id, monkeypatch):
+        monkeypatch.setattr(ep, "POLL_INTERVAL_SECONDS", 0.01)
+        monkeypatch.setattr(ep, "PREPARED_CLAIM_WINDOW_SECONDS", 0.05)
+        patches["fetch_result"].return_value = {
+            "status": "success", "video_url": "https://cdn.z.ai/v.mp4", "cover_image_url": None,
+        }
+        job = self._prepared(test_user_id, charged=True)
+        import asyncio
+        driver = asyncio.create_task(ep._drive_hero_video_job(job, "", test_user_id))
+        while job.status != "ready":
+            await asyncio.sleep(0.005)
+        # The publish claims it inside the window.
+        html, staged = ep.stage_prepared_hero_video(job.job_id, test_user_id, LIVE_HTML)
+        await ep.settle_prepared_hero_video(job.job_id, test_user_id, _row(), staged)
+        await driver
+        assert job.status == "completed"
+        patches["refund_credit"].assert_not_called()
+
+    # -- polling a prepared job -------------------------------------------------
+
+    def test_pending_poll_reports_the_prepared_job(self, client, auth_headers, patches, test_user_id):
+        job = self._prepared(test_user_id)
+        resp = client.get(f"/api/v1/websites/hero-video/jobs/{job.job_id}", headers=auth_headers)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "processing" and resp.json()["website_id"] == ""
+        job.status = svc.JOB_STATUS_READY
+        job.result_payload = {"message": "Video sedia"}
+        data = client.get(f"/api/v1/websites/hero-video/jobs/{job.job_id}", headers=auth_headers).json()
+        assert data["status"] == "ready" and data["message"] == "Video sedia"
+
+    def test_pending_poll_is_owner_only(self, client, auth_headers, patches):
+        job = self._prepared("someone-else")
+        assert client.get(f"/api/v1/websites/hero-video/jobs/{job.job_id}", headers=auth_headers).status_code == 404
+        assert client.get("/api/v1/websites/hero-video/jobs/nope", headers=auth_headers).status_code == 404
+
+    # -- the publish claims the clip -----------------------------------------------
+
+    def test_stage_puts_a_ready_clip_on_the_page_without_touching_the_job(self, patches, test_user_id):
+        job = self._ready(test_user_id)
+        html, info = ep.stage_prepared_hero_video(job.job_id, test_user_id, LIVE_HTML)
+        assert info["status"] == "staged" and info["hero_match"] == "id"
+        assert BLOCK_START in html and CLOUD_VIDEO in html
+        assert f'img[src="{job.image_url}"]' in html
+        # Nothing consumed yet: a publish that fails after this can stage again.
+        assert job.status == "ready" and job.website_id == ""
+
+    async def test_settle_confirms_a_staged_clip(self, patches, test_user_id):
+        job = self._ready(test_user_id)
+        html, staged = ep.stage_prepared_hero_video(job.job_id, test_user_id, LIVE_HTML)
+        info = await ep.settle_prepared_hero_video(job.job_id, test_user_id, _row(), staged)
+        assert info["status"] == "applied"
+        assert job.status == "completed" and job.applied and job.live_site_updated
+        assert job.website_id == "ws-1"
+        # The publish wrote the page itself; nothing is written twice.
+        patches["publish_website"].assert_not_called()
+        patches["update_website"].assert_not_called()
+
+    def test_stage_ignores_missing_foreign_or_finished_jobs(self, patches, test_user_id):
+        assert ep.stage_prepared_hero_video(None, test_user_id, LIVE_HTML)[1]["status"] == "none"
+        assert ep.stage_prepared_hero_video("nope", test_user_id, LIVE_HTML)[1]["status"] == "none"
+        foreign = self._ready("someone-else")
+        html, info = ep.stage_prepared_hero_video(foreign.job_id, test_user_id, LIVE_HTML)
+        assert info["status"] == "none" and html == LIVE_HTML
+        failed = self._prepared(test_user_id)
+        failed.status = "failed"
+        failed.error = "generation_failed"
+        assert ep.stage_prepared_hero_video(failed.job_id, test_user_id, LIVE_HTML)[1] == {
+            "status": "none", "job_id": failed.job_id, "reason": "generation_failed",
+        }
+
+    def test_stage_leaves_a_page_without_a_hero_alone(self, patches, test_user_id):
+        job = self._ready(test_user_id)
+        html, info = ep.stage_prepared_hero_video(job.job_id, test_user_id, NO_HERO_HTML)
+        assert html == NO_HERO_HTML and info["reason"] == "hero_not_found"
+
+    async def test_publish_before_the_clip_lands_attaches_the_site(self, patches, test_user_id):
+        """The provider is still rendering when the merchant publishes:
+        the site is attached to the job and the server applies the clip
+        the moment it lands, with nobody polling."""
+        job = self._prepared(test_user_id)
+        html, staged = ep.stage_prepared_hero_video(job.job_id, test_user_id, LIVE_HTML)
+        assert html == LIVE_HTML and staged["status"] == "pending"
+        info = await ep.settle_prepared_hero_video(job.job_id, test_user_id, _row(), staged)
+        assert info["status"] == "pending" and job.website_id == "ws-1"
+
+        patches["fetch_result"].return_value = {
+            "status": "success", "video_url": "https://cdn.z.ai/v.mp4", "cover_image_url": None,
+        }
+        await ep._advance_hero_video_job(job, "", test_user_id)
+        await job.finalize_task
+        assert job.status == "completed" and job.live_site_updated is True
+        patches["store"].assert_awaited_once_with("https://cdn.z.ai/v.mp4", website_id="ws-1")
+        assert CLOUD_VIDEO in _published_html(patches)
+
+    async def test_clip_ready_between_staging_and_upload_is_applied_at_settle(self, patches, test_user_id):
+        job = self._prepared(test_user_id)
+        html, staged = ep.stage_prepared_hero_video(job.job_id, test_user_id, LIVE_HTML)
+        assert staged["status"] == "pending"
+        # ...the clip lands while the upload is in flight...
+        job.status = svc.JOB_STATUS_READY
+        job.video_url = CLOUD_VIDEO
+        job.poster_url = job.image_url
+        info = await ep.settle_prepared_hero_video(job.job_id, test_user_id, _row(), staged)
+        assert info["status"] == "applied" and BLOCK_START in info["html_content"]
+        assert job.status == "completed" and job.website_id == "ws-1"
+        assert CLOUD_VIDEO in _published_html(patches)
+
+    async def test_settle_never_steals_a_job_attached_elsewhere(self, patches, test_user_id):
+        job = self._prepared(test_user_id)
+        job.website_id = "ws-other"
+        info = await ep.settle_prepared_hero_video(job.job_id, test_user_id, _row(), {"status": "pending"})
+        assert info["status"] == "none" and job.website_id == "ws-other"
+
+    def test_generate_on_the_site_still_works_after_a_claim(self, client, auth_headers, patches, test_user_id):
+        # A completed prepared job is not "active" — the merchant can make
+        # another clip for the same site from the editor as before.
+        job = self._ready(test_user_id)
+        job.status = "completed"
+        job.website_id = "ws-1"
+        assert client.post("/api/v1/websites/ws-1/hero-video/generate", json={}, headers=auth_headers).status_code == 202

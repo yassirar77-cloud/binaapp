@@ -20,11 +20,14 @@ import {
   fetchHeroVideoAccess,
   fetchHeroVideoOptions,
   runHeroVideoJob,
+  runPreparedHeroVideoJob,
+  followPublishedHeroVideoJob,
   heroVideoJobErrorMessage,
   isHeroVideoJobActive,
   type HeroVideoAccess,
   type HeroVideoOptions,
   type HeroVideoJob,
+  type PublishHeroVideoOutcome,
 } from '@/lib/heroVideo'
 import { checkCreateWebsiteAllowed } from '@/lib/quota'
 import {
@@ -289,6 +292,9 @@ export default function CreatePage() {
   const [heroVideoAccess, setHeroVideoAccess] = useState<HeroVideoAccess | null>(null)
   const [heroVideoError, setHeroVideoError] = useState<string | null>(null)
   const heroVideoWebsiteId = useRef<string | null>(null)
+  // The clip prepared the moment generation started (no site yet). Sent
+  // with /api/publish as hero_video_job_id so the page goes live WITH it.
+  const preparedHeroVideoJobId = useRef<string | null>(null)
   const heroVideoStopped = useRef(false)
 
   useEffect(() => {
@@ -913,6 +919,13 @@ export default function CreatePage() {
       setCurrentJobId(jobId);
       console.log('✅ Job started:', jobId, '- Stored in state');
 
+      // The hero video is made NOW, alongside the page, not after publish:
+      // the photo, style and description are all known, and the page takes
+      // minutes to build. By the time the merchant publishes the clip is
+      // usually stored, and the publish carries it — no static hero for the
+      // minutes a post-publish job used to take.
+      void prepareHeroVideoEarly()
+
       // Step 2: Poll for results
       const maxAttempts = 200; // 200 attempts x 3 seconds = 10 minutes max (increased from 5 min for complex sites)
       let attempt = 0;
@@ -1214,6 +1227,9 @@ export default function CreatePage() {
           description: description,
           business_type: businessType === 'auto' ? null : businessType,
           hero_image_prompt: heroImagePrompt.trim() || undefined,
+          // The clip prepared while the page generated: publish puts it on
+          // the page it uploads, so the site is live with its video.
+          hero_video_job_id: preparedHeroVideoJobId.current || undefined,
           // Geocoded at publish so the map shows a pin, not a region.
           address: fullAddress || null,
           features: selectedFeatures,
@@ -1306,14 +1322,38 @@ export default function CreatePage() {
 
       // The website row now exists — the hero video can be generated against it.
       heroVideoWebsiteId.current = publishedWebsiteId
-      if (heroVideoWanted && heroVideoOptions && heroVideoAccess && !heroVideoAccess.allowed) {
+      const heroVideoOutcome = (data.hero_video || null) as PublishHeroVideoOutcome | null
+      if (heroVideoOutcome?.status === 'applied') {
+        // The prepared clip went live IN this publish. Nothing to wait for.
+        preparedHeroVideoJobId.current = null
+        if (heroVideoOutcome.html_content) setGeneratedHtml(heroVideoOutcome.html_content)
+        setHeroVideoJob({
+          job_id: heroVideoOutcome.job_id || heroVideoJob?.job_id || '',
+          status: 'completed',
+          error: null,
+          video_url: heroVideoJob?.video_url ?? null,
+          poster_url: heroVideoJob?.poster_url ?? null,
+          applied: true,
+          live_site_updated: true,
+          elapsed_seconds: heroVideoJob?.elapsed_seconds ?? 0,
+          message: heroVideoOutcome.message,
+        })
+        toast.success('🎬 Video latar hero dipasang bersama laman anda.')
+      } else if (heroVideoOutcome?.status === 'pending' && heroVideoOutcome.job_id) {
+        // Still rendering when we published: the server attached the site
+        // and applies the clip the moment it lands. Just watch it.
+        toast('🎬 Video latar hero hampir siap — akan dipasang secara automatik.')
+        void followHeroVideoAfterPublish(publishedWebsiteId, heroVideoOutcome.job_id, accessToken)
+      } else if (heroVideoWanted && heroVideoOptions && heroVideoAccess && !heroVideoAccess.allowed) {
         // No free access and no credit: the job would be refused (402).
         // Say so here; the editor sells the credit and generates in place.
         toast('🎬 Video latar memerlukan 1 kredit (RM5) — beli di Editor.')
       } else if (heroVideoWanted && heroVideoOptions) {
-        // The server now drives the job to completion itself, so this is
-        // true even if the merchant leaves this page: the clip is applied
-        // whether or not the tab is still open.
+        // No prepared clip to claim (it failed, expired, or the server
+        // forgot it): make one against the published site, as before. The
+        // server drives the job to completion itself, so this is true even
+        // if the merchant leaves this page.
+        preparedHeroVideoJobId.current = null
         toast('🎬 Video latar hero sedang dijana (1–3 minit) — akan dipasang secara automatik, anda boleh teruskan.')
         void launchHeroVideo(publishedWebsiteId, accessToken)
       }
@@ -1331,6 +1371,18 @@ export default function CreatePage() {
    * page, which replaces the preview so what the merchant sees matches the
    * live site.
    */
+  /** The terminal job, reported the same way whichever path delivered it. */
+  const reportHeroVideoOutcome = (done: HeroVideoJob) => {
+    if (done.status === 'completed') {
+      if (done.html_content) setGeneratedHtml(done.html_content)
+      toast.success(done.message || 'Video latar hero telah dipasang.')
+    } else {
+      const msg = heroVideoJobErrorMessage(done.error)
+      setHeroVideoError(msg)
+      toast.error(msg)
+    }
+  }
+
   const launchHeroVideo = async (websiteId: string, token: string | null) => {
     heroVideoWebsiteId.current = websiteId
     setHeroVideoError(null)
@@ -1353,15 +1405,72 @@ export default function CreatePage() {
           getToken: async () => (await getApiAuthToken()) || token,
         }
       )
-      if (!done) return
-      if (done.status === 'completed') {
-        if (done.html_content) setGeneratedHtml(done.html_content)
-        toast.success(done.message || 'Video latar hero telah dipasang.')
-      } else {
-        const msg = heroVideoJobErrorMessage(done.error)
-        setHeroVideoError(msg)
-        toast.error(msg)
+      if (done) reportHeroVideoOutcome(done)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Penjanaan video gagal. Sila cuba lagi.'
+      setHeroVideoError(msg)
+      toast.error(msg)
+    }
+  }
+
+  /**
+   * Start the hero video the moment generation starts, against no site.
+   * Everything the clip needs is on the form already; the page takes
+   * minutes to build, so the clip is usually `ready` before the merchant
+   * has finished reviewing it, and /api/publish puts it on the page it
+   * uploads. Never blocks generation, never surfaces as an error: if it
+   * fails, publish simply falls back to the post-publish job.
+   */
+  const prepareHeroVideoEarly = async () => {
+    if (!heroVideoWanted || !heroVideoOptions || !heroVideoAccess?.allowed) return
+    if (preparedHeroVideoJobId.current) return
+    setHeroVideoError(null)
+    const token = (await getApiAuthToken()) || getStoredToken()
+    try {
+      const done = await runPreparedHeroVideoJob(
+        {
+          style: heroVideoStyle,
+          prompt: heroVideoPrompt.trim() || undefined,
+          image_url: uploadedImages.hero || undefined,
+          business_name: projectName.trim() || undefined,
+          business_type: businessType === 'auto' ? undefined : businessType,
+          description: description,
+          hero_image_prompt: heroImagePrompt.trim() || undefined,
+        },
+        token,
+        {
+          onUpdate: (job) => {
+            preparedHeroVideoJobId.current = job.job_id
+            setHeroVideoJob(job)
+          },
+          shouldStop: () => heroVideoStopped.current,
+          getToken: async () => (await getApiAuthToken()) || token,
+        }
+      )
+      if (done && done.status === 'failed') {
+        console.warn('🎬 prepared hero video failed; publish will start a fresh one', done.error)
+        preparedHeroVideoJobId.current = null
+        setHeroVideoJob(null)
       }
+    } catch (err) {
+      console.warn('🎬 prepared hero video not started; publish will start a fresh one', err)
+      preparedHeroVideoJobId.current = null
+      setHeroVideoJob(null)
+    }
+  }
+
+  /** Watch a prepared job the publish attached to the new site. */
+  const followHeroVideoAfterPublish = async (websiteId: string, jobId: string, token: string | null) => {
+    heroVideoWebsiteId.current = websiteId
+    setHeroVideoError(null)
+    try {
+      const done = await followPublishedHeroVideoJob(websiteId, jobId, token, {
+        onUpdate: setHeroVideoJob,
+        shouldStop: () => heroVideoStopped.current,
+        getToken: async () => (await getApiAuthToken()) || token,
+      })
+      preparedHeroVideoJobId.current = null
+      if (done) reportHeroVideoOutcome(done)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Penjanaan video gagal. Sila cuba lagi.'
       setHeroVideoError(msg)
@@ -2686,7 +2795,7 @@ export default function CreatePage() {
             </div>
 
             <button
-              onClick={() => { setStyleVariations([]); setGeneratedHtml(''); setError(''); setPublishedUrl(''); }}
+              onClick={() => { setStyleVariations([]); setGeneratedHtml(''); setError(''); setPublishedUrl(''); preparedHeroVideoJobId.current = null; setHeroVideoJob(null); }}
               className="cr-btn cr-btn-ghost"
               style={{ marginBottom: 24 }}
             >
@@ -2764,6 +2873,13 @@ export default function CreatePage() {
                   Template: <span style={{ fontWeight: 600 }}>{templateUsed}</span> · Features: <span style={{ fontWeight: 600 }}>{detectedFeatures.join(', ')}</span>
                   {selectedStyle && <> · Style: <span style={{ fontWeight: 600, textTransform: 'capitalize' }}>{selectedStyle}</span></>}
                 </div>
+                {heroVideoJob && !publishedUrl && (
+                  <div data-testid="hero-video-prepared" style={{ fontSize: 12, marginTop: 6, color: heroVideoJob.status === 'ready' ? '#C7FF3D' : '#BAB0FF' }}>
+                    {heroVideoJob.status === 'ready'
+                      ? '🎬 Video latar hero sedia — akan dipasang serentak semasa anda terbitkan.'
+                      : `🎬 Video latar hero sedang dijana bersama laman${heroVideoJob.elapsed_seconds ? ` (${heroVideoJob.elapsed_seconds}s)` : ''}… Anda boleh terbitkan bila-bila masa; ia dipasang secara automatik.`}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2858,7 +2974,7 @@ export default function CreatePage() {
                 </div>
               </div>
 
-              <button onClick={() => { setGeneratedHtml(''); setStyleVariations([]); setSelectedStyle(null); setError(''); setPublishedUrl(''); setHeroVideoJob(null); setHeroVideoError(null); }} className="cr-btn cr-btn-ghost">Create Another</button>
+              <button onClick={() => { setGeneratedHtml(''); setStyleVariations([]); setSelectedStyle(null); setError(''); setPublishedUrl(''); setHeroVideoJob(null); setHeroVideoError(null); preparedHeroVideoJobId.current = null; }} className="cr-btn cr-btn-ghost">Create Another</button>
             </div>
 
             {previewMode === 'single' ? (

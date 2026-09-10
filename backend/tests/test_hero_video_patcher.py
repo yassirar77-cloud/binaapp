@@ -140,7 +140,8 @@ class TestApply:
 
     def test_explicit_text_mode_keep_never_forces_colour(self):
         html = apply_hero_video(TEMPLATE_PAGE, _settings(text_mode="keep")).html
-        assert "!important" not in html
+        style = html[html.index(f'<style id="{STYLE_ID}">'):html.index("</style>", html.index(STYLE_ID))]
+        assert "color:" not in style
 
     def test_poster_only_on_mobile_adds_media_query(self):
         html = apply_hero_video(TEMPLATE_PAGE, _settings(show_on_mobile=False)).html
@@ -397,3 +398,78 @@ class TestDeliveryUrl:
         # And embeds the slim URL, so a look tweak on an old page upgrades it.
         html = apply_hero_video(TEMPLATE_PAGE, build_settings(video_url=RAW)).html
         assert SLIM in html and RAW not in html
+
+
+class TestOneHeroVisual:
+    """The clip is animated from the merchant's own hero photo, and that
+    photo is the poster. It is also still IN the hero — the generated page
+    put it there as a cut-out <img> or a background div — so the visitor
+    saw the whale twice: the photo pinned bottom-right on top of the video
+    of the same whale (ikan.binaapp.my). While the layer is present the
+    hero's own copy is hidden; the layer's poster shows the photo again the
+    moment the video is not playing, so nothing is lost."""
+
+    PHOTO = "https://res.cloudinary.com/demo/image/upload/v1/binaapp/user_uploads/whale.jpg"
+    PAGE = (
+        "<html><head></head><body>"
+        '<section class="relative min-h-screen">'
+        f'<img src="{PHOTO}" alt="Ikan" class="hero-fish-img">'
+        f'<div class="absolute inset-0" style="background-image:url(\'{PHOTO}\')"></div>'
+        "<h1>IKAN</h1></section>"
+        f'<section id="cerita"><img src="{PHOTO}" alt="again"></section>'
+        "</body></html>"
+    )
+
+    def test_the_heros_copy_of_the_poster_photo_is_hidden(self):
+        html = apply_hero_video(self.PAGE, _settings(poster_url=self.PHOTO)).html
+        assert f'[{HERO_MARKER_ATTR}] img[src="{self.PHOTO}"]{{display:none !important;}}' in html
+        assert (
+            f'[{HERO_MARKER_ATTR}] [style*="{self.PHOTO}"]:not(.binaapp-hero-video-layer)'
+            "{background-image:none !important;}"
+        ) in html
+
+    def test_the_layers_own_poster_background_survives(self):
+        html = apply_hero_video(self.PAGE, _settings(poster_url=self.PHOTO)).html
+        layer = html[html.index(BLOCK_START):html.index(BLOCK_END)]
+        assert f"background-image:url('{self.PHOTO}')" in layer
+        assert ":not(.binaapp-hero-video-layer)" in html
+
+    def test_scoped_to_the_hero_so_a_gallery_copy_stays(self):
+        # Every hide rule is prefixed with the hero marker; the same photo
+        # in the story section is untouched by construction.
+        html = apply_hero_video(self.PAGE, _settings(poster_url=self.PHOTO)).html
+        style = html[html.index(f'<style id="{STYLE_ID}">'):html.index("</style>")]
+        for rule in style.split("}"):
+            if self.PHOTO in rule:
+                assert rule.lstrip().startswith(f"[{HERO_MARKER_ATTR}]")
+
+    def test_no_poster_means_no_hide_rule(self):
+        html = apply_hero_video(self.PAGE, _settings(poster_url=None)).html
+        assert "img[src=" not in html
+
+    def test_quotes_in_a_url_cannot_break_out_of_the_selector(self):
+        # build_settings already drops a poster that is not a clean https
+        # URL, so no rule is emitted for it at all…
+        tricky = 'https://x.test/a"b.jpg'
+        html = apply_hero_video(TEMPLATE_PAGE, _settings(poster_url=tricky)).html
+        assert "img[src=" not in html
+        # …and the selector builder escapes regardless, as a second wall.
+        from app.services.hero_video_patcher import _css_string
+        assert _css_string(tricky) == 'https://x.test/a\\"b.jpg'
+        assert _css_string("a\\b") == "a\\\\b"
+
+    def test_a_page_patched_before_this_rule_is_upgraded(self):
+        # Simulate the previous generation: same output minus the hide rules.
+        html = apply_hero_video(self.PAGE, _settings(poster_url=self.PHOTO)).html
+        style_start = html.index(f'<style id="{STYLE_ID}">')
+        style_end = html.index("</style>", style_start)
+        old_style = html[style_start:style_end]
+        stripped = "}".join(r for r in old_style.split("}") if self.PHOTO not in r)
+        legacy = html[:style_start] + stripped + html[style_end:]
+        assert " img[src=" not in legacy
+        assert needs_style_upgrade(legacy) is True
+        assert needs_style_upgrade(html) is False
+        # Re-applying from the page's own settings restores the rule.
+        current = detect_hero_video(legacy)
+        healed = apply_hero_video(legacy, build_settings(**current)).html
+        assert f'img[src="{self.PHOTO}"]' in healed

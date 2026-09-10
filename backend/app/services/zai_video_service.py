@@ -447,6 +447,10 @@ def build_hero_video_prompt(
 
 JOB_STATUS_PROCESSING = "processing"
 JOB_STATUS_STORING = "storing"
+#: A clip generated BEFORE its site existed (prepared while the page was
+#: being generated) is stored and waiting for the publish that will carry
+#: it. Not "active": it costs nothing to hold and blocks no new job.
+JOB_STATUS_READY = "ready"
 JOB_STATUS_COMPLETED = "completed"
 JOB_STATUS_FAILED = "failed"
 
@@ -458,6 +462,8 @@ _JOB_TTL_SECONDS = 2 * 60 * 60
 class HeroVideoJob:
     job_id: str
     task_id: str
+    #: Empty for a job prepared before its site existed; the publish that
+    #: claims the clip fills it in.
     website_id: str
     user_id: str
     prompt: str
