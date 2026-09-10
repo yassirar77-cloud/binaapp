@@ -62,6 +62,29 @@ class TestDetectors:
                                   '<section id="home" class="min-h-screen">')
         assert "b1_section_height_cap" not in firing_guards(html)
 
+    def test_first_section_without_an_id_is_the_hero(self):
+        # The generator's editorial heroes carry no id at all (goki, ikan):
+        # `<section class="relative h-screen …">` straight after the
+        # header. The cap collapsed them to their text height.
+        html = CLEAN_PAGE.replace('<section id="home">',
+                                  '<section class="relative h-screen min-h-[600px]">')
+        assert "b1_section_height_cap" not in firing_guards(html)
+
+    def test_video_marked_hero_is_exempt_wherever_it_sits(self):
+        html = CLEAN_PAGE.replace(
+            '<section id="menu">',
+            '<section id="menu" class="min-h-screen" data-binaapp-hero-video="1">',
+        )
+        assert "b1_section_height_cap" not in firing_guards(html)
+
+    def test_the_rule_itself_carries_the_same_exemptions(self):
+        from app.services.templates import template_service
+
+        css = template_service.LAYOUT_SAFETY_CSS
+        cap = css[css.index("(b1)"):css.index("(b2)")]
+        assert ':not([data-binaapp-hero-video]):not(:first-of-type)' in cap
+        assert cap.count(":not(:first-of-type)") == 3
+
     def test_hero_with_no_image(self):
         html = CLEAN_PAGE.replace(
             '<img src="https://cdn.test/hero.jpg" alt="Nasi campur di kaunter">', ""

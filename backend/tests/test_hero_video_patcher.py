@@ -18,6 +18,7 @@ from app.services.hero_video_patcher import (
     build_settings,
     detect_hero_video,
     find_hero_open_tag,
+    hero_height_floor,
     needs_style_upgrade,
     remove_hero_video,
 )
@@ -473,3 +474,60 @@ class TestOneHeroVisual:
         current = detect_hero_video(legacy)
         healed = apply_hero_video(legacy, build_settings(**current)).html
         assert f'img[src="{self.PHOTO}"]' in healed
+
+
+class TestHeroKeepsItsHeight:
+    """The layout safety guard caps every section it cannot recognise as
+    the hero (min-height:auto !important on .h-screen / .min-h-screen),
+    and the generator's editorial heroes carry no id. goki's full-bleed
+    ``h-screen min-h-[600px]`` hero collapsed to the height of its two
+    lines of text, with the clip squeezed into that band. The patch knows
+    which section the hero is; it puts the height back."""
+
+    GOKI = (
+        "<html><head></head><body><main>"
+        '<section class="relative h-screen min-h-[600px] flex items-center overflow-hidden">'
+        "<h1>Kedai Bunny</h1></section>"
+        '<section id="arnab" class="py-20"><h2>Arnab</h2></section>'
+        "</main></body></html>"
+    )
+    SIX = f"[{HERO_MARKER_ATTR}]" * 6
+
+    def test_reads_the_heros_own_height_classes(self):
+        assert hero_height_floor('<section class="h-screen">') == "100vh"
+        assert hero_height_floor('<section class="relative min-h-screen flex">') == "100vh"
+        assert hero_height_floor('<section class="h-screen min-h-[600px]">') == "max(100vh,600px)"
+        assert hero_height_floor('<section class="min-h-[70vh]">') == "70vh"
+        assert hero_height_floor('<section class="h-dvh">') == "100dvh"
+        assert hero_height_floor('<section class="min-h-[40rem]">') == "40rem"
+
+    def test_breakpoint_variants_and_other_classes_are_not_a_floor(self):
+        assert hero_height_floor('<section class="md:min-h-screen lg:h-screen py-24">') is None
+        assert hero_height_floor('<section class="min-h-full h-auto w-screen">') is None
+        assert hero_height_floor('<section id="home">') is None
+        assert hero_height_floor("") is None
+
+    def test_restores_the_height_with_a_rule_that_outranks_the_guard(self):
+        html = apply_hero_video(self.GOKI, _settings()).html
+        rule = f"{self.SIX}{{min-height:max(100vh,600px) !important;height:auto !important;}}"
+        assert rule in html
+        # Six attribute selectors: (0,6,0) beats the guard's (0,5,1)
+        # section:not(...)x4.h-screen — and the guard is re-injected after
+        # this block on every serve, so order alone could never win.
+        assert html.count(HERO_MARKER_ATTR) >= 7
+
+    def test_a_hero_with_no_height_of_its_own_is_left_alone(self):
+        page = self.GOKI.replace('class="relative h-screen min-h-[600px] flex items-center overflow-hidden"', 'class="py-24"')
+        html = apply_hero_video(page, _settings()).html
+        assert "min-height:" not in html[html.index(f'<style id="{STYLE_ID}">'):html.index("</style>", html.index(STYLE_ID))]
+
+    def test_a_page_patched_before_this_rule_is_upgraded(self):
+        fresh = apply_hero_video(self.GOKI, _settings()).html
+        without = fresh.replace(
+            f"{self.SIX}{{min-height:max(100vh,600px) !important;height:auto !important;}}", ""
+        )
+        assert without != fresh
+        assert needs_style_upgrade(without) is True
+        assert needs_style_upgrade(fresh) is False
+        current = detect_hero_video(without)
+        assert apply_hero_video(without, build_settings(**current)).html == fresh

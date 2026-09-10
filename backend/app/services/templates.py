@@ -3781,12 +3781,17 @@ html.aos-initialized [data-aos][data-aos][data-aos].aos-init.aos-animate {
 }
 
 /* (b1) Bound non-hero section heights so AI-emitted min-h-screen / 100vh on content
-   sections doesn't push everything off-screen. */
-section:not([id="home"]):not([id="hero"]):not([id="laman-utama"]):not([id="page-order"]) {
+   sections doesn't push everything off-screen.
+   The hero is exempt three ways: by id; by being the FIRST section in its
+   parent (the generator's editorial heroes carry no id at all — goki, ikan —
+   and this rule was collapsing a full-bleed h-screen hero to the height of
+   its two lines of text); and by carrying the hero-video marker, which
+   names the hero outright. */
+section:not([id="home"]):not([id="hero"]):not([id="laman-utama"]):not([id="page-order"]):not([data-binaapp-hero-video]):not(:first-of-type) {
   min-height: auto;
 }
-section:not([id="home"]):not([id="hero"]):not([id="laman-utama"]):not([id="page-order"]).h-screen,
-section:not([id="home"]):not([id="hero"]):not([id="laman-utama"]):not([id="page-order"]).min-h-screen {
+section:not([id="home"]):not([id="hero"]):not([id="laman-utama"]):not([id="page-order"]):not([data-binaapp-hero-video]):not(:first-of-type).h-screen,
+section:not([id="home"]):not([id="hero"]):not([id="laman-utama"]):not([id="page-order"]):not([data-binaapp-hero-video]):not(:first-of-type).min-h-screen {
   height: auto !important;
   min-height: auto !important;
 }

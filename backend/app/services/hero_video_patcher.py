@@ -437,7 +437,41 @@ def _css_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def _build_style(settings: HeroVideoSettings) -> str:
+#: Tailwind height utilities on the hero's own tag, unprefixed (a
+#: ``md:`` variant is a breakpoint's choice and is left to it). Captures the
+#: arbitrary value of ``min-h-[600px]`` / ``h-[70vh]``; the keyword forms
+#: (screen / svh / dvh / lvh) carry no group.
+_HEIGHT_CLASS_RE = re.compile(
+    r"(?<![\w:-])(?:min-h|h)-(?:(screen|svh|dvh|lvh)|\[(\d+(?:\.\d+)?)(px|vh|svh|dvh|lvh|rem)\])(?![\w-])"
+)
+
+
+def hero_height_floor(open_tag: str) -> Optional[str]:
+    """The height the hero's own classes ask for, as one CSS length — or
+    None when they ask for nothing in particular.
+
+    The layout safety guard caps every section that is not recognisably
+    the hero (``min-height:auto !important`` on ``.h-screen`` /
+    ``.min-h-screen``), and the generator's editorial heroes carry no id:
+    goki's ``h-screen min-h-[600px]`` hero collapsed to the height of its
+    two lines of text, with the clip squeezed into that band. The video
+    patch knows which section the hero is, so it puts the height back.
+    """
+    classes = _read_attr(open_tag, "class") or ""
+    values: List[str] = []
+    for match in _HEIGHT_CLASS_RE.finditer(classes):
+        keyword, number, unit = match.groups()
+        if keyword:
+            values.append("100vh" if keyword == "screen" else f"100{keyword}")
+        else:
+            values.append(f"{number}{unit}")
+    unique = list(dict.fromkeys(values))
+    if not unique:
+        return None
+    return unique[0] if len(unique) == 1 else f"max({','.join(unique)})"
+
+
+def _build_style(settings: HeroVideoSettings, hero_open_tag: str = "") -> str:
     hero = f"[{HERO_MARKER_ATTR}]"
     opacity = settings.overlay_opacity
 
@@ -473,6 +507,17 @@ def _build_style(settings: HeroVideoSettings) -> str:
         f"{hero} > .binaapp-hero-video-layer .binaapp-hero-video-scrim{{"
         f"position:absolute;inset:0;{scrim}}}",
     ]
+
+    floor = hero_height_floor(hero_open_tag) if hero_open_tag else None
+    if floor:
+        # Six copies of the marker: (0,6,0) outranks the layout guard's
+        # (0,5,1) ``section:not(...)x4.h-screen`` cap, which is !important
+        # and re-injected AFTER this block on every serve — so specificity,
+        # not order, has to win. Newer guards exempt the marked hero
+        # outright; this keeps pages that carry an older guard right too.
+        rules.append(
+            f"{hero * 6}{{min-height:{floor} !important;height:auto !important;}}"
+        )
 
     if settings.poster_url:
         # ONE hero visual, not two. When the clip was animated from the
@@ -537,28 +582,23 @@ LEGACY_CHILD_RULE = (
 
 
 def needs_style_upgrade(html: str) -> bool:
-    """True when the page has a hero video whose injected markup predates
-    the current release: the child-restyling CSS (LEGACY_CHILD_RULE) or a
-    layer without the playback bootstrap. False for pages without a video
-    and for pages already on the current output."""
+    """True when the page carries a hero video whose injected markup is not
+    what the current release would write for the same settings — the
+    first release's child-restyling CSS, a layer without the playback
+    bootstrap, a hero whose own photo is not hidden, a hero whose height
+    the guard took away. Defined as "would a re-apply change the page",
+    so every future generation is covered without a new special case.
+    False for pages without a video and for pages already current."""
     if not html:
         return False
-    style = _STYLE_RE.search(html)
-    if not style:
-        return False
-    if LEGACY_CHILD_RULE in style.group(0):
-        return True
-    # Second generation: the block exists but predates the playback
-    # bootstrap (poster-only on phones that refuse the initial autoplay).
-    block = _BLOCK_RE.search(html)
-    if not block:
-        return False
-    if "v.play()" not in block.group(0):
-        return True
-    # Third generation: a poster is set but the hero's own copy of that
-    # photo is not hidden — the page shows the visual twice.
     current = detect_hero_video(html)
-    return bool(current and current.get("poster_url")) and " img[src=" not in style.group(0)
+    if not current:
+        return False
+    try:
+        rebuilt = apply_hero_video(html, build_settings(**current))
+    except ValueError:
+        return False
+    return rebuilt.changed and rebuilt.html != html
 
 
 def remove_hero_video(html: str) -> HeroVideoResult:
@@ -610,7 +650,7 @@ def apply_hero_video(html: str, settings: HeroVideoSettings) -> HeroVideoResult:
         base[: hero.start()] + marked_tag + layer + base[hero.end():]
     )
 
-    style = _build_style(settings)
+    style = _build_style(settings, hero_open_tag=open_tag)
     head_close = _HEAD_CLOSE_RE.search(patched)
     notes: List[str] = []
     if head_close:
