@@ -3591,6 +3591,26 @@ async def publish_website(
         except Exception as _map_err:
             logger.warning(f"🗺️ Map embed step skipped: {_map_err}")
 
+        # A hero video prepared while the page was still generating (see
+        # hero_video.prepare_hero_video) is put on the page NOW, so the
+        # site goes live carrying its clip in this same write — not static
+        # for the minutes a post-publish job took. Nothing is consumed
+        # here: the job is only confirmed once the upload below succeeds.
+        hero_video_job_id = body.get("hero_video_job_id") or None
+        hero_video_staged = {"status": "none"}
+        if hero_video_job_id:
+            try:
+                from app.api.v1.endpoints.hero_video import stage_prepared_hero_video
+                html_content, hero_video_staged = stage_prepared_hero_video(
+                    str(hero_video_job_id), user_id, html_content
+                )
+                logger.info(
+                    f"🎬 [PUBLISH] prepared hero video {hero_video_job_id}: "
+                    f"{hero_video_staged.get('status')}"
+                )
+            except Exception as _hv_err:
+                logger.warning(f"🎬 [PUBLISH] prepared hero video skipped: {_hv_err}")
+
         delivery_enabled = bool(features.get("deliverySystem")) or bool(delivery)
 
         # CRITICAL FIX: ALWAYS create database record BEFORE storage upload
@@ -3865,13 +3885,37 @@ async def publish_website(
 
             if storage_response.status_code in [200, 201]:
                 logger.info(f"✅ Published successfully: {subdomain}.binaapp.my")
+                # The site is live: confirm the staged clip, or attach a
+                # still-rendering one so the server applies it on landing.
+                hero_video_info = {"status": "none"}
+                if hero_video_job_id:
+                    try:
+                        from app.api.v1.endpoints.hero_video import settle_prepared_hero_video
+                        hero_video_info = await settle_prepared_hero_video(
+                            str(hero_video_job_id),
+                            user_id,
+                            {
+                                "id": website_id,
+                                "user_id": user_id,
+                                "subdomain": subdomain,
+                                "status": "published",
+                                "html_content": html_content,
+                            },
+                            hero_video_staged,
+                        )
+                        if hero_video_info.get("status") == "applied" and not hero_video_info.get("html_content"):
+                            hero_video_info["html_content"] = html_content
+                    except Exception as _hv_err:
+                        logger.warning(f"🎬 [PUBLISH] prepared hero video not settled: {_hv_err}")
+                        hero_video_info = {"status": "none", "job_id": hero_video_job_id, "reason": "settle_failed"}
                 return {
                     "success": True,
                     "website_id": website_id,
                     "subdomain": subdomain,
                     "url": f"https://{subdomain}.binaapp.my",
                     "message": "Website published successfully! Visit your site at the URL above.",
-                    "status": "live"
+                    "status": "live",
+                    "hero_video": hero_video_info,
                 }
             else:
                 logger.error(f"❌ Storage upload failed: {storage_response.status_code} - {storage_response.text}")

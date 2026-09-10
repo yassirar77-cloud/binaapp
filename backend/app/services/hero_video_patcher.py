@@ -432,6 +432,11 @@ PLAYBACK_BOOTSTRAP = (
 _TEXT_ELEMENTS = ("h1", "h2", "h3", "h4", "p", "li", "blockquote")
 
 
+def _css_string(value: str) -> str:
+    """A URL as the body of a double-quoted CSS attribute-selector string."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def _build_style(settings: HeroVideoSettings) -> str:
     hero = f"[{HERO_MARKER_ATTR}]"
     opacity = settings.overlay_opacity
@@ -468,6 +473,23 @@ def _build_style(settings: HeroVideoSettings) -> str:
         f"{hero} > .binaapp-hero-video-layer .binaapp-hero-video-scrim{{"
         f"position:absolute;inset:0;{scrim}}}",
     ]
+
+    if settings.poster_url:
+        # ONE hero visual, not two. When the clip was animated from the
+        # merchant's own hero photo, that photo is the poster — and it is
+        # also still on the page as the hero's <img> (or a background
+        # div), now painted on top of its own moving version: a cut-out
+        # of the whale over the video of the whale (ikan, 14:00). Hide
+        # the hero's copy while the layer is present; the layer shows the
+        # same photo as its poster whenever the video is not playing, so
+        # nothing is lost. A clip-frame poster never appears in the
+        # merchant's markup, so for text-to-video this matches nothing.
+        photo = _css_string(settings.poster_url)
+        rules.append(f'{hero} img[src="{photo}"]{{display:none !important;}}')
+        rules.append(
+            f'{hero} [style*="{photo}"]:not(.binaapp-hero-video-layer)'
+            "{background-image:none !important;}"
+        )
 
     text_mode = settings.resolved_text_mode()
     if text_mode in ("light", "dark"):
@@ -529,7 +551,14 @@ def needs_style_upgrade(html: str) -> bool:
     # Second generation: the block exists but predates the playback
     # bootstrap (poster-only on phones that refuse the initial autoplay).
     block = _BLOCK_RE.search(html)
-    return bool(block) and "v.play()" not in block.group(0)
+    if not block:
+        return False
+    if "v.play()" not in block.group(0):
+        return True
+    # Third generation: a poster is set but the hero's own copy of that
+    # photo is not hidden — the page shows the visual twice.
+    current = detect_hero_video(html)
+    return bool(current and current.get("poster_url")) and " img[src=" not in style.group(0)
 
 
 def remove_hero_video(html: str) -> HeroVideoResult:

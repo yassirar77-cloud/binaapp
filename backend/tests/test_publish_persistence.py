@@ -333,6 +333,79 @@ class TestApiPublishPersistsDescription:
         assert payload["published_at"] == payload["updated_at"]
 
 
+    def test_publish_carries_a_prepared_hero_video(
+        self, client, auth_headers, test_user_id
+    ):
+        """A clip prepared while the page was generating goes live IN the
+        publish: the page uploaded to storage already carries it, the row
+        holds it, and the response says so — no post-publish job, no
+        minutes of a static hero."""
+        from app.services import zai_video_service as svc
+
+        svc.zai_video_service._jobs.clear()
+        job = svc.zai_video_service.register_job(
+            task_id="task-p", website_id="", user_id=test_user_id, prompt="p",
+            settings={"overlay": "dark", "overlay_opacity": 0.4, "text_mode": "auto", "show_on_mobile": True},
+            provider="dashscope",
+            image_url="https://res.cloudinary.com/demo/image/upload/v1/whale.jpg",
+        )
+        job.status = svc.JOB_STATUS_READY
+        job.video_url = "https://res.cloudinary.com/demo/video/upload/v1/binaapp/hero-videos/p-ab.mp4"
+        job.poster_url = job.image_url
+
+        hero_html = (
+            "<!DOCTYPE html><html><head><title>Ikan</title></head><body>"
+            '<section id="home"><img src="https://res.cloudinary.com/demo/image/upload/v1/whale.jpg">'
+            "<h1>Ikan</h1></section></body></html>"
+        )
+        supabase_mock, fake_client = self._republish_env("ws-existing-1", test_user_id)
+        with self._republish_patches(supabase_mock, fake_client):
+            resp = client.post(
+                "/api/publish",
+                headers=auth_headers,
+                json={
+                    "html_content": hero_html,
+                    "subdomain": "ikan",
+                    "project_name": "Ikan",
+                    "website_id": "ws-existing-1",
+                    "hero_video_job_id": job.job_id,
+                },
+            )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["hero_video"]["status"] == "applied"
+        assert "binaapp-hero-video-layer" in data["hero_video"]["html_content"]
+        uploaded = fake_client.post.call_args.kwargs["content"].decode("utf-8")
+        assert "binaapp-hero-video-layer" in uploaded
+        assert "hero-videos/p-ab.mp4" in uploaded
+        payload = self._captured_upsert_payload(supabase_mock)
+        assert "binaapp-hero-video-layer" in payload["html_content"]
+        assert job.status == "completed" and job.website_id == "ws-existing-1"
+        svc.zai_video_service._jobs.clear()
+
+    def test_publish_without_a_prepared_clip_is_unchanged(
+        self, client, auth_headers, test_user_id
+    ):
+        supabase_mock, fake_client = self._republish_env("ws-existing-1", test_user_id)
+        with self._republish_patches(supabase_mock, fake_client):
+            resp = client.post(
+                "/api/publish",
+                headers=auth_headers,
+                json={
+                    "html_content": VALID_BALANCED_HTML,
+                    "subdomain": "existingshop",
+                    "project_name": "Existing Shop",
+                    "website_id": "ws-existing-1",
+                    "hero_video_job_id": "gone-after-a-restart",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["hero_video"] == {
+            "status": "none", "job_id": "gone-after-a-restart", "reason": "job_not_found",
+        }
+
+
 # ----------------------------------------------------------------------
 # app.api.simple.publish (do_insert path)
 # ----------------------------------------------------------------------

@@ -8,8 +8,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   HERO_VIDEO_MAX_POLL_FAILURES,
+  followPublishedHeroVideoJob,
   isTransientFetchError,
   runHeroVideoJob,
+  runPreparedHeroVideoJob,
   type HeroVideoJob,
 } from './heroVideo';
 
@@ -219,3 +221,106 @@ describe('isTransientFetchError', () => {
   });
 });
 
+
+describe('runPreparedHeroVideoJob — the clip made while the page generates', () => {
+  const fetchMock = vi.fn();
+  const sleep = async () => {};
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('prepares against no site, polls the prepared-job endpoint and stops at ready', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(202, START_OK))
+      .mockResolvedValueOnce(jsonResponse(200, job({ status: 'processing', website_id: '' })))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          200,
+          job({
+            status: 'ready',
+            website_id: '',
+            video_url: 'https://res.cloudinary.com/x/video/upload/v.mp4',
+            message: 'Video sedia — akan dipasang semasa laman diterbitkan.',
+          })
+        )
+      );
+    const seen: string[] = [];
+    const done = await runPreparedHeroVideoJob(
+      {
+        style: 'cinematic',
+        image_url: 'https://res.cloudinary.com/x/image/upload/whale.jpg',
+        business_name: 'Kedai Ikan',
+        description: 'Kedai ikan unik',
+      },
+      'tok',
+      { sleep, onUpdate: (j) => seen.push(j.status) }
+    );
+
+    expect(done?.status).toBe('ready');
+    expect(seen).toEqual(['processing', 'processing', 'ready']);
+
+    const [prepareUrl, prepareInit] = fetchMock.mock.calls[0];
+    expect(prepareUrl).toMatch(/\/api\/v1\/websites\/hero-video\/prepare$/);
+    expect(prepareInit.method).toBe('POST');
+    const body = JSON.parse(prepareInit.body);
+    expect(body.business_name).toBe('Kedai Ikan');
+    expect(body.image_url).toMatch(/whale\.jpg$/);
+
+    const [pollUrl] = fetchMock.mock.calls[1];
+    expect(pollUrl).toMatch(/\/api\/v1\/websites\/hero-video\/jobs\/job-1$/);
+    // Never the site-scoped endpoints: there is no site yet.
+    for (const [url] of fetchMock.mock.calls) expect(url).not.toMatch(/\/websites\/ws-/);
+  });
+
+  it('surfaces a failed prepare as the failed job, not an exception', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(202, START_OK))
+      .mockResolvedValueOnce(jsonResponse(200, job({ status: 'failed', error: 'generation_failed' })));
+    const done = await runPreparedHeroVideoJob({ style: 'cinematic' }, 'tok', { sleep });
+    expect(done?.status).toBe('failed');
+    expect(done?.error).toBe('generation_failed');
+  });
+});
+
+describe('followPublishedHeroVideoJob — a prepared job the publish attached', () => {
+  const fetchMock = vi.fn();
+  const sleep = async () => {};
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('polls the site job endpoint without starting anything', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, job({ status: 'storing', website_id: WS })))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          200,
+          job({
+            status: 'completed',
+            website_id: WS,
+            applied: true,
+            live_site_updated: true,
+            html_content: '<html>with video</html>',
+          })
+        )
+      );
+    const done = await followPublishedHeroVideoJob(WS, 'job-1', 'tok', { sleep });
+    expect(done?.status).toBe('completed');
+    expect(done?.html_content).toBe('<html>with video</html>');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [url, init] of fetchMock.mock.calls) {
+      expect(url).toMatch(/\/api\/v1\/websites\/ws-1\/hero-video\/jobs\/job-1$/);
+      expect(init?.method ?? 'GET').toBe('GET');
+    }
+  });
+});

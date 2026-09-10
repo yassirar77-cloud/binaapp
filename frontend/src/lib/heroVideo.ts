@@ -65,12 +65,16 @@ export interface HeroVideoSettings {
 export type HeroVideoJobStatus =
   | 'processing'
   | 'storing'
+  /** Prepared ahead of publish: stored and waiting for the publish that will carry it. */
+  | 'ready'
   | 'completed'
   | 'failed';
 
 export interface HeroVideoJob {
   job_id: string;
   status: HeroVideoJobStatus;
+  /** Empty for a job prepared before its site existed. */
+  website_id?: string;
   error: string | null;
   video_url: string | null;
   poster_url: string | null;
@@ -115,6 +119,38 @@ export interface StartHeroVideoRequest extends HeroVideoLook {
   prompt?: string;
   duration?: number;
   image_url?: string;
+}
+
+/**
+ * Start a clip BEFORE the site exists — while the page is generating — so
+ * the publish that follows carries it. The business context the row would
+ * have supplied comes from the form instead.
+ */
+export interface PrepareHeroVideoRequest extends StartHeroVideoRequest {
+  business_name?: string;
+  business_type?: string;
+  description?: string;
+  hero_image_prompt?: string;
+}
+
+/** What /api/publish did with the prepared clip it was handed. */
+export interface PublishHeroVideoOutcome {
+  /** applied: the live page carries it; pending: attached, applied automatically when it lands. */
+  status: 'applied' | 'pending' | 'none' | 'failed';
+  job_id?: string | null;
+  message?: string;
+  /** The published page with the clip on it, when applied. */
+  html_content?: string;
+  error?: string;
+  reason?: string;
+}
+
+export interface StartedHeroVideoJob {
+  job_id: string;
+  status: HeroVideoJobStatus;
+  poll_interval_seconds: number;
+  prompt: string;
+  message: string;
 }
 
 export interface HeroVideoPatchResult {
@@ -312,13 +348,38 @@ export async function startHeroVideo(
   websiteId: string,
   body: StartHeroVideoRequest,
   token: string | null
-): Promise<{ job_id: string; status: HeroVideoJobStatus; poll_interval_seconds: number; prompt: string; message: string }> {
+): Promise<StartedHeroVideoJob> {
   const resp = await authedFetch(
     `/api/v1/websites/${websiteId}/hero-video/generate`,
     token,
     { method: 'POST', body: JSON.stringify(body) }
   );
   return parseOrThrow(resp);
+}
+
+/**
+ * Start the clip with no site yet (the page is still generating). Poll it
+ * with `pollPreparedHeroVideoJob`; `ready` means it is stored and waiting.
+ * Hand the job id to /api/publish as `hero_video_job_id`.
+ */
+export async function prepareHeroVideo(
+  body: PrepareHeroVideoRequest,
+  token: string | null
+): Promise<StartedHeroVideoJob> {
+  const resp = await authedFetch('/api/v1/websites/hero-video/prepare', token, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  return parseOrThrow(resp);
+}
+
+/** One poll of a job prepared ahead of publish. */
+export async function pollPreparedHeroVideoJob(
+  jobId: string,
+  token: string | null
+): Promise<HeroVideoJob> {
+  const resp = await authedFetch(`/api/v1/websites/hero-video/jobs/${jobId}`, token);
+  return parseOrThrow<HeroVideoJob>(resp);
 }
 
 /** One poll. The call that sees the clip land also applies it to the page. */
@@ -387,24 +448,22 @@ export interface RunHeroVideoJobOptions {
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
- * Kick off a hero-video job and poll it to a terminal state.
+ * Poll an already-started job to a terminal state.
  *
- * The create page has no persistent panel to resume from, so it needs the
- * whole lifecycle in one awaitable: start → poll every N seconds → return
- * the completed/failed job. The poll that observes completion carries the
- * patched `html_content`, which the caller pushes into its preview.
+ * Shared by the three ways a job reaches the page: started against a
+ * published site, prepared ahead of publish (terminal state `ready`), or
+ * attached to the site by the publish and followed from there.
  *
  * Resolves with the terminal job, or `null` when `shouldStop()` asked us to
- * abandon it. Throws on a failed start or a poll transport error, with a
- * Malay message ready for the UI.
+ * abandon it. Throws on a poll transport error that does not recover, with
+ * a Malay message ready for the UI.
  */
-export async function runHeroVideoJob(
-  websiteId: string,
-  body: StartHeroVideoRequest,
+export async function followHeroVideoJob(
+  started: StartedHeroVideoJob,
+  poll: (token: string | null) => Promise<HeroVideoJob>,
   token: string | null,
   opts: RunHeroVideoJobOptions = {}
 ): Promise<HeroVideoJob | null> {
-  const started = await startHeroVideo(websiteId, body, token);
   const interval = Math.max(
     2,
     started.poll_interval_seconds || opts.intervalSeconds || 8
@@ -438,7 +497,7 @@ export async function runHeroVideoJob(
     }
     const pollToken = opts.getToken ? await opts.getToken() : token;
     try {
-      job = await pollHeroVideoJob(websiteId, started.job_id, pollToken);
+      job = await poll(pollToken);
       failures = 0;
     } catch (err) {
       // A dropped connection is not a failed job: the clip is still being
@@ -453,4 +512,69 @@ export async function runHeroVideoJob(
     if (isHeroVideoJobActive(job)) await sleep(interval * 1000);
   }
   return job;
+}
+
+/**
+ * Kick off a hero-video job against a published site and poll it to a
+ * terminal state. The poll that observes completion carries the patched
+ * `html_content`, which the caller pushes into its preview.
+ */
+export async function runHeroVideoJob(
+  websiteId: string,
+  body: StartHeroVideoRequest,
+  token: string | null,
+  opts: RunHeroVideoJobOptions = {}
+): Promise<HeroVideoJob | null> {
+  const started = await startHeroVideo(websiteId, body, token);
+  return followHeroVideoJob(
+    started,
+    (t) => pollHeroVideoJob(websiteId, started.job_id, t),
+    token,
+    opts
+  );
+}
+
+/**
+ * Start the clip while the page is still generating and follow it until it
+ * is `ready` (stored, waiting for the publish) or failed. The create page
+ * keeps the job id and sends it with /api/publish.
+ */
+export async function runPreparedHeroVideoJob(
+  body: PrepareHeroVideoRequest,
+  token: string | null,
+  opts: RunHeroVideoJobOptions = {}
+): Promise<HeroVideoJob | null> {
+  const started = await prepareHeroVideo(body, token);
+  return followHeroVideoJob(
+    started,
+    (t) => pollPreparedHeroVideoJob(started.job_id, t),
+    token,
+    opts
+  );
+}
+
+/**
+ * Follow a prepared job that /api/publish attached to the new site
+ * (`hero_video.status === 'pending'`): the server applies the clip when it
+ * lands; this only watches, on the site's own job endpoint.
+ */
+export async function followPublishedHeroVideoJob(
+  websiteId: string,
+  jobId: string,
+  token: string | null,
+  opts: RunHeroVideoJobOptions = {}
+): Promise<HeroVideoJob | null> {
+  const started: StartedHeroVideoJob = {
+    job_id: jobId,
+    status: 'processing',
+    poll_interval_seconds: opts.intervalSeconds || 8,
+    prompt: '',
+    message: 'Video latar hero hampir siap dan akan dipasang secara automatik.',
+  };
+  return followHeroVideoJob(
+    started,
+    (t) => pollHeroVideoJob(websiteId, jobId, t),
+    token,
+    opts
+  );
 }
