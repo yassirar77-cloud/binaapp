@@ -44,6 +44,8 @@ from urllib.parse import quote, urlsplit
 import cloudinary
 import cloudinary.uploader
 import httpx
+
+from app.services.hero_video_patcher import hero_video_delivery_url
 from loguru import logger
 
 
@@ -990,10 +992,35 @@ class ZaiVideoService:
         logger.info(
             f"☁️ Hero video stored ({len(video_bytes) // 1024} KB): {secure_url[:60]}..."
         )
+        # The page embeds the slimmed delivery URL, never the raw asset (see
+        # HERO_VIDEO_DELIVERY_TRANSFORM). The poster is derived from the raw
+        # asset: Cloudinary swaps the extension for a first-frame JPEG, and
+        # a video transform in that path would be applied to an image.
+        delivery_url = hero_video_delivery_url(secure_url)
+        await self._warm_delivery(delivery_url)
         return {
-            "video_url": secure_url,
+            "video_url": delivery_url,
             "poster_url": self.poster_url_for(secure_url),
         }
+
+    async def _warm_delivery(self, delivery_url: Optional[str]) -> None:
+        """Ask Cloudinary for the transformed clip once, now, off the request
+        path. The first request for a derived asset makes Cloudinary
+        transcode it (~2–3 s for a 13 MB source); paying that here means the
+        first visitor never does. Best-effort: any failure is logged and the
+        raw asset still serves through the same URL."""
+        if not delivery_url:
+            return
+        try:
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                response = await client.get(delivery_url, headers={"User-Agent": _DOWNLOAD_USER_AGENT})
+            size = len(getattr(response, "content", b"") or b"")
+            logger.info(
+                f"☁️ Hero video delivery warmed: HTTP {response.status_code}, "
+                f"{size // 1024} KB served"
+            )
+        except Exception as exc:  # noqa: BLE001 — warming is best-effort
+            logger.warning(f"☁️ Hero video delivery warm-up failed (non-fatal): {exc}")
 
 
 zai_video_service = ZaiVideoService()

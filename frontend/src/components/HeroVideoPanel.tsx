@@ -378,7 +378,10 @@ export default function HeroVideoPanel({ websiteId, onHtmlChange }: Props) {
                 aria-label="Pratonton video latar semasa"
               />
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-semibold text-gray-900">Video sedang dipasang</div>
+                {/* "telah", not "sedang": this card renders once the clip IS on
+                    the page. "sedang dipasang" read as "still being installed"
+                    and sent a merchant looking for a problem that wasn't there. */}
+                <div className="text-sm font-semibold text-gray-900">Video telah dipasang</div>
                 <div className="text-xs text-gray-500">
                   Jana semula untuk klip baharu, atau laraskan lapisan di bawah.
                 </div>

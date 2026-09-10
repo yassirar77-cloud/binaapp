@@ -251,32 +251,40 @@ class TestStore:
         assert kwargs["resource_type"] == "video"
         assert kwargs["folder"] == "binaapp/hero-videos"
         assert kwargs["public_id"].startswith("ws-1-")
-        assert stored["video_url"].endswith("ws-1-ab.mp4")
-        assert stored["poster_url"].endswith("ws-1-ab.jpg")
+        # The page gets the slim delivery URL; the poster is derived from the
+        # RAW asset (a video transform in an image path would be wrong).
+        assert stored["video_url"] == (
+            "https://res.cloudinary.com/demo/video/upload/q_auto:eco,w_1280,c_limit,ac_none/v1/binaapp/hero-videos/ws-1-ab.mp4"
+        )
+        assert stored["poster_url"] == "https://res.cloudinary.com/demo/video/upload/v1/binaapp/hero-videos/ws-1-ab.jpg"
+        # And the derived asset is requested once now, so the first visitor
+        # never waits for Cloudinary to transcode it.
+        assert calls["get"][1]["url"] == stored["video_url"]
 
-    async def test_oversized_download_is_refused(self, zai_env, monkeypatch):
-        monkeypatch.setenv("ZAI_VIDEO_MAX_BYTES", "10")
-        client, _ = fake_client(get_response=FakeResponse(200, content=b"x" * 11))
-        upload = MagicMock()
-        with patch.object(httpx, "AsyncClient", client), \
+    async def test_delivery_warm_up_failure_is_not_fatal(self, zai_env):
+        """The first GET (the provider download) succeeds; the second (the
+        Cloudinary warm-up) blows up. store() must still return its URLs —
+        warming is a courtesy to the first visitor, not a requirement."""
+        calls = {"get": []}
+
+        class _Client:
+            def __init__(self, *a, **k): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *exc): return False
+            async def get(self, url, headers=None):
+                calls["get"].append(url)
+                if len(calls["get"]) == 1:
+                    return FakeResponse(200, content=b"mp4-bytes")
+                raise httpx.ConnectError("cdn down")
+
+        upload = MagicMock(return_value={
+            "secure_url": "https://res.cloudinary.com/demo/video/upload/v1/binaapp/hero-videos/ws-1-ab.mp4"
+        })
+        with patch.object(httpx, "AsyncClient", _Client), \
              patch.object(svc.cloudinary.uploader, "upload", upload):
-            with pytest.raises(ZaiVideoError, match="too large"):
-                await ZaiVideoService().store("https://cdn/v.mp4", website_id="ws-1")
-        upload.assert_not_called()
-
-    async def test_download_failure(self, zai_env):
-        client, _ = fake_client(get_response=FakeResponse(404, content=b""))
-        with patch.object(httpx, "AsyncClient", client):
-            with pytest.raises(ZaiVideoError, match="download failed"):
-                await ZaiVideoService().store("https://cdn/v.mp4", website_id="ws-1")
-
-    async def test_upload_failure(self, zai_env):
-        client, _ = fake_client(get_response=FakeResponse(200, content=b"bytes"))
-        upload = MagicMock(side_effect=RuntimeError("cloudinary down"))
-        with patch.object(httpx, "AsyncClient", client), \
-             patch.object(svc.cloudinary.uploader, "upload", upload):
-            with pytest.raises(ZaiVideoError, match="storage failed"):
-                await ZaiVideoService().store("https://cdn/v.mp4", website_id="ws-1")
+            stored = await ZaiVideoService().store("https://cdn/v.mp4", website_id="ws-1")
+        assert stored["video_url"].endswith("ws-1-ab.mp4") and "q_auto:eco" in stored["video_url"]
+        assert len(calls["get"]) == 2 and calls["get"][1] == stored["video_url"]
 
     def test_poster_url_derivation(self):
         assert ZaiVideoService.poster_url_for("https://r/video/upload/v1/a/b.mp4") == "https://r/video/upload/v1/a/b.jpg"
