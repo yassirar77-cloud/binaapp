@@ -175,8 +175,8 @@ class TestFlag:
 class TestOptions:
     def test_catalogue_is_public(self, client):
         body = client.get("/api/v1/websites/hero-video/options").json()
-        # DashScope HappyHorse is the default provider.
-        assert body["success"] and body["model"] == "happyhorse-1.1-t2v"
+        # DashScope running the unified wan3.0-video model is the default.
+        assert body["success"] and body["model"] == "wan3.0-video"
         assert body["provider"] == "dashscope"
         assert {s["key"] for s in body["styles"]} >= {"cinematic", "ambient", "elegant"}
         assert all(s["label_ms"] for s in body["styles"])
