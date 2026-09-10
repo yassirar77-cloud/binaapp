@@ -53,6 +53,15 @@ _SUBDOMAIN_CACHE_MAX_ENTRIES = 512
 _website_lookup_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _storage_html_cache: Dict[str, Tuple[float, str]] = {}
 
+# key: subdomain -> opaque version stamped at the last republish. Appended to
+# the storage URL (?v=...) so the fetch after a publish is a NEW cache key for
+# Supabase's storage CDN. The object itself is served with
+# "cache-control: public, max-age=3600" and the Smart CDN takes up to a minute
+# to notice an upsert — long enough that a merchant checking their site right
+# after the hero video landed got the pre-video page even though both the
+# DB row and the storage object already had the video (mibo, 12:44 vs 12:43).
+_storage_versions: Dict[str, str] = {}
+
 
 def _cache_get(cache: Dict[str, Tuple[float, Any]], key: str) -> Optional[Any]:
     entry = cache.get(key)
@@ -89,6 +98,23 @@ def invalidate_site_cache(subdomain: str) -> None:
         return
     _storage_html_cache.pop(subdomain, None)
     _website_lookup_cache.pop(subdomain, None)
+    _bump_storage_version(subdomain)
+
+
+def _bump_storage_version(subdomain: str) -> None:
+    """Give the subdomain's storage object a fresh CDN cache key."""
+    if len(_storage_versions) >= _SUBDOMAIN_CACHE_MAX_ENTRIES:
+        _storage_versions.pop(next(iter(_storage_versions)), None)
+    _storage_versions.pop(subdomain, None)  # re-insert so it is the newest
+    _storage_versions[subdomain] = str(time.time_ns())
+
+
+def storage_object_url(subdomain: str, path: str) -> str:
+    """Public storage URL for `path`, versioned when the site was republished
+    in this process so the CDN cannot hand back the pre-publish copy."""
+    url = f"{settings.SUPABASE_URL}/storage/v1/object/public/{settings.STORAGE_BUCKET_NAME}/{path}"
+    version = _storage_versions.get(subdomain)
+    return f"{url}?v={version}" if version else url
 
 
 def _page_etag(html_content: str) -> str:
@@ -302,15 +328,13 @@ async def _fetch_html_from_storage(subdomain: str) -> Optional[str]:
     if cached_html is not None:
         return cached_html
 
-    supabase_url = settings.SUPABASE_URL
-    bucket = settings.STORAGE_BUCKET_NAME
-
-    if not supabase_url:
+    if not settings.SUPABASE_URL:
         logger.error("SUPABASE_URL not configured - cannot fetch website from storage")
         return None
 
-    # Try subdomain path first (new structure)
-    storage_url = f"{supabase_url}/storage/v1/object/public/{bucket}/{subdomain}/index.html"
+    # Try subdomain path first (new structure). Versioned after a republish
+    # so the storage CDN's hour-long copy of the old page is never served.
+    storage_url = storage_object_url(subdomain, f"{subdomain}/index.html")
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -322,7 +346,7 @@ async def _fetch_html_from_storage(subdomain: str) -> Optional[str]:
                 return response.text
 
             # Try legacy path (demo-user/{subdomain}/index.html)
-            legacy_url = f"{supabase_url}/storage/v1/object/public/{bucket}/demo-user/{subdomain}/index.html"
+            legacy_url = storage_object_url(subdomain, f"demo-user/{subdomain}/index.html")
             response = await client.get(legacy_url)
 
             if response.status_code == 200:

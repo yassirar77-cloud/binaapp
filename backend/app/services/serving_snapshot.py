@@ -13,6 +13,7 @@ reads the live page the same way instead of each re-implementing it.
 
 from __future__ import annotations
 
+import time
 from typing import Optional
 
 import httpx
@@ -26,10 +27,13 @@ async def fetch_published_snapshot(
 ) -> Optional[str]:
     """Fetch `{subdomain}/index.html` from Supabase Storage, or None.
 
-    `cache_bust` is appended as a query param so an edge cache can never hand
-    back a stale copy of the page we are about to rewrite. Both the current
-    serving key and the legacy `demo-user/` path are tried, mirroring the
-    subdomain middleware's own lookup order.
+    `cache_bust` labels the read (which edit path wanted it); a unique suffix
+    is appended so the storage CDN can never hand back a stale copy of the
+    page we are about to rewrite. A constant value was not enough: the CDN
+    caches each query-string key for an hour, so a second hero-video or theme
+    edit within the hour was reading the snapshot from the first one, missing
+    any editor save made in between. Both the current serving key and the
+    legacy `demo-user/` path are tried, mirroring the middleware's lookup.
     """
     supabase_url = settings.SUPABASE_URL
     bucket = settings.STORAGE_BUCKET_NAME
@@ -37,10 +41,11 @@ async def fetch_published_snapshot(
         return None
 
     base = f"{supabase_url}/storage/v1/object/public/{bucket}"
+    nonce = f"{cache_bust}-{time.time_ns()}"
     for path in (f"{subdomain}/index.html", f"demo-user/{subdomain}/index.html"):
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.get(f"{base}/{path}?cb={cache_bust}")
+                resp = await client.get(f"{base}/{path}?cb={nonce}")
             if resp.status_code == 200 and resp.text:
                 return resp.text
         except Exception as exc:
