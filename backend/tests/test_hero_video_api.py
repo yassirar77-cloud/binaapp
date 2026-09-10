@@ -667,3 +667,88 @@ class TestPhotoIsTheStill:
         }
         body = _poll_done(client, auth_headers, job_id).json()
         assert body["poster_url"] == CLOUD_POSTER and body["image_url"] is None
+
+
+class TestServerDrivesTheJob:
+    """The server polls the provider itself. Before this, the browser's
+    poll was the only thing that advanced a job: website malan's merchant
+    went back to the dashboard 56 seconds in, DashScope finished the clip,
+    and nobody ever collected it.
+
+    These run the driver on a real event loop rather than through the
+    sync TestClient: that fixture opens a fresh portal per request and
+    tears it down with the response, cancelling any timer-driven task —
+    a browser that has left, in miniature, and exactly the situation in
+    which the clip must still land. Nothing here ever polls the job."""
+
+    def _job(self, user_id, **kw):
+        return svc.zai_video_service.register_job(
+            task_id="task-1", website_id="ws-1", user_id=user_id, prompt="p",
+            settings=ep.HeroVideoLook().model_dump(), provider="dashscope", **kw,
+        )
+
+    def test_generate_starts_the_driver(self, client, auth_headers, patches):
+        job_id = _start_job(client, auth_headers)
+        assert svc.zai_video_service.get_job(job_id).driver_task is not None
+
+    async def test_clip_lands_with_nobody_polling(self, patches, test_user_id, monkeypatch):
+        monkeypatch.setattr(ep, "POLL_INTERVAL_SECONDS", 0.01)
+        patches["fetch_result"].return_value = {
+            "status": "success", "video_url": "https://cdn.z.ai/v.mp4", "cover_image_url": None,
+        }
+        job = self._job(test_user_id)
+        await ep._drive_hero_video_job(job, "ws-1", test_user_id)
+        assert job.status == "storing" and job.finalize_task is not None
+        await job.finalize_task
+        assert job.status == "completed" and job.applied is True and job.live_site_updated is True
+        patches["store"].assert_awaited_once_with("https://cdn.z.ai/v.mp4", website_id="ws-1")
+        assert CLOUD_VIDEO in _published_html(patches)
+
+    async def test_failure_refunds_with_nobody_polling(self, patches, test_user_id, monkeypatch):
+        """A paid clip the provider fails must give the credit back even
+        though no browser is there to observe the failure."""
+        monkeypatch.setattr(ep, "POLL_INTERVAL_SECONDS", 0.01)
+        patches["fetch_result"].return_value = {
+            "status": "fail", "video_url": None, "cover_image_url": None,
+        }
+        job = self._job(test_user_id, charged=True)
+        await ep._drive_hero_video_job(job, "ws-1", test_user_id)
+        assert job.status == "failed" and job.error == "generation_failed"
+        assert patches["refund_credit"].called
+        patches["store"].assert_not_called()
+
+    async def test_timeout_refunds_with_nobody_polling(self, patches, test_user_id, monkeypatch):
+        monkeypatch.setattr(ep, "POLL_INTERVAL_SECONDS", 0.01)
+        monkeypatch.setenv("ZAI_VIDEO_MAX_WAIT_SECONDS", "0")
+        job = self._job(test_user_id, charged=True)
+        await ep._drive_hero_video_job(job, "ws-1", test_user_id)
+        assert job.status == "failed" and job.error == "timeout"
+        assert patches["refund_credit"].called
+        patches["fetch_result"].assert_not_called()
+
+    async def test_driver_stops_when_the_job_is_purged(self, patches, test_user_id, monkeypatch):
+        """A registry sweep (TTL) or reset must not leave a driver acting on
+        a job nobody can see."""
+        monkeypatch.setattr(ep, "POLL_INTERVAL_SECONDS", 0.01)
+        job = self._job(test_user_id)
+        svc.zai_video_service._jobs.clear()
+        await ep._drive_hero_video_job(job, "ws-1", test_user_id)
+        assert job.status == "processing"
+        patches["fetch_result"].assert_not_called()
+
+    async def test_browser_poll_and_driver_hand_off_exactly_once(self, patches, test_user_id, monkeypatch):
+        """Both may observe SUCCESS; only one may store the clip."""
+        import asyncio
+        monkeypatch.setattr(ep, "POLL_INTERVAL_SECONDS", 0.01)
+        patches["fetch_result"].return_value = {
+            "status": "success", "video_url": "https://cdn.z.ai/v.mp4", "cover_image_url": None,
+        }
+        job = self._job(test_user_id)
+        await asyncio.gather(
+            ep._drive_hero_video_job(job, "ws-1", test_user_id),
+            ep._advance_hero_video_job(job, "ws-1", test_user_id),
+        )
+        await job.finalize_task
+        assert job.status == "completed"
+        patches["store"].assert_awaited_once()
+        patches["publish_website"].assert_called_once()

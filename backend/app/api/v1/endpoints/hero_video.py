@@ -78,6 +78,7 @@ from app.services.zai_video_service import (
     DEFAULT_VIDEO_STYLE,
     JOB_STATUS_COMPLETED,
     JOB_STATUS_FAILED,
+    JOB_STATUS_PROCESSING,
     JOB_STATUS_STORING,
     VIDEO_STYLE_PRESETS,
     ZaiVideoError,
@@ -569,13 +570,22 @@ async def generate_hero_video(
         f"🎬 Hero video job {job.job_id} started for {website_id} "
         f"(style={style}, provider={provider}, task={task_id})"
     )
+    # The server polls the provider from here on. Until now the ONLY thing
+    # that advanced a job was the browser's poll: a merchant who went back
+    # to the dashboard while "video sedang dijana" left the finished clip
+    # uncollected — and on a paid plan, the credit spent with no refund,
+    # since nobody was there to observe a failure either. (Website malan,
+    # task 144693e5: five polls over 56 seconds, then silence; the clip
+    # was made and never applied.) The browser poll still works; it now
+    # just reads state, and can no longer be the thing the job depends on.
+    job.driver_task = asyncio.create_task(_drive_hero_video_job(job, website_id, user_id))
     return {
         "success": True,
         "job_id": job.job_id,
         "status": job.status,
         "poll_interval_seconds": POLL_INTERVAL_SECONDS,
         "prompt": prompt,
-        "message": "Video sedang dijana. Ini mengambil masa 1–3 minit.",
+        "message": "Video sedang dijana (1–3 minit) dan akan dipasang secara automatik.",
     }
 
 
@@ -615,52 +625,98 @@ async def poll_hero_video_job(
         # Finaliser is running in the background — just report progress.
         return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
 
-    # Two dashboard tabs polling the same job must not both hand off.
+    # Two dashboard tabs polling the same job must not both hand off — and
+    # neither may race the server-side driver. One shared step, under the
+    # job lock, idempotent on terminal states.
+    handed_off = await _advance_hero_video_job(job, website_id, user_id, website=website)
+    if job.status in (JOB_STATUS_COMPLETED, JOB_STATUS_FAILED):
+        return _terminal()
+    body = {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
+    if handed_off:
+        body["message"] = "Video sedia — sedang dipasang pada laman web."
+    return body
+
+
+async def _advance_hero_video_job(
+    job, website_id: str, user_id: str, website: Optional[dict] = None
+) -> bool:
+    """One step of the job: time it out, ask the provider, fail-and-refund,
+    or hand a finished clip to the finaliser. Returns True only on the call
+    that hands off. Safe to call from the browser poll and the server
+    driver concurrently — the job lock serialises them and every terminal
+    state short-circuits, so a clip is stored exactly once.
+
+    ``website`` is the row when the caller already loaded it (the poll
+    endpoint did, for the ownership check); the driver leaves it None and
+    it is loaded only at hand-off, so a job in flight costs no reads.
+    """
     async with job.lock:
-        if job.status in (JOB_STATUS_COMPLETED, JOB_STATUS_FAILED):
-            return _terminal()
-        if job.status == JOB_STATUS_STORING:
-            return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
+        if job.status != JOB_STATUS_PROCESSING:
+            return False
 
         if job.age_seconds() > zai_video_max_wait_seconds():
             job.status = JOB_STATUS_FAILED
             job.error = "timeout"
             logger.warning(f"[hero-video] job {job.job_id} timed out")
             await _refund_if_charged(job)
-            return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
+            return False
 
         try:
             result = await zai_video_service.fetch_result(job.task_id, provider=job.provider)
         except ZaiVideoError as exc:
-            # A transient poll error is not a failed job — report processing
-            # and let the client ask again.
+            # A transient poll error is not a failed job — stay processing
+            # and ask again next time.
             logger.warning(f"[hero-video] poll error for {job.job_id}: {exc}")
-            return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
+            return False
 
         if result["status"] == "fail":
             job.status = JOB_STATUS_FAILED
             job.error = "generation_failed"
             await _refund_if_charged(job)
-            return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
+            return False
         if result["status"] != "success":
-            return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
+            return False
+
+        if website is None:
+            try:
+                website = await _load_owned_website(website_id, user_id)
+            except HTTPException as exc:
+                # The site vanished or changed hands mid-job. Nothing to
+                # patch; do not keep the merchant's money for it.
+                job.status = JOB_STATUS_FAILED
+                job.error = "website_unavailable"
+                logger.error(f"[hero-video] job {job.job_id}: website unavailable ({exc.detail})")
+                await _refund_if_charged(job)
+                return False
 
         # The provider is done. Everything that follows — download the MP4,
         # upload to Cloudinary, patch the page, write two storage paths and
-        # the DB — used to run INSIDE this poll request, which the browser
-        # fires every few seconds: a 3.9-second GET on a hot path. It now
-        # runs as a background task; this and every later poll only read
-        # job state. The dashboard already treats 'storing' as in-progress.
+        # the DB — used to run INSIDE the poll request, which the browser
+        # fires every few seconds: a 3.9-second GET on a hot path. It runs
+        # as a background task; polls only read job state from here on. The
+        # dashboard already treats 'storing' as in-progress.
         job.status = JOB_STATUS_STORING
         job.finalize_task = asyncio.create_task(
             _finalize_hero_video_job(job, website, user_id, result["video_url"])
         )
-        return {
-            "success": True,
-            **job.to_dict(),
-            "poll_interval_seconds": POLL_INTERVAL_SECONDS,
-            "message": "Video sedia — sedang dipasang pada laman web.",
-        }
+        return True
+
+
+async def _drive_hero_video_job(job, website_id: str, user_id: str) -> None:
+    """Advance the job to a terminal state whether or not a browser is
+    polling. Exits quietly if the registry no longer holds this job (TTL
+    sweep, or a reset), so a stale driver can never act on a dead job.
+    Once the clip is handed to the finaliser that task owns the rest."""
+    try:
+        while job.status == JOB_STATUS_PROCESSING:
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            if zai_video_service.get_job(job.job_id) is not job:
+                return
+            await _advance_hero_video_job(job, website_id, user_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001 — a driver must never die silently
+        logger.exception(f"[hero-video] driver for job {job.job_id} crashed")
 
 
 async def _finalize_hero_video_job(job, website: dict, user_id: str, provider_video_url: str) -> None:
