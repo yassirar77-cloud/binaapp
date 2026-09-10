@@ -29,3 +29,53 @@ def test_without_a_hero_prompt_behaviour_is_unchanged():
 def test_stays_within_the_provider_limit():
     p = build_hero_video_prompt(hero_image_prompt="x " * 400, custom_prompt="y " * 200)
     assert len(p) <= 512 and p.endswith(_PROMPT_SUFFIX)
+
+
+# ── prompt hygiene ───────────────────────────────────────────────────────────
+# Regression: the live prompt for website mirana went out as
+#   "Golden dress rotate behind beautifully Background video for a website
+#    hero: no text, ..."
+# The merchant's instruction ran straight into the boilerplate as one clause,
+# and the "cinematic" style they had selected never reached the model at all.
+
+def _head(prompt: str) -> str:
+    """The prompt with the fixed suffix removed."""
+    assert prompt.endswith(_PROMPT_SUFFIX)
+    return prompt[: len(prompt) - len(_PROMPT_SUFFIX)].rstrip()
+
+
+def test_custom_prompt_is_closed_before_the_boilerplate():
+    """No run-on: the suffix must start its own sentence."""
+    p = build_hero_video_prompt(custom_prompt="Golden dress rotate behind beautifully")
+    assert "beautifully Background video" not in p
+    assert _head(p).endswith(".")
+
+
+def test_hero_scene_motion_is_closed_before_the_boilerplate():
+    p = build_hero_video_prompt(hero_image_prompt=HERO, custom_prompt="steam rising")
+    assert "steam rising Background" not in p
+    assert _head(p).endswith(".")
+
+
+def test_selected_style_still_applies_when_a_custom_prompt_is_given():
+    """The style buttons were dead controls for anyone who typed a prompt."""
+    p = build_hero_video_prompt(custom_prompt="Golden dress rotate", style="cinematic")
+    assert p.startswith("Golden dress rotate.")  # merchant's words lead
+    assert "slow cinematic camera drift" in p
+    q = build_hero_video_prompt(custom_prompt="Golden dress rotate", style="elegant")
+    assert "luxurious minimal composition" in q
+    assert "slow cinematic camera drift" not in q
+
+
+def test_existing_punctuation_is_not_doubled():
+    for text in ("ends with period.", "excited!", "really?"):
+        p = build_hero_video_prompt(custom_prompt=text)
+        assert ".." not in p and "!." not in p and "?." not in p
+
+
+def test_terminator_never_pushes_the_prompt_over_the_limit():
+    from app.services.zai_video_service import ZAI_PROMPT_MAX_CHARS
+    for n in range(0, 700, 13):
+        p = build_hero_video_prompt(custom_prompt="y " * n, hero_image_prompt="x " * n)
+        assert len(p) <= ZAI_PROMPT_MAX_CHARS, (n, len(p))
+        assert p.endswith(_PROMPT_SUFFIX)

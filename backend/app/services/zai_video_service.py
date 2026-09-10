@@ -317,6 +317,28 @@ def _squash(text: str) -> str:
     return _WHITESPACE_RE.sub(" ", (text or "")).strip()
 
 
+#: Characters that already close a sentence, so _terminate leaves them alone.
+_SENTENCE_ENDINGS = ".!?…"
+
+
+def _terminate(text: str) -> str:
+    """End a fragment with a full stop so the next one starts a new sentence.
+
+    Merchant-written prompts almost never end in punctuation, and every part
+    of this prompt used to be joined with a bare space. That produced run-on
+    sentences that swallowed the subject: "Golden dress rotate behind
+    beautifully Background video for a website hero: no text, ..." reads as
+    one clause about a background video, not as an instruction to rotate a
+    golden dress. Video models weight a run-on clause as a single thought, so
+    the merchant's actual request was competing with the boilerplate instead
+    of leading it.
+    """
+    t = (text or "").rstrip()
+    if not t:
+        return t
+    return t if t[-1] in _SENTENCE_ENDINGS else t + "."
+
+
 def build_hero_video_prompt(
     *,
     business_name: str = "",
@@ -344,13 +366,20 @@ def build_hero_video_prompt(
     if hero_scene:
         scene = hero_scene
         motion = custom or preset["scene"]
-        scene = f"{scene}. {motion}"
+        scene = f"{_terminate(scene)} {motion}"
         logger.info(
             f"🎬 Video scene seeded from the merchant's hero image prompt "
             f"({'merchant motion' if custom else 'preset ' + style})"
         )
     elif custom:
-        scene = custom
+        # The merchant's own words lead the prompt, then the ambience they
+        # picked in the UI. This branch used to be `scene = custom`, which
+        # silently threw the style away: pick "Sinematik", type a prompt, and
+        # the preset never reached the model — the style buttons were dead
+        # controls for anyone who also wrote a prompt. Custom text stays first
+        # so it remains the dominant subject.
+        scene = f"{_terminate(custom)} {preset['scene']}"
+        logger.info(f"🎬 Video scene from the merchant's prompt + preset {style}")
     else:
         subject_bits = []
         kind = _squash(business_type).replace("_", " ")
@@ -367,10 +396,16 @@ def build_hero_video_prompt(
             scene += f": {desc}"
         scene += f". {preset['scene']}."
 
-    suffix_room = ZAI_PROMPT_MAX_CHARS - len(_PROMPT_SUFFIX) - 1
+    # -2 not -1: one char for the space before the suffix, one for the full
+    # stop _terminate may add after truncation. Without the extra char a
+    # max-length scene would push the finished prompt one over the provider
+    # limit and get clipped mid-word by the API.
+    suffix_room = ZAI_PROMPT_MAX_CHARS - len(_PROMPT_SUFFIX) - 2
     if len(scene) > suffix_room:
         scene = scene[: suffix_room - 3].rstrip() + "..."
-    prompt = f"{scene} {_PROMPT_SUFFIX}"
+    # Close the scene before the boilerplate so the suffix reads as its own
+    # instruction rather than as the tail of the merchant's sentence.
+    prompt = f"{_terminate(scene)} {_PROMPT_SUFFIX}"
     # Full, untruncated — same rule as the image prompt log.
     logger.info(f"🎬 VIDEO PROMPT [style={style}]: {prompt}")
     return prompt
