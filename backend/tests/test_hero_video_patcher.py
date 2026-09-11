@@ -444,9 +444,14 @@ class TestOneHeroVisual:
             if self.PHOTO in rule:
                 assert rule.lstrip().startswith(f"[{HERO_MARKER_ATTR}]")
 
-    def test_no_poster_means_no_hide_rule(self):
+    def test_no_poster_means_no_poster_rule(self):
+        # Without a poster the cut-out <img> (positioned by the merchant's
+        # own stylesheet, invisible to the backdrop scan) is left alone —
+        # while the hero's full-bleed background div is still neutralised,
+        # see TestHeroBackdropGivesWayToTheVideo.
         html = apply_hero_video(self.PAGE, _settings(poster_url=None)).html
         assert "img[src=" not in html
+        assert f'[style*="{self.PHOTO}"]:not(.binaapp-hero-video-layer)' in html
 
     def test_quotes_in_a_url_cannot_break_out_of_the_selector(self):
         # build_settings already drops a poster that is not a clean https
@@ -474,6 +479,162 @@ class TestOneHeroVisual:
         current = detect_hero_video(legacy)
         healed = apply_hero_video(legacy, build_settings(**current)).html
         assert f'img[src="{self.PHOTO}"]' in healed
+
+
+class TestHeroBackdropGivesWayToTheVideo:
+    """momo.binaapp.my: the merchant toggled the video on, the clip was made
+    from text (no photo uploaded, so the poster is the clip's own first
+    frame), and the generated hero carried its AI photo as
+    <img class="absolute inset-0 w-full h-full object-cover">. Positioned,
+    z-index auto and later in the DOM than the layer, that photo painted
+    over the z-index:-1 clip: the page carried data-binaapp-video-playing="1"
+    while every visitor saw a still. The hero's own full-bleed visuals are
+    hidden whenever the layer is present — poster match or not."""
+
+    PHOTO = "https://res.cloudinary.com/demo/image/upload/v1/binaapp/hero-photo.jpg"
+    OTHER = "https://res.cloudinary.com/demo/image/upload/v1/binaapp/gallery-1.jpg"
+    #: A clip-frame poster never appears in the merchant's markup.
+    CLIP_FRAME = POSTER
+
+    GENERATED_HERO = (
+        f'<img src="{PHOTO}" alt="Jam" class="absolute inset-0 w-full h-full object-cover" fetchpriority="high">'
+        '<div class="absolute inset-0 hero-overlay"></div>'
+        '<div class="particle" style="top: 20%; left: 15%;"></div>'
+        '<div class="relative z-10 text-center"><h1>Kedai</h1><p>Koleksi</p></div>'
+    )
+
+    def _page(self, hero_inner: str, after: str = "") -> str:
+        # The gallery card below the hero uses the SAME full-bleed idiom:
+        # the scan must stop at the hero's closing tag and never reach it.
+        return (
+            "<html><head></head><body>"
+            '<section id="home" class="relative min-h-screen flex items-center overflow-hidden">'
+            f"{hero_inner}"
+            "</section>"
+            '<section id="galeri"><div class="relative h-64">'
+            f'<img src="{self.OTHER}" class="absolute inset-0 w-full h-full object-cover"></div>{after}</section>'
+            "</body></html>"
+        )
+
+    @staticmethod
+    def _style(html: str) -> str:
+        return html[html.index(f'<style id="{STYLE_ID}">'):html.index("</style>")]
+
+    def test_full_bleed_hero_image_is_hidden_for_a_text_to_video_clip(self):
+        result = apply_hero_video(
+            self._page(self.GENERATED_HERO), _settings(poster_url=self.CLIP_FRAME)
+        )
+        assert (
+            f'[{HERO_MARKER_ATTR}] img[src="{self.PHOTO}"]{{display:none !important;}}'
+            in result.html
+        )
+        assert "backdrops_hidden:1" in result.notes
+        # The poster rule stays for the image-to-video case.
+        assert f'img[src="{self.CLIP_FRAME}"]' in result.html
+
+    def test_and_without_any_poster(self):
+        html = apply_hero_video(self._page(self.GENERATED_HERO), _settings(poster_url=None)).html
+        assert f'img[src="{self.PHOTO}"]{{display:none !important;}}' in html
+
+    def test_the_gallerys_full_bleed_image_is_not_touched(self):
+        html = apply_hero_video(self._page(self.GENERATED_HERO), _settings()).html
+        assert self.OTHER not in self._style(html)
+
+    def test_image_filling_a_full_bleed_wrapper(self):
+        hero = (
+            f'<div class="absolute inset-0"><img src="{self.PHOTO}" class="w-full h-full object-cover"></div>'
+            '<div class="relative z-10"><h1>Hai</h1></div>'
+        )
+        html = apply_hero_video(self._page(hero), _settings()).html
+        assert f'img[src="{self.PHOTO}"]{{display:none !important;}}' in html
+
+    def test_full_bleed_background_div(self):
+        hero = (
+            f'<div class="absolute inset-0 bg-cover bg-center" style="background-image: url(\'{self.PHOTO}\')"></div>'
+            '<div class="relative z-10"><h1>Hai</h1></div>'
+        )
+        html = apply_hero_video(self._page(hero), _settings()).html
+        assert (
+            f'[{HERO_MARKER_ATTR}] [style*="{self.PHOTO}"]:not(.binaapp-hero-video-layer)'
+            "{background-image:none !important;}"
+        ) in html
+        assert f'img[src="{self.PHOTO}"]' not in html
+
+    def test_content_images_stay(self):
+        # A split hero's product shot (in flow) and a floating badge photo
+        # are content, not backdrop: they keep painting above the clip.
+        hero = (
+            '<div class="grid md:grid-cols-2"><div><h1>Hai</h1></div>'
+            f'<div class="relative"><img src="{self.PHOTO}" class="rounded-3xl shadow-2xl w-full">'
+            f'<img src="{self.OTHER}" class="absolute -bottom-6 -right-6 w-40 h-40 rounded-full object-cover">'
+            "</div></div>"
+        )
+        result = apply_hero_video(self._page(hero), _settings())
+        style = self._style(result.html)
+        assert self.PHOTO not in style and self.OTHER not in style
+        assert not [n for n in result.notes if n.startswith("backdrops_hidden")]
+
+    def test_the_heros_own_background_needs_no_rule(self):
+        # The hero IS the stacking-context root: the layer already paints
+        # over its background.
+        page = (
+            "<html><head></head><body>"
+            f'<section id="home" class="bg-cover" style="background-image:url({self.PHOTO})"><h1>Hai</h1></section>'
+            "</body></html>"
+        )
+        html = apply_hero_video(page, _settings()).html
+        assert self.PHOTO not in self._style(html)
+
+    def test_div_hero_with_nested_divs_is_walked_to_its_own_close(self):
+        page = (
+            "<html><head></head><body>"
+            '<div class="hero relative"><div class="absolute inset-0"><div>'
+            f'<img src="{self.PHOTO}" class="w-full h-full object-cover"></div></div>'
+            '<div class="relative"><h1>Hai</h1></div></div>'
+            f'<div class="relative"><img src="{self.OTHER}" class="absolute inset-0 w-full h-full object-cover"></div>'
+            "</body></html>"
+        )
+        result = apply_hero_video(page, _settings())
+        assert result.hero_match == "class"
+        style = self._style(result.html)
+        assert self.PHOTO in style and self.OTHER not in style
+
+    def test_idempotent_and_removable(self):
+        page = self._page(self.GENERATED_HERO)
+        once = apply_hero_video(page, _settings()).html
+        assert apply_hero_video(once, _settings()).html == once
+        assert remove_hero_video(once).html == page
+
+    def test_a_page_patched_before_this_rule_is_upgraded_on_next_read(self):
+        html = apply_hero_video(self._page(self.GENERATED_HERO), _settings()).html
+        style_start = html.index(f'<style id="{STYLE_ID}">')
+        style_end = html.index("</style>", style_start)
+        old_style = html[style_start:style_end]
+        stripped = "}".join(r for r in old_style.split("}") if self.PHOTO not in r)
+        legacy = html[:style_start] + stripped + html[style_end:]
+        assert needs_style_upgrade(legacy) is True
+        assert needs_style_upgrade(html) is False
+        healed = apply_hero_video(legacy, build_settings(**detect_hero_video(legacy))).html
+        assert f'img[src="{self.PHOTO}"]{{display:none !important;}}' in healed
+
+    def test_rules_are_scoped_by_the_marker_even_for_a_shared_photo(self):
+        # The same photo as a gallery image elsewhere: every rule is
+        # prefixed with the hero marker, so only the hero's copy is hidden.
+        html = apply_hero_video(
+            self._page(self.GENERATED_HERO, after=f'<img src="{self.PHOTO}">'), _settings()
+        ).html
+        for rule in self._style(html).split("}"):
+            if self.PHOTO in rule:
+                assert rule.lstrip().startswith(f"[{HERO_MARKER_ATTR}]")
+
+    def test_unsafe_src_is_never_written_into_a_selector(self):
+        hero = (
+            '<img src="javascript:alert(1)" class="absolute inset-0 w-full h-full object-cover">'
+            '<img src="/local/hero.jpg" class="absolute inset-0 w-full h-full object-cover"><h1>x</h1>'
+        )
+        html = apply_hero_video(self._page(hero), _settings(poster_url=None)).html
+        style = self._style(html)
+        assert "javascript:" not in style and "/local/hero.jpg" not in style
 
 
 class TestHeroKeepsItsHeight:

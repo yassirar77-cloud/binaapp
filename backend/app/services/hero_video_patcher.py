@@ -41,6 +41,13 @@ SAFETY RULES
   only shape mobile Safari/Chrome will autoplay.
 * ``prefers-reduced-motion`` hides the video and leaves the poster still —
   motion behind text is exactly the thing that setting exists for.
+* The hero's own full-bleed visual gives way to the clip. A generated hero
+  carries its photo as ``<img class="absolute inset-0 … object-cover">`` (or
+  a full-bleed background div): positioned, so it paints ABOVE the
+  z-index:-1 layer and the video plays invisibly underneath it. The patch
+  scans the hero for such backdrops and hides them (by exact URL, scoped to
+  the marker) while the layer is present; the layer's poster keeps a still
+  in their place whenever the video is not playing.
 * Applying twice is applying once: apply() removes any previous block first,
   so settings changes never stack layers or nest markers.
 * URLs are validated (https, no quotes/spaces) and HTML-escaped before they
@@ -52,6 +59,7 @@ from __future__ import annotations
 import html as html_lib
 import logging
 import re
+from html.parser import HTMLParser
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -437,6 +445,169 @@ def _css_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
+# ---------------------------------------------------------------------------
+# The hero's own backdrop
+# ---------------------------------------------------------------------------
+
+#: Void elements never open a nesting level.
+_VOID_TAGS = frozenset((
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+    "meta", "param", "source", "track", "wbr",
+))
+#: Tailwind: taken out of flow. An in-flow hero image already sits below
+#: the layer's positioned siblings by the stacking rules; only a positioned
+#: one can end up painted over the clip.
+_POSITIONED_TOKENS = frozenset(("absolute", "fixed"))
+#: Tailwind: stretched edge to edge over its box.
+_COVER_TOKENS = frozenset(("inset-0", "size-full"))
+_CSS_URL_RE = re.compile(r"""url\(\s*['"]?([^'")\s]+)['"]?\s*\)""", re.IGNORECASE)
+
+
+def _covers_box(classes: frozenset) -> bool:
+    """``inset-0`` / ``size-full`` / ``w-full h-full``: fills its box."""
+    return bool(classes & _COVER_TOKENS) or {"w-full", "h-full"} <= classes
+
+
+def _is_full_bleed(classes: frozenset) -> bool:
+    """Positioned AND filling: the box paints over everything beneath it."""
+    return bool(classes & _POSITIONED_TOKENS) and _covers_box(classes)
+
+
+@dataclass
+class HeroBackdrops:
+    """The hero's own edge-to-edge visuals: ``<img>`` sources and inline
+    ``background-image`` URLs that would paint over the clip."""
+
+    images: List[str] = field(default_factory=list)
+    backgrounds: List[str] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        return bool(self.images or self.backgrounds)
+
+    @property
+    def count(self) -> int:
+        return len(self.images) + len(self.backgrounds)
+
+
+class _BackdropScanner(HTMLParser):
+    """Walk one hero element and collect the visuals that would paint over
+    the clip: an ``<img>`` or a background-image element that is itself
+    full-bleed (``absolute inset-0 …``), or an ``<img>`` filling a
+    full-bleed wrapper (``<div class="absolute inset-0"><img class="w-full
+    h-full object-cover">``).
+
+    Recognises the generator's and the design system's own idioms — Tailwind
+    utilities on the element or on a wrapper. A photo the merchant's markup
+    positions through its own stylesheet is invisible to this scan; that
+    case is still covered when the photo is the poster (image-to-video), see
+    ``_build_style``. In-flow images (a split hero's product shot) are left
+    alone on purpose: they already sit above the clip and below nothing,
+    exactly where a content image belongs.
+
+    Stops at the hero's closing tag, nesting-aware, so a ``<div>`` hero full
+    of ``<div>``s is fine. Unbalanced markup can only make the scan run past
+    the hero — and every rule built from it is scoped to the hero marker, so
+    nothing outside the hero can be affected either way.
+    """
+
+    def __init__(self, hero_tag: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self._hero_tag = hero_tag
+        #: Nesting depth of hero_tag; 0 until the hero's own tag opens.
+        self._depth = 0
+        #: Open elements inside the hero (root excluded): tag names and
+        #: class sets, kept in step.
+        self._tags: List[str] = []
+        self._stack: List[frozenset] = []
+        self.done = False
+        self.found = HeroBackdrops()
+
+    @staticmethod
+    def _attr(attrs, name: str) -> str:
+        for key, value in attrs:
+            if key == name:
+                return (value or "").strip()
+        return ""
+
+    def _classes(self, attrs) -> frozenset:
+        return frozenset(self._attr(attrs, "class").split())
+
+    def _consider(self, tag: str, attrs) -> None:
+        classes = self._classes(attrs)
+        wrapped = any(_is_full_bleed(parent) for parent in self._stack)
+        if tag == "img":
+            src = self._attr(attrs, "src")
+            if is_safe_media_url(src) and (
+                _is_full_bleed(classes)
+                or (wrapped and ("object-cover" in classes or _covers_box(classes)))
+            ):
+                if src not in self.found.images:
+                    self.found.images.append(src)
+        style = self._attr(attrs, "style")
+        if "background" in style:
+            match = _CSS_URL_RE.search(style)
+            url = match.group(1).strip() if match else ""
+            if is_safe_media_url(url) and (
+                _is_full_bleed(classes)
+                or (bool(classes & _POSITIONED_TOKENS) and "bg-cover" in classes)
+                or (wrapped and ("bg-cover" in classes or _covers_box(classes)))
+            ):
+                if url not in self.found.backgrounds:
+                    self.found.backgrounds.append(url)
+
+    def handle_starttag(self, tag, attrs):
+        if self.done:
+            return
+        if self._depth == 0:
+            # The first tag fed is the hero's own opening tag. It is the
+            # stacking-context root, whose background the layer already
+            # paints over — never a candidate, never on the stack.
+            if tag == self._hero_tag:
+                self._depth = 1
+            return
+        if tag == self._hero_tag:
+            self._depth += 1
+        self._consider(tag, attrs)
+        if tag not in _VOID_TAGS:
+            self._tags.append(tag)
+            self._stack.append(self._classes(attrs))
+
+    def handle_endtag(self, tag):
+        if self.done or self._depth == 0 or tag in _VOID_TAGS:
+            return
+        if tag == self._hero_tag:
+            self._depth -= 1
+            if self._depth == 0:
+                self.done = True
+                return
+        # Pop to the nearest open element of this name; a stray close tag
+        # with nothing to match is ignored, as a browser would.
+        for index in range(len(self._tags) - 1, -1, -1):
+            if self._tags[index] == tag:
+                del self._tags[index:]
+                del self._stack[index:]
+                break
+
+
+def find_hero_backdrops(html: str, hero: re.Match) -> HeroBackdrops:
+    """The hero's own full-bleed visuals — see ``_BackdropScanner``.
+
+    ``hero`` is the opening-tag match from ``find_hero_open_tag`` on the
+    same ``html``. Never raises: a scan that fails finds nothing, and the
+    patch proceeds exactly as it did before this scan existed.
+    """
+    tag_match = re.match(r"<([A-Za-z][\w-]*)", hero.group(0))
+    if not tag_match:
+        return HeroBackdrops()
+    scanner = _BackdropScanner(tag_match.group(1).lower())
+    try:
+        scanner.feed(html[hero.start():])
+        scanner.close()
+    except Exception as exc:  # noqa: BLE001 - best-effort, see docstring
+        logger.warning("[hero-video] backdrop scan aborted: %s", exc)
+    return scanner.found
+
+
 #: Tailwind height utilities on the hero's own tag, unprefixed (a
 #: ``md:`` variant is a breakpoint's choice and is left to it). Captures the
 #: arbitrary value of ``min-h-[600px]`` / ``h-[70vh]``; the keyword forms
@@ -471,8 +642,13 @@ def hero_height_floor(open_tag: str) -> Optional[str]:
     return unique[0] if len(unique) == 1 else f"max({','.join(unique)})"
 
 
-def _build_style(settings: HeroVideoSettings, hero_open_tag: str = "") -> str:
+def _build_style(
+    settings: HeroVideoSettings,
+    hero_open_tag: str = "",
+    backdrops: Optional[HeroBackdrops] = None,
+) -> str:
     hero = f"[{HERO_MARKER_ATTR}]"
+    backdrops = backdrops or HeroBackdrops()
     opacity = settings.overlay_opacity
 
     if settings.overlay == "dark":
@@ -519,20 +695,45 @@ def _build_style(settings: HeroVideoSettings, hero_open_tag: str = "") -> str:
             f"{hero * 6}{{min-height:{floor} !important;height:auto !important;}}"
         )
 
+    # ONE hero visual, not two — and the moving one wins.
+    #
+    # (a) When the clip was animated from the merchant's own hero photo,
+    #     that photo is the poster — and it is also still on the page as
+    #     the hero's <img> (or a background div), painted on top of its
+    #     own moving version: a cut-out of the whale over the video of the
+    #     whale (ikan, 14:00).
+    # (b) When the clip was made from text, the poster is the clip's own
+    #     first frame and matches nothing in the merchant's markup — but
+    #     the generated hero STILL carries its photo as
+    #     <img class="absolute inset-0 w-full h-full object-cover"> (or a
+    #     full-bleed background div). Positioned, z-index auto and later
+    #     in the DOM than the layer, it paints ABOVE the z-index:-1 clip:
+    #     momo.binaapp.my played its video invisibly behind a still photo,
+    #     data-binaapp-video-playing="1" and all.
+    #
+    # Hide the hero's copy of the poster (a) and every full-bleed backdrop
+    # the scan found (b) while the layer is present — by exact URL, scoped
+    # to the marker, so a gallery copy of the same photo elsewhere is
+    # untouched. The layer shows its poster whenever the video is not
+    # playing, so nothing is lost.
+    hidden_images: List[str] = []
+    hidden_backgrounds: List[str] = []
     if settings.poster_url:
-        # ONE hero visual, not two. When the clip was animated from the
-        # merchant's own hero photo, that photo is the poster — and it is
-        # also still on the page as the hero's <img> (or a background
-        # div), now painted on top of its own moving version: a cut-out
-        # of the whale over the video of the whale (ikan, 14:00). Hide
-        # the hero's copy while the layer is present; the layer shows the
-        # same photo as its poster whenever the video is not playing, so
-        # nothing is lost. A clip-frame poster never appears in the
-        # merchant's markup, so for text-to-video this matches nothing.
-        photo = _css_string(settings.poster_url)
-        rules.append(f'{hero} img[src="{photo}"]{{display:none !important;}}')
+        hidden_images.append(settings.poster_url)
+        hidden_backgrounds.append(settings.poster_url)
+    for url in backdrops.images:
+        if url not in hidden_images:
+            hidden_images.append(url)
+    for url in backdrops.backgrounds:
+        if url not in hidden_backgrounds:
+            hidden_backgrounds.append(url)
+    for url in hidden_images:
         rules.append(
-            f'{hero} [style*="{photo}"]:not(.binaapp-hero-video-layer)'
+            f'{hero} img[src="{_css_string(url)}"]{{display:none !important;}}'
+        )
+    for url in hidden_backgrounds:
+        rules.append(
+            f'{hero} [style*="{_css_string(url)}"]:not(.binaapp-hero-video-layer)'
             "{background-image:none !important;}"
         )
 
@@ -586,7 +787,8 @@ def needs_style_upgrade(html: str) -> bool:
     what the current release would write for the same settings — the
     first release's child-restyling CSS, a layer without the playback
     bootstrap, a hero whose own photo is not hidden, a hero whose height
-    the guard took away. Defined as "would a re-apply change the page",
+    the guard took away, a full-bleed hero image still painted over the
+    clip. Defined as "would a re-apply change the page",
     so every future generation is covered without a new special case.
     False for pages without a video and for pages already current."""
     if not html:
@@ -635,6 +837,7 @@ def apply_hero_video(html: str, settings: HeroVideoSettings) -> HeroVideoResult:
         return HeroVideoResult(html=html, changed=False, notes=["hero_not_found"])
 
     open_tag = hero.group(0)
+    backdrops = find_hero_backdrops(base, hero)
     # Write the marker onto the hero's opening tag, before its ">" (or "/>"
     # — self-closing would mean we picked a void element, which the tag list
     # already rules out, but the slice is written to survive it).
@@ -650,9 +853,11 @@ def apply_hero_video(html: str, settings: HeroVideoSettings) -> HeroVideoResult:
         base[: hero.start()] + marked_tag + layer + base[hero.end():]
     )
 
-    style = _build_style(settings, hero_open_tag=open_tag)
+    style = _build_style(settings, hero_open_tag=open_tag, backdrops=backdrops)
     head_close = _HEAD_CLOSE_RE.search(patched)
     notes: List[str] = []
+    if backdrops:
+        notes.append(f"backdrops_hidden:{backdrops.count}")
     if head_close:
         patched = (
             patched[: head_close.start()] + style + patched[head_close.start():]
@@ -664,11 +869,13 @@ def apply_hero_video(html: str, settings: HeroVideoSettings) -> HeroVideoResult:
         patched = patched.replace(layer, style + layer, 1)
 
     logger.info(
-        "[hero-video] injected (hero matched by %s, overlay=%s/%.2f, mobile=%s)",
+        "[hero-video] injected (hero matched by %s, overlay=%s/%.2f, mobile=%s, "
+        "hero backdrops hidden=%d)",
         how,
         settings.overlay,
         settings.overlay_opacity,
         "video" if settings.show_on_mobile else "poster",
+        backdrops.count,
     )
     return HeroVideoResult(
         html=patched,

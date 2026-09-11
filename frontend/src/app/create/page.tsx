@@ -843,6 +843,9 @@ export default function CreatePage() {
         body: JSON.stringify({
           description: description,
           business_description: description,
+          // The typed business name: the AI uses it verbatim. Blank → the
+          // backend falls back to guessing one from the story.
+          business_name: projectName.trim() || undefined,
           language: language,
           user_id: user?.id || 'anonymous',
           email: user?.email,  // Pass user email for founder bypass
@@ -1905,6 +1908,8 @@ export default function CreatePage() {
               // Was 1000, which silently truncated mid-sentence and ate
               // merchants' contact details before they reached generation.
               const DESC_MAX = 5000;
+              // Mirrors PrepareHeroVideoRequest.business_name (max_length=120) on the backend.
+              const BUSINESS_NAME_MAX = 120;
               const len = description.length;
               const pct = Math.min(100, (len / DESC_MIN) * 100);
               // Thresholds rescaled for DESC_MAX=5000 (they were tuned for 1000).
@@ -1939,6 +1944,33 @@ export default function CreatePage() {
                     </div>
                     <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Cerita pasal kedai anda</h2>
                     <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Lebih detail = website lebih baik. Cakap pasal vibe, pelanggan, signature menu, sejarah — semua membantu AI.</p>
+                  </div>
+                  {/* Business name — asked BEFORE generation so the AI bakes the
+                      merchant's real name into the page. It used to be asked only
+                      at STEP 04 · PUBLISH, after the page was built: the AI guessed
+                      a name from the story ("Kedai", from "Kedai jual jam tangan…"),
+                      the typed name reached only the websites row and the chat
+                      widget, and the live site kept the guess. Same state as the
+                      publish step's "Project name", so that field is pre-filled. */}
+                  <div style={{ marginBottom: 14 }} data-testid="business-name-card">
+                    <label htmlFor="business-name" className="eyebrow" style={{ display: 'block', color: '#B8B8C8', letterSpacing: '.1em', fontSize: 11, marginBottom: 8 }}>
+                      {language === 'ms' ? 'Nama kedai / perniagaan' : 'Business name'}
+                    </label>
+                    <input
+                      id="business-name"
+                      type="text"
+                      value={projectName}
+                      onChange={(e) => setProjectName(e.target.value.slice(0, BUSINESS_NAME_MAX))}
+                      maxLength={BUSINESS_NAME_MAX}
+                      placeholder={language === 'ms' ? 'cth. Jama Watch Gallery' : 'e.g. Jama Watch Gallery'}
+                      className="cr-input"
+                      data-testid="business-name"
+                    />
+                    <p style={{ color: '#86869A', fontSize: 12, margin: '6px 0 0', lineHeight: 1.5 }}>
+                      {language === 'ms'
+                        ? 'Dipakai tepat seperti yang ditaip pada header, tajuk dan footer website. Kalau kosong, AI akan teka nama dari cerita anda.'
+                        : 'Used exactly as typed in the website header, title and footer. Leave it blank and the AI will guess a name from your story.'}
+                    </p>
                   </div>
                   <div className="cr-card cr-card-hairline" style={{ padding: 4, position: 'relative', overflow: 'hidden' }}>
                     <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 8, zIndex: 2 }}>

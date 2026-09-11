@@ -1927,9 +1927,17 @@ async def run_generation_task(
         if lang not in ["ms", "en"]:
             lang = "ms"
 
+        # The merchant's typed name, when the form supplied one — the AI is
+        # told to use it verbatim (ai_service: "Use the EXACT business name
+        # provided"). Only without one does the first word of the story
+        # stand in, which is how "Kedai jual jam tangan…" shipped as a site
+        # called "Kedai" while the row and the chat widget said "Jama".
+        ai_business_name = (business_name or "").strip() or (
+            description.split()[0] if description else "Business"
+        )
         ai_request = WebsiteGenerationRequest(
             description=description,
-            business_name=description.split()[0] if description else "Business",  # Simple extraction
+            business_name=ai_business_name,
             # The merchant's EXPLICIT pick from the create-page picker, already
             # canonicalised at the endpoint. None means they chose "auto", and
             # only then may the description classifier decide the vertical.

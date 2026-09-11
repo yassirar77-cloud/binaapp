@@ -148,3 +148,27 @@ describe('/create makes the hero video WITH the page, not after publish', () => 
     expect(createSource).toMatch(/setPublishedUrl\(''\); preparedHeroVideoJobId\.current = null; setHeroVideoJob\(null\); \}\}/)
   })
 })
+
+describe('/create asks for the business name BEFORE generation', () => {
+  // The name used to be asked only at STEP 04 · PUBLISH, after the page was
+  // built: the AI guessed one from the story ("Kedai", from "Kedai jual jam
+  // tangan…"), the typed name reached only the websites row and the chat
+  // widget, and the live site kept the guess (momo.binaapp.my).
+
+  it('has a business-name field in the story step, sharing the publish step\'s project name', () => {
+    const field = createSource.indexOf('data-testid="business-name"')
+    expect(field).toBeGreaterThan(-1)
+    expect(createSource.slice(field - 700, field)).toMatch(/value=\{projectName\}/)
+    // In the form, between the story heading and the hero image step —
+    // not down in the publish panel.
+    expect(field).toBeGreaterThan(createSource.indexOf('04 — CERITA PASAL KEDAI ANDA'))
+    expect(field).toBeLessThan(createSource.indexOf('05 — HERO IMAGE'))
+  })
+
+  it('sends the typed name to /api/generate/start', () => {
+    const start = createSource.indexOf('/api/generate/start')
+    expect(start).toBeGreaterThan(-1)
+    const body = createSource.slice(start, createSource.indexOf('if (!startResponse.ok)', start))
+    expect(body).toMatch(/business_name:\s*projectName\.trim\(\)\s*\|\|\s*undefined/)
+  })
+})
