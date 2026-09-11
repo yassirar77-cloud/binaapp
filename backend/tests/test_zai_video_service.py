@@ -208,9 +208,11 @@ class TestFetchResult:
         )
         with patch.object(httpx, "AsyncClient", client):
             result = await ZaiVideoService().fetch_result("t")
-        assert result == {
-            "status": "success", "video_url": "https://cdn/v.mp4", "cover_image_url": "https://cdn/c.jpg",
-        }
+        assert result["status"] == "success"
+        assert result["video_url"] == "https://cdn/v.mp4"
+        assert result["cover_image_url"] == "https://cdn/c.jpg"
+        # The provider's own word is carried through for the job record.
+        assert result["raw_status"] == "SUCCESS"
 
     async def test_fail_state(self, zai_env):
         client, _ = fake_client(get_response=FakeResponse(200, {"task_status": "FAIL"}))
@@ -304,11 +306,34 @@ class TestJobRegistry:
         assert service.active_job_for_website("ws-1") is None
         assert service.active_jobs_for_user("u1") == 0
 
-    def test_stale_jobs_are_swept(self):
+    def test_finished_jobs_are_swept_by_ttl_but_in_flight_ones_are_not(self):
+        """Only terminal jobs age out. A job that is still processing,
+        storing or ready is ended by the hard timeout or the claim window
+        (each of which refunds and logs) — never dropped silently by age,
+        which is how a `ready` clip could vanish from under a merchant."""
         service = ZaiVideoService()
-        job = service.register_job(task_id="t1", website_id="ws-1", user_id="u1", prompt="p", settings={})
-        job.created_at -= svc._JOB_TTL_SECONDS + 1
-        assert service.get_job(job.job_id) is None
+        done = service.register_job(task_id="t1", website_id="ws-1", user_id="u1", prompt="p", settings={})
+        done.status = svc.JOB_STATUS_COMPLETED
+        done.created_at -= svc._JOB_TTL_SECONDS + 1
+        assert service.get_job(done.job_id) is None
+
+        for state in (svc.JOB_STATUS_PROCESSING, svc.JOB_STATUS_STORING, svc.JOB_STATUS_READY):
+            live = service.register_job(task_id="t2", website_id="", user_id="u1", prompt="p", settings={})
+            live.status = state
+            live.created_at -= svc._JOB_TTL_SECONDS + 1
+            assert service.get_job(live.job_id) is live, state
+
+        ancient = service.register_job(task_id="t3", website_id="", user_id="u1", prompt="p", settings={})
+        ancient.created_at -= svc._JOB_HARD_TTL_SECONDS + 1
+        assert service.get_job(ancient.job_id) is None
+
+    def test_adopt_job_never_replaces_a_live_one(self):
+        service = ZaiVideoService()
+        live = service.register_job(task_id="t", website_id="ws-1", user_id="u1", prompt="p", settings={})
+        ghost = svc.HeroVideoJob(job_id=live.job_id, task_id="t", website_id="ws-1", user_id="u1", prompt="p", settings={})
+        assert service.adopt_job(ghost) is live
+        other = svc.HeroVideoJob(job_id="other", task_id="t", website_id="ws-1", user_id="u1", prompt="p", settings={})
+        assert service.adopt_job(other) is other and service.get_job("other") is other
 
     def test_to_dict_never_leaks_the_task_id_or_prompt(self):
         service = ZaiVideoService()
@@ -492,11 +517,10 @@ class TestDashScopeFetchResult:
         ))
         with patch.object(httpx, "AsyncClient", client):
             result = await ZaiVideoService().fetch_result("t")
-        assert result == {
-            "status": "success",
-            "video_url": "https://dashscope-result.oss.example/clip.mp4?Expires=1&Signature=abc",
-            "cover_image_url": None,
-        }
+        assert result["status"] == "success"
+        assert result["video_url"] == "https://dashscope-result.oss.example/clip.mp4?Expires=1&Signature=abc"
+        assert result["cover_image_url"] is None
+        assert result["raw_status"] == "SUCCEEDED"
 
     @pytest.mark.parametrize("state", ["FAILED", "CANCELED", "UNKNOWN"])
     async def test_terminal_failures(self, dashscope_env, state):

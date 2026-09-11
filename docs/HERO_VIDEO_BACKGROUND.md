@@ -10,34 +10,81 @@ no frontend deploy is needed (the panel hides itself while the options call
 ## How it works
 
 ```
-Dashboard (HeroVideoPanel)                 Backend                              Z.ai / Cloudinary
-────────────────────────────────────────── ──────────────────────────────────── ────────────────────
-POST /websites/{id}/hero-video/generate ─▶ gates (flag, owner, plan, hero
-                                           exists, balanced HTML, caps)
-                                           build prompt (business + preset)
-                                           POST /videos/generations ──────────▶ task id (PROCESSING)
-◀── 202 {job_id} ─────────────────────────
-                                                           ⋮  every ~8s
-GET  /websites/{id}/hero-video/jobs/{job} ▶ GET /async-result/{task} ─────────▶ PROCESSING | SUCCESS | FAIL
-                                           on SUCCESS (once, under a lock):
-                                             download clip ───────────────────▶ mfile.z.ai (temporary URL)
-                                             upload resource_type=video ──────▶ Cloudinary binaapp/hero-videos
-                                             patch HTML (hero_video_patcher)
-                                             republish live snapshot + DB
-◀── {status: completed, html_content} ────
+Dashboard / create page                    Backend                                   DashScope / Cloudinary / Supabase
+────────────────────────────────────────── ───────────────────────────────────────── ─────────────────────────────────
+POST …/hero-video/generate (or /prepare) ─▶ gates (flag, owner, credit, hero exists,
+                                           balanced HTML, caps); build prompt
+                                           POST video-synthesis ──────────────────▶ task id (PENDING)
+                                           INSERT hero_video_jobs row ────────────▶ ledger: status=processing
+◀── 202 {job_id} ─────────────────────────  spawn _drive_hero_video_job (THE poller)
+                                                           ⋮  every 8 s, server-side, no browser needed
+                                           GET /tasks/{task} ─────────────────────▶ task_status logged on EVERY poll
+                                             PENDING/RUNNING → keep going (ledger: provider_status)
+                                             poll error       → keep going (ledger: http_<code>, poll_errors+1)
+                                             FAILED/CANCELED/UNKNOWN → failed + refund (FULL body logged)
+                                             > 600 s          → failed('timeout') + refund + 🚨 HERO_VIDEO_TIMEOUT
+                                             SUCCEEDED        → 'storing', background finaliser:
+                                               download clip, upload to Cloudinary,
+                                               UPDATE websites SET hero_video_url,… ──▶ the row says what the page must carry
+                                               patch HTML (hero_video_patcher),
+                                               republish storage + DB, bust the 60 s served-page cache
+GET …/hero-video/jobs/{job} ──────────────▶ READ-ONLY: reports what the driver recorded
+◀── {status, provider_status, html_content on completion}
 ```
+
+Restart: `resume_hero_video_jobs()` (startup) reloads every non-terminal
+ledger row with its real age and drives it again. Sweep: every 5 min the
+stuck-generation scheduler also runs `sweep_stuck_hero_video_jobs()`, which
+fails anything past the timeout (+120 s grace) whether or not a driver is
+alive for it and whatever the website's status is.
 
 Two halves, deliberately separate:
 
-1. **Making the clip is the only AI call.** Z.ai's video API is asynchronous
-   (`/videos/generations` → `/async-result/{id}`), so ours is too: `generate`
-   returns a job id immediately and the dashboard polls. The poll that
-   observes `SUCCESS` stores the clip, patches the page and republishes in
-   the same request.
+1. **Making the clip is the only AI call.** The provider API is
+   asynchronous, so ours is too: `generate` returns a job id immediately
+   and a server-side driver polls the provider until the job is terminal.
+   The browser's poll reads state only — there is exactly one poller per
+   job. Completion (download, Cloudinary, row write, patch, publish) is
+   always a background task, never inside a request.
 2. **Putting it on the page, adjusting it, and removing it are credit-free
    HTML patches** (`hero_video_patcher.py`) in the Design Studio shape: no
    AI, no quota, the merchant's copy/prices/photos never move. Removal is
    byte-exact — the page returns to what it was before the video was added.
+
+### Durability (migration 056)
+
+Before 2026-09-11 a job existed only in process memory. Render redeploys on
+every push, so a job that was rendering — or stored and waiting for its
+publish — was forgotten with no log line, no refund, and no way for the
+stuck sweep (which only queried `websites.status='generating'`) to see it.
+Now:
+
+* `hero_video_jobs` mirrors every state change (`services/hero_video_jobs.py`).
+  Ledger write failures are logged at ERROR and never raised: the clip must
+  still land.
+* `websites.hero_video_url / hero_video_poster_url / hero_video_settings /
+  hero_video_updated_at` record the clip a site carries. They are written
+  **before** the HTML is patched and cleared on removal.
+* `resume_hero_video_jobs()` runs at startup; `sweep_stuck_hero_video_jobs()`
+  runs with the stuck-generation sweep.
+* Ownership: every row carries a per-process lease (`lease_owner`,
+  `lease_until`), renewed on each poll. Adoption (startup, and the sweep)
+  goes through a conditional PATCH only one process can win, so Render's
+  deploy overlap never runs two drivers on one job. One refund per job is
+  decided by the ledger (`mark_refunded`, a conditional PATCH), not by
+  process memory.
+* A clip prepared on the create page waits **24 h** (was 45 min) for its
+  publish. The old window discarded a finished, paid clip eleven minutes
+  before the merchant published (job b15c3794, 2026-09-11).
+* Timeout: `ZAI_VIDEO_MAX_WAIT_SECONDS` (default 600). DashScope
+  wan3.0-video clips took 2 m 15 s – 3 m 45 s across every job in a week of
+  production logs; ten minutes is ~2.7× the slowest, and the point at which
+  the credit goes back. A timed-out job is `failed` with `error=timeout`,
+  refunded, and raises `🚨 HERO_VIDEO_TIMEOUT …` at CRITICAL plus an admin
+  email (`email_service.send_admin_notification`).
+* Every poll logs the provider's raw `task_status`; any non-SUCCEEDED
+  terminal state logs the full response body; an undocumented state is
+  logged as UNEXPECTED and bounded by the timeout.
 
 ## The HTML patch
 
@@ -75,8 +122,9 @@ Injected once, fenced by comments so removal is exact:
   (and dark over a light one); links and buttons keep their brand colour.
 * `prefers-reduced-motion` hides the video and leaves the poster still.
   `show_on_mobile=false` does the same under 640px (data saver).
-* The stored HTML is the single source of truth: `GET …/hero-video` reads
-  the data-attributes back. No new DB columns.
+* `GET …/hero-video` reads the data-attributes back from the stored HTML.
+  Since migration 056 the websites row also records the clip
+  (`hero_video_url` and friends), written before the page is patched.
 * URLs must be `https://` with no quote/angle characters and are
   HTML-escaped; the settings and video URL are round-tripped exactly.
 
@@ -89,7 +137,7 @@ All under `/api/v1/websites`, owner-only except `options`:
 | GET | `/hero-video/options` | Style presets, model, poll interval (public) |
 | GET | `/{id}/hero-video` | Current settings, `hero_found`, `allowed`, in-flight `job` |
 | POST | `/{id}/hero-video/generate` | Start a job → `202 {job_id}` |
-| GET | `/{id}/hero-video/jobs/{job_id}` | Poll; completes the job on success |
+| GET | `/{id}/hero-video/jobs/{job_id}` | Read the job's state (never polls the provider) |
 | PATCH | `/{id}/hero-video` | Change overlay / opacity / text_mode / show_on_mobile (reuses the clip) |
 | DELETE | `/{id}/hero-video` | Remove; page returns to its pre-video bytes |
 
@@ -182,12 +230,14 @@ no audio.
 
 * `backend/app/services/zai_video_service.py` — Z.ai submit/poll/download,
   Cloudinary video upload, prompt builder, in-memory job registry.
+* `backend/app/services/hero_video_jobs.py` — the durable ledger (table `hero_video_jobs`).
 * `backend/app/services/hero_video_patcher.py` — inject / detect / remove.
 * `backend/app/api/v1/endpoints/hero_video.py` — routes above.
 * `backend/app/services/plan_features.py` — `can_use_hero_video`.
 * `frontend/src/lib/heroVideo.ts` — client + Malay error copy.
 * `frontend/src/components/HeroVideoPanel.tsx` — editor panel (below the
   Design Studio on `/editor/[id]`).
+* `backend/scripts/hero_video_e2e.py` — real end-to-end check against a deployment.
 * Tests: `backend/tests/test_hero_video_patcher.py`,
-  `test_zai_video_service.py`, `test_hero_video_api.py`,
+  `test_zai_video_service.py`, `test_hero_video_api.py`, `test_hero_video_pipeline.py`,
   `frontend/src/components/HeroVideoPanel.test.tsx`.
