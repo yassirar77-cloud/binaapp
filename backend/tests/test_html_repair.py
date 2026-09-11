@@ -280,3 +280,78 @@ def test_size_delta_warning_threshold_logged(caplog):
         _, info = repair_html(raw, context="tiny")
     assert info["size_delta_pct"] > 30.0
     assert any("size delta" in rec.message.lower() for rec in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Mismatched sectioning close tags (mook, 2026-09-11)
+# ---------------------------------------------------------------------------
+
+from app.services.html_repair import fix_mismatched_sectioning_closes  # noqa: E402
+
+MOOK_SHAPE = (
+    "<!DOCTYPE html><html><head><title>Saya</title></head><body>"
+    '<header class="fixed"><nav><a href="#menu">Menu</a></nav></header>'
+    '<section class="relative min-h-screen flex items-center overflow-hidden">'
+    '<img src="https://res.cloudinary.com/x/hero.jpg"><h1>SAYA</h1>'
+    "</header>"  # the model closed the hero <section> with </header>
+    '<section id="menu"><h2>Menu Kami</h2></section>'
+    '<section id="hubungi"><h2>Lokasi</h2></section>'
+    "<footer><p>Saya</p></footer>"
+    "<script>AOS.init(); // </section> inside a script must be ignored</script>"
+    "</section>"  # ...and emitted a stray close at the very end
+    "</body></html>"
+)
+
+
+class TestMismatchedSectioningCloses:
+    def test_header_close_on_an_open_section_becomes_section_close(self):
+        fixed, notes = fix_mismatched_sectioning_closes(MOOK_SHAPE)
+        assert notes == ["</header> -> </section>"]
+        assert "<h1>SAYA</h1></section>" in fixed
+        # The nav header's own close is untouched; the stray trailing
+        # </section> is left for html5lib to drop.
+        assert fixed.count("</header>") == 1
+
+    def test_repair_html_closes_the_hero_before_the_menu(self):
+        repaired, report = repair_html(MOOK_SHAPE, context="mook")
+        assert report["fixed_mismatched_closes"] == ["</header> -> </section>"]
+        hero_close = repaired.index("</section>")
+        assert hero_close < repaired.index('<section id="menu"')
+        # No section is nested inside another, and the footer is a child of body.
+        import re as _re
+        depth, max_depth = 0, 0
+        for m in _re.finditer(r"<(/?)section\b", repaired):
+            depth += -1 if m.group(1) else 1
+            max_depth = max(max_depth, depth)
+        assert max_depth == 1
+        assert repaired.index("<footer>") > repaired.index('id="hubungi"')
+        assert "</section></body>" not in repaired.replace("\n", "")
+
+    def test_legitimately_nested_sections_are_left_alone(self):
+        html = "<body><section><section><p>x</p></section></section><header>h</header></body>"
+        fixed, notes = fix_mismatched_sectioning_closes(html)
+        assert fixed == html and notes == []
+
+    def test_div_mismatches_are_not_guessed(self):
+        html = "<body><section><div>x</section></div></body>"
+        fixed, notes = fix_mismatched_sectioning_closes(html)
+        assert fixed == html and notes == []
+
+    def test_script_and_comment_bodies_are_never_scanned(self):
+        html = "<body><section><!-- </header> --><script>'</header>'</script><p>x</p></section></body>"
+        fixed, notes = fix_mismatched_sectioning_closes(html)
+        assert fixed == html and notes == []
+
+    def test_hero_video_patch_lands_on_a_closed_hero(self):
+        """After the repair the hero is a normal sibling: the video layer and
+        the text rule no longer reach the menu and the footer."""
+        from app.services.hero_video_patcher import apply_hero_video, build_settings
+
+        repaired, _ = repair_html(MOOK_SHAPE)
+        patched = apply_hero_video(
+            repaired, build_settings(video_url="https://res.cloudinary.com/x/video/upload/v1/c.mp4")
+        ).html
+        hero_start = patched.index('data-binaapp-hero-video="1"')
+        hero_end = patched.index("</section>", hero_start)
+        assert 'id="menu"' not in patched[hero_start:hero_end]
+        assert "<footer>" not in patched[hero_start:hero_end]

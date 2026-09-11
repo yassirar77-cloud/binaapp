@@ -113,6 +113,70 @@ def _feature_flag_enabled() -> bool:
     return val not in ("0", "false", "no", "off", "")
 
 
+#: Elements a generator closes with the wrong name. Only these are ever
+#: rewritten: a stray </div> or </span> is ambiguous, but a </header> that
+#: arrives while a <section> is the innermost open block can only mean the
+#: section. html5lib's own recovery discards the stray close tag instead,
+#: which leaves the block OPEN — mook (2026-09-11): the hero section then
+#: swallowed the menu, every later section and the footer as flex children,
+#: and the hero-video overlay and white-text rule applied to the whole page.
+_SECTIONING_TAGS = frozenset({"section", "header", "footer", "main", "article", "aside", "nav"})
+
+_PROTECTED_RE = re.compile(
+    r"<!--.*?-->|<script\b[^>]*>.*?</script\s*>|<style\b[^>]*>.*?</style\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_ANY_TAG_RE = re.compile(r"<\s*(/?)\s*([a-zA-Z][a-zA-Z0-9]*)\b[^>]*?(/?)>")
+
+
+def fix_mismatched_sectioning_closes(html: str) -> Tuple[str, List[str]]:
+    """Rewrite a close tag whose name matches nothing open when the innermost
+    open element is a *different* sectioning element: ``</header>`` closing
+    a ``<section>`` becomes ``</section>``. Returns (html, notes) where each
+    note is ``"</header> -> </section>"``. Pure string work; comments,
+    scripts and styles are never scanned."""
+    if not html:
+        return html or "", []
+    protected = [(m.start(), m.end()) for m in _PROTECTED_RE.finditer(html)]
+
+    def _protected(pos: int) -> bool:
+        return any(a <= pos < b for a, b in protected)
+
+    stack: List[str] = []
+    edits: List[Tuple[int, int, str]] = []
+    notes: List[str] = []
+    for m in _ANY_TAG_RE.finditer(html):
+        if _protected(m.start()):
+            continue
+        is_close, name, self_closing = m.group(1) == "/", m.group(2).lower(), m.group(3) == "/"
+        if name in _VOID_TAGS or self_closing:
+            continue
+        if not is_close:
+            stack.append(name)
+            continue
+        if name in stack:
+            while stack and stack[-1] != name:
+                stack.pop()
+            if stack:
+                stack.pop()
+            continue
+        # Close tag with no open element of that name.
+        if name in _SECTIONING_TAGS and stack and stack[-1] in _SECTIONING_TAGS and stack[-1] != name:
+            actual = stack.pop()
+            edits.append((m.start(), m.end(), f"</{actual}>"))
+            notes.append(f"</{name}> -> </{actual}>")
+        # Otherwise leave it: html5lib drops a stray close tag safely.
+    if not edits:
+        return html, []
+    out, last = [], 0
+    for start, end, text in edits:
+        out.append(html[last:start])
+        out.append(text)
+        last = end
+    out.append(html[last:])
+    return "".join(out), notes
+
+
 def repair_html(raw_html: str, *, context: str = "") -> Tuple[str, Dict]:
     """Parse `raw_html` with html5lib and re-emit balanced HTML.
 
@@ -144,6 +208,7 @@ def repair_html(raw_html: str, *, context: str = "") -> Tuple[str, Dict]:
         "size_delta_pct": 0.0,
         "before_length": len(raw_html or ""),
         "after_length": len(raw_html or ""),
+        "fixed_mismatched_closes": [],
     }
 
     if not _feature_flag_enabled():
@@ -167,6 +232,16 @@ def repair_html(raw_html: str, *, context: str = "") -> Tuple[str, Dict]:
     before_unclosed, before_extra = _scan_imbalance(raw_html)
     had_html_tag = bool(_HTML_OPEN_RE.search(raw_html))
     had_body_tag = bool(_BODY_OPEN_RE.search(raw_html))
+
+    # Mismatched sectioning closes are fixed BEFORE html5lib sees the
+    # document: html5lib would drop the stray tag and leave the block open.
+    raw_html, mismatched = fix_mismatched_sectioning_closes(raw_html)
+    repairs["fixed_mismatched_closes"] = mismatched
+    if mismatched:
+        logger.info(
+            f"🔧 Fixed {len(mismatched)} mismatched closing tag(s) "
+            f"{'for ' + context if context else ''}: {', '.join(mismatched[:5])}"
+        )
 
     try:
         soup = BeautifulSoup(raw_html, "html5lib")

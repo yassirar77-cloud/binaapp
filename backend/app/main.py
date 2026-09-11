@@ -892,6 +892,12 @@ Output ONLY improved HTML."""
             final_html = _inject_attribution_footer(
                 final_html, white_label=await _has_white_label(user_id)
             )
+            # The preview must be the page that will be published: the same
+            # structural repair /api/publish runs (a hero <section> the model
+            # closed with </header> otherwise swallows the whole page in the
+            # preview until publish time).
+            from app.services.html_repair import repair_html as _repair_html
+            final_html, _ = _repair_html(final_html, context="generate")
 
             generated_styles.append({
                 "style": style['name'],
@@ -1706,6 +1712,12 @@ Output ONLY improved HTML."""
             final_html = _inject_attribution_footer(
                 final_html, white_label=await _has_white_label(user_id)
             )
+            # The preview must be the page that will be published: the same
+            # structural repair /api/publish runs (a hero <section> the model
+            # closed with </header> otherwise swallows the whole page in the
+            # preview until publish time).
+            from app.services.html_repair import repair_html as _repair_html
+            final_html, _ = _repair_html(final_html, context="generate")
 
             generated_styles.append({
                 "style": style['name'],
