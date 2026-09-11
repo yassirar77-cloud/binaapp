@@ -395,6 +395,7 @@ class StuckGenerationScheduler:
         self._job_run_count = 0
         self._consecutive_failures = 0
         self._last_flipped_count = 0
+        self._last_hero_video_count = 0
         self._create_scheduler()
 
     def _create_scheduler(self) -> None:
@@ -454,6 +455,37 @@ class StuckGenerationScheduler:
                 f"[stuck-sweep] job #{self._job_run_count} errored: {e} "
                 f"(consecutive failures: {self._consecutive_failures})"
             )
+        # Hero-video jobs are a separate ledger (hero_video_jobs) and are
+        # swept on their own terms — a job is stuck when it has outlived the
+        # hard timeout, whatever the website's status is. The website query
+        # above only ever saw status='generating', so a hung clip on a
+        # published site read as "clean". Its own try: a failure in one
+        # sweep must not skip the other.
+        try:
+            self._last_hero_video_count = await self._sweep_hero_video_jobs()
+        except Exception as e:
+            logger.error(f"[stuck-sweep] job #{self._job_run_count} hero-video sweep errored: {e}")
+
+    async def _sweep_hero_video_jobs(self) -> int:
+        from app.services.zai_video_service import hero_video_enabled
+
+        if not hero_video_enabled():
+            return 0
+        from app.api.v1.endpoints.hero_video import sweep_stuck_hero_video_jobs
+
+        result = await sweep_stuck_hero_video_jobs()
+        count = int(result.get("count") or 0)
+        if count > 0:
+            logger.warning(
+                f"[stuck-sweep] job #{self._job_run_count} failed {count} "
+                f"hero-video job(s) that outlived the timeout: {result.get('ids')}"
+            )
+        else:
+            logger.debug(
+                f"[stuck-sweep] job #{self._job_run_count} hero-video ledger clean "
+                f"({result.get('checked_rows', 0)} in-flight row(s) checked)"
+            )
+        return count
 
     def start(self) -> bool:
         if not APSCHEDULER_AVAILABLE:
@@ -511,6 +543,7 @@ class StuckGenerationScheduler:
             "job_run_count": self._job_run_count,
             "consecutive_failures": self._consecutive_failures,
             "last_flipped_count": self._last_flipped_count,
+            "last_hero_video_count": self._last_hero_video_count,
             "interval_seconds": _stuck_sweep_interval_seconds(),
         }
 

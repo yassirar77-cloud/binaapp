@@ -119,9 +119,29 @@ def patches():
         # Overlay auto-selection reads the poster over HTTP; pin it here and
         # let the luminance tests below override it.
         patch.object(ep, "auto_overlay_opacity", new=AsyncMock(return_value=0.45)) as auto_opacity,
+        # The durable ledger and the timeout alert talk to Supabase / SMTP.
+        patch.object(ep.ledger, "save", new=AsyncMock(return_value="ok")) as ledger_save,
+        patch.object(ep.ledger, "create", new=AsyncMock(return_value=True)) as ledger_create,
+        patch.object(ep.ledger, "mark_refunded", new=AsyncMock(return_value=True)) as ledger_mark_refunded,
+        patch.object(ep.ledger, "load", new=AsyncMock(return_value=None)) as ledger_load,
+        patch.object(ep.ledger, "load_claimable", new=AsyncMock(return_value=[])) as ledger_claimable,
+        patch.object(ep.ledger, "load_stale", new=AsyncMock(return_value=[])) as ledger_stale,
+        patch.object(ep.ledger, "claim", new=AsyncMock(return_value=True)) as ledger_claim,
+        patch(
+            "app.services.email_service.email_service.send_admin_notification",
+            new=AsyncMock(return_value=True),
+        ) as admin_email,
     ):
         yield {
             "auto_opacity": auto_opacity,
+            "ledger_save": ledger_save,
+            "ledger_create": ledger_create,
+            "ledger_mark_refunded": ledger_mark_refunded,
+            "ledger_load": ledger_load,
+            "ledger_claimable": ledger_claimable,
+            "ledger_stale": ledger_stale,
+            "ledger_claim": ledger_claim,
+            "admin_email": admin_email,
             "get_website": get_website,
             "update_website": update_website,
             "publish_website": publish_website,
@@ -140,20 +160,32 @@ def _published_html(patches):
     return patches["publish_website"].call_args.kwargs["html_content"]
 
 
-def _poll_done(client, auth_headers, job_id, timeout=5.0):
-    """Poll until the job is terminal. The request that observes provider
-    SUCCESS now hands the download/upload/patch/publish to a background
-    task and answers 'storing' at once (Backend B); the TestClient's event
-    loop keeps running that task between requests."""
-    import time as _t
-    deadline = _t.monotonic() + timeout
-    while True:
-        resp = client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers)
-        if resp.status_code != 200 or resp.json()["status"] not in ("processing", "storing"):
-            return resp
-        if _t.monotonic() > deadline:
-            raise AssertionError(f"job never finished: {resp.json()}")
-        _t.sleep(0.02)
+def _drive_once(job_id):
+    """One step of the server driver, on its own loop. The poll endpoint is
+    read-only, so tests advance the job the way the driver does."""
+    import asyncio as _a
+
+    job = svc.zai_video_service.get_job(job_id)
+
+    async def _step():
+        await ep._advance_hero_video_job(job, job.website_id, job.user_id)
+        if job.finalize_task is not None:
+            await job.finalize_task
+
+    _a.run(_step())
+    return job
+
+
+def _drive_to_done(client, auth_headers, job_id, steps=20):
+    """Run the driver until the job is terminal, then read it back through
+    the (read-only) poll endpoint exactly as the dashboard would."""
+    for _ in range(steps):
+        job = _drive_once(job_id)
+        if job.status not in ("processing", "storing"):
+            break
+    else:
+        raise AssertionError(f"job never finished: {job.to_dict()}")
+    return client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers)
 
 
 def _start_job(client, auth_headers, body=None):
@@ -304,7 +336,7 @@ class TestPoll:
         patches["fetch_result"].return_value = {
             "status": "success", "video_url": "https://cdn.z.ai/v.mp4", "cover_image_url": None,
         }
-        resp = _poll_done(client, auth_headers, job_id)
+        resp = _drive_to_done(client, auth_headers, job_id)
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "completed" and body["applied"] is True
@@ -325,14 +357,14 @@ class TestPoll:
         patches["fetch_snapshot"].return_value = live
         job_id = _start_job(client, auth_headers)
         patches["fetch_result"].return_value = {"status": "success", "video_url": "https://cdn/v.mp4", "cover_image_url": None}
-        body = _poll_done(client, auth_headers, job_id).json()
+        body = _drive_to_done(client, auth_headers, job_id).json()
         assert body["base_source"] == "storage"
         assert "Nasi lemak LIVE" in _published_html(patches)
 
     def test_second_poll_after_completion_is_cheap(self, client, auth_headers, patches):
         job_id = _start_job(client, auth_headers)
         patches["fetch_result"].return_value = {"status": "success", "video_url": "https://cdn/v.mp4", "cover_image_url": None}
-        _poll_done(client, auth_headers, job_id)
+        _drive_to_done(client, auth_headers, job_id)
         again = client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers).json()
         assert again["status"] == "completed"
         assert again["html_content"]  # the payload survives on the job for later polls
@@ -342,7 +374,7 @@ class TestPoll:
     def test_generation_failure(self, client, auth_headers, patches):
         job_id = _start_job(client, auth_headers)
         patches["fetch_result"].return_value = {"status": "fail", "video_url": None, "cover_image_url": None}
-        body = client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers).json()
+        body = _drive_to_done(client, auth_headers, job_id).json()
         assert body["status"] == "failed" and body["error"] == "generation_failed"
         # The site can start a new one straight away.
         assert svc.zai_video_service.active_job_for_website("ws-1") is None
@@ -351,19 +383,23 @@ class TestPoll:
         job_id = _start_job(client, auth_headers)
         patches["fetch_result"].return_value = {"status": "success", "video_url": "https://cdn/v.mp4", "cover_image_url": None}
         patches["store"].side_effect = svc.ZaiVideoError("cloudinary down")
-        body = _poll_done(client, auth_headers, job_id).json()
+        body = _drive_to_done(client, auth_headers, job_id).json()
         assert body["status"] == "failed" and body["error"] == "storage_failed"
         patches["publish_website"].assert_not_called()
 
     def test_transient_poll_error_is_still_processing(self, client, auth_headers, patches):
         job_id = _start_job(client, auth_headers)
-        patches["fetch_result"].side_effect = svc.ZaiVideoError("poll timed out")
+        patches["fetch_result"].side_effect = svc.ZaiVideoError("DashScope video poll failed (403)", status_code=403)
+        _drive_once(job_id)
         body = client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers).json()
         assert body["status"] == "processing"
+        # ...and the job says what the provider actually answered.
+        assert body["provider_status"] == "http_403"
 
     def test_timeout_marks_failed(self, client, auth_headers, patches):
         job_id = _start_job(client, auth_headers)
         svc.zai_video_service.get_job(job_id).created_at -= svc.zai_video_max_wait_seconds() + 1
+        _drive_once(job_id)
         body = client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers).json()
         assert body["status"] == "failed" and body["error"] == "timeout"
         patches["fetch_result"].assert_not_called()
@@ -372,26 +408,34 @@ class TestPoll:
         job_id = _start_job(client, auth_headers)
         patches["fetch_result"].return_value = {"status": "success", "video_url": "https://cdn/v.mp4", "cover_image_url": None}
         patches["publish_website"].side_effect = RuntimeError("storage down")
-        body = _poll_done(client, auth_headers, job_id).json()
+        body = _drive_to_done(client, auth_headers, job_id).json()
         assert body["status"] == "completed"
         assert body["live_site_updated"] is False
         assert body["warning"] == "storage_refresh_failed"
         assert "belum dikemas kini" in body["message"]
-        patches["update_website"].assert_awaited_once()
+        html_writes = [c for c in patches["update_website"].await_args_list if "html_content" in c.args[1]]
+        assert len(html_writes) == 1
 
-    def test_the_poll_that_sees_success_does_not_do_the_work_inline(self, client, auth_headers, patches):
-        """Backend B: download + Cloudinary + patch + two storage writes ran
-        inside a GET the browser fires every few seconds (3.9s observed)."""
+    def test_the_poll_endpoint_never_talks_to_the_provider(self, client, auth_headers, patches):
+        """The browser poll is read-only. It used to poll the provider as
+        well as the server driver (two pollers per job, one on a request
+        path a phone fires every 8 s) and read the website row each time."""
         job_id = _start_job(client, auth_headers)
         patches["fetch_result"].return_value = {"status": "success", "video_url": "https://cdn/v.mp4", "cover_image_url": None}
-        first = client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers).json()
-        assert first["status"] == "storing" and first["applied"] is False
-        assert "html_content" not in first
-        # ...and a poll during 'storing' never re-asks the provider.
-        calls_before = patches["fetch_result"].await_count
-        client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers)
-        assert patches["fetch_result"].await_count == calls_before
-        done = _poll_done(client, auth_headers, job_id).json()
+        reads_before = patches["get_website"].await_count
+        for _ in range(3):
+            body = client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers).json()
+            assert body["status"] == "processing" and body["applied"] is False
+        patches["fetch_result"].assert_not_called()
+        patches["store"].assert_not_called()
+        assert patches["get_website"].await_count == reads_before
+        # A poll during 'storing' reports progress, nothing more.
+        svc.zai_video_service.get_job(job_id).status = svc.JOB_STATUS_STORING
+        storing = client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers).json()
+        assert storing["status"] == "storing" and "html_content" not in storing
+        assert "dipasang" in storing["message"]
+        svc.zai_video_service.get_job(job_id).status = svc.JOB_STATUS_PROCESSING
+        done = _drive_to_done(client, auth_headers, job_id).json()
         assert done["status"] == "completed" and done["html_content"]
 
     def test_overlay_opacity_follows_the_posters_luminance_when_not_set(self, client, auth_headers, patches):
@@ -399,7 +443,7 @@ class TestPoll:
         patches["auto_opacity"].return_value = 0.7
         job_id = _start_job(client, auth_headers, {"overlay": "dark"})  # no overlay_opacity
         patches["fetch_result"].return_value = {"status": "success", "video_url": "https://cdn/v.mp4", "cover_image_url": None}
-        body = _poll_done(client, auth_headers, job_id).json()
+        body = _drive_to_done(client, auth_headers, job_id).json()
         assert body["settings"]["overlay_opacity"] == 0.7
         patches["auto_opacity"].assert_awaited_once_with(CLOUD_POSTER)
         assert "rgba(0,0,0,0.7)" in _published_html(patches)
@@ -408,14 +452,14 @@ class TestPoll:
         patches["auto_opacity"].return_value = 0.7
         job_id = _start_job(client, auth_headers, {"overlay": "dark", "overlay_opacity": 0.3})
         patches["fetch_result"].return_value = {"status": "success", "video_url": "https://cdn/v.mp4", "cover_image_url": None}
-        body = _poll_done(client, auth_headers, job_id).json()
+        body = _drive_to_done(client, auth_headers, job_id).json()
         assert body["settings"]["overlay_opacity"] == 0.3
         patches["auto_opacity"].assert_not_called()
 
     def test_no_overlay_means_no_luminance_lookup(self, client, auth_headers, patches):
         job_id = _start_job(client, auth_headers, {"overlay": "none"})
         patches["fetch_result"].return_value = {"status": "success", "video_url": "https://cdn/v.mp4", "cover_image_url": None}
-        _poll_done(client, auth_headers, job_id)
+        _drive_to_done(client, auth_headers, job_id)
         patches["auto_opacity"].assert_not_called()
 
     def test_unknown_or_foreign_job_404s(self, client, auth_headers, patches):
@@ -482,7 +526,11 @@ class TestRemove:
         body = client.delete("/api/v1/websites/ws-1/hero-video", headers=auth_headers).json()
         assert body["changed"] is True and body["live_site_updated"] is False
         patches["publish_website"].assert_not_called()
-        patches["update_website"].assert_awaited_once()
+        # Two DB writes, in order: the row forgets the clip, then the page.
+        writes = [c.args[1] for c in patches["update_website"].await_args_list]
+        assert len(writes) == 2
+        assert writes[0]["hero_video_url"] is None and writes[0]["hero_video_settings"] is None
+        assert "html_content" in writes[1] and BLOCK_START not in writes[1]["html_content"]
 
     def test_unbalanced_base_is_refused(self, client, auth_headers, patches):
         patches["get_website"].return_value = _row(html_content=TRUNCATED_HTML)
@@ -567,7 +615,7 @@ class TestProviderConfigurationErrors:
     def test_job_polls_the_provider_it_was_submitted_to(self, client, auth_headers, patches):
         patches["submit"].return_value = ("zai-task-9", "zai")
         job_id = _start_job(client, auth_headers)
-        client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers)
+        _drive_once(job_id)
         assert patches["fetch_result"].call_args.kwargs.get("provider") == "zai"
 
 
@@ -598,7 +646,7 @@ class TestPaidCredits:
         patches["plan_gate"].return_value = _access(free=False, credits=1)
         job_id = _start_job(client, auth_headers)
         patches["fetch_result"].return_value = {"status": "fail", "video_url": None, "cover_image_url": None}
-        body = client.get(f"/api/v1/websites/ws-1/hero-video/jobs/{job_id}", headers=auth_headers).json()
+        body = _drive_to_done(client, auth_headers, job_id).json()
         assert body["status"] == "failed" and body["error"] == "generation_failed"
         patches["refund_credit"].assert_awaited_once_with("test-user-id-12345", "hero_video")
         assert body["refunded"] is True
@@ -611,7 +659,7 @@ class TestPaidCredits:
         job_id = _start_job(client, auth_headers)
         patches["fetch_result"].return_value = {"status": "success", "video_url": "https://p/v.mp4", "cover_image_url": None}
         patches["store"].side_effect = svc.ZaiVideoError("storage failed")
-        body = _poll_done(client, auth_headers, job_id).json()
+        body = _drive_to_done(client, auth_headers, job_id).json()
         assert body["error"] == "storage_failed"
         assert patches["refund_credit"].await_count == 1
 
@@ -619,7 +667,7 @@ class TestPaidCredits:
         patches["plan_gate"].return_value = _access(free=False, credits=1)
         job_id = _start_job(client, auth_headers)
         patches["fetch_result"].return_value = {"status": "success", "video_url": "https://p/v.mp4", "cover_image_url": None}
-        body = _poll_done(client, auth_headers, job_id).json()
+        body = _drive_to_done(client, auth_headers, job_id).json()
         assert body["status"] == "completed" and body["charged"] is True and body["refunded"] is False
         assert not patches["refund_credit"].called
 
@@ -650,7 +698,7 @@ class TestPhotoIsTheStill:
         patches["fetch_result"].return_value = {
             "status": "success", "video_url": "https://cdn.z.ai/v.mp4", "cover_image_url": None,
         }
-        body = _poll_done(client, auth_headers, job_id).json()
+        body = _drive_to_done(client, auth_headers, job_id).json()
         assert body["status"] == "completed"
         assert body["poster_url"] == "https://res.cloudinary.com/x/shop.jpg"
         assert body["image_url"] == "https://res.cloudinary.com/x/shop.jpg"
@@ -665,7 +713,7 @@ class TestPhotoIsTheStill:
         patches["fetch_result"].return_value = {
             "status": "success", "video_url": "https://cdn.z.ai/v.mp4", "cover_image_url": None,
         }
-        body = _poll_done(client, auth_headers, job_id).json()
+        body = _drive_to_done(client, auth_headers, job_id).json()
         assert body["poster_url"] == CLOUD_POSTER and body["image_url"] is None
 
 
@@ -736,8 +784,9 @@ class TestServerDrivesTheJob:
         assert job.status == "processing"
         patches["fetch_result"].assert_not_called()
 
-    async def test_browser_poll_and_driver_hand_off_exactly_once(self, patches, test_user_id, monkeypatch):
-        """Both may observe SUCCESS; only one may store the clip."""
+    async def test_two_drivers_hand_off_exactly_once(self, patches, test_user_id, monkeypatch):
+        """The driver and the sweep may both observe SUCCESS; only one may
+        store the clip."""
         import asyncio
         monkeypatch.setattr(ep, "POLL_INTERVAL_SECONDS", 0.01)
         patches["fetch_result"].return_value = {
@@ -867,7 +916,7 @@ class TestPreparedAheadOfPublish:
 
     async def test_a_claimed_clip_is_never_expired(self, patches, test_user_id, monkeypatch):
         monkeypatch.setattr(ep, "POLL_INTERVAL_SECONDS", 0.01)
-        monkeypatch.setattr(ep, "PREPARED_CLAIM_WINDOW_SECONDS", 0.05)
+        monkeypatch.setattr(ep, "PREPARED_CLAIM_WINDOW_SECONDS", 0.5)
         patches["fetch_result"].return_value = {
             "status": "success", "video_url": "https://cdn.z.ai/v.mp4", "cover_image_url": None,
         }
@@ -918,9 +967,13 @@ class TestPreparedAheadOfPublish:
         assert info["status"] == "applied"
         assert job.status == "completed" and job.applied and job.live_site_updated
         assert job.website_id == "ws-1"
-        # The publish wrote the page itself; nothing is written twice.
+        # The publish wrote the page itself; the page is not written twice —
+        # only the row's hero_video_* columns are brought in step.
         patches["publish_website"].assert_not_called()
-        patches["update_website"].assert_not_called()
+        patches["update_website"].assert_awaited_once()
+        row = patches["update_website"].await_args.args[1]
+        assert row["hero_video_url"] == CLOUD_VIDEO and "html_content" not in row
+        assert patches["ledger_save"].await_args.args[0] is job
 
     def test_stage_ignores_missing_foreign_or_finished_jobs(self, patches, test_user_id):
         assert ep.stage_prepared_hero_video(None, test_user_id, LIVE_HTML)[1]["status"] == "none"
@@ -968,8 +1021,13 @@ class TestPreparedAheadOfPublish:
         job.video_url = CLOUD_VIDEO
         job.poster_url = job.image_url
         info = await ep.settle_prepared_hero_video(job.job_id, test_user_id, _row(), staged)
-        assert info["status"] == "applied" and BLOCK_START in info["html_content"]
-        assert job.status == "completed" and job.website_id == "ws-1"
+        # Applied in the background, never inside the publish request; the
+        # create page follows the job and gets the page from its poll.
+        assert info["status"] == "pending" and job.website_id == "ws-1"
+        assert job.status == "storing" and job.finalize_task is not None
+        patches["publish_website"].assert_not_called()
+        await job.finalize_task
+        assert job.status == "completed" and BLOCK_START in job.result_payload["html_content"]
         assert CLOUD_VIDEO in _published_html(patches)
 
     async def test_settle_never_steals_a_job_attached_elsewhere(self, patches, test_user_id):

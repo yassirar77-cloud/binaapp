@@ -359,7 +359,14 @@ class TestApiPublishPersistsDescription:
             "<h1>Ikan</h1></section></body></html>"
         )
         supabase_mock, fake_client = self._republish_env("ws-existing-1", test_user_id)
-        with self._republish_patches(supabase_mock, fake_client):
+        from app.api.v1.endpoints import hero_video as hv
+        with (
+            self._republish_patches(supabase_mock, fake_client),
+            # Settling the clip also records it on the websites row and in
+            # the job ledger; both are REST calls of their own, isolated here.
+            patch.object(hv.supabase_service, "update_website", new=AsyncMock(return_value=True)) as row_write,
+            patch.object(hv.ledger, "save", new=AsyncMock(return_value=True)) as ledger_save,
+        ):
             resp = client.post(
                 "/api/publish",
                 headers=auth_headers,
@@ -379,6 +386,11 @@ class TestApiPublishPersistsDescription:
         uploaded = fake_client.post.call_args.kwargs["content"].decode("utf-8")
         assert "binaapp-hero-video-layer" in uploaded
         assert "hero-videos/p-ab.mp4" in uploaded
+        # The row says the same thing the page does, and the ledger closed the job.
+        row_write.assert_awaited_once()
+        assert row_write.await_args.args[0] == "ws-existing-1"
+        assert row_write.await_args.args[1]["hero_video_url"].endswith("hero-videos/p-ab.mp4")
+        assert ledger_save.await_args.args[0].status == "completed"
         payload = self._captured_upsert_payload(supabase_mock)
         assert "binaapp-hero-video-layer" in payload["html_content"]
         assert job.status == "completed" and job.website_id == "ws-existing-1"

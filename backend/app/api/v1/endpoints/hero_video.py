@@ -3,10 +3,10 @@ to apply and remove.
 
     GET    /api/v1/websites/hero-video/options            style presets
     POST   /api/v1/websites/hero-video/prepare            start a clip with NO site yet
-    GET    /api/v1/websites/hero-video/jobs/{job_id}      poll it; `ready` = stored, waiting
+    GET    /api/v1/websites/hero-video/jobs/{job_id}      read its state; `ready` = stored, waiting
     GET    /api/v1/websites/{id}/hero-video               what the page has now
     POST   /api/v1/websites/{id}/hero-video/generate      start a video job for a site
-    GET    /api/v1/websites/{id}/hero-video/jobs/{job_id} poll; applies on success
+    GET    /api/v1/websites/{id}/hero-video/jobs/{job_id} read its state (never polls the provider)
     PATCH  /api/v1/websites/{id}/hero-video               change overlay / text / mobile
     DELETE /api/v1/websites/{id}/hero-video               remove it
 
@@ -22,11 +22,17 @@ server driver the moment it lands.
 
 TWO HALVES
 ----------
-1. MAKING the clip is an AI call (Z.ai CogVideoX via ``zai_video_service``).
-   It is asynchronous on Z.ai's side, so it is asynchronous here: ``generate``
-   returns a job id at once and the dashboard polls ``jobs/{job_id}``. The
-   poll that sees SUCCESS downloads the clip, stores it on Cloudinary, patches
-   the page and republishes — all inside that one request.
+1. MAKING the clip is an AI call (DashScope wan3.0-video, or Z.ai CogVideoX,
+   via ``zai_video_service``). It is asynchronous on the provider's side, so
+   it is asynchronous here: ``generate`` returns a job id at once and a
+   server-side driver task (``_drive_hero_video_job``) is the ONE thing that
+   polls the provider, stores the clip on Cloudinary, patches the page and
+   republishes. The dashboard's ``jobs/{job_id}`` poll only reads the job.
+   Every state change is mirrored to the ``hero_video_jobs`` table
+   (``services/hero_video_jobs``): on startup ``resume_hero_video_jobs``
+   picks up whatever the previous process was doing, and the stuck sweep
+   (``sweep_stuck_hero_video_jobs``) fails anything that outlived the hard
+   timeout, whatever the website's own status is.
 2. PUTTING it on the page (and every later tweak or removal) is a
    deterministic HTML patch from ``hero_video_patcher``: no AI, no quota, no
    content drift. Same contract as the Design Studio.
@@ -84,6 +90,7 @@ from app.services.plan_features import (
 from app.services.subscription_service import subscription_service
 from app.services.storage_service import storage_service
 from app.services.hero_luminance import auto_overlay_opacity
+from app.services import hero_video_jobs as ledger
 from app.services.supabase_client import supabase_service
 from app.services.zai_video_service import (
     ALLOWED_DURATIONS,
@@ -111,10 +118,46 @@ router = APIRouter()
 POLL_INTERVAL_SECONDS = 8
 
 #: How long a clip prepared during page generation waits for the publish
-#: that will carry it. The page itself takes a few minutes to generate and
-#: the merchant then reviews it; a clip still unclaimed after this is not
-#: going to be — its credit goes back and the registry forgets it.
-PREPARED_CLAIM_WINDOW_SECONDS = 45 * 60
+#: that will carry it. This was 45 minutes, and that lost a paid clip on
+#: 2026-09-11: job b15c3794 was stored at 03:29:18, released as "never
+#: published" at 04:14:18, and the merchant published at 04:25:55 — eleven
+#: minutes too late for a clip that was sitting on Cloudinary. The site
+#: went live static and a second clip was generated. Generation takes
+#: minutes, review takes longer, and the Starter flow pays before it
+#: publishes; a stored clip costs nothing to hold. One day: long enough
+#: for any review, short enough that an abandoned draft's credit goes
+#: back tomorrow. Survives restarts through the ledger.
+PREPARED_CLAIM_WINDOW_SECONDS = 24 * 60 * 60
+
+
+def prepared_claim_window_seconds() -> float:
+    """HERO_VIDEO_CLAIM_WINDOW_SECONDS overrides the day. A held credit is
+    the trade-off: a create page that loses its job id (reload) leaves the
+    credit refunded only when the window closes."""
+    try:
+        return float(os.getenv("HERO_VIDEO_CLAIM_WINDOW_SECONDS", str(PREPARED_CLAIM_WINDOW_SECONDS)))
+    except ValueError:
+        return float(PREPARED_CLAIM_WINDOW_SECONDS)
+
+
+#: How long a job may sit in 'storing' (download + Cloudinary + apply)
+#: before the sweep treats it as hung. Aged from entering 'storing', so a
+#: clip that SUCCEEDED late still gets its full allowance.
+HERO_VIDEO_STORING_LIMIT_SECONDS = 300
+
+#: Hard timeout on the provider task: ZAI_VIDEO_MAX_WAIT_SECONDS, default
+#: 600. Why ten minutes: across every job in the 2026-09-04..11 production
+#: logs, DashScope wan3.0-video SUCCEEDED in 2 m 15 s – 3 m 45 s and Z.ai in
+#: ~65 s; DashScope documents PENDING queueing under load. 600 s is ~2.7×
+#: the slowest clip observed, short enough that nobody is left watching a
+#: spinner, and the moment a paid credit goes back. Past it the job is
+#: FAILED with error='timeout', refunded, and HERO_VIDEO_TIMEOUT fires
+#: (log + admin email). The provider task itself is abandoned — DashScope
+#: has no cancel — so a late SUCCEEDED is wasted, deliberately.
+#:
+#: The sweep gives the driver this much slack past the limit before it
+#: steps in, so the two never race over the same job.
+HERO_VIDEO_SWEEP_GRACE_SECONDS = 120
 
 #: Per-user in-flight jobs (across all their sites).
 MAX_ACTIVE_JOBS_PER_USER = 2
@@ -318,6 +361,7 @@ async def _upgrade_legacy_css(website: dict, user_id: str, html: str) -> Tuple[s
         patched = apply_hero_video(html, settings)
         if not patched.changed or patched.html == html:
             return html, False
+        await _record_video_on_row(website["id"], settings)
         live, warning = await _persist(website, user_id, patched.html)
         logger.info(
             f"🎬 Hero video CSS upgraded for {website.get('id')} "
@@ -347,7 +391,26 @@ async def _refund_if_charged(job) -> None:
     reason to fail the poll."""
     if not job.charged or job.refunded:
         return
-    ok = await subscription_service.refund_addon_credit(job.user_id, HERO_VIDEO_ADDON_TYPE)
+    # One refund per job, decided by the ledger row, not by whichever
+    # process happens to hold a copy of the job: a conditional PATCH on
+    # refunded=false that only one caller can win. A ledger that cannot
+    # answer does not block the refund — the merchant's money outranks a
+    # possible double credit, and the failure is logged.
+    won = await ledger.mark_refunded(job.job_id)
+    if won is False:
+        logger.warning(f"↩️ Hero video job {job.job_id} was already refunded (ledger) — not refunding again")
+        job.refunded = True
+        return
+    if won is None:
+        logger.error(f"↩️ Hero video job {job.job_id}: ledger could not confirm the refund claim — refunding anyway")
+    try:
+        ok = await subscription_service.refund_addon_credit(job.user_id, HERO_VIDEO_ADDON_TYPE)
+    except Exception as exc:  # noqa: BLE001 — a refund that raises is a support case, logged below
+        logger.error(
+            f"🎬 Hero video credit refund RAISED for job {job.job_id} "
+            f"(user {job.user_id}): {exc!r} — refund manually"
+        )
+        ok = False
     job.refunded = ok
     if ok:
         logger.info(f"↩️ Hero video credit refunded for job {job.job_id} ({job.error})")
@@ -356,6 +419,144 @@ async def _refund_if_charged(job) -> None:
             f"🎬 Hero video credit refund FAILED for job {job.job_id} "
             f"(user {job.user_id}, error={job.error}) — refund manually"
         )
+
+
+async def _ledger_save(job) -> bool:
+    """Mirror the job to ``hero_video_jobs``. A failure is logged by the
+    ledger and returned, never raised: the clip must still land. If the
+    ledger says another process now owns the row, the job is flagged so
+    this process's driver stops."""
+    result = await ledger.save(job)
+    if result == ledger.SAVE_LOST:
+        job.ownership_lost = True
+    return result == ledger.SAVE_OK
+
+
+async def _job_is_ours_to_end(job) -> bool:
+    """Before a terminal write: is this job still ours, and still open?
+
+    Two processes can hold the same job across a deploy, and the sweep can
+    rebuild one from its row. So read the row: already terminal → another
+    process finished it (sync our copy, do nothing); leased by a live
+    process that is not us → theirs to end. A ledger that cannot be read
+    answers True: the in-memory ``refunded`` flag still stops a double
+    refund within this process, and a stuck job must still be ended."""
+    row = await ledger.load(job.job_id)
+    if not row:
+        return True
+    if row.get("status") in ledger.TERMINAL_STATUSES:
+        logger.warning(
+            f"[hero-video] job {job.job_id} is already {row.get('status')} in the ledger "
+            f"(error={row.get('error')}, refunded={row.get('refunded')}) — another process "
+            "ended it; adopting that outcome, not refunding again"
+        )
+        job.status = str(row.get("status"))
+        job.error = row.get("error")
+        job.refunded = bool(row.get("refunded")) or job.refunded
+        return False
+    if ledger.lease_is_live(row):
+        logger.warning(
+            f"[hero-video] job {job.job_id} is leased by process {str(row.get('lease_owner'))[:8]} "
+            f"until {row.get('lease_until')} — leaving it to that process"
+        )
+        return False
+    return True
+
+
+async def _fail_job(job, error: str, *, detail: str = "") -> None:
+    """The ONE way a job ends in failure: ownership check, state, ledger,
+    refund, and a single ERROR line naming the job, the site, the provider
+    task, the last provider state and the reason. Callers hold
+    ``job.lock`` wherever a driver could be racing them.
+
+    One refund per job is enforced by the ledger (mark_refunded), not by
+    this process's memory, so a job failed here and again after a restart
+    is still refunded once."""
+    if not await _job_is_ours_to_end(job):
+        return
+    job.status = JOB_STATUS_FAILED
+    job.error = error
+    logger.error(
+        f"[hero-video] job {job.job_id} FAILED error={error} "
+        f"website={job.website_id or '-'} user={job.user_id} provider={job.provider} "
+        f"task={job.task_id} provider_status={job.provider_status or '-'} "
+        f"poll_errors={job.poll_errors} age={int(job.age_seconds())}s"
+        + (f" — {detail}" if detail else "")
+    )
+    await _ledger_save(job)
+    if job.ownership_lost:
+        logger.error(f"[hero-video] job {job.job_id}: another process owns this job — not refunding here")
+        return
+    if job.charged and not job.refunded:
+        await _refund_if_charged(job)
+        await _ledger_save(job)
+
+
+async def _alert_timeout(job) -> None:
+    """A job outlived the hard timeout. One greppable CRITICAL line
+    (``HERO_VIDEO_TIMEOUT``) plus an admin email through the existing
+    notification path, so it surfaces without anyone reading logs. Never
+    raises — it runs from the driver and from the sweep."""
+    limit = int(zai_video_max_wait_seconds())
+    summary = (
+        f"job={job.job_id} website={job.website_id or '-'} user={job.user_id} "
+        f"provider={job.provider} task={job.task_id} waited={int(job.age_seconds())}s "
+        f"limit={limit}s last_provider_status={job.provider_status or '-'} "
+        f"poll_errors={job.poll_errors} charged={job.charged} refunded={job.refunded}"
+    )
+    logger.critical(f"🚨 HERO_VIDEO_TIMEOUT {summary}")
+    try:
+        from app.services.email_service import email_service
+
+        sent = await email_service.send_admin_notification(
+            subject=f"Hero video job timed out ({job.job_id[:8]})",
+            message=(
+                f"A hero-video job outlived its {limit}s limit and was marked failed. "
+                "The provider task may still finish on its own; the merchant's credit "
+                "has been refunded if one was charged."
+            ),
+            notification_type="error",
+            details={
+                "job_id": job.job_id,
+                "website_id": job.website_id or "-",
+                "user_id": job.user_id,
+                "provider": job.provider,
+                "provider_task": job.task_id,
+                "last_provider_status": job.provider_status or "-",
+                "poll_errors": job.poll_errors,
+                "waited_seconds": int(job.age_seconds()),
+                "charged": job.charged,
+                "refunded": job.refunded,
+            },
+        )
+        if not sent:
+            logger.error(
+                f"🚨 HERO_VIDEO_TIMEOUT admin email NOT sent for job {job.job_id} "
+                "(SMTP unconfigured or rejected) — the CRITICAL line above is the alert"
+            )
+    except Exception as exc:  # noqa: BLE001 — the alert must never take the sweep down
+        logger.error(f"🚨 HERO_VIDEO_TIMEOUT admin email raised for job {job.job_id}: {exc!r}")
+
+
+async def _record_video_on_row(website_id: str, settings: Optional[HeroVideoSettings]) -> bool:
+    """Write the clip the site is supposed to carry onto the websites row
+    (hero_video_url / hero_video_poster_url / hero_video_settings), or
+    clear it. Written BEFORE the HTML is patched so the row says what the
+    page should show even if the process dies between the two writes.
+    Returns False — after an ERROR line — when PostgREST updated no row."""
+    payload = {
+        "hero_video_url": settings.video_url if settings else None,
+        "hero_video_poster_url": settings.poster_url if settings else None,
+        "hero_video_settings": settings.as_dict() if settings else None,
+        "hero_video_updated_at": datetime.utcnow().isoformat(),
+    }
+    ok = await supabase_service.update_website(website_id, payload)
+    if not ok:
+        logger.error(
+            f"[hero-video] websites row {website_id}: hero_video_* write updated no row "
+            f"(migration 056 applied?) — the page is still patched, the row is not"
+        )
+    return ok
 
 
 async def _submit_or_502(prompt: str, *, duration: Optional[int], image_url: Optional[str], label: str) -> Tuple[str, str]:
@@ -571,6 +772,7 @@ async def prepare_hero_video(
         f"🎬 Hero video job {job.job_id} prepared ahead of publish for user {user_id} "
         f"(style={style}, provider={provider}, task={task_id})"
     )
+    await ledger.create(job)
     job.driver_task = asyncio.create_task(_drive_hero_video_job(job, "", user_id))
     return {
         "success": True,
@@ -600,8 +802,7 @@ async def poll_prepared_hero_video_job(
                 "message": "Tugasan video tidak dijumpai atau telah tamat. Sila cuba lagi.",
             },
         )
-    if job.status == JOB_STATUS_PROCESSING:
-        await _advance_hero_video_job(job, job.website_id, user_id)
+    # Read-only: the driver is the only poller (see poll_hero_video_job).
     body = {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
     if job.status in (JOB_STATUS_READY, JOB_STATUS_COMPLETED, JOB_STATUS_FAILED):
         body.update(job.result_payload or {})
@@ -729,14 +930,14 @@ async def generate_hero_video(
         f"🎬 Hero video job {job.job_id} started for {website_id} "
         f"(style={style}, provider={provider}, task={task_id})"
     )
-    # The server polls the provider from here on. Until now the ONLY thing
-    # that advanced a job was the browser's poll: a merchant who went back
-    # to the dashboard while "video sedang dijana" left the finished clip
-    # uncollected — and on a paid plan, the credit spent with no refund,
-    # since nobody was there to observe a failure either. (Website malan,
-    # task 144693e5: five polls over 56 seconds, then silence; the clip
-    # was made and never applied.) The browser poll still works; it now
-    # just reads state, and can no longer be the thing the job depends on.
+    # The server polls the provider from here on — and ONLY the server.
+    # Before 2026-09-10 the browser's poll was the only thing that advanced
+    # a job (website malan, task 144693e5: five polls over 56 seconds, then
+    # silence; the clip was made and never applied). After that the driver
+    # and the browser poll both polled the provider. Now the browser poll
+    # reads state and nothing else, and the ledger row written here is
+    # what a restarted process resumes from.
+    await ledger.create(job)
     job.driver_task = asyncio.create_task(_drive_hero_video_job(job, website_id, user_id))
     return {
         "success": True,
@@ -754,12 +955,18 @@ async def poll_hero_video_job(
     job_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """Poll a job. The call that observes SUCCESS also stores the clip,
-    patches the page and republishes, then reports ``completed``."""
+    """Report a job's state. READ-ONLY.
+
+    The server-side driver is the only thing that polls the provider,
+    stores the clip and patches the page. Until 2026-09-11 this handler
+    polled the provider too — two pollers per job, one of them on a
+    request path a phone fires every 8 s, and a DB read of the website
+    row on each — so a job's progress depended on which caller got the
+    lock first. Now it returns what the driver has recorded, nothing more,
+    and touches no other table.
+    """
     _feature_gate()
     user_id = current_user.get("sub")
-    website = await _load_owned_website(website_id, user_id)
-
     job = zai_video_service.get_job(job_id)
     if not job or job.website_id != website_id or job.user_id != user_id:
         raise HTTPException(
@@ -769,29 +976,10 @@ async def poll_hero_video_job(
                 "message": "Tugasan video tidak dijumpai atau telah tamat. Sila cuba lagi.",
             },
         )
-
-    def _terminal():
-        return {
-            "success": True,
-            **job.to_dict(),
-            **(job.result_payload or {}),
-            "poll_interval_seconds": POLL_INTERVAL_SECONDS,
-        }
-
-    if job.status in (JOB_STATUS_COMPLETED, JOB_STATUS_FAILED):
-        return _terminal()
-    if job.status == JOB_STATUS_STORING:
-        # Finaliser is running in the background — just report progress.
-        return {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
-
-    # Two dashboard tabs polling the same job must not both hand off — and
-    # neither may race the server-side driver. One shared step, under the
-    # job lock, idempotent on terminal states.
-    handed_off = await _advance_hero_video_job(job, website_id, user_id, website=website)
-    if job.status in (JOB_STATUS_COMPLETED, JOB_STATUS_FAILED):
-        return _terminal()
     body = {"success": True, **job.to_dict(), "poll_interval_seconds": POLL_INTERVAL_SECONDS}
-    if handed_off:
+    if job.status in (JOB_STATUS_COMPLETED, JOB_STATUS_FAILED):
+        body.update(job.result_payload or {})
+    elif job.status == JOB_STATUS_STORING:
         body["message"] = "Video sedia — sedang dipasang pada laman web."
     return body
 
@@ -799,42 +987,89 @@ async def poll_hero_video_job(
 async def _advance_hero_video_job(
     job, website_id: str, user_id: str, website: Optional[dict] = None
 ) -> bool:
-    """One step of the job: time it out, ask the provider, fail-and-refund,
-    or hand a finished clip to the finaliser. Returns True only on the call
-    that hands off. Safe to call from the browser poll and the server
-    driver concurrently — the job lock serialises them and every terminal
-    state short-circuits, so a clip is stored exactly once.
+    """One step of the job, taken by the driver. Every outcome is explicit
+    and logged — there is no branch that changes nothing and says nothing:
 
-    ``website`` is the row when the caller already loaded it (the poll
-    endpoint did, for the ownership check); the driver leaves it None and
-    it is loaded only at hand-off, so a job in flight costs no reads.
+      over the hard timeout      → FAILED 'timeout' + refund + HERO_VIDEO_TIMEOUT alert
+      the poll itself raised     → still processing; poll_errors+1,
+                                   provider_status='http_<code>'; bounded by the timeout
+      provider says FAILED/…     → FAILED 'generation_failed' + refund (full body in the log)
+      provider says SUCCEEDED    → 'storing', clip handed to the finaliser
+      provider still running     → still processing; raw state recorded,
+                                   lease renewed, last_polled_at stamped
+
+    Returns True only on the call that hands off. Idempotent on terminal
+    states and serialised by the job lock, so the finaliser runs exactly
+    once even if the sweep and the driver race. The timeout alert (a
+    CRITICAL line and an SMTP send) runs after the lock is released, so a
+    publish request waiting to settle this job is never held behind a
+    mail server.
+
+    ``website`` is the row when the caller already loaded it; the driver
+    leaves it None and it is loaded only at hand-off, so a job in flight
+    costs no reads.
     """
+    handed_off, timed_out = await _advance_locked(job, website_id, user_id, website)
+    if timed_out:
+        await _alert_timeout(job)
+    return handed_off
+
+
+async def _advance_locked(
+    job, website_id: str, user_id: str, website: Optional[dict]
+) -> Tuple[bool, bool]:
+    """(handed_off, timed_out) — see _advance_hero_video_job."""
     async with job.lock:
         if job.status != JOB_STATUS_PROCESSING:
-            return False
+            return False, False
 
-        if job.age_seconds() > zai_video_max_wait_seconds():
-            job.status = JOB_STATUS_FAILED
-            job.error = "timeout"
-            logger.warning(f"[hero-video] job {job.job_id} timed out")
-            await _refund_if_charged(job)
-            return False
+        limit = zai_video_max_wait_seconds()
+        if job.age_seconds() > limit:
+            await _fail_job(job, "timeout", detail=f"outlived the {int(limit)}s limit")
+            return False, job.status == JOB_STATUS_FAILED and job.error == "timeout"
 
+        job.last_polled_wall = time.time()
         try:
             result = await zai_video_service.fetch_result(job.task_id, provider=job.provider)
         except ZaiVideoError as exc:
-            # A transient poll error is not a failed job — stay processing
-            # and ask again next time.
-            logger.warning(f"[hero-video] poll error for {job.job_id}: {exc}")
-            return False
+            # A failed POLL is not a failed JOB: DashScope answered one poll
+            # with a bare 403 on 2026-09-11 04:28:18 and SUCCEEDED on the
+            # next. Count it, record what it was, keep going; the hard
+            # timeout above ends a poll that never recovers.
+            job.poll_errors += 1
+            job.provider_status = f"http_{exc.status_code}" if exc.status_code else "poll_error"
+            job.provider_message = str(exc)[:500]
+            logger.warning(
+                f"[hero-video] job {job.job_id} poll error #{job.poll_errors} "
+                f"({job.provider_status}): {exc} — still processing, "
+                f"{max(0, int(limit - job.age_seconds()))}s left before timeout"
+            )
+            await _ledger_save(job)
+            return False, False
+
+        raw = str(result.get("raw_status") or "?")
+        state_changed = raw != job.provider_status or job.poll_errors > 0
+        job.poll_errors = 0
+        job.provider_status = raw
+        if result.get("message") or result.get("code"):
+            job.provider_message = f"{result.get('code') or ''} {result.get('message') or ''}".strip()[:500]
 
         if result["status"] == "fail":
-            job.status = JOB_STATUS_FAILED
-            job.error = "generation_failed"
-            await _refund_if_charged(job)
-            return False
+            await _fail_job(
+                job, "generation_failed",
+                detail=f"provider said {raw}: {job.provider_message or '(no message)'}",
+            )
+            return False, False
         if result["status"] != "success":
-            return False
+            if state_changed:
+                logger.info(
+                    f"[hero-video] job {job.job_id} still processing "
+                    f"(provider_status={raw}, age={int(job.age_seconds())}s)"
+                )
+            # Every poll renews the lease and stamps last_polled_at, so a
+            # process that dies mid-render is visible as a lapsed lease.
+            await _ledger_save(job)
+            return False, False
 
         # A job prepared ahead of publish has no site yet (job.website_id
         # is empty until /api/publish claims it): the finaliser stores the
@@ -844,65 +1079,127 @@ async def _advance_hero_video_job(
         target_id = job.website_id or website_id
         if website is None and target_id:
             try:
-                website = await _load_owned_website(target_id, user_id)
+                website = await _load_owned_website_retrying(target_id, user_id)
             except HTTPException as exc:
-                # The site vanished or changed hands mid-job. Nothing to
-                # patch; do not keep the merchant's money for it.
-                job.status = JOB_STATUS_FAILED
-                job.error = "website_unavailable"
-                logger.error(f"[hero-video] job {job.job_id}: website unavailable ({exc.detail})")
-                await _refund_if_charged(job)
-                return False
+                # The site is gone or changed hands mid-job (after three
+                # reads, so a Supabase blip is not mistaken for that).
+                # Nothing to patch; do not keep the merchant's money.
+                await _fail_job(job, "website_unavailable", detail=str(exc.detail))
+                return False, False
 
-        # The provider is done. Everything that follows — download the MP4,
-        # upload to Cloudinary, patch the page, write two storage paths and
-        # the DB — used to run INSIDE the poll request, which the browser
-        # fires every few seconds: a 3.9-second GET on a hot path. It runs
-        # as a background task; polls only read job state from here on. The
-        # dashboard already treats 'storing' as in-progress.
+        # The provider is done. Download, Cloudinary, patch, storage and DB
+        # writes run as a background task, never on a request path.
         job.status = JOB_STATUS_STORING
+        job.storing_since = time.monotonic()
+        logger.info(
+            f"[hero-video] job {job.job_id} provider {raw} after {int(job.age_seconds())}s "
+            f"— storing the clip{' for ' + target_id if target_id else ' (no site yet)'}"
+        )
+        await _ledger_save(job)
         job.finalize_task = asyncio.create_task(
             _finalize_hero_video_job(job, website, user_id, result["video_url"])
         )
-        return True
+        return True, False
+
+
+async def _load_owned_website_retrying(website_id: str, user_id: str, attempts: int = 3):
+    """get_website answers None for 'no such row' AND for any transport
+    error, so one miss must not end a job whose clip is finished. Three
+    reads with a short backoff; 403 (not the owner) is final at once."""
+    last: Optional[HTTPException] = None
+    for attempt in range(attempts):
+        try:
+            return await _load_owned_website(website_id, user_id)
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_403_FORBIDDEN:
+                raise
+            last = exc
+            logger.warning(
+                f"[hero-video] website {website_id} not readable (attempt {attempt + 1}/{attempts}): {exc.detail}"
+            )
+            if attempt + 1 < attempts:
+                await asyncio.sleep(2 * (attempt + 1))
+    raise last  # type: ignore[misc]
 
 
 async def _drive_hero_video_job(job, website_id: str, user_id: str) -> None:
     """Advance the job to a terminal state whether or not a browser is
-    polling. Exits quietly if the registry no longer holds this job (TTL
-    sweep, or a reset), so a stale driver can never act on a dead job.
-    Once the clip is handed to the finaliser that task owns the rest."""
+    polling. THE poller.
+
+    Never dies on an unexpected exception: a driver that died left its
+    job 'processing' forever, invisible to everything. A step that raises
+    is logged with its traceback and the loop keeps going; the hard
+    timeout inside _advance_hero_video_job ends any job that cannot make
+    progress, and the sweep ends any job whose driver is gone. Exits
+    quietly only when the registry no longer holds this job (a reset), so
+    a stale driver never acts on a dead job.
+    """
     try:
         while job.status == JOB_STATUS_PROCESSING:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
             if zai_video_service.get_job(job.job_id) is not job:
+                logger.warning(
+                    f"[hero-video] driver for job {job.job_id} stopping: "
+                    "the registry no longer holds this job"
+                )
                 return
-            await _advance_hero_video_job(job, website_id, user_id)
+            try:
+                await _advance_hero_video_job(job, website_id, user_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 — logged with traceback; the loop continues
+                logger.exception(
+                    f"[hero-video] driver step for job {job.job_id} raised; "
+                    "retrying on the next tick (the hard timeout still applies)"
+                )
+            if job.ownership_lost:
+                logger.error(
+                    f"[hero-video] driver for job {job.job_id} stopping: another process owns the row"
+                )
+                zai_video_service.drop_job(job.job_id)
+                return
         if job.website_id:
             return
         # Prepared ahead of publish and still unattached: wait for the
-        # clip to be stored, then give the publish its claim window. A
-        # clip nobody published is not delivered — hand the credit back
-        # rather than keep it for a video that never reached a page.
+        # clip to be stored, then give the publish its claim window,
+        # measured from the job's start so a resumed job does not get a
+        # fresh day. A clip nobody published is not delivered — hand the
+        # credit back rather than keep it for a video that never reached
+        # a page.
         if job.finalize_task is not None:
             await asyncio.shield(job.finalize_task)
         if job.status != JOB_STATUS_READY:
             return
-        await asyncio.sleep(PREPARED_CLAIM_WINDOW_SECONDS)
+        # Sleep in slices and re-save each time: the save renews this
+        # process's lease on the row, so a replacement instance knows the
+        # clip is still held here and does not adopt it too.
+        slice_seconds = ledger.lease_seconds_for(JOB_STATUS_READY) / 2
+        while job.status == JOB_STATUS_READY:
+            remaining = prepared_claim_window_seconds() - job.age_seconds()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(remaining, slice_seconds))
+            if job.status == JOB_STATUS_READY and zai_video_service.get_job(job.job_id) is job:
+                await _ledger_save(job)
+                if job.ownership_lost:
+                    logger.error(f"[hero-video] ready job {job.job_id} now owned elsewhere — releasing it here")
+                    zai_video_service.drop_job(job.job_id)
+                    return
         async with job.lock:
             if job.status != JOB_STATUS_READY:
                 return
-            job.status = JOB_STATUS_FAILED
-            job.error = "unclaimed"
-            logger.warning(
-                f"[hero-video] prepared job {job.job_id} was never published "
-                f"within {PREPARED_CLAIM_WINDOW_SECONDS}s — releasing it"
+            await _fail_job(
+                job, "unclaimed",
+                detail=f"stored clip was never published within {int(prepared_claim_window_seconds())}s",
             )
-            await _refund_if_charged(job)
     except asyncio.CancelledError:
+        logger.warning(
+            f"[hero-video] driver for job {job.job_id} cancelled at status={job.status} "
+            "(shutdown?) — the ledger row resumes it on the next start"
+        )
         raise
     except Exception:  # noqa: BLE001 — a driver must never die silently
-        logger.exception(f"[hero-video] driver for job {job.job_id} crashed")
+        logger.exception(f"[hero-video] driver for job {job.job_id} crashed outside a step")
 
 
 async def _store_clip(job, provider_video_url: str, *, website_id: str) -> bool:
@@ -911,10 +1208,7 @@ async def _store_clip(job, provider_video_url: str, *, website_id: str) -> bool:
     try:
         stored = await zai_video_service.store(provider_video_url, website_id=website_id)
     except ZaiVideoError as exc:
-        job.status = JOB_STATUS_FAILED
-        job.error = "storage_failed"
-        logger.error(f"[hero-video] storage failed for {job.job_id}: {exc}")
-        await _refund_if_charged(job)
+        await _fail_job(job, "storage_failed", detail=str(exc))
         return False
 
     job.video_url = stored["video_url"]
@@ -961,11 +1255,31 @@ def _mark_applied(job, website: dict, patched, base_source: str, live: bool, war
     )
 
 
+def _still_storing(job, step: str) -> bool:
+    """The sweep may have ended this job while the finaliser was busy
+    (a clip that took longer than the timeout to download). Check before
+    each write so a failed-and-refunded job is not also applied."""
+    if job.status == JOB_STATUS_STORING:
+        return True
+    logger.warning(
+        f"[hero-video] job {job.job_id} is {job.status} (error={job.error}) — "
+        f"stopping before {step}; the clip is stored at {job.video_url}"
+    )
+    return False
+
+
 async def _apply_stored_clip(job, website: dict, user_id: str) -> None:
-    """Patch the stored clip into the site's page and publish it. A failure
-    here keeps the stored URLs on the job so the merchant can retry the
-    apply without regenerating."""
+    """Record the clip on the websites row, patch it into the page,
+    publish. In that order: the row says what the page SHOULD carry before
+    the page is rewritten, so a crash between the two leaves evidence
+    rather than a mystery. A failure here keeps the stored URLs on the job
+    so the merchant can retry the apply without regenerating."""
+    if not _still_storing(job, "writing the websites row"):
+        return
     settings = _stored_settings(job)
+    row_ok = await _record_video_on_row(website["id"], settings)
+    if not _still_storing(job, "patching the page"):
+        return
     try:
         base_html, base_source = await _load_base_html(website)
         patched = apply_hero_video(base_html, settings)
@@ -974,16 +1288,37 @@ async def _apply_stored_clip(job, website: dict, user_id: str) -> None:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={"error": "hero_not_found", "message": "Bahagian hero tidak dijumpai."},
             )
+        if not _still_storing(job, "publishing the page"):
+            await _record_video_on_row(website["id"], None)
+            return
         live, warning = await _persist(website, user_id, patched.html)
     except HTTPException as exc:
-        job.status = JOB_STATUS_FAILED
-        job.error = (
-            exc.detail.get("error") if isinstance(exc.detail, dict) else "apply_failed"
+        # The row must not claim a clip the page does not carry.
+        await _record_video_on_row(website["id"], None)
+        await _fail_job(
+            job,
+            exc.detail.get("error") if isinstance(exc.detail, dict) else "apply_failed",
+            detail=str(exc.detail),
         )
-        logger.error(f"[hero-video] apply failed for {job.job_id}: {exc.detail}")
-        await _refund_if_charged(job)
         return
-    _mark_applied(job, website, patched, base_source, live, warning)
+    if not row_ok and not warning:
+        warning = "row_write_failed"
+    async with job.lock:
+        if not _still_storing(job, "marking the job completed"):
+            return
+        _mark_applied(job, website, patched, base_source, live, warning)
+    await _ledger_save(job)
+
+
+async def _apply_stored_clip_task(job, website: dict, user_id: str) -> None:
+    """Background apply for a clip that is already stored (a prepared clip
+    claimed by a publish, or a resumed job). Same guarantee as the
+    finaliser: the job cannot be left in 'storing'."""
+    try:
+        await _apply_stored_clip(job, website, user_id)
+    except Exception as exc:  # noqa: BLE001 — never leave a job stuck in 'storing'
+        logger.exception(f"[hero-video] apply crashed for {job.job_id}: {exc}")
+        await _fail_job(job, "apply_failed", detail=repr(exc))
 
 
 async def _finalize_hero_video_job(job, website: Optional[dict], user_id: str, provider_video_url: str) -> None:
@@ -1000,6 +1335,8 @@ async def _finalize_hero_video_job(job, website: Optional[dict], user_id: str, p
             job, provider_video_url, website_id=website["id"] if website else job.job_id
         ):
             return
+        if not _still_storing(job, "parking or applying the stored clip"):
+            return
 
         if website is None:
             async with job.lock:
@@ -1009,22 +1346,18 @@ async def _finalize_hero_video_job(job, website: Optional[dict], user_id: str, p
                         "message": "Video sedia — akan dipasang semasa laman diterbitkan."
                     }
                     logger.info(f"🎬 Hero video {job.job_id} ready ahead of publish")
+                    await _ledger_save(job)
                     return
             try:
                 website = await _load_owned_website(job.website_id, user_id)
             except HTTPException as exc:
-                job.status = JOB_STATUS_FAILED
-                job.error = "website_unavailable"
-                logger.error(f"[hero-video] job {job.job_id}: website unavailable ({exc.detail})")
-                await _refund_if_charged(job)
+                await _fail_job(job, "website_unavailable", detail=str(exc.detail))
                 return
 
         await _apply_stored_clip(job, website, user_id)
-    except Exception as exc:  # never leave a job stuck in 'storing'
-        job.status = JOB_STATUS_FAILED
-        job.error = "apply_failed"
+    except Exception as exc:  # noqa: BLE001 — never leave a job stuck in 'storing'
         logger.exception(f"[hero-video] finaliser crashed for {job.job_id}: {exc}")
-        await _refund_if_charged(job)
+        await _fail_job(job, "apply_failed", detail=repr(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -1061,7 +1394,9 @@ def stage_prepared_hero_video(job_id: Optional[str], user_id: str, html: str) ->
 async def settle_prepared_hero_video(job_id: Optional[str], user_id: str, website: dict, staged: Dict) -> Dict:
     """After the publish has gone live: confirm a staged clip, or attach an
     in-flight job to the new site so the driver applies it when it lands.
-    A clip that became ready between staging and upload is applied now.
+    A clip that became ready between staging and upload is applied by a
+    background task — this runs inside the publish request and does no
+    storage or provider work itself.
 
     Returns the ``hero_video`` block of the publish response:
     ``applied`` (the live page carries the clip), ``pending`` (it will be
@@ -1070,11 +1405,26 @@ async def settle_prepared_hero_video(job_id: Optional[str], user_id: str, websit
     """
     job = zai_video_service.get_job(job_id) if job_id else None
     if not job or job.user_id != user_id:
+        logger.warning(
+            f"🎬 [PUBLISH] hero video job {job_id} not settled for {website.get('id')}: "
+            f"{'not in this process' if not job else 'owned by another user'} — the page starts a new clip"
+        )
         return {"status": "none", "job_id": job_id, "reason": "job_not_found"}
     website_id = website["id"]
 
     if staged.get("status") == "staged":
         async with job.lock:
+            if job.status != JOB_STATUS_READY:
+                # The window closed (or the sweep acted) between staging
+                # and settling: the page uploaded does carry the clip, but
+                # the job has already been ended and refunded. Say so; do
+                # not rewrite a terminal job as completed.
+                logger.warning(
+                    f"[hero-video] job {job.job_id} was {job.status} (error={job.error}) by the time "
+                    f"{website_id} settled its staged clip — page carries it, job left as is"
+                )
+                return {"status": "applied", "job_id": job_id, "message": "Video latar hero dipasang bersama laman.",
+                        "note": f"job_{job.status}"}
             job.website_id = website_id
             job.applied = True
             job.live_site_updated = True
@@ -1088,6 +1438,9 @@ async def settle_prepared_hero_video(job_id: Optional[str], user_id: str, websit
             f"🎬 Hero video {job.job_id} published together with {website_id} "
             f"(hero matched by {staged.get('hero_match') or 'unknown'})"
         )
+        # The publish wrote the page; the row must say the same thing.
+        await _record_video_on_row(website_id, _stored_settings(job))
+        await _ledger_save(job)
         return {"status": "applied", "job_id": job_id, "message": job.result_payload["message"]}
 
     async with job.lock:
@@ -1097,6 +1450,7 @@ async def settle_prepared_hero_video(job_id: Optional[str], user_id: str, websit
             if job.website_id != website_id:
                 return {"status": "none", "job_id": job_id, "reason": "attached_elsewhere"}
             logger.info(f"🎬 Hero video {job.job_id} attached to {website_id}; applies when the clip lands")
+            await _ledger_save(job)
             return {
                 "status": "pending",
                 "job_id": job_id,
@@ -1105,18 +1459,20 @@ async def settle_prepared_hero_video(job_id: Optional[str], user_id: str, websit
         if job.status != JOB_STATUS_READY:
             return {"status": "none", "job_id": job_id, "reason": job.error or job.status}
         # Became ready after staging looked, before the upload finished.
+        # The apply (snapshot read, patch, two storage writes, DB) is
+        # background work like every other completion; the create page
+        # follows the job and receives the patched page from the poll
+        # that sees it complete.
         job.website_id = website_id
         job.status = JOB_STATUS_STORING
-
-    await _apply_stored_clip(job, website, user_id)
-    if job.status == JOB_STATUS_COMPLETED:
-        return {
-            "status": "applied",
-            "job_id": job_id,
-            "message": job.result_payload.get("message"),
-            "html_content": job.result_payload.get("html_content"),
-        }
-    return {"status": "failed", "job_id": job_id, "error": job.error}
+        await _ledger_save(job)
+        job.finalize_task = asyncio.create_task(_apply_stored_clip_task(job, website, user_id))
+    logger.info(f"🎬 Hero video {job.job_id} was ready at settle; applying to {website_id} in the background")
+    return {
+        "status": "pending",
+        "job_id": job_id,
+        "message": "Video sedia — sedang dipasang pada laman web.",
+    }
 
 
 @router.patch("/{website_id}/hero-video")
@@ -1166,6 +1522,7 @@ async def update_hero_video_look(
             "live_site_updated": False,
         }
 
+    await _record_video_on_row(website_id, settings)
     live, warning = await _persist(website, user_id, patched.html)
     logger.info(f"🎬 Hero video look updated for {website_id} (base={base_source}, live={live})")
     response = {
@@ -1206,6 +1563,7 @@ async def delete_hero_video(
             "live_site_updated": False,
         }
 
+    await _record_video_on_row(website_id, None)
     live, warning = await _persist(website, user_id, result.html)
     logger.info(f"🎬 Hero video removed for {website_id} (base={base_source}, live={live})")
     response = {
@@ -1220,3 +1578,192 @@ async def delete_hero_video(
     if warning:
         response["warning"] = warning
     return response
+
+
+# ---------------------------------------------------------------------------
+# Durability: restart recovery and the stuck sweep (ledger-backed)
+# ---------------------------------------------------------------------------
+
+async def _resume_apply(job) -> None:
+    """A resumed job whose clip is already on Cloudinary: only the apply
+    was lost with the old process."""
+    try:
+        website = await _load_owned_website(job.website_id, job.user_id)
+    except HTTPException as exc:
+        await _fail_job(job, "website_unavailable", detail=str(exc.detail))
+        return
+    await _apply_stored_clip_task(job, website, job.user_id)
+
+
+def _adopt_row(row: Dict) -> Optional[str]:
+    """Put a claimed ledger row into the registry and drive it. Returns
+    the job id, or None when the row could not be rebuilt or is already
+    live here."""
+    try:
+        job = ledger.job_from_row(row)
+    except Exception as exc:  # noqa: BLE001 — one bad row must not block the rest
+        logger.error(f"[hero-video] ledger row {row.get('job_id')} could not be rebuilt: {exc!r}")
+        return None
+    if zai_video_service.get_job(job.job_id) is not None:
+        return None
+    job = zai_video_service.adopt_job(job)
+    if job.status == JOB_STATUS_STORING and job.video_url:
+        if job.website_id:
+            # The clip is stored; only the apply was lost.
+            job.finalize_task = asyncio.create_task(_resume_apply(job))
+        else:
+            # Stored, never parked: it is ready for its publish.
+            job.status = JOB_STATUS_READY
+            job.result_payload = {"message": "Video sedia — akan dipasang semasa laman diterbitkan."}
+            job.driver_task = asyncio.create_task(_drive_hero_video_job(job, "", job.user_id))
+    elif job.status == JOB_STATUS_STORING:
+        # Died between SUCCEEDED and the upload: ask the provider again —
+        # the result URL is valid for 24 h.
+        job.status = JOB_STATUS_PROCESSING
+        job.driver_task = asyncio.create_task(
+            _drive_hero_video_job(job, job.website_id, job.user_id)
+        )
+    else:  # processing, or ready and waiting for its publish
+        job.driver_task = asyncio.create_task(
+            _drive_hero_video_job(job, job.website_id, job.user_id)
+        )
+    logger.warning(
+        f"[hero-video] adopted job {job.job_id} from the ledger "
+        f"(status={job.status}, website={job.website_id or '-'}, "
+        f"age={int(job.age_seconds())}s, provider_status={job.provider_status or '-'})"
+    )
+    return job.job_id
+
+
+async def adopt_unowned_jobs() -> int:
+    """Claim and drive every unfinished ledger row nobody owns. A row still
+    leased by the outgoing instance is skipped — that process is alive and
+    driving it — and picked up once its lease lapses. Returns how many
+    were adopted here."""
+    adopted = 0
+    for row in await ledger.load_claimable():
+        job_id = str(row.get("job_id") or "")
+        if not job_id or zai_video_service.get_job(job_id) is not None:
+            continue
+        if not await ledger.claim(job_id, str(row.get("status") or "processing")):
+            logger.info(f"[hero-video] job {job_id} claimed by another process first — skipping")
+            continue
+        if _adopt_row(row):
+            adopted += 1
+    return adopted
+
+
+#: After a start, keep looking for rows the previous instance is still
+#: holding: Render keeps the old process alive until the new one is
+#: healthy, so its leases lapse a minute or two AFTER we start.
+RESUME_RECHECK_SECONDS = 30
+RESUME_RECHECK_WINDOW_SECONDS = 10 * 60
+
+
+async def _resume_recheck_loop() -> None:
+    try:
+        deadline = time.monotonic() + RESUME_RECHECK_WINDOW_SECONDS
+        while time.monotonic() < deadline:
+            await asyncio.sleep(RESUME_RECHECK_SECONDS)
+            adopted = await adopt_unowned_jobs()
+            if adopted:
+                logger.warning(f"[hero-video] adopted {adopted} job(s) left by the previous instance")
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.exception("[hero-video] resume re-check loop crashed")
+
+
+_resume_recheck_task: Optional["asyncio.Task"] = None
+
+
+async def resume_hero_video_jobs() -> int:
+    """Startup: adopt every job the previous process left unfinished and
+    drive it again. Render restarts the backend on every deploy; before
+    this, every job in flight at that moment was forgotten — provider
+    done, clip never collected, credit never refunded, nothing logged.
+
+    Ages are restored from the ledger's ``created_at``, so the hard
+    timeout and the claim window keep counting from the real start. Rows
+    the outgoing instance still leases are re-checked every
+    RESUME_RECHECK_SECONDS for RESUME_RECHECK_WINDOW_SECONDS. Returns how
+    many jobs were adopted now."""
+    global _resume_recheck_task
+    adopted = await adopt_unowned_jobs()
+    _resume_recheck_task = asyncio.create_task(_resume_recheck_loop())
+    return adopted
+
+
+async def sweep_stuck_hero_video_jobs() -> Dict:
+    """Fail every job that outlived the hard timeout, whether or not a
+    driver exists for it and whatever the website's own status is, and
+    adopt unfinished rows nobody owns. Runs from the stuck-generation
+    scheduler.
+
+    Three passes:
+      * the live registry — a driver that crashed out of its loop, or a
+        finaliser that hung (a job 'storing' for longer than the limit);
+      * the ledger — rows past the limit with no process behind them: the
+        row is claimed first (one sweeper wins), then failed and refunded;
+      * adoption — unfinished rows inside the limit whose lease lapsed
+        (their process died): claimed and driven here.
+    Each failure is refunded if charged, written to the ledger, and raises
+    HERO_VIDEO_TIMEOUT."""
+    limit = zai_video_max_wait_seconds() + HERO_VIDEO_SWEEP_GRACE_SECONDS
+    failed_ids = []
+    alerts = []
+    checked = 0
+
+    for job in list(zai_video_service._jobs.values()):
+        if job.status not in (JOB_STATUS_PROCESSING, JOB_STATUS_STORING):
+            continue
+        checked += 1
+        if job.status == JOB_STATUS_STORING:
+            since = job.storing_since if job.storing_since is not None else job.created_at
+            if time.monotonic() - since <= HERO_VIDEO_STORING_LIMIT_SECONDS:
+                continue
+        elif job.age_seconds() <= limit:
+            continue
+        async with job.lock:
+            if job.status not in (JOB_STATUS_PROCESSING, JOB_STATUS_STORING):
+                continue
+            await _fail_job(
+                job, "timeout",
+                detail=f"swept: still {job.status} after {int(limit)}s, its driver made no progress",
+            )
+            if job.status == JOB_STATUS_FAILED and job.error == "timeout":
+                alerts.append(job)
+        failed_ids.append(job.job_id)
+
+    for row in await ledger.load_stale(limit):
+        job_id = str(row.get("job_id") or "")
+        if not job_id or job_id in failed_ids:
+            continue
+        checked += 1
+        live = zai_video_service.get_job(job_id)
+        if live is not None:
+            if live.status in (JOB_STATUS_COMPLETED, JOB_STATUS_FAILED):
+                # The row fell behind the process (a ledger write failed
+                # earlier). Bring it up to date; nothing to refund.
+                await _ledger_save(live)
+            continue
+        if ledger.lease_is_live(row):
+            continue  # another process is driving it; its own timeout applies
+        if not await ledger.claim(job_id, str(row.get("status") or "processing")):
+            continue
+        try:
+            job = ledger.job_from_row(row)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"[hero-video] sweep: ledger row {job_id} could not be rebuilt: {exc!r}")
+            continue
+        await _fail_job(job, "timeout", detail="swept from the ledger: no process owns this job")
+        if job.status == JOB_STATUS_FAILED and job.error == "timeout":
+            alerts.append(job)
+            failed_ids.append(job_id)
+
+    for job in alerts:
+        await _alert_timeout(job)
+
+    adopted = await adopt_unowned_jobs()
+
+    return {"checked_rows": checked, "count": len(failed_ids), "ids": failed_ids, "adopted": adopted}

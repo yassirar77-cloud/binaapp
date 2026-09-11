@@ -330,6 +330,21 @@ async def startup_event():
     except Exception as e:
         logger.error(f"🩺 Failed to start stuck-generation sweeper: {e}")
 
+    # Hero-video jobs that were rendering, storing or waiting for their
+    # publish when the previous process died (every deploy restarts it)
+    # are resumed from the hero_video_jobs ledger. Without this a finished
+    # clip was never collected and never refunded.
+    try:
+        from app.services.zai_video_service import hero_video_enabled
+
+        if hero_video_enabled():
+            from app.api.v1.endpoints.hero_video import resume_hero_video_jobs
+
+            resumed = await resume_hero_video_jobs()
+            logger.info(f"🎬 Hero-video ledger checked on startup: {resumed} job(s) resumed")
+    except Exception as e:
+        logger.error(f"🎬 Failed to resume hero-video jobs from the ledger: {e}")
+
     # Daily purge of PDPA analytics visitor-hash dedup rows (migration 050)
     try:
         from app.core.scheduler import start_analytics_cleanup
@@ -3885,6 +3900,13 @@ async def publish_website(
 
             if storage_response.status_code in [200, 201]:
                 logger.info(f"✅ Published successfully: {subdomain}.binaapp.my")
+                # This upload bypasses storage_service, so it must drop the
+                # middleware's 60s copy of the page and give the storage
+                # object a fresh CDN key itself — otherwise a republish to
+                # an existing subdomain (a staged hero clip included) kept
+                # serving the previous page for up to a minute.
+                from app.middleware.subdomain import invalidate_site_cache
+                invalidate_site_cache(subdomain)
                 # The site is live: confirm the staged clip, or attach a
                 # still-rendering one so the server applies it on landing.
                 hero_video_info = {"status": "none"}
@@ -4029,6 +4051,8 @@ async def admin_republish_websites(
                     )
 
                 if upload_resp.status_code in [200, 201]:
+                    from app.middleware.subdomain import invalidate_site_cache
+                    invalidate_site_cache(subdomain_name)
                     results["updated"] += 1
                     logger.info(f"✅ Republished {subdomain_name}.binaapp.my with chat widget")
                 else:

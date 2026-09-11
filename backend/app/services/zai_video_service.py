@@ -22,12 +22,15 @@ same asset — no second upload, no second thing to expire.
 Feature flag: HERO_VIDEO_ENABLED (env, default false, read per call). With
 it off the endpoints 404 and nothing in this module is reached.
 
-In-memory job registry
-----------------------
-Jobs live in a process-local dict, the same shape as ``job_service`` for
-website generation: a Render restart forgets in-flight tasks and the
-dashboard simply asks the merchant to try again. Nothing here touches the
-database, quota counters or subscription rows.
+Job registry
+------------
+Jobs live in a process-local dict for speed, and every state change is
+mirrored to the ``hero_video_jobs`` table by the endpoint module (see
+``services/hero_video_jobs``). The table is the source of truth across a
+restart: Render redeploys on every push, and a job that only existed in
+this dict was forgotten mid-render — provider done, clip never collected,
+credit never refunded, nothing logged. Nothing here touches quota counters
+or subscription rows.
 """
 
 from __future__ import annotations
@@ -127,6 +130,34 @@ def _dashscope_base_url() -> str:
     return (
         os.getenv("DASHSCOPE_API_URL") or "https://dashscope-intl.aliyuncs.com/api/v1"
     ).rstrip("/")
+
+
+#: DashScope task states. Anything else is logged as unexpected and treated
+#: as still running until the hard timeout.
+DASHSCOPE_RUNNING_STATES = ("PENDING", "RUNNING", "SUSPENDED")
+DASHSCOPE_FAILED_STATES = ("FAILED", "CANCELED", "CANCELLED", "UNKNOWN")
+
+
+def _poll_result(
+    status: str,
+    *,
+    video_url: Optional[str] = None,
+    cover_image_url: Optional[str] = None,
+    raw_status: Optional[str] = None,
+    code: str = "",
+    message: str = "",
+) -> Dict:
+    """The provider-agnostic poll outcome. ``status`` is one of
+    ``processing`` / ``success`` / ``fail``; ``raw_status`` is whatever the
+    provider actually said, for the job record and the logs."""
+    return {
+        "status": status,
+        "video_url": video_url,
+        "cover_image_url": cover_image_url,
+        "raw_status": raw_status,
+        "code": code,
+        "message": message,
+    }
 
 
 #: Alibaba's unified video model: text-, image- AND video-to-video on the one
@@ -255,6 +286,15 @@ def zai_video_timeout_seconds() -> float:
         return float(os.getenv("ZAI_VIDEO_TIMEOUT_SECONDS", "90"))
     except ValueError:
         return 90.0
+
+
+def zai_video_poll_timeout_seconds() -> float:
+    """Per-poll HTTP cap. Shorter than the submit/download cap: a poll is
+    a small GET, and the driver holds the job lock while it waits."""
+    try:
+        return float(os.getenv("ZAI_VIDEO_POLL_TIMEOUT_SECONDS", "20"))
+    except ValueError:
+        return 20.0
 
 
 def zai_video_max_wait_seconds() -> float:
@@ -454,8 +494,15 @@ JOB_STATUS_READY = "ready"
 JOB_STATUS_COMPLETED = "completed"
 JOB_STATUS_FAILED = "failed"
 
-#: Forget finished jobs after this long; in-flight ones after max-wait + slack.
+#: Forget FINISHED jobs after this long. A job that is still processing,
+#: storing or ready is never dropped by age here: the hard timeout ends
+#: the first two and the publish claim window ends the third, and each of
+#: those paths refunds and logs. Dropping them silently by TTL was how a
+#: ``ready`` clip could vanish from under a merchant still reviewing.
 _JOB_TTL_SECONDS = 2 * 60 * 60
+#: Absolute backstop for anything the above missed (a job whose driver
+#: died and whose ledger row the sweep already closed).
+_JOB_HARD_TTL_SECONDS = 48 * 60 * 60
 
 
 @dataclass
@@ -486,6 +533,25 @@ class HeroVideoJob:
     #: A job that then fails to deliver gives it back exactly once.
     charged: bool = False
     refunded: bool = False
+    #: Raw provider state from the last poll (DashScope: PENDING / RUNNING /
+    #: SUCCEEDED / FAILED / CANCELED / UNKNOWN; ``http_<code>`` when the
+    #: poll request itself failed) and the provider's message, if any.
+    #: Persisted so a stuck job can be explained from the ledger alone.
+    provider_status: Optional[str] = None
+    provider_message: Optional[str] = None
+    #: Consecutive polls that raised (HTTP error, timeout). Reset on any
+    #: poll that returns a state. Bounded by the hard job timeout.
+    poll_errors: int = 0
+    #: Wall-clock start / last poll, for the ledger row (``created_at`` above
+    #: is monotonic and meaningless across processes).
+    created_wall: float = field(default_factory=time.time)
+    last_polled_wall: Optional[float] = None
+    #: Monotonic time the job entered 'storing'. The sweep ages a storing
+    #: job from here, not from creation: a clip that SUCCEEDED late in its
+    #: window still gets its full download/upload allowance.
+    storing_since: Optional[float] = None
+    #: Set when a ledger save reports another process now owns the row.
+    ownership_lost: bool = False
     #: Filled by the background finaliser once the clip is on the page:
     #: settings / base_source / html_content / message / warning. The poll
     #: merges it into the completed response so the dashboard gets the
@@ -516,13 +582,22 @@ class HeroVideoJob:
             "live_site_updated": self.live_site_updated,
             "elapsed_seconds": round(self.age_seconds()),
             "provider": self.provider or hero_video_provider(),
+            "provider_status": self.provider_status,
             "charged": self.charged,
             "refunded": self.refunded,
         }
 
 
 class ZaiVideoError(Exception):
-    """A Z.ai call failed in a way the caller should surface, not retry."""
+    """A provider call failed in a way the caller should surface, not retry.
+
+    ``status_code`` is the HTTP status when the failure was an HTTP
+    response (a 403 poll, say), so the job can record ``http_403`` as its
+    provider state instead of a bare "poll error"."""
+
+    def __init__(self, message: str, status_code: Optional[int] = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class ZaiVideoService:
@@ -535,10 +610,19 @@ class ZaiVideoService:
         stale = [
             job_id
             for job_id, job in self._jobs.items()
-            if job.age_seconds() > _JOB_TTL_SECONDS
+            if (
+                job.status in (JOB_STATUS_COMPLETED, JOB_STATUS_FAILED)
+                and job.age_seconds() > _JOB_TTL_SECONDS
+            )
+            or job.age_seconds() > _JOB_HARD_TTL_SECONDS
         ]
         for job_id in stale:
             self._jobs.pop(job_id, None)
+
+    def adopt_job(self, job: HeroVideoJob) -> HeroVideoJob:
+        """Put a job rebuilt from the ledger (restart recovery) into the
+        registry. An existing entry with the same id wins — it is live."""
+        return self._jobs.setdefault(job.job_id, job)
 
     def get_job(self, job_id: str) -> Optional[HeroVideoJob]:
         self._sweep()
@@ -676,7 +760,7 @@ class ZaiVideoService:
         if not _zai_api_key():
             raise ZaiVideoError("ZAI_API_KEY is not configured")
         try:
-            async with httpx.AsyncClient(timeout=zai_video_timeout_seconds()) as client:
+            async with httpx.AsyncClient(timeout=zai_video_poll_timeout_seconds()) as client:
                 response = await client.get(
                     f"{_zai_base_url()}/async-result/{task_id}",
                     headers=self._headers(),
@@ -687,31 +771,41 @@ class ZaiVideoService:
             raise ZaiVideoError(f"Z.ai video poll failed: {exc}") from exc
 
         if response.status_code == 429:
-            # Rate-limited poll: report "still processing" so the client
+            # Rate-limited poll: report "still processing" so the caller
             # simply asks again after its normal interval.
-            return {"status": "processing", "video_url": None, "cover_image_url": None}
+            logger.warning(f"🎬 Z.ai video poll for {task_id} rate-limited (429)")
+            return _poll_result("processing", raw_status="HTTP_429")
         if response.status_code != 200:
             logger.error(
-                f"🎬 Z.ai video poll failed: {response.status_code} - {response.text[:200]}"
+                f"🎬 Z.ai video poll failed: {response.status_code} - {response.text[:1000]}"
             )
-            raise ZaiVideoError(f"Z.ai video poll failed ({response.status_code})")
+            raise ZaiVideoError(
+                f"Z.ai video poll failed ({response.status_code})",
+                status_code=response.status_code,
+            )
 
         data = response.json() or {}
         state = str(data.get("task_status", "")).upper()
+        logger.info(f"🎬 Z.ai task {task_id} task_status={state or '(missing)'}")
         if state == "SUCCESS":
             results = data.get("video_result") or []
             first = (results[0] or {}) if results else {}
             video_url = first.get("url")
             if not video_url:
+                logger.error(f"🎬 Z.ai task {task_id} SUCCESS without a video URL — full body: {response.text}")
                 raise ZaiVideoError("Z.ai reported success but returned no video URL")
-            return {
-                "status": "success",
-                "video_url": video_url,
-                "cover_image_url": first.get("cover_image_url"),
-            }
+            return _poll_result(
+                "success", video_url=video_url,
+                cover_image_url=first.get("cover_image_url"), raw_status=state,
+            )
         if state == "FAIL":
-            return {"status": "fail", "video_url": None, "cover_image_url": None}
-        return {"status": "processing", "video_url": None, "cover_image_url": None}
+            logger.error(f"🎬 Z.ai task {task_id} FAIL — full body: {response.text}")
+            return _poll_result("fail", raw_status=state, message=str(data.get("error") or ""))
+        if state != "PROCESSING":
+            # Not a documented state. Say so with the whole body rather
+            # than quietly treating it as "still running".
+            logger.error(f"🎬 Z.ai task {task_id} UNEXPECTED task_status={state!r} — full body: {response.text}")
+        return _poll_result("processing", raw_status=state or "(missing)")
 
     async def submit_with_fallback(
         self,
@@ -873,7 +967,7 @@ class ZaiVideoService:
         if not _dashscope_api_key():
             raise ZaiVideoError("DASHSCOPE_API_KEY is not configured")
         try:
-            async with httpx.AsyncClient(timeout=zai_video_timeout_seconds()) as client:
+            async with httpx.AsyncClient(timeout=zai_video_poll_timeout_seconds()) as client:
                 response = await client.get(
                     f"{_dashscope_base_url()}/tasks/{task_id}",
                     headers={"Authorization": f"Bearer {_dashscope_api_key()}"},
@@ -884,28 +978,53 @@ class ZaiVideoService:
             raise ZaiVideoError(f"DashScope video poll failed: {exc}") from exc
 
         if response.status_code == 429:
-            return {"status": "processing", "video_url": None, "cover_image_url": None}
+            logger.warning(f"🎬 DashScope task {task_id} poll rate-limited (429)")
+            return _poll_result("processing", raw_status="HTTP_429")
         if response.status_code != 200:
+            # Body included in full: a 403 with an empty body (seen in
+            # production on 2026-09-11 04:28:18, transient) and a 401
+            # InvalidApiKey look identical from the status alone.
             logger.error(
-                f"🎬 DashScope video poll failed: {response.status_code} - {response.text[:300]}"
+                f"🎬 DashScope task {task_id} poll failed: HTTP {response.status_code} "
+                f"— body: {response.text[:1000] or '(empty)'}"
             )
-            raise ZaiVideoError(f"DashScope video poll failed ({response.status_code})")
+            raise ZaiVideoError(
+                f"DashScope video poll failed ({response.status_code})",
+                status_code=response.status_code,
+            )
 
-        data = response.json() or {}
+        try:
+            data = response.json() or {}
+        except ValueError:
+            logger.error(f"🎬 DashScope task {task_id} poll returned non-JSON: {response.text[:1000]}")
+            raise ZaiVideoError("DashScope video poll returned non-JSON", status_code=200)
         output = data.get("output") or {}
         state = str(output.get("task_status", "")).upper()
+        # Every poll, the raw state — this is the line that answers "is
+        # the provider still rendering or did we stop listening?".
+        logger.info(
+            f"🎬 DashScope task {task_id} task_status={state or '(missing)'} "
+            f"request_id={data.get('request_id')} submit={output.get('submit_time')} "
+            f"scheduled={output.get('scheduled_time')} end={output.get('end_time')}"
+        )
         if state == "SUCCEEDED":
             video_url = output.get("video_url")
             if not video_url:
+                logger.error(f"🎬 DashScope task {task_id} SUCCEEDED without video_url — full body: {response.text}")
                 raise ZaiVideoError("DashScope reported success but returned no video URL")
-            return {"status": "success", "video_url": video_url, "cover_image_url": None}
-        if state in ("FAILED", "CANCELED", "UNKNOWN"):
-            logger.error(
-                f"🎬 DashScope video task {task_id} {state}: "
-                f"{output.get('code')} {str(output.get('message'))[:200]}"
+            return _poll_result("success", video_url=video_url, raw_status=state)
+        if state in DASHSCOPE_FAILED_STATES:
+            logger.error(f"🎬 DashScope task {task_id} {state} — full body: {response.text}")
+            return _poll_result(
+                "fail", raw_status=state,
+                code=str(output.get("code") or ""), message=str(output.get("message") or ""),
             )
-            return {"status": "fail", "video_url": None, "cover_image_url": None}
-        return {"status": "processing", "video_url": None, "cover_image_url": None}
+        if state not in DASHSCOPE_RUNNING_STATES:
+            # Undocumented state: not success, not one of the failure
+            # states. Log everything and keep polling — the hard timeout
+            # bounds how long this can go on.
+            logger.error(f"🎬 DashScope task {task_id} UNEXPECTED task_status={state!r} — full body: {response.text}")
+        return _poll_result("processing", raw_status=state or "(missing)")
 
     # ---- storage ----------------------------------------------------------
 
