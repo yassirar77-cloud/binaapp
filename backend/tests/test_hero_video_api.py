@@ -51,8 +51,12 @@ TRUNCATED_HTML = '<!DOCTYPE html><html><head></head><body><img src="https://x'
 CLOUD_VIDEO = "https://res.cloudinary.com/demo/video/upload/q_auto:eco,w_1280,c_limit,ac_none/v1/binaapp/hero-videos/ws-1-ab.mp4"
 CLOUD_POSTER = "https://res.cloudinary.com/demo/video/upload/v1/binaapp/hero-videos/ws-1-ab.jpg"
 
+# Built with an EXPLICIT overlay: the patcher's default is now "auto"
+# (resolved from the page at apply time), and TestPatchLook's "same
+# settings" case patches {"overlay": "dark"} — that is only a no-op when
+# the page already says dark.
 WITH_VIDEO_HTML = apply_hero_video(
-    LIVE_HTML, build_settings(video_url=CLOUD_VIDEO, poster_url=CLOUD_POSTER)
+    LIVE_HTML, build_settings(video_url=CLOUD_VIDEO, poster_url=CLOUD_POSTER, overlay="dark")
 ).html
 
 
@@ -212,7 +216,7 @@ class TestOptions:
         assert body["provider"] == "dashscope"
         assert {s["key"] for s in body["styles"]} >= {"cinematic", "ambient", "elegant"}
         assert all(s["label_ms"] for s in body["styles"])
-        assert body["overlays"] == ["dark", "light", "none"]
+        assert body["overlays"] == ["auto", "dark", "light", "none"]
 
     def test_catalogue_follows_the_provider_switch(self, client, monkeypatch):
         monkeypatch.setenv("HERO_VIDEO_PROVIDER", "zai")

@@ -75,6 +75,7 @@ from app.services.hero_video_patcher import (
     DEFAULT_OVERLAY,
     DEFAULT_TEXT_MODE,
     HeroVideoSettings,
+    OVERLAY_MODES,
     apply_hero_video,
     build_settings,
     detect_hero_video,
@@ -689,7 +690,7 @@ async def get_hero_video_options():
             {"key": key, "label_ms": preset["label_ms"], "label_en": preset["label_en"]}
             for key, preset in VIDEO_STYLE_PRESETS.items()
         ],
-        "overlays": ["dark", "light", "none"],
+        "overlays": list(OVERLAY_MODES),
         "text_modes": ["auto", "light", "dark", "keep"],
     }
 
