@@ -1954,9 +1954,25 @@ async def run_generation_task(
         if lang not in ["ms", "en"]:
             lang = "ms"
 
+        # The merchant's name, already resolved at the endpoint (explicit field,
+        # else read from their brief). This used to be
+        # `description.split()[0]` — the request the model was prompted with
+        # never saw the name the merchant actually typed, so the model invented
+        # one and "Kedai" shipped into every identity surface on the page.
+        # resolve_business_name() is applied again here because run_generation_task
+        # is also called directly by older callers that never went through the
+        # endpoint guard.
+        from app.services.business_identity import resolve_business_name
+        resolved_name = resolve_business_name(business_name, description)
+        if not resolved_name:
+            raise ValueError(
+                "Business name is required — none supplied and none readable "
+                "from the description"
+            )
+
         ai_request = WebsiteGenerationRequest(
             description=description,
-            business_name=description.split()[0] if description else "Business",  # Simple extraction
+            business_name=resolved_name,
             # The merchant's EXPLICIT pick from the create-page picker, already
             # canonicalised at the endpoint. None means they chose "auto", and
             # only then may the description classifier decide the vertical.
@@ -2210,22 +2226,11 @@ async def run_generation_task(
                 }]
                 logger.info(f"📍 Created delivery zone: {zone_name} - RM{fee_val:.2f}")
 
-            # FIXED: Use provided business_name, or extract intelligently from description
-            # Don't just use first word - extract meaningful business name
-            if business_name:
-                actual_business_name = business_name
-            elif description:
-                # Try to extract meaningful name from description (first 3-4 words that look like a name)
-                words = description.split()
-                # Take first 3 words if they form a reasonable business name
-                if len(words) >= 3:
-                    actual_business_name = " ".join(words[:3])
-                elif len(words) >= 1:
-                    actual_business_name = words[0]
-                else:
-                    actual_business_name = "Business"
-            else:
-                actual_business_name = "Business"
+            # One resolution for the whole request — the widget layer must not
+            # re-derive the name by slicing the first three words of the brief
+            # ("Restoran mamak buka"), which is how the widgets ended up
+            # disagreeing with the page they were injected into.
+            actual_business_name = resolved_name
 
             # Get phone number from delivery config if available
             phone_number = "+60123456789"
@@ -2475,6 +2480,23 @@ async def start_generation(request: Request):
     payment = body.get("payment") or None  # Payment methods (cod, qr, qr_image)
     business_name = body.get("business_name") or body.get("businessName") or None  # Actual business name
     language = body.get("language") or "ms"
+
+    # A site is never named by a fallback. The merchant's own name wins; when
+    # they left the field empty we read a name out of their brief; when the
+    # brief carries none either, generation is BLOCKED below rather than
+    # shipping the literal word "Kedai" into <h1>, <title>, og:title and the
+    # JSON-LD node all at once (the oopoo.binaapp.my defect).
+    from app.services.business_identity import (
+        missing_name_message,
+        resolve_business_name,
+    )
+    resolved_business_name = resolve_business_name(business_name, description)
+    if resolved_business_name and resolved_business_name != (business_name or ""):
+        logger.info(
+            f"🏷️ Business name resolved from brief: {resolved_business_name!r} "
+            f"(merchant typed {business_name!r})"
+        )
+    business_name = resolved_business_name or None
     color_mode = body.get("color_mode") or body.get("colorMode") or "light"
     if color_mode not in ("light", "dark"):
         color_mode = "light"
@@ -2637,6 +2659,16 @@ MANDATORY REQUIREMENTS:
 
     if not description:
         return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
+
+    # See resolve_business_name() above: no name, no site.
+    if not business_name:
+        logger.warning("🏷️ Generation blocked — no business name supplied and none readable from the brief")
+        return JSONResponse(status_code=400, content={
+            "success": False,
+            "error": "business_name_required",
+            "message": missing_name_message(language),
+            "field": "business_name",
+        })
 
     # Legacy in-memory 3/day guard — anonymous/guest traffic only. Logged-in
     # users fall through to the subscription website-limit check below
