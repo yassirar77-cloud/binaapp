@@ -236,7 +236,8 @@ class TestSettingsValidation:
 
     def test_unknown_modes_fall_back_to_defaults(self):
         s = build_settings(video_url=VIDEO, overlay="neon", text_mode="rainbow", overlay_opacity=7)
-        assert s.overlay == "dark" and s.text_mode == "auto" and s.overlay_opacity == 0.9
+        # The default overlay is "auto" — resolved from the page at apply time.
+        assert s.overlay == "auto" and s.text_mode == "auto" and s.overlay_opacity == 0.9
 
     def test_url_is_escaped_in_attributes(self):
         url = "https://res.cloudinary.com/x/v.mp4?a=1&b=2"

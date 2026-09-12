@@ -180,9 +180,11 @@ class TestContracts:
         hero_start = SOON.index("<section")
         found = find_hero_media(SOON, hero_start)
         assert len(found) == 1
-        start, end = found[0]
+        start, end, host = found[0]
         assert SOON[start:].startswith('<div class="absolute inset-0 overflow-hidden">')
         assert "</div></div>" in SOON[start:end]
+        # Full-cover media has no host: its wrapper is hidden with it.
+        assert host is None
 
 
 class TestReducedMotion:
