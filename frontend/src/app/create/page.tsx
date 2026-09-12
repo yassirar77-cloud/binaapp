@@ -161,6 +161,11 @@ export default function CreatePage() {
   const [projectName, setProjectName] = useState('')
   const [publishing, setPublishing] = useState(false)
   const [publishedUrl, setPublishedUrl] = useState('')
+  // The row the publish created. Export and copy read the LIVE page from it
+  // once published: generatedHtml is the generation-time copy and never
+  // learns about a hero video that lands after publish (maka: exported
+  // 7½ minutes after the clip existed, no <video> in the file).
+  const publishedWebsiteIdRef = useRef<string>('')
   const [copied, setCopied] = useState(false)
   const [shareMenuOpen, setShareMenuOpen] = useState(false)
   const shareMenuRef = useRef<HTMLDivElement | null>(null)
@@ -1115,8 +1120,34 @@ export default function CreatePage() {
     }
   }
 
-  const handleDownload = () => {
-    const blob = new Blob([generatedHtml], { type: 'text/html' })
+  // The page as it is actually served, when there is one. Falls back to the
+  // generation-time copy for an unpublished site or if the fetch fails, so
+  // export never produces nothing.
+  const fetchLiveHtml = async (): Promise<string> => {
+    const id = publishedWebsiteIdRef.current
+    if (!id) return generatedHtml
+    try {
+      let accessToken = getStoredToken()
+      if (!accessToken && supabase) {
+        const { data: { session } } = await supabase.auth.getSession()
+        accessToken = session?.access_token ?? null
+      }
+      const res = await fetch(`${API_BASE_URL}/api/v1/websites/${id}`, {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+      })
+      if (!res.ok) return generatedHtml
+      const data = await res.json()
+      return typeof data?.html_content === 'string' && data.html_content.trim()
+        ? data.html_content
+        : generatedHtml
+    } catch {
+      return generatedHtml
+    }
+  }
+
+  const handleDownload = async () => {
+    const html = await fetchLiveHtml()
+    const blob = new Blob([html], { type: 'text/html' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -1127,8 +1158,8 @@ export default function CreatePage() {
     URL.revokeObjectURL(url)
   }
 
-  const handleCopyHtml = () => {
-    navigator.clipboard.writeText(generatedHtml)
+  const handleCopyHtml = async () => {
+    navigator.clipboard.writeText(await fetchLiveHtml())
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -1345,6 +1376,7 @@ export default function CreatePage() {
       // Generating the hero video against the client id in that case was a
       // guaranteed 404 — the clip silently never started.
       const publishedWebsiteId: string = data.website_id || websiteId
+      publishedWebsiteIdRef.current = publishedWebsiteId
 
       // Backend publish now upserts `websites` + delivery tables (service role),
       // so we no longer duplicate inserts from the client.
