@@ -2,8 +2,6 @@
 
 import re
 
-import pytest
-
 from app.services.asset_delivery import (
     GALLERY_WIDTH,
     HERO_WIDTH,
