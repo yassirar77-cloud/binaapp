@@ -198,7 +198,8 @@ def _reset_submit_counters() -> None:
 class HeroVideoLook(BaseModel):
     """The presentation knobs — shared by generate and PATCH."""
 
-    overlay: Literal["dark", "light", "none"] = DEFAULT_OVERLAY
+    #: ``auto`` (the default) reads the page: light page, light scrim.
+    overlay: Literal["auto", "dark", "light", "none"] = DEFAULT_OVERLAY
     #: None = choose from the clip's own first-frame luminance (≈0.35 over
     #: dark footage, up to 0.70 over bright footage). A number is the
     #: merchant's explicit choice and is used as-is.
@@ -230,7 +231,7 @@ class PrepareHeroVideoRequest(GenerateHeroVideoRequest):
 
 
 class PatchHeroVideoRequest(BaseModel):
-    overlay: Optional[Literal["dark", "light", "none"]] = None
+    overlay: Optional[Literal["auto", "dark", "light", "none"]] = None
     overlay_opacity: Optional[float] = Field(default=None, ge=0.0, le=0.9)
     text_mode: Optional[Literal["auto", "light", "dark", "keep"]] = None
     show_on_mobile: Optional[bool] = None

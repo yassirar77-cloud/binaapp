@@ -18,7 +18,9 @@
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || 'https://binaapp-backend.onrender.com';
 
-export type HeroVideoOverlay = 'dark' | 'light' | 'none';
+// 'auto' (the server default) reads the page: a light page gets a light
+// scrim and keeps its dark text; a dark page gets the dark scrim.
+export type HeroVideoOverlay = 'auto' | 'dark' | 'light' | 'none';
 export type HeroVideoTextMode = 'auto' | 'light' | 'dark' | 'keep';
 
 export interface HeroVideoStyle {

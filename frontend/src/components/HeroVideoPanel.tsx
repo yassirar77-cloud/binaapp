@@ -47,13 +47,15 @@ interface Props {
 }
 
 const OVERLAY_LABELS: Record<HeroVideoOverlay, string> = {
+  auto: '✨ Auto',
   dark: '🌑 Gelap',
   light: '🌕 Cerah',
   none: '🚫 Tiada',
 };
 
 const DEFAULT_LOOK: Required<HeroVideoLook> = {
-  overlay: 'dark',
+  // Matches the server default: the scrim follows the page's own theme.
+  overlay: 'auto',
   overlay_opacity: 0.45,
   text_mode: 'auto',
   show_on_mobile: true,

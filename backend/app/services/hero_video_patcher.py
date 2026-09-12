@@ -89,14 +89,23 @@ BLOCK_END = "<!--/binaapp:hero-video-->"
 #: it while the video layer is present. Stripped again by remove().
 HERO_MEDIA_ATTR = "data-binaapp-hero-media"
 HERO_MEDIA_REPLACED = "replaced"
+#: The wrapper the video is hosted IN when the hero's photo occupies a
+#: distinct region rather than the whole section — a split hero's media
+#: column, a framed card. The clip replaces the photo in place and the
+#: layout the merchant asked for survives (maka: "split, model photo on the
+#: right" must not become "full-bleed video with a dead column").
+HERO_MEDIA_HOST = "host"
 
 #: Overlay presets: the scrim painted between the video and the hero copy.
 #: Without one, white hero text over a bright frame is unreadable.
-OVERLAY_MODES = ("dark", "light", "none")
+#: ``auto`` reads the page: a dark page gets a dark scrim and light text, a
+#: light page (Cerah) a light scrim and its own dark text — instead of every
+#: hero becoming a heavy dark block on a cream, minimal site (maka).
+OVERLAY_MODES = ("auto", "dark", "light", "none")
 #: How the hero's own text colour is handled once a video sits behind it.
 TEXT_MODES = ("auto", "light", "dark", "keep")
 
-DEFAULT_OVERLAY = "dark"
+DEFAULT_OVERLAY = "auto"
 DEFAULT_OVERLAY_OPACITY = 0.45
 DEFAULT_TEXT_MODE = "auto"
 
@@ -147,13 +156,30 @@ class HeroVideoSettings:
     #: False → phones get the still poster instead of the video (data saver).
     show_on_mobile: bool = True
 
-    def resolved_text_mode(self) -> str:
+    def resolved_overlay(self, page_html: str = "") -> str:
+        """``auto`` → ``dark`` or ``light`` from what the page paints.
+
+        Read from the page's own background (color_mode_guard), never from
+        the merchant's toggle alone — the page is what the scrim has to sit
+        on. Unknown → dark, the historical default.
+        """
+        if self.overlay != "auto":
+            return self.overlay
+        try:
+            from app.services.color_mode_guard import detect_color_mode
+            mode = detect_color_mode(page_html) if page_html else ""
+        except Exception:  # pragma: no cover - a guard must never take the patch down
+            mode = ""
+        return "light" if mode == "light" else "dark"
+
+    def resolved_text_mode(self, page_html: str = "") -> str:
         """``auto`` reads the scrim: dark scrim → light text, and vice versa."""
         if self.text_mode != "auto":
             return self.text_mode
-        if self.overlay == "dark":
+        overlay = self.resolved_overlay(page_html)
+        if overlay == "dark":
             return "light"
-        if self.overlay == "light":
+        if overlay == "light":
             return "dark"
         return "keep"
 
@@ -496,13 +522,29 @@ def _is_background_media(html: str, start: int, end: int) -> bool:
     return bool(_MEDIA_INSIDE_RE.search(inner)) or bool(_INLINE_BG_IMAGE_RE.search(style))
 
 
-def find_hero_media(html: str, hero_start: int) -> List[Tuple[int, int]]:
-    """``(start, end)`` of every background-media element in the hero.
+def _is_plain_media_wrapper(html: str, start: int, end: int) -> bool:
+    """A wrapper whose only meaningful content is media: no copy, not itself
+    full-cover. The split hero's ``.hero-image-container`` — relative,
+    opaque cream background, one <img> inside — is the shape."""
+    tag_close = open_tag_end(html, start)
+    if tag_close == -1:
+        return False
+    open_tag = html[start:tag_close]
+    name = re.match(r"<([a-zA-Z][\w-]*)", open_tag).group(1).lower()
+    if name not in _WRAPPER_TAGS or _covers_parent(open_tag):
+        return False
+    inner = html[tag_close:end]
+    return not _CONTENT_INSIDE_RE.search(inner)
 
-    Looks at the hero's direct children and one level below them (a
-    generated hero sometimes wraps the picture in a plain div before the
-    positioned one). Returns the outermost match for each subtree so a
-    wrapper and the <img> inside it are not both tagged.
+
+def find_hero_media(html: str, hero_start: int) -> List[Tuple[int, int, Optional[Tuple[int, int]]]]:
+    """``(start, end, host)`` for every background-media element in the hero.
+
+    Looks at the hero's direct children and one level below them. ``host``
+    is the direct child the media sits inside when that child is a plain
+    media wrapper occupying its own region (a split hero's image column) —
+    the video is then hosted in it instead of behind the whole section.
+    ``None`` for full-cover media, whose wrapper is hidden with it.
     """
     hero_end = element_end(html, hero_start)
     tag_close = open_tag_end(html, hero_start)
@@ -513,39 +555,57 @@ def find_hero_media(html: str, hero_start: int) -> List[Tuple[int, int]]:
     if inner_end == -1:
         return []
 
-    found: List[Tuple[int, int]] = []
+    found: List[Tuple[int, int, Optional[Tuple[int, int]]]] = []
     for start, end in direct_children(html, tag_close, inner_end):
         if _is_background_media(html, start, end):
-            found.append((start, end))
+            found.append((start, end, None))
             continue
         child_close = open_tag_end(html, start)
         child_inner_end = html.rfind("</", 0, end)
         if child_close == -1 or child_inner_end <= child_close:
             continue
+        host = (start, end) if _is_plain_media_wrapper(html, start, end) else None
         for g_start, g_end in direct_children(html, child_close, child_inner_end):
             if _is_background_media(html, g_start, g_end):
-                found.append((g_start, g_end))
+                found.append((g_start, g_end, host))
     return found
 
 
-def _tag_hero_media(html: str, hero_start: int) -> Tuple[str, int]:
-    """Stamp ``data-binaapp-hero-media="replaced"`` on each media element."""
+def _stamp(html: str, start: int, value: str) -> str:
+    tag_close = open_tag_end(html, start)
+    insert_at = tag_close - 1
+    if html[insert_at - 1] == "/":
+        insert_at -= 1
+    return html[:insert_at] + f' {HERO_MEDIA_ATTR}="{value}"' + html[insert_at:]
+
+
+def _tag_hero_media(html: str, hero_start: int) -> Tuple[str, int, Optional[int]]:
+    """Stamp every media element ``replaced`` and, when there is exactly one
+    host wrapper, stamp it ``host``. Returns ``(html, media_count,
+    host_start)`` — host_start is where the layer goes, or None for the
+    hero itself."""
     targets = find_hero_media(html, hero_start)
     if not targets:
-        return html, 0
+        return html, 0, None
+    hosts = {host for _s, _e, host in targets if host}
+    # One host or none: two separate media columns is not a shape the
+    # layer can occupy, so fall back to the full-bleed layer and hide both.
+    host = next(iter(hosts)) if len(hosts) == 1 else None
+    stamps = [(s, HERO_MEDIA_REPLACED) for s, _e, _h in targets]
+    if host:
+        stamps.append((host[0], HERO_MEDIA_HOST))
     out = html
     # Back to front so earlier offsets survive each insertion.
-    for start, _end in sorted(targets, reverse=True):
-        tag_close = open_tag_end(out, start)
-        insert_at = tag_close - 1
-        if out[insert_at - 1] == "/":
-            insert_at -= 1
-        out = (
-            out[:insert_at]
-            + f' {HERO_MEDIA_ATTR}="{HERO_MEDIA_REPLACED}"'
-            + out[insert_at:]
-        )
-    return out, len(targets)
+    for start, value in sorted(stamps, reverse=True):
+        out = _stamp(out, start, value)
+    host_start = None
+    if host:
+        # The host's tag moved by every stamp inserted before it (none: it
+        # is a direct child and its own media sits after its open tag), so
+        # re-find it by the stamp we just wrote.
+        host_start = out.find(f'{HERO_MEDIA_ATTR}="{HERO_MEDIA_HOST}"')
+        host_start = out.rfind("<", 0, host_start)
+    return out, len(targets), host_start
 
 
 _CLOUDINARY_PUBLIC_ID_RE = re.compile(
@@ -645,7 +705,13 @@ PLAYBACK_BOOTSTRAP = (
     "for(var i=0;i<xs.length;i++){for(var j=0;j<ys.length;j++){"
     "var t=document.elementFromPoint(xs[i],ys[j]);if(!t||l.contains(t))continue;"
     "if(t.tagName==='IMG'||t.tagName==='PICTURE'||t.tagName==='VIDEO')return true;"
-    "var bg=getComputedStyle(t).backgroundImage||'';if(bg.indexOf('url(')>=0)return true;}}"
+    "var cs=getComputedStyle(t),bg=cs.backgroundImage||'';if(bg.indexOf('url(')>=0)return true;"
+    # A solid opaque box over most of the frame hides the clip as surely as
+    # a photo does (maka: the media column's cream background). Small solid
+    # boxes — a badge, a pill, a card behind the headline — are design.
+    "var m=/rgba?\\(\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*\\d+\\s*(?:,\\s*([\\d.]+))?\\s*\\)/.exec(cs.backgroundColor||'');"
+    "if(m&&(m[1]===undefined||parseFloat(m[1])>=0.9)){var b=t.getBoundingClientRect();"
+    "if(b.width*b.height>=0.4*r.width*r.height)return true;}}}"
     "}catch(e){}return false;}"
     "v.addEventListener('playing',function(){if(!h||!h.setAttribute)return;"
     "if(covered()){h.setAttribute('data-binaapp-video-playing','covered');"
@@ -662,6 +728,9 @@ PLAYBACK_BOOTSTRAP = (
 
 
 _TEXT_ELEMENTS = ("h1", "h2", "h3", "h4", "p", "li", "blockquote")
+#: Text that lives inline and is recoloured only when it paints no
+#: background of its own (see the :not() guards where these are used).
+_INLINE_TEXT_ELEMENTS = ("span", "a", "strong", "em", "small", "label")
 
 
 def _css_string(value: str) -> str:
@@ -703,16 +772,22 @@ def hero_height_floor(open_tag: str) -> Optional[str]:
     return unique[0] if len(unique) == 1 else f"max({','.join(unique)})"
 
 
-def _build_style(settings: HeroVideoSettings, hero_open_tag: str = "") -> str:
+def _build_style(
+    settings: HeroVideoSettings,
+    hero_open_tag: str = "",
+    page_html: str = "",
+    hosted: bool = False,
+) -> str:
     hero = f"[{HERO_MARKER_ATTR}]"
     opacity = settings.overlay_opacity
+    overlay = settings.resolved_overlay(page_html)
 
-    if settings.overlay == "dark":
+    if overlay == "dark":
         scrim = (
             f"background:linear-gradient(180deg,rgba(0,0,0,{opacity}) 0%,"
             f"rgba(0,0,0,{min(round(opacity + 0.15, 2), 0.95)}) 100%);"
         )
-    elif settings.overlay == "light":
+    elif overlay == "light":
         scrim = (
             f"background:linear-gradient(180deg,rgba(255,255,255,{opacity}) 0%,"
             f"rgba(255,255,255,{min(round(opacity + 0.15, 2), 0.95)}) 100%);"
@@ -720,10 +795,24 @@ def _build_style(settings: HeroVideoSettings, hero_open_tag: str = "") -> str:
     else:
         scrim = "background:transparent;"
 
+    host = f'{hero} [{HERO_MEDIA_ATTR}="{HERO_MEDIA_HOST}"]'
     rules = [
         # The hero becomes the positioning context. `isolation` keeps the new
         # stacking context local so nothing outside the hero is reordered.
         f"{hero}{{position:relative;isolation:isolate;overflow:hidden;}}",
+        # HOSTED: the clip lives inside the hero's own media column and
+        # replaces the photo in place. The host is the positioning context;
+        # the layer is its first child at z-index:0, so a badge or caption
+        # the merchant positioned over the photo still paints over the clip.
+        f"{host}{{position:relative;overflow:hidden;}}",
+        f"{host} > .binaapp-hero-video-layer{{position:absolute;inset:0;z-index:0;"
+        "pointer-events:none;background-size:cover;background-position:center;"
+        "background-repeat:no-repeat;}",
+        f"{host} > .binaapp-hero-video-layer .binaapp-hero-video{{position:absolute;"
+        "inset:0;width:100%;height:100%;object-fit:cover;border:0;pointer-events:none;}",
+        # No scrim in the column: nothing of the merchant's sits on top of
+        # it, and darkening the model photo's replacement helps no one.
+        f"{host} > .binaapp-hero-video-layer .binaapp-hero-video-scrim{{display:none;}}",
         # z-index:-1 INSIDE the hero's own stacking context (isolation:isolate
         # above) paints the layer above the hero's background and below every
         # one of its children — without touching those children at all. The
@@ -784,15 +873,30 @@ def _build_style(settings: HeroVideoSettings, hero_open_tag: str = "") -> str:
                 "{background-image:none !important;}"
             )
 
-    text_mode = settings.resolved_text_mode()
-    if text_mode in ("light", "dark"):
+    text_mode = settings.resolved_text_mode(page_html)
+    if text_mode in ("light", "dark") and not hosted:
+        # Hosted clips sit under nothing of the merchant's, so their text
+        # keeps the page's own colours; only a full-bleed layer changes
+        # what the copy sits on.
         colour = "#FFFFFF" if text_mode == "light" else "#0F172A"
         selectors = ",".join(f"{hero} {tag}" for tag in _TEXT_ELEMENTS)
         # !important because generated pages set the colour with a Tailwind
-        # arbitrary value on the element itself. Links and buttons are left
-        # alone on purpose — they carry the brand colour and their own
-        # background, so they stay readable and stay branded.
+        # arbitrary value on the element itself.
         rules.append(f"{selectors}{{color:{colour} !important;}}")
+        # Inline text and ghost buttons too (maka: feature spans in #7A7A6E
+        # and a bordered "Lihat Koleksi" stayed dark on the dark scrim) —
+        # but never an element that paints its own background: a filled
+        # WhatsApp pill is readable already and must stay branded.
+        inline = ",".join(
+            f'{hero} {tag}:not([class*="bg-"]):not([style*="background"])'
+            for tag in _INLINE_TEXT_ELEMENTS
+        )
+        rules.append(f"{inline}{{color:{colour} !important;}}")
+        rules.append(
+            f'{hero} a[class*="border-"]:not([class*="bg-"]),'
+            f'{hero} button[class*="border-"]:not([class*="bg-"])'
+            "{border-color:currentColor !important;}"
+        )
         if text_mode == "light":
             rules.append(
                 f"{hero} .binaapp-hero-video-layer ~ * "
@@ -805,12 +909,12 @@ def _build_style(settings: HeroVideoSettings, hero_open_tag: str = "") -> str:
     # poster is what the visitor sees — not a black band.
     rules.append(
         "@media (prefers-reduced-motion:reduce){"
-        f"{hero} > .binaapp-hero-video-layer .binaapp-hero-video{{display:none;}}}}"
+        f"{hero} .binaapp-hero-video-layer .binaapp-hero-video{{display:none;}}}}"
     )
     if not settings.show_on_mobile:
         rules.append(
             "@media (max-width:640px){"
-            f"{hero} > .binaapp-hero-video-layer .binaapp-hero-video{{display:none;}}}}"
+            f"{hero} .binaapp-hero-video-layer .binaapp-hero-video{{display:none;}}}}"
         )
 
     return f'<style id="{STYLE_ID}">' + "".join(rules) + "</style>"
@@ -889,7 +993,7 @@ def apply_hero_video(html: str, settings: HeroVideoSettings) -> HeroVideoResult:
     # never a candidate, and stamp it so the stylesheet can hide it. Done on
     # `base` (marker-free), and re-found from scratch on every apply, so a
     # re-apply never stacks attributes.
-    base, media_count = _tag_hero_media(base, hero.start())
+    base, media_count, host_start = _tag_hero_media(base, hero.start())
     hero, how = find_hero_open_tag(base)
     if hero is None:  # pragma: no cover - tagging never removes the hero
         return HeroVideoResult(html=html, changed=False, notes=["hero_not_found"])
@@ -906,11 +1010,20 @@ def apply_hero_video(html: str, settings: HeroVideoSettings) -> HeroVideoResult:
     )
 
     layer = _build_layer(settings)
-    patched = (
-        base[: hero.start()] + marked_tag + layer + base[hero.end():]
-    )
+    if host_start is not None and host_start > hero.end():
+        # Hosted: the layer is the media column's first child. The hero's
+        # own tag still gets the marker (every rule is scoped to it).
+        host_tag_close = open_tag_end(base, host_start)
+        patched = (
+            base[: hero.start()] + marked_tag + base[hero.end():host_tag_close]
+            + layer + base[host_tag_close:]
+        )
+        hosted = True
+    else:
+        patched = base[: hero.start()] + marked_tag + layer + base[hero.end():]
+        hosted = False
 
-    style = _build_style(settings, hero_open_tag=open_tag)
+    style = _build_style(settings, hero_open_tag=open_tag, page_html=base, hosted=hosted)
     head_close = _HEAD_CLOSE_RE.search(patched)
     notes: List[str] = []
     if head_close:
@@ -925,6 +1038,8 @@ def apply_hero_video(html: str, settings: HeroVideoSettings) -> HeroVideoResult:
 
     if media_count:
         notes.append(f"hero_media_replaced:{media_count}")
+    if hosted:
+        notes.append("layer_hosted_in_media_column")
     logger.info(
         "[hero-video] injected (hero matched by %s, overlay=%s/%.2f, mobile=%s, media hidden=%d)",
         how,
