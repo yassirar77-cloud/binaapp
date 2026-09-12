@@ -15,6 +15,8 @@ the only occurrence that can be the document's real closing tag.
 
 from __future__ import annotations
 
+import re
+
 
 def insert_before_body(html: str, block: str) -> str:
     """Insert ``block`` immediately before the final ``</body>`` in ``html``.
@@ -28,3 +30,23 @@ def insert_before_body(html: str, block: str) -> str:
     if idx == -1:
         return html + block
     return html[:idx] + block + "\n" + html[idx:]
+
+
+def insert_before_footer(html: str, block: str) -> str:
+    """Insert ``block`` immediately before the page's ``<footer>`` element.
+
+    A content section appended before ``</body>`` lands AFTER the footer,
+    which is how the Google Maps block ended up rendering below a published
+    site's footer: a full-width map stranded under the copyright line, with
+    nothing but page background beneath it.
+
+    Falls back to ``insert_before_body`` when the document has no footer.
+    """
+    if not html:
+        return block
+    # The FIRST <footer> — a page footer is never nested inside content, and
+    # matching the last one would sit the block inside a footer-in-footer.
+    match = re.search(r"<footer\b", html, re.IGNORECASE)
+    if not match:
+        return insert_before_body(html, block)
+    return html[:match.start()] + block + "\n" + html[match.start():]

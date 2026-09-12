@@ -842,7 +842,7 @@ Requirements:
 1. <!DOCTYPE html> with <script src="https://cdn.tailwindcss.com"></script>
 2. Mobile responsive
 3. Sections: Header, Hero, About, Services (3 cards), Gallery (4 DIFFERENT images), Contact, Footer
-4. WhatsApp button: <a href="https://wa.me/60123456789">WhatsApp</a>
+4. Do NOT write a WhatsApp link, phone number or email address anywhere. Contact CTAs are injected after generation from the merchant's real details; an example number here ships as a live button to a stranger.
 
 Output ONLY complete HTML."""
 
@@ -1183,7 +1183,12 @@ async def generate_stability_image(item_name: str, business_type: str = "") -> O
                 files={"none": ''},
                 data={
                     "prompt": prompt,
-                    "negative_prompt": "blurry, low quality, cartoon, anime, sketch, drawing, illustration, 3d render",
+                    "negative_prompt": (
+                        "text, letters, words, writing, typography, caption, "
+                        "watermark, signature, logo, signage, label, "
+                        "blurry, low quality, cartoon, anime, sketch, drawing, "
+                        "illustration, 3d render"
+                    ),
                     "output_format": "png",
                     "aspect_ratio": "16:9"
                 }
@@ -1657,7 +1662,7 @@ Requirements:
 1. <!DOCTYPE html> with <script src="https://cdn.tailwindcss.com"></script>
 2. Mobile responsive
 3. Sections: Header, Hero, About, Services (3 cards), Gallery (4 DIFFERENT images), Contact, Footer
-4. WhatsApp button: <a href="https://wa.me/60123456789">WhatsApp</a>
+4. Do NOT write a WhatsApp link, phone number or email address anywhere. Contact CTAs are injected after generation from the merchant's real details; an example number here ships as a live button to a stranger.
 
 Output ONLY complete HTML."""
 
@@ -1813,7 +1818,7 @@ Requirements:
 1. <!DOCTYPE html> with <script src="https://cdn.tailwindcss.com"></script>
 2. Mobile responsive
 3. Sections: Header, Hero, About, Services (3 cards), Gallery (4 DIFFERENT images), Contact, Footer
-4. WhatsApp button: <a href="https://wa.me/60123456789">WhatsApp</a>
+4. Do NOT write a WhatsApp link, phone number or email address anywhere. Contact CTAs are injected after generation from the merchant's real details; an example number here ships as a live button to a stranger.
 
 Output ONLY complete HTML."""
 
@@ -1887,6 +1892,7 @@ async def run_generation_task(
     social_media: Optional[dict] = None,
     payment: Optional[dict] = None,
     business_name: Optional[str] = None,
+    whatsapp_number: Optional[str] = None,
     language: str = "ms",
     image_choice: str = "none",
     color_mode: str = "light",
@@ -1924,6 +1930,25 @@ async def run_generation_task(
         if isinstance(selected_features, dict) and "whatsapp" in selected_features:
             whatsapp_enabled = bool(selected_features.get("whatsapp"))
 
+        # A WhatsApp CTA is worth exactly as much as the number behind it.
+        # This used to be hardcoded to "+60123456789" whenever the feature was
+        # on, so every generated site shipped a pulsing green button that
+        # opened a chat with a stranger. No usable number now means no button,
+        # no floating widget and no WhatsApp section — an absent CTA costs a
+        # conversion, a wrong one costs the merchant their customer.
+        from app.services.generation_validator import normalize_my_phone_digits
+
+        _wa_raw = whatsapp_number
+        if not _wa_raw and isinstance(delivery, dict):
+            _wa_raw = delivery.get("phone")
+        wa_digits = normalize_my_phone_digits(_wa_raw)
+        if whatsapp_enabled and not wa_digits:
+            logger.warning(
+                "📵 WhatsApp requested but no usable number supplied "
+                f"(raw={_wa_raw!r}) — rendering no WhatsApp CTA"
+            )
+            whatsapp_enabled = False
+
         # Normalize image choice so "upload without uploads" becomes "none"
         # An entry only counts as an upload if it actually carries a URL.
         # Item rows (name + price, no photo) travel in this list on older
@@ -1954,9 +1979,25 @@ async def run_generation_task(
         if lang not in ["ms", "en"]:
             lang = "ms"
 
+        # The merchant's name, already resolved at the endpoint (explicit field,
+        # else read from their brief). This used to be
+        # `description.split()[0]` — the request the model was prompted with
+        # never saw the name the merchant actually typed, so the model invented
+        # one and "Kedai" shipped into every identity surface on the page.
+        # resolve_business_name() is applied again here because run_generation_task
+        # is also called directly by older callers that never went through the
+        # endpoint guard.
+        from app.services.business_identity import resolve_business_name
+        resolved_name = resolve_business_name(business_name, description)
+        if not resolved_name:
+            raise ValueError(
+                "Business name is required — none supplied and none readable "
+                "from the description"
+            )
+
         ai_request = WebsiteGenerationRequest(
             description=description,
-            business_name=description.split()[0] if description else "Business",  # Simple extraction
+            business_name=resolved_name,
             # The merchant's EXPLICIT pick from the create-page picker, already
             # canonicalised at the endpoint. None means they chose "auto", and
             # only then may the description classifier decide the vertical.
@@ -1968,7 +2009,7 @@ async def run_generation_task(
             language=Language.MALAY if lang == "ms" else Language.ENGLISH,
             subdomain="preview",
             include_whatsapp=whatsapp_enabled,
-            whatsapp_number="+60123456789" if whatsapp_enabled else None,
+            whatsapp_number=wa_digits or None,
             include_maps=False,
             # The address the merchant typed. Was hardcoded to "" — the prompt's
             # "use EXACTLY, do not invent" address line only exists when this
@@ -2064,8 +2105,14 @@ async def run_generation_task(
                 html_before = len(html)
                 # Remove WhatsApp links/buttons
                 html = re.sub(r'<a[^>]*(?:wa\.me|whatsapp)[^>]*>.*?</a>', '', html, flags=re.IGNORECASE | re.DOTALL)
-                html = re.sub(r'href="https?://wa\.me[^"]*"', 'href="#"', html, flags=re.IGNORECASE)
-                html = re.sub(r'href="https?://(?:api\.)?whatsapp\.com[^"]*"', 'href="#"', html, flags=re.IGNORECASE)
+                # Any straggler loses the whole anchor, not just its href.
+                # Rewriting these to href="#" is how the page ended up with
+                # buttons that look live and go nowhere — the defect this
+                # branch is supposed to be preventing.
+                html = re.sub(
+                    r'<a\b[^>]*href="https?://(?:wa\.me|(?:api\.)?whatsapp\.com)[^"]*"[^>]*>.*?</a>',
+                    '', html, flags=re.IGNORECASE | re.DOTALL,
+                )
                 # Remove common floating button wrappers
                 html = re.sub(r'<div[^>]*class="[^"]*(?:whatsapp|wa-float)[^"]*"[^>]*>.*?</div>', '', html, flags=re.IGNORECASE | re.DOTALL)
                 logger.info(f"🚫 WhatsApp disabled: removed {max(0, html_before - len(html))} bytes")
@@ -2088,12 +2135,19 @@ async def run_generation_task(
         # primary key of the persisted draft `websites` row, so the delivery/
         # chat widget validation resolves against a real row.
         generated_website_id = str(uuid.uuid4())
-        actual_business_name = business_name or "Business"
+        actual_business_name = resolved_name
         logger.info(f"✅ Generated website_id for background job: {generated_website_id}")
 
         # Inject all selected integrations (delivery, WhatsApp, maps, contact, chat widget).
         try:
             delivery_cfg = delivery or None
+
+            # Same rule as the page itself: a real number or nothing. "" here
+            # makes inject_integrations skip every phone-backed widget rather
+            # than wire them to an example number.
+            phone_number = wa_digits or normalize_my_phone_digits(
+                (delivery_cfg or {}).get("phone")
+            )
 
             # Features list for TemplateService (expects "delivery_system" token)
             features_list = []
@@ -2105,7 +2159,7 @@ async def run_generation_task(
                 features_list.append("contact")
             if selected_features.get("socialMedia"):
                 features_list.append("social")
-            if whatsapp_enabled:
+            if whatsapp_enabled and phone_number:
                 features_list.append("whatsapp")
 
             # Build menu items from uploaded images (matches frontend format: [{url,name,price}, ...])
@@ -2210,27 +2264,11 @@ async def run_generation_task(
                 }]
                 logger.info(f"📍 Created delivery zone: {zone_name} - RM{fee_val:.2f}")
 
-            # FIXED: Use provided business_name, or extract intelligently from description
-            # Don't just use first word - extract meaningful business name
-            if business_name:
-                actual_business_name = business_name
-            elif description:
-                # Try to extract meaningful name from description (first 3-4 words that look like a name)
-                words = description.split()
-                # Take first 3 words if they form a reasonable business name
-                if len(words) >= 3:
-                    actual_business_name = " ".join(words[:3])
-                elif len(words) >= 1:
-                    actual_business_name = words[0]
-                else:
-                    actual_business_name = "Business"
-            else:
-                actual_business_name = "Business"
-
-            # Get phone number from delivery config if available
-            phone_number = "+60123456789"
-            if delivery_cfg and delivery_cfg.get("phone"):
-                phone_number = delivery_cfg.get("phone")
+            # One resolution for the whole request — the widget layer must not
+            # re-derive the name by slicing the first three words of the brief
+            # ("Restoran mamak buka"), which is how the widgets ended up
+            # disagreeing with the page they were injected into.
+            actual_business_name = resolved_name
 
             # website_id for the delivery widget is generated_website_id, hoisted
             # above so inject_ordering_system always receives a valid id (without
@@ -2474,7 +2512,33 @@ async def start_generation(request: Request):
     social_media = body.get("social_media") or None
     payment = body.get("payment") or None  # Payment methods (cod, qr, qr_image)
     business_name = body.get("business_name") or body.get("businessName") or None  # Actual business name
+    # The number every WhatsApp CTA on the page will point at. No usable
+    # number means no CTA at all — see run_generation_task.
+    whatsapp_number = (
+        body.get("whatsapp_number")
+        or body.get("whatsappNumber")
+        or body.get("whatsapp")
+        or body.get("phone")
+        or (delivery.get("phone") if isinstance(delivery, dict) else None)
+    )
     language = body.get("language") or "ms"
+
+    # A site is never named by a fallback. The merchant's own name wins; when
+    # they left the field empty we read a name out of their brief; when the
+    # brief carries none either, generation is BLOCKED below rather than
+    # shipping the literal word "Kedai" into <h1>, <title>, og:title and the
+    # JSON-LD node all at once (the oopoo.binaapp.my defect).
+    from app.services.business_identity import (
+        missing_name_message,
+        resolve_business_name,
+    )
+    resolved_business_name = resolve_business_name(business_name, description)
+    if resolved_business_name and resolved_business_name != (business_name or ""):
+        logger.info(
+            f"🏷️ Business name resolved from brief: {resolved_business_name!r} "
+            f"(merchant typed {business_name!r})"
+        )
+    business_name = resolved_business_name or None
     color_mode = body.get("color_mode") or body.get("colorMode") or "light"
     if color_mode not in ("light", "dark"):
         color_mode = "light"
@@ -2637,6 +2701,16 @@ MANDATORY REQUIREMENTS:
 
     if not description:
         return JSONResponse(status_code=400, content={"success": False, "error": "Description required"})
+
+    # See resolve_business_name() above: no name, no site.
+    if not business_name:
+        logger.warning("🏷️ Generation blocked — no business name supplied and none readable from the brief")
+        return JSONResponse(status_code=400, content={
+            "success": False,
+            "error": "business_name_required",
+            "message": missing_name_message(language),
+            "field": "business_name",
+        })
 
     # Legacy in-memory 3/day guard — anonymous/guest traffic only. Logged-in
     # users fall through to the subscription website-limit check below
@@ -2859,6 +2933,7 @@ MANDATORY REQUIREMENTS:
         social_media,
         payment,
         business_name,
+        whatsapp_number,
         language,
         image_choice=image_choice,
         color_mode=color_mode,
@@ -3637,6 +3712,42 @@ async def publish_website(
                 )
             except Exception as _hv_err:
                 logger.warning(f"🎬 [PUBLISH] prepared hero video skipped: {_hv_err}")
+
+        # ── Metadata that only the publish step can know ──────────────
+        # The page was generated with subdomain="preview", so it still says
+        # it lives at preview.binaapp.my in og:url and in the JSON-LD node,
+        # and carries no canonical link at all. Shared to WhatsApp, that
+        # unfurls the preview host instead of the merchant's own site.
+        # Point it at where it actually lives, add the geo the map step just
+        # resolved, and give it a favicon and theme colour.
+        try:
+            from app.services.seo_metadata import finalize_published_seo
+
+            html_content = finalize_published_seo(
+                html_content,
+                f"https://{subdomain}.binaapp.my",
+                business_name=body.get("project_name") or body.get("business_name") or "",
+                geo=map_geo,
+            )
+        except Exception as _seo_err:
+            logger.warning(f"🔎 Publish SEO finalisation skipped: {_seo_err}")
+
+        # Delivery weight: Cloudinary uploads referenced raw (original size,
+        # original format, no compression budget) and the all-families Font
+        # Awesome stylesheet. Both are free to fix and both are paid for by
+        # the visitor on mobile data.
+        try:
+            from app.services.asset_delivery import optimize_assets
+
+            html_content, _assets = optimize_assets(html_content)
+            if _assets.changed:
+                logger.info(
+                    f"⚡ Assets: {_assets.images_optimized} Cloudinary URL(s) "
+                    f"given delivery transformations; font-awesome trimmed to "
+                    f"{_assets.font_awesome_families or 'unchanged'}"
+                )
+        except Exception as _asset_err:
+            logger.warning(f"⚡ Asset optimisation skipped: {_asset_err}")
 
         delivery_enabled = bool(features.get("deliverySystem")) or bool(delivery)
 

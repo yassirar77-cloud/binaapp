@@ -25,6 +25,11 @@ STABILITY_API_URL = "https://api.stability.ai/v1/generation/stable-diffusion-xl-
 # must read as a bride and groom (one woman and one man). Harmless for
 # non-couple subjects (food, products): the terms simply never apply.
 NEGATIVE_PROMPT = (
+    # Text terms lead: incidental scene lettering (storefront signs, hanging
+    # menus, product labels) comes back as garbled pseudo-text, and one
+    # generated gallery image shipped reading "Bererrmpath".
+    "text, letters, words, writing, typography, caption, subtitle, "
+    "watermark, signature, logo, signage, menu board, price tag, label, "
     "blurry, bad quality, cartoon, illustration, anime, drawing, sketch, "
     "low resolution, same-sex couple, gay couple, lesbian couple, "
     "two brides, two grooms, two men as a romantic couple, "

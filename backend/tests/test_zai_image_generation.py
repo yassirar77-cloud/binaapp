@@ -632,7 +632,7 @@ class TestProviderSelection:
         await service._generate_image(prompt, food=False)
         sent = service._generate_image_zai.await_args.args[0]
         assert sent.startswith(prompt)
-        assert "no text, no signage, no words, no lettering" in sent
+        assert service._NO_TEXT_SUFFIX in sent
 
     async def test_zai_failure_falls_back_to_stability(self, zai_env, monkeypatch):
         monkeypatch.setenv("IMAGE_PROVIDER", "zai")

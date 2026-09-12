@@ -705,14 +705,51 @@ def _validate_palette(
         palette["text_muted"] = "#B4B4C0" if wants_dark else "#4B5563"
         adjustments.append("palette.text_muted: contrast below 3:1 — replaced")
 
-    # Primary must be visible against the page (buttons, headings in brand colour).
-    if contrast_ratio(palette["primary"], palette["background"]) < 2.0:
-        fb = normalize_hex(fallback.get("primary"))
-        if fb and contrast_ratio(fb, palette["background"]) >= 2.0:
-            palette["primary"] = fb
+    # Brand colours are TEXT as often as they are fill: eyebrow labels, link
+    # colours, section kickers and prices are all set in primary/accent. A
+    # 2.0:1 bar let a gold accent ship at 2.02:1 on a cream page — every
+    # "WARISAN KAMI" label on that site was invisible. Both roles now have to
+    # clear AA body text against the page background AND the card surface,
+    # and we darken/lighten in the SAME HUE first so the designer's colour
+    # survives the repair instead of being swapped for a neutral.
+    from app.services.contrast_guard import AA_TEXT, adjust_for_contrast
+
+    surfaces = [palette["background"], palette["surface"]]
+
+    value = palette.get("primary")
+    if value and not all(contrast_ratio(value, bg) >= AA_TEXT for bg in surfaces):
+        readable = adjust_for_contrast(value, surfaces, AA_TEXT)
+        if readable:
+            palette["primary"] = readable
+            adjustments.append(
+                f"palette.primary: {value} below {AA_TEXT}:1 on background/surface "
+                f"— darkened in-hue to {readable}"
+            )
         else:
-            palette["primary"] = "#E5E7EB" if wants_dark else "#1F2937"
-        adjustments.append("palette.primary: invisible against background — replaced")
+            fb = normalize_hex(fallback.get("primary"))
+            if fb and all(contrast_ratio(fb, bg) >= AA_TEXT for bg in surfaces):
+                palette["primary"] = fb
+            else:
+                palette["primary"] = "#E5E7EB" if wants_dark else "#1F2937"
+            adjustments.append("palette.primary: unreadable on background/surface — replaced")
+
+    # `accent` stays free: it is a FILL (badge, highlight block, rule), and a
+    # pale highlight is a legitimate design choice that an AA text bar would
+    # ban outright. What it must never be is unreadable TEXT — a gold accent
+    # set as an eyebrow label shipped at 2.02:1 on cream. So the palette also
+    # carries a readable same-hue variant, and the prompt directs every
+    # accent-coloured piece of TEXT at it.
+    accent = palette.get("accent")
+    if accent:
+        strong = adjust_for_contrast(accent, surfaces, AA_TEXT)
+        if not strong:
+            strong = palette["primary"] if all(
+                contrast_ratio(palette["primary"], bg) >= AA_TEXT for bg in surfaces
+            ) else palette["text"]
+        # Not an `adjustments` entry: nothing was repaired. This is a derived
+        # token, always present, and listing it would drown the log line that
+        # exists to show what the AI concept got WRONG.
+        palette["accent_strong"] = strong
 
     palette["border"] = "rgba(255,255,255,0.1)" if wants_dark else "rgba(17,24,39,0.08)"
     return palette

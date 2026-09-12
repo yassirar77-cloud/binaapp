@@ -139,6 +139,9 @@ class GenerationBrief:
     business_name: str = ""
     description: str = ""
     language: str = "ms"
+    #: "light" / "dark" — the merchant's EXPLICIT pick on the create page.
+    #: "" means they expressed no preference and the check stays silent.
+    color_mode: str = ""
     whatsapp_number: Optional[str] = None
     location_address: Optional[str] = None
     operating_hours: Optional[str] = None
@@ -599,18 +602,157 @@ def _check_sanitizer_trace(html: str, brief: GenerationBrief) -> List[Validation
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _check_generic_business_name(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """9. Generic business name — ERROR.
+
+    A page that calls itself "Kedai" is a page that never learned the
+    merchant's name. The word reaches <h1>, <title>, og:title, the JSON-LD
+    node and the footer copyright at once, and the structured-data copy is
+    the one Google reads — so this blocks rather than warns.
+
+    Checked on the RENDERED page, not the brief, because the two failure
+    modes are different: the pipeline passing a placeholder through, and the
+    model inventing "Kedai Kami" on its own when the name it was handed did
+    not fit its layout. Both land here.
+    """
+    from app.services.business_identity import is_generic_business_name
+
+    issues: List[ValidationIssue] = []
+    seen: set = set()
+
+    def _flag(where: str, value: str) -> None:
+        text = re.sub(r"\s+", " ", (value or "")).strip()
+        if not text or text.lower() in seen:
+            return
+        seen.add(text.lower())
+        if is_generic_business_name(text):
+            issues.append(ValidationIssue(
+                "generic_business_name",
+                "Page identifies the business by a generic word, not a name",
+                f"{where}: {text!r}",
+            ))
+
+    h1 = re.search(r"<h1\b[^>]*>(.*?)</h1>", _strip_scripts(html or ""), re.IGNORECASE | re.DOTALL)
+    if h1:
+        _flag("h1", _TAG_RE.sub(" ", h1.group(1)))
+
+    title = re.search(r"<title\b[^>]*>(.*?)</title>", html or "", re.IGNORECASE | re.DOTALL)
+    if title:
+        # "Kedai — Restoran Mamak" : only the identity half is the name.
+        _flag("title", re.split(r"[|\u2014\u2013-]", title.group(1))[0])
+
+    og = re.search(
+        r'<meta\b[^>]*property=["\']og:title["\'][^>]*content=["\']([^"\']*)',
+        html or "", re.IGNORECASE,
+    )
+    if og:
+        _flag("og:title", og.group(1))
+
+    for block in re.findall(
+        r'<script\b[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        html or "", re.IGNORECASE | re.DOTALL,
+    ):
+        try:
+            node = json.loads(block.strip())
+        except Exception:
+            continue
+        for candidate in (node if isinstance(node, list) else [node]):
+            if isinstance(candidate, dict) and candidate.get("name"):
+                _flag("json-ld name", str(candidate["name"]))
+
+    return issues
+
+
+def _check_color_mode(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """10. Colour mode ignored — ERROR.
+
+    "Gelap" is a choice the merchant made on a toggle, not a hint. A page
+    that answers it with a cream background is wrong in the one way the
+    merchant is guaranteed to notice, so it blocks and earns a repair
+    attempt. services/color_mode_guard.py repaints deterministically if the
+    repair does not take.
+
+    Silent when the brief states no preference, or when the page declares no
+    background at all (nothing to contradict).
+    """
+    if brief.color_mode not in ("light", "dark"):
+        return []
+    from app.services.color_mode_guard import detect_color_mode, page_background
+
+    detected = detect_color_mode(html)
+    if not detected or detected == brief.color_mode:
+        return []
+    return [ValidationIssue(
+        "color_mode_mismatch",
+        f"Merchant chose {brief.color_mode} mode but the page renders {detected}",
+        f"page background {page_background(html) or 'unknown'}",
+    )]
+
+
+def _check_contrast(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """11. Unreadable palette pairings — WARNING.
+
+    Reported, not blocked: contrast_guard repairs what it can repair safely,
+    and a pairing it cannot repair (the same accent readable on one of the
+    page's own backgrounds and not on another) is a design judgement, not a
+    broken page. Surfacing it is what turns "the labels look faded" into a
+    number somebody can act on.
+    """
+    from app.services.contrast_guard import audit_contrast
+
+    return [
+        ValidationIssue(
+            "low_contrast",
+            f"{issue.role} is below WCAG AA",
+            str(issue),
+        )
+        for issue in audit_contrast(html)
+    ]
+
+
+def _check_dead_links(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """12. Controls that lead nowhere — WARNING.
+
+    link_guard removes these during injection, so anything still here is
+    either a path that skipped injection or a case the sweep does not cover.
+    Reported so that gap is visible rather than assumed closed.
+    """
+    from app.services.link_guard import document_anchor_ids
+
+    anchor_ids = document_anchor_ids(html or "")
+    dead: List[str] = []
+    for attrs in re.findall(r"<a\b([^>]*)>", _strip_scripts(html or ""), re.IGNORECASE):
+        match = re.search(r"""href\s*=\s*(["\'])(.*?)\1""", attrs, re.IGNORECASE | re.DOTALL)
+        href = (match.group(2) if match else "").strip()
+        if not href or href in ("#", "#!") or href.lower().startswith("javascript:"):
+            dead.append(href or "(no href)")
+        elif href.startswith("#") and len(href) > 1 and href[1:] not in anchor_ids:
+            dead.append(href)
+    if not dead:
+        return []
+    return [ValidationIssue(
+        "dead_link",
+        f"{len(dead)} link(s) lead nowhere",
+        ", ".join(sorted(set(dead))[:8]),
+    )]
+
+
 _ERROR_CHECKS = (
     _check_placeholder_contacts,
     _check_derived_item_names,
     _check_price_integrity,
     _check_required_fields,
     _check_sanitizer_trace,
+    _check_generic_business_name,
+    _check_color_mode,
 )
 _WARNING_CHECKS = (
     _check_empty_containers,
     _check_metadata,
     _check_language_consistency,
     _check_invented_metrics,
+    _check_contrast,
+    _check_dead_links,
 )
 
 
@@ -732,10 +874,15 @@ def brief_from_request(
     language = _attr("language", "ms")
     language = getattr(language, "value", language) or "ms"
 
+    color_mode = str(_attr("color_mode", "") or "").lower().strip()
+    if color_mode not in ("light", "dark"):
+        color_mode = ""
+
     return GenerationBrief(
         business_name=str(_attr("business_name", "") or ""),
         description=str(_attr("description", "") or ""),
         language=str(language),
+        color_mode=color_mode,
         whatsapp_number=_attr("whatsapp_number"),
         location_address=_attr("location_address"),
         operating_hours=operating_hours,

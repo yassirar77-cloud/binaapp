@@ -18,7 +18,7 @@ from app.services.business_types import (
 )
 from app.services.menu_validator import log_menu_flow
 from app.services.widget_catalogue import WIDGETS, WidgetSpec
-from app.utils.html_inject import insert_before_body
+from app.utils.html_inject import insert_before_body, insert_before_footer
 
 
 # ─── Widget theme (delivery/ordering UI) ────────────────────────────────────
@@ -41,6 +41,57 @@ _WIDGET_THEME_SUBSTITUTIONS = [
     ("#f97316", "var(--binaapp-primary)"),
     ("#ea580c", "var(--binaapp-primary-dark)"),
 ]
+
+
+#: Address fragments that stay upper-case in Malaysian addresses. "NO." and
+#: "JALAN" become "No." / "Jalan", but a postcode, a state abbreviation or a
+#: block code like "L7/L is not a word to title-case.
+_ADDRESS_KEEP_UPPER = frozenset({
+    "KL", "PJ", "JB", "MY", "WP", "KLCC", "USJ", "TTDI", "PPR", "KM",
+})
+
+
+def normalize_display_address(address: str) -> str:
+    """Merchant-typed address -> something fit for a heading.
+
+    Merchants type addresses however the form lets them, and the reported
+    page put one straight into an <h2>:
+
+        "NO.41 JALAN KRISTAL L7/L, 40000, shah alam"
+
+    Shouted street name, lower-case town, in the same line. This title-cases
+    the words while leaving alone the tokens that are not words: postcodes,
+    unit/block codes (L7/L, 2A), and the handful of Malaysian abbreviations
+    that are genuinely upper-case.
+    """
+    text = re.sub(r"\s+", " ", str(address or "")).strip()
+    if not text:
+        return ""
+
+    def _word(token: str) -> str:
+        bare = token.strip(".,")
+        if not bare:
+            return token
+        if bare.upper() in _ADDRESS_KEEP_UPPER:
+            return token.upper()
+        # Anything carrying a digit is a code, not a word: 40000, L7/L, 2A.
+        if any(ch.isdigit() for ch in bare):
+            return token.upper() if bare.isupper() else token
+        # Mixed-case the merchant chose deliberately ("McDonald") survives.
+        if not (token.isupper() or token.islower()):
+            return token
+        return token.capitalize()
+
+    # "NO.41" -> "No.41": split on the dot so the prefix title-cases but the
+    # number stays put.
+    parts = []
+    for token in text.split(" "):
+        if "." in token and not token.startswith("."):
+            head, _, tail = token.partition(".")
+            parts.append(f"{_word(head)}.{tail}")
+        else:
+            parts.append(_word(token))
+    return " ".join(parts)
 
 
 def _normalize_hex(color: str) -> Optional[str]:
@@ -387,16 +438,20 @@ class TemplateService:
             logger.info("⏭️ Skipping WhatsApp button injection - already present")
             return html
 
-        # Clean phone number
-        phone_clean = re.sub(r'[^\d+]', '', phone_number)
-        if not phone_clean.startswith('+'):
-            # Assume Malaysian number if no country code
-            if phone_clean.startswith('60'):
-                phone_clean = '+' + phone_clean
-            elif phone_clean.startswith('0'):
-                phone_clean = '+6' + phone_clean
-            else:
-                phone_clean = '+60' + phone_clean
+        # A pulsing green button that opens a chat with a stranger is worse
+        # than no button at all: the merchant loses the customer AND never
+        # finds out. normalize_my_phone_digits returns "" for missing,
+        # malformed and known-example numbers alike (60123456789 was this
+        # pipeline's own default and shipped on live sites).
+        from app.services.generation_validator import normalize_my_phone_digits
+
+        digits = normalize_my_phone_digits(phone_number)
+        if not digits:
+            logger.warning(
+                f"📵 Not rendering the WhatsApp button — unusable number ({phone_number!r})"
+            )
+            return html
+        phone_clean = "+" + digits
 
         whatsapp_html = f"""
 <!-- WhatsApp Floating Button -->
@@ -454,14 +509,22 @@ class TemplateService:
         """
         address_encoded = address.replace(' ', '+')
         tokens = theme_tokens or {}
-        heading_color = tokens.get("primary", "#1f2937")
+        # var() first, literal token second: the block then follows the page
+        # even after a theme repaint, and still renders if the page declares
+        # no variables at all. The previous version hardcoded #1f2937 on
+        # #f9fafb, so the map arrived as a light strip pasted onto whatever
+        # the site's palette happened to be.
+        heading_color = f"var(--primary-color, {tokens.get('primary', 'currentColor')})"
+        heading_font = "var(--font-heading, inherit)"
+        display_address = normalize_display_address(address)
 
         # Inner contents (no outer <section> — caller decides container)
         maps_inner = f"""
   <div style="max-width:1200px;margin:0 auto;padding:60px 20px;">
-    <h2 style="text-align:center;font-size:2.5rem;margin-bottom:1rem;color:{heading_color};">📍 {address}</h2>
-    <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.1);">
+    <h2 style="text-align:center;font-size:clamp(1.75rem,4vw,2.5rem);margin-bottom:1rem;color:{heading_color};font-family:{heading_font};">📍 {display_address}</h2>
+    <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <iframe
+        title="Peta lokasi {display_address}"
         src="https://www.google.com/maps?q={address_encoded}&output=embed"
         width="100%"
         height="100%"
@@ -488,16 +551,17 @@ class TemplateService:
                 logger.info(f"✅ Google Maps injected into AI-emitted slot '{slot_id}'")
                 return new_html
 
-        # Legacy/fallback: append a full section before </body>.
+        # Legacy/fallback: a real content section, placed where a content
+        # section belongs — BEFORE the footer. Appending before </body> put
+        # the map underneath the footer on every published site that had no
+        # maps slot, which is how a full-width map ended up stranded below
+        # the copyright line.
         maps_html = (
             f'\n<!-- Google Maps Section -->\n'
-            f'<section id="location" style="background:#f9fafb;">{maps_inner}</section>\n'
+            f'<section id="location" style="background:var(--surface-color, transparent);'
+            f'color:var(--text-color, inherit);">{maps_inner}</section>\n'
         )
-        if "</body>" in html:
-            html = insert_before_body(html, maps_html)
-        else:
-            html += maps_html
-        return html
+        return insert_before_footer(html, maps_html)
 
     def inject_shopping_cart(self, html: str) -> str:
         """
@@ -606,11 +670,13 @@ function checkout() {
   const total = cart.reduce((sum, item) => sum + item.price, 0);
   const message = `Hi! I would like to order:%0A%0A${orderText}%0A%0ATotal: RM ${total.toFixed(2)}`;
 
-  // Get WhatsApp number from button if exists
-  const waButton = document.querySelector('a[href*="wa.me"]');
-  const phoneNumber = waButton ? waButton.href.match(/wa.me\/([^?]+)/)[1] : '60123456789';
+  // Get WhatsApp number from the page's own button. There is no fallback
+  // on purpose: sending the order to an example number loses it silently.
+  const waButton = document.querySelector('a[href*="wa.me/"]');
+  const waMatch = waButton ? waButton.href.match(/wa\.me\/(\d{8,15})/) : null;
+  if (!waMatch) { return; }
 
-  window.open(`https://wa.me/${phoneNumber}?text=${message}`, '_blank');
+  window.open(`https://wa.me/${waMatch[1]}?text=${message}`, '_blank');
 }
 
 // Initialize
@@ -828,13 +894,17 @@ function handleContactSubmit(e) {{
         # is what standalone exports get, so keep it centered (Tailwind preflight
         # sets img{display:block}, so text-align on the wrapper is not enough —
         # center the <img> itself with margin:0 auto).
+        # color:inherit / transparent background so the block adopts whatever
+        # it is dropped into. The old version painted itself #f9fafb with
+        # #1f2937 text, so inside a dark footer it read as a white sticker
+        # someone had pasted over the design.
         qr_html = f"""
 <!-- QR Code Section -->
-<div style="text-align:center;padding:40px 20px;background:#f9fafb;">
-  <h3 style="font-size:1.5rem;margin-bottom:1rem;color:#1f2937;">📱 Scan to Visit</h3>
+<div style="text-align:center;padding:40px 20px;background:transparent;color:inherit;">
+  <h3 style="font-size:1.5rem;margin-bottom:1rem;color:inherit;font-family:var(--font-heading, inherit);">📱 Scan to Visit</h3>
   <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={url}"
        alt="QR Code"
-       style="margin:0 auto;display:block;border:4px solid white;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+       style="margin:0 auto;display:block;background:#fff;padding:8px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
 </div>
 """
 
@@ -1296,17 +1366,19 @@ function handleContactSubmit(e) {{
         
         logger.info(f"🏢 Business type for delivery system: {business_type}")
         business_name = business_info.get("name", "Our Restaurant")
-        phone_number = business_info.get("phone", "+60123456789")
+        # No example number: an order sent to wa.me/60123456789 is an order
+        # the merchant never sees. "" disables the WhatsApp hand-off in the
+        # ordering script (DELIVERY_WHATSAPP guards on it) and leaves the
+        # backend order API — which is the real path anyway — untouched.
+        from app.services.generation_validator import normalize_my_phone_digits
 
-        # Clean phone for WhatsApp
-        phone_clean = re.sub(r'[^\d+]', '', phone_number)
-        if not phone_clean.startswith('+'):
-            if phone_clean.startswith('60'):
-                phone_clean = '+' + phone_clean
-            elif phone_clean.startswith('0'):
-                phone_clean = '+6' + phone_clean
-            else:
-                phone_clean = '+60' + phone_clean
+        _phone_digits = normalize_my_phone_digits(business_info.get("phone"))
+        if not _phone_digits and business_info.get("phone"):
+            logger.warning(
+                f"📵 Ordering system: unusable phone {business_info.get('phone')!r} "
+                "— WhatsApp hand-off disabled"
+            )
+        phone_clean = ("+" + _phone_digits) if _phone_digits else ""
 
         # Extract payment data for QR payment support
         payment_data = business_info.get("payment", {})
@@ -3651,7 +3723,7 @@ __BINAAPP_WIDGET_THEME_VARS__
         # Delivery System handling
         if "delivery_system" in features or user_data.get("delivery"):
             website_id = user_data.get("website_id", "")
-            whatsapp = user_data.get("phone", "+60123456789")
+            whatsapp = user_data.get("phone") or ""
             primary_color = user_data.get("primary_color", WIDGET_FALLBACK_PRIMARY_DARK)
             menu_items = user_data.get("menu_items", [])
             delivery_zones = user_data.get("delivery_zones", [])
@@ -3704,7 +3776,7 @@ __BINAAPP_WIDGET_THEME_VARS__
                     delivery_zones,
                     {
                         "name": user_data.get("business_name", "Our Business"),
-                        "phone": user_data.get("phone", "+60123456789"),
+                        "phone": user_data.get("phone") or "",
                         "payment": payment_data  # Pass payment data for QR support
                     },
                     business_type=business_type,
@@ -3725,6 +3797,32 @@ __BINAAPP_WIDGET_THEME_VARS__
                 )
             else:
                 logger.warning("Delivery system requested but no menu_items and no website_id - skipping")
+
+        # Dead-control sweep. Runs LAST, after every widget is in place, so a
+        # "WhatsApp Kami" button is judged against the wa.me link the injector
+        # just added rather than removed a step too early. Removes social
+        # icons the merchant ticked but never gave a URL for, re-points
+        # WhatsApp-labelled buttons that scroll to a section instead, and
+        # unwraps anchors pointing at ids the document never defines.
+        try:
+            from app.services.link_guard import (
+                remove_empty_floating_slots,
+                strip_dead_links,
+            )
+
+            html, link_report = strip_dead_links(html)
+            if link_report.changed:
+                logger.info(f"🔗 Dead links swept: {link_report.summary()}")
+                for label in link_report.removed:
+                    logger.info(f"   ✂️ removed control with no destination: {label!r}")
+
+            # Slots the model left for widgets that position themselves.
+            # Runs after injection so a slot that WAS filled is never touched.
+            html, empty_slots = remove_empty_floating_slots(html)
+            if empty_slots:
+                logger.info(f"🧹 Removed empty floating slot(s): {empty_slots}")
+        except Exception as link_err:
+            logger.warning(f"⚠️ Dead-link sweep skipped: {link_err}")
 
         # Final layout safety pass - defensive CSS that survives AOS failures,
         # broken contact-section HTML from AI truncation, and mixed-image menu grids.

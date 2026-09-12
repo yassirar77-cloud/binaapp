@@ -361,7 +361,7 @@ class TestPromptRules:
 
 # ── Fix 2: hero prompts ──────────────────────────────────────────────────────
 
-NO_TEXT_SUFFIX = "no text, no signage, no words, no lettering anywhere in the image"
+NO_TEXT_SUFFIX = AIService._NO_TEXT_SUFFIX
 
 
 class TestHeroPrompts:

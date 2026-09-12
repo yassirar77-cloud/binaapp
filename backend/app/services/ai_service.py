@@ -4067,6 +4067,11 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             f"user_color={user_prefs.get('color')}, style_hint={user_prefs.get('style_hint')}"
         )
 
+        # The palette the model was ACTUALLY told to use. Kept so the
+        # post-generation colour-mode guard repaints towards the design the
+        # merchant was promised rather than a generic dark neutral.
+        self._last_palette = dict(palette)
+
         # ---- IMAGE HANDLING (unchanged logic) ----
         if image_choice == "none":
             logger.info("🚫 _build_strict_prompt: image_choice='none' - NO IMAGES MODE")
@@ -4265,6 +4270,24 @@ RULES:
 🛒 Menu items show product name, description, and price ONLY
 🛒 A separate ordering system will be integrated later
 ✅ WhatsApp button is ONLY for contact/inquiries in footer section"""
+
+        # Accent has two jobs with two different requirements: a FILL that may
+        # be any lightness the design wants, and a TEXT colour that must stay
+        # readable. design_director derives `accent_strong` for the second;
+        # palettes that predate it (design_system, template gallery) get it
+        # computed here so the prompt contract is identical on every path.
+        _accent_fill = palette.get("accent") or palette.get("primary") or palette["text"]
+        _accent_strong = palette.get("accent_strong")
+        if not _accent_strong:
+            try:
+                from app.services.contrast_guard import AA_TEXT, adjust_for_contrast
+                _accent_strong = adjust_for_contrast(
+                    _accent_fill, [palette["background"], palette["surface"]], AA_TEXT
+                )
+            except Exception:
+                _accent_strong = None
+        if not _accent_strong:
+            _accent_strong = palette["text"]
 
         # ---- DARK MODE EXTRA RULES ----
         dark_mode_section = ""
@@ -4642,7 +4665,7 @@ DESIGN MODE: {"SENIOR DESIGNER — you own the visual design" if designer_mode e
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 html {{ scroll-behavior: smooth; }}
-:root {{ --bg-color: {palette['background']}; --surface-color: {palette['surface']}; --text-color: {palette['text']}; --text-muted-color: {palette['text_muted']}; }}
+:root {{ --bg-color: {palette['background']}; --surface-color: {palette['surface']}; --text-color: {palette['text']}; --text-muted-color: {palette['text_muted']}; --accent-color: {_accent_fill}; --accent-strong: {_accent_strong}; }}
 body {{ background-color: var(--bg-color); font-family: '{fonts['body']}', {fonts['body_fallback']}; }}
 </style>
 
@@ -4671,6 +4694,7 @@ COLOUR — ONE dominant colour + ONE accent only:
 - Use exactly one accent colour for small highlights (badges, links, details).
 - Everything else stays neutral: background, surface, text, borders.
 - Do NOT spread 3+ saturated colours across the page.
+- ACCENT AS TEXT (accessibility, non-negotiable): --accent-color ({_accent_fill}) is a FILL — badges, rules, highlight blocks. Any TEXT set in the accent colour (eyebrow/kicker labels such as "WARISAN KAMI", small-caps section labels, links, prices) MUST use var(--accent-strong) ({_accent_strong}), which is the same hue darkened/lightened to clear 4.5:1 on this page's background and surface. Accent-coloured text at the fill value is unreadable and will be rejected.
 {_purple_rule}
 
 TYPOGRAPHY — fonts (FONT LOCK, non-negotiable):
@@ -4731,8 +4755,9 @@ BRAND / LOGO (non-negotiable):
 - NEVER truncate the name to a single word or a fragment (e.g. do NOT render "kedai." for "Kedai Tomyam"). A styled dot or accent colour is allowed only AFTER the complete name.
 
 FOOTER:
-- Render the copyright year DYNAMICALLY, never a hardcoded year. Use:
-  &copy; <script>document.write(new Date().getFullYear())</script> {name}
+- Render the copyright year DYNAMICALLY, never a hardcoded year. Use EXACTLY this — document.write() blocks the HTML parser while it runs, so it must not appear anywhere on the page:
+  &copy; <span id="binaapp-year"></span> {name}
+  and before </body>: <script>document.getElementById('binaapp-year').textContent=new Date().getFullYear()</script>
 
 {_house_rules_preface}
 {typography}
@@ -7099,6 +7124,59 @@ IMPORTANT RULES:
             logger.warning(f"⚠️ SEO metadata injection failed: {err}")
             return html
 
+    def _enforce_design_constraints(
+        self, html: str, request: WebsiteGenerationRequest
+    ) -> str:
+        """Last line of defence for the two constraints a prompt cannot hold.
+
+        Runs AFTER validation and its one repair attempt, so a model that can
+        fix itself is given the chance first and this only ever touches output
+        that is still wrong.
+
+        1. Colour mode. "Gelap" is a toggle the merchant flipped, not a hint.
+           A page that answers it with a cream background is repainted.
+        2. Contrast. Palette tokens below WCAG AA are moved within their own
+           hue, but only where a value exists that is readable on EVERY
+           background the document paints — see contrast_guard.
+        """
+        if not html:
+            return html
+
+        color_mode = str(getattr(request, "color_mode", "") or "").lower()
+        if color_mode in ("light", "dark"):
+            try:
+                from app.services.color_mode_guard import enforce_color_mode
+                palette = getattr(self, "_last_palette", None)
+                html, report = enforce_color_mode(html, color_mode, palette)
+                if report.repainted:
+                    logger.warning(
+                        f"🎨 Colour mode repaired: merchant chose {report.requested} "
+                        f"but the page rendered {report.detected} "
+                        f"(background {report.background}) — repainted deterministically"
+                    )
+                elif report.mismatch:
+                    logger.warning(f"🎨 Colour mode mismatch not repaired: {report.notes}")
+            except Exception as err:
+                logger.warning(f"⚠️ Colour-mode enforcement failed: {err}")
+
+        try:
+            from app.services.contrast_guard import enforce_contrast
+            html, contrast = enforce_contrast(html)
+            if contrast.repairs:
+                logger.warning(
+                    "🎨 Contrast repaired: "
+                    + ", ".join(
+                        f"{role} {old} → {new}"
+                        for role, (old, new) in contrast.repairs.items()
+                    )
+                )
+            for note in contrast.notes:
+                logger.info(f"🎨 Contrast: {note}")
+        except Exception as err:
+            logger.warning(f"⚠️ Contrast enforcement failed: {err}")
+
+        return html
+
     async def _validate_and_repair(
         self,
         html: str,
@@ -7359,7 +7437,8 @@ IMPORTANT RULES:
     # card-title subjects ("Produk Pilihan" etc.) came back baked into the
     # image as garbled text — hence the blanket enforcement now.
     _NO_TEXT_SUFFIX = (
-        "no text, no signage, no words, no lettering anywhere in the image"
+        "no text, no letters, no words, no lettering, no captions, "
+        "no signage, no labels, no watermark, no logo anywhere in the image"
     )
     # Legacy alias — earlier code/tests reference the hero-specific name.
     _HERO_NO_TEXT_SUFFIX = _NO_TEXT_SUFFIX
@@ -7399,6 +7478,8 @@ IMPORTANT RULES:
     # (see _COUPLE_COMPOSITION_CLAUSE). Harmless for non-couple subjects
     # (food, products, interiors) — the terms simply never apply.
     _IMAGE_NEGATIVE_PROMPT = (
+        "text, letters, words, writing, typography, caption, subtitle, "
+        "watermark, signature, logo, signage, menu board, price tag, label, "
         "blurry, bad quality, cartoon, illustration, anime, drawing, sketch, "
         "low resolution, same-sex couple, gay couple, lesbian couple, "
         "two brides, two grooms, two men as a romantic couple, "
@@ -8600,6 +8681,8 @@ IMPORTANT INSTRUCTIONS:
             html, validation = await self._validate_and_repair(
                 html, request, prompt=prompt, model=_html_model
             )
+            # Deterministic floor for the constraints the model keeps dropping.
+            html = self._enforce_design_constraints(html, request)
             # P3 telemetry: which Layout Safety Guard rules still have work to
             # do on freshly generated HTML. Each firing guard is a generator
             # defect being patched at serve time; a guard that stops firing

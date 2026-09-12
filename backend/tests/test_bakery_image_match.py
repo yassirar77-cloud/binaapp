@@ -30,7 +30,7 @@ def service():
     return AIService.__new__(AIService)
 
 
-NO_TEXT = "no text, no signage, no words, no lettering anywhere in the image"
+NO_TEXT = AIService._NO_TEXT_SUFFIX
 
 # The reported case: cake shop that also mentions kuih-muih.
 CAKE_DESC = (
