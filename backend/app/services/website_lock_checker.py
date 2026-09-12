@@ -36,12 +36,15 @@ class WebsiteLockChecker:
             "Content-Type": "application/json"
         }
 
-    async def is_website_locked(self, website_id: str) -> bool:
+    async def is_website_locked(self, website_id: str, owner_id: Optional[str] = None) -> bool:
         """
         Check if a website should show the locked page.
 
         Args:
             website_id: UUID of the website
+            owner_id: the website's user_id when the caller already has it
+                (the subdomain middleware does — it just selected it). Saves
+                the fallback path one round trip to ``websites``.
 
         Returns:
             True if website should show locked page, False otherwise
@@ -55,7 +58,7 @@ class WebsiteLockChecker:
 
             # Step 2: Fallback to checking owner's subscription status
             # This handles cases where cron hasn't run yet
-            owner_status = await self._get_owner_subscription_status(website_id)
+            owner_status = await self._get_owner_subscription_status(website_id, owner_id=owner_id)
 
             if owner_status in ["locked", "suspended"]:
                 logger.info(f"Website {website_id} locked due to owner subscription status: {owner_status}")
@@ -110,7 +113,9 @@ class WebsiteLockChecker:
             logger.error(f"Error checking website_lock_status: {e}")
             return None
 
-    async def _get_owner_subscription_status(self, website_id: str) -> Optional[str]:
+    async def _get_owner_subscription_status(
+        self, website_id: str, owner_id: Optional[str] = None
+    ) -> Optional[str]:
         """
         Get the subscription status of the website owner.
 
@@ -121,24 +126,29 @@ class WebsiteLockChecker:
             Subscription status string or None if not found
         """
         try:
-            # First, get the website's owner (user_id)
-            url = f"{self.supabase_url}/rest/v1/websites"
-            params = {
-                "id": f"eq.{website_id}",
-                "select": "user_id"
-            }
+            user_id = owner_id
+            if not user_id:
+                # First, get the website's owner (user_id). Skipped when the
+                # caller passed it: the serving middleware selects user_id in
+                # its own websites lookup, and this was the second query of
+                # the same row on every pageview.
+                url = f"{self.supabase_url}/rest/v1/websites"
+                params = {
+                    "id": f"eq.{website_id}",
+                    "select": "user_id"
+                }
 
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                response = await client.get(url, headers=self.headers, params=params)
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    response = await client.get(url, headers=self.headers, params=params)
 
-            if response.status_code != 200:
-                return None
+                if response.status_code != 200:
+                    return None
 
-            websites = response.json()
-            if not websites:
-                return None
+                websites = response.json()
+                if not websites:
+                    return None
 
-            user_id = websites[0].get("user_id")
+                user_id = websites[0].get("user_id")
             if not user_id:
                 return None
 
@@ -234,17 +244,18 @@ website_lock_checker = WebsiteLockChecker()
 
 
 # Convenience function for middleware
-async def is_website_locked(website_id: str) -> bool:
+async def is_website_locked(website_id: str, owner_id: Optional[str] = None) -> bool:
     """
     Convenience function to check if a website is locked.
 
     Args:
         website_id: UUID of the website
+        owner_id: the owner's user_id if already known (saves a query)
 
     Returns:
         True if website should show locked page
     """
-    return await website_lock_checker.is_website_locked(website_id)
+    return await website_lock_checker.is_website_locked(website_id, owner_id=owner_id)
 
 
 async def get_website_owner_subscription_status(website_id: str) -> Optional[str]:
