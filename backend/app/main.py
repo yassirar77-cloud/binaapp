@@ -1183,7 +1183,12 @@ async def generate_stability_image(item_name: str, business_type: str = "") -> O
                 files={"none": ''},
                 data={
                     "prompt": prompt,
-                    "negative_prompt": "blurry, low quality, cartoon, anime, sketch, drawing, illustration, 3d render",
+                    "negative_prompt": (
+                        "text, letters, words, writing, typography, caption, "
+                        "watermark, signature, logo, signage, label, "
+                        "blurry, low quality, cartoon, anime, sketch, drawing, "
+                        "illustration, 3d render"
+                    ),
                     "output_format": "png",
                     "aspect_ratio": "16:9"
                 }

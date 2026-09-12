@@ -26,7 +26,9 @@ from app.services.ai_service import AIService
 from app.services.business_types import detect_business_type
 
 
-NO_TEXT_SUFFIX = "no text, no signage, no words, no lettering anywhere in the image"
+# Read from the service rather than re-typed here: a copy of this string
+# in the test file silently stops testing the real one the day it changes.
+NO_TEXT_SUFFIX = AIService._NO_TEXT_SUFFIX
 
 RETAIL_PLACEHOLDERS = (
     "Produk Pilihan", "Koleksi Terbaru", "Tawaran Istimewa",

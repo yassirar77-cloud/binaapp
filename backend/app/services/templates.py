@@ -18,7 +18,7 @@ from app.services.business_types import (
 )
 from app.services.menu_validator import log_menu_flow
 from app.services.widget_catalogue import WIDGETS, WidgetSpec
-from app.utils.html_inject import insert_before_body
+from app.utils.html_inject import insert_before_body, insert_before_footer
 
 
 # ─── Widget theme (delivery/ordering UI) ────────────────────────────────────
@@ -41,6 +41,57 @@ _WIDGET_THEME_SUBSTITUTIONS = [
     ("#f97316", "var(--binaapp-primary)"),
     ("#ea580c", "var(--binaapp-primary-dark)"),
 ]
+
+
+#: Address fragments that stay upper-case in Malaysian addresses. "NO." and
+#: "JALAN" become "No." / "Jalan", but a postcode, a state abbreviation or a
+#: block code like "L7/L is not a word to title-case.
+_ADDRESS_KEEP_UPPER = frozenset({
+    "KL", "PJ", "JB", "MY", "WP", "KLCC", "USJ", "TTDI", "PPR", "KM",
+})
+
+
+def normalize_display_address(address: str) -> str:
+    """Merchant-typed address -> something fit for a heading.
+
+    Merchants type addresses however the form lets them, and the reported
+    page put one straight into an <h2>:
+
+        "NO.41 JALAN KRISTAL L7/L, 40000, shah alam"
+
+    Shouted street name, lower-case town, in the same line. This title-cases
+    the words while leaving alone the tokens that are not words: postcodes,
+    unit/block codes (L7/L, 2A), and the handful of Malaysian abbreviations
+    that are genuinely upper-case.
+    """
+    text = re.sub(r"\s+", " ", str(address or "")).strip()
+    if not text:
+        return ""
+
+    def _word(token: str) -> str:
+        bare = token.strip(".,")
+        if not bare:
+            return token
+        if bare.upper() in _ADDRESS_KEEP_UPPER:
+            return token.upper()
+        # Anything carrying a digit is a code, not a word: 40000, L7/L, 2A.
+        if any(ch.isdigit() for ch in bare):
+            return token.upper() if bare.isupper() else token
+        # Mixed-case the merchant chose deliberately ("McDonald") survives.
+        if not (token.isupper() or token.islower()):
+            return token
+        return token.capitalize()
+
+    # "NO.41" -> "No.41": split on the dot so the prefix title-cases but the
+    # number stays put.
+    parts = []
+    for token in text.split(" "):
+        if "." in token and not token.startswith("."):
+            head, _, tail = token.partition(".")
+            parts.append(f"{_word(head)}.{tail}")
+        else:
+            parts.append(_word(token))
+    return " ".join(parts)
 
 
 def _normalize_hex(color: str) -> Optional[str]:
@@ -458,14 +509,22 @@ class TemplateService:
         """
         address_encoded = address.replace(' ', '+')
         tokens = theme_tokens or {}
-        heading_color = tokens.get("primary", "#1f2937")
+        # var() first, literal token second: the block then follows the page
+        # even after a theme repaint, and still renders if the page declares
+        # no variables at all. The previous version hardcoded #1f2937 on
+        # #f9fafb, so the map arrived as a light strip pasted onto whatever
+        # the site's palette happened to be.
+        heading_color = f"var(--primary-color, {tokens.get('primary', 'currentColor')})"
+        heading_font = "var(--font-heading, inherit)"
+        display_address = normalize_display_address(address)
 
         # Inner contents (no outer <section> — caller decides container)
         maps_inner = f"""
   <div style="max-width:1200px;margin:0 auto;padding:60px 20px;">
-    <h2 style="text-align:center;font-size:2.5rem;margin-bottom:1rem;color:{heading_color};">📍 {address}</h2>
-    <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.1);">
+    <h2 style="text-align:center;font-size:clamp(1.75rem,4vw,2.5rem);margin-bottom:1rem;color:{heading_color};font-family:{heading_font};">📍 {display_address}</h2>
+    <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.15);">
       <iframe
+        title="Peta lokasi {display_address}"
         src="https://www.google.com/maps?q={address_encoded}&output=embed"
         width="100%"
         height="100%"
@@ -492,16 +551,17 @@ class TemplateService:
                 logger.info(f"✅ Google Maps injected into AI-emitted slot '{slot_id}'")
                 return new_html
 
-        # Legacy/fallback: append a full section before </body>.
+        # Legacy/fallback: a real content section, placed where a content
+        # section belongs — BEFORE the footer. Appending before </body> put
+        # the map underneath the footer on every published site that had no
+        # maps slot, which is how a full-width map ended up stranded below
+        # the copyright line.
         maps_html = (
             f'\n<!-- Google Maps Section -->\n'
-            f'<section id="location" style="background:#f9fafb;">{maps_inner}</section>\n'
+            f'<section id="location" style="background:var(--surface-color, transparent);'
+            f'color:var(--text-color, inherit);">{maps_inner}</section>\n'
         )
-        if "</body>" in html:
-            html = insert_before_body(html, maps_html)
-        else:
-            html += maps_html
-        return html
+        return insert_before_footer(html, maps_html)
 
     def inject_shopping_cart(self, html: str) -> str:
         """
@@ -834,13 +894,17 @@ function handleContactSubmit(e) {{
         # is what standalone exports get, so keep it centered (Tailwind preflight
         # sets img{display:block}, so text-align on the wrapper is not enough —
         # center the <img> itself with margin:0 auto).
+        # color:inherit / transparent background so the block adopts whatever
+        # it is dropped into. The old version painted itself #f9fafb with
+        # #1f2937 text, so inside a dark footer it read as a white sticker
+        # someone had pasted over the design.
         qr_html = f"""
 <!-- QR Code Section -->
-<div style="text-align:center;padding:40px 20px;background:#f9fafb;">
-  <h3 style="font-size:1.5rem;margin-bottom:1rem;color:#1f2937;">📱 Scan to Visit</h3>
+<div style="text-align:center;padding:40px 20px;background:transparent;color:inherit;">
+  <h3 style="font-size:1.5rem;margin-bottom:1rem;color:inherit;font-family:var(--font-heading, inherit);">📱 Scan to Visit</h3>
   <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={url}"
        alt="QR Code"
-       style="margin:0 auto;display:block;border:4px solid white;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+       style="margin:0 auto;display:block;background:#fff;padding:8px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
 </div>
 """
 

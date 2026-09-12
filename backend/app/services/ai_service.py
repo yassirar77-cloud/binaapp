@@ -7436,7 +7436,8 @@ IMPORTANT RULES:
     # card-title subjects ("Produk Pilihan" etc.) came back baked into the
     # image as garbled text — hence the blanket enforcement now.
     _NO_TEXT_SUFFIX = (
-        "no text, no signage, no words, no lettering anywhere in the image"
+        "no text, no letters, no words, no lettering, no captions, "
+        "no signage, no labels, no watermark, no logo anywhere in the image"
     )
     # Legacy alias — earlier code/tests reference the hero-specific name.
     _HERO_NO_TEXT_SUFFIX = _NO_TEXT_SUFFIX
@@ -7476,6 +7477,8 @@ IMPORTANT RULES:
     # (see _COUPLE_COMPOSITION_CLAUSE). Harmless for non-couple subjects
     # (food, products, interiors) — the terms simply never apply.
     _IMAGE_NEGATIVE_PROMPT = (
+        "text, letters, words, writing, typography, caption, subtitle, "
+        "watermark, signature, logo, signage, menu board, price tag, label, "
         "blurry, bad quality, cartoon, illustration, anime, drawing, sketch, "
         "low resolution, same-sex couple, gay couple, lesbian couple, "
         "two brides, two grooms, two men as a romantic couple, "
