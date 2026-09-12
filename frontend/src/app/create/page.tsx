@@ -138,6 +138,17 @@ export default function CreatePage() {
   const [user, setUser] = useState<User | null>(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [description, setDescription] = useState('')
+  // The shop's own name. Nothing here used to collect it, so the backend
+  // built its AI request from the first word of the description and the
+  // model filled the gap with the literal word "Kedai" — in the <h1>, the
+  // <title>, og:title, the JSON-LD node and the footer at once. Generation
+  // is now blocked without a name, so this field is where it comes from.
+  const [businessName, setBusinessName] = useState('')
+  // The number every WhatsApp CTA points at. Also never collected, which is
+  // why generated sites shipped a pulsing green button wired to the
+  // pipeline's own example number, +60123456789. No number now means no
+  // button at all, so this is the only way to have one.
+  const [whatsappNumber, setWhatsappNumber] = useState('')
   const [language, setLanguage] = useState<'ms' | 'en'>('ms')
   const [loading, setLoading] = useState(false)
   const [generatedHtml, setGeneratedHtml] = useState('')
@@ -740,6 +751,15 @@ export default function CreatePage() {
   const handleGenerate = async () => {
     if (!description.trim()) return;
 
+    // The backend refuses to name a site by fallback, so stop here with a
+    // message the merchant can act on rather than letting them wait for a
+    // 400 at the end of the request.
+    if (!businessName.trim()) {
+      setError('Nama kedai wajib diisi.')
+      document.getElementById('cr-business-name')?.focus()
+      return
+    }
+
     // Hard block if already at limit (checked on page load)
     if (isAtLimit) {
       setShowLimitModal(true)
@@ -843,6 +863,8 @@ export default function CreatePage() {
         body: JSON.stringify({
           description: description,
           business_description: description,
+          business_name: businessName.trim(),
+          whatsapp_number: selectedFeatures.whatsapp ? whatsappNumber.trim() : '',
           language: language,
           user_id: user?.id || 'anonymous',
           email: user?.email,  // Pass user email for founder bypass
@@ -902,6 +924,16 @@ export default function CreatePage() {
           })
           setShowLimitModal(true)
           setLoading(false)
+          return
+        }
+
+        // The backend refuses to name a site by fallback — see
+        // services/business_identity.py. Send the merchant back to the field
+        // rather than showing a generic failure.
+        if (errorData.error === 'business_name_required') {
+          setError(errorData.message || 'Nama kedai wajib diisi.')
+          setLoading(false)
+          document.getElementById('cr-business-name')?.focus()
           return
         }
 
@@ -1225,6 +1257,7 @@ export default function CreatePage() {
           // row lands with description=null and the editor can't offer
           // "leave blank to reuse" — see PR for description-persistence-bug.
           description: description,
+          business_name: businessName.trim(),
           business_type: businessType === 'auto' ? null : businessType,
           hero_image_prompt: heroImagePrompt.trim() || undefined,
           // The clip prepared while the page generated: publish puts it on
@@ -1940,6 +1973,27 @@ export default function CreatePage() {
                     <h2 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.025em', margin: 0, color: '#F5F5FA', lineHeight: 1.1 }}>Cerita pasal kedai anda</h2>
                     <p style={{ color: '#86869A', fontSize: 14, margin: '8px 0 0', maxWidth: 540, lineHeight: 1.5 }}>Lebih detail = website lebih baik. Cakap pasal vibe, pelanggan, signature menu, sejarah — semua membantu AI.</p>
                   </div>
+                  <div className="cr-card cr-card-hairline" style={{ padding: '16px 18px', marginBottom: 12 }}>
+                    <label
+                      htmlFor="cr-business-name"
+                      style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}
+                    >
+                      Nama kedai <span style={{ color: '#FFB020' }}>*wajib</span>
+                    </label>
+                    <input
+                      id="cr-business-name"
+                      type="text"
+                      required
+                      maxLength={80}
+                      placeholder="cth: Nasi Kandar Daging Crystal"
+                      className="cr-input"
+                      value={businessName}
+                      onChange={(e) => setBusinessName(e.target.value.slice(0, 80))}
+                    />
+                    <div style={{ fontSize: 11, color: '#5A5A6E', marginTop: 6, lineHeight: 1.4 }}>
+                      Nama ini jadi tajuk website, nama dalam Google, dan nama di footer. Tanpa nama, website tak boleh dijana.
+                    </div>
+                  </div>
                   <div className="cr-card cr-card-hairline" style={{ padding: 4, position: 'relative', overflow: 'hidden' }}>
                     <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', alignItems: 'center', gap: 8, zIndex: 2 }}>
                       <span className="pill pill-indigo" style={{ padding: '4px 10px' }}>
@@ -2379,6 +2433,27 @@ export default function CreatePage() {
               </div>
             </section>
 
+            {/* WhatsApp expand */}
+            {selectedFeatures.whatsapp && (
+              <div className="cr-sub-card float-in">
+                <div style={{ fontSize: 14, fontWeight: 500, color: '#F5F5FA', marginBottom: 10 }}>💬 WhatsApp</div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Nombor WhatsApp</label>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    placeholder="cth: 012-345 6789"
+                    className="cr-input"
+                    value={whatsappNumber}
+                    onChange={(e) => setWhatsappNumber(e.target.value)}
+                  />
+                  <div style={{ fontSize: 11, color: '#5A5A6E', marginTop: 6, lineHeight: 1.4 }}>
+                    Tanpa nombor, butang WhatsApp tidak akan dipaparkan langsung — lebih baik tiada butang daripada butang yang pergi ke nombor orang lain.
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Google Map expand */}
             {selectedFeatures.googleMap && (
               <div className="cr-sub-card float-in">
@@ -2559,11 +2634,15 @@ export default function CreatePage() {
               </div>
               <div style={{ flex: '1 1 200px', minWidth: 0 }}>
                 <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.015em', color: '#F5F5FA' }}>Ready to bina?</div>
-                <div style={{ fontSize: 13, color: '#86869A', marginTop: 2 }}>AI dah ada cukup info — tekan untuk generate.</div>
+                <div style={{ fontSize: 13, color: '#86869A', marginTop: 2 }}>
+                  {!businessName.trim()
+                    ? 'Isi nama kedai dulu — website tak boleh dijana tanpa nama.'
+                    : 'AI dah ada cukup info — tekan untuk generate.'}
+                </div>
               </div>
               <button
                 onClick={handleGenerate}
-                disabled={loading || description.length < 10 || isAtLimit}
+                disabled={loading || description.length < 10 || !businessName.trim() || isAtLimit}
                 className="cr-gen-btn cr-pulse-glow"
                 style={{ width: 'auto', height: 48, padding: '0 20px', fontSize: 15, marginTop: 0, flexShrink: 0 }}
               >
@@ -2744,7 +2823,7 @@ export default function CreatePage() {
                     type="button"
                     className={'cr-gen-btn ' + (completeness > 50 && !loading ? 'cr-pulse-glow' : '')}
                     onClick={handleGenerate}
-                    disabled={loading || description.length < 10 || isAtLimit}
+                    disabled={loading || description.length < 10 || !businessName.trim() || isAtLimit}
                     style={{ height: 60, fontSize: 16, padding: 0, borderRadius: 16, marginTop: 0 }}
                   >
                     {loading ? (

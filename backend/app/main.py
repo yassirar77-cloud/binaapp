@@ -2105,8 +2105,14 @@ async def run_generation_task(
                 html_before = len(html)
                 # Remove WhatsApp links/buttons
                 html = re.sub(r'<a[^>]*(?:wa\.me|whatsapp)[^>]*>.*?</a>', '', html, flags=re.IGNORECASE | re.DOTALL)
-                html = re.sub(r'href="https?://wa\.me[^"]*"', 'href="#"', html, flags=re.IGNORECASE)
-                html = re.sub(r'href="https?://(?:api\.)?whatsapp\.com[^"]*"', 'href="#"', html, flags=re.IGNORECASE)
+                # Any straggler loses the whole anchor, not just its href.
+                # Rewriting these to href="#" is how the page ended up with
+                # buttons that look live and go nowhere — the defect this
+                # branch is supposed to be preventing.
+                html = re.sub(
+                    r'<a\b[^>]*href="https?://(?:wa\.me|(?:api\.)?whatsapp\.com)[^"]*"[^>]*>.*?</a>',
+                    '', html, flags=re.IGNORECASE | re.DOTALL,
+                )
                 # Remove common floating button wrappers
                 html = re.sub(r'<div[^>]*class="[^"]*(?:whatsapp|wa-float)[^"]*"[^>]*>.*?</div>', '', html, flags=re.IGNORECASE | re.DOTALL)
                 logger.info(f"🚫 WhatsApp disabled: removed {max(0, html_before - len(html))} bytes")
