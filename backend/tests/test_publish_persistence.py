@@ -25,9 +25,12 @@ import pytest
 # Helpers
 # ----------------------------------------------------------------------
 
+# A meta description is part of the publish gate (an empty one leaves the
+# WhatsApp share preview blank), so the fixture carries one.
 VALID_BALANCED_HTML = (
-    "<!DOCTYPE html><html><head><title>Test</title></head>"
-    "<body><h1>Hello</h1></body></html>"
+    "<!DOCTYPE html><html><head><title>Test</title>"
+    '<meta name="description" content="Test page.">'
+    "</head><body><h1>Hello</h1></body></html>"
 )
 
 
@@ -354,7 +357,9 @@ class TestApiPublishPersistsDescription:
         job.poster_url = job.image_url
 
         hero_html = (
-            "<!DOCTYPE html><html><head><title>Ikan</title></head><body>"
+            "<!DOCTYPE html><html><head><title>Ikan</title>"
+            '<meta name="description" content="Ikan bakar.">'
+            "</head><body>"
             '<section id="home"><img src="https://res.cloudinary.com/demo/image/upload/v1/whale.jpg">'
             "<h1>Ikan</h1></section></body></html>"
         )

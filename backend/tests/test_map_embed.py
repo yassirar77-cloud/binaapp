@@ -14,8 +14,12 @@ from app.services.map_embed import (
 )
 
 ADDRESS = "No 12-1, Jalan Bunga Raya 13/2, Seksyen 13, 40100 Shah Alam, Selangor"
+# <title> and meta description are part of the publish gate, so the page the
+# publish tests post carries both.
 PAGE = (
-    '<html><body><section><iframe allowfullscreen="" class="w-full h-[400px]" loading="lazy" '
+    '<html><head><title>Kedai Bunga Raya</title>'
+    '<meta name="description" content="Kedai di Seksyen 13, Shah Alam.">'
+    '</head><body><section><iframe allowfullscreen="" class="w-full h-[400px]" loading="lazy" '
     'src="https://www.google.com/maps?q=No+12-1,+Jalan+Bunga+Raya+13/2,+Seksyen+13,+40100+Shah+Alam,+Selangor&amp;output=embed" '
     'title="Peta"></iframe></section></body></html>'
 )

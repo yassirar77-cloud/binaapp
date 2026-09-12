@@ -26,6 +26,7 @@ from app.services.ai_service import AIService
 from app.models.schemas import WebsiteGenerationRequest, Language
 from app.services.business_types import normalize_business_type
 from app.services.menu_validator import is_valid_menu_item_name
+from app.services.generation_validator import business_name_placeholder
 from app.api.upload import router as upload_router
 from app.api.v1.endpoints.menu_delivery import router as menu_delivery_router
 from app.api.v1.endpoints.health import router as health_router
@@ -1898,6 +1899,7 @@ async def run_generation_task(
     hero_image_prompt: Optional[str] = None,
     menu_items: Optional[list] = None,
     show_prices: bool = True,
+    testimonials: Optional[list] = None,
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -1954,9 +1956,28 @@ async def run_generation_task(
         if lang not in ["ms", "en"]:
             lang = "ms"
 
+        # BUSINESS NAME — supplied, or an obviously-unfilled placeholder.
+        #
+        # This used to be `description.split()[0]`, so a brief beginning
+        # "Kedai makan di Shah Alam…" branded the whole site — header, footer,
+        # copyright and <title> — as "Kedai". That is not a name the merchant
+        # chose; it is a generic shop word that LOOKS like one, which is the
+        # worst of both worlds: plausible enough to survive review, wrong
+        # everywhere it appears. We never guess a name now. With none supplied
+        # the page carries a placeholder in its own language and
+        # generation_validator's `business_name_placeholder` check blocks
+        # publish until the merchant fills it in.
+        supplied_name = (business_name or "").strip()
+        if not supplied_name:
+            supplied_name = business_name_placeholder(lang)
+            logger.warning(
+                "⚠️ No business_name supplied — using the unfilled placeholder "
+                f"'{supplied_name}'. Publish stays BLOCKED until it is set."
+            )
+
         ai_request = WebsiteGenerationRequest(
             description=description,
-            business_name=description.split()[0] if description else "Business",  # Simple extraction
+            business_name=supplied_name,
             # The merchant's EXPLICIT pick from the create-page picker, already
             # canonicalised at the endpoint. None means they chose "auto", and
             # only then may the description classifier decide the vertical.
@@ -1986,6 +2007,9 @@ async def run_generation_task(
             hero_image_prompt=hero_image_prompt,
             menu_items=menu_items or [],
             show_prices=show_prices,
+            # REAL reviews only. Empty means the generator must render an
+            # empty state with an 'add your reviews' CTA, never invent one.
+            testimonials=testimonials or [],
         )
 
         # Create progress callback to update Supabase during generation
@@ -2088,7 +2112,10 @@ async def run_generation_task(
         # primary key of the persisted draft `websites` row, so the delivery/
         # chat widget validation resolves against a real row.
         generated_website_id = str(uuid.uuid4())
-        actual_business_name = business_name or "Business"
+        # Same rule as the generation request above: never invent a name. The
+        # placeholder travels into the widgets and the draft row so every
+        # surface shows the merchant the same unfilled field.
+        actual_business_name = supplied_name
         logger.info(f"✅ Generated website_id for background job: {generated_website_id}")
 
         # Inject all selected integrations (delivery, WhatsApp, maps, contact, chat widget).
@@ -2209,23 +2236,6 @@ async def run_generation_task(
                     "is_active": True
                 }]
                 logger.info(f"📍 Created delivery zone: {zone_name} - RM{fee_val:.2f}")
-
-            # FIXED: Use provided business_name, or extract intelligently from description
-            # Don't just use first word - extract meaningful business name
-            if business_name:
-                actual_business_name = business_name
-            elif description:
-                # Try to extract meaningful name from description (first 3-4 words that look like a name)
-                words = description.split()
-                # Take first 3 words if they form a reasonable business name
-                if len(words) >= 3:
-                    actual_business_name = " ".join(words[:3])
-                elif len(words) >= 1:
-                    actual_business_name = words[0]
-                else:
-                    actual_business_name = "Business"
-            else:
-                actual_business_name = "Business"
 
             # Get phone number from delivery config if available
             phone_number = "+60123456789"
@@ -2554,7 +2564,40 @@ async def start_generation(request: Request):
             items.append(item)
         return items
 
+    # Reviews the merchant actually collected. A review needs a name AND text
+    # to count — an unattributed quote is the shape of the fabricated
+    # testimonials this pipeline used to generate, so it is dropped rather
+    # than rendered anonymously.
+    def _coerce_testimonials(raw) -> list:
+        reviews = []
+        for entry in (raw or []):
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or entry.get("author") or "").strip()
+            text = str(
+                entry.get("text") or entry.get("review") or entry.get("quote") or ""
+            ).strip()
+            if not name or not text:
+                continue
+            review = {"name": name[:80], "text": text[:600]}
+            try:
+                rating = int(float(entry.get("rating")))
+            except (TypeError, ValueError):
+                rating = 0
+            if 1 <= rating <= 5:
+                review["rating"] = rating
+            role = str(entry.get("role") or "").strip()
+            if role:
+                review["role"] = role[:80]
+            reviews.append(review)
+        return reviews
+
     supplied_menu_items = _coerce_menu_items(body.get("menu_items"))
+    # Real merchant reviews, when the client collected any. Anything the
+    # client did not send stays empty — the generator may not fill the gap.
+    supplied_testimonials = _coerce_testimonials(
+        body.get("testimonials") or body.get("reviews")
+    )
     _items_source = "menu_items"
     if not supplied_menu_items:
         supplied_menu_items = _coerce_menu_items(
@@ -2870,6 +2913,7 @@ MANDATORY REQUIREMENTS:
         hero_image_prompt=hero_image_prompt,
         menu_items=supplied_menu_items,
         show_prices=show_prices,
+        testimonials=supplied_testimonials,
     ))
 
     logger.info(f"🚀 Job started: {job_id}")
@@ -3424,6 +3468,78 @@ async def publish_website(
                     "message": "Laman web ini ada masalah struktur HTML dan tidak boleh diterbitkan. Sila jana semula laman web anda.",
                     "message_en": "This website has invalid HTML structure and cannot be published. Please regenerate the website.",
                 }
+            )
+
+    # CONTENT-INTEGRITY GATE. The structural gate above only asks whether the
+    # markup parses; it has nothing to say about a page whose title is empty,
+    # whose body reads "Kedai \u2014 Roti", or which still carries
+    # {{business_name}}. This is the gate that catches those, and it fails
+    # CLOSED — the sibling handler in app/api/simple/publish.py has run it for
+    # a while, but that module is not mounted, so until now nothing checked
+    # the HTML that actually goes live.
+    #
+    # Only PUBLISH_ENFORCED_CODES block: those are the findings that need no
+    # merchant ground truth, which is all we have here (a project name and a
+    # description). Everything else is logged. Same ?force=true override as
+    # the structural gate, plus GENERATION_VALIDATOR_ENFORCE=0 as an ops
+    # kill-switch for a false positive without a redeploy.
+    from app.services.generation_validator import (
+        PUBLISH_ENFORCED_CODES,
+        GenerationBrief,
+        blocking_errors,
+        validate_generated_site,
+    )
+
+    _enforce = (os.getenv("GENERATION_VALIDATOR_ENFORCE", "1").strip().lower()
+                not in ("0", "false", "no", "off"))
+    _content_result = validate_generated_site(
+        html_content,
+        GenerationBrief(
+            business_name=project_name or "",
+            description=str(body.get("description") or ""),
+            language="ms",
+        ),
+    )
+    for _w in _content_result.warnings:
+        logger.info(f"   ⚠ publish validation warning: {_w}")
+    _blocking = blocking_errors(_content_result, PUBLISH_ENFORCED_CODES)
+    for _e in _content_result.errors:
+        if _e not in _blocking:
+            logger.info(f"   ⚠ publish validation (non-blocking): {_e}")
+    if _blocking:
+        _codes = [e.code for e in _blocking]
+        if force or not _enforce:
+            logger.warning(
+                f"⚠️ PUBLISH VALIDATION OVERRIDE subdomain={subdomain} "
+                f"user_id={user_id} errors={_codes} "
+                f"(force={force}, enforce={_enforce}) — proceeding anyway"
+            )
+        else:
+            logger.error(
+                f"🛑 PUBLISH BLOCKED (content integrity) subdomain={subdomain} "
+                f"user_id={user_id} errors={_codes}"
+            )
+            # Every issue carries the offending snippet in its detail, so the
+            # caller sees WHAT is wrong and where, not just that something is.
+            for _e in _blocking:
+                logger.error(f"   ✗ {_e}")
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "success": False,
+                    "error": "content_validation_failed",
+                    "message": (
+                        "Laman web ini ada maklumat yang belum lengkap atau tidak "
+                        "sepadan dengan maklumat perniagaan anda dan tidak boleh "
+                        "diterbitkan. Sila semak dan jana semula."
+                    ),
+                    "message_en": (
+                        "This website contains incomplete content or content that "
+                        "does not match your business information and cannot be "
+                        "published. Please review and regenerate."
+                    ),
+                    "issues": [str(e) for e in _blocking],
+                },
             )
 
     try:

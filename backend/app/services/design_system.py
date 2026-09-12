@@ -1081,7 +1081,7 @@ LAYOUT_TEMPLATES = {
 2. ABOUT: Split section - image on left (rounded-2xl), story text on right with decorative accent
 3. FEATURED: Full-width spotlight of a signature dish/item with large image and description
 4. MENU/GALLERY: 3-column grid of menu items with hover card lift effect, staggered animations
-5. TESTIMONIALS: Customer reviews section with quote marks and star ratings
+5. TESTIMONIALS: Only if REAL reviews were supplied. With none supplied, render an empty state (heading + one neutral line + 'add your reviews' CTA) or omit the section. NEVER write a customer quote, name, or star rating yourself
 6. CONTACT: Contact info with WhatsApp CTA, operating hours
 7. FOOTER: Business name, quick links, social icons""",
 
@@ -1090,7 +1090,7 @@ LAYOUT_TEMPLATES = {
 2. ABOUT: Split section - text left describing the cafe vibe, atmospheric image right
 3. MENU: Featured drinks/items in an asymmetric grid layout with prices
 4. GALLERY: 3-column masonry-style image grid showing ambiance
-5. TESTIMONIALS: Customer quotes with minimal styling
+5. TESTIMONIALS: Only if REAL reviews were supplied, styled minimally. With none supplied, render an empty state with an 'add your reviews' CTA or omit the section. NEVER invent a quote or a reviewer
 6. CONTACT: Location, hours, WiFi availability, social links
 7. FOOTER: Minimal footer with essential info""",
 
@@ -1109,7 +1109,7 @@ LAYOUT_TEMPLATES = {
 2. CATEGORIES: Large category cards with overlapping elements and subtle shadows
 3. PRODUCTS: Asymmetric product grid with hover zoom effect on images
 4. BRAND STORY: Full-width section with large background, brand narrative text overlay
-5. REVIEWS: Customer testimonials with product photos
+5. REVIEWS: Only if REAL reviews were supplied, alongside product photos. With none supplied, render an empty state with an 'add your reviews' CTA or omit the section. NEVER invent a review or a reviewer
 6. ORDER CTA: WhatsApp order banner with call-to-action
 7. FOOTER: Footer with quick links and social media""",
 
@@ -1119,7 +1119,7 @@ LAYOUT_TEMPLATES = {
 3. PRODUCTS: Grid of baked goods with warm-toned cards, prices, and order buttons
 4. ABOUT: Story section about the bakery's passion, with parallax-feel image
 5. CUSTOM ORDERS: Section for custom cake/order info with WhatsApp CTA
-6. REVIEWS: Customer testimonials
+6. REVIEWS: Only if REAL reviews were supplied. With none supplied, render an empty state with an 'add your reviews' CTA or omit the section. NEVER invent a review or a reviewer
 7. CONTACT: Location, hours, order info
 8. FOOTER: Warm footer with essential info""",
 
@@ -1128,7 +1128,7 @@ LAYOUT_TEMPLATES = {
 2. STATS BAR: Horizontal bar with key numbers (years experience, customers served, projects completed)
 3. SERVICES: Alternating left-right sections for each service with icon and description
 4. PROCESS: Step-by-step "How It Works" section (3-4 steps with numbered circles)
-5. TESTIMONIALS: Client testimonials with company/name
+5. TESTIMONIALS: Only if REAL client testimonials were supplied (with their company/name). With none supplied, render an empty state with an 'add your reviews' CTA or omit the section. NEVER invent a client, a company, or a quote
 6. FAQ: Accordion-style frequently asked questions
 7. CONTACT: Contact form layout + WhatsApp CTA + location
 8. FOOTER: Professional footer with links""",
@@ -1149,7 +1149,7 @@ LAYOUT_TEMPLATES = {
 2. SERVICES: Medical/health service cards with clean icons
 3. ABOUT: Doctor/team credentials and clinic story
 4. PROCESS: How to book / patient journey steps
-5. TESTIMONIALS: Patient reviews
+5. TESTIMONIALS: Only if REAL patient reviews were supplied. With none supplied, render an empty state with an 'add your reviews' CTA or omit the section. Inventing a patient or a quote is never acceptable
 6. FAQ: Common questions accordion
 7. CONTACT: Appointment booking CTA, location, hours
 8. FOOTER: Professional footer""",
@@ -1159,7 +1159,7 @@ LAYOUT_TEMPLATES = {
 2. ABOUT: Brief business introduction with image
 3. PRODUCTS/SERVICES: Grid of offerings with cards
 4. FEATURES: Key selling points or unique value propositions
-5. TESTIMONIALS: Customer reviews
+5. TESTIMONIALS: Only if REAL reviews were supplied. With none supplied, render an empty state with an 'add your reviews' CTA or omit the section. NEVER invent a review or a reviewer
 6. CONTACT: Contact info with WhatsApp CTA
 7. FOOTER: Footer with links and info""",
 }

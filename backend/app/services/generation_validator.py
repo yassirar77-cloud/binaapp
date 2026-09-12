@@ -36,6 +36,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
+from app.services.reviews_policy import normalize_supplied_reviews
+from app.utils.text_escapes import find_escape_leaks
+
 # ---------------------------------------------------------------------------
 # Phone helpers — shared with ai_service so the "what is a fake number"
 # definition lives in exactly one place.
@@ -102,6 +105,36 @@ BUSINESS_NAME_TYPE_WORDS = frozenset({
     "and", "dan", "&",
 })
 
+#: The marker shipped when a merchant never supplied a business name.
+#:
+#: A missing name used to be filled with the first word of the description,
+#: which for "Kedai makan di Shah Alam…" produced the brand "Kedai" across the
+#: header, footer, copyright and <title> — a plausible-looking fake the
+#: merchant never chose and might not notice. A placeholder that is obviously
+#: unfilled in the page's own language is the honest substitute, and
+#: `business_name_placeholder` below turns it into a publish blocker so it can
+#: never go live.
+BUSINESS_NAME_PLACEHOLDERS: Dict[str, str] = {
+    "ms": "NAMA PERNIAGAAN ANDA",
+    "en": "YOUR BUSINESS NAME",
+}
+
+
+def business_name_placeholder(language: Optional[str] = "ms") -> str:
+    """The unfilled-business-name marker for `language` (default Malay)."""
+    return BUSINESS_NAME_PLACEHOLDERS.get(
+        (language or "ms").lower(), BUSINESS_NAME_PLACEHOLDERS["ms"]
+    )
+
+
+def is_business_name_placeholder(name: Optional[str]) -> bool:
+    """True when `name` is an unfilled placeholder rather than a real name."""
+    candidate = _norm(name)
+    return bool(candidate) and any(
+        candidate == _norm(marker) for marker in BUSINESS_NAME_PLACEHOLDERS.values()
+    )
+
+
 #: Bare section labels from a source brief (A0, B12) — never a product name.
 _SECTION_LABEL_RE = re.compile(r"\b[a-z]\d{1,2}\b", re.IGNORECASE)
 
@@ -143,6 +176,9 @@ class GenerationBrief:
     location_address: Optional[str] = None
     operating_hours: Optional[str] = None
     menu_items: List[Dict[str, str]] = field(default_factory=list)
+    #: Reviews the MERCHANT supplied. Empty means the page may not show a
+    #: review at all — see _check_fabricated_reviews.
+    reviews: List[Dict[str, Any]] = field(default_factory=list)
     sanitizer_removals: List[SanitizerRemoval] = field(default_factory=list)
     #: Which model produced the HTML — logged with the result so the fallback
     #: ordering can be tuned on real data rather than intuition.
@@ -446,27 +482,65 @@ def _check_empty_containers(html: str, brief: GenerationBrief) -> List[Validatio
     return issues
 
 
-def _check_metadata(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
-    """6. Metadata — WARNING. Malaysian SMEs share via WhatsApp; without OG
-    tags the link previews as a bare URL."""
+_TITLE_RE = re.compile(r"<title\b[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+_META_TAG_RE = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
+_ATTR_RE = re.compile(r"""([a-zA-Z_:][-\w:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))""")
+
+
+def meta_content(html: str, name: str) -> Optional[str]:
+    """The `content` of the first <meta name="..."> tag, or None.
+
+    Attribute-order agnostic on purpose: the publish path runs the HTML
+    through html5lib first, which re-emits `<meta content="…" name="…">`, and
+    an order-sensitive regex reported a description that was plainly there as
+    missing.
+    """
+    target = name.lower()
+    for tag in _META_TAG_RE.finditer(html or ""):
+        attrs = {
+            m.group(1).lower(): (m.group(2) or m.group(3) or m.group(4) or "")
+            for m in _ATTR_RE.finditer(tag.group())
+        }
+        if attrs.get("name", "").strip().lower() == target:
+            return attrs.get("content", "")
+    return None
+
+
+def _check_required_metadata(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """6a. Title and meta description must EXIST and be non-empty — ERROR.
+
+    These were warnings, which is how a site shipped with an empty <title>:
+    the tab reads as the bare URL and the WhatsApp share preview has no name.
+    Neither needs merchant data to be certain — the page either has them or it
+    does not — so both also block at publish.
+    """
     issues: List[ValidationIssue] = []
     head = html or ""
 
-    title = re.search(r"<title\b[^>]*>(.*?)</title>", head, re.IGNORECASE | re.DOTALL)
+    title = _TITLE_RE.search(head)
     if not title or not title.group(1).strip():
         issues.append(ValidationIssue("missing_title", "Page has no <title>", ""))
 
-    desc = re.search(
-        r"<meta\b[^>]*name=[\"']description[\"'][^>]*content=[\"']([^\"']*)[\"']",
-        head, re.IGNORECASE,
-    )
-    if not desc or not desc.group(1).strip():
-        issues.append(ValidationIssue("missing_meta_description", "No meta description", ""))
-    elif len(desc.group(1).strip()) > 160:
+    desc = meta_content(head, "description")
+    if not (desc or "").strip():
+        issues.append(ValidationIssue(
+            "missing_meta_description", "No meta description", ""
+        ))
+    return issues
+
+
+def _check_metadata(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """6b. Discoverability metadata — WARNING. Malaysian SMEs share via
+    WhatsApp; without OG tags the link previews as a bare URL."""
+    issues: List[ValidationIssue] = []
+    head = html or ""
+
+    desc = (meta_content(head, "description") or "").strip()
+    if len(desc) > 160:
         issues.append(ValidationIssue(
             "long_meta_description",
             "Meta description exceeds 160 characters",
-            f"{len(desc.group(1).strip())} chars",
+            f"{len(desc)} chars",
         ))
 
     for prop in ("og:title", "og:description", "og:image", "og:url"):
@@ -599,12 +673,165 @@ def _check_sanitizer_trace(html: str, brief: GenerationBrief) -> List[Validation
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _check_escape_leaks(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """10. No backslash character escapes in the rendered page — ERROR.
+
+    A site shipped with 17 literal `\\u2014` and `\\U0001f4f1` sequences in its
+    visible text, including the <title> and the meta description. Contents of
+    <script>/<style> are exempt: an escape there is legitimate source code.
+    """
+    leaks = find_escape_leaks(html or "")
+    return [
+        ValidationIssue(
+            "unicode_escape_leak",
+            "Backslash escape sequence rendered as visible text",
+            snippet,
+        )
+        for snippet in leaks
+    ]
+
+
+#: Template tokens that must never survive into a rendered page. `{{name}}`
+#: (the deterministic renderer), `[BUSINESS_NAME]` and `HERO_IMAGE_URL` (the
+#: LLM prompt skeletons), `${...}` (a JS template literal that never ran).
+_PLACEHOLDER_TOKEN_RES = (
+    re.compile(r"\{\{\s*[a-z0-9_.\-]+\s*\}\}", re.IGNORECASE),
+    re.compile(r"\[[A-Z][A-Z0-9_]{3,}\]"),
+    re.compile(r"\b(?:HERO|GALLERY|PHOTO)_(?:IMAGE_URL|SLOT_\d+)\b"),
+    re.compile(r"\b[A-Z][A-Z0-9_]*_(?:PLACEHOLDER|ALT_TEXT|URL)\b"),
+    re.compile(r"\$\{\s*[a-z0-9_.\-]+\s*\}", re.IGNORECASE),
+    re.compile(r"\blorem ipsum\b", re.IGNORECASE),
+)
+
+#: Developer-facing captions that describe a feature instead of providing it.
+#: The contact section shipped a dead grey box reading "Peta lokasi akan
+#: dipaparkan di sini" — a note to the implementer rendered to the customer.
+_DEAD_PLACEHOLDER_TEXT_RES = (
+    re.compile(r"akan dipaparkan di sini", re.IGNORECASE),
+    re.compile(r"akan (?:datang|ditambah) (?:di sini|kemudian)", re.IGNORECASE),
+    re.compile(r"will be (?:displayed|shown|added) here", re.IGNORECASE),
+    re.compile(r"\bmap (?:placeholder|goes here)\b", re.IGNORECASE),
+    re.compile(r"\b(?:image|content|text) goes here\b", re.IGNORECASE),
+)
+# NOTE: "coming soon" / "akan datang" on their own are deliberately NOT here.
+# Real merchants write them about real things ("menu baru akan datang"), and
+# this list blocks a publish — every entry has to be a caption only a
+# developer would write.
+
+
+def _check_unresolved_placeholders(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """11. No unresolved template tokens or dead placeholder copy — ERROR.
+
+    Both failure modes reach the customer as visible text, and neither needs
+    merchant data to recognise, so both block at publish too.
+    """
+    issues: List[ValidationIssue] = []
+    markup = _strip_scripts(html or "")
+    text = visible_text(html or "")
+
+    for pattern in _PLACEHOLDER_TOKEN_RES:
+        match = pattern.search(markup)
+        if match:
+            issues.append(ValidationIssue(
+                "unresolved_placeholder",
+                "Unresolved template placeholder in page",
+                match.group()[:80],
+            ))
+
+    for pattern in _DEAD_PLACEHOLDER_TEXT_RES:
+        match = pattern.search(text)
+        if match:
+            lo = max(0, match.start() - 40)
+            issues.append(ValidationIssue(
+                "dead_placeholder_text",
+                "Placeholder caption rendered instead of real content",
+                text[lo:match.end() + 40].strip()[:120],
+            ))
+    return issues
+
+
+def _check_business_name_placeholder(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """12. The unfilled-business-name marker must not be published — ERROR.
+
+    Deliberately a blocker rather than a silent substitution: a merchant who
+    never gave us a name gets an obviously-unfilled page they must complete,
+    not a page branded with a generic word we picked for them.
+    """
+    if not any(
+        _norm(marker) in _norm(visible_text(html or ""))
+        for marker in BUSINESS_NAME_PLACEHOLDERS.values()
+    ):
+        return []
+    return [ValidationIssue(
+        "business_name_placeholder",
+        "Business name was never supplied — the page still shows the placeholder",
+        "Set the business name before publishing",
+    )]
+
+
+#: Section wrappers that hold customer reviews, by id/class.
+_REVIEW_SECTION_RE = re.compile(
+    r"<(section|div)\b[^>]*(?:id|class)=[\"'][^\"']*"
+    r"(?:testimoni|testimonial|review|ulasan|kata-pelanggan)"
+    r"[^\"']*[\"'][^>]*>(.*?)</\1\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+#: A quoted sentence long enough to be a review rather than a label. Matches
+#: the three ways the generators render one: HTML entities (&ldquo;…&rdquo;),
+#: typographic quotes, and straight quotes.
+_QUOTED_ATTRIBUTION_RE = re.compile(
+    r"&ldquo;[^<]{25,}?&rdquo;"
+    r"|&quot;[^<]{25,}?&quot;"
+    r"|[\u201c\u2018][^<\u201d\u2019]{25,}?[\u201d\u2019]"
+    r"|\"[^<\"]{25,}?\"",
+    re.DOTALL,
+)
+
+
+def _check_fabricated_reviews(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """13. No invented customer reviews — ERROR (generation time only).
+
+    The generator was writing three named customers with quotes onto every
+    site, for merchants who supplied none. A fabricated endorsement on a real
+    business's page is a trust problem and, published as-is, a potential legal
+    one — so with no supplied reviews, a review-shaped block is a defect.
+
+    NOT enforced at publish: there the brief is unknown, and a merchant who
+    has since pasted in their real reviews must not be blocked by them.
+    """
+    if brief.reviews:
+        return []
+
+    issues: List[ValidationIssue] = []
+    for match in _REVIEW_SECTION_RE.finditer(_strip_scripts(html or "")):
+        body = match.group(2)
+        # The quote search runs on the RENDERED TEXT, never the markup: a
+        # long class list or href inside a quoted attribute is not a customer
+        # saying something. Star markup is a class, so that one reads the tags.
+        quote = _QUOTED_ATTRIBUTION_RE.search(visible_text(body))
+        has_stars = bool(re.search(r"fa-star|★|&#9733;", body, re.IGNORECASE))
+        if quote or has_stars:
+            issues.append(ValidationIssue(
+                "fabricated_testimonial",
+                "Testimonial section contains reviews the merchant never supplied",
+                re.sub(r"\s+", " ", visible_text(body))[:160],
+            ))
+            break
+    return issues
+
+
 _ERROR_CHECKS = (
     _check_placeholder_contacts,
     _check_derived_item_names,
     _check_price_integrity,
     _check_required_fields,
     _check_sanitizer_trace,
+    _check_escape_leaks,
+    _check_required_metadata,
+    _check_unresolved_placeholders,
+    _check_business_name_placeholder,
+    _check_fabricated_reviews,
 )
 _WARNING_CHECKS = (
     _check_empty_containers,
@@ -663,6 +890,16 @@ PUBLISH_ENFORCED_CODES = frozenset({
     "empty_whatsapp_link",
     "fabricated_item_name",
     "section_label_in_item_name",
+    # The page itself is demonstrably unfinished, whatever the brief said:
+    # a backslash escape rendered as text, a template token that never
+    # resolved, a developer caption, a missing <title>/description, or the
+    # business-name placeholder the merchant still has to fill in.
+    "unicode_escape_leak",
+    "unresolved_placeholder",
+    "dead_placeholder_text",
+    "missing_title",
+    "missing_meta_description",
+    "business_name_placeholder",
 })
 
 
@@ -740,6 +977,7 @@ def brief_from_request(
         location_address=_attr("location_address"),
         operating_hours=operating_hours,
         menu_items=items,
+        reviews=normalize_supplied_reviews(_attr("testimonials")),
         sanitizer_removals=removals,
         model=model,
     )

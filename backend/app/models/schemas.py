@@ -101,6 +101,30 @@ class MenuItemInput(BaseModel):
         return v.strip() if isinstance(v, str) else v
 
 
+class TestimonialInput(BaseModel):
+    """One REAL customer review supplied by the merchant.
+
+    Nothing else may become a review. The generator used to write three named
+    customers with quotes onto every site it built, for merchants who had
+    supplied none — a fabricated endorsement on a real business's live page.
+    With this list empty the testimonial section renders as an empty state
+    with an "add your reviews" CTA, and the pre-publish gate blocks a page
+    that shows a review anyway.
+
+    Both name and text are required: an unattributed quote is exactly the
+    shape of the invented testimonials this field exists to replace.
+    """
+    name: str = Field(..., min_length=1, max_length=80)
+    text: str = Field(..., min_length=1, max_length=600)
+    rating: Optional[int] = Field(default=None, ge=1, le=5)
+    role: Optional[str] = Field(default=None, max_length=80)
+
+    @field_validator("name", "text", "role")
+    @classmethod
+    def strip_whitespace(cls, v):
+        return v.strip() if isinstance(v, str) else v
+
+
 class WebsiteGenerationRequest(BaseModel):
     description: str = Field(
         ...,
@@ -192,6 +216,16 @@ class WebsiteGenerationRequest(BaseModel):
             "rendered verbatim and the generator may not rename, merge, "
             "round, or invent items. When absent the site renders a visible "
             "'add your items' placeholder instead of fabricated items."
+        ),
+    )
+    testimonials: Optional[List[TestimonialInput]] = Field(
+        default=[],
+        description=(
+            "REAL customer reviews supplied by the merchant. Same contract as "
+            "menu_items: present means rendered verbatim, absent means an "
+            "empty state with an 'add your reviews' CTA. The generator may "
+            "never write a review itself — a fabricated endorsement on a real "
+            "SME's page is a trust and potentially legal problem."
         ),
     )
 

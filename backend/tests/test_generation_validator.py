@@ -318,13 +318,20 @@ class TestSanitizerTrace:
 
 
 class TestWarnings:
-    def test_metadata_warnings_do_not_block(self):
-        html = '<html lang="ms"><body><h1>Kedai A</h1>' \
-               '<a href="https://wa.me/60193456781">Pesan</a></body></html>'
+    def test_discoverability_metadata_warns_but_does_not_block(self):
+        """OG tags and JSON-LD are share-quality, not correctness: their
+        absence degrades a WhatsApp link preview, it does not misinform a
+        customer. Title and meta description are NOT in this bucket — see
+        TestRequiredMetadata."""
+        html = (
+            '<html lang="ms"><head><title>Kedai A</title>'
+            '<meta name="description" content="Kedai A di Shah Alam."></head>'
+            '<body><h1>Kedai A</h1>'
+            '<a href="https://wa.me/60193456781">Pesan</a></body></html>'
+        )
         result = validate_generated_site(html, GenerationBrief(business_name="Kedai A"))
         assert result.ok
         found = codes(result.warnings)
-        assert "missing_title" in found
         assert "missing_og_tag" in found
         assert "missing_json_ld" in found
 
@@ -467,8 +474,13 @@ class TestPublishGateScoping:
         # Brief-dependent checks still fire...
         assert "missing_business_name" in codes(result.errors)
         assert "no_contact_method" in codes(result.errors)
-        # ...but none of them block a publish.
-        assert blocking_errors(result, PUBLISH_ENFORCED_CODES) == []
+        # ...but none of them block a publish. (The page has no <title> and no
+        # meta description, which DO block — those need no brief to be sure
+        # of — so scope the assertion to the brief-dependent codes.)
+        blocked = {e.code for e in blocking_errors(result, PUBLISH_ENFORCED_CODES)}
+        assert "missing_business_name" not in blocked
+        assert "no_contact_method" not in blocked
+        assert blocked == {"missing_title", "missing_meta_description"}
 
     def test_fake_number_blocks_at_publish(self):
         from app.services.generation_validator import (
@@ -476,7 +488,9 @@ class TestPublishGateScoping:
             blocking_errors,
         )
 
-        html = ('<html lang="ms"><body><h1>Bakery 01</h1>'
+        html = ('<html lang="ms"><head><title>Bakery 01</title>'
+                '<meta name="description" content="Bakery 01 di Shah Alam.">'
+                '</head><body><h1>Bakery 01</h1>'
                 '<a href="https://wa.me/60123456789">Pesan</a></body></html>')
         result = validate_generated_site(html, GenerationBrief(business_name="Bakery 01"))
         blocked = blocking_errors(result, PUBLISH_ENFORCED_CODES)

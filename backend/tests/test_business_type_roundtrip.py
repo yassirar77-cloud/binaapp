@@ -35,7 +35,9 @@ HERO_PROMPT = (
     "dark luxury hair salon interior, warm gold lighting, empty styling chair, cinematic"
 )
 VALID_HTML = (
-    "<!DOCTYPE html><html><head><title>T</title></head><body><h1>Hi</h1></body></html>"
+    "<!DOCTYPE html><html><head><title>T</title>"
+    '<meta name="description" content="T, a shop in Shah Alam.">'
+    "</head><body><h1>Hi</h1></body></html>"
 )
 
 

@@ -11,7 +11,7 @@ import base64
 import time
 import json
 import re
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, quote_plus, urlsplit
 from collections import Counter
 from contextlib import contextmanager
 from loguru import logger
@@ -45,16 +45,22 @@ from app.services.claim_sanitizer import (
     sensitive_claim_patterns,
 )
 from app.services.seo_metadata import SeoMeta, inject_seo_metadata
+from app.services.reviews_policy import (
+    empty_state_copy,
+    normalize_supplied_reviews,
+)
 from app.services.layout_guard_audit import firing_guards
 from app.services.generation_validator import (
     ValidationResult,
     brief_from_request,
+    is_business_name_placeholder,
     validate_generated_site,
 )
 from difflib import SequenceMatcher
 import cloudinary
 import cloudinary.uploader
 from app.utils.html_inject import insert_before_body
+from app.utils.text_escapes import decode_html_escapes, decode_text_escapes
 
 
 # Per-call timeout for the DeepSeek primary generation in
@@ -3775,14 +3781,21 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
                     d = {"name": raw}
                 else:
                     continue
-                name = str(d.get("name") or "").strip()
+                # Decode escapes on the WAY IN too. A brief that reaches us
+                # already carrying "Roti Canai — Special" would otherwise be
+                # copied verbatim into the prompt, and the model copies the
+                # prompt — so the leak has to be closed on both sides.
+                def _clean(value) -> str:
+                    return decode_text_escapes(str(value or "").strip())[0]
+
+                name = _clean(d.get("name"))
                 if not name:
                     continue
                 out.append({
                     "name": name,
-                    "price": str(d.get("price") or "").strip(),
-                    "description": str(d.get("description") or "").strip(),
-                    "category": str(d.get("category") or "").strip(),
+                    "price": _clean(d.get("price")),
+                    "description": _clean(d.get("description")),
+                    "category": _clean(d.get("category")),
                 })
             except Exception:
                 continue
@@ -3947,6 +3960,7 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         design_brief: Optional[str] = None,
         design_freedom: str = "guided",
         concept: Optional[DesignConcept] = None,
+        testimonials: Optional[list] = None,
     ) -> str:
         """Build the HTML generation prompt.
 
@@ -3966,6 +3980,12 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         present they are the source of truth — every item is rendered
         verbatim, names and prices unmodified. When absent, the prompt asks
         for a visible placeholder section instead of invented items.
+
+        testimonials: merchant-supplied reviews (dicts or objects with
+        name/text/rating). Same contract as menu_items and for the same
+        reason: supplied reviews are rendered verbatim, and with none
+        supplied the prompt demands an EMPTY STATE with an "add your reviews"
+        CTA. The generator must never write a customer quote itself.
         """
         biz_type = self._detect_type(desc)
         imgs = self.IMAGES.get(biz_type, self.IMAGES["default"])
@@ -4142,6 +4162,27 @@ Generate ALL content in English.
 ✅ Buttons: "Order Now", "Contact Us", "View Menu"
 Keep all text consistent in English throughout."""
 
+        # When the merchant never told us their business name we ship a
+        # clearly-marked placeholder rather than a plausible-looking invention
+        # ("Kedai"), and the pre-publish gate refuses the site until it is
+        # filled in. Say so in the prompt so the model renders the marker
+        # instead of quietly "fixing" it into something that reads real.
+        if is_business_name_placeholder(name):
+            _brand_placeholder_note = (
+                "\n- The name above is a PLACEHOLDER the merchant has not "
+                "filled in yet. Render it verbatim wherever the brand appears "
+                "(header, hero, footer, copyright, <title>). Do NOT replace it "
+                "with a guessed or generic name, and do NOT build a tagline, "
+                "story or meta description that pretends to know the name."
+            )
+        else:
+            _brand_placeholder_note = ""
+
+        # Empty-state copy for the testimonials section, in the page language.
+        # Shared with the deterministic renderer so both paths say the same
+        # thing when a merchant has no reviews yet.
+        _reviews_empty = empty_state_copy(language)
+
         # ---- WHATSAPP ----
         # No placeholder fallback. The pipeline used to default to
         # "60123456789" whenever a number was missing, which published live
@@ -4201,6 +4242,76 @@ Keep all text consistent in English throughout."""
         address_line = ""
         if location_address and str(location_address).strip():
             address_line = f"✅ Address (use EXACTLY, do not invent): {str(location_address).strip()}"
+
+        # ---- TESTIMONIALS / REVIEWS ----
+        # The generator was inventing three named customers with quotes for
+        # every site. For a real SME that is a trust problem and, published
+        # as-is, a potential legal one. Real reviews or an empty state — no
+        # third option.
+        _reviews = normalize_supplied_reviews(testimonials)
+        if _reviews:
+            _review_lines = "\n".join(
+                f"- {r['name']}"
+                + (f" ({r['rating']}★)" if r.get("rating") else "")
+                + f": {r['text']}"
+                for r in _reviews
+            )
+            reviews_block = (
+                "===== CUSTOMER REVIEWS (REAL — SUPPLIED BY THE MERCHANT) =====\n"
+                "Render EXACTLY these reviews, word for word. Do NOT add a "
+                "review, a reviewer, a star rating or a job title that is not "
+                "listed here. Do NOT paraphrase or 'improve' the wording.\n"
+                f"{_review_lines}\n"
+            )
+        else:
+            reviews_block = (
+                "===== CUSTOMER REVIEWS: NONE SUPPLIED — EMPTY STATE ONLY =====\n"
+                "🚫 The merchant supplied NO customer reviews. You MUST NOT "
+                "write one. Inventing a named customer and a quote about a "
+                "real business is a trust and legal problem, not a design "
+                "placeholder.\n"
+                "🚫 FORBIDDEN: any quote, any reviewer name or initial, any "
+                "star rating, any avatar, any review count, any 'rated 4.9 by "
+                "200 customers' line — in the testimonials section and "
+                "everywhere else on the page.\n"
+                "✅ If you include a testimonials section at all, render it as "
+                "an EMPTY STATE: the section heading, one short neutral line "
+                "saying no reviews have been added yet, and a call-to-action "
+                "button inviting the owner to add real reviews. Nothing that "
+                "looks like a review.\n"
+                f"✅ Empty-state wording to use: heading \"{_reviews_empty['heading']}\", "
+                f"body \"{_reviews_empty['body']}\", button \"{_reviews_empty['cta']}\".\n"
+                "✅ Omitting the testimonials section entirely is also "
+                "acceptable. Faking one is not.\n"
+            )
+
+        # ---- MAP ----
+        # A dead grey box captioned "the map will be shown here" is not a
+        # section, it is an unfinished one. Either a real embed keyed on the
+        # address the merchant gave us, or no map at all.
+        if address_line and include_maps:
+            _map_q = quote_plus(str(location_address).strip())
+            map_block = (
+                "===== LOCATION MAP =====\n"
+                "✅ Embed a REAL map for the address above, exactly:\n"
+                f'<iframe src="https://maps.google.com/maps?q={_map_q}&output=embed" '
+                'width="100%" height="350" style="border:0;" allowfullscreen '
+                'loading="lazy" referrerpolicy="no-referrer-when-downgrade" '
+                'title="Peta lokasi"></iframe>\n'
+                "🚫 Do NOT substitute a static image, a screenshot, or a "
+                "styled div in place of this iframe.\n"
+            )
+        else:
+            map_block = (
+                "===== LOCATION MAP: NONE =====\n"
+                "🚫 No address is available, so there is NO map. OMIT the map "
+                "entirely and let the contact section use the full width.\n"
+                "🚫 FORBIDDEN: an empty box, a grey rectangle, a map icon "
+                "placeholder, or any caption along the lines of \"Peta lokasi "
+                "akan dipaparkan di sini\" / \"Map will be displayed here\". A "
+                "placeholder that only a developer would understand must "
+                "never reach a customer.\n"
+            )
 
         # ---- IMAGE INSTRUCTIONS ----
         if image_choice == "none":
@@ -4726,9 +4837,15 @@ ICONS — Font Awesome FREE 6.x ONLY (non-negotiable):
 - NEVER use Pro-only or Pro-tier icons — they render as blank squares. Examples of FORBIDDEN Pro icons: fa-pot-food, fa-pan-frying, fa-plate-utensils, fa-burger-soda, fa-salad, fa-bowl-chopsticks. When unsure whether an icon is free, DO NOT use it.
 {icon_glyph_guidance}
 
+TEXT ENCODING — WRITE REAL CHARACTERS (non-negotiable):
+- The page is UTF-8. Type every character literally: the em-dash as —, the emoji as 📱, Malay words with their real spelling.
+- NEVER write a backslash escape sequence in the markup: \\u2014, \\U0001f4f1, \\xe9 and friends are FORBIDDEN in headings, body copy, alt text, <title>, and every meta tag. Outside <script> those are not escapes — they are the literal characters a customer reads.
+- This applies to attribute values too: <meta name="description" content="..."> must contain the real characters, never an escape.
+
 BRAND / LOGO (non-negotiable):
 - The logo and footer brand text MUST be the FULL business name exactly: "{name}".
 - NEVER truncate the name to a single word or a fragment (e.g. do NOT render "kedai." for "Kedai Tomyam"). A styled dot or accent colour is allowed only AFTER the complete name.
+- NEVER invent, shorten, translate or "improve" the business name, and never substitute a generic shop word ("Kedai", "Restoran", "Warung", "Cafe", "The Shop") for it. Use the string above, character for character, even when it looks like a placeholder — if it IS a placeholder, the merchant fills it in before publishing.{_brand_placeholder_note}
 
 FOOTER:
 - Render the copyright year DYNAMICALLY, never a hardcoded year. Use:
@@ -4750,6 +4867,10 @@ FOOTER:
 {trust_signals_block}
 
 {menu_data_block}
+
+{reviews_block}
+
+{map_block}
 
 {_layout_block}
 
@@ -4873,7 +4994,12 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         "7. Every navigation anchor must point to a section id that exists "
         "in the page.\n"
         "8. No external JS/CSS beyond what the prompt's HTML skeleton "
-        "already loads (Tailwind CDN, AOS, Font Awesome, Google Fonts).\n\n"
+        "already loads (Tailwind CDN, AOS, Font Awesome, Google Fonts).\n"
+        "9. The page is UTF-8. Write every character literally — the em-dash "
+        "as —, the emoji as 📱, Malay text with its real diacritics. NEVER "
+        "write a backslash escape (\\u2014, \\U0001f4f1, \\xe9) anywhere in "
+        "the markup: outside <script> it is not an escape, it is the literal "
+        "text a customer reads.\n\n"
     )
     _GLM_PROMPT_FREEDOM = (
         "FREEDOM: Everything not covered by the hard rules is yours — colour "
@@ -5728,6 +5854,21 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
 
         if not text:
             return None
+
+        # BOUNDARY DECODE — the model writes backslash escapes into its own
+        # markup ("Kedai — Roti", "\U0001f4f1"), and nothing downstream
+        # ever decoded them, so they shipped to live pages inside <title> and
+        # the meta description. The 8-hex capital-U form is Python source
+        # syntax that JSON cannot produce, which is how we know the model
+        # authored them rather than a serializer here. Decode ONCE, here, at
+        # the single funnel every provider's HTML passes through. Contents of
+        # <script>/<style> are left alone — an escape there is real source.
+        text, _escapes_decoded = decode_html_escapes(text)
+        if _escapes_decoded:
+            logger.warning(
+                f"🔤 Decoded {_escapes_decoded} backslash escape(s) the model "
+                f"emitted in its HTML (e.g. \\u2014 → —)"
+            )
 
         # Remove markdown code blocks
         if "```html" in text:
@@ -8133,6 +8274,7 @@ IMPORTANT RULES:
             design_brief=design_brief,
             design_freedom=design_freedom,
             concept=concept,
+            testimonials=getattr(request, "testimonials", None),
         )
 
         # Add image URLs to prompt with STRONG emphasis.
@@ -8697,6 +8839,7 @@ IMPORTANT INSTRUCTIONS:
                 design_style=getattr(request, "design_style", None),
                 design_brief=_ms_brief,
                 design_freedom=_ms_freedom,
+                testimonials=getattr(request, "testimonials", None),
             )
 
             # GLM (Z.ai) primary path — strictly PREPENDED, gated by

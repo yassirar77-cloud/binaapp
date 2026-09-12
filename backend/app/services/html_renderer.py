@@ -12,6 +12,7 @@ import json
 from typing import Any, Dict
 
 from app.schemas.recipe import PageRecipe, RenderedSection, NavConfig, ThemeTokens
+from app.services.reviews_policy import empty_state_copy
 
 
 def render_html(recipe: PageRecipe) -> str:
@@ -1086,8 +1087,45 @@ def _gallery_masonry(p: Dict[str, Any]) -> str:
         </div>"""
 
 
+def _reviews_empty_state(p: Dict[str, Any]) -> str:
+    """The testimonial section when the merchant has supplied no reviews.
+
+    Never a fabricated quote and never a silent gap: a heading, one honest
+    line, and a CTA the owner can act on. Shared by all three testimonial
+    variants so they cannot drift apart.
+    """
+    copy = empty_state_copy(p.get("language"))
+    heading = p.get("heading") or copy["heading"]
+    wa = str(p.get("whatsapp_number") or "").strip()
+    cta = (
+        f'<a href="https://wa.me/{_esc(wa)}" target="_blank" rel="noopener noreferrer"'
+        if wa
+        else '<a href="#hubungi"'
+    )
+    return f"""        <div class="text-center mb-10">
+            <h2 class="text-4xl md:text-5xl font-bold tracking-tight"
+                style="font-family: var(--font-heading); color: var(--color-text);">
+                {_esc(heading)}
+            </h2>
+        </div>
+        <div class="max-w-xl mx-auto text-center rounded-2xl px-8 py-14"
+             style="background-color: var(--color-surface); box-shadow: var(--shadow);">
+            <i class="fa-regular fa-comments text-4xl mb-5" style="color: var(--color-text-muted); opacity: 0.45;"></i>
+            <p class="text-base sm:text-lg leading-relaxed" style="color: var(--color-text-muted);">
+                {_esc(copy['body'])}
+            </p>
+            {cta} class="mt-8 inline-flex items-center gap-2 font-semibold rounded-2xl px-7 py-3.5 text-white transition-colors duration-200"
+               style="background-color: var(--color-primary);">
+                <i class="fa-solid fa-plus"></i>{_esc(copy['cta'])}
+            </a>
+        </div>"""
+
+
 @_component("TestimonialCards")
 def _testimonial_cards(p: Dict[str, Any]) -> str:
+    if not p.get("reviews"):
+        return _reviews_empty_state(p)
+
     cards = []
     for idx, r in enumerate(p.get("reviews", [])):
         stars = "".join(
@@ -1161,6 +1199,10 @@ def _contact_split(p: Dict[str, Any]) -> str:
                 <a href="mailto:{_esc(p['email'])}" class="hover:underline" style="color: var(--color-text-muted);">{_esc(p['email'])}</a>
             </div>""")
 
+    # A map or nothing. The old else-branch rendered a 350px grey box with a
+    # faded map icon — a dead element that tells a customer nothing and tells
+    # the merchant their site is unfinished. With no address to embed, the
+    # contact details take the full width instead.
     map_html = ""
     if p.get("show_map") and (p.get("map_query") or p.get("address")):
         query = p.get("map_query") or p.get("address", "")
@@ -1169,13 +1211,9 @@ def _contact_split(p: Dict[str, Any]) -> str:
                     width="100%" height="350" style="border:0;" allowfullscreen loading="lazy"
                     referrerpolicy="no-referrer-when-downgrade" title="Location map"></iframe>
         </div>"""
-    else:
-        map_html = """        <div class="rounded-2xl flex items-center justify-center"
-             style="height: 350px; background-color: var(--color-surface); box-shadow: var(--shadow);">
-            <i class="fa-solid fa-map text-5xl" style="color: var(--color-text-muted); opacity: 0.3;"></i>
-        </div>"""
 
-    return f"""        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-start">
+    grid_cols = "lg:grid-cols-2" if map_html else "max-w-2xl"
+    return f"""        <div class="grid grid-cols-1 {grid_cols} gap-12 lg:gap-16 items-start">
             <div>
                 <div class="accent-line mb-6"></div>
                 <h2 class="text-4xl md:text-5xl font-bold tracking-tight" style="font-family: var(--font-heading); color: var(--color-text);">
@@ -2037,7 +2075,7 @@ def _testimonial_slider(p: Dict[str, Any]) -> str:
     """Rotating testimonial carousel — auto-advance every 6s, pause on hover."""
     reviews = p.get("reviews", [])
     if not reviews:
-        return '<div class="text-center py-16" style="color:var(--color-text-muted);">Tiada ulasan lagi.</div>'
+        return _reviews_empty_state(p)
 
     cards = []
     for i, r in enumerate(reviews):
@@ -2102,7 +2140,9 @@ def _testimonial_slider(p: Dict[str, Any]) -> str:
 def _testimonial_quote(p: Dict[str, Any]) -> str:
     """Single elevated review — large display serif pull-quote with brand background."""
     reviews = p.get("reviews", [])
-    r = reviews[0] if reviews else {}
+    if not reviews:
+        return _reviews_empty_state(p)
+    r = reviews[0]
 
     stars = "".join(
         '<i class="fa-solid fa-star text-base" style="color: #F59E0B;"></i>'

@@ -955,9 +955,12 @@ function handleContactSubmit(e) {{
             else:
                 phone_clean = '+60' + phone_clean
 
-        # Prepare menu items JSON
-        menu_json = json.dumps(menu_items)
-        zones_json = json.dumps(delivery_zones)
+        # Prepare menu items JSON. ensure_ascii=False so a dish name with an
+        # em-dash or emoji lands in the widget's data blob as the real
+        # character instead of a \uXXXX escape — the page is UTF-8 and the
+        # pre-publish gate treats stray escapes as a defect.
+        menu_json = json.dumps(menu_items, ensure_ascii=False)
+        zones_json = json.dumps(delivery_zones, ensure_ascii=False)
 
         # Build zone cards HTML
         zone_cards_html = ""
@@ -1399,8 +1402,8 @@ function handleContactSubmit(e) {{
                 'active': True
             }]
 
-        menu_json = json.dumps(formatted_menu)
-        zones_json = json.dumps(formatted_zones)
+        menu_json = json.dumps(formatted_menu, ensure_ascii=False)
+        zones_json = json.dumps(formatted_zones, ensure_ascii=False)
         minimum_order = 30
         delivery_hours = '11am - 9pm'
 
