@@ -623,6 +623,21 @@ async def publish_website(
         except Exception as _seo_err:
             logger.warning(f"🔎 Publish SEO finalisation skipped: {_seo_err}")
 
+        # See asset_delivery: raw Cloudinary URLs and the all-families Font
+        # Awesome stylesheet are both bytes the visitor pays for and nobody
+        # chose.
+        try:
+            from app.services.asset_delivery import optimize_assets
+
+            html_content, _assets = optimize_assets(html_content)
+            if _assets.changed:
+                logger.info(
+                    f"⚡ Assets: {_assets.images_optimized} image URL(s) optimised, "
+                    f"font-awesome families={_assets.font_awesome_families}"
+                )
+        except Exception as _asset_err:
+            logger.warning(f"⚡ Asset optimisation skipped: {_asset_err}")
+
         # Upload to Supabase Storage with retry logic
         logger.info(f"📤 Uploading to Supabase Storage: {request.user_id}/{request.subdomain}/index.html")
 

@@ -204,3 +204,64 @@ def strip_dead_links(html: str) -> Tuple[str, LinkReport]:
         return inner
 
     return _unmask_code(_ANCHOR_RE.sub(_replace, masked), stash), report
+
+# ---------------------------------------------------------------------------
+# Empty floating-widget slots
+# ---------------------------------------------------------------------------
+#
+# The widget catalogue tells the model about every widget that will be
+# injected, including the FLOATING ones. Slot divs are only meant for the
+# inline widgets, but the model emits them for the floating ones too — and a
+# floating widget positions itself, so the slot is never filled. The reported
+# page carried three overlapping boxes in its bottom-right corner:
+# `.sticky-whatsapp-zone` (empty), `#binaapp-whatsapp-slot` (empty), and the
+# real injected `#whatsapp-button`.
+#
+# The prompt now says not to emit them. This removes the ones that arrive
+# anyway — but only when they are genuinely empty, so a slot the injection
+# layer DID fill is never touched.
+
+#: Slots for widgets that position themselves. An empty one is always noise.
+_FLOATING_SLOT_IDS = ("binaapp-whatsapp-slot", "binaapp-chat-slot", "binaapp-delivery-slot")
+#: Bare-class variants the model invents around the same idea.
+_FLOATING_SLOT_CLASSES = ("sticky-whatsapp-zone", "whatsapp-zone", "floating-cta-zone")
+
+_CONTENTFUL_RE = re.compile(r"<(?:img|svg|iframe|button|input|a)\b", re.IGNORECASE)
+
+
+def _is_empty_container(inner: str) -> bool:
+    """True when the element renders nothing a visitor could see or click."""
+    if _CONTENTFUL_RE.search(inner or ""):
+        return False
+    return not _TAG_RE.sub("", inner or "").strip()
+
+
+def remove_empty_floating_slots(html: str) -> Tuple[str, List[str]]:
+    """Drop empty slot containers left behind for self-positioning widgets."""
+    removed: List[str] = []
+    if not html:
+        return html, removed
+
+    markers = [f'id="{i}"' for i in _FLOATING_SLOT_IDS]
+    markers += [f"id='{i}'" for i in _FLOATING_SLOT_IDS]
+    markers += [c for c in _FLOATING_SLOT_CLASSES]
+    if not any(marker in html for marker in markers):
+        return html, removed
+
+    pattern = re.compile(
+        r"<div\b[^>]*(?:id\s*=\s*[\"']"
+        + "|".join(re.escape(i) for i in _FLOATING_SLOT_IDS)
+        + r"[\"']|class\s*=\s*[\"'][^\"']*(?:"
+        + "|".join(re.escape(c) for c in _FLOATING_SLOT_CLASSES)
+        + r")[^\"']*[\"'])[^>]*>(.*?)</div\s*>",
+        re.IGNORECASE | re.DOTALL,
+    )
+
+    def _replace(match: re.Match) -> str:
+        if not _is_empty_container(match.group(1)):
+            return match.group(0)
+        label = re.search(r"""(?:id|class)\s*=\s*(["'])(.*?)\1""", match.group(0))
+        removed.append(label.group(2) if label else "floating slot")
+        return ""
+
+    return pattern.sub(_replace, html), removed

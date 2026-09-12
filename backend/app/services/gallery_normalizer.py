@@ -193,6 +193,150 @@ def omit_empty_gallery_sections(html: str) -> str:
     return out
 
 
+
+# ---------------------------------------------------------------------------
+# 3) Grid spans that do not add up
+# ---------------------------------------------------------------------------
+# A "Suasana" gallery shipped as `md:grid-cols-3` with three children spanning
+# 2 + 1 + 1. That is four columns of content in a three-column grid, so the
+# first row filled, the second row held one small image, and an empty white
+# container sat beside it where the fourth cell would have been.
+#
+# The rule is arithmetic, not taste: if the children's spans do not add up to
+# a whole number of rows, the layout has a hole in it. When that happens the
+# span utilities are dropped and every child takes one equal cell — the
+# layout the merchant would have got if the model had simply not reached for
+# a feature span it did not have the images to finish.
+
+_VOID_ELEMENTS = frozenset({
+    "img", "br", "hr", "input", "meta", "link", "source", "area", "base",
+    "col", "embed", "param", "track", "wbr",
+})
+_GRID_COLS_RE = re.compile(r"(?:^|\s)(?:(?:sm|md|lg|xl|2xl):)?grid-cols-(\d+)")
+_COL_SPAN_RE = re.compile(r"(?:^|\s)(?:(?:sm|md|lg|xl|2xl):)?col-span-(\d+)")
+_SPAN_TOKEN_RE = re.compile(r"^(?:(?:sm|md|lg|xl|2xl):)?(?:col|row)-span-(?:\d+|full)$")
+_OPEN_TAG_RE = re.compile(r"<([a-zA-Z][\w-]*)\b[^>]*?(/?)>")
+
+
+def _tag_classes(tag: str) -> str:
+    match = _CLASS_ATTR.search(tag)
+    return match.group(3) if match else ""
+
+
+def _element_end(html: str, start: int) -> int:
+    """Index just past the element that opens at ``start``, or -1.
+
+    A small balanced scanner: regex cannot match nested divs, and a gallery
+    grid is always nested.
+    """
+    open_match = _OPEN_TAG_RE.match(html, start)
+    if not open_match:
+        return -1
+    name = open_match.group(1).lower()
+    if open_match.group(2) == "/" or name in _VOID_ELEMENTS:
+        return open_match.end()
+
+    depth = 0
+    pos = start
+    pattern = re.compile(rf"<(/?){re.escape(name)}\b[^>]*?(/?)>", re.IGNORECASE)
+    while True:
+        match = pattern.search(html, pos)
+        if not match:
+            return -1
+        if match.group(1) == "/":
+            depth -= 1
+            if depth == 0:
+                return match.end()
+        elif match.group(2) != "/":
+            depth += 1
+        pos = match.end()
+
+
+def _direct_children(html: str, inner_start: int, inner_end: int) -> list:
+    """(start, end) of every direct child element in [inner_start, inner_end)."""
+    children = []
+    pos = inner_start
+    while pos < inner_end:
+        nxt = html.find("<", pos)
+        if nxt == -1 or nxt >= inner_end:
+            break
+        if not _OPEN_TAG_RE.match(html, nxt):
+            pos = nxt + 1
+            continue
+        end = _element_end(html, nxt)
+        if end == -1 or end > inner_end:
+            break
+        children.append((nxt, end))
+        pos = end
+    return children
+
+
+def _strip_span_classes(class_value: str) -> str:
+    return " ".join(t for t in class_value.split() if not _SPAN_TOKEN_RE.match(t))
+
+
+def even_out_grid_spans(html: str) -> str:
+    """Drop col/row spans from any grid whose children leave a hole."""
+    out = html
+    searched_from = 0
+    fixed = 0
+
+    while True:
+        match = re.compile(r"<div\b[^>]*\bclass\s*=\s*([\'\"])(?=[^\'\"]*\bgrid\b)[^\'\"]*\1[^>]*>",
+                           re.IGNORECASE).search(out, searched_from)
+        if not match:
+            break
+        searched_from = match.end()
+        classes = _tag_classes(match.group(0))
+        columns = [int(c) for c in _GRID_COLS_RE.findall(classes)]
+        if not columns:
+            continue
+        # The widest breakpoint is the desktop layout, which is where the
+        # hole is visible.
+        column_count = max(columns)
+        if column_count < 2:
+            continue
+
+        element_end = _element_end(out, match.start())
+        if element_end == -1:
+            continue
+        inner_start, inner_end = match.end(), element_end - len("</div>")
+        children = _direct_children(out, inner_start, inner_end)
+        if len(children) < 2:
+            continue
+
+        spans = []
+        for start, end in children:
+            child_tag = out[start:out.find(">", start) + 1]
+            found = _COL_SPAN_RE.findall(_tag_classes(child_tag))
+            spans.append(max((int(s) for s in found), default=1))
+        if sum(spans) % column_count == 0 or all(s == 1 for s in spans):
+            continue
+
+        # Rewrite children back-to-front so earlier offsets stay valid.
+        for start, end in reversed(children):
+            tag_end = out.find(">", start) + 1
+            tag = out[start:tag_end]
+
+            def _rewrite(m):
+                kept = _strip_span_classes(m.group(3))
+                # A class attribute emptied by the strip is dropped, not
+                # left as class="".
+                return f"{m.group(1)}{m.group(2)}{kept}{m.group(2)}" if kept else ""
+
+            new_tag = _CLASS_ATTR.sub(_rewrite, tag, count=1)
+            new_tag = re.sub(r"\s+>", ">", new_tag)
+            out = out[:start] + new_tag + out[tag_end:]
+        fixed += 1
+        searched_from = match.end()
+
+    if fixed:
+        logger.info(
+            "🖼️ Evened out %d grid(s) whose column spans left an empty cell", fixed
+        )
+    return out
+
+
 def normalize_gallery_html(html: str) -> str:
     """Apply all deterministic gallery fixes. Never raises."""
     try:
@@ -209,4 +353,8 @@ def normalize_gallery_html(html: str) -> str:
         html = dedupe_gallery_tags(html)
     except Exception as e:  # pragma: no cover - safety net
         logger.warning(f"gallery tag dedupe skipped: {e}")
+    try:
+        html = even_out_grid_spans(html)
+    except Exception as e:  # pragma: no cover - safety net
+        logger.warning(f"grid span evening skipped: {e}")
     return html

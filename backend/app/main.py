@@ -3726,6 +3726,23 @@ async def publish_website(
         except Exception as _seo_err:
             logger.warning(f"🔎 Publish SEO finalisation skipped: {_seo_err}")
 
+        # Delivery weight: Cloudinary uploads referenced raw (original size,
+        # original format, no compression budget) and the all-families Font
+        # Awesome stylesheet. Both are free to fix and both are paid for by
+        # the visitor on mobile data.
+        try:
+            from app.services.asset_delivery import optimize_assets
+
+            html_content, _assets = optimize_assets(html_content)
+            if _assets.changed:
+                logger.info(
+                    f"⚡ Assets: {_assets.images_optimized} Cloudinary URL(s) "
+                    f"given delivery transformations; font-awesome trimmed to "
+                    f"{_assets.font_awesome_families or 'unchanged'}"
+                )
+        except Exception as _asset_err:
+            logger.warning(f"⚡ Asset optimisation skipped: {_asset_err}")
+
         delivery_enabled = bool(features.get("deliverySystem")) or bool(delivery)
 
         # CRITICAL FIX: ALWAYS create database record BEFORE storage upload

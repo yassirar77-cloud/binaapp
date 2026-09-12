@@ -4755,8 +4755,9 @@ BRAND / LOGO (non-negotiable):
 - NEVER truncate the name to a single word or a fragment (e.g. do NOT render "kedai." for "Kedai Tomyam"). A styled dot or accent colour is allowed only AFTER the complete name.
 
 FOOTER:
-- Render the copyright year DYNAMICALLY, never a hardcoded year. Use:
-  &copy; <script>document.write(new Date().getFullYear())</script> {name}
+- Render the copyright year DYNAMICALLY, never a hardcoded year. Use EXACTLY this — document.write() blocks the HTML parser while it runs, so it must not appear anywhere on the page:
+  &copy; <span id="binaapp-year"></span> {name}
+  and before </body>: <script>document.getElementById('binaapp-year').textContent=new Date().getFullYear()</script>
 
 {_house_rules_preface}
 {typography}

@@ -3805,13 +3805,22 @@ __BINAAPP_WIDGET_THEME_VARS__
         # WhatsApp-labelled buttons that scroll to a section instead, and
         # unwraps anchors pointing at ids the document never defines.
         try:
-            from app.services.link_guard import strip_dead_links
+            from app.services.link_guard import (
+                remove_empty_floating_slots,
+                strip_dead_links,
+            )
 
             html, link_report = strip_dead_links(html)
             if link_report.changed:
                 logger.info(f"🔗 Dead links swept: {link_report.summary()}")
                 for label in link_report.removed:
                     logger.info(f"   ✂️ removed control with no destination: {label!r}")
+
+            # Slots the model left for widgets that position themselves.
+            # Runs after injection so a slot that WAS filled is never touched.
+            html, empty_slots = remove_empty_floating_slots(html)
+            if empty_slots:
+                logger.info(f"🧹 Removed empty floating slot(s): {empty_slots}")
         except Exception as link_err:
             logger.warning(f"⚠️ Dead-link sweep skipped: {link_err}")
 

@@ -270,6 +270,12 @@ RULES:
 1. Do NOT add your own floating WhatsApp / chat / delivery buttons —
    they will be injected. (You may add a regular inline "Order Now" CTA
    that scrolls to #menu; that's fine.)
+   Do NOT emit a slot div for them either. A FLOATING widget positions
+   itself; a slot left behind for one is an empty container that renders
+   as a stray box in the corner. One published page carried three of
+   them stacked on top of each other — .sticky-whatsapp-zone, an empty
+   #binaapp-whatsapp-slot, and the real injected button. Slot divs are
+   for the INLINE widgets only (maps, contact form, qr, pesanan).
 2. For inline widgets (maps, contact form, qr, pesanan), you MAY emit a
    placeholder div with the listed id, placed at the correct semantic
    location. The injection layer replaces its inner contents with the live

@@ -7,6 +7,7 @@ number, two buttons pointing at each other, and dead footer social icons.
 from app.services.link_guard import (
     document_anchor_ids,
     page_whatsapp_link,
+    remove_empty_floating_slots,
     strip_dead_links,
 )
 from app.services.templates import TemplateService
@@ -113,3 +114,40 @@ class TestNoPlaceholderWhatsappButton:
         out = self._inject("019-345 6781")
         assert 'id="whatsapp-button"' in out
         assert f"wa.me/+{REAL}" in out
+
+
+class TestEmptyFloatingSlots:
+    """A floating widget positions itself; a slot left for one is a stray box.
+
+    The reported page stacked three of them in the bottom-right corner.
+    """
+
+    PAGE = (
+        '<body><div class="sticky-whatsapp-zone"></div>'
+        '<div id="binaapp-whatsapp-slot">  </div>'
+        '<div id="binaapp-chat-slot"><button>Chat</button></div>'
+        '<a id="whatsapp-button" href="https://wa.me/60193456781"></a></body>'
+    )
+
+    def test_empty_slots_are_removed(self):
+        out, removed = remove_empty_floating_slots(self.PAGE)
+        assert "sticky-whatsapp-zone" not in out
+        assert "binaapp-whatsapp-slot" not in out
+        assert set(removed) == {"sticky-whatsapp-zone", "binaapp-whatsapp-slot"}
+
+    def test_a_filled_slot_survives(self):
+        out, _ = remove_empty_floating_slots(self.PAGE)
+        assert 'id="binaapp-chat-slot"' in out
+
+    def test_the_real_button_survives(self):
+        out, _ = remove_empty_floating_slots(self.PAGE)
+        assert 'id="whatsapp-button"' in out
+
+    def test_idempotent(self):
+        once, _ = remove_empty_floating_slots(self.PAGE)
+        twice, removed = remove_empty_floating_slots(once)
+        assert twice == once and not removed
+
+    def test_pages_without_slots_are_untouched(self):
+        html = "<body><p>hello</p></body>"
+        assert remove_empty_floating_slots(html) == (html, [])

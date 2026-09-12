@@ -106,8 +106,8 @@ def _to_hls(hex_value: str) -> Tuple[float, float, float]:
     return colorsys.rgb_to_hls(r, g, b)
 
 
-def _from_hls(h: float, l: float, s: float) -> str:
-    r, g, b = colorsys.hls_to_rgb(h, min(max(l, 0.0), 1.0), s)
+def _from_hls(hue: float, lightness: float, saturation: float) -> str:
+    r, g, b = colorsys.hls_to_rgb(hue, min(max(lightness, 0.0), 1.0), saturation)
     return "#{:02X}{:02X}{:02X}".format(
         round(r * 255), round(g * 255), round(b * 255)
     )
