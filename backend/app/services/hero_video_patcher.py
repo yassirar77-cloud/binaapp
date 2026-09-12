@@ -31,11 +31,22 @@ SAFETY RULES
 ------------
 * The layer is ``position:absolute; inset:0; z-index:-1`` INSIDE the hero,
   which gets ``isolation:isolate`` so that negative z-index stays local: the
-  clip paints above the hero's own background and below every one of its
-  children. The children themselves are never restyled — no re-ordering,
-  no unwrapping, no forced ``position``. (Forcing ``position:relative`` on
+  clip paints above the hero's own background and below every IN-FLOW child
+  — the copy is never covered, whether or not the generator positioned it.
+  The children themselves are never restyled — no re-ordering, no
+  unwrapping, no forced ``position``. (Forcing ``position:relative`` on
   them, as an earlier version did, turned absolutely-positioned decorative
   blobs into in-flow blocks that pushed the hero copy off-screen.)
+* The one thing a negative z-index does NOT paint above is a POSITIONED
+  sibling with ``z-index:auto`` — and that is exactly what the generator
+  makes the hero's own photo: ``<div class="absolute inset-0"><img …>``.
+  On soon.binaapp.my that div sat on top of the running video and hid it
+  completely, while the page reported the video as playing. So the patch
+  finds the hero's full-cover media container at injection time, stamps it
+  ``data-binaapp-hero-media="replaced"``, and hides it with one static
+  rule. Matching by URL was tried first and failed: the rule keyed on the
+  POSTER url, the element carried the HERO IMAGE url, and Cloudinary
+  rewrites the transformation segment at delivery anyway.
 * Everything is inert to the reader: ``aria-hidden``, ``tabindex="-1"``,
   ``pointer-events:none``. A muted, looping, ``playsinline`` video is the
   only shape mobile Safari/Chrome will autoplay.
@@ -55,6 +66,14 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+from app.utils.html_scan import (
+    direct_children,
+    element_end,
+    open_tag_end,
+    read_attr,
+    tag_classes,
+)
+
 logger = logging.getLogger(__name__)
 
 #: Marker attribute written onto the hero element. Every injected CSS rule is
@@ -65,6 +84,11 @@ STYLE_ID = "binaapp-hero-video-style"
 #: Comment fence around the injected markup — exact, nesting-proof removal.
 BLOCK_START = "<!--binaapp:hero-video-->"
 BLOCK_END = "<!--/binaapp:hero-video-->"
+#: Written onto the hero's own background-media element (the ``absolute
+#: inset-0`` photo wrapper, or a full-cover <img>) so a static rule can hide
+#: it while the video layer is present. Stripped again by remove().
+HERO_MEDIA_ATTR = "data-binaapp-hero-media"
+HERO_MEDIA_REPLACED = "replaced"
 
 #: Overlay presets: the scrim painted between the video and the hero copy.
 #: Without one, white hero text over a bright frame is unreadable.
@@ -86,6 +110,11 @@ _STYLE_RE = re.compile(
 )
 _MARKER_ATTR_RE = re.compile(
     r'\s+' + re.escape(HERO_MARKER_ATTR) + r'(?![\w-])'
+    r'(?:=(?:"[^"]*"|\'[^\']*\'|[^\s>]*))?',
+    re.IGNORECASE,
+)
+_MEDIA_ATTR_RE = re.compile(
+    r'\s+' + re.escape(HERO_MEDIA_ATTR) + r'(?![\w-])'
     r'(?:=(?:"[^"]*"|\'[^\']*\'|[^\s>]*))?',
     re.IGNORECASE,
 )
@@ -313,6 +342,48 @@ def find_hero_open_tag(html: str) -> Tuple[Optional[re.Match], str]:
 
 
 # ---------------------------------------------------------------------------
+# Hero id
+# ---------------------------------------------------------------------------
+
+#: The id the pre-built templates use, nav anchors point at, and every
+#: layout guard exempts. First entry of _HERO_IDS on purpose.
+DEFAULT_HERO_ID = "home"
+
+_ANY_ID_RE = re.compile(r"\bid=[\"'][^\"']*[\"']", re.IGNORECASE)
+_HOME_ID_RE = re.compile(r"\bid=[\"']" + re.escape(DEFAULT_HERO_ID) + r"[\"']", re.IGNORECASE)
+
+
+def ensure_hero_id(html: str) -> Tuple[str, bool]:
+    """Give an id-less hero ``id="home"``. Returns ``(html, changed)``.
+
+    The generator's editorial heroes often carry no id. Several defensive
+    guards on a served page key off ``#home`` / ``#hero`` / ``#laman-utama``
+    and fall back to ``:first-of-type`` — sibling order, which is exactly
+    the thing an injected section above the hero changes. Stamping the id
+    at generation time makes those guards, the nav's ``#home`` anchor and
+    this patcher's own lookup agree on which element the hero is.
+
+    Left alone when the hero already has any id, when the document already
+    uses ``id="home"`` elsewhere, or when no hero can be found.
+    """
+    if not html:
+        return html, False
+    hero, _how = find_hero_open_tag(html)
+    if hero is None:
+        return html, False
+    open_tag = hero.group(0)
+    if _ANY_ID_RE.search(open_tag):
+        return html, False
+    if _HOME_ID_RE.search(html):
+        return html, False
+    insert_at = len(open_tag) - 1
+    if open_tag[insert_at - 1] == "/":
+        insert_at -= 1
+    stamped = open_tag[:insert_at] + f' id="{DEFAULT_HERO_ID}"' + open_tag[insert_at:]
+    return html[: hero.start()] + stamped + html[hero.end():], True
+
+
+# ---------------------------------------------------------------------------
 # Detection
 # ---------------------------------------------------------------------------
 
@@ -355,6 +426,148 @@ def detect_hero_video(html: str) -> Optional[Dict]:
         "text_mode": (_read_attr(tag, "data-binaapp-text-mode") or DEFAULT_TEXT_MODE).lower(),
         "show_on_mobile": mobile != "poster",
     }
+
+
+# ---------------------------------------------------------------------------
+# The hero's own background media
+# ---------------------------------------------------------------------------
+
+#: Class tokens that make an element cover its parent.
+_COVER_TOKENS = ("inset-0", "hero-slow-zoom")
+_ABSOLUTE_RE = re.compile(r"(?<![\w-])(?:absolute|fixed)(?![\w-])")
+_INLINE_ABSOLUTE_RE = re.compile(r"position\s*:\s*(?:absolute|fixed)", re.IGNORECASE)
+_INLINE_BG_IMAGE_RE = re.compile(r"background(?:-image)?\s*:[^;]*url\(", re.IGNORECASE)
+_MEDIA_INSIDE_RE = re.compile(r"<(?:img|picture|video|source)\b", re.IGNORECASE)
+#: Anything that reads as content. A container holding one of these is the
+#: hero's copy (or a card), never its background, however it is positioned.
+_CONTENT_INSIDE_RE = re.compile(
+    r"<(?:h[1-6]|p|a|button|form|input|ul|ol|nav)\b", re.IGNORECASE
+)
+_MEDIA_TAGS = ("img", "picture", "video")
+_WRAPPER_TAGS = ("div", "figure", "span", "picture")
+
+
+def _covers_parent(open_tag: str) -> bool:
+    classes = tag_classes(open_tag)
+    style = read_attr(open_tag, "style") or ""
+    positioned = bool(_ABSOLUTE_RE.search(classes)) or bool(_INLINE_ABSOLUTE_RE.search(style))
+    if not positioned:
+        return False
+    tokens = set(classes.split())
+    if any(t in tokens for t in _COVER_TOKENS):
+        return True
+    if {"w-full", "h-full"} <= tokens or {"top-0", "left-0"} <= tokens:
+        return True
+    return "inset:0" in style.replace(" ", "") or "inset:0px" in style.replace(" ", "")
+
+
+def _is_background_media(html: str, start: int, end: int) -> bool:
+    """True when the element at [start, end) is the hero's own picture.
+
+    Two shapes the generator emits: a full-cover <img> directly in the
+    hero, or an ``absolute inset-0`` wrapper holding the <img> (with its own
+    gradient inside). A wrapper is only media when it carries no copy —
+    a positioned container with an <h1> in it is the headline, not the
+    background, and must never be hidden.
+    """
+    tag_close = open_tag_end(html, start)
+    if tag_close == -1:
+        return False
+    open_tag = html[start:tag_close]
+    name = re.match(r"<([a-zA-Z][\w-]*)", open_tag).group(1).lower()
+    classes = tag_classes(open_tag)
+    tokens = set(classes.split())
+
+    if name in _MEDIA_TAGS:
+        if "binaapp-hero-video" in classes:
+            return False
+        return (
+            _covers_parent(open_tag)
+            or "object-cover" in tokens
+            or {"w-full", "h-full"} <= tokens
+        )
+
+    if name not in _WRAPPER_TAGS or not _covers_parent(open_tag):
+        return False
+    inner = html[tag_close:end]
+    if _CONTENT_INSIDE_RE.search(inner):
+        return False
+    style = read_attr(open_tag, "style") or ""
+    return bool(_MEDIA_INSIDE_RE.search(inner)) or bool(_INLINE_BG_IMAGE_RE.search(style))
+
+
+def find_hero_media(html: str, hero_start: int) -> List[Tuple[int, int]]:
+    """``(start, end)`` of every background-media element in the hero.
+
+    Looks at the hero's direct children and one level below them (a
+    generated hero sometimes wraps the picture in a plain div before the
+    positioned one). Returns the outermost match for each subtree so a
+    wrapper and the <img> inside it are not both tagged.
+    """
+    hero_end = element_end(html, hero_start)
+    tag_close = open_tag_end(html, hero_start)
+    if hero_end == -1 or tag_close == -1:
+        return []
+    # The hero's content stops at its own closing tag.
+    inner_end = html.rfind("</", tag_close, hero_end)
+    if inner_end == -1:
+        return []
+
+    found: List[Tuple[int, int]] = []
+    for start, end in direct_children(html, tag_close, inner_end):
+        if _is_background_media(html, start, end):
+            found.append((start, end))
+            continue
+        child_close = open_tag_end(html, start)
+        child_inner_end = html.rfind("</", 0, end)
+        if child_close == -1 or child_inner_end <= child_close:
+            continue
+        for g_start, g_end in direct_children(html, child_close, child_inner_end):
+            if _is_background_media(html, g_start, g_end):
+                found.append((g_start, g_end))
+    return found
+
+
+def _tag_hero_media(html: str, hero_start: int) -> Tuple[str, int]:
+    """Stamp ``data-binaapp-hero-media="replaced"`` on each media element."""
+    targets = find_hero_media(html, hero_start)
+    if not targets:
+        return html, 0
+    out = html
+    # Back to front so earlier offsets survive each insertion.
+    for start, _end in sorted(targets, reverse=True):
+        tag_close = open_tag_end(out, start)
+        insert_at = tag_close - 1
+        if out[insert_at - 1] == "/":
+            insert_at -= 1
+        out = (
+            out[:insert_at]
+            + f' {HERO_MEDIA_ATTR}="{HERO_MEDIA_REPLACED}"'
+            + out[insert_at:]
+        )
+    return out, len(targets)
+
+
+_CLOUDINARY_PUBLIC_ID_RE = re.compile(
+    r"res\.cloudinary\.com/[^/]+/(?:image|video)/upload/"
+    r"(?:[a-z]{1,3}_[^/]+/)*"      # zero or more transformation segments
+    r"(?:v\d+/)?"                  # optional version
+    r"(?P<public_id>[^?#]+?)(?:\.[a-zA-Z0-9]{2,5})?(?:[?#]|$)"
+)
+
+
+def cloudinary_public_id(url: Optional[str]) -> Optional[str]:
+    """``binaapp/user_uploads/whale`` from any delivery URL of that asset.
+
+    The transformation segment is rewritten at delivery (``f_auto,q_auto…``
+    is added on publish), so two URLs of the same photo rarely compare
+    equal. The public id is the part that does not move.
+    """
+    match = _CLOUDINARY_PUBLIC_ID_RE.search(url or "")
+    if not match:
+        return None
+    public_id = match.group("public_id").strip("/")
+    return public_id if len(public_id) >= 8 else None
 
 
 # ---------------------------------------------------------------------------
@@ -415,10 +628,29 @@ PLAYBACK_BOOTSTRAP = (
     "<script>(function(){"
     "var s=document.currentScript,l=s&&s.parentNode,v=l&&l.querySelector('video.binaapp-hero-video');"
     "if(!v)return;"
-    "if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;"
-    "v.muted=true;v.defaultMuted=true;v.setAttribute('muted','');"
     "var h=l.parentNode;"
-    "v.addEventListener('playing',function(){if(h&&h.setAttribute)h.setAttribute('data-binaapp-video-playing','1');});"
+    # Reduced motion: the CSS hides the frame, this stops the download. A
+    # bare return left `autoplay preload=auto` to pull the whole clip on a
+    # device that asked for stillness.
+    "if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches){"
+    "try{v.pause();v.removeAttribute('autoplay');v.preload='none';}catch(e){}"
+    "if(h&&h.setAttribute)h.setAttribute('data-binaapp-video-playing','reduced-motion');return;}"
+    "v.muted=true;v.defaultMuted=true;v.setAttribute('muted','');"
+    # `playing` fired on soon.binaapp.my while the frame was fully behind
+    # the hero's own photo. Sample the frame: an <img> or url() background
+    # on top that is not ours means the visitor sees no video, whatever
+    # the media element reports — stamp that, not a success.
+    "function covered(){try{var r=v.getBoundingClientRect();if(r.bottom<=0||r.right<=0||r.width<40||r.height<40)return false;"
+    "var xs=[r.left+r.width/2,r.left+r.width*0.15,r.left+r.width*0.85],ys=[r.top+r.height/2,r.top+r.height*0.15,r.top+r.height*0.85];"
+    "for(var i=0;i<xs.length;i++){for(var j=0;j<ys.length;j++){"
+    "var t=document.elementFromPoint(xs[i],ys[j]);if(!t||l.contains(t))continue;"
+    "if(t.tagName==='IMG'||t.tagName==='PICTURE'||t.tagName==='VIDEO')return true;"
+    "var bg=getComputedStyle(t).backgroundImage||'';if(bg.indexOf('url(')>=0)return true;}}"
+    "}catch(e){}return false;}"
+    "v.addEventListener('playing',function(){if(!h||!h.setAttribute)return;"
+    "if(covered()){h.setAttribute('data-binaapp-video-playing','covered');"
+    "if(window.console&&console.warn)console.warn('[binaapp] hero video is playing behind another element');}"
+    "else h.setAttribute('data-binaapp-video-playing','1');});"
     "function go(){try{var p=v.play();if(p&&p.catch)p.catch(function(){});}catch(e){}}"
     "go();"
     "['touchstart','pointerdown','scroll','keydown'].forEach(function(t){"
@@ -519,22 +751,38 @@ def _build_style(settings: HeroVideoSettings, hero_open_tag: str = "") -> str:
             f"{hero * 6}{{min-height:{floor} !important;height:auto !important;}}"
         )
 
+    # ONE hero visual, not two. The hero's own full-cover picture is found
+    # at injection time and stamped HERO_MEDIA_ATTR (see find_hero_media);
+    # this rule is what hides it. Structural, so it does not care what URL
+    # the picture has or how Cloudinary rewrote it since.
+    rules.append(
+        f'{hero} [{HERO_MEDIA_ATTR}="{HERO_MEDIA_REPLACED}"]'
+        "{display:none !important;}"
+    )
+
     if settings.poster_url:
-        # ONE hero visual, not two. When the clip was animated from the
-        # merchant's own hero photo, that photo is the poster — and it is
-        # also still on the page as the hero's <img> (or a background
-        # div), now painted on top of its own moving version: a cut-out
-        # of the whale over the video of the whale (ikan, 14:00). Hide
-        # the hero's copy while the layer is present; the layer shows the
-        # same photo as its poster whenever the video is not playing, so
-        # nothing is lost. A clip-frame poster never appears in the
-        # merchant's markup, so for text-to-video this matches nothing.
+        # Second net, for the shape the structural pass does not claim: a
+        # photo the clip was animated FROM that sits in the hero as a
+        # pinned cut-out rather than a full-cover background (ikan, 14:00
+        # — the whale bottom-right on top of the video of the whale). It
+        # is the poster, so match it by URL, and by Cloudinary public id
+        # because the transformation segment changes at delivery. A
+        # clip-frame poster never appears in merchant markup, so for
+        # text-to-video these match nothing — harmless.
         photo = _css_string(settings.poster_url)
         rules.append(f'{hero} img[src="{photo}"]{{display:none !important;}}')
         rules.append(
             f'{hero} [style*="{photo}"]:not(.binaapp-hero-video-layer)'
             "{background-image:none !important;}"
         )
+        public_id = cloudinary_public_id(settings.poster_url)
+        if public_id:
+            pid = _css_string(public_id)
+            rules.append(f'{hero} img[src*="{pid}"]{{display:none !important;}}')
+            rules.append(
+                f'{hero} [style*="{pid}"]:not(.binaapp-hero-video-layer)'
+                "{background-image:none !important;}"
+            )
 
     text_mode = settings.resolved_text_mode()
     if text_mode in ("light", "dark"):
@@ -552,7 +800,9 @@ def _build_style(settings: HeroVideoSettings, hero_open_tag: str = "") -> str:
             )
 
     # Motion behind text is precisely what this setting is for: hold the
-    # poster frame still instead.
+    # poster frame still instead. The layer keeps the poster as its own
+    # background-image, and with the hero's photo hidden above, that
+    # poster is what the visitor sees — not a black band.
     rules.append(
         "@media (prefers-reduced-motion:reduce){"
         f"{hero} > .binaapp-hero-video-layer .binaapp-hero-video{{display:none;}}}}"
@@ -613,6 +863,7 @@ def remove_hero_video(html: str) -> HeroVideoResult:
     stripped = _BLOCK_RE.sub("", html)
     stripped = _STYLE_RE.sub("", stripped)
     stripped = _MARKER_ATTR_RE.sub("", stripped)
+    stripped = _MEDIA_ATTR_RE.sub("", stripped)
     return HeroVideoResult(html=stripped, changed=stripped != html)
 
 
@@ -632,6 +883,15 @@ def apply_hero_video(html: str, settings: HeroVideoSettings) -> HeroVideoResult:
     base = remove_hero_video(html).html
     hero, how = find_hero_open_tag(base)
     if hero is None:
+        return HeroVideoResult(html=html, changed=False, notes=["hero_not_found"])
+
+    # Find the hero's own picture BEFORE the layer goes in, so the layer is
+    # never a candidate, and stamp it so the stylesheet can hide it. Done on
+    # `base` (marker-free), and re-found from scratch on every apply, so a
+    # re-apply never stacks attributes.
+    base, media_count = _tag_hero_media(base, hero.start())
+    hero, how = find_hero_open_tag(base)
+    if hero is None:  # pragma: no cover - tagging never removes the hero
         return HeroVideoResult(html=html, changed=False, notes=["hero_not_found"])
 
     open_tag = hero.group(0)
@@ -663,12 +923,15 @@ def apply_hero_video(html: str, settings: HeroVideoSettings) -> HeroVideoResult:
         notes.append("style_inlined_without_head")
         patched = patched.replace(layer, style + layer, 1)
 
+    if media_count:
+        notes.append(f"hero_media_replaced:{media_count}")
     logger.info(
-        "[hero-video] injected (hero matched by %s, overlay=%s/%.2f, mobile=%s)",
+        "[hero-video] injected (hero matched by %s, overlay=%s/%.2f, mobile=%s, media hidden=%d)",
         how,
         settings.overlay,
         settings.overlay_opacity,
         "video" if settings.show_on_mobile else "poster",
+        media_count,
     )
     return HeroVideoResult(
         html=patched,

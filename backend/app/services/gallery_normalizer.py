@@ -14,6 +14,8 @@ error the original HTML is returned unchanged.
 import re
 import logging
 
+from app.utils.html_scan import direct_children, element_end, tag_classes
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -208,67 +210,15 @@ def omit_empty_gallery_sections(html: str) -> str:
 # layout the merchant would have got if the model had simply not reached for
 # a feature span it did not have the images to finish.
 
-_VOID_ELEMENTS = frozenset({
-    "img", "br", "hr", "input", "meta", "link", "source", "area", "base",
-    "col", "embed", "param", "track", "wbr",
-})
 _GRID_COLS_RE = re.compile(r"(?:^|\s)(?:(?:sm|md|lg|xl|2xl):)?grid-cols-(\d+)")
 _COL_SPAN_RE = re.compile(r"(?:^|\s)(?:(?:sm|md|lg|xl|2xl):)?col-span-(\d+)")
 _SPAN_TOKEN_RE = re.compile(r"^(?:(?:sm|md|lg|xl|2xl):)?(?:col|row)-span-(?:\d+|full)$")
-_OPEN_TAG_RE = re.compile(r"<([a-zA-Z][\w-]*)\b[^>]*?(/?)>")
 
-
-def _tag_classes(tag: str) -> str:
-    match = _CLASS_ATTR.search(tag)
-    return match.group(3) if match else ""
-
-
-def _element_end(html: str, start: int) -> int:
-    """Index just past the element that opens at ``start``, or -1.
-
-    A small balanced scanner: regex cannot match nested divs, and a gallery
-    grid is always nested.
-    """
-    open_match = _OPEN_TAG_RE.match(html, start)
-    if not open_match:
-        return -1
-    name = open_match.group(1).lower()
-    if open_match.group(2) == "/" or name in _VOID_ELEMENTS:
-        return open_match.end()
-
-    depth = 0
-    pos = start
-    pattern = re.compile(rf"<(/?){re.escape(name)}\b[^>]*?(/?)>", re.IGNORECASE)
-    while True:
-        match = pattern.search(html, pos)
-        if not match:
-            return -1
-        if match.group(1) == "/":
-            depth -= 1
-            if depth == 0:
-                return match.end()
-        elif match.group(2) != "/":
-            depth += 1
-        pos = match.end()
-
-
-def _direct_children(html: str, inner_start: int, inner_end: int) -> list:
-    """(start, end) of every direct child element in [inner_start, inner_end)."""
-    children = []
-    pos = inner_start
-    while pos < inner_end:
-        nxt = html.find("<", pos)
-        if nxt == -1 or nxt >= inner_end:
-            break
-        if not _OPEN_TAG_RE.match(html, nxt):
-            pos = nxt + 1
-            continue
-        end = _element_end(html, nxt)
-        if end == -1 or end > inner_end:
-            break
-        children.append((nxt, end))
-        pos = end
-    return children
+# The nesting-aware pieces live in app.utils.html_scan so the hero-video
+# patcher can ask the same "direct children of this element" question.
+_tag_classes = tag_classes
+_element_end = element_end
+_direct_children = direct_children
 
 
 def _strip_span_classes(class_value: str) -> str:
