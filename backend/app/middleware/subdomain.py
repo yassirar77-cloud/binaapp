@@ -12,6 +12,7 @@ exception falls through to call_next() instead of killing the ASGI connection
 from fastapi import Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
+import asyncio
 import hashlib
 import httpx
 from loguru import logger
@@ -307,11 +308,16 @@ def _get_supabase_client():
         return None
 
 
-async def _check_website_lock(website_id: str) -> bool:
+async def _always_true() -> bool:
+    """Stand-in for the plan gate when there is no owner to gate on."""
+    return True
+
+
+async def _check_website_lock(website_id: str, owner_id: Optional[str] = None) -> bool:
     """Check if a website is locked due to subscription. Fails open (returns False)."""
     try:
         from app.services.website_lock_checker import is_website_locked
-        return await is_website_locked(website_id)
+        return await is_website_locked(website_id, owner_id=owner_id)
     except Exception as e:
         logger.error(f"Error checking website lock status: {e}")
         return False
@@ -1016,7 +1022,19 @@ async def subdomain_middleware(request: Request, call_next):
             # SUBSCRIPTION LOCK CHECK — REAL-TIME on every request, never
             # cached. Lock state is a billing-integrity feature: a locked or
             # expired site must never stay visible because of a cache.
-            if await _check_website_lock(website_id):
+            # The lock check and the plan gate below are independent reads
+            # of different tables, so they run concurrently: this path was
+            # five sequential round trips before the first byte of HTML
+            # (830ms on soon.binaapp.my), and these two were the long ones.
+            # Each keeps its own fail-open / fail-closed behaviour; only
+            # the waiting overlaps. The known owner_id is handed to the lock
+            # checker so its fallback skips re-selecting the same row.
+            is_locked, plan_allows = await asyncio.gather(
+                _check_website_lock(website_id, owner_id=owner_id),
+                can_publish_subdomain(owner_id) if owner_id else _always_true(),
+            )
+
+            if is_locked:
                 logger.info(f"[Subdomain] Website {subdomain} is locked")
                 if is_seo_file:
                     return _seo_file_response(path, subdomain, indexable=False)
@@ -1035,7 +1053,7 @@ async def subdomain_middleware(request: Request, call_next):
             # FREE-TIER GATE: refuse to serve sites whose owner's plan
             # doesn't include can_publish_subdomain. Fails closed and is
             # REAL-TIME on every request (deliberately not cached).
-            if owner_id and not await can_publish_subdomain(owner_id):
+            if owner_id and not plan_allows:
                 logger.info(f"[Subdomain] Owner {owner_id} cannot publish subdomain — serving upgrade page for {subdomain}")
                 if is_seo_file:
                     return _seo_file_response(path, subdomain, indexable=False)

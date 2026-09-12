@@ -47,6 +47,25 @@
    * @param {string} candidateId - The website ID to validate
    * @returns {Promise<{valid: boolean, websiteId: string|null, error: string|null}>}
    */
+
+  // One validation per page load, shared between every BinaApp widget on the
+  // page. The chat and delivery widgets each validated the same website_id
+  // against the server independently, so every pageview cost two identical
+  // round trips two seconds apart. A Response body can only be read once, so
+  // what is shared is the parsed result, not the Response.
+  function sharedWidgetValidation(url) {
+    var store = (window.__binaappWidgetValidation = window.__binaappWidgetValidation || {});
+    if (!store[url]) {
+      store[url] = fetch(url).then(function (response) {
+        return response.json().catch(function () { return { error: 'UNKNOWN_ERROR' }; })
+          .then(function (data) { return { ok: response.ok, data: data }; });
+      });
+      // A network failure must not poison the next widget's attempt.
+      store[url].catch(function () { delete store[url]; });
+    }
+    return store[url];
+  }
+
   async function validateWebsiteId(candidateId) {
     // GUARD 1: Reject null/empty IDs
     if (!candidateId || candidateId.trim() === '') {
@@ -62,10 +81,10 @@
 
     try {
       // GUARD 3: Validate against server database (AUTHORITATIVE)
-      const response = await fetch(API_URL + '/api/v1/delivery/validate-widget/' + encodeURIComponent(candidateId.trim()));
+      const result = await sharedWidgetValidation(API_URL + '/api/v1/delivery/validate-widget/' + encodeURIComponent(candidateId.trim()));
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'UNKNOWN_ERROR' }));
+      if (!result.ok) {
+        const errorData = result.data;
         console.error('[BinaApp Chat] VALIDATION FAILED: Server rejected ID:', candidateId, errorData);
 
         // Clear any cached data for this invalid ID to prevent drift
@@ -78,7 +97,7 @@
         };
       }
 
-      const data = await response.json();
+      const data = result.data;
 
       // SUCCESS: Server returned canonical ID from database
       if (data.valid && data.website_id) {

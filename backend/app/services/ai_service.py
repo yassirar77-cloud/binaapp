@@ -8673,6 +8673,15 @@ IMPORTANT INSTRUCTIONS:
             # into WhatsApp; with no OG tags that renders as a bare URL.
             # Runs BEFORE validation so its metadata warnings reflect reality.
             html = self._inject_seo_metadata(html, request, image_urls)
+            # An id-less hero is found by sibling order everywhere else
+            # (layout guards, nav anchors, the video patcher). Name it once.
+            try:
+                from app.services.hero_video_patcher import ensure_hero_id
+                html, _stamped = ensure_hero_id(html)
+                if _stamped:
+                    logger.info("🏷️ Hero section had no id — stamped id=\"home\"")
+            except Exception as _hero_id_err:
+                logger.warning(f"⚠️ Hero id stamp skipped: {_hero_id_err}")
 
         # POST-GENERATION VALIDATION — compares the OUTPUT against the merchant's
         # INPUT. Errors get exactly one repair attempt before being surfaced;
