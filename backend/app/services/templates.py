@@ -387,16 +387,20 @@ class TemplateService:
             logger.info("⏭️ Skipping WhatsApp button injection - already present")
             return html
 
-        # Clean phone number
-        phone_clean = re.sub(r'[^\d+]', '', phone_number)
-        if not phone_clean.startswith('+'):
-            # Assume Malaysian number if no country code
-            if phone_clean.startswith('60'):
-                phone_clean = '+' + phone_clean
-            elif phone_clean.startswith('0'):
-                phone_clean = '+6' + phone_clean
-            else:
-                phone_clean = '+60' + phone_clean
+        # A pulsing green button that opens a chat with a stranger is worse
+        # than no button at all: the merchant loses the customer AND never
+        # finds out. normalize_my_phone_digits returns "" for missing,
+        # malformed and known-example numbers alike (60123456789 was this
+        # pipeline's own default and shipped on live sites).
+        from app.services.generation_validator import normalize_my_phone_digits
+
+        digits = normalize_my_phone_digits(phone_number)
+        if not digits:
+            logger.warning(
+                f"📵 Not rendering the WhatsApp button — unusable number ({phone_number!r})"
+            )
+            return html
+        phone_clean = "+" + digits
 
         whatsapp_html = f"""
 <!-- WhatsApp Floating Button -->
@@ -606,11 +610,13 @@ function checkout() {
   const total = cart.reduce((sum, item) => sum + item.price, 0);
   const message = `Hi! I would like to order:%0A%0A${orderText}%0A%0ATotal: RM ${total.toFixed(2)}`;
 
-  // Get WhatsApp number from button if exists
-  const waButton = document.querySelector('a[href*="wa.me"]');
-  const phoneNumber = waButton ? waButton.href.match(/wa.me\/([^?]+)/)[1] : '60123456789';
+  // Get WhatsApp number from the page's own button. There is no fallback
+  // on purpose: sending the order to an example number loses it silently.
+  const waButton = document.querySelector('a[href*="wa.me/"]');
+  const waMatch = waButton ? waButton.href.match(/wa\.me\/(\d{8,15})/) : null;
+  if (!waMatch) { return; }
 
-  window.open(`https://wa.me/${phoneNumber}?text=${message}`, '_blank');
+  window.open(`https://wa.me/${waMatch[1]}?text=${message}`, '_blank');
 }
 
 // Initialize
@@ -1296,17 +1302,19 @@ function handleContactSubmit(e) {{
         
         logger.info(f"🏢 Business type for delivery system: {business_type}")
         business_name = business_info.get("name", "Our Restaurant")
-        phone_number = business_info.get("phone", "+60123456789")
+        # No example number: an order sent to wa.me/60123456789 is an order
+        # the merchant never sees. "" disables the WhatsApp hand-off in the
+        # ordering script (DELIVERY_WHATSAPP guards on it) and leaves the
+        # backend order API — which is the real path anyway — untouched.
+        from app.services.generation_validator import normalize_my_phone_digits
 
-        # Clean phone for WhatsApp
-        phone_clean = re.sub(r'[^\d+]', '', phone_number)
-        if not phone_clean.startswith('+'):
-            if phone_clean.startswith('60'):
-                phone_clean = '+' + phone_clean
-            elif phone_clean.startswith('0'):
-                phone_clean = '+6' + phone_clean
-            else:
-                phone_clean = '+60' + phone_clean
+        _phone_digits = normalize_my_phone_digits(business_info.get("phone"))
+        if not _phone_digits and business_info.get("phone"):
+            logger.warning(
+                f"📵 Ordering system: unusable phone {business_info.get('phone')!r} "
+                "— WhatsApp hand-off disabled"
+            )
+        phone_clean = ("+" + _phone_digits) if _phone_digits else ""
 
         # Extract payment data for QR payment support
         payment_data = business_info.get("payment", {})
@@ -3651,7 +3659,7 @@ __BINAAPP_WIDGET_THEME_VARS__
         # Delivery System handling
         if "delivery_system" in features or user_data.get("delivery"):
             website_id = user_data.get("website_id", "")
-            whatsapp = user_data.get("phone", "+60123456789")
+            whatsapp = user_data.get("phone") or ""
             primary_color = user_data.get("primary_color", WIDGET_FALLBACK_PRIMARY_DARK)
             menu_items = user_data.get("menu_items", [])
             delivery_zones = user_data.get("delivery_zones", [])
@@ -3704,7 +3712,7 @@ __BINAAPP_WIDGET_THEME_VARS__
                     delivery_zones,
                     {
                         "name": user_data.get("business_name", "Our Business"),
-                        "phone": user_data.get("phone", "+60123456789"),
+                        "phone": user_data.get("phone") or "",
                         "payment": payment_data  # Pass payment data for QR support
                     },
                     business_type=business_type,
@@ -3725,6 +3733,23 @@ __BINAAPP_WIDGET_THEME_VARS__
                 )
             else:
                 logger.warning("Delivery system requested but no menu_items and no website_id - skipping")
+
+        # Dead-control sweep. Runs LAST, after every widget is in place, so a
+        # "WhatsApp Kami" button is judged against the wa.me link the injector
+        # just added rather than removed a step too early. Removes social
+        # icons the merchant ticked but never gave a URL for, re-points
+        # WhatsApp-labelled buttons that scroll to a section instead, and
+        # unwraps anchors pointing at ids the document never defines.
+        try:
+            from app.services.link_guard import strip_dead_links
+
+            html, link_report = strip_dead_links(html)
+            if link_report.changed:
+                logger.info(f"🔗 Dead links swept: {link_report.summary()}")
+                for label in link_report.removed:
+                    logger.info(f"   ✂️ removed control with no destination: {label!r}")
+        except Exception as link_err:
+            logger.warning(f"⚠️ Dead-link sweep skipped: {link_err}")
 
         # Final layout safety pass - defensive CSS that survives AOS failures,
         # broken contact-section HTML from AI truncation, and mixed-image menu grids.

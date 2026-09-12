@@ -710,6 +710,33 @@ def _check_contrast(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
     ]
 
 
+def _check_dead_links(html: str, brief: GenerationBrief) -> List[ValidationIssue]:
+    """12. Controls that lead nowhere — WARNING.
+
+    link_guard removes these during injection, so anything still here is
+    either a path that skipped injection or a case the sweep does not cover.
+    Reported so that gap is visible rather than assumed closed.
+    """
+    from app.services.link_guard import document_anchor_ids
+
+    anchor_ids = document_anchor_ids(html or "")
+    dead: List[str] = []
+    for attrs in re.findall(r"<a\b([^>]*)>", _strip_scripts(html or ""), re.IGNORECASE):
+        match = re.search(r"""href\s*=\s*(["\'])(.*?)\1""", attrs, re.IGNORECASE | re.DOTALL)
+        href = (match.group(2) if match else "").strip()
+        if not href or href in ("#", "#!") or href.lower().startswith("javascript:"):
+            dead.append(href or "(no href)")
+        elif href.startswith("#") and len(href) > 1 and href[1:] not in anchor_ids:
+            dead.append(href)
+    if not dead:
+        return []
+    return [ValidationIssue(
+        "dead_link",
+        f"{len(dead)} link(s) lead nowhere",
+        ", ".join(sorted(set(dead))[:8]),
+    )]
+
+
 _ERROR_CHECKS = (
     _check_placeholder_contacts,
     _check_derived_item_names,
@@ -725,6 +752,7 @@ _WARNING_CHECKS = (
     _check_language_consistency,
     _check_invented_metrics,
     _check_contrast,
+    _check_dead_links,
 )
 
 

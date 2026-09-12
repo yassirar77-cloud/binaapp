@@ -842,7 +842,7 @@ Requirements:
 1. <!DOCTYPE html> with <script src="https://cdn.tailwindcss.com"></script>
 2. Mobile responsive
 3. Sections: Header, Hero, About, Services (3 cards), Gallery (4 DIFFERENT images), Contact, Footer
-4. WhatsApp button: <a href="https://wa.me/60123456789">WhatsApp</a>
+4. Do NOT write a WhatsApp link, phone number or email address anywhere. Contact CTAs are injected after generation from the merchant's real details; an example number here ships as a live button to a stranger.
 
 Output ONLY complete HTML."""
 
@@ -1657,7 +1657,7 @@ Requirements:
 1. <!DOCTYPE html> with <script src="https://cdn.tailwindcss.com"></script>
 2. Mobile responsive
 3. Sections: Header, Hero, About, Services (3 cards), Gallery (4 DIFFERENT images), Contact, Footer
-4. WhatsApp button: <a href="https://wa.me/60123456789">WhatsApp</a>
+4. Do NOT write a WhatsApp link, phone number or email address anywhere. Contact CTAs are injected after generation from the merchant's real details; an example number here ships as a live button to a stranger.
 
 Output ONLY complete HTML."""
 
@@ -1813,7 +1813,7 @@ Requirements:
 1. <!DOCTYPE html> with <script src="https://cdn.tailwindcss.com"></script>
 2. Mobile responsive
 3. Sections: Header, Hero, About, Services (3 cards), Gallery (4 DIFFERENT images), Contact, Footer
-4. WhatsApp button: <a href="https://wa.me/60123456789">WhatsApp</a>
+4. Do NOT write a WhatsApp link, phone number or email address anywhere. Contact CTAs are injected after generation from the merchant's real details; an example number here ships as a live button to a stranger.
 
 Output ONLY complete HTML."""
 
@@ -1887,6 +1887,7 @@ async def run_generation_task(
     social_media: Optional[dict] = None,
     payment: Optional[dict] = None,
     business_name: Optional[str] = None,
+    whatsapp_number: Optional[str] = None,
     language: str = "ms",
     image_choice: str = "none",
     color_mode: str = "light",
@@ -1923,6 +1924,25 @@ async def run_generation_task(
         whatsapp_enabled = True
         if isinstance(selected_features, dict) and "whatsapp" in selected_features:
             whatsapp_enabled = bool(selected_features.get("whatsapp"))
+
+        # A WhatsApp CTA is worth exactly as much as the number behind it.
+        # This used to be hardcoded to "+60123456789" whenever the feature was
+        # on, so every generated site shipped a pulsing green button that
+        # opened a chat with a stranger. No usable number now means no button,
+        # no floating widget and no WhatsApp section — an absent CTA costs a
+        # conversion, a wrong one costs the merchant their customer.
+        from app.services.generation_validator import normalize_my_phone_digits
+
+        _wa_raw = whatsapp_number
+        if not _wa_raw and isinstance(delivery, dict):
+            _wa_raw = delivery.get("phone")
+        wa_digits = normalize_my_phone_digits(_wa_raw)
+        if whatsapp_enabled and not wa_digits:
+            logger.warning(
+                "📵 WhatsApp requested but no usable number supplied "
+                f"(raw={_wa_raw!r}) — rendering no WhatsApp CTA"
+            )
+            whatsapp_enabled = False
 
         # Normalize image choice so "upload without uploads" becomes "none"
         # An entry only counts as an upload if it actually carries a URL.
@@ -1984,7 +2004,7 @@ async def run_generation_task(
             language=Language.MALAY if lang == "ms" else Language.ENGLISH,
             subdomain="preview",
             include_whatsapp=whatsapp_enabled,
-            whatsapp_number="+60123456789" if whatsapp_enabled else None,
+            whatsapp_number=wa_digits or None,
             include_maps=False,
             # The address the merchant typed. Was hardcoded to "" — the prompt's
             # "use EXACTLY, do not invent" address line only exists when this
@@ -2104,12 +2124,19 @@ async def run_generation_task(
         # primary key of the persisted draft `websites` row, so the delivery/
         # chat widget validation resolves against a real row.
         generated_website_id = str(uuid.uuid4())
-        actual_business_name = business_name or "Business"
+        actual_business_name = resolved_name
         logger.info(f"✅ Generated website_id for background job: {generated_website_id}")
 
         # Inject all selected integrations (delivery, WhatsApp, maps, contact, chat widget).
         try:
             delivery_cfg = delivery or None
+
+            # Same rule as the page itself: a real number or nothing. "" here
+            # makes inject_integrations skip every phone-backed widget rather
+            # than wire them to an example number.
+            phone_number = wa_digits or normalize_my_phone_digits(
+                (delivery_cfg or {}).get("phone")
+            )
 
             # Features list for TemplateService (expects "delivery_system" token)
             features_list = []
@@ -2121,7 +2148,7 @@ async def run_generation_task(
                 features_list.append("contact")
             if selected_features.get("socialMedia"):
                 features_list.append("social")
-            if whatsapp_enabled:
+            if whatsapp_enabled and phone_number:
                 features_list.append("whatsapp")
 
             # Build menu items from uploaded images (matches frontend format: [{url,name,price}, ...])
@@ -2231,11 +2258,6 @@ async def run_generation_task(
             # ("Restoran mamak buka"), which is how the widgets ended up
             # disagreeing with the page they were injected into.
             actual_business_name = resolved_name
-
-            # Get phone number from delivery config if available
-            phone_number = "+60123456789"
-            if delivery_cfg and delivery_cfg.get("phone"):
-                phone_number = delivery_cfg.get("phone")
 
             # website_id for the delivery widget is generated_website_id, hoisted
             # above so inject_ordering_system always receives a valid id (without
@@ -2479,6 +2501,15 @@ async def start_generation(request: Request):
     social_media = body.get("social_media") or None
     payment = body.get("payment") or None  # Payment methods (cod, qr, qr_image)
     business_name = body.get("business_name") or body.get("businessName") or None  # Actual business name
+    # The number every WhatsApp CTA on the page will point at. No usable
+    # number means no CTA at all — see run_generation_task.
+    whatsapp_number = (
+        body.get("whatsapp_number")
+        or body.get("whatsappNumber")
+        or body.get("whatsapp")
+        or body.get("phone")
+        or (delivery.get("phone") if isinstance(delivery, dict) else None)
+    )
     language = body.get("language") or "ms"
 
     # A site is never named by a fallback. The merchant's own name wins; when
@@ -2891,6 +2922,7 @@ MANDATORY REQUIREMENTS:
         social_media,
         payment,
         business_name,
+        whatsapp_number,
         language,
         image_choice=image_choice,
         color_mode=color_mode,
