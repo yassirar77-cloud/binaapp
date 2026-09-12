@@ -608,6 +608,21 @@ async def publish_website(
             api_url="https://binaapp-backend.onrender.com"
         )
 
+        # The page was generated with subdomain="preview" baked into og:url
+        # and the JSON-LD node, and with no canonical link. Point it at the
+        # host it is about to live on, and give it a favicon and theme
+        # colour if it has none. Idempotent, so a republish is a no-op.
+        try:
+            from app.services.seo_metadata import finalize_published_seo
+
+            html_content = finalize_published_seo(
+                html_content,
+                f"https://{request.subdomain}.binaapp.my",
+                business_name=request.project_name or "",
+            )
+        except Exception as _seo_err:
+            logger.warning(f"🔎 Publish SEO finalisation skipped: {_seo_err}")
+
         # Upload to Supabase Storage with retry logic
         logger.info(f"📤 Uploading to Supabase Storage: {request.user_id}/{request.subdomain}/index.html")
 

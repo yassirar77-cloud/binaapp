@@ -3707,6 +3707,25 @@ async def publish_website(
             except Exception as _hv_err:
                 logger.warning(f"🎬 [PUBLISH] prepared hero video skipped: {_hv_err}")
 
+        # ── Metadata that only the publish step can know ──────────────
+        # The page was generated with subdomain="preview", so it still says
+        # it lives at preview.binaapp.my in og:url and in the JSON-LD node,
+        # and carries no canonical link at all. Shared to WhatsApp, that
+        # unfurls the preview host instead of the merchant's own site.
+        # Point it at where it actually lives, add the geo the map step just
+        # resolved, and give it a favicon and theme colour.
+        try:
+            from app.services.seo_metadata import finalize_published_seo
+
+            html_content = finalize_published_seo(
+                html_content,
+                f"https://{subdomain}.binaapp.my",
+                business_name=body.get("project_name") or body.get("business_name") or "",
+                geo=map_geo,
+            )
+        except Exception as _seo_err:
+            logger.warning(f"🔎 Publish SEO finalisation skipped: {_seo_err}")
+
         delivery_enabled = bool(features.get("deliverySystem")) or bool(delivery)
 
         # CRITICAL FIX: ALWAYS create database record BEFORE storage upload
