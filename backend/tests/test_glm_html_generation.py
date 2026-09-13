@@ -339,6 +339,15 @@ def _neutralize_post_processing(service):
 
 
 class TestGlmFallbackChain:
+    """Provider fallback ordering. The two-pass plan step (its own model
+    call before the HTML call) is pinned OFF here so the assertions stay
+    about the HTML providers; the plan path is covered in
+    test_two_pass_generation.py."""
+
+    @pytest.fixture(autouse=True)
+    def _plan_step_off(self, monkeypatch):
+        monkeypatch.setenv("AI_DESIGN_PLAN_ENABLED", "false")
+
 
     @pytest.mark.asyncio
     async def test_glm_failure_falls_back_to_deepseek(self, glm_service, monkeypatch):

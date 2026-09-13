@@ -364,6 +364,14 @@ def _wire(service, html_return=VALID_HTML):
 
 
 class TestGenerateWebsiteWiring:
+    """The concept step is the pre-plan path. Two-pass generation
+    (AI_DESIGN_PLAN_ENABLED, default on) replaces it and is covered in
+    test_two_pass_generation.py; these tests pin the plan step OFF."""
+
+    @pytest.fixture(autouse=True)
+    def _plan_step_off(self, monkeypatch):
+        monkeypatch.setenv("AI_DESIGN_PLAN_ENABLED", "false")
+
     @pytest.mark.asyncio
     async def test_designer_mode_runs_concept_and_passes_it_to_the_prompt(self, service, monkeypatch):
         monkeypatch.setattr(ai_service_module, "USE_GLM_FOR_HTML", False)

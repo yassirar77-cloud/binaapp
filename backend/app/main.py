@@ -1904,6 +1904,9 @@ async def run_generation_task(
     hero_image_prompt: Optional[str] = None,
     menu_items: Optional[list] = None,
     show_prices: bool = True,
+    hero_video: bool = False,
+    opening_hours: Optional[str] = None,
+    multi_style: bool = False,
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -2010,7 +2013,20 @@ async def run_generation_task(
             subdomain="preview",
             include_whatsapp=whatsapp_enabled,
             whatsapp_number=wa_digits or None,
-            include_maps=False,
+            # The map itself is a widget injected after generation; the flag
+            # tells the prompt to leave the slot (Google Maps ON) or to render
+            # address text only (OFF). Feature OFF = no map anywhere.
+            include_maps=bool((selected_features or {}).get("googleMap")),
+            include_contact_form=bool((selected_features or {}).get("contactForm")),
+            include_social=bool((selected_features or {}).get("socialMedia")) and bool(social_media),
+            social_media=(social_media if isinstance(social_media, dict) else None),
+            payment_methods=[
+                key for key, on in (("cod", (payment or {}).get("cod")), ("qr", (payment or {}).get("qr")))
+                if isinstance(payment, dict) and on
+            ] or None,
+            hero_video=bool(hero_video),
+            opening_hours=opening_hours,
+            multi_style=bool(multi_style),
             # The address the merchant typed. Was hardcoded to "" — the prompt's
             # "use EXACTLY, do not invent" address line only exists when this
             # is set, so the model was reading the address out of the prose.
@@ -2629,6 +2645,18 @@ async def start_generation(request: Request):
     # 'Senarai Harga'. Read into selected_features and then dropped: the only
     # handler for it lives in a module that is never mounted.
     show_prices = bool((body.get("features") or {}).get("priceList", True))
+    # Designer-grade generation reads three more existing create-page
+    # controls (no new form fields): the hero-video toggle, the
+    # multi-style preview toggle, and the hours text if the form sent one.
+    hero_video_wanted = bool(body.get("hero_video") or body.get("heroVideo"))
+    multi_style = bool(body.get("multi_style") or body.get("multiStyle"))
+    opening_hours = (
+        body.get("opening_hours") or body.get("openingHours")
+        or ((body.get("delivery") or {}).get("hours") if isinstance(body.get("delivery"), dict) else None)
+        or None
+    )
+    if opening_hours is not None:
+        opening_hours = str(opening_hours).strip()[:200] or None
 
     # Get dish names from request
     dish_names = body.get("dish_names", [])
@@ -2945,6 +2973,9 @@ MANDATORY REQUIREMENTS:
         hero_image_prompt=hero_image_prompt,
         menu_items=supplied_menu_items,
         show_prices=show_prices,
+        hero_video=hero_video_wanted,
+        opening_hours=opening_hours,
+        multi_style=multi_style,
     ))
 
     logger.info(f"🚀 Job started: {job_id}")

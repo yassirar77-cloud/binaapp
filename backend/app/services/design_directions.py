@@ -81,6 +81,14 @@ BODY_FONTS: Dict[str, Dict[str, str]] = {
 }
 
 ALLOWED_FONTS: Dict[str, Dict[str, str]] = {**DISPLAY_FONTS, **BODY_FONTS}
+
+#: CSS fallback stack per class — what shows while (or if) the webfont never arrives.
+FONT_FALLBACKS_FOR: Dict[str, str] = {
+    "serif": "Georgia, 'Times New Roman', serif",
+    "grotesk": "system-ui, -apple-system, 'Segoe UI', sans-serif",
+    "humanist": "system-ui, -apple-system, 'Segoe UI', sans-serif",
+    "rounded": "'Trebuchet MS', system-ui, sans-serif",
+}
 _FONT_LOOKUP = {name.lower(): name for name in ALLOWED_FONTS}
 
 #: Modular type scales the plan may name. Anything else is snapped to the

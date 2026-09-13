@@ -36,6 +36,17 @@ from app.services.design_director import (
     parse_concept,
     resolve_design_freedom,
 )
+from app.services.design_plan import (
+    DesignPlan,
+    PlanBrief,
+    build_plan_prompt,
+    candidates_for,
+    fallback_plan,
+    parse_plans,
+    resolve_theme,
+)
+from app.services import design_plan_store
+from app.services import designer_prompt_blocks as dpb
 from app.services.widget_catalogue import (
     widgets_for_request,
     build_prompt_context_block,
@@ -232,6 +243,26 @@ DESIGN_REVIEW_MAX_TOKENS = int(os.getenv("DESIGN_REVIEW_MAX_TOKENS", "2000"))
 AI_DESIGN_CONCEPT_TIMEOUT_SECONDS = float(os.getenv("AI_DESIGN_CONCEPT_TIMEOUT_SECONDS", "75"))
 AI_DESIGN_CONCEPT_MAX_TOKENS = int(os.getenv("AI_DESIGN_CONCEPT_MAX_TOKENS", "2200"))
 AI_DESIGN_CONCEPT_TEMPERATURE = float(os.getenv("AI_DESIGN_CONCEPT_TEMPERATURE", "0.8"))
+
+# Two-pass generation (design_plan.py). Pass 1 writes a validated DESIGN
+# PLAN — a direction from the library, palette, type pairing, hero
+# treatment, ONE signature element — and Pass 2 builds the HTML against it
+# as a binding spec. Default ON; flip off to fall back to the older
+# free-form concept step. The plan step never fails a generation: a slow,
+# unavailable or unparseable model reply yields the deterministic library
+# plan, which passes the same validation.
+AI_DESIGN_PLAN_ENABLED = os.getenv("AI_DESIGN_PLAN_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+AI_DESIGN_PLAN_TIMEOUT_SECONDS = float(os.getenv("AI_DESIGN_PLAN_TIMEOUT_SECONDS", "60"))
+AI_DESIGN_PLAN_MAX_TOKENS = int(os.getenv("AI_DESIGN_PLAN_MAX_TOKENS", "1800"))
+PLAN_SYSTEM_PROMPT = (
+    "You are a senior designer writing the design plan for a client's website. "
+    "Respond with ONLY the JSON asked for — no markdown fences, no prose."
+)
+
+
+def design_plan_enabled() -> bool:
+    raw = os.getenv("AI_DESIGN_PLAN_ENABLED", "true").strip().lower()
+    return raw in ("1", "true", "yes", "on")
 
 # System prompt for the DeepSeek HTML call in designer mode. The guided-mode
 # prompt ("follow constraints exactly") is kept verbatim as the default of
@@ -818,6 +849,10 @@ class AIService:
         # Senior-Designer-mode generation, for logs/diagnostics. None when
         # the last build ran guided or the concept step was skipped/failed.
         self._last_design_concept: Optional[Dict] = None
+        # The validated design PLAN (Pass 1) from the most recent two-pass
+        # generation, plus its critique/lint results once the gate has run.
+        self._last_design_plan: Optional[Dict] = None
+        self._last_plan_gate: Optional[Dict] = None
         self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
         self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-v4-pro")
         # GLM / Z.ai — primary HTML generator when USE_GLM_FOR_HTML is on.
@@ -3730,6 +3765,30 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         "60111111111", "60000000000", "1234567890", "60123456780",
     })
 
+    @staticmethod
+    def _gallery_image_count(request) -> int:
+        """Uploaded photos that are neither the hero nor a named menu item —
+        the only images a gallery section may be built from (§5)."""
+        uploaded = getattr(request, "uploaded_images", None) or []
+        item_names = {
+            (getattr(i, "name", None) or (i.get("name") if isinstance(i, dict) else "") or "").strip().lower()
+            for i in (getattr(request, "menu_items", None) or [])
+        }
+        count = 0
+        for img in uploaded:
+            if not isinstance(img, dict):
+                count += 1
+                continue
+            name = str(img.get("name") or "").strip()
+            if "hero" in name.lower():
+                continue
+            if name and name.lower() in item_names:
+                continue
+            if name and (img.get("price") or "").strip():
+                continue
+            count += 1
+        return count
+
     @classmethod
     def _normalize_wa_digits(cls, raw: Optional[str]) -> str:
         """Malaysian WhatsApp number → digits-only, or '' when unusable.
@@ -3923,6 +3982,149 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             logger.warning(f"🎨 Concept step failed ({err}) — using the seeded design system")
         return None
 
+    # ------------------------------------------------------------------
+    # Two-pass generation — Pass 1: the design plan
+    # ------------------------------------------------------------------
+    def _plan_brief_for(
+        self,
+        request: WebsiteGenerationRequest,
+        *,
+        color_mode: str,
+        has_images: bool,
+        image_count: int,
+        design_brief: Optional[str],
+        language: str,
+        image_colours: Optional[List[str]] = None,
+        hero_full_bleed_ok: bool = True,
+        gallery_count: int = 0,
+    ) -> PlanBrief:
+        """Map the create form (§0) onto the Pass 1 brief. Every explicit
+        merchant choice becomes a hard constraint; only untouched choices
+        fall back to the library defaults."""
+        desc = request.description or ""
+        explicit = normalize_business_type(getattr(request, "business_type", None))
+        if explicit:
+            vertical, vertical_source = explicit, "merchant"
+        else:
+            try:
+                vertical = detect_business_type(f"{request.business_name} {desc}")
+            except Exception:
+                vertical = "general"
+            vertical_source = "auto"
+        theme, theme_source, theme_note = resolve_theme(color_mode, design_brief)
+        style = (getattr(request, "design_style", None) or "").strip().lower() or None
+        freedom = resolve_design_freedom(getattr(request, "design_freedom", None), template_id=getattr(request, "template_id", None))
+        wa_digits = self._normalize_wa_digits(getattr(request, "whatsapp_number", None))
+        items = self._normalize_supplied_menu_items(getattr(request, "menu_items", None))
+        brand_colors = None
+        raw_brand = getattr(request, "colors", None)
+        if isinstance(raw_brand, dict):
+            brand_colors = {
+                k: str(v).strip() for k, v in raw_brand.items()
+                if k in ("primary", "secondary", "accent") and isinstance(v, str)
+                and re.fullmatch(r"#[0-9A-Fa-f]{6}", str(v).strip())
+            } or None
+        payment = [m for m in (getattr(request, "payment_methods", None) or []) if m in ("cod", "qr")]
+        uploaded = getattr(request, "uploaded_images", None) or []
+        menu_has_images = bool(uploaded) and any(
+            isinstance(img, dict) and img.get("name") and "hero" not in str(img.get("name", "")).lower() for img in uploaded
+        )
+        return PlanBrief(
+            business_name=request.business_name,
+            description=desc,
+            vertical=vertical,
+            vertical_source=vertical_source,
+            language=language,
+            theme=theme,
+            theme_source=theme_source,
+            theme_note=theme_note,
+            style=style,
+            design_brief=design_brief,
+            freedom=freedom,
+            brand_colors=brand_colors,
+            image_colours=list(image_colours or []),
+            has_hero_image=bool(has_images and image_count),
+            hero_full_bleed_ok=hero_full_bleed_ok,
+            hero_video=bool(getattr(request, "hero_video", False)),
+            menu_item_count=len(items),
+            menu_has_images=menu_has_images,
+            gallery_count=gallery_count,
+            whatsapp=bool(getattr(request, "include_whatsapp", True) and wa_digits),
+            maps=bool(getattr(request, "include_maps", True)),
+            delivery=bool(getattr(request, "include_ecommerce", False)),
+            contact_form=bool(getattr(request, "include_contact_form", True)),
+            social=bool(getattr(request, "include_social", False)),
+            show_prices=bool(getattr(request, "show_prices", True)),
+            payment_methods=payment,
+            address=(getattr(request, "location_address", None) or "").strip() or None,
+            hours=(getattr(request, "opening_hours", None) or "").strip() or None,
+            include_ecommerce=bool(getattr(request, "include_ecommerce", False)),
+        )
+
+    async def _direct_design_plan(
+        self,
+        brief: PlanBrief,
+        *,
+        n_plans: int = 1,
+        history: Optional[List[str]] = None,
+    ) -> List[DesignPlan]:
+        """Pass 1. Always returns at least one validated plan: the model's
+        (validated and repaired) when it answers in time, otherwise the
+        deterministic library plan. Never raises."""
+        if history is None:
+            try:
+                history = await design_plan_store.recent_directions(brief.vertical)
+            except Exception:
+                history = []
+        candidates = candidates_for(brief, history)
+        plans: List[DesignPlan] = []
+        try:
+            prompt = build_plan_prompt(brief, candidates, history, n_plans=n_plans)
+            logger.info(
+                f"🎨 Plan step: vertical={brief.vertical} ({brief.vertical_source}) theme={brief.theme} ({brief.theme_source}) "
+                f"style={brief.style or 'auto'} freedom={brief.freedom} candidates={[d.key for d in candidates[:6]]} "
+                f"history={history} cap {AI_DESIGN_PLAN_TIMEOUT_SECONDS:.0f}s"
+            )
+            raw = await asyncio.wait_for(
+                self._call_plan_model(prompt), timeout=AI_DESIGN_PLAN_TIMEOUT_SECONDS
+            )
+            if raw:
+                plans = parse_plans(raw, brief, candidates, history, n_plans=n_plans)
+            if not plans:
+                logger.warning("🎨 Plan step returned no usable JSON — using the library plan")
+        except asyncio.TimeoutError:
+            logger.warning(f"🎨 Plan step timed out after {AI_DESIGN_PLAN_TIMEOUT_SECONDS:.0f}s — using the library plan")
+        except Exception as err:
+            logger.warning(f"🎨 Plan step failed ({err}) — using the library plan")
+        used = [p.direction for p in plans]
+        while len(plans) < n_plans:
+            plans.append(fallback_plan(brief, candidates, list(history) + used, variant=len(plans)))
+            used.append(plans[-1].direction)
+        for plan in plans:
+            logger.info(f"🎨 Plan: {json.dumps(plan.as_dict(), ensure_ascii=False)[:1500]}")
+        self._last_design_plan = plans[0].as_dict()
+        return plans
+
+    async def _call_plan_model(self, prompt: str) -> Optional[str]:
+        """Same providers as the concept step, plan system prompt, thinking OK."""
+        raw = None
+        if self.deepseek_api_key:
+            raw = await self._call_deepseek(
+                prompt,
+                temperature=AI_DESIGN_CONCEPT_TEMPERATURE,
+                model=self.deepseek_model,
+                system_prompt=PLAN_SYSTEM_PROMPT,
+                max_tokens=AI_DESIGN_PLAN_MAX_TOKENS,
+            )
+        if not raw and USE_GLM_FOR_HTML and self.zai_api_key:
+            raw = await self._call_glm(
+                prompt,
+                temperature=AI_DESIGN_CONCEPT_TEMPERATURE,
+                system_prompt=PLAN_SYSTEM_PROMPT,
+                max_tokens=AI_DESIGN_PLAN_MAX_TOKENS,
+            )
+        return raw
+
     def _build_strict_prompt(
         self,
         name: str,
@@ -3947,6 +4149,13 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         design_brief: Optional[str] = None,
         design_freedom: str = "guided",
         concept: Optional[DesignConcept] = None,
+        plan: Optional[DesignPlan] = None,
+        hero_video: bool = False,
+        include_social: bool = False,
+        social_media: Optional[dict] = None,
+        payment_methods: Optional[list] = None,
+        opening_hours: Optional[str] = None,
+        gallery_count: int = 0,
     ) -> str:
         """Build the HTML generation prompt.
 
@@ -3976,11 +4185,16 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         # (no concept) path still honours them.
         _design_text = f"{desc}\n{design_brief}" if design_brief else desc
 
-        # Detect business type and get design type
-        try:
-            detected_biz_type = detect_business_type(desc)
-        except Exception:
-            detected_biz_type = "general"
+        # Detect business type and get design type. With a plan the
+        # vertical is already resolved (merchant pick, else classifier).
+        if plan is not None:
+            detected_biz_type = plan.vertical
+        else:
+            try:
+                detected_biz_type = detect_business_type(desc)
+            except Exception:
+                detected_biz_type = "general"
+        plan_mode = plan is not None and designer_mode
 
         design_type = get_design_type(detected_biz_type, desc)
 
@@ -4018,7 +4232,25 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             # the one exception — it is an explicit merchant pick whose
             # hand-drawn fonts and drawing directives must survive, so the
             # concept block is ADDED to the doodle personality, not swapped in.
-            if designer_mode and concept is not None:
+            if plan_mode:
+                # Two-pass: the PLAN is the binding spec. Its palette and
+                # fonts become the page tokens; the seeded personality,
+                # AOS animation rules and card patterns are dropped — they
+                # are the template tells the plan exists to avoid.
+                fonts = plan.font_pairing()
+                palette = {**palette, **plan.concept_palette()}
+                tw_config = build_tailwind_config(palette, fonts)
+                personality_block = plan.to_prompt_block(language)
+                user_design_block = ""
+                animations = ""
+                typography = dpb.typography_block(plan)
+                design_patterns = ""
+                logger.info(
+                    f"🎨 Plan '{plan.direction_name}' applied: fonts={fonts.get('heading')}/{fonts.get('body')}, "
+                    f"bg={palette.get('background')} accent={palette.get('primary')} hero={plan.hero_treatment} "
+                    f"sections={plan.sections} source={plan.source}"
+                )
+            elif designer_mode and concept is not None:
                 _is_doodle = bundle["personality"].get("key") == "doodle_cartoon"
                 if not _is_doodle:
                     fonts = DesignSystem._build_font_cdn(concept.fonts)
@@ -4313,6 +4545,8 @@ LIGHT MODE STYLING:
 
         # ---- STYLE-SPECIFIC ADDITIONS ----
         style_note = ""
+        if plan is not None:
+            style = "plan"  # the plan states the style; the legacy notes below do not apply
         if style == "minimal":
             style_note = """STYLE NOTE - MINIMAL:
 - Keep the design system colors but use them sparingly
@@ -4551,7 +4785,9 @@ The merchant did NOT provide {_noun} items, and none could be read from the desc
         # concept (no HTML skeleton at all). Designer without a concept: the
         # blueprint is offered as one proven option, not a mandate.
         _hero_blueprint = ""
-        if designer_mode and concept is not None:
+        if plan_mode:
+            _hero_blueprint = ""  # the hero contract lives in the SECTION STANDARDS block below
+        elif designer_mode and concept is not None:
             _hero_pattern = concept.hero_pattern or "your choice"
             _hero_idea = concept.hero_description or "as described in your concept"
             _hero_blueprint = f"""===== HERO (DESIGN IT YOURSELF — pattern from your concept: {_hero_pattern.upper()}) =====
@@ -4612,7 +4848,29 @@ HERO BLUEPRINT RULES:
             _house_rules_preface = ""
 
         # ---- LAYOUT ----
-        if designer_mode:
+        if plan_mode:
+            _layout_block = dpb.section_standards_block(
+                plan,
+                language=language,
+                has_whatsapp=has_whatsapp_number and include_whatsapp,
+                wa_digits=wa_digits,
+                address=(str(location_address).strip() if location_address and str(location_address).strip() else None),
+                hours=opening_hours,
+                include_maps=include_maps,
+                include_contact_form=include_contact_form,
+                include_social=include_social,
+                socials=social_media if isinstance(social_media, dict) else None,
+                item_count=len(_supplied_items),
+                has_item_images=bool(_supplied_items) and image_choice != "none" and (
+                    bool(user_images) or bool(images)
+                ),
+                show_prices=show_prices,
+                gallery_count=gallery_count,
+                hero_video=hero_video,
+                payment_methods=payment_methods or [],
+            )
+            _flex_block = dpb.ANTI_TEMPLATE_RULES + "\n" + dpb.QUALITY_FLOOR_RULES
+        elif designer_mode:
             if concept is not None:
                 _layout_block = f"""===== PAGE PLAN (from your concept — build these sections in this order) =====
 {concept.section_checklist()}
@@ -4637,7 +4895,13 @@ Reference only — the house layout for a {detected_biz_type} business, in case 
 - Do NOT make every section centered text over a grid of identical cards — vary alignment and structure between sections."""
 
         # ---- CLOSING FREEDOM ----
-        if designer_mode:
+        if plan_mode:
+            _freedom_block = f"""===== PRECEDENCE (when instructions conflict) =====
+1. NON-NEGOTIABLE rules: real business data only, exact image URLs, WhatsApp/phone rules, language, mobile responsiveness, free Font Awesome icons, fonts loaded in the HEAD.
+2. The DESIGN PLAN above and the merchant's explicit picks it encodes (theme, style, brief, feature toggles). You may not change its palette, fonts, hero treatment, signature element or section list.
+3. The ANTI-TEMPLATE RULES and SECTION STANDARDS.
+4. Everything else — composition inside each section, copy tone, hover states, the exact shape of the signature element — is yours: build it the way a senior designer would for {name} specifically. One strong idea executed with craft."""
+        elif designer_mode:
             _freedom_block = f"""{PRECEDENCE_BLOCK}
 
 ===== CREATIVE OWNERSHIP =====
@@ -4646,18 +4910,14 @@ You are not filling a template. Layout, composition, hierarchy, colour usage, de
             _freedom_block = f"""===== CREATIVE FREEDOM =====
 Everything not covered by a hard rule above is yours: micro-layout, decorative details, hover states, section backgrounds, copy tone and personality. Make the site feel INDIVIDUALLY DESIGNED for {name} — like a designer studied this exact business — not assembled from a template. Avoid the generic AI-site look: no endless rows of three identical cards, no every-section-centered monotony. Surprise us — within the rules."""
 
-        # ---- ASSEMBLE PROMPT ----
-        return f"""{_intro}
-
-BUSINESS: {name}
-DESCRIPTION: {desc}
-BUSINESS TYPE: {detected_biz_type.upper()}
-STYLE: {style.upper()}
-COLOR MODE: {color_mode.upper()}
-TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
-DESIGN MODE: {"SENIOR DESIGNER — you own the visual design" if designer_mode else "GUIDED — follow the design system"}
-
-===== HEAD SECTION (MUST INCLUDE ALL) =====
+        # ---- HEAD / BEFORE-BODY CONTRACT ----
+        if plan_mode:
+            _head_block = dpb.head_block(
+                plan, fonts["cdn_link"], tw_config, palette, _accent_fill, _accent_strong,
+                fonts["body"], fonts["body_fallback"],
+            )
+        else:
+            _head_block = f"""===== HEAD SECTION (MUST INCLUDE ALL) =====
 {fonts['cdn_link']}
 <link href="https://unpkg.com/aos@2.3.4/dist/aos.css" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
@@ -4672,6 +4932,43 @@ body {{ background-color: var(--bg-color); font-family: '{fonts['body']}', {font
 ===== BEFORE </body> (MUST INCLUDE) =====
 <script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>
 <script>AOS.init({{ duration: 800, once: true, offset: 100 }}); document.documentElement.classList.add('aos-initialized');</script>
+"""
+
+        if plan_mode:
+            _house_type_block = """LAYOUT RHYTHM — from the plan's layout notes. Alternate section backgrounds with intent (page → surface → one strong band) so the page has a visible beat; vary alignment between sections; never a page of identical centred grids."""
+            _house_colour_block = f"""COLOUR — the plan's palette only. accent ({_accent_fill}) for buttons, prices and the signature element; accent_2 for fills, badges and ONE band; everything else neutral. ACCENT AS TEXT (non-negotiable): any TEXT in an accent colour uses var(--accent-strong) ({_accent_strong}) so it clears 4.5:1.
+{_purple_rule}"""
+            _house_depth_block = """DEPTH — flat by default. Shadows only on the menu/product tiles (one soft shadow, shadow-md) and on the sticky nav. No shadow on about, location, story or contact blocks — they are open layouts."""
+        else:
+            _house_type_block = """TYPE SCALE — use a clear modular scale, never ad-hoc sizes. Keep a strict hierarchy, at most these five steps:
+- Display/hero: 48-72px (3rem-4.5rem), font-bold, tracking-tight, tight leading — prefer FLUID sizing via clamp(), e.g. style="font-size: clamp(2.5rem, 6vw, 4.5rem)"
+- H2 section heading: 32-40px (2rem-2.5rem), font-bold
+- H3 card/title: 20-24px (1.25rem-1.5rem), font-semibold
+- Body: 16-18px (1rem-1.125rem), leading-relaxed
+- Caption/meta: 13-14px, muted colour"""
+            _house_colour_block = f"""COLOUR — ONE dominant colour + ONE accent only:
+- Pick a single dominant brand colour for primary surfaces and CTAs.
+- Use exactly one accent colour for small highlights (badges, links, details).
+- Everything else stays neutral: background, surface, text, borders.
+- Do NOT spread 3+ saturated colours across the page.
+- ACCENT AS TEXT (accessibility, non-negotiable): --accent-color ({_accent_fill}) is a FILL — badges, rules, highlight blocks. Any TEXT set in the accent colour (eyebrow/kicker labels such as "WARISAN KAMI", small-caps section labels, links, prices) MUST use var(--accent-strong) ({_accent_strong}), which is the same hue darkened/lightened to clear 4.5:1 on this page's background and surface. Accent-coloured text at the fill value is unreadable and will be rejected.
+{_purple_rule}"""
+            _house_depth_block = """DEPTH and SHADOWS:
+- Create depth with layered soft shadows (shadow-lg / shadow-xl), subtle borders, and slight elevation on hover.
+- Cards lift on hover. Avoid flat, borderless boxes that blend into the background."""
+
+        # ---- ASSEMBLE PROMPT ----
+        return f"""{_intro}
+
+BUSINESS: {name}
+DESCRIPTION: {desc}
+BUSINESS TYPE: {detected_biz_type.upper()}
+STYLE: {style.upper()}
+COLOR MODE: {color_mode.upper()}
+TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
+DESIGN MODE: {"TWO-PASS — build the DESIGN PLAN below exactly" if plan_mode else ("SENIOR DESIGNER — you own the visual design" if designer_mode else "GUIDED — follow the design system")}
+
+{_head_block}
 
 {_brief_block}
 
@@ -4682,20 +4979,9 @@ body {{ background-color: var(--bg-color); font-family: '{fonts['body']}', {font
 {personality_block}
 
 ===== {_style_heading} =====
-TYPE SCALE — use a clear modular scale, never ad-hoc sizes. Keep a strict hierarchy, at most these five steps:
-- Display/hero: 48-72px (3rem-4.5rem), font-bold, tracking-tight, tight leading — prefer FLUID sizing via clamp(), e.g. style="font-size: clamp(2.5rem, 6vw, 4.5rem)"
-- H2 section heading: 32-40px (2rem-2.5rem), font-bold
-- H3 card/title: 20-24px (1.25rem-1.5rem), font-semibold
-- Body: 16-18px (1rem-1.125rem), leading-relaxed
-- Caption/meta: 13-14px, muted colour
+{_house_type_block}
 
-COLOUR — ONE dominant colour + ONE accent only:
-- Pick a single dominant brand colour for primary surfaces and CTAs.
-- Use exactly one accent colour for small highlights (badges, links, details).
-- Everything else stays neutral: background, surface, text, borders.
-- Do NOT spread 3+ saturated colours across the page.
-- ACCENT AS TEXT (accessibility, non-negotiable): --accent-color ({_accent_fill}) is a FILL — badges, rules, highlight blocks. Any TEXT set in the accent colour (eyebrow/kicker labels such as "WARISAN KAMI", small-caps section labels, links, prices) MUST use var(--accent-strong) ({_accent_strong}), which is the same hue darkened/lightened to clear 4.5:1 on this page's background and surface. Accent-coloured text at the fill value is unreadable and will be rejected.
-{_purple_rule}
+{_house_colour_block}
 
 TYPOGRAPHY — fonts (FONT LOCK, non-negotiable):
 {_font_generic_rule}
@@ -4707,9 +4993,7 @@ SPACING — strict 8px system:
 - Every margin, padding and gap is a multiple of 8px (8 / 16 / 24 / 32 / 48 / 64 / 96).
 - Generous, consistent section rhythm — never cramped.
 
-DEPTH and SHADOWS:
-- Create depth with layered soft shadows (shadow-lg / shadow-xl), subtle borders, and slight elevation on hover.
-- Cards lift on hover. Avoid flat, borderless boxes that blend into the background.
+{_house_depth_block}
 
 ===== INTEGRITY & TECHNICAL RULES (NON-NEGOTIABLE IN EVERY MODE) =====
 STAT / NUMBERS ROWS (hero mini-stats, stats bar) MUST NEVER OVERLAP:
@@ -4908,6 +5192,18 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         "flourishes. Make the site feel individually designed, not "
         "templated. Surprise us — within the rules."
     )
+    # Two-pass mode: the DESIGN PLAN in the prompt is binding, and the
+    # anti-template rules are checked by a linter after generation.
+    _GLM_PROMPT_PLAN_CLAUSE = (
+        "DESIGN PLAN: the prompt carries a validated DESIGN PLAN (direction, "
+        "palette, fonts, hero treatment, one signature element, one motion "
+        "moment, section list) plus ANTI-TEMPLATE RULES and SECTION "
+        "STANDARDS. Build exactly that plan. Do not change its palette, "
+        "fonts, hero treatment, signature element or section list, do not "
+        "load AOS or add data-aos attributes, and do not decorate headlines. "
+        "Everything the plan leaves open — composition inside each section, "
+        "copy tone, hover states — is yours to design for this business."
+    )
     # Senior Designer mode wrappers around the same GOAL → RULES → FREEDOM
     # core (the rules are byte-identical, so the design reviewer, which is
     # composed from the same fragments, stays in sync). The role preface
@@ -5009,6 +5305,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         has_images: bool = True,
         designer_mode: bool = False,
         system_prompt: Optional[str] = None,
+        plan_mode: bool = False,
         max_tokens: Optional[int] = None,
     ) -> Optional[str]:
         """Call GLM (Z.ai) API. Mirrors _call_deepseek: same signature (plus
@@ -5046,7 +5343,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 + self._GLM_PROMPT_RULES_HEAD
                 + (self._GLM_PHOTO_SLOT_CLAUSE if has_images else self._GLM_NO_PHOTO_CLAUSE)
                 + self._GLM_PROMPT_RULES_TAIL
-                + self._GLM_PROMPT_FREEDOM
+                + (self._GLM_PROMPT_PLAN_CLAUSE if plan_mode else self._GLM_PROMPT_FREEDOM)
                 + (self._GLM_PROMPT_DESIGNER_TAIL if designer_mode else "")
             )
         try:
@@ -5294,6 +5591,22 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         except Exception as e:
             logger.error(f"🎨 Design review ❌ {e}")
         return None
+
+    async def _run_plan_gate(
+        self,
+        html: str,
+        *,
+        plan: DesignPlan,
+        prompt: str,
+        has_images: bool,
+        designer_mode: bool,
+        language: str,
+        provider: str = "glm",
+    ) -> str:
+        """Two-pass critique gate (lint + screenshot critique + bounded
+        retries). Implemented in the critique commit; until then the HTML
+        passes through unchanged."""
+        return html
 
     async def _run_premium_design_loop(
         self,
@@ -8175,10 +8488,49 @@ IMPORTANT RULES:
         design_brief = normalize_design_brief(getattr(request, "design_brief", None))
         designer_mode = design_freedom == FREEDOM_DESIGNER
         concept: Optional[DesignConcept] = None
+        plan: Optional[DesignPlan] = None
         self._last_design_concept = None
-        if designer_mode and design_concept_enabled():
+        self._last_design_plan = None
+        self._last_plan_gate = None
+        _ordered_for_concept = self._ordered_prompt_image_urls(image_urls)
+        if designer_mode and not _tpl_id and design_plan_enabled():
+            # Two-pass generation, Pass 1: the design plan. Replaces the
+            # free-form concept step; the plan's concept adapter keeps the
+            # palette/font wiring below unchanged.
+            await update_progress(48, "Designer writing the plan")
+            with _timed_step("design_plan", step_timings):
+                _hero_url = image_urls.get("hero") if isinstance(image_urls, dict) else None
+                _hero_ok, _image_colours = True, []
+                try:
+                    from app.services.image_intelligence import hero_quality, dominant_colours
+                    if _hero_url:
+                        _hero_ok = (await hero_quality(_hero_url)).full_bleed_ok
+                        _image_colours = await dominant_colours([_hero_url] + [
+                            image_urls.get(f"gallery{i}") for i in range(1, 5) if image_urls.get(f"gallery{i}")
+                        ])
+                except Exception as _img_err:
+                    logger.warning(f"🖼️ Image intelligence skipped: {_img_err}")
+                plan_brief = self._plan_brief_for(
+                    request,
+                    color_mode=color_mode,
+                    has_images=(image_choice != "none" and bool(_ordered_for_concept)),
+                    image_count=len(_ordered_for_concept),
+                    design_brief=design_brief,
+                    language=language,
+                    image_colours=_image_colours,
+                    hero_full_bleed_ok=_hero_ok,
+                    gallery_count=self._gallery_image_count(request),
+                )
+                # The resolved theme is the wall for everything downstream
+                # (colour-mode guard included): the brief may have overruled
+                # the toggle.
+                color_mode = "dark" if plan_brief.theme == "dark" else "light"
+                plans = await self._direct_design_plan(plan_brief)
+                plan = plans[0]
+                concept = plan.to_concept(language)
+                self._last_design_concept = concept.as_dict()
+        elif designer_mode and design_concept_enabled():
             await update_progress(48, "Designer drafting the concept")
-            _ordered_for_concept = self._ordered_prompt_image_urls(image_urls)
             with _timed_step("design_concept", step_timings):
                 concept = await self._direct_design_concept(
                     request,
@@ -8190,6 +8542,7 @@ IMPORTANT RULES:
                 )
         logger.info(
             f"🎨 Design freedom: {design_freedom} | brief: {'yes' if design_brief else 'no'} | "
+            f"plan: {plan.direction_name if plan else 'none'} | "
             f"concept: {concept.name if concept else 'none (seeded design system)'}"
         )
 
@@ -8214,6 +8567,14 @@ IMPORTANT RULES:
             design_brief=design_brief,
             design_freedom=design_freedom,
             concept=concept,
+            plan=plan,
+            hero_video=bool(getattr(request, "hero_video", False)),
+            include_contact_form=bool(getattr(request, "include_contact_form", True)),
+            include_social=bool(getattr(request, "include_social", False)),
+            social_media=getattr(request, "social_media", None),
+            payment_methods=getattr(request, "payment_methods", None),
+            opening_hours=getattr(request, "opening_hours", None),
+            gallery_count=self._gallery_image_count(request),
         )
 
         # Add image URLs to prompt with STRONG emphasis.
@@ -8384,6 +8745,7 @@ IMPORTANT INSTRUCTIONS:
                             prompt,
                             has_images=bool(_glm_image_urls),
                             designer_mode=designer_mode,
+                            plan_mode=plan is not None,
                         ),
                         timeout=AI_GLM_TIMEOUT_SECONDS,
                     )
@@ -8399,7 +8761,19 @@ IMPORTANT INSTRUCTIONS:
                 if html_raw and "<" not in html_raw:
                     logger.error("🟣 GLM returned non-HTML output — discarding, falling back to DeepSeek")
                     html_raw = None
-                if html_raw:
+                if html_raw and plan is not None:
+                    # Two-pass critique gate: anti-template lint + screenshot
+                    # critique against the plan; Pass 2 is re-run with the
+                    # notes (max 2 retries) and the best attempt is served.
+                    html_raw = await self._run_plan_gate(
+                        html_raw,
+                        plan=plan,
+                        prompt=prompt,
+                        has_images=bool(_glm_image_urls),
+                        designer_mode=designer_mode,
+                        language=language,
+                    )
+                elif html_raw:
                     # Premium design critique loop (PREMIUM_DESIGN_LOOP, ships
                     # dark): one DeepSeek review + at most one GLM revision.
                     # Runs before PHOTO_SLOT binding so a revision keeps the
@@ -8436,6 +8810,16 @@ IMPORTANT INSTRUCTIONS:
                 )
                 if html_raw:
                     _html_model = self.deepseek_model_pro
+                if html_raw and plan is not None:
+                    html_raw = await self._run_plan_gate(
+                        html_raw,
+                        plan=plan,
+                        prompt=prompt,
+                        has_images=False,
+                        designer_mode=designer_mode,
+                        language=language,
+                        provider="deepseek",
+                    )
 
             if html_raw and self._last_api_call.get("truncated"):
                 api_truncated_provider = self._last_api_call.get("provider")
