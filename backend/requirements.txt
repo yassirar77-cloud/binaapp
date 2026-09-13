@@ -70,3 +70,7 @@ user-agents==2.2.0
 pytest
 pytest-cov
 pytest-asyncio
+# Screenshot rendering for the design critique gate (design_critique.py).
+# The browser itself is installed by build.sh; without it the gate falls
+# back to a text-only critique.
+playwright>=1.45

@@ -23,6 +23,11 @@ os.environ.setdefault("STRIPE_SECRET_KEY", "sk_test_fake")
 os.environ.setdefault("STRIPE_WEBHOOK_SECRET", "whsec_test_fake")
 os.environ.setdefault("DEEPSEEK_API_KEY", "test-deepseek-key")
 os.environ.setdefault("APP_ENV", "testing")
+# The two-pass critique gate renders screenshots and calls a vision model;
+# tests that exercise it patch it explicitly. Everywhere else it stays off
+# so no test reaches for a browser or the network.
+os.environ.setdefault("DESIGN_CRITIQUE_ENABLED", "false")
+os.environ.setdefault("DESIGN_PLAN_STORE_ENABLED", "false")
 
 
 @pytest.fixture

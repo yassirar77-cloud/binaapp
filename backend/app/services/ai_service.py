@@ -36,6 +36,20 @@ from app.services.design_director import (
     parse_concept,
     resolve_design_freedom,
 )
+from app.services.design_plan import (
+    DesignPlan,
+    PlanBrief,
+    build_plan_prompt,
+    candidates_for,
+    fallback_plan,
+    parse_plans,
+    resolve_theme,
+)
+from app.services import design_plan_store
+from app.services import designer_prompt_blocks as dpb
+from app.services.anti_template_lint import lint_anti_template
+from app.services.quality_floor import apply_quality_floor
+from app.services import design_critique
 from app.services.widget_catalogue import (
     widgets_for_request,
     build_prompt_context_block,
@@ -201,6 +215,16 @@ def generation_outer_timeout_seconds(base: float = 180.0) -> float:
     if USE_GLM_FOR_HTML and PREMIUM_DESIGN_LOOP:
         # Two full GLM calls + the review cap + post-processing headroom.
         budget = max(budget, AI_GLM_TIMEOUT_SECONDS * 2 + DESIGN_REVIEW_TIMEOUT_SECONDS + 90.0)
+    if design_plan_enabled():
+        # Plan step + first HTML call + up to DESIGN_GATE_MAX_RETRIES
+        # regenerations, each followed by a critique (screenshot + vision).
+        html_cap = AI_GLM_TIMEOUT_SECONDS if USE_GLM_FOR_HTML else AI_PRIMARY_TIMEOUT_SECONDS
+        per_attempt = DESIGN_CRITIQUE_TIMEOUT_SECONDS + design_critique.SCREENSHOT_TIMEOUT_SECONDS + 10.0
+        budget = max(
+            budget,
+            AI_DESIGN_PLAN_TIMEOUT_SECONDS + html_cap * (1 + DESIGN_GATE_MAX_RETRIES)
+            + per_attempt * (1 + DESIGN_GATE_MAX_RETRIES) + 90.0,
+        )
     if image_provider() == "zai":
         # Serialized Z.ai images add up to the phase budget, plus one
         # in-flight image admitted just before the budget ran out (its own
@@ -232,6 +256,43 @@ DESIGN_REVIEW_MAX_TOKENS = int(os.getenv("DESIGN_REVIEW_MAX_TOKENS", "2000"))
 AI_DESIGN_CONCEPT_TIMEOUT_SECONDS = float(os.getenv("AI_DESIGN_CONCEPT_TIMEOUT_SECONDS", "75"))
 AI_DESIGN_CONCEPT_MAX_TOKENS = int(os.getenv("AI_DESIGN_CONCEPT_MAX_TOKENS", "2200"))
 AI_DESIGN_CONCEPT_TEMPERATURE = float(os.getenv("AI_DESIGN_CONCEPT_TEMPERATURE", "0.8"))
+
+# Two-pass generation (design_plan.py). Pass 1 writes a validated DESIGN
+# PLAN — a direction from the library, palette, type pairing, hero
+# treatment, ONE signature element — and Pass 2 builds the HTML against it
+# as a binding spec. Default ON; flip off to fall back to the older
+# free-form concept step. The plan step never fails a generation: a slow,
+# unavailable or unparseable model reply yields the deterministic library
+# plan, which passes the same validation.
+AI_DESIGN_PLAN_ENABLED = os.getenv("AI_DESIGN_PLAN_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+AI_DESIGN_PLAN_TIMEOUT_SECONDS = float(os.getenv("AI_DESIGN_PLAN_TIMEOUT_SECONDS", "60"))
+AI_DESIGN_PLAN_MAX_TOKENS = int(os.getenv("AI_DESIGN_PLAN_MAX_TOKENS", "1800"))
+PLAN_SYSTEM_PROMPT = (
+    "You are a senior designer writing the design plan for a client's website. "
+    "Respond with ONLY the JSON asked for — no markdown fences, no prose."
+)
+
+
+def design_plan_enabled() -> bool:
+    raw = os.getenv("AI_DESIGN_PLAN_ENABLED", "true").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+# Critique gate for two-pass generation: the anti-template lint always
+# runs; the screenshot + vision critique runs when a vision-capable model
+# is configured. Score < 7/10 (or any criterion < 5, or a lint failure)
+# re-runs Pass 2 with the notes, at most DESIGN_GATE_MAX_RETRIES times,
+# and the best-scoring attempt is served.
+DESIGN_CRITIQUE_ENABLED = os.getenv("DESIGN_CRITIQUE_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+DESIGN_CRITIQUE_MODEL = os.getenv("DESIGN_CRITIQUE_MODEL", "glm-4.5v")
+DESIGN_CRITIQUE_TIMEOUT_SECONDS = float(os.getenv("DESIGN_CRITIQUE_TIMEOUT_SECONDS", "60"))
+DESIGN_CRITIQUE_MAX_TOKENS = int(os.getenv("DESIGN_CRITIQUE_MAX_TOKENS", "1200"))
+DESIGN_GATE_MAX_RETRIES = int(os.getenv("DESIGN_GATE_MAX_RETRIES", str(design_critique.MAX_RETRIES)))
+
+
+def design_critique_enabled() -> bool:
+    raw = os.getenv("DESIGN_CRITIQUE_ENABLED", "true").strip().lower()
+    return raw in ("1", "true", "yes", "on")
 
 # System prompt for the DeepSeek HTML call in designer mode. The guided-mode
 # prompt ("follow constraints exactly") is kept verbatim as the default of
@@ -818,6 +879,10 @@ class AIService:
         # Senior-Designer-mode generation, for logs/diagnostics. None when
         # the last build ran guided or the concept step was skipped/failed.
         self._last_design_concept: Optional[Dict] = None
+        # The validated design PLAN (Pass 1) from the most recent two-pass
+        # generation, plus its critique/lint results once the gate has run.
+        self._last_design_plan: Optional[Dict] = None
+        self._last_plan_gate: Optional[Dict] = None
         self.deepseek_model = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
         self.deepseek_model_pro = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-v4-pro")
         # GLM / Z.ai — primary HTML generator when USE_GLM_FOR_HTML is on.
@@ -3730,6 +3795,83 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         "60111111111", "60000000000", "1234567890", "60123456780",
     })
 
+    def _hero_cue_for(self, request: WebsiteGenerationRequest, color_mode: str, language: str) -> Optional[str]:
+        """The dish-specific hero prompt cue from the (library) design plan
+        — used when the hero is AI-generated, so the image is written from
+        the plan rather than a generic category template. Never raises."""
+        try:
+            design_brief = normalize_design_brief(getattr(request, "design_brief", None))
+            brief = self._plan_brief_for(
+                request, color_mode=color_mode, has_images=True, image_count=1,
+                design_brief=design_brief, language=language,
+            )
+            plan = fallback_plan(brief)
+            from app.services.image_intelligence import direction_hero_cue
+            items = [i["name"] for i in self._normalize_supplied_menu_items(getattr(request, "menu_items", None))]
+            return direction_hero_cue(
+                image_cue=plan.image_cue, vertical=brief.vertical, theme=brief.theme,
+                item_names=items, merchant_prompt=getattr(request, "hero_image_prompt", None),
+            )
+        except Exception as err:
+            logger.warning(f"🖼️ Hero cue unavailable: {err}")
+            return None
+
+    async def record_last_plan(
+        self,
+        *,
+        category: Optional[str],
+        job_id: Optional[str] = None,
+        website_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        html: Optional[str] = None,
+    ) -> None:
+        """Learning loop (§9): persist the plan of the generation that just
+        finished, with its critique scores, lint report and HTML hash. The
+        caller supplies the ids it knows (job, website, user). Best-effort;
+        never raises."""
+        plan = self._last_design_plan
+        if not plan:
+            return
+        gate = self._last_plan_gate or {}
+        try:
+            await design_plan_store.record_plan(
+                plan=plan,
+                category=(category or plan.get("vertical") or "general"),
+                job_id=job_id,
+                website_id=website_id,
+                user_id=(str(user_id) if user_id and user_id != "anonymous" else None),
+                critique=gate.get("critique"),
+                lint=gate.get("lint"),
+                html=html,
+                attempts=int(gate.get("attempts") or 1),
+            )
+        except Exception as err:
+            logger.warning(f"🎨 Plan record skipped: {err}")
+
+    @staticmethod
+    def _gallery_image_count(request) -> int:
+        """Uploaded photos that are neither the hero nor a named menu item —
+        the only images a gallery section may be built from (§5)."""
+        uploaded = getattr(request, "uploaded_images", None) or []
+        item_names = {
+            (getattr(i, "name", None) or (i.get("name") if isinstance(i, dict) else "") or "").strip().lower()
+            for i in (getattr(request, "menu_items", None) or [])
+        }
+        count = 0
+        for img in uploaded:
+            if not isinstance(img, dict):
+                count += 1
+                continue
+            name = str(img.get("name") or "").strip()
+            if "hero" in name.lower():
+                continue
+            if name and name.lower() in item_names:
+                continue
+            if name and (img.get("price") or "").strip():
+                continue
+            count += 1
+        return count
+
     @classmethod
     def _normalize_wa_digits(cls, raw: Optional[str]) -> str:
         """Malaysian WhatsApp number → digits-only, or '' when unusable.
@@ -3923,6 +4065,167 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             logger.warning(f"🎨 Concept step failed ({err}) — using the seeded design system")
         return None
 
+    # ------------------------------------------------------------------
+    # Two-pass generation — Pass 1: the design plan
+    # ------------------------------------------------------------------
+    def _plan_brief_for(
+        self,
+        request: WebsiteGenerationRequest,
+        *,
+        color_mode: str,
+        has_images: bool,
+        image_count: int,
+        design_brief: Optional[str],
+        language: str,
+        image_colours: Optional[List[str]] = None,
+        hero_full_bleed_ok: bool = True,
+        gallery_count: int = 0,
+    ) -> PlanBrief:
+        """Map the create form (§0) onto the Pass 1 brief. Every explicit
+        merchant choice becomes a hard constraint; only untouched choices
+        fall back to the library defaults."""
+        desc = request.description or ""
+        explicit = normalize_business_type(getattr(request, "business_type", None))
+        if explicit:
+            vertical, vertical_source = explicit, "merchant"
+        else:
+            try:
+                vertical = detect_business_type(f"{request.business_name} {desc}")
+            except Exception:
+                vertical = "general"
+            vertical_source = "auto"
+        theme, theme_source, theme_note = resolve_theme(color_mode, design_brief)
+        style = (getattr(request, "design_style", None) or "").strip().lower() or None
+        freedom = resolve_design_freedom(getattr(request, "design_freedom", None), template_id=getattr(request, "template_id", None))
+        wa_digits = self._normalize_wa_digits(getattr(request, "whatsapp_number", None))
+        items = self._normalize_supplied_menu_items(getattr(request, "menu_items", None))
+        brand_colors = None
+        raw_brand = getattr(request, "colors", None)
+        if isinstance(raw_brand, dict):
+            brand_colors = {
+                k: str(v).strip() for k, v in raw_brand.items()
+                if k in ("primary", "secondary", "accent") and isinstance(v, str)
+                and re.fullmatch(r"#[0-9A-Fa-f]{6}", str(v).strip())
+            } or None
+        payment = [m for m in (getattr(request, "payment_methods", None) or []) if m in ("cod", "qr")]
+        uploaded = getattr(request, "uploaded_images", None) or []
+        menu_has_images = bool(uploaded) and any(
+            isinstance(img, dict) and img.get("name") and "hero" not in str(img.get("name", "")).lower() for img in uploaded
+        )
+        return PlanBrief(
+            business_name=request.business_name,
+            description=desc,
+            vertical=vertical,
+            vertical_source=vertical_source,
+            language=language,
+            theme=theme,
+            theme_source=theme_source,
+            theme_note=theme_note,
+            style=style,
+            design_brief=design_brief,
+            freedom=freedom,
+            brand_colors=brand_colors,
+            image_colours=list(image_colours or []),
+            has_hero_image=bool(has_images and image_count),
+            hero_full_bleed_ok=hero_full_bleed_ok,
+            hero_video=bool(getattr(request, "hero_video", False)),
+            menu_item_count=len(items),
+            menu_has_images=menu_has_images,
+            gallery_count=gallery_count,
+            whatsapp=bool(getattr(request, "include_whatsapp", True) and wa_digits),
+            maps=bool(getattr(request, "include_maps", True)),
+            delivery=bool(getattr(request, "include_ecommerce", False)),
+            contact_form=bool(getattr(request, "include_contact_form", True)),
+            social=bool(getattr(request, "include_social", False)),
+            show_prices=bool(getattr(request, "show_prices", True)),
+            payment_methods=payment,
+            address=(getattr(request, "location_address", None) or "").strip() or None,
+            hours=(getattr(request, "opening_hours", None) or "").strip() or None,
+            include_ecommerce=bool(getattr(request, "include_ecommerce", False)),
+        )
+
+    async def _direct_design_plan(
+        self,
+        brief: PlanBrief,
+        *,
+        n_plans: int = 1,
+        history: Optional[List[str]] = None,
+        preferred_plan: Optional[Dict] = None,
+    ) -> List[DesignPlan]:
+        """Pass 1. Always returns at least one validated plan: the model's
+        (validated and repaired) when it answers in time, otherwise the
+        deterministic library plan. Never raises."""
+        if history is None:
+            try:
+                history = await design_plan_store.recent_directions(brief.vertical)
+            except Exception:
+                history = []
+        plans: List[DesignPlan] = []
+        if preferred_plan:
+            # The merchant already picked this plan from a multi-style
+            # preview: validate it (same rules) instead of asking again, and
+            # do not rotate it away — their choice is the point.
+            chosen = str(preferred_plan.get("direction") or "")
+            history = [h for h in history if h != chosen]
+            candidates = candidates_for(brief, history)
+            try:
+                plans = parse_plans(json.dumps(preferred_plan), brief, candidates, history, n_plans=1)
+            except Exception as err:
+                logger.warning(f"🎨 Preferred plan unusable ({err}) — planning afresh")
+                plans = []
+            if plans:
+                plans[0].source = str(preferred_plan.get("source") or "ai")
+                logger.info(f"🎨 Plan step: using the merchant's picked plan '{plans[0].direction_name}'")
+                self._last_design_plan = plans[0].as_dict()
+                return plans
+        candidates = candidates_for(brief, history)
+        try:
+            prompt = build_plan_prompt(brief, candidates, history, n_plans=n_plans)
+            logger.info(
+                f"🎨 Plan step: vertical={brief.vertical} ({brief.vertical_source}) theme={brief.theme} ({brief.theme_source}) "
+                f"style={brief.style or 'auto'} freedom={brief.freedom} candidates={[d.key for d in candidates[:6]]} "
+                f"history={history} cap {AI_DESIGN_PLAN_TIMEOUT_SECONDS:.0f}s"
+            )
+            raw = await asyncio.wait_for(
+                self._call_plan_model(prompt), timeout=AI_DESIGN_PLAN_TIMEOUT_SECONDS
+            )
+            if raw:
+                plans = parse_plans(raw, brief, candidates, history, n_plans=n_plans)
+            if not plans:
+                logger.warning("🎨 Plan step returned no usable JSON — using the library plan")
+        except asyncio.TimeoutError:
+            logger.warning(f"🎨 Plan step timed out after {AI_DESIGN_PLAN_TIMEOUT_SECONDS:.0f}s — using the library plan")
+        except Exception as err:
+            logger.warning(f"🎨 Plan step failed ({err}) — using the library plan")
+        used = [p.direction for p in plans]
+        while len(plans) < n_plans:
+            plans.append(fallback_plan(brief, candidates, list(history) + used, variant=len(plans)))
+            used.append(plans[-1].direction)
+        for plan in plans:
+            logger.info(f"🎨 Plan: {json.dumps(plan.as_dict(), ensure_ascii=False)[:1500]}")
+        self._last_design_plan = plans[0].as_dict()
+        return plans
+
+    async def _call_plan_model(self, prompt: str) -> Optional[str]:
+        """Same providers as the concept step, plan system prompt, thinking OK."""
+        raw = None
+        if self.deepseek_api_key:
+            raw = await self._call_deepseek(
+                prompt,
+                temperature=AI_DESIGN_CONCEPT_TEMPERATURE,
+                model=self.deepseek_model,
+                system_prompt=PLAN_SYSTEM_PROMPT,
+                max_tokens=AI_DESIGN_PLAN_MAX_TOKENS,
+            )
+        if not raw and USE_GLM_FOR_HTML and self.zai_api_key:
+            raw = await self._call_glm(
+                prompt,
+                temperature=AI_DESIGN_CONCEPT_TEMPERATURE,
+                system_prompt=PLAN_SYSTEM_PROMPT,
+                max_tokens=AI_DESIGN_PLAN_MAX_TOKENS,
+            )
+        return raw
+
     def _build_strict_prompt(
         self,
         name: str,
@@ -3947,6 +4250,13 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         design_brief: Optional[str] = None,
         design_freedom: str = "guided",
         concept: Optional[DesignConcept] = None,
+        plan: Optional[DesignPlan] = None,
+        hero_video: bool = False,
+        include_social: bool = False,
+        social_media: Optional[dict] = None,
+        payment_methods: Optional[list] = None,
+        opening_hours: Optional[str] = None,
+        gallery_count: int = 0,
     ) -> str:
         """Build the HTML generation prompt.
 
@@ -3976,11 +4286,16 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         # (no concept) path still honours them.
         _design_text = f"{desc}\n{design_brief}" if design_brief else desc
 
-        # Detect business type and get design type
-        try:
-            detected_biz_type = detect_business_type(desc)
-        except Exception:
-            detected_biz_type = "general"
+        # Detect business type and get design type. With a plan the
+        # vertical is already resolved (merchant pick, else classifier).
+        if plan is not None:
+            detected_biz_type = plan.vertical
+        else:
+            try:
+                detected_biz_type = detect_business_type(desc)
+            except Exception:
+                detected_biz_type = "general"
+        plan_mode = plan is not None and designer_mode
 
         design_type = get_design_type(detected_biz_type, desc)
 
@@ -4018,7 +4333,25 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             # the one exception — it is an explicit merchant pick whose
             # hand-drawn fonts and drawing directives must survive, so the
             # concept block is ADDED to the doodle personality, not swapped in.
-            if designer_mode and concept is not None:
+            if plan_mode:
+                # Two-pass: the PLAN is the binding spec. Its palette and
+                # fonts become the page tokens; the seeded personality,
+                # AOS animation rules and card patterns are dropped — they
+                # are the template tells the plan exists to avoid.
+                fonts = plan.font_pairing()
+                palette = {**palette, **plan.concept_palette()}
+                tw_config = build_tailwind_config(palette, fonts)
+                personality_block = plan.to_prompt_block(language)
+                user_design_block = ""
+                animations = ""
+                typography = dpb.typography_block(plan)
+                design_patterns = ""
+                logger.info(
+                    f"🎨 Plan '{plan.direction_name}' applied: fonts={fonts.get('heading')}/{fonts.get('body')}, "
+                    f"bg={palette.get('background')} accent={palette.get('primary')} hero={plan.hero_treatment} "
+                    f"sections={plan.sections} source={plan.source}"
+                )
+            elif designer_mode and concept is not None:
                 _is_doodle = bundle["personality"].get("key") == "doodle_cartoon"
                 if not _is_doodle:
                     fonts = DesignSystem._build_font_cdn(concept.fonts)
@@ -4313,6 +4646,8 @@ LIGHT MODE STYLING:
 
         # ---- STYLE-SPECIFIC ADDITIONS ----
         style_note = ""
+        if plan is not None:
+            style = "plan"  # the plan states the style; the legacy notes below do not apply
         if style == "minimal":
             style_note = """STYLE NOTE - MINIMAL:
 - Keep the design system colors but use them sparingly
@@ -4551,7 +4886,9 @@ The merchant did NOT provide {_noun} items, and none could be read from the desc
         # concept (no HTML skeleton at all). Designer without a concept: the
         # blueprint is offered as one proven option, not a mandate.
         _hero_blueprint = ""
-        if designer_mode and concept is not None:
+        if plan_mode:
+            _hero_blueprint = ""  # the hero contract lives in the SECTION STANDARDS block below
+        elif designer_mode and concept is not None:
             _hero_pattern = concept.hero_pattern or "your choice"
             _hero_idea = concept.hero_description or "as described in your concept"
             _hero_blueprint = f"""===== HERO (DESIGN IT YOURSELF — pattern from your concept: {_hero_pattern.upper()}) =====
@@ -4612,7 +4949,29 @@ HERO BLUEPRINT RULES:
             _house_rules_preface = ""
 
         # ---- LAYOUT ----
-        if designer_mode:
+        if plan_mode:
+            _layout_block = dpb.section_standards_block(
+                plan,
+                language=language,
+                has_whatsapp=has_whatsapp_number and include_whatsapp,
+                wa_digits=wa_digits,
+                address=(str(location_address).strip() if location_address and str(location_address).strip() else None),
+                hours=opening_hours,
+                include_maps=include_maps,
+                include_contact_form=include_contact_form,
+                include_social=include_social,
+                socials=social_media if isinstance(social_media, dict) else None,
+                item_count=len(_supplied_items),
+                has_item_images=bool(_supplied_items) and image_choice != "none" and (
+                    bool(user_images) or bool(images)
+                ),
+                show_prices=show_prices,
+                gallery_count=gallery_count,
+                hero_video=hero_video,
+                payment_methods=payment_methods or [],
+            )
+            _flex_block = dpb.ANTI_TEMPLATE_RULES + "\n" + dpb.QUALITY_FLOOR_RULES
+        elif designer_mode:
             if concept is not None:
                 _layout_block = f"""===== PAGE PLAN (from your concept — build these sections in this order) =====
 {concept.section_checklist()}
@@ -4637,7 +4996,13 @@ Reference only — the house layout for a {detected_biz_type} business, in case 
 - Do NOT make every section centered text over a grid of identical cards — vary alignment and structure between sections."""
 
         # ---- CLOSING FREEDOM ----
-        if designer_mode:
+        if plan_mode:
+            _freedom_block = f"""===== PRECEDENCE (when instructions conflict) =====
+1. NON-NEGOTIABLE rules: real business data only, exact image URLs, WhatsApp/phone rules, language, mobile responsiveness, free Font Awesome icons, fonts loaded in the HEAD.
+2. The DESIGN PLAN above and the merchant's explicit picks it encodes (theme, style, brief, feature toggles). You may not change its palette, fonts, hero treatment, signature element or section list.
+3. The ANTI-TEMPLATE RULES and SECTION STANDARDS.
+4. Everything else — composition inside each section, copy tone, hover states, the exact shape of the signature element — is yours: build it the way a senior designer would for {name} specifically. One strong idea executed with craft."""
+        elif designer_mode:
             _freedom_block = f"""{PRECEDENCE_BLOCK}
 
 ===== CREATIVE OWNERSHIP =====
@@ -4646,18 +5011,14 @@ You are not filling a template. Layout, composition, hierarchy, colour usage, de
             _freedom_block = f"""===== CREATIVE FREEDOM =====
 Everything not covered by a hard rule above is yours: micro-layout, decorative details, hover states, section backgrounds, copy tone and personality. Make the site feel INDIVIDUALLY DESIGNED for {name} — like a designer studied this exact business — not assembled from a template. Avoid the generic AI-site look: no endless rows of three identical cards, no every-section-centered monotony. Surprise us — within the rules."""
 
-        # ---- ASSEMBLE PROMPT ----
-        return f"""{_intro}
-
-BUSINESS: {name}
-DESCRIPTION: {desc}
-BUSINESS TYPE: {detected_biz_type.upper()}
-STYLE: {style.upper()}
-COLOR MODE: {color_mode.upper()}
-TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
-DESIGN MODE: {"SENIOR DESIGNER — you own the visual design" if designer_mode else "GUIDED — follow the design system"}
-
-===== HEAD SECTION (MUST INCLUDE ALL) =====
+        # ---- HEAD / BEFORE-BODY CONTRACT ----
+        if plan_mode:
+            _head_block = dpb.head_block(
+                plan, fonts["cdn_link"], tw_config, palette, _accent_fill, _accent_strong,
+                fonts["body"], fonts["body_fallback"],
+            )
+        else:
+            _head_block = f"""===== HEAD SECTION (MUST INCLUDE ALL) =====
 {fonts['cdn_link']}
 <link href="https://unpkg.com/aos@2.3.4/dist/aos.css" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
@@ -4672,6 +5033,43 @@ body {{ background-color: var(--bg-color); font-family: '{fonts['body']}', {font
 ===== BEFORE </body> (MUST INCLUDE) =====
 <script src="https://unpkg.com/aos@2.3.4/dist/aos.js"></script>
 <script>AOS.init({{ duration: 800, once: true, offset: 100 }}); document.documentElement.classList.add('aos-initialized');</script>
+"""
+
+        if plan_mode:
+            _house_type_block = """LAYOUT RHYTHM — from the plan's layout notes. Alternate section backgrounds with intent (page → surface → one strong band) so the page has a visible beat; vary alignment between sections; never a page of identical centred grids."""
+            _house_colour_block = f"""COLOUR — the plan's palette only. accent ({_accent_fill}) for buttons, prices and the signature element; accent_2 for fills, badges and ONE band; everything else neutral. ACCENT AS TEXT (non-negotiable): any TEXT in an accent colour uses var(--accent-strong) ({_accent_strong}) so it clears 4.5:1.
+{_purple_rule}"""
+            _house_depth_block = """DEPTH — flat by default. Shadows only on the menu/product tiles (one soft shadow, shadow-md) and on the sticky nav. No shadow on about, location, story or contact blocks — they are open layouts."""
+        else:
+            _house_type_block = """TYPE SCALE — use a clear modular scale, never ad-hoc sizes. Keep a strict hierarchy, at most these five steps:
+- Display/hero: 48-72px (3rem-4.5rem), font-bold, tracking-tight, tight leading — prefer FLUID sizing via clamp(), e.g. style="font-size: clamp(2.5rem, 6vw, 4.5rem)"
+- H2 section heading: 32-40px (2rem-2.5rem), font-bold
+- H3 card/title: 20-24px (1.25rem-1.5rem), font-semibold
+- Body: 16-18px (1rem-1.125rem), leading-relaxed
+- Caption/meta: 13-14px, muted colour"""
+            _house_colour_block = f"""COLOUR — ONE dominant colour + ONE accent only:
+- Pick a single dominant brand colour for primary surfaces and CTAs.
+- Use exactly one accent colour for small highlights (badges, links, details).
+- Everything else stays neutral: background, surface, text, borders.
+- Do NOT spread 3+ saturated colours across the page.
+- ACCENT AS TEXT (accessibility, non-negotiable): --accent-color ({_accent_fill}) is a FILL — badges, rules, highlight blocks. Any TEXT set in the accent colour (eyebrow/kicker labels such as "WARISAN KAMI", small-caps section labels, links, prices) MUST use var(--accent-strong) ({_accent_strong}), which is the same hue darkened/lightened to clear 4.5:1 on this page's background and surface. Accent-coloured text at the fill value is unreadable and will be rejected.
+{_purple_rule}"""
+            _house_depth_block = """DEPTH and SHADOWS:
+- Create depth with layered soft shadows (shadow-lg / shadow-xl), subtle borders, and slight elevation on hover.
+- Cards lift on hover. Avoid flat, borderless boxes that blend into the background."""
+
+        # ---- ASSEMBLE PROMPT ----
+        return f"""{_intro}
+
+BUSINESS: {name}
+DESCRIPTION: {desc}
+BUSINESS TYPE: {detected_biz_type.upper()}
+STYLE: {style.upper()}
+COLOR MODE: {color_mode.upper()}
+TARGET LANGUAGE: {"BAHASA MALAYSIA" if language == "ms" else "ENGLISH"}
+DESIGN MODE: {"TWO-PASS — build the DESIGN PLAN below exactly" if plan_mode else ("SENIOR DESIGNER — you own the visual design" if designer_mode else "GUIDED — follow the design system")}
+
+{_head_block}
 
 {_brief_block}
 
@@ -4682,20 +5080,9 @@ body {{ background-color: var(--bg-color); font-family: '{fonts['body']}', {font
 {personality_block}
 
 ===== {_style_heading} =====
-TYPE SCALE — use a clear modular scale, never ad-hoc sizes. Keep a strict hierarchy, at most these five steps:
-- Display/hero: 48-72px (3rem-4.5rem), font-bold, tracking-tight, tight leading — prefer FLUID sizing via clamp(), e.g. style="font-size: clamp(2.5rem, 6vw, 4.5rem)"
-- H2 section heading: 32-40px (2rem-2.5rem), font-bold
-- H3 card/title: 20-24px (1.25rem-1.5rem), font-semibold
-- Body: 16-18px (1rem-1.125rem), leading-relaxed
-- Caption/meta: 13-14px, muted colour
+{_house_type_block}
 
-COLOUR — ONE dominant colour + ONE accent only:
-- Pick a single dominant brand colour for primary surfaces and CTAs.
-- Use exactly one accent colour for small highlights (badges, links, details).
-- Everything else stays neutral: background, surface, text, borders.
-- Do NOT spread 3+ saturated colours across the page.
-- ACCENT AS TEXT (accessibility, non-negotiable): --accent-color ({_accent_fill}) is a FILL — badges, rules, highlight blocks. Any TEXT set in the accent colour (eyebrow/kicker labels such as "WARISAN KAMI", small-caps section labels, links, prices) MUST use var(--accent-strong) ({_accent_strong}), which is the same hue darkened/lightened to clear 4.5:1 on this page's background and surface. Accent-coloured text at the fill value is unreadable and will be rejected.
-{_purple_rule}
+{_house_colour_block}
 
 TYPOGRAPHY — fonts (FONT LOCK, non-negotiable):
 {_font_generic_rule}
@@ -4707,9 +5094,7 @@ SPACING — strict 8px system:
 - Every margin, padding and gap is a multiple of 8px (8 / 16 / 24 / 32 / 48 / 64 / 96).
 - Generous, consistent section rhythm — never cramped.
 
-DEPTH and SHADOWS:
-- Create depth with layered soft shadows (shadow-lg / shadow-xl), subtle borders, and slight elevation on hover.
-- Cards lift on hover. Avoid flat, borderless boxes that blend into the background.
+{_house_depth_block}
 
 ===== INTEGRITY & TECHNICAL RULES (NON-NEGOTIABLE IN EVERY MODE) =====
 STAT / NUMBERS ROWS (hero mini-stats, stats bar) MUST NEVER OVERLAP:
@@ -4908,6 +5293,18 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         "flourishes. Make the site feel individually designed, not "
         "templated. Surprise us — within the rules."
     )
+    # Two-pass mode: the DESIGN PLAN in the prompt is binding, and the
+    # anti-template rules are checked by a linter after generation.
+    _GLM_PROMPT_PLAN_CLAUSE = (
+        "DESIGN PLAN: the prompt carries a validated DESIGN PLAN (direction, "
+        "palette, fonts, hero treatment, one signature element, one motion "
+        "moment, section list) plus ANTI-TEMPLATE RULES and SECTION "
+        "STANDARDS. Build exactly that plan. Do not change its palette, "
+        "fonts, hero treatment, signature element or section list, do not "
+        "load AOS or add data-aos attributes, and do not decorate headlines. "
+        "Everything the plan leaves open — composition inside each section, "
+        "copy tone, hover states — is yours to design for this business."
+    )
     # Senior Designer mode wrappers around the same GOAL → RULES → FREEDOM
     # core (the rules are byte-identical, so the design reviewer, which is
     # composed from the same fragments, stays in sync). The role preface
@@ -5009,6 +5406,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         has_images: bool = True,
         designer_mode: bool = False,
         system_prompt: Optional[str] = None,
+        plan_mode: bool = False,
         max_tokens: Optional[int] = None,
     ) -> Optional[str]:
         """Call GLM (Z.ai) API. Mirrors _call_deepseek: same signature (plus
@@ -5046,7 +5444,7 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
                 + self._GLM_PROMPT_RULES_HEAD
                 + (self._GLM_PHOTO_SLOT_CLAUSE if has_images else self._GLM_NO_PHOTO_CLAUSE)
                 + self._GLM_PROMPT_RULES_TAIL
-                + self._GLM_PROMPT_FREEDOM
+                + (self._GLM_PROMPT_PLAN_CLAUSE if plan_mode else self._GLM_PROMPT_FREEDOM)
                 + (self._GLM_PROMPT_DESIGNER_TAIL if designer_mode else "")
             )
         try:
@@ -5294,6 +5692,175 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         except Exception as e:
             logger.error(f"🎨 Design review ❌ {e}")
         return None
+
+    async def _call_vision_model(self, messages: List[Dict]) -> Optional[str]:
+        """One call to a vision-capable chat model (OpenAI-style messages
+        with image_url parts). Z.ai's GLM-4.5V first (same key as the HTML
+        generator), Qwen-VL on DashScope as the fallback. Returns the reply
+        text or None; never raises."""
+        attempts: List[Tuple[str, str, str]] = []
+        if self.zai_api_key:
+            attempts.append((self.zai_base_url, self.zai_api_key, DESIGN_CRITIQUE_MODEL))
+        if self.qwen_api_key:
+            attempts.append((self.qwen_base_url, self.qwen_api_key, os.getenv("DESIGN_CRITIQUE_QWEN_MODEL", "qwen-vl-max")))
+        for base_url, key, model in attempts:
+            try:
+                body = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.1,
+                    "max_tokens": DESIGN_CRITIQUE_MAX_TOKENS,
+                }
+                headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+                async with httpx.AsyncClient(timeout=DESIGN_CRITIQUE_TIMEOUT_SECONDS) as client:
+                    r = await asyncio.wait_for(
+                        client.post(f"{base_url.rstrip('/')}/chat/completions", headers=headers, json=body),
+                        timeout=DESIGN_CRITIQUE_TIMEOUT_SECONDS,
+                    )
+                if r.status_code != 200:
+                    logger.warning(f"🧑‍⚖️ Critique model {model} ❌ {r.status_code}: {r.text[:200]}")
+                    continue
+                payload = r.json()
+                content = ((payload.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                if isinstance(content, list):  # some providers return parts
+                    content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+                if content and content.strip():
+                    return content
+            except (asyncio.TimeoutError, httpx.TimeoutException):
+                logger.warning(f"🧑‍⚖️ Critique model {model} timed out (cap {DESIGN_CRITIQUE_TIMEOUT_SECONDS:.0f}s)")
+            except Exception as err:
+                logger.warning(f"🧑‍⚖️ Critique model {model} failed: {err}")
+        return None
+
+    async def _regenerate_pass2(
+        self,
+        prompt: str,
+        feedback: List[str],
+        *,
+        previous_html: str,
+        has_images: bool,
+        designer_mode: bool,
+        provider: str,
+    ) -> Optional[str]:
+        """Re-run Pass 2 with the lint failures and critique notes. Same
+        provider and budget as the original call; None on any failure."""
+        revision_prompt = (
+            prompt
+            + "\n\n=== REVISION NOTES FROM THE LINT AND THE DESIGN REVIEW (FIX EVERY ONE) ===\n"
+            + "\n".join(feedback)
+            + "\n\nRegenerate the FULL HTML from scratch against the same DESIGN PLAN. Keep every business fact, "
+            "price, image slot/URL and section id. Output ONLY HTML."
+        )
+        original_api_call = dict(self._last_api_call)
+        try:
+            if provider == "glm" and self.zai_api_key:
+                revised = await asyncio.wait_for(
+                    self._call_glm(revision_prompt, has_images=has_images, designer_mode=designer_mode, plan_mode=True),
+                    timeout=AI_GLM_TIMEOUT_SECONDS,
+                )
+            else:
+                revised = await asyncio.wait_for(
+                    self._call_deepseek(
+                        revision_prompt, model=self.deepseek_model_pro,
+                        system_prompt=DESIGNER_SYSTEM_PROMPT if designer_mode else None,
+                    ),
+                    timeout=AI_PRIMARY_TIMEOUT_SECONDS,
+                )
+        except asyncio.TimeoutError:
+            logger.error("🎨 Pass 2 regeneration timed out — keeping the previous attempt")
+            self._last_api_call = original_api_call
+            return None
+        except Exception as err:
+            logger.error(f"🎨 Pass 2 regeneration failed: {err}")
+            self._last_api_call = original_api_call
+            return None
+        if not revised or "<" not in revised or self._last_api_call.get("truncated"):
+            logger.error("🎨 Pass 2 regeneration unusable (empty/non-HTML/truncated) — keeping the previous attempt")
+            self._last_api_call = original_api_call
+            return None
+        if has_images and self._PHOTO_SLOT_SRC_RE.search(previous_html) and not self._PHOTO_SLOT_SRC_RE.search(revised):
+            logger.error("🎨 Pass 2 regeneration dropped the PHOTO_SLOT contract — keeping the previous attempt")
+            self._last_api_call = original_api_call
+            return None
+        return revised
+
+    async def _run_plan_gate(
+        self,
+        html: str,
+        *,
+        plan: DesignPlan,
+        prompt: str,
+        has_images: bool,
+        designer_mode: bool,
+        language: str,
+        provider: str = "glm",
+        hours_supplied: bool = False,
+    ) -> str:
+        """Two-pass critique gate.
+
+        Each attempt: anti-template lint (repairs applied, failures kept) →
+        screenshot + vision critique against the plan (when available) →
+        gate (lint clean AND average ≥ 7 AND no criterion < 5). A failed
+        gate re-runs Pass 2 with the notes, at most DESIGN_GATE_MAX_RETRIES
+        times; the best-scoring attempt is served. Never raises; with no
+        critique model the lint alone gates.
+        """
+        attempts: List[Dict] = []
+        current = html
+        max_retries = max(0, DESIGN_GATE_MAX_RETRIES)
+        for attempt in range(1 + max_retries):
+            linted, lint = lint_anti_template(current, allow_aos=False, hours_supplied=hours_supplied)
+            logger.info(
+                f"🧹 Anti-template lint (attempt {attempt + 1}): {'clean' if lint.ok else str(len(lint.errors)) + ' failure(s)'} "
+                f"counts={lint.counts} repairs={lint.repairs}"
+            )
+            critique = None
+            if design_critique_enabled() and (self.zai_api_key or self.qwen_api_key):
+                try:
+                    critique = await asyncio.wait_for(
+                        design_critique.run_critique(
+                            linted, plan, language=language, call_model=self._call_vision_model,
+                        ),
+                        timeout=DESIGN_CRITIQUE_TIMEOUT_SECONDS + design_critique.SCREENSHOT_TIMEOUT_SECONDS + 15,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("🧑‍⚖️ Critique timed out — gating on lint only for this attempt")
+                except Exception as err:
+                    logger.warning(f"🧑‍⚖️ Critique failed ({err}) — gating on lint only for this attempt")
+            score = critique.average if critique else None
+            # Rank: critique average (10 when none), minus a penalty per lint failure.
+            rank = (score if score is not None else 10.0) - 1.5 * len(lint.errors)
+            attempts.append({"html": linted, "lint": lint, "critique": critique, "rank": rank})
+            passed = lint.ok and (critique is None or critique.passed)
+            if passed:
+                logger.info(f"✅ Plan gate passed on attempt {attempt + 1}" + (f" (critique avg {score})" if score is not None else ""))
+                break
+            if attempt >= max_retries:
+                logger.warning(f"⚠️ Plan gate: retry budget spent after {attempt + 1} attempt(s) — serving the best attempt")
+                break
+            feedback = lint.feedback_lines() + (critique.feedback_lines() if critique else [])
+            logger.info(f"🔁 Plan gate failed on attempt {attempt + 1} — regenerating Pass 2 with {len(feedback)} note(s)")
+            revised = await self._regenerate_pass2(
+                prompt, feedback, previous_html=current, has_images=has_images,
+                designer_mode=designer_mode, provider=provider,
+            )
+            if not revised:
+                break
+            current = revised
+        best = max(attempts, key=lambda a: a["rank"])
+        served_index = attempts.index(best)
+        self._last_plan_gate = {
+            "attempts": len(attempts),
+            "served_attempt": served_index + 1,
+            "lint": best["lint"].as_dict(),
+            "critique": best["critique"].as_dict() if best["critique"] else None,
+            "history": [
+                {"lint_errors": len(a["lint"].errors), "critique_avg": (a["critique"].average if a["critique"] else None)}
+                for a in attempts
+            ],
+        }
+        logger.info(f"🎯 Plan gate result: {json.dumps(self._last_plan_gate, ensure_ascii=False)[:1200]}")
+        return best["html"]
 
     async def _run_premium_design_loop(
         self,
@@ -7580,6 +8147,7 @@ IMPORTANT RULES:
     def _autofill_hero_prompt(
         self, category: str, biz_type: str, business_context: str = "",
         food_subtype: str = "general", merchant_prompt: Optional[str] = None,
+        direction_cue: Optional[str] = None,
     ) -> str:
         """Hero banner prompt per category.
 
@@ -7608,6 +8176,13 @@ IMPORTANT RULES:
                 f"{category!r} template): {merchant_prompt!r}"
             )
             return f"{merchant_prompt}, {self._NO_TEXT_SUFFIX}"
+        # Two-pass generation writes the hero prompt from the design plan:
+        # the direction's dish-specific cue merged with the merchant's
+        # signature items (see image_intelligence.direction_hero_cue).
+        direction_cue = (direction_cue or "").strip()
+        if direction_cue:
+            logger.info(f"🖼️ Hero prompt: FROM DESIGN PLAN: {direction_cue!r}")
+            return f"{direction_cue}, {self._HERO_NO_TEXT_SUFFIX}"
 
         ctx = f", for the business: {business_context}" if business_context else ""
         if category == "food":
@@ -7726,6 +8301,7 @@ IMPORTANT RULES:
         image_urls: Dict,
         max_ai_images: Optional[int] = None,
         zai_phase: Optional[Dict] = None,
+        hero_cue: Optional[str] = None,
     ) -> int:
         """Auto-fill hero/gallery slots that uploads didn't cover (free-by-default).
 
@@ -7850,6 +8426,7 @@ IMPORTANT RULES:
         hero_prompt = self._autofill_hero_prompt(
             category, _biz_type, _biz_context, food_subtype=_food_subtype,
             merchant_prompt=getattr(request, "hero_image_prompt", None),
+            direction_cue=hero_cue,
         )
 
         # Work list: hero first, then one image per (missing slot, real item
@@ -7980,6 +8557,20 @@ IMPORTANT RULES:
         # ZAI_IMAGE_PHASE_BUDGET_SECONDS. No-op when IMAGE_PROVIDER=stability.
         _zai_image_phase = self._new_zai_image_phase()
 
+        # Two-pass generation writes the hero image prompt from the plan
+        # (§0/§6): resolved up front so the auto-fill below can use it.
+        _plan_mode_requested = (
+            design_plan_enabled()
+            and not getattr(request, "template_id", None)
+            and resolve_design_freedom(getattr(request, "design_freedom", None)) == FREEDOM_DESIGNER
+        )
+        _hero_cue = None
+        if _plan_mode_requested and image_choice != "none":
+            _hero_cue = self._hero_cue_for(
+                request, getattr(request, "color_mode", "light") or "light",
+                "en" if str(getattr(request, "language", "ms")).lower().endswith("en") else "ms",
+            )
+
         if image_choice == "none":
             logger.info("🚫 Image choice='none' - SKIPPING ALL image generation")
             # Don't generate or use any images
@@ -8026,7 +8617,8 @@ IMPORTANT RULES:
             # still takes the photo-slots prompt branch.
             with _timed_step("stability_images", step_timings):
                 ai_images_generated = await self._autofill_missing_images(
-                    request, image_urls, max_ai_images, zai_phase=_zai_image_phase
+                    request, image_urls, max_ai_images, zai_phase=_zai_image_phase,
+                    hero_cue=_hero_cue,
                 )
             if ai_images_generated:
                 await update_progress(45, "AI images generated")
@@ -8045,10 +8637,25 @@ IMPORTANT RULES:
 
             with _timed_step("stability_images", step_timings):
                 ai_images_generated = await self._autofill_missing_images(
-                    request, image_urls, max_ai_images, zai_phase=_zai_image_phase
+                    request, image_urls, max_ai_images, zai_phase=_zai_image_phase,
+                    hero_cue=_hero_cue,
                 )
 
             await update_progress(45, "AI images generated")
+
+        # Consistent crop ratios per section (§6): hero 16:9, item tiles
+        # 4:3 — applied as Cloudinary transforms on every resolved URL (and
+        # the request's own list, so the exact-URL validation stays in
+        # step). Non-Cloudinary URLs pass through untouched.
+        if _plan_mode_requested and image_urls:
+            try:
+                from app.services.image_intelligence import apply_section_crops, crop_uploaded_images
+                _item_role = "menu" if normalize_business_type(getattr(request, "business_type", None)) in ("food", "bakery", None, "") else "product"
+                image_urls = apply_section_crops(image_urls, item_role=_item_role)
+                if request.uploaded_images:
+                    request.uploaded_images = crop_uploaded_images(request.uploaded_images, item_role=_item_role)
+            except Exception as _crop_err:
+                logger.warning(f"🖼️ Section crops skipped: {_crop_err}")
 
         # ===================================================================
         # PRE-BUILT TEMPLATE PATH: If user selected a template that has a
@@ -8175,10 +8782,51 @@ IMPORTANT RULES:
         design_brief = normalize_design_brief(getattr(request, "design_brief", None))
         designer_mode = design_freedom == FREEDOM_DESIGNER
         concept: Optional[DesignConcept] = None
+        plan: Optional[DesignPlan] = None
         self._last_design_concept = None
-        if designer_mode and design_concept_enabled():
+        self._last_design_plan = None
+        self._last_plan_gate = None
+        _ordered_for_concept = self._ordered_prompt_image_urls(image_urls)
+        if designer_mode and not _tpl_id and design_plan_enabled():
+            # Two-pass generation, Pass 1: the design plan. Replaces the
+            # free-form concept step; the plan's concept adapter keeps the
+            # palette/font wiring below unchanged.
+            await update_progress(48, "Designer writing the plan")
+            with _timed_step("design_plan", step_timings):
+                _hero_url = image_urls.get("hero") if isinstance(image_urls, dict) else None
+                _hero_ok, _image_colours = True, []
+                try:
+                    from app.services.image_intelligence import hero_quality, dominant_colours
+                    if _hero_url:
+                        _hero_ok = (await hero_quality(_hero_url)).full_bleed_ok
+                        _image_colours = await dominant_colours([_hero_url] + [
+                            image_urls.get(f"gallery{i}") for i in range(1, 5) if image_urls.get(f"gallery{i}")
+                        ])
+                except Exception as _img_err:
+                    logger.warning(f"🖼️ Image intelligence skipped: {_img_err}")
+                plan_brief = self._plan_brief_for(
+                    request,
+                    color_mode=color_mode,
+                    has_images=(image_choice != "none" and bool(_ordered_for_concept)),
+                    image_count=len(_ordered_for_concept),
+                    design_brief=design_brief,
+                    language=language,
+                    image_colours=_image_colours,
+                    hero_full_bleed_ok=_hero_ok,
+                    gallery_count=self._gallery_image_count(request),
+                )
+                # The resolved theme is the wall for everything downstream
+                # (colour-mode guard included): the brief may have overruled
+                # the toggle.
+                color_mode = "dark" if plan_brief.theme == "dark" else "light"
+                plans = await self._direct_design_plan(
+                    plan_brief, preferred_plan=getattr(request, "preferred_plan", None)
+                )
+                plan = plans[0]
+                concept = plan.to_concept(language)
+                self._last_design_concept = concept.as_dict()
+        elif designer_mode and design_concept_enabled():
             await update_progress(48, "Designer drafting the concept")
-            _ordered_for_concept = self._ordered_prompt_image_urls(image_urls)
             with _timed_step("design_concept", step_timings):
                 concept = await self._direct_design_concept(
                     request,
@@ -8190,6 +8838,7 @@ IMPORTANT RULES:
                 )
         logger.info(
             f"🎨 Design freedom: {design_freedom} | brief: {'yes' if design_brief else 'no'} | "
+            f"plan: {plan.direction_name if plan else 'none'} | "
             f"concept: {concept.name if concept else 'none (seeded design system)'}"
         )
 
@@ -8214,6 +8863,14 @@ IMPORTANT RULES:
             design_brief=design_brief,
             design_freedom=design_freedom,
             concept=concept,
+            plan=plan,
+            hero_video=bool(getattr(request, "hero_video", False)),
+            include_contact_form=bool(getattr(request, "include_contact_form", True)),
+            include_social=bool(getattr(request, "include_social", False)),
+            social_media=getattr(request, "social_media", None),
+            payment_methods=getattr(request, "payment_methods", None),
+            opening_hours=getattr(request, "opening_hours", None),
+            gallery_count=self._gallery_image_count(request),
         )
 
         # Add image URLs to prompt with STRONG emphasis.
@@ -8384,6 +9041,7 @@ IMPORTANT INSTRUCTIONS:
                             prompt,
                             has_images=bool(_glm_image_urls),
                             designer_mode=designer_mode,
+                            plan_mode=plan is not None,
                         ),
                         timeout=AI_GLM_TIMEOUT_SECONDS,
                     )
@@ -8399,7 +9057,20 @@ IMPORTANT INSTRUCTIONS:
                 if html_raw and "<" not in html_raw:
                     logger.error("🟣 GLM returned non-HTML output — discarding, falling back to DeepSeek")
                     html_raw = None
-                if html_raw:
+                if html_raw and plan is not None:
+                    # Two-pass critique gate: anti-template lint + screenshot
+                    # critique against the plan; Pass 2 is re-run with the
+                    # notes (max 2 retries) and the best attempt is served.
+                    html_raw = await self._run_plan_gate(
+                        html_raw,
+                        plan=plan,
+                        prompt=prompt,
+                        has_images=bool(_glm_image_urls),
+                        designer_mode=designer_mode,
+                        language=language,
+                        hours_supplied=bool(getattr(request, "opening_hours", None)),
+                    )
+                elif html_raw:
                     # Premium design critique loop (PREMIUM_DESIGN_LOOP, ships
                     # dark): one DeepSeek review + at most one GLM revision.
                     # Runs before PHOTO_SLOT binding so a revision keeps the
@@ -8436,6 +9107,17 @@ IMPORTANT INSTRUCTIONS:
                 )
                 if html_raw:
                     _html_model = self.deepseek_model_pro
+                if html_raw and plan is not None:
+                    html_raw = await self._run_plan_gate(
+                        html_raw,
+                        plan=plan,
+                        prompt=prompt,
+                        has_images=False,
+                        designer_mode=designer_mode,
+                        language=language,
+                        provider="deepseek",
+                        hours_supplied=bool(getattr(request, "opening_hours", None)),
+                    )
 
             if html_raw and self._last_api_call.get("truncated"):
                 api_truncated_provider = self._last_api_call.get("provider")
@@ -8673,6 +9355,17 @@ IMPORTANT INSTRUCTIONS:
             # into WhatsApp; with no OG tags that renders as a bare URL.
             # Runs BEFORE validation so its metadata warnings reflect reality.
             html = self._inject_seo_metadata(html, request, image_urls)
+            # Quality floor (§8): lang, viewport, reduced-motion, visible
+            # focus, lazy-loading, image dimensions — deterministic and
+            # idempotent, applied to every generated page.
+            try:
+                html, _floor = apply_quality_floor(html, language=language)
+                if _floor.applied:
+                    logger.info(f"🧱 Quality floor applied: {_floor.applied}")
+                for _w in _floor.warnings:
+                    logger.info(f"🧱 Quality floor: {_w}")
+            except Exception as _floor_err:
+                logger.warning(f"⚠️ Quality floor skipped: {_floor_err}")
             # An id-less hero is found by sibling order everywhere else
             # (layout guards, nav anchors, the video patcher). Name it once.
             try:
@@ -8737,6 +9430,124 @@ IMPORTANT INSTRUCTIONS:
             needs_manual_review=truncation_flags.get("needs_manual_review", False),
             step_timings=step_timings,
         )
+
+    async def generate_plan_variants(
+        self,
+        request: WebsiteGenerationRequest,
+        image_choice: str = "upload",
+        n_plans: int = 3,
+        progress_callback: Optional[Callable[[int, str], Awaitable[None]]] = None,
+    ) -> List[Dict]:
+        """Multi-style preview (§0): Pass 1 returns ``n_plans`` distinct
+        plans and each gets ONE low-fidelity Pass 2 build — uploaded images
+        only, lint repairs, no image generation, no critique, no widgets.
+        The merchant picks one and that plan alone runs the full pipeline
+        (``preferred_plan`` on a fresh generation).
+
+        Returns a list of {style, name, description, html, plan} dicts; a
+        variant whose HTML call failed is dropped."""
+        async def _progress(pct: int, msg: str) -> None:
+            if progress_callback:
+                try:
+                    await progress_callback(pct, msg)
+                except Exception:
+                    pass
+
+        language = request.language.value if hasattr(request, "language") and request.language else "ms"
+        language = "en" if str(language).lower().endswith("en") else "ms"
+        color_mode = getattr(request, "color_mode", "light") or "light"
+        design_brief = normalize_design_brief(getattr(request, "design_brief", None))
+        uploaded = list(getattr(request, "uploaded_images", None) or []) if image_choice != "none" else []
+        image_urls: Dict[str, str] = {}
+        if uploaded:
+            def _url(img):
+                return img.get("url", img.get("URL", "")) if isinstance(img, dict) else (str(img) if img else "")
+
+            def _name(img):
+                return img.get("name", "") if isinstance(img, dict) else ""
+
+            start = 0
+            if "hero" in (_name(uploaded[0]) or "").lower():
+                image_urls["hero"] = _url(uploaded[0])
+                start = 1
+            for i in range(1, 5):
+                idx = start + i - 1
+                if idx < len(uploaded):
+                    image_urls[f"gallery{i}"] = _url(uploaded[idx])
+                    image_urls[f"gallery{i}_name"] = _name(uploaded[idx])
+        ordered = self._ordered_prompt_image_urls(image_urls)
+
+        await _progress(40, "Designer writing three plans")
+        brief = self._plan_brief_for(
+            request, color_mode=color_mode, has_images=bool(ordered), image_count=len(ordered),
+            design_brief=design_brief, language=language, gallery_count=self._gallery_image_count(request),
+        )
+        color_mode = "dark" if brief.theme == "dark" else "light"
+        plans = await self._direct_design_plan(brief, n_plans=n_plans)
+
+        variants: List[Dict] = []
+        wa_digits = self._normalize_wa_digits(request.whatsapp_number)
+        for i, plan in enumerate(plans):
+            await _progress(45 + i * 15, f"Building preview {i + 1} of {len(plans)}: {plan.direction_name}")
+            concept = plan.to_concept(language)
+            prompt = self._build_strict_prompt(
+                request.business_name, request.description, "modern", uploaded, language,
+                whatsapp_number=request.whatsapp_number, location_address=request.location_address,
+                image_choice=("upload" if uploaded else "none"), images=image_urls,
+                include_ecommerce=request.include_ecommerce, color_mode=color_mode,
+                include_whatsapp=request.include_whatsapp, include_maps=request.include_maps,
+                include_contact_form=bool(getattr(request, "include_contact_form", True)),
+                brand_colors=getattr(request, "colors", None), menu_items=getattr(request, "menu_items", None),
+                show_prices=bool(getattr(request, "show_prices", True)),
+                design_style=getattr(request, "design_style", None), design_brief=design_brief,
+                design_freedom=FREEDOM_DESIGNER, concept=concept, plan=plan,
+                hero_video=bool(getattr(request, "hero_video", False)),
+                include_social=bool(getattr(request, "include_social", False)),
+                social_media=getattr(request, "social_media", None),
+                payment_methods=getattr(request, "payment_methods", None),
+                opening_hours=getattr(request, "opening_hours", None),
+                gallery_count=self._gallery_image_count(request),
+            )
+            html_raw = None
+            if USE_GLM_FOR_HTML and self.zai_api_key:
+                try:
+                    html_raw = await asyncio.wait_for(
+                        self._call_glm(prompt, has_images=bool(ordered), designer_mode=True, plan_mode=True),
+                        timeout=AI_GLM_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    html_raw = None
+                if html_raw and (self._last_api_call.get("truncated") or "<" not in html_raw):
+                    html_raw = None
+                if html_raw:
+                    html_raw = self._replace_photo_slots(html_raw, ordered)
+            if not html_raw:
+                try:
+                    html_raw = await asyncio.wait_for(
+                        self._call_deepseek(prompt, model=self.deepseek_model_pro, system_prompt=DESIGNER_SYSTEM_PROMPT),
+                        timeout=AI_PRIMARY_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    html_raw = None
+            if not html_raw:
+                logger.error(f"❌ Preview {i + 1} ({plan.direction_name}) produced no HTML — dropped")
+                continue
+            html = self._extract_html(html_raw) or html_raw
+            html, lint = lint_anti_template(html, allow_aos=False, hours_supplied=bool(getattr(request, "opening_hours", None)))
+            html = self._fix_placeholders(html, request.business_name, request.description, wa_digits=wa_digits)
+            html = self._fix_broken_image_urls(html, request.description)
+            html = self._sanitize_sensitive_claims(html, request)
+            html, _ = apply_quality_floor(html, language=language)
+            variants.append({
+                "style": plan.direction,
+                "name": plan.direction_name,
+                "description": plan.why,
+                "html": html,
+                "plan": plan.as_dict(),
+                "lint": lint.as_dict(),
+            })
+            logger.info(f"✅ Preview {i + 1}: {plan.direction_name} ({len(html)} chars, lint {'clean' if lint.ok else 'issues'})")
+        return variants
 
     async def generate_multi_style(
         self,

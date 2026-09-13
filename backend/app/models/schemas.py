@@ -184,6 +184,46 @@ class WebsiteGenerationRequest(BaseModel):
             "describes motion applied to this image afterwards."
         ),
     )
+    # Designer-grade generation (two-pass). Each of these maps an existing
+    # create-page control onto the design plan so the merchant's choice is a
+    # hard constraint (see docs/design/DESIGNER_GRADE_GENERATION.md).
+    include_contact_form: bool = Field(
+        default=True,
+        description="'Borang Tempahan' feature. False = no contact-form slot at all.",
+    )
+    include_social: bool = Field(
+        default=False,
+        description="'Social Media' feature. False = no social icons/links anywhere.",
+    )
+    social_media: Optional[dict] = Field(
+        default=None,
+        description="Social handles {instagram, facebook, tiktok} when the feature is on.",
+    )
+    payment_methods: Optional[List[str]] = Field(
+        default=None,
+        description="'Cara terima bayaran': subset of ['cod', 'qr']. Drives checkout copy and the footer payment badges only.",
+    )
+    hero_video: bool = Field(
+        default=False,
+        description="'Video latar hero' is on: the hero treatment is forced to photo-full-bleed with the video as the page-load moment.",
+    )
+    opening_hours: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        description="Opening hours exactly as the merchant wrote them. None = hours are never rendered.",
+    )
+    multi_style: bool = Field(
+        default=False,
+        description="'Multi-style preview': Pass 1 returns 3 plans and the merchant picks one.",
+    )
+    preferred_plan: Optional[dict] = Field(
+        default=None,
+        description=(
+            "A design plan (as returned in a multi-style preview) the merchant already picked. "
+            "Pass 1 validates it instead of asking the model for a new one, so the full critique loop "
+            "runs on exactly the plan they chose."
+        ),
+    )
     menu_items: Optional[List[MenuItemInput]] = Field(
         default=[],
         description=(
@@ -214,6 +254,18 @@ class WebsiteGenerationRequest(BaseModel):
         # This validation is simplified - consider adding model_validator if cross-field check is critical
         # For now, we just return the value as-is
         return v
+
+    @field_validator("payment_methods")
+    @classmethod
+    def validate_payment_methods(cls, v):
+        if not v:
+            return None
+        allowed = []
+        for item in v:
+            key = str(item).strip().lower()
+            if key in ("cod", "qr") and key not in allowed:
+                allowed.append(key)
+        return allowed or None
 
     @field_validator("design_freedom")
     @classmethod

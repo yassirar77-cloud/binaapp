@@ -974,6 +974,13 @@ async def get_generation_status(job_id: str):
                 styles = json.loads(job["styles"]) if isinstance(job["styles"], str) else job["styles"]
             except Exception:
                 styles = None
+            # The stashed request body (multi-style previews) is server-side
+            # state for /api/generate/refine, never part of the response.
+            if isinstance(styles, list):
+                styles = [
+                    {k: v for k, v in item.items() if k not in ("_request", "prompt")} if isinstance(item, dict) else item
+                    for item in styles
+                ]
 
         # Try to get variants from job
         if job.get("variants"):
@@ -1904,6 +1911,11 @@ async def run_generation_task(
     hero_image_prompt: Optional[str] = None,
     menu_items: Optional[list] = None,
     show_prices: bool = True,
+    hero_video: bool = False,
+    opening_hours: Optional[str] = None,
+    multi_style: bool = False,
+    preferred_plan: Optional[dict] = None,
+    request_stash: Optional[dict] = None,
 ):
     """Generate website - SIMPLE VERSION with guaranteed completion"""
 
@@ -2010,7 +2022,21 @@ async def run_generation_task(
             subdomain="preview",
             include_whatsapp=whatsapp_enabled,
             whatsapp_number=wa_digits or None,
-            include_maps=False,
+            # The map itself is a widget injected after generation; the flag
+            # tells the prompt to leave the slot (Google Maps ON) or to render
+            # address text only (OFF). Feature OFF = no map anywhere.
+            include_maps=bool((selected_features or {}).get("googleMap")),
+            include_contact_form=bool((selected_features or {}).get("contactForm")),
+            include_social=bool((selected_features or {}).get("socialMedia")) and bool(social_media),
+            social_media=(social_media if isinstance(social_media, dict) else None),
+            payment_methods=[
+                key for key, on in (("cod", (payment or {}).get("cod")), ("qr", (payment or {}).get("qr")))
+                if isinstance(payment, dict) and on
+            ] or None,
+            hero_video=bool(hero_video),
+            opening_hours=opening_hours,
+            multi_style=bool(multi_style),
+            preferred_plan=preferred_plan if isinstance(preferred_plan, dict) else None,
             # The address the merchant typed. Was hardcoded to "" — the prompt's
             # "use EXACTLY, do not invent" address line only exists when this
             # is set, so the model was reading the address out of the prose.
@@ -2042,6 +2068,33 @@ async def run_generation_task(
                     logger.info(f"📊 Progress {progress}% update: {len(result.data) if result.data else 0} rows affected")
                 except Exception as e:
                     logger.warning(f"⚠️ Progress update failed: {e}")
+
+        # Multi-style preview (§0): three plans, three low-fidelity previews,
+        # no images generated, no critique, no widgets. The job completes
+        # with the three variants; the merchant's pick comes back through
+        # /api/generate/refine as a fresh full-pipeline job carrying the
+        # chosen plan. The original request body is stashed on the first
+        # variant so the refine job needs nothing from the browser.
+        if multi_style and not template_id:
+            logger.info("🎨 Multi-style preview: planning three directions")
+            variants = await ai_service.generate_plan_variants(
+                ai_request, image_choice=normalized_image_choice, n_plans=3,
+                progress_callback=progress_callback,
+            )
+            if not variants:
+                raise Exception("Failed to generate previews: no variant produced HTML")
+            if request_stash and variants:
+                variants[0]["_request"] = request_stash
+            if supabase:
+                supabase.table("generation_jobs").update({
+                    "status": "completed",
+                    "progress": 100,
+                    "html": variants[0]["html"],
+                    "styles": json.dumps(variants),
+                    "updated_at": datetime.now().isoformat(),
+                }).eq("job_id", job_id).execute()
+            logger.info(f"✅ Multi-style preview complete: {[v['name'] for v in variants]}")
+            return
 
         # Call ai_service.generate_website() - This triggers the 4-step flow
         logger.info("🎨 Starting 4-step generation (Stability AI + Cloudinary + DeepSeek + Qwen)...")
@@ -2135,6 +2188,18 @@ async def run_generation_task(
         # primary key of the persisted draft `websites` row, so the delivery/
         # chat widget validation resolves against a real row.
         generated_website_id = str(uuid.uuid4())
+        # Learning loop (§9): the plan that produced this page, its scores
+        # and the HTML hash, keyed on the job and the draft website id.
+        try:
+            await ai_service.record_last_plan(
+                category=(business_type or getattr(ai_request, "business_type", None) or None),
+                job_id=job_id,
+                website_id=generated_website_id,
+                user_id=user_id,
+                html=html,
+            )
+        except Exception as _plan_err:
+            logger.warning(f"🎨 Plan record skipped: {_plan_err}")
         actual_business_name = resolved_name
         logger.info(f"✅ Generated website_id for background job: {generated_website_id}")
 
@@ -2499,7 +2564,86 @@ async def start_generation(request: Request):
     except Exception as e:
         logger.error(f"❌ Invalid JSON: {e}")
         return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
+    return await _start_generation_from_body(body)
 
+
+def _stash_request_body(body: dict) -> dict:
+    """The create-form body minus anything bulky (a base64 QR image), kept
+    with a multi-style job so a refine can start a full job later."""
+    stash = dict(body or {})
+    payment = stash.get("payment")
+    if isinstance(payment, dict):
+        stash["payment"] = {k: v for k, v in payment.items() if k != "qr_image"}
+    stash.pop("multi_style", None)
+    stash.pop("multiStyle", None)
+    return stash
+
+
+@app.post("/api/generate/listen")
+async def listen_before_planning(request: Request):
+    """AI listening (§0): when the brief is too thin to plan from
+    (< 40% complete), return the follow-up questions the designer would
+    ask instead of inventing. Pure — no model call."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
+    from app.services.design_plan import LISTENING_THRESHOLD_PCT, PlanBrief, brief_completeness, listening_questions
+    from app.services.business_types import detect_business_type as _detect_bt, normalize_business_type as _norm_bt
+
+    description = str(body.get("description") or body.get("business_description") or "")
+    name = str(body.get("business_name") or body.get("businessName") or "")
+    vertical = _norm_bt(body.get("business_type") or body.get("businessType")) or _detect_bt(f"{name} {description}") or "general"
+    items = [i for i in (body.get("menu_items") or []) if isinstance(i, dict) and str(i.get("name") or "").strip()]
+    images = [i for i in (body.get("images") or []) if isinstance(i, dict) and i.get("url")]
+    language = "en" if str(body.get("language") or "ms").lower().endswith("en") else "ms"
+    brief = PlanBrief(
+        business_name=name, description=description, vertical=vertical, language=language,
+        design_brief=(body.get("design_brief") or None),
+        has_hero_image=any("hero" in str(i.get("name") or "").lower() for i in images),
+        menu_item_count=len(items),
+        whatsapp=bool(body.get("whatsapp_number")),
+        address=(body.get("address") or None),
+        hours=(body.get("opening_hours") or None),
+    )
+    pct = brief_completeness(brief)
+    questions = listening_questions(brief) if pct < LISTENING_THRESHOLD_PCT else []
+    return {"success": True, "completeness": pct, "threshold": LISTENING_THRESHOLD_PCT, "questions": questions, "vertical": vertical}
+
+
+@app.post("/api/generate/refine")
+async def refine_picked_variant(request: Request):
+    """Multi-style pick (§0): start a full-pipeline job for the plan the
+    merchant chose from a preview job. The new job carries the picked plan
+    as preferred_plan so Pass 1 validates it instead of re-planning, and
+    the critique loop runs on that plan alone."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"success": False, "error": "Invalid JSON"})
+    job_id = str(body.get("job_id") or "")
+    style = str(body.get("style") or "")
+    if not job_id or not style:
+        return JSONResponse(status_code=400, content={"success": False, "error": "job_id and style are required"})
+    job = await get_job_from_supabase(job_id)
+    if not job:
+        return JSONResponse(status_code=404, content={"success": False, "error": "Job not found"})
+    try:
+        styles = json.loads(job["styles"]) if isinstance(job.get("styles"), str) else (job.get("styles") or [])
+    except Exception:
+        styles = []
+    picked = next((v for v in styles if isinstance(v, dict) and v.get("style") == style), None)
+    if not picked or not isinstance(picked.get("plan"), dict):
+        return JSONResponse(status_code=404, content={"success": False, "error": "No plan for that style on this job"})
+    stash = next((v.get("_request") for v in styles if isinstance(v, dict) and isinstance(v.get("_request"), dict)), None)
+    if not stash:
+        return JSONResponse(status_code=409, content={"success": False, "error": "This preview job cannot be refined (no request stashed)"})
+    return await _start_generation_from_body(stash, preferred_plan=picked["plan"])
+
+
+async def _start_generation_from_body(body: dict, preferred_plan: Optional[dict] = None):
+    """Shared by /api/generate/start (the create form) and
+    /api/generate/refine (a multi-style pick)."""
     # Extract parameters
     description = body.get("description") or body.get("business_description") or ""
     user_id = body.get("user_id", "anonymous")
@@ -2629,6 +2773,18 @@ async def start_generation(request: Request):
     # 'Senarai Harga'. Read into selected_features and then dropped: the only
     # handler for it lives in a module that is never mounted.
     show_prices = bool((body.get("features") or {}).get("priceList", True))
+    # Designer-grade generation reads three more existing create-page
+    # controls (no new form fields): the hero-video toggle, the
+    # multi-style preview toggle, and the hours text if the form sent one.
+    hero_video_wanted = bool(body.get("hero_video") or body.get("heroVideo"))
+    multi_style = bool(body.get("multi_style") or body.get("multiStyle"))
+    opening_hours = (
+        body.get("opening_hours") or body.get("openingHours")
+        or ((body.get("delivery") or {}).get("hours") if isinstance(body.get("delivery"), dict) else None)
+        or None
+    )
+    if opening_hours is not None:
+        opening_hours = str(opening_hours).strip()[:200] or None
 
     # Get dish names from request
     dish_names = body.get("dish_names", [])
@@ -2945,6 +3101,11 @@ MANDATORY REQUIREMENTS:
         hero_image_prompt=hero_image_prompt,
         menu_items=supplied_menu_items,
         show_prices=show_prices,
+        hero_video=hero_video_wanted,
+        opening_hours=opening_hours,
+        multi_style=multi_style and preferred_plan is None,
+        preferred_plan=preferred_plan,
+        request_stash=_stash_request_body(body) if (multi_style and preferred_plan is None) else None,
     ))
 
     logger.info(f"🚀 Job started: {job_id}")
@@ -3473,6 +3634,21 @@ async def publish_website(
             f"🔧 HTML repair report for {subdomain}: {_repair_info}"
         )
 
+    # Quality floor (§8) at publish: the Tailwind Play CDN is replaced with
+    # compiled CSS when TAILWIND_PRECOMPILE is on and the CLI is reachable;
+    # otherwise the page keeps the CDN and the floor only records it.
+    try:
+        from app.services.quality_floor import apply_quality_floor as _apply_floor
+        from app.services import tailwind_precompile as _twp
+        _compiled_css = None
+        if _twp.enabled() and _twp.available():
+            _compiled_css = await _twp.compile_css(html_content)
+        html_content, _floor = _apply_floor(html_content, language=str(body.get("language") or "ms"), precompiled_css=_compiled_css)
+        if _floor.applied:
+            logger.info(f"🧱 Quality floor at publish ({subdomain}): {_floor.applied}")
+    except Exception as _floor_err:
+        logger.warning(f"⚠️ Quality floor at publish skipped: {_floor_err}")
+
     # HTML structural-integrity gate (Item 5 / Option B).
     # Refuses to publish HTML with unclosed mid-body tags or missing </html>,
     # which is the failure mode that put jiwa/huil/juio in production with
@@ -3833,6 +4009,12 @@ async def publish_website(
                     "published_at": _published_now,
                     "updated_at": _published_now,
                 }
+                # Learning loop (§9): the merchant published this plan's page.
+                try:
+                    from app.services.design_plan_store import mark_outcome as _mark_plan_outcome
+                    await _mark_plan_outcome(website_id, "published")
+                except Exception as _plan_err:
+                    logger.warning(f"🎨 Plan outcome skipped: {_plan_err}")
                 _description = body.get("description")
                 if _description:
                     upsert_payload["description"] = _description
