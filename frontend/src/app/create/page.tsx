@@ -162,6 +162,12 @@ export default function CreatePage() {
   const [projectName, setProjectName] = useState('')
   const [publishing, setPublishing] = useState(false)
   const [publishedUrl, setPublishedUrl] = useState('')
+  //: Set when /api/publish refuses because a DIFFERENT live site already holds
+  //: the requested subdomain. Publishing over it is a merchant's decision, not
+  //: a default.
+  const [subdomainConflict, setSubdomainConflict] = useState<
+    { subdomain: string; existingName: string } | null
+  >(null)
   // The row the publish created. Export and copy read the LIVE page from it
   // once published: generatedHtml is the generation-time copy and never
   // learns about a hero video that lands after publish (maka: exported
@@ -1183,21 +1189,53 @@ export default function CreatePage() {
   // now travels with the file (see exportStamp) and is said out loud.
   type ExportSource = { html: string; source: 'live' | 'row' | 'state'; reason: string }
 
+  // Run 1 site B exported `source=state fallback=site not published yet` five
+  // minutes after the site went live: publishedUrl was empty, so neither the
+  // live page nor the API row was ever tried. Only handlePublish's own success
+  // path sets it, and the site had reached production some other way. So the
+  // address is derived from the subdomain the merchant typed when state does
+  // not have it — and a derived page is only accepted once it proves to be
+  // theirs, because a subdomain in a text box is not proof of ownership.
+  const liveUrlCandidate = () => {
+    if (publishedUrl) return { url: publishedUrl, derived: false }
+    const slug = subdomain.toLowerCase().replace(/[^a-z0-9-]/g, '')
+    if (slug.length < 2) return null
+    return { url: `https://${slug}.binaapp.my`, derived: true }
+  }
+
+  const isOurSite = (html: string) => {
+    const name = businessName.trim()
+    if (!name) return false
+    return html.toLowerCase().includes(name.toLowerCase())
+  }
+
   const fetchLiveHtml = async (): Promise<ExportSource> => {
     const id = publishedWebsiteIdRef.current
-    if (!id || !publishedUrl) {
-      const reason = !publishedUrl ? 'site not published yet' : 'no website id'
+    const candidate = liveUrlCandidate()
+    let reason = ''
+
+    if (!candidate) {
+      reason = 'no published address and no subdomain typed'
       console.warn(`[binaapp export] ${reason}; using the generation-time copy`)
       return { html: generatedHtml, source: 'state', reason }
     }
+    if (candidate.derived) {
+      console.warn(
+        `[binaapp export] publishedUrl was empty (website id ${id ? 'present' : 'missing'});` +
+        ` trying ${candidate.url} from the typed subdomain`
+      )
+    }
 
-    let reason = ''
     try {
-      const res = await fetch(publishedUrl, { cache: 'no-store', mode: 'cors' })
+      const res = await fetch(candidate.url, { cache: 'no-store', mode: 'cors' })
       if (res.ok) {
         const html = await res.text()
-        if (looksLikeTheSite(html)) return { html, source: 'live', reason: '' }
-        reason = `live page did not look like the site (${html.length} bytes)`
+        if (looksLikeTheSite(html) && (!candidate.derived || isOurSite(html))) {
+          return { html, source: 'live', reason: candidate.derived ? 'address derived from the subdomain' : '' }
+        }
+        reason = candidate.derived && looksLikeTheSite(html)
+          ? 'the page on that subdomain is not this site'
+          : `live page did not look like the site (${html.length} bytes)`
       } else {
         reason = `live page responded ${res.status}`
       }
@@ -1205,6 +1243,12 @@ export default function CreatePage() {
       reason = `live page fetch failed (${err instanceof Error ? err.message : 'unknown'})`
     }
     console.warn(`[binaapp export] ${reason}; trying the API row`)
+
+    if (!id) {
+      reason = `${reason}; no website id for the API row`
+      console.warn(`[binaapp export] ${reason}; using the generation-time copy`)
+      return { html: generatedHtml, source: 'state', reason }
+    }
 
     try {
       let accessToken = getStoredToken()
@@ -1270,7 +1314,9 @@ export default function CreatePage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const handlePublish = async () => {
+  const handlePublish = async (options?: { replaceExisting?: boolean }) => {
+    const replaceExisting = options?.replaceExisting === true
+    if (!replaceExisting) setSubdomainConflict(null)
     if (!subdomain || !projectName) {
       setError('Sila isi subdomain dan nama projek')
       return
@@ -1389,6 +1435,9 @@ export default function CreatePage() {
           project_name: projectName,
           user_id: user?.id || 'demo-user',
           website_id: websiteId,
+          // Only ever true after the merchant has read which site is live on
+          // this subdomain and said to replace it.
+          replace_existing: replaceExisting,
           // Persist the original AI prompt so the editor's regenerate
           // flow can reuse it (migration 039). Without this the websites
           // row lands with description=null and the editor can't offer
@@ -1428,6 +1477,18 @@ export default function CreatePage() {
 
       if (!response.ok) {
         const errorData = await response.json()
+
+        // A live site already answers on this subdomain and it is not this
+        // one. Publishing used to replace it silently, and the first site
+        // stopped existing; the merchant now decides.
+        if (response.status === 409 && errorData.error === 'subdomain_in_use') {
+          setSubdomainConflict({
+            subdomain: errorData.subdomain || cleanSubdomain,
+            existingName: errorData.existing_business_name || '',
+          })
+          setError('')
+          return
+        }
 
         // Handle subscription limit reached from backend enforcement
         if (response.status === 403 && (errorData.error === 'subscription_limit_reached' || errorData.error === 'limit_reached')) {
@@ -3260,6 +3321,7 @@ export default function CreatePage() {
           setShowPublishModal(false)
           setError('')
           setSubdomainError(null)
+          setSubdomainConflict(null)
           setPubChecked(false)
         }
 
@@ -3416,6 +3478,22 @@ export default function CreatePage() {
                   </div>
                 )}
 
+                {/* A different live site already answers on this subdomain.
+                    Publishing over it is destructive and irreversible, so it
+                    is the merchant's call and it is spelled out. */}
+                {subdomainConflict && pubState !== 'success' && (
+                  <div className="banner-accent" style={{ marginTop: 16, marginBottom: 0, background: 'linear-gradient(90deg, rgba(245,158,11,.08), transparent)', border: '1px solid rgba(245,158,11,.28)' }}>
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: 3, background: '#F59E0B' }} />
+                    <div style={{ fontSize: 13, color: '#FCD34D', lineHeight: 1.5 }}>
+                      <strong>{subdomainConflict.subdomain}.binaapp.my</strong> sudah digunakan oleh laman
+                      {' '}<strong>{subdomainConflict.existingName || 'yang sedia ada'}</strong>.
+                      <div style={{ marginTop: 4, color: '#E5B769' }}>
+                        Menggantikannya akan memadam laman itu terus. Pilih subdomain lain jika anda mahu kedua-duanya kekal.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Error banner */}
                 {error && pubState !== 'success' && (
                   <div className="banner-accent" style={{ marginTop: 16, marginBottom: 0, background: 'linear-gradient(90deg, rgba(239,68,68,.06), transparent)', border: '1px solid rgba(239,68,68,.22)' }}>
@@ -3440,13 +3518,35 @@ export default function CreatePage() {
                       </button>
                     </>
                   )}
-                  {pubState === 'available' && (
+                  {pubState === 'available' && subdomainConflict && (
+                    <>
+                      <button
+                        type="button"
+                        className="cr-btn"
+                        onClick={() => { setSubdomainConflict(null); setPubChecked(false) }}
+                        disabled={publishing}
+                        style={{ flex: 1, background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff', boxShadow: '0 0 0 1px rgba(107,92,255,.5), 0 8px 24px rgba(79,61,255,.35)' }}
+                      >
+                        Pilih subdomain lain
+                      </button>
+                      <button
+                        type="button"
+                        className="cr-btn cr-btn-ghost"
+                        onClick={() => handlePublish({ replaceExisting: true })}
+                        disabled={publishing}
+                        style={{ flex: 1, color: '#FCA5A5', borderColor: 'rgba(239,68,68,.35)' }}
+                      >
+                        Ganti laman itu
+                      </button>
+                    </>
+                  )}
+                  {pubState === 'available' && !subdomainConflict && (
                     <>
                       <button type="button" className="cr-btn cr-btn-ghost" onClick={() => setPubChecked(false)} style={{ flex: 1 }} disabled={publishing}>Edit</button>
                       <button
                         type="button"
                         className="cr-btn"
-                        onClick={handlePublish}
+                        onClick={() => handlePublish()}
                         disabled={publishing || !subdomain || !projectName || !!subdomainError}
                         style={{ flex: 1, background: 'linear-gradient(180deg, #DDFF7A, #C7FF3D)', color: '#05050C', boxShadow: '0 0 0 1px rgba(199,255,61,.5), 0 8px 24px rgba(199,255,61,.25)' }}
                       >
