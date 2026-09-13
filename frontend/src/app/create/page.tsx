@@ -1176,22 +1176,35 @@ export default function CreatePage() {
   //   3. generatedHtml: the generation-time copy held in this component.
   const looksLikeTheSite = (html: string) =>
     /<html[\s>]/i.test(html) && /<body[\s>]/i.test(html) && html.length > 2000
-  const fetchLiveHtml = async (): Promise<string> => {
-    const id = publishedWebsiteIdRef.current
-    if (!id || !publishedUrl) return generatedHtml
+  // Which of the three the export actually used, and why it stopped there.
+  // Three rounds of "the download has no video" were reported with no way to
+  // tell WHICH step failed, because the only record was a console line nobody
+  // had open — and the first branch below did not even write one. The answer
+  // now travels with the file (see exportStamp) and is said out loud.
+  type ExportSource = { html: string; source: 'live' | 'row' | 'state'; reason: string }
 
+  const fetchLiveHtml = async (): Promise<ExportSource> => {
+    const id = publishedWebsiteIdRef.current
+    if (!id || !publishedUrl) {
+      const reason = !publishedUrl ? 'site not published yet' : 'no website id'
+      console.warn(`[binaapp export] ${reason}; using the generation-time copy`)
+      return { html: generatedHtml, source: 'state', reason }
+    }
+
+    let reason = ''
     try {
       const res = await fetch(publishedUrl, { cache: 'no-store', mode: 'cors' })
       if (res.ok) {
         const html = await res.text()
-        if (looksLikeTheSite(html)) return html
-        console.warn('[binaapp export] live page did not look like the site; trying the API row')
+        if (looksLikeTheSite(html)) return { html, source: 'live', reason: '' }
+        reason = `live page did not look like the site (${html.length} bytes)`
       } else {
-        console.warn(`[binaapp export] live page responded ${res.status}; trying the API row`)
+        reason = `live page responded ${res.status}`
       }
     } catch (err) {
-      console.warn('[binaapp export] live page fetch failed; trying the API row', err)
+      reason = `live page fetch failed (${err instanceof Error ? err.message : 'unknown'})`
     }
+    console.warn(`[binaapp export] ${reason}; trying the API row`)
 
     try {
       let accessToken = getStoredToken()
@@ -1204,20 +1217,41 @@ export default function CreatePage() {
       })
       if (res.ok) {
         const data = await res.json()
-        if (typeof data?.html_content === 'string' && data.html_content.trim()) return data.html_content
-        console.warn('[binaapp export] API row has no html_content; using the generation-time copy')
+        if (typeof data?.html_content === 'string' && data.html_content.trim()) {
+          return { html: data.html_content, source: 'row', reason }
+        }
+        reason = `${reason}; API row has no html_content`
       } else {
-        console.warn(`[binaapp export] API row responded ${res.status}; using the generation-time copy`)
+        reason = `${reason}; API row responded ${res.status}`
       }
     } catch (err) {
-      console.warn('[binaapp export] API row fetch failed; using the generation-time copy', err)
+      reason = `${reason}; API row fetch failed (${err instanceof Error ? err.message : 'unknown'})`
     }
-    return generatedHtml
+    console.warn(`[binaapp export] ${reason}; using the generation-time copy`)
+    return { html: generatedHtml, source: 'state', reason }
+  }
+
+  // The exported file says where it came from. A merchant never reads it; the
+  // next person holding a download with no hero video does, and it tells them
+  // in one grep what a console they did not open would have.
+  const exportStamp = ({ source, reason }: ExportSource) =>
+    `\n<!-- binaapp export: source=${source} at=${new Date().toISOString()}` +
+    `${reason ? ` fallback=${reason.replace(/--+/g, '-')}` : ''} -->\n`
+
+  const warnIfNotLive = (picked: ExportSource) => {
+    if (picked.source === 'live') return
+    toast(
+      picked.source === 'row'
+        ? 'Fail ini dari salinan tersimpan, bukan laman yang disiarkan.'
+        : 'Fail ini salinan tempatan — laman yang disiarkan tidak dapat dibaca.',
+      { icon: '⚠️' }
+    )
   }
 
   const handleDownload = async () => {
-    const html = await fetchLiveHtml()
-    const blob = new Blob([html], { type: 'text/html' })
+    const picked = await fetchLiveHtml()
+    warnIfNotLive(picked)
+    const blob = new Blob([picked.html + exportStamp(picked)], { type: 'text/html' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -1229,7 +1263,9 @@ export default function CreatePage() {
   }
 
   const handleCopyHtml = async () => {
-    navigator.clipboard.writeText(await fetchLiveHtml())
+    const picked = await fetchLiveHtml()
+    warnIfNotLive(picked)
+    navigator.clipboard.writeText(picked.html + exportStamp(picked))
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
