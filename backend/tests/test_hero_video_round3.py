@@ -35,7 +35,11 @@ LIGHT = (
     '<a class="btn-whatsapp inline-flex px-8 py-4 rounded-full" href="https://wa.me/60193456781">WhatsApp</a>'
     '<a class="btn-whatsapp-outline">Lihat</a></div></section></body></html>'
 )
-DARK = LIGHT.replace("#FFFFFF", "#111111")
+# The dark variant needs a hero that states nothing of its own: `bg-white`
+# on the section is a white hero whatever the page theme says, and since
+# round 4 the hero outranks the page. Without this the "dark page" fixture
+# would be a light hero on a dark page, which is a different test.
+DARK = LIGHT.replace("#FFFFFF", "#111111").replace(" bg-white", "")
 
 
 def _settings(**kw):
@@ -51,7 +55,9 @@ def _style(html):
 
 class TestKeepColour:
     def test_every_recolour_rule_is_scoped_by_the_runtime_stamp(self):
-        style = _style(apply_hero_video(LIGHT, _settings()).html)
+        # An explicit text mode, because since round 4 an "auto" scrim is
+        # chosen to suit the copy the hero already has and recolours nothing.
+        style = _style(apply_hero_video(LIGHT, _settings(text_mode="dark")).html)
         colour_rules = [r for r in style.split("}") if "color:#0F172A !important" in r or "border-color:currentColor" in r]
         assert colour_rules, "expected recolour rules on a full-bleed light hero"
         for rule in colour_rules:
@@ -59,20 +65,27 @@ class TestKeepColour:
                 assert f":not([{KEEP_COLOR_ATTR}])" in selector, selector
 
     def test_no_rule_keys_on_class_names_any_more(self):
-        style = _style(apply_hero_video(LIGHT, _settings()).html)
+        style = _style(apply_hero_video(LIGHT, _settings(text_mode="dark")).html)
         assert '[class*="bg-"]' not in style and '[class*="border-"]' not in style
 
     def test_the_bootstrap_stamps_from_the_computed_background(self):
         html = apply_hero_video(LIGHT, _settings()).html
         assert f"var K='{KEEP_COLOR_ATTR}'" in html
         assert "getComputedStyle(e).backgroundColor" in html
-        assert "parseFloat(m[1])>=0.1" in html          # alpha ≥ 0.1 keeps its colour
+        assert "parseFloat(m[1])>=0.5" in html          # half-opaque or more keeps its colour
         assert "d[j].setAttribute(K,'')" in html         # …and so do its descendants
         assert "if(l.contains(e)||e.hasAttribute(K))continue" in html  # never our layer
 
-    def test_stamping_runs_before_play(self):
+    def test_stamping_waits_for_the_heros_own_children(self):
+        # Round 4, Run 1 site A: keep-color count 0 on the whole page. The
+        # bootstrap is the hero's FIRST child and ran during parsing, when the
+        # hero held nothing but the layer, so the pass walked an empty tree.
         html = apply_hero_video(LIGHT, _settings()).html
-        assert html.index("var K='data-binaapp-keep-color'") < html.index("go();")
+        assert "if(document.readyState==='loading')" in html
+        assert "document.addEventListener('DOMContentLoaded',stamp);else stamp();" in html
+        # ...and it says how many it stamped, so "it stamped nothing" is
+        # visible in the DOM instead of having to be inferred.
+        assert "h.setAttribute('data-binaapp-keep-color-count',String(n));" in html
 
 
 class TestScrimFromLuminance:
