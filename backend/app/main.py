@@ -3726,7 +3726,7 @@ async def publish_website(
             html_content = finalize_published_seo(
                 html_content,
                 f"https://{subdomain}.binaapp.my",
-                business_name=body.get("project_name") or body.get("business_name") or "",
+                business_name=body.get("business_name") or body.get("project_name") or "",
                 geo=map_geo,
             )
         except Exception as _seo_err:
@@ -3774,11 +3774,16 @@ async def publish_website(
                 # endpoint sets it; this production one didn't), so every
                 # site created via /create carried published_at=NULL.
                 _published_now = datetime.now().isoformat()
+                # `name` is the site's label from the publish modal; the
+                # merchant's business name is its own field. Writing the
+                # label into business_name left rows reading "Bhy", "Jom",
+                # "Mymoon" while the pages themselves showed the real names.
+                merchant_business_name = str(body.get("business_name") or "").strip() or project_name
                 upsert_payload = {
                     "id": website_id,
                     "user_id": user_id,
                     "name": project_name,
-                    "business_name": project_name,
+                    "business_name": merchant_business_name,
                     "subdomain": subdomain,
                     "status": "published",
                     "public_url": published_url,

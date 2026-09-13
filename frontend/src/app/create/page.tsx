@@ -374,6 +374,45 @@ export default function CreatePage() {
   // Damansara went out on one page (bji). Null when either side names nothing.
   const addressLocalityConflict = localityConflict(description, fullAddress)
 
+  // "Create Another" used to reset only the OUTPUT (generated HTML, style
+  // variations, publish state). Every merchant input survived into the next
+  // site built in the same session: the address, the WhatsApp number, the
+  // socials, the delivery settings, the ticked features. That is how a site
+  // whose address field was never touched published the PREVIOUS site's
+  // address (bji: Kota Damansara on a Shah Alam shop — it was in the
+  // generation payload because the form sent it). A new site starts from a
+  // blank form.
+  const resetMerchantInputs = () => {
+    setDescription('')
+    setBusinessName('')
+    setWhatsappNumber('')
+    setFullAddress('')
+    setInstagram('')
+    setFacebook('')
+    setTiktok('')
+    setDeliveryArea('')
+    setDeliveryFee('')
+    setMinimumOrder('')
+    setDeliveryHours('')
+    setFulfillment({ delivery: true, deliveryFee: '5.00', minOrder: '20.00', deliveryArea: '', pickup: false, pickupAddress: '' })
+    setPaymentMethods({ cod: true, qr: false })
+    setPaymentQR(null)
+    setPaymentQRPreview('')
+    setUploadedImages({ hero: null, gallery: [] })
+    setHeroPreview('')
+    setMenuPreviews({})
+    setSelectedFeatures({
+      whatsapp: true, googleMap: false, deliverySystem: false, contactForm: false,
+      socialMedia: false, priceList: true, operatingHours: true, gallery: true,
+    })
+    setBusinessType('auto')
+    setDesignBrief('')
+    setHeroImagePrompt('')
+    setSubdomain('')
+    setProjectName('')
+    publishedWebsiteIdRef.current = ''
+  }
+
   // Social media states
   const [instagram, setInstagram] = useState('')
   const [facebook, setFacebook] = useState('')
@@ -3136,7 +3175,7 @@ export default function CreatePage() {
                 </div>
               </div>
 
-              <button onClick={() => { setGeneratedHtml(''); setStyleVariations([]); setSelectedStyle(null); setError(''); setPublishedUrl(''); setHeroVideoJob(null); setHeroVideoError(null); preparedHeroVideoJobId.current = null; }} className="cr-btn cr-btn-ghost">Create Another</button>
+              <button onClick={() => { setGeneratedHtml(''); setStyleVariations([]); setSelectedStyle(null); setError(''); setPublishedUrl(''); setHeroVideoJob(null); setHeroVideoError(null); preparedHeroVideoJobId.current = null; resetMerchantInputs() }} className="cr-btn cr-btn-ghost">Create Another</button>
             </div>
 
             {previewMode === 'single' ? (
