@@ -3547,20 +3547,62 @@ async def publish_website(
                     )
                 is_new_website = False  # Existing website being updated
 
-        # Also detect republish by subdomain ownership (frontend sends new UUID each time)
+        # Also detect republish by subdomain ownership (frontend sends new UUID
+        # each time). Reusing that row is right for a merchant republishing
+        # THEIR OWN site and catastrophic otherwise: a second site published to
+        # a subdomain already carrying a live one silently replaced it, and the
+        # first site stopped existing (Run 1: Kedai Runcit Pak Din was
+        # overwritten by Gerai Burger Malam Adik, same row, same created_at).
+        # A different site on an occupied subdomain is refused unless the
+        # merchant has said, in so many words, to replace what is there.
+        replacing_live_site = False
+        replace_existing = bool(body.get("replace_existing"))
         if is_new_website and supabase and subdomain:
             try:
-                sub_check = supabase.table("websites").select("id, user_id").eq("subdomain", subdomain).limit(1).execute()
+                sub_check = (
+                    supabase.table("websites")
+                    .select("id, user_id, business_name, name, status, is_published, subdomain")
+                    .eq("subdomain", subdomain)
+                    .limit(1)
+                    .execute()
+                )
                 if sub_check.data:
-                    existing_sub_owner = sub_check.data[0].get("user_id")
-                    if existing_sub_owner == user_id:
-                        is_new_website = False
-                        website_id = sub_check.data[0]["id"]  # Reuse existing website ID
-                        logger.info(f"📝 Republish detected via subdomain match: {subdomain}")
-                    elif existing_sub_owner and existing_sub_owner != user_id:
+                    existing_row = sub_check.data[0]
+                    existing_sub_owner = existing_row.get("user_id")
+                    if existing_sub_owner and existing_sub_owner != user_id:
                         return JSONResponse(
                             status_code=400,
                             content={"success": False, "error": f"Subdomain '{subdomain}' sudah digunakan oleh pengguna lain."}
+                        )
+                    if existing_sub_owner == user_id:
+                        from app.services.publish_guard import (
+                            occupant_name,
+                            replaces_other_site,
+                            subdomain_conflict,
+                        )
+                        incoming_name = str(
+                            body.get("business_name") or body.get("project_name") or body.get("name") or ""
+                        ).strip()
+                        conflict = subdomain_conflict(
+                            existing_row, incoming_name, subdomain, replace_existing
+                        )
+                        if conflict:
+                            logger.warning(
+                                f"🛑 PUBLISH REFUSED subdomain={subdomain} is live as "
+                                f"{occupant_name(existing_row)!r}; incoming site is "
+                                f"{incoming_name!r}"
+                            )
+                            return JSONResponse(status_code=409, content=conflict)
+                        is_new_website = False
+                        website_id = existing_row["id"]  # Reuse existing website ID
+                        replacing_live_site = replaces_other_site(existing_row, incoming_name)
+                        logger.info(
+                            f"📝 Republish detected via subdomain match: {subdomain} "
+                            + (
+                                f"(REPLACING {occupant_name(existing_row)!r})"
+                                if replacing_live_site
+                                else "(same site)"
+                            )
                         )
             except Exception as sub_err:
                 logger.warning(f"⚠️ Subdomain ownership check failed: {sub_err}")
@@ -3794,6 +3836,13 @@ async def publish_website(
                 _description = body.get("description")
                 if _description:
                     upsert_payload["description"] = _description
+                elif replacing_live_site:
+                    # Replacing a different site: every field that described the
+                    # OLD business is cleared rather than left to describe the
+                    # new one. The row kept Kedai Runcit Pak Din's address while
+                    # serving a burger stall, which is what delivery zones, the
+                    # map widget and order confirmations would have read.
+                    upsert_payload["description"] = None
                 # Migration 055: persist the merchant's vertical and hero-visual
                 # intent. Both are only written when the client actually sends
                 # them — a republish that omits them must not wipe the stored
@@ -3805,15 +3854,36 @@ async def publish_website(
                 )
                 if _biz_type:
                     upsert_payload["business_type"] = _biz_type
+                elif replacing_live_site:
+                    upsert_payload["business_type"] = None
                 _hero_prompt = (body.get("hero_image_prompt") or body.get("heroImagePrompt") or "")
                 _hero_prompt = str(_hero_prompt).strip()[:400]
                 if _hero_prompt:
                     upsert_payload["hero_image_prompt"] = _hero_prompt
-                if map_geo.get("lat") is not None and map_geo.get("lng") is not None:
-                    upsert_payload["lat"] = map_geo["lat"]
-                    upsert_payload["lng"] = map_geo["lng"]
-                if map_geo.get("address"):
-                    upsert_payload["location_address"] = map_geo["address"]
+                elif replacing_live_site:
+                    upsert_payload["hero_image_prompt"] = None
+                # The address and its coordinates travel together, and a
+                # publish that CARRIES an address field states all three —
+                # including "there is no address now". map_geo only fills in
+                # when the page has a map embed, so a site with no map used to
+                # leave whatever the previous publish stored: after a
+                # replacement the row held the old shop's street.
+                _address_field_sent = "address" in body or "location_address" in body
+                _body_address = str(
+                    body.get("address") or body.get("location_address") or ""
+                ).strip()[:300]
+                if _address_field_sent or replacing_live_site:
+                    upsert_payload["location_address"] = (
+                        map_geo.get("address") or _body_address or None
+                    )
+                    upsert_payload["lat"] = map_geo.get("lat")
+                    upsert_payload["lng"] = map_geo.get("lng")
+                else:
+                    if map_geo.get("lat") is not None and map_geo.get("lng") is not None:
+                        upsert_payload["lat"] = map_geo["lat"]
+                        upsert_payload["lng"] = map_geo["lng"]
+                    if map_geo.get("address"):
+                        upsert_payload["location_address"] = map_geo["address"]
                 logger.info(
                     f"🏷️ [PUBLISH] business_type={_biz_type or '(not sent — leaving stored value)'} "
                     f"hero_image_prompt={'set' if _hero_prompt else '(not sent)'}"

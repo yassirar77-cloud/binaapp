@@ -66,7 +66,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-from app.services.color_tone import alpha_over, text_tone, tint
+from app.services.color_tone import alpha_over, css_variables, text_tone, tint
 from app.utils.html_scan import (
     direct_children,
     element_end,
@@ -614,10 +614,34 @@ def _is_background_media(html: str, start: int, end: int) -> bool:
     return bool(_MEDIA_INSIDE_RE.search(inner)) or bool(_INLINE_BG_IMAGE_RE.search(style))
 
 
+def _is_floating_overlay(html: str, start: int, end: int) -> bool:
+    """A badge or card positioned ON TOP of the media it shares a box with.
+
+    The split hero's floating price card — ``absolute bottom-6 right-6`` over
+    the photo — is copy, but it is copy the design puts over the picture. It
+    does not stop the column being the media column; replacing the photo with
+    the clip leaves the card exactly where it was, on top.
+    """
+    tag_close = open_tag_end(html, start)
+    if tag_close == -1:
+        return False
+    open_tag = html[start:tag_close]
+    classes = tag_classes(open_tag)
+    style = read_attr(open_tag, "style") or ""
+    return bool(_ABSOLUTE_RE.search(classes)) or bool(_INLINE_ABSOLUTE_RE.search(style))
+
+
 def _is_plain_media_wrapper(html: str, start: int, end: int) -> bool:
-    """A wrapper whose only meaningful content is media: no copy, not itself
-    full-cover. The split hero's ``.hero-image-container`` — relative,
-    opaque cream background, one <img> inside — is the shape."""
+    """A wrapper whose meaningful content is media: the split hero's image
+    column. Relative rather than full-cover, at least one picture inside, and
+    no copy of its own except what floats over that picture.
+
+    The copy exception is round 5. A column holding a photo AND a floating
+    price card was excluded, so the clip fell back to full-bleed behind both
+    columns and the image column was left empty — the rule behaved as written
+    and the layout still lost. The card is part of the picture, not a reason
+    to abandon the column.
+    """
     tag_close = open_tag_end(html, start)
     if tag_close == -1:
         return False
@@ -626,7 +650,25 @@ def _is_plain_media_wrapper(html: str, start: int, end: int) -> bool:
     if name not in _WRAPPER_TAGS or _covers_parent(open_tag):
         return False
     inner = html[tag_close:end]
-    return not _CONTENT_INSIDE_RE.search(inner)
+    if not _MEDIA_INSIDE_RE.search(inner):
+        return False
+    if not _CONTENT_INSIDE_RE.search(inner):
+        return True
+    inner_end = html.rfind("</", 0, end)
+    if inner_end <= tag_close:
+        return False
+    for c_start, c_end in direct_children(html, tag_close, inner_end):
+        child = html[c_start:c_end]
+        child_close = open_tag_end(html, c_start)
+        if child_close == -1:
+            return False
+        child_name = re.match(r"<([a-zA-Z][\w-]*)", html[c_start:child_close])
+        is_copy = bool(_CONTENT_INSIDE_RE.search(child)) or bool(
+            child_name and _CONTENT_INSIDE_RE.match(f"<{child_name.group(1)}")
+        )
+        if is_copy and not _is_floating_overlay(html, c_start, c_end):
+            return False
+    return True
 
 
 def find_hero_media(html: str, hero_start: int) -> List[Tuple[int, int, Optional[Tuple[int, int]]]]:
@@ -670,7 +712,12 @@ MIN_EXISTING_VEIL = 0.2
 
 #: The hero's own copy, in the order its colour is trusted. The generator
 #: writes the headline's colour on the headline.
-_HERO_COPY_RE = re.compile(r"<(?:h1|h2|p)\b[^>]*>", re.IGNORECASE)
+_COPY_TAGS = ("h1", "h2", "p")
+#: A box that paints at least this much of its own background is its own
+#: surface: the copy inside it is coloured for THAT, not for the hero. The
+#: floating white price card in a split hero carried `color:#1C1917`, and
+#: reading it as the hero's copy made a dark hero look light (Run 1 site B).
+OPAQUE_SURFACE_ALPHA = 0.5
 
 
 def _hero_span(page_html: str) -> Optional[Tuple[int, int, int]]:
@@ -691,7 +738,44 @@ def _hero_span(page_html: str) -> Optional[Tuple[int, int, int]]:
     return start, tag_close, inner_end
 
 
-def _veil_of(html: str, start: int, end: int) -> Optional[Tuple[str, float]]:
+def _iter_hero_copy(
+    html: str,
+    inner_start: int,
+    inner_end: int,
+    variables: Dict[str, str],
+    depth: int = 0,
+):
+    """Every heading/paragraph in the hero that sits on the HERO's backdrop.
+
+    Copy inside a box that paints its own surface is skipped, with its whole
+    subtree: a card's text says what the card looks like, not the hero.
+    """
+    if depth > 6:
+        return
+    for c_start, c_end in direct_children(html, inner_start, inner_end):
+        tag_close = open_tag_end(html, c_start)
+        if tag_close == -1:
+            continue
+        open_tag = html[c_start:tag_close]
+        name_match = re.match(r"<([a-zA-Z][\w-]*)", open_tag)
+        if not name_match:
+            continue
+        name = name_match.group(1).lower()
+        classes = tag_classes(open_tag)
+        style = read_attr(open_tag, "style") or ""
+        _tone, alpha = tint(classes, style, variables)
+        if alpha >= OPAQUE_SURFACE_ALPHA:
+            continue
+        if name in _COPY_TAGS:
+            yield name, open_tag
+        child_inner_end = html.rfind("</", 0, c_end)
+        if child_inner_end > tag_close:
+            yield from _iter_hero_copy(html, tag_close, child_inner_end, variables, depth + 1)
+
+
+def _veil_of(
+    html: str, start: int, end: int, variables: Optional[Dict[str, str]] = None
+) -> Optional[Tuple[str, float]]:
     """The tint of a full-cover, empty element — a scrim the hero paints over
     its own picture — or None for anything holding content or media."""
     tag_close = open_tag_end(html, start)
@@ -709,7 +793,7 @@ def _veil_of(html: str, start: int, end: int) -> Optional[Tuple[str, float]]:
     inner = html[tag_close:end]
     if _CONTENT_INSIDE_RE.search(inner) or _MEDIA_INSIDE_RE.search(inner):
         return None
-    tone, alpha = tint(classes, read_attr(open_tag, "style") or "")
+    tone, alpha = tint(classes, read_attr(open_tag, "style") or "", variables)
     if not tone or alpha < MIN_EXISTING_VEIL:
         return None
     return tone, alpha
@@ -729,9 +813,10 @@ def hero_own_veil(page_html: str) -> Optional[Tuple[str, float]]:
     if span is None:
         return None
     _start, tag_close, inner_end = span
+    variables = css_variables(page_html)
     best: Optional[Tuple[str, float]] = None
     for c_start, c_end in direct_children(page_html, tag_close, inner_end):
-        found = _veil_of(page_html, c_start, c_end)
+        found = _veil_of(page_html, c_start, c_end, variables)
         if found and (best is None or found[1] > best[1]):
             best = found
         child_close = open_tag_end(page_html, c_start)
@@ -739,7 +824,7 @@ def hero_own_veil(page_html: str) -> Optional[Tuple[str, float]]:
         if child_close == -1 or child_inner_end <= child_close:
             continue
         for g_start, g_end in direct_children(page_html, child_close, child_inner_end):
-            found = _veil_of(page_html, g_start, g_end)
+            found = _veil_of(page_html, g_start, g_end, variables)
             if found and (best is None or found[1] > best[1]):
                 best = found
     return best
@@ -753,28 +838,38 @@ def detect_hero_tone(page_html: str) -> str:
     black gradient) and reading the page theme there produced a white veil
     under a black one, with the white copy forced to navy.
 
+    Colours are read through the document's own custom properties: this
+    generator writes `style="color: var(--text-color)"` over
+    `style="background-color: var(--bg-color)"`, and without resolving those
+    every test below returns "no opinion" on a hero that could not be more
+    explicit about what it is (Run 1 site B).
+
     Order of trust:
 
-    1. the colour of the hero's own copy — light copy means a dark hero;
-    2. a text colour set on the hero element itself;
-    3. a full-cover veil the hero paints (black gradient -> dark);
-    4. the hero's own flat background, when it is opaque enough to be one.
+    1. the hero's headline — light copy means a dark hero;
+    2. its other copy, ignoring anything inside a box with its own surface;
+    3. a text colour set on the hero element itself;
+    4. a full-cover veil the hero paints (black gradient -> dark);
+    5. the hero's own flat background, when it is opaque enough to be one.
     """
     span = _hero_span(page_html)
     if span is None:
         return ""
     start, tag_close, inner_end = span
     open_tag = page_html[start:tag_close]
-    inner = page_html[tag_close:inner_end]
+    variables = css_variables(page_html)
 
-    for match in _HERO_COPY_RE.finditer(inner):
-        tag = match.group(0)
-        tone = text_tone(tag_classes(tag), read_attr(tag, "style") or "")
-        if tone:
-            # Light copy is written for a dark backdrop, and vice versa.
-            return "dark" if tone == "light" else "light"
+    copy = list(_iter_hero_copy(page_html, tag_close, inner_end, variables))
+    for headlines_only in (True, False):
+        for name, tag in copy:
+            if headlines_only and name != "h1":
+                continue
+            tone = text_tone(tag_classes(tag), read_attr(tag, "style") or "", variables)
+            if tone:
+                # Light copy is written for a dark backdrop, and vice versa.
+                return "dark" if tone == "light" else "light"
 
-    tone = text_tone(tag_classes(open_tag), read_attr(open_tag, "style") or "")
+    tone = text_tone(tag_classes(open_tag), read_attr(open_tag, "style") or "", variables)
     if tone:
         return "dark" if tone == "light" else "light"
 
@@ -782,8 +877,8 @@ def detect_hero_tone(page_html: str) -> str:
     if veil:
         return veil[0]
 
-    tone, alpha = tint(tag_classes(open_tag), read_attr(open_tag, "style") or "")
-    if tone and alpha >= 0.5:
+    tone, alpha = tint(tag_classes(open_tag), read_attr(open_tag, "style") or "", variables)
+    if tone and alpha >= OPAQUE_SURFACE_ALPHA:
         return tone
     return ""
 

@@ -28,7 +28,7 @@ something else" — never as a default.
 from __future__ import annotations
 
 import re
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 from app.services.theme_patcher import normalize_hex, relative_luminance
 
@@ -81,6 +81,50 @@ _TINT_CLASS_RE = re.compile(
 )
 
 _INLINE_COLOR_RE = re.compile(r"(?:^|;)\s*color\s*:\s*([^;]+)", re.IGNORECASE)
+
+#: ``var(--text-color)`` / ``var(--brand, #fff)``. The generator writes hero
+#: colours this way — `style="color: var(--text-color)"` over
+#: `style="background-color: var(--bg-color)"` — which is neither a Tailwind
+#: token nor a literal, so every tone test fell through to "no opinion" and a
+#: dark hero was read as unknown (Run 1 site B).
+_VAR_USE_RE = re.compile(r"var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)")
+#: A custom-property DECLARATION, as written in the page's own :root block.
+_VAR_DECL_RE = re.compile(r"(--[A-Za-z0-9_-]+)\s*:\s*([^;}{]+)")
+_STYLE_BLOCK_RE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.IGNORECASE | re.DOTALL)
+
+
+def css_variables(html: str) -> Dict[str, str]:
+    """Every custom property the document declares, first declaration wins.
+
+    First rather than last on purpose: the base ``:root`` block is written
+    ahead of any ``@media (prefers-color-scheme: dark)`` override, and taking
+    the override would report the colours of a mode the visitor may not be in.
+    """
+    found: Dict[str, str] = {}
+    for block in _STYLE_BLOCK_RE.findall(html or ""):
+        for name, value in _VAR_DECL_RE.findall(block):
+            value = value.strip()
+            if value and name not in found:
+                found[name] = value
+    return found
+
+
+def resolve_vars(value: str, variables: Optional[Dict[str, str]], depth: int = 4) -> str:
+    """``var(--text-color)`` -> ``#FEF2F2``, using the document's own values.
+
+    A ``var()`` with no declaration falls back to the fallback the author
+    wrote, or to the empty string — which every caller reads as "no opinion".
+    Depth-bounded, so a variable defined in terms of itself cannot spin.
+    """
+    text = value or ""
+    for _ in range(depth):
+        match = _VAR_USE_RE.search(text)
+        if not match:
+            break
+        name, fallback = match.group(1), (match.group(2) or "").strip()
+        replacement = (variables or {}).get(name, fallback)
+        text = text[: match.start()] + replacement + text[match.end():]
+    return text
 _INLINE_BG_RE = re.compile(
     r"(?:^|;)\s*background(?:-color|-image)?\s*:\s*([^;]+)", re.IGNORECASE
 )
@@ -96,14 +140,15 @@ def _alpha(raw: Optional[str]) -> float:
         return 1.0
 
 
-def tone_of_color(value: str) -> str:
+def tone_of_color(value: str, variables: Optional[Dict[str, str]] = None) -> str:
     """"light", "dark" or "" for one CSS colour literal.
 
-    Understands hex, rgb()/rgba() and the handful of keywords a generated
-    page uses. A colour between the two thresholds states no opinion: a
-    mid-tone is readable either way and must not decide a scrim.
+    Understands hex, rgb()/rgba(), the handful of keywords a generated page
+    uses, and ``var(--name)`` when the document's declarations are passed in.
+    A colour between the two thresholds states no opinion: a mid-tone is
+    readable either way and must not decide a scrim.
     """
-    raw = (value or "").strip().lower()
+    raw = resolve_vars(value or "", variables).strip().lower()
     if not raw:
         return ""
     if raw in _NAMED:
@@ -132,14 +177,14 @@ def _tone_of_luminance(luminance: float) -> str:
     return ""
 
 
-def _tone_of_token(token: str) -> str:
+def _tone_of_token(token: str, variables: Optional[Dict[str, str]] = None) -> str:
     """The tone of one Tailwind colour token (the part after ``text-``/``bg-``)."""
     token = token.strip().lower()
     if not token:
         return ""
     if token.startswith("[") and token.endswith("]"):
-        # Arbitrary value: text-[#0F172A], bg-[rgba(0,0,0,.4)], bg-[--var].
-        return tone_of_color(token[1:-1].replace("_", " "))
+        # Arbitrary value: text-[#0F172A], bg-[rgba(0,0,0,.4)], bg-[var(--x)].
+        return tone_of_color(token[1:-1].replace("_", " "), variables)
     if token in _NAMED:
         return _NAMED[token]
     family, _, shade = token.rpartition("-")
@@ -152,7 +197,9 @@ def _tone_of_token(token: str) -> str:
     return ""
 
 
-def text_tone(classes: str = "", style: str = "") -> str:
+def text_tone(
+    classes: str = "", style: str = "", variables: Optional[Dict[str, str]] = None
+) -> str:
     """The tone of the text colour this element sets, or "".
 
     The inline style wins: it is the more specific of the two and it is what
@@ -160,17 +207,19 @@ def text_tone(classes: str = "", style: str = "") -> str:
     """
     inline = _INLINE_COLOR_RE.search(style or "")
     if inline:
-        tone = tone_of_color(inline.group(1))
+        tone = tone_of_color(inline.group(1), variables)
         if tone:
             return tone
     for match in _TEXT_CLASS_RE.finditer(classes or ""):
-        tone = _tone_of_token(match.group(1))
+        tone = _tone_of_token(match.group(1), variables)
         if tone:
             return tone
     return ""
 
 
-def tint(classes: str = "", style: str = "") -> Tuple[str, float]:
+def tint(
+    classes: str = "", style: str = "", variables: Optional[Dict[str, str]] = None
+) -> Tuple[str, float]:
     """The strongest flat colour or gradient stop this element paints.
 
     Returns ``(tone, alpha)`` — ``("dark", 0.7)`` for the ``to-black/70`` end
@@ -181,7 +230,7 @@ def tint(classes: str = "", style: str = "") -> Tuple[str, float]:
     best_tone, best_alpha = "", 0.0
 
     for match in _TINT_CLASS_RE.finditer(classes or ""):
-        tone = _tone_of_token(match.group(1))
+        tone = _tone_of_token(match.group(1), variables)
         if not tone:
             continue
         alpha = _alpha(match.group(2))
@@ -189,7 +238,7 @@ def tint(classes: str = "", style: str = "") -> Tuple[str, float]:
             best_tone, best_alpha = tone, alpha
 
     for match in _INLINE_BG_RE.finditer(style or ""):
-        value = match.group(1)
+        value = resolve_vars(match.group(1), variables)
         for rgb in _RGB_RE.finditer(value):
             r, g, b = (min(255, int(rgb.group(i))) for i in (1, 2, 3))
             tone = _tone_of_luminance(relative_luminance(f"#{r:02X}{g:02X}{b:02X}"))
@@ -205,7 +254,7 @@ def tint(classes: str = "", style: str = "") -> Tuple[str, float]:
             if alpha > best_alpha:
                 best_tone, best_alpha = tone, alpha
         if not _RGB_RE.search(value):
-            tone = tone_of_color(value)
+            tone = tone_of_color(value, variables)
             if tone and 1.0 > best_alpha:
                 best_tone, best_alpha = tone, 1.0
 
