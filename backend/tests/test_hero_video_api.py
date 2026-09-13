@@ -212,8 +212,11 @@ class TestFlag:
 class TestOptions:
     def test_catalogue_is_public(self, client):
         body = client.get("/api/v1/websites/hero-video/options").json()
-        # DashScope running the unified wan3.0-video model is the default.
-        assert body["success"] and body["model"] == "wan3.0-video"
+        # DashScope by default: a prompt-only clip is made by the
+        # text-to-video model, a clip based on the merchant's photo by the
+        # unified wan3.0-video.
+        assert body["success"] and body["model"] == "happyhorse-1.1-t2v"
+        assert body["image_model"] == "wan3.0-video"
         assert body["provider"] == "dashscope"
         assert {s["key"] for s in body["styles"]} >= {"cinematic", "ambient", "elegant"}
         assert all(s["label_ms"] for s in body["styles"])
@@ -223,6 +226,8 @@ class TestOptions:
         monkeypatch.setenv("HERO_VIDEO_PROVIDER", "zai")
         body = client.get("/api/v1/websites/hero-video/options").json()
         assert body["model"] == "cogvideox-3" and body["provider"] == "zai"
+        # One Z.ai model does both, so the picker shows the same name twice.
+        assert body["image_model"] == "cogvideox-3"
 
 
 class TestReadState:

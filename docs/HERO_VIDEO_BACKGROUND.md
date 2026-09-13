@@ -1,4 +1,4 @@
-# Hero Video Background (DashScope HappyHorse / Z.ai CogVideoX)
+# Hero Video Background (DashScope HappyHorse + wan3.0 / Z.ai CogVideoX)
 
 A short, muted, looping AI-generated clip that plays behind the hero section
 of a merchant's website, with a readable scrim over it.
@@ -158,7 +158,7 @@ Error codes (`detail.error`): `plan_not_allowed` 403, `hero_not_found` 422,
 ## Gates and cost guards
 
 **Paid per clip.** A hero video costs one `hero_video` add-on credit (RM5;
-HappyHorse charges ~USD 0.70 to make a 5-second clip). `plan_features.
+HappyHorse charges ~USD 0.70 to make a 5-second clip, wan3.0 more). `plan_features.
 hero_video_access(user_id)` decides: admins, `HERO_VIDEO_ALLOW_ALL_PLANS=true`
 and plans whose `features` carry `can_use_hero_video` generate for free;
 everyone else needs a credit. `POST …/generate` answers **402
@@ -198,13 +198,31 @@ storage rejects the republish.
 
 ## Provider
 
-`HERO_VIDEO_PROVIDER` picks the text-to-video API that makes the clip; everything
+`HERO_VIDEO_PROVIDER` picks the API that makes the clip; everything
 after the clip exists (download, Cloudinary, patch, publish) is shared.
 
 | Provider | Value | Model (default) | Submit | Poll |
 |---|---|---|---|---|
-| Alibaba Model Studio (default) | `dashscope` | `happyhorse-1.1-t2v` | `POST {DASHSCOPE_API_URL}/services/aigc/video-generation/video-synthesis` with `X-DashScope-Async: enable` → `output.task_id` | `GET {DASHSCOPE_API_URL}/tasks/{task_id}` → `output.task_status` PENDING/RUNNING → processing, SUCCEEDED → `output.video_url` (valid 24 h), FAILED/CANCELED/UNKNOWN → failed |
+| Alibaba Model Studio (default) | `dashscope` | `happyhorse-1.1-t2v` (text-to-video) / `wan3.0-video` (image-to-video) | `POST {DASHSCOPE_API_URL}/services/aigc/video-generation/video-synthesis` with `X-DashScope-Async: enable` → `output.task_id` | `GET {DASHSCOPE_API_URL}/tasks/{task_id}` → `output.task_status` PENDING/RUNNING → processing, SUCCEEDED → `output.video_url` (valid 24 h), FAILED/CANCELED/UNKNOWN → failed |
 | Z.ai | `zai` | `cogvideox-3` | `POST /videos/generations` → `id` | `GET /async-result/{id}` → `task_status`, `video_result[0].url` |
+
+**Two DashScope models, picked by the job.** A merchant who only typed a
+prompt gets `DASHSCOPE_T2V_MODEL` (`happyhorse-1.1-t2v`): text-to-video is
+all such a clip needs and it costs less. A merchant whose hero photo goes
+with the request gets `DASHSCOPE_VIDEO_MODEL` (`wan3.0-video`), the unified
+model that can put that photo in `input.media` as the clip's `first_frame`
+and follow its aspect (`ratio: adaptive`). The request shape follows the
+model that is actually sent, not the job: wan3.x takes the unified shape
+(`input.media`, `audio: false`, no `watermark` key — it is not in wan3.0's
+parameter list), anything else keeps the legacy shape byte-for-byte
+(`parameters.watermark` explicitly sent). `DASHSCOPE_T2V_MODEL=none` (or
+`off` / `same` / empty) puts every job back on one model — worth reaching for
+if a duration or resolution the picker offers turns out not to be supported
+by both models, since `duration` is passed straight through to whichever one
+the job picked.
+
+`GET /websites/hero-video/options` reports both: `model` is the
+text-to-video one, `image_model` the one that animates a photo.
 
 **Fallback.** `HERO_VIDEO_FALLBACK_PROVIDER` (default `zai` when DashScope is
 primary; `none` to disable) is tried only when the primary cannot *accept* the
@@ -216,8 +234,12 @@ Malay message pointing at server configuration rather than a retry.
 DashScope uses the same key as the Qwen text path (`DASHSCOPE_API_KEY`, or
 `QWEN_API_KEY`). `DASHSCOPE_VIDEO_RESOLUTION` (480P/720P/1080P, default 720P)
 and `DASHSCOPE_VIDEO_RATIO` (default 16:9) set the clip; `DASHSCOPE_VIDEO_WATERMARK` (default false) is sent as `parameters.watermark` — HappyHorse burns a "Happy Horse" mark into the corner unless it is false; DashScope prices per
-second of output, so 480P is the cheap option. HappyHorse is text-to-video
-only: an `image_url` on the request is ignored for this provider.
+second of output, so 480P is the cheap option.
+
+An operator who pins a text-to-video-only model as `DASHSCOPE_VIDEO_MODEL`
+takes DashScope out of image-to-video altogether: a job carrying a photo is
+then routed to Z.ai first when a `ZAI_API_KEY` is configured, and only falls
+back to DashScope — where the photo is logged as dropped — when it is not.
 
 ## Configuration
 
