@@ -2,12 +2,35 @@
 Supabase Client Service
 Handles all Supabase interactions using REST API
 """
+import re
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Dict, Optional
 
 import httpx
 
 from app.core.config import settings
+
+#: PostgREST's answer when the request names a column the schema does not
+#: have: {"code":"PGRST204","message":"Could not find the 'integrations'
+#: column of 'websites' in the schema cache"}.
+_UNKNOWN_COLUMN_RE = re.compile(r"Could not find the '([^']+)' column", re.IGNORECASE)
+
+#: Columns whose absence is a broken deployment, not drift. Writing a website
+#: row without its HTML would report success and store nothing.
+CRITICAL_WEBSITE_COLUMNS = frozenset(
+    {"id", "user_id", "subdomain", "html_content", "status"}
+)
+
+
+def unknown_column(status_code: int, body: str) -> Optional[str]:
+    """The column PostgREST says does not exist, or None."""
+    if status_code not in (400, 404):
+        return None
+    if "PGRST204" not in (body or ""):
+        return None
+    match = _UNKNOWN_COLUMN_RE.search(body or "")
+    return match.group(1) if match else None
+
 
 class SupabaseService:
     """Supabase service using REST API (no SDK conflicts)"""
@@ -403,35 +426,74 @@ class SupabaseService:
 
         CRITICAL FIX: Uses return=representation to verify rows were actually updated.
         Supabase returns 204 even when 0 rows match, so we must check the response body.
+
+        A PATCH is all-or-nothing, so ONE column the schema does not have throws
+        the whole write away. A regeneration on 2026-09-13 wrote a derived
+        ``integrations`` list that no migration ever created: PostgREST answered
+        PGRST204, and the freshly generated HTML, meta tags, sections and
+        generation_count went with it. Code and schema land in either order in
+        production, so this cannot be prevented by being careful — an unknown
+        column is dropped and the write retried, loudly, so schema drift costs
+        a field instead of the merchant's website.
         """
+        payload = dict(data)
+        dropped: list = []
         try:
             url = f"{self.url}/rest/v1/websites"
             params = {"id": f"eq.{website_id}"}
 
-            async with self._client() as client:
-                response = await client.patch(
-                    url,
-                    # CRITICAL: Use return=representation to get updated rows back
-                    # return=minimal returns 204 even when 0 rows are updated!
-                    headers={**self.headers, "Prefer": "return=representation"},
-                    params=params,
-                    json=data
-                )
+            # One attempt, plus one per column PostgREST says does not exist.
+            for _attempt in range(len(payload) + 1):
+                async with self._client() as client:
+                    response = await client.patch(
+                        url,
+                        # CRITICAL: Use return=representation to get updated rows back
+                        # return=minimal returns 204 even when 0 rows are updated!
+                        headers={**self.headers, "Prefer": "return=representation"},
+                        params=params,
+                        json=payload
+                    )
 
-            if response.status_code in [200, 204]:
-                # CRITICAL: Check if any rows were actually updated
-                result = response.json() if response.text else []
-                if isinstance(result, list) and len(result) > 0:
-                    print(f"✅ [DB UPDATE] Website {website_id} updated successfully")
-                    return True
-                else:
+                if response.status_code in [200, 204]:
+                    # CRITICAL: Check if any rows were actually updated
+                    result = response.json() if response.text else []
+                    if isinstance(result, list) and len(result) > 0:
+                        if dropped:
+                            print(
+                                f"⚠️ [DB UPDATE] Website {website_id} updated WITHOUT "
+                                f"{dropped} — the schema has no such column(s)"
+                            )
+                        else:
+                            print(f"✅ [DB UPDATE] Website {website_id} updated successfully")
+                        return True
                     # No rows updated - this is a failure!
                     print(f"❌ [DB UPDATE] Website {website_id}: 0 rows affected (record may not exist)")
                     print(f"❌ [DB UPDATE] Response: {response.text}")
                     return False
-            else:
-                print(f"❌ [DB UPDATE] Failed: {response.status_code} - {response.text}")
-                return False
+
+                unknown = unknown_column(response.status_code, response.text)
+                if not unknown or unknown not in payload:
+                    print(f"❌ [DB UPDATE] Failed: {response.status_code} - {response.text}")
+                    return False
+                if unknown in CRITICAL_WEBSITE_COLUMNS:
+                    # Dropping one of these would "succeed" while writing
+                    # nothing that mattered. Fail instead, so it is fixed.
+                    print(
+                        f"❌ [DB UPDATE] Failed: the schema has no {unknown!r} column and "
+                        f"it is not optional — {response.status_code} {response.text}"
+                    )
+                    return False
+                print(
+                    f"⚠️ [DB UPDATE] Website {website_id}: dropping unknown column "
+                    f"{unknown!r} and retrying"
+                )
+                payload.pop(unknown, None)
+                dropped.append(unknown)
+                if not payload:
+                    print(f"❌ [DB UPDATE] Website {website_id}: nothing left to write")
+                    return False
+            print(f"❌ [DB UPDATE] Website {website_id}: gave up after dropping {dropped}")
+            return False
         except Exception as e:
             print(f"❌ Update website error: {str(e)}")
             return False

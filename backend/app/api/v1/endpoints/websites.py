@@ -484,7 +484,6 @@ async def generate_website_content(
             )
 
         html_content = ai_response.html_content
-        integrations = ai_response.integrations_included
 
         # Extract palette from the AI-generated HTML once and reuse for
         # every widget injection below. Widgets that accept theme_tokens
@@ -520,8 +519,6 @@ async def generate_website_content(
                 theme_tokens=theme_tokens,
             )
 
-            # Update integrations list to include delivery
-            integrations = ["BinaApp Delivery", "WhatsApp Contact", "Mobile Responsive", "Cloudinary Images"]
             logger.info("✅ Step 2/4: Delivery widget injected successfully")
         else:
             logger.info("⏭️  Step 2/4: Delivery widget skipped (not enabled)")
@@ -553,13 +550,26 @@ async def generate_website_content(
             "meta_title": ai_response.meta_title,
             "meta_description": ai_response.meta_description,
             "sections": ai_response.sections,
-            "integrations": integrations,
+            # No "integrations" here. It was a derived list — the same four
+            # strings for every site — written to a column no migration ever
+            # created, and nothing in the backend or the app ever read it.
+            # PostgREST rejects the WHOLE patch over one unknown column, so on
+            # 2026-09-13 it took the generated HTML, the meta tags, the
+            # sections and the generation count with it.
             "generation_count": prev_count + 1,
             "error_message": None,
             "updated_at": datetime.utcnow().isoformat()
         }
 
-        await supabase_service.update_website(website_id, update_data)
+        saved = await supabase_service.update_website(website_id, update_data)
+        if not saved:
+            # This used to log "Database updated successfully" and then
+            # "completed successfully" on top of a 400, so a regeneration that
+            # stored nothing looked like a finished one — while the merchant's
+            # credit, and a make-good grant, were spent on it.
+            raise RuntimeError(
+                "generated page could not be saved — see the [DB UPDATE] line above"
+            )
 
         logger.info("✅ Step 4/4: Database updated successfully")
         logger.info(f"🎉 Website generation completed successfully: {website_id}")
@@ -2097,7 +2107,14 @@ async def update_website(
             "updated_at": datetime.utcnow().isoformat()
         }
 
-        await supabase_service.update_website(website_id, update_data)
+        # Checked, because the next step publishes to storage and the caller is
+        # told the save worked: a rejected PATCH used to pass silently and the
+        # editor reported a save that never happened.
+        if not await supabase_service.update_website(website_id, update_data):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Gagal menyimpan perubahan. Sila cuba lagi.",
+            )
 
         # If published, also update storage
         if website.get("status") == "published" and website.get("subdomain"):
@@ -2328,7 +2345,11 @@ async def update_website_contact(
                 f"the served snapshot"
             )
 
-        await supabase_service.update_website(website_id, update_data)
+        if not await supabase_service.update_website(website_id, update_data):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Gagal menyimpan nombor WhatsApp. Sila cuba lagi.",
+            )
 
         logger.info(
             f"✅ WhatsApp number updated credit-free for website {website_id} "
