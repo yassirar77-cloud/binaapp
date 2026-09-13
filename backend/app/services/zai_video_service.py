@@ -93,8 +93,9 @@ PROVIDERS = (PROVIDER_DASHSCOPE, PROVIDER_ZAI)
 
 def hero_video_provider() -> str:
     """Which video API makes the clip. ``dashscope`` (default) is Alibaba
-    Model Studio's async video-synthesis endpoint running the unified
-    wan3.0-video model; ``zai`` is the original CogVideoX path. Everything after the
+    Model Studio's async video-synthesis endpoint — happyhorse-1.1-t2v for a
+    prompt-only clip, the unified wan3.0-video when there is a photo to
+    animate; ``zai`` is the original CogVideoX path. Everything after the
     clip exists (download, Cloudinary, patch, publish) is provider-agnostic."""
     value = os.getenv("HERO_VIDEO_PROVIDER", PROVIDER_DASHSCOPE).strip().lower()
     return value if value in PROVIDERS else PROVIDER_DASHSCOPE
@@ -161,17 +162,47 @@ def _poll_result(
 
 
 #: Alibaba's unified video model: text-, image- AND video-to-video on the one
-#: video-synthesis endpoint. Replaced HappyHorse-T2V, which could only do
-#: text-to-video and silently dropped the merchant's hero photo.
+#: video-synthesis endpoint. This is the model that animates the merchant's
+#: own hero photo — HappyHorse-T2V could not, and silently dropped it.
 DEFAULT_DASHSCOPE_VIDEO_MODEL = "wan3.0-video"
+
+#: Text-to-video only, on the same endpoint. A prompt-only job has no photo
+#: for the unified model to animate, so it runs on the cheaper text-to-video
+#: model instead; a job WITH a photo still goes to wan3.0.
+DEFAULT_DASHSCOPE_T2V_MODEL = "happyhorse-1.1-t2v"
+
+#: Values that switch the split off and put every DashScope job back on one
+#: model (whatever DASHSCOPE_VIDEO_MODEL says).
+_T2V_MODEL_DISABLED = ("none", "off", "same", "-")
 
 
 def dashscope_video_model() -> str:
-    """DashScope video model. ``wan3.0-video`` by default."""
+    """The DashScope model for a job that has a photo to animate
+    (image-to-video). ``wan3.0-video`` by default."""
     return (
         os.getenv("DASHSCOPE_VIDEO_MODEL", DEFAULT_DASHSCOPE_VIDEO_MODEL).strip()
         or DEFAULT_DASHSCOPE_VIDEO_MODEL
     )
+
+
+def dashscope_t2v_model() -> str:
+    """The DashScope model for a prompt-only job. ``happyhorse-1.1-t2v`` by
+    default: text-to-video is all such a job needs and it costs less per
+    clip than the unified model. Set ``DASHSCOPE_T2V_MODEL=none`` to run
+    every job on ``DASHSCOPE_VIDEO_MODEL`` again."""
+    raw = os.getenv("DASHSCOPE_T2V_MODEL")
+    if raw is None:
+        return DEFAULT_DASHSCOPE_T2V_MODEL
+    value = raw.strip()
+    if not value or value.lower() in _T2V_MODEL_DISABLED:
+        return dashscope_video_model()
+    return value
+
+
+def dashscope_model_for(image_url: Optional[str] = None) -> str:
+    """Which DashScope model makes this clip: the unified model when there is
+    a photo to animate, the text-to-video model when there is not."""
+    return dashscope_video_model() if image_url else dashscope_t2v_model()
 
 
 def _dashscope_is_unified(model: str) -> bool:
@@ -209,9 +240,13 @@ def dashscope_video_watermark() -> bool:
     )
 
 
-def hero_video_model() -> str:
-    """The model name shown in the picker, for whichever provider is active."""
-    return dashscope_video_model() if hero_video_provider() == PROVIDER_DASHSCOPE else zai_video_model()
+def hero_video_model(image: bool = False) -> str:
+    """The model name shown in the picker, for whichever provider is active.
+    On DashScope a prompt-only job and a photo job run on different models,
+    so ``image=True`` asks for the one that animates a photo."""
+    if hero_video_provider() != PROVIDER_DASHSCOPE:
+        return zai_video_model()
+    return dashscope_video_model() if image else dashscope_t2v_model()
 
 
 def hero_video_fallback_provider() -> Optional[str]:
@@ -236,9 +271,11 @@ def _provider_configured(provider: str) -> bool:
 
 def _provider_animates_images(provider: str) -> bool:
     """Can this provider make image-to-video? Z.ai's CogVideoX path always
-    can. DashScope can with the unified wan3.x model (the default); a pinned
-    ``-t2v`` model such as HappyHorse is text-to-video only and drops the
-    photo on the floor."""
+    can. DashScope can with the unified wan3.x model (the default for a job
+    that carries a photo); an operator who pins a ``-t2v`` model as
+    DASHSCOPE_VIDEO_MODEL is text-to-video only and drops the photo on the
+    floor. DASHSCOPE_T2V_MODEL never decides this — it is only consulted for
+    a job that has no photo in the first place."""
     if provider == PROVIDER_DASHSCOPE:
         return _dashscope_is_unified(dashscope_video_model())
     return True
@@ -819,13 +856,15 @@ class ZaiVideoService:
         where to poll. Raises ZaiVideoError (the primary's) when nothing
         accepted the job.
 
-        An image job goes to a provider that can animate the image. The
-        default primary (DashScope) is text-to-video only and silently drops
-        ``image_url`` — which is how a merchant who uploaded their storefront
-        got a clip of strangers in a different restaurant. When a photo is
-        supplied and Z.ai is configured, Z.ai is tried FIRST and the usual
-        primary becomes the fallback, so an image job is never worse than a
-        text job; with no Z.ai key the order is exactly as before.
+        An image job goes to a provider that can animate the image. On
+        DashScope that is the unified wan3.0-video model, which the default
+        config already picks for a job carrying a photo. Only when the
+        primary CANNOT animate one — an operator pinning a text-to-video-only
+        DASHSCOPE_VIDEO_MODEL — would ``image_url`` be silently dropped,
+        which is how a merchant who uploaded their storefront got a clip of
+        strangers in a different restaurant. In that case, and only then, a
+        configured Z.ai is tried FIRST and the usual primary becomes the
+        fallback, so an image job is never worse than a text job.
         """
         primary = hero_video_provider()
         fallback = hero_video_fallback_provider()
@@ -875,7 +914,9 @@ class ZaiVideoService:
     ) -> str:
         if not _dashscope_api_key():
             raise ZaiVideoError("DASHSCOPE_API_KEY is not configured")
-        model = dashscope_video_model()
+        # A prompt-only job runs on the text-to-video model, a job that
+        # carries the merchant's photo on the unified one that can animate it.
+        model = dashscope_model_for(image_url)
         unified = _dashscope_is_unified(model)
         if image_url and not unified:
             # A pinned text-to-video-only model. We only land here with a
@@ -915,6 +956,7 @@ class ZaiVideoService:
         payload: Dict = {"model": model, "input": input_block, "parameters": parameters}
         logger.info(
             f"🎬 DashScope video submit ({payload['model']}, "
+            f"{'image-to-video' if image_url else 'text-to-video'}, "
             f"{payload['parameters']['resolution']} {payload['parameters']['ratio']}, "
             f"{payload['parameters']['duration']}s): {prompt[:80]}..."
         )

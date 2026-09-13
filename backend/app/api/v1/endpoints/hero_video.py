@@ -681,7 +681,10 @@ async def get_hero_video_options():
     _feature_gate()
     return {
         "success": True,
+        # Two models on DashScope: a prompt-only clip is text-to-video,
+        # a clip based on the merchant's photo is image-to-video.
         "model": hero_video_model(),
+        "image_model": hero_video_model(image=True),
         "provider": hero_video_provider(),
         # Paid per clip: one hero_video add-on credit (RM5) unless the
         # account has free access (admin / plan feature / env switch).

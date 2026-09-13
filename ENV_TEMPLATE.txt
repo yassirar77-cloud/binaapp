@@ -134,10 +134,10 @@ HERO_VIDEO_ENABLED=false            # master flag — off: every /hero-video rou
 HERO_VIDEO_ALLOW_ALL_PLANS=false    # true: skip the plan check (admins always pass);
                                     # false: plan features need can_use_hero_video=true
 HERO_VIDEO_MAX_PER_SITE_PER_DAY=5   # cost guard, per website (in-memory)
-# Which text-to-video API makes the hero clip. 'dashscope' (default) uses
-# Alibaba Model Studio's async video-synthesis endpoint (HappyHorse); 'zai'
-# is the original CogVideoX path. Everything after the clip exists
-# (download, Cloudinary, patch, publish) is the same for both.
+# Which API makes the hero clip. 'dashscope' (default) uses Alibaba Model
+# Studio's async video-synthesis endpoint; 'zai' is the original CogVideoX
+# path. Everything after the clip exists (download, Cloudinary, patch,
+# publish) is the same for both.
 # Hero video is PAID per clip (one 'hero_video' add-on credit, RM5) unless the
 # account has free access: admin, HERO_VIDEO_ALLOW_ALL_PLANS=true, or a plan
 # feature. Keep ALLOW_ALL_PLANS false in production — it makes clips free.
@@ -152,9 +152,15 @@ HERO_VIDEO_FALLBACK_PROVIDER=zai
 # OpenAI-compatible one in QWEN_BASE_URL.
 DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 DASHSCOPE_API_URL=https://dashscope-intl.aliyuncs.com/api/v1
-DASHSCOPE_VIDEO_MODEL=happyhorse-1.1-t2v
+# Two models, picked by what the merchant gave us. A prompt with no photo is
+# text-to-video, so it runs on the cheaper HappyHorse; a prompt WITH a hero
+# photo needs the unified wan3.0 model, which animates that photo as the
+# clip's first frame. Set DASHSCOPE_T2V_MODEL=none to put every job back on
+# DASHSCOPE_VIDEO_MODEL.
+DASHSCOPE_T2V_MODEL=happyhorse-1.1-t2v   # text-to-video (no photo supplied)
+DASHSCOPE_VIDEO_MODEL=wan3.0-video       # image-to-video (animates the hero photo)
 DASHSCOPE_VIDEO_RESOLUTION=720P     # 480P / 720P / 1080P (priced per second: 480P cheapest)
-DASHSCOPE_VIDEO_RATIO=16:9          # 16:9 / 9:16 / 1:1 / 4:3 / 3:4
+DASHSCOPE_VIDEO_RATIO=16:9          # 16:9 / 9:16 / 1:1 / 4:3 / 3:4 (a photo job uses 'adaptive')
 DASHSCOPE_VIDEO_WATERMARK=false     # HappyHorse stamps 'Happy Horse' in the corner unless told not to
 ZAI_VIDEO_MODEL=cogvideox-3         # Z.ai /videos/generations model code
 ZAI_VIDEO_SIZE=1280x720             # 1280x720 | 1920x1080 | 720x1280 | 1080x1920 | 1024x1024

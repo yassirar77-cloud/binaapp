@@ -30,7 +30,10 @@ export interface HeroVideoStyle {
 }
 
 export interface HeroVideoOptions {
+  /** The model behind a prompt-only clip (text-to-video). */
   model: string;
+  /** The model behind a clip based on the merchant's own photo. */
+  image_model?: string;
   provider?: string;
   duration_seconds: number;
   durations: number[];
