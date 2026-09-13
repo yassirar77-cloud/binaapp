@@ -191,6 +191,9 @@ class PublishRequest(BaseModel):
     description: Optional[str] = Field(default=None, description="Business description for type detection")
     business_type: Optional[str] = Field(default=None, description="Business type: food, clothing, services, general")
     language: Optional[str] = Field(default="ms", description="Language: ms or en")
+    #: Set only after the merchant has confirmed they mean to replace the live
+    #: site already published on this subdomain.
+    replace_existing: bool = Field(default=False, description="Replace the live site on this subdomain")
 
     @model_validator(mode='before')
     @classmethod
@@ -495,8 +498,43 @@ async def publish_website(
                     logger.info(f"   Database record found. Owner: {existing_user_id}")
 
                     if existing_user_id == user_id:
-                        # Case 1: Genuine republish — requester already owns the row.
-                        logger.info("✅ User owns this website - allowing republish")
+                        # Case 1: the requester owns the row — but owning the
+                        # subdomain is not the same as this being the same site.
+                        # A second site published onto a subdomain already
+                        # carrying a live one replaced it outright, and the
+                        # first site ceased to exist. Refuse unless the merchant
+                        # has explicitly said to replace what is there.
+                        from app.services.publish_guard import (
+                            occupant_name,
+                            replaces_other_site,
+                            subdomain_conflict,
+                        )
+                        _incoming = str(
+                            request.business_name or request.project_name or ""
+                        ).strip()
+                        _conflict = subdomain_conflict(
+                            existing_website,
+                            _incoming,
+                            request.subdomain,
+                            request.replace_existing,
+                        )
+                        if _conflict:
+                            logger.warning(
+                                f"🛑 PUBLISH REFUSED subdomain={request.subdomain} is live "
+                                f"as {occupant_name(existing_website)!r}; incoming site is "
+                                f"{_incoming!r}"
+                            )
+                            raise HTTPException(
+                                status_code=status.HTTP_409_CONFLICT, detail=_conflict
+                            )
+                        logger.info(
+                            "✅ User owns this website - allowing republish"
+                            + (
+                                f" (REPLACING {occupant_name(existing_website)!r})"
+                                if replaces_other_site(existing_website, _incoming)
+                                else ""
+                            )
+                        )
                         is_republish = True
                         project_id = existing_website.get("id")
                     elif existing_user_id is not None:
