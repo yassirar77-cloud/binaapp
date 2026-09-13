@@ -216,6 +216,14 @@ class WebsiteGenerationRequest(BaseModel):
         default=False,
         description="'Multi-style preview': Pass 1 returns 3 plans and the merchant picks one.",
     )
+    preferred_plan: Optional[dict] = Field(
+        default=None,
+        description=(
+            "A design plan (as returned in a multi-style preview) the merchant already picked. "
+            "Pass 1 validates it instead of asking the model for a new one, so the full critique loop "
+            "runs on exactly the plan they chose."
+        ),
+    )
     menu_items: Optional[List[MenuItemInput]] = Field(
         default=[],
         description=(

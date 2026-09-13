@@ -74,6 +74,11 @@ interface StyleVariation {
   preview_image?: string
   thumbnail?: string
   social_preview?: string
+  // Multi-style preview (two-pass generation): the direction's name, the
+  // designer's reason, and the design plan the pick is refined from.
+  name?: string
+  description?: string
+  plan?: Record<string, unknown>
 }
 
 // Blocked subdomain words - must match backend list
@@ -212,6 +217,15 @@ export default function CreatePage() {
   // can display the 5-state machine (edit/available/taken/publishing/success)
   // derived from existing subdomain/subdomainError/publishing/publishedUrl.
   const [pubChecked, setPubChecked] = useState(false)
+
+  // AI listening: when the brief is too thin to plan from, the designer
+  // asks these before generating instead of inventing.
+  const [listenQuestions, setListenQuestions] = useState<string[]>([])
+  const [listenAnswers, setListenAnswers] = useState<string[]>([])
+  const [showListening, setShowListening] = useState(false)
+  // A multi-style pick being refined into the full page: when its job
+  // completes, open the design instead of showing a one-card gallery.
+  const refiningRef = useRef(false)
 
   const [multiStyle, setMultiStyle] = useState(true)
   const [styleVariations, setStyleVariations] = useState<StyleVariation[]>([])
@@ -803,8 +817,130 @@ export default function CreatePage() {
     setShowAddonModal(true)
   }
 
-  const handleGenerate = async () => {
-    if (!description.trim()) return;
+  // Polls a generation job until it completes or fails. Shared by the
+  // create flow and by a multi-style pick being refined into the full page.
+  const startPolling = (jobId: string) => {
+    const maxAttempts = 200; // 200 attempts x 3 seconds = 10 minutes max (increased from 5 min for complex sites)
+    let attempt = 0;
+
+    // CRITICAL: Store interval in ref so it can be cleared on retry
+    pollIntervalRef.current = setInterval(async () => {
+      attempt++;
+
+      if (attempt > maxAttempts) {
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+        const stuckInfo = progress > 0 ? ` (stuck at ${progress}%)` : '';
+        setError(`Generation timed out after 10 minutes${stuckInfo}. Job: ${jobId.slice(0, 8)}. Please try again.`);
+        console.error(`❌ Generation timeout - Job: ${jobId}, Progress: ${progress}%`);
+        // Keep loading=true so the modal stays open with retry button
+        return;
+      }
+
+      try {
+        // Add cache-busting timestamp
+        const statusResponse = await fetch(`${DIRECT_BACKEND_URL}/api/generate/status/${jobId}?t=${Date.now()}`);
+
+        if (!statusResponse.ok) {
+          console.warn('Status check failed, retrying...', statusResponse.status, statusResponse.statusText);
+          return; // Continue polling
+        }
+
+        const statusData = await statusResponse.json();
+
+        // DEBUG: Log full response details
+        console.log('=== POLL RESPONSE ===');
+        console.log('Status:', statusData.status);
+        console.log('Progress:', statusData.progress);
+        console.log('Polled at:', statusData.polled_at);
+        console.log('DB updated_at:', statusData.updated_at);
+        console.log('Has variants:', statusData.variants?.length || 0);
+        console.log('Has HTML:', statusData.html?.length || 0);
+        console.log('=====================');
+
+        // Update progress bar
+        const newProgress = statusData.progress || 0;
+        setProgress(newProgress);
+
+        // STALE PROGRESS DETECTION: Warn if progress hasn't changed for 10+ polls (30+ seconds)
+        if (newProgress === lastProgress && newProgress > 0 && newProgress < 100) {
+          staleCheckRef.current += 1;
+          if (staleCheckRef.current >= 10 && !staleWarning) {
+            console.warn(`⚠️ Progress stuck at ${newProgress}% for ${staleCheckRef.current * 3} seconds`);
+            setStaleWarning(true);
+          }
+        } else {
+          staleCheckRef.current = 0;
+          setStaleWarning(false);
+          setLastProgress(newProgress);
+          setLastProgressUpdate(new Date());
+        }
+
+        if (statusData.status === 'completed') {
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          console.log('✅ Generation complete!');
+
+          // Set progress to 100% FIRST (before hiding modal)
+          setProgress(100);
+
+          // Handle completed job - backend returns 'variants' not 'styles'
+          if (statusData.variants?.length > 0) {
+            // Map variants to styleVariations format
+            const variations = statusData.variants.map((v: any) => ({
+              style: v.style,
+              html: v.html,
+              preview_image: v.preview_image,
+              thumbnail: v.thumbnail,
+              social_preview: v.social_preview,
+              name: v.name,
+              description: v.description,
+              plan: v.plan,
+            }));
+            if (refiningRef.current && variations.length > 0) {
+              // The merchant already picked this direction: open the page.
+              refiningRef.current = false;
+              setStyleVariations(variations);
+              setSelectedStyle(variations[0].style);
+              setGeneratedHtml(variations[0].html);
+            } else {
+              setStyleVariations(variations);
+              setSelectedStyle(null);
+            }
+            console.log(`✅ Loaded ${variations.length} style variations`);
+          } else if (statusData.styles?.length > 0) {
+            // Fallback for backwards compatibility
+            setStyleVariations(statusData.styles);
+            setSelectedStyle(null);
+          } else if (statusData.html) {
+            setStyleVariations([{ style: 'modern', html: statusData.html }]);
+            setSelectedStyle(null);
+          }
+
+          // Hide loading modal AFTER setting progress to 100%
+          setLoading(false);
+        } else if (statusData.status === 'failed') {
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+          setError(statusData.error || 'Generation failed. Please try again.');
+          // Keep loading=true so the modal stays open with retry button
+          // User can click Cancel or Try Again in the modal
+        }
+        // If status is still 'processing', continue polling
+      } catch (pollError: any) {
+        console.warn('Poll error:', pollError);
+        // Continue polling on error
+      }
+    }, 3000); // Poll every 3 seconds
+  };
+
+  const handleGenerate = async (opts?: { skipListening?: boolean; descriptionOverride?: string } | unknown) => {
+    // The button passes its click event; only a plain options object counts.
+    const o = (opts && typeof opts === 'object' && !('nativeEvent' in (opts as object)))
+      ? (opts as { skipListening?: boolean; descriptionOverride?: string })
+      : {}
+    const finalDescription = (o.descriptionOverride ?? description)
+    if (!finalDescription.trim()) return;
 
     // The backend refuses to name a site by fallback, so stop here with a
     // message the merchant can act on rather than letting them wait for a
@@ -840,6 +976,39 @@ export default function CreatePage() {
     const canCreate = await checkWebsiteLimit()
     if (!canCreate) {
       return // Modal will be shown by checkWebsiteLimit
+    }
+
+    // AI listening: below 40% brief completeness the designer asks its
+    // follow-up questions first (pure server-side check, no model call).
+    if (!o.skipListening) {
+      try {
+        const listenRes = await fetch(`${DIRECT_BACKEND_URL}/api/generate/listen`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            description: finalDescription,
+            business_name: businessName.trim(),
+            business_type: businessType === 'auto' ? null : businessType,
+            language,
+            menu_items: uploadedImages.gallery.map(g => ({ name: (g.name || '').trim() })).filter(it => it.name),
+            images: uploadedImages.hero ? [{ url: uploadedImages.hero, name: 'Hero Image' }] : [],
+            whatsapp_number: selectedFeatures.whatsapp ? whatsappNumber.trim() : '',
+            address: fullAddress || null,
+            design_brief: designBrief || null,
+          }),
+        })
+        if (listenRes.ok) {
+          const listen = await listenRes.json()
+          if (Array.isArray(listen.questions) && listen.questions.length > 0) {
+            setListenQuestions(listen.questions)
+            setListenAnswers(listen.questions.map(() => ''))
+            setShowListening(true)
+            return
+          }
+        }
+      } catch (listenErr) {
+        console.warn('AI listening skipped:', listenErr)
+      }
     }
 
     // CRITICAL: Clear any existing polling interval to prevent stale job ID polling
@@ -916,8 +1085,8 @@ export default function CreatePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          description: description,
-          business_description: description,
+          description: finalDescription,
+          business_description: finalDescription,
           business_name: businessName.trim(),
           whatsapp_number: selectedFeatures.whatsapp ? whatsappNumber.trim() : '',
           language: language,
@@ -937,6 +1106,12 @@ export default function CreatePage() {
           ...buildDesignPayload({ designBrief, designFreedom, designStyle }),
           // Template gallery: pass selected design template if any
           template_id: selectedTemplateId || undefined,
+          // Multi-style preview: three design plans, three low-fidelity
+          // previews; the pick is refined into the full page.
+          multi_style: multiStyle && generatePreviews,
+          // Hero video on → the plan's hero treatment is photo-full-bleed
+          // and the video is the page-load moment.
+          hero_video: heroVideoWanted,
           delivery: selectedFeatures.deliverySystem ? {
             area: deliveryArea,
             fee: deliveryFee,
@@ -1014,107 +1189,7 @@ export default function CreatePage() {
       void prepareHeroVideoEarly()
 
       // Step 2: Poll for results
-      const maxAttempts = 200; // 200 attempts x 3 seconds = 10 minutes max (increased from 5 min for complex sites)
-      let attempt = 0;
-
-      // CRITICAL: Store interval in ref so it can be cleared on retry
-      pollIntervalRef.current = setInterval(async () => {
-        attempt++;
-
-        if (attempt > maxAttempts) {
-          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          pollIntervalRef.current = null;
-          const stuckInfo = progress > 0 ? ` (stuck at ${progress}%)` : '';
-          setError(`Generation timed out after 10 minutes${stuckInfo}. Job: ${jobId.slice(0, 8)}. Please try again.`);
-          console.error(`❌ Generation timeout - Job: ${jobId}, Progress: ${progress}%`);
-          // Keep loading=true so the modal stays open with retry button
-          return;
-        }
-
-        try {
-          // Add cache-busting timestamp
-          const statusResponse = await fetch(`${DIRECT_BACKEND_URL}/api/generate/status/${jobId}?t=${Date.now()}`);
-
-          if (!statusResponse.ok) {
-            console.warn('Status check failed, retrying...', statusResponse.status, statusResponse.statusText);
-            return; // Continue polling
-          }
-
-          const statusData = await statusResponse.json();
-
-          // DEBUG: Log full response details
-          console.log('=== POLL RESPONSE ===');
-          console.log('Status:', statusData.status);
-          console.log('Progress:', statusData.progress);
-          console.log('Polled at:', statusData.polled_at);
-          console.log('DB updated_at:', statusData.updated_at);
-          console.log('Has variants:', statusData.variants?.length || 0);
-          console.log('Has HTML:', statusData.html?.length || 0);
-          console.log('=====================');
-
-          // Update progress bar
-          const newProgress = statusData.progress || 0;
-          setProgress(newProgress);
-
-          // STALE PROGRESS DETECTION: Warn if progress hasn't changed for 10+ polls (30+ seconds)
-          if (newProgress === lastProgress && newProgress > 0 && newProgress < 100) {
-            staleCheckRef.current += 1;
-            if (staleCheckRef.current >= 10 && !staleWarning) {
-              console.warn(`⚠️ Progress stuck at ${newProgress}% for ${staleCheckRef.current * 3} seconds`);
-              setStaleWarning(true);
-            }
-          } else {
-            staleCheckRef.current = 0;
-            setStaleWarning(false);
-            setLastProgress(newProgress);
-            setLastProgressUpdate(new Date());
-          }
-
-          if (statusData.status === 'completed') {
-            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-            console.log('✅ Generation complete!');
-
-            // Set progress to 100% FIRST (before hiding modal)
-            setProgress(100);
-
-            // Handle completed job - backend returns 'variants' not 'styles'
-            if (statusData.variants?.length > 0) {
-              // Map variants to styleVariations format
-              const variations = statusData.variants.map((v: any) => ({
-                style: v.style,
-                html: v.html,
-                preview_image: v.preview_image,
-                thumbnail: v.thumbnail,
-                social_preview: v.social_preview
-              }));
-              setStyleVariations(variations);
-              setSelectedStyle(null);
-              console.log(`✅ Loaded ${variations.length} style variations`);
-            } else if (statusData.styles?.length > 0) {
-              // Fallback for backwards compatibility
-              setStyleVariations(statusData.styles);
-              setSelectedStyle(null);
-            } else if (statusData.html) {
-              setStyleVariations([{ style: 'modern', html: statusData.html }]);
-              setSelectedStyle(null);
-            }
-
-            // Hide loading modal AFTER setting progress to 100%
-            setLoading(false);
-          } else if (statusData.status === 'failed') {
-            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-            setError(statusData.error || 'Generation failed. Please try again.');
-            // Keep loading=true so the modal stays open with retry button
-            // User can click Cancel or Try Again in the modal
-          }
-          // If status is still 'processing', continue polling
-        } catch (pollError: any) {
-          console.warn('Poll error:', pollError);
-          // Continue polling on error
-        }
-      }, 3000); // Poll every 3 seconds
+      startPolling(jobId);
 
     } catch (err: any) {
       console.error('Generation error:', err);
@@ -1124,7 +1199,34 @@ export default function CreatePage() {
     }
   };
 
-  const handleSelectVariation = (variation: StyleVariation) => {
+  const handleSelectVariation = async (variation: StyleVariation) => {
+    // A multi-style preview carries its design plan: the pick starts a
+    // fresh full-pipeline job (images, critique loop, widgets) on exactly
+    // that plan. The preview HTML stays as the fallback if that fails.
+    if (variation.plan && currentJobId) {
+      try {
+        setLoading(true)
+        setError('')
+        setProgress(0)
+        refiningRef.current = true
+        const res = await fetch(`${DIRECT_BACKEND_URL}/api/generate/refine`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ job_id: currentJobId, style: variation.style }),
+        })
+        const data = await res.json()
+        if (res.ok && data.job_id) {
+          setCurrentJobId(data.job_id)
+          startPolling(data.job_id)
+          return
+        }
+        console.warn('Refine did not start, using the preview as is:', data)
+      } catch (refineErr) {
+        console.warn('Refine failed, using the preview as is:', refineErr)
+      }
+      refiningRef.current = false
+      setLoading(false)
+    }
     setSelectedStyle(variation.style)
     setGeneratedHtml(variation.html)
   }
@@ -3107,7 +3209,12 @@ export default function CreatePage() {
                   minimal: { name: 'Minimal', icon: '✨', gradient: 'linear-gradient(135deg, #5A5A6E, #3A3A4A)', description: 'Clean, simple, elegant with lots of white space' },
                   bold: { name: 'Bold', icon: '⚡', gradient: 'linear-gradient(135deg, #F97316, #EF4444)', description: 'High contrast, dramatic, attention-grabbing' },
                 };
-                const info = styleInfo[variation.style] || { name: variation.style, icon: '🎯', gradient: 'linear-gradient(135deg, #6B5CFF, #4F3DFF)', description: 'Custom style' };
+                const info = styleInfo[variation.style] || {
+                  name: variation.name || variation.style,
+                  icon: '🎯',
+                  gradient: 'linear-gradient(135deg, #6B5CFF, #4F3DFF)',
+                  description: variation.description || 'Custom style',
+                };
 
                 return (
                   <div
@@ -3599,6 +3706,52 @@ export default function CreatePage() {
         addon={selectedAddon}
         onClose={() => setShowAddonModal(false)}
       />
+
+      {/* AI listening: follow-up questions before planning a thin brief */}
+      {showListening && (
+        <div role="dialog" aria-modal="true" aria-labelledby="cr-listen-title" style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(5,5,12,.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div className="cr-card" style={{ width: '100%', maxWidth: 560, padding: 24 }}>
+            <div id="cr-listen-title" style={{ fontSize: 16, fontWeight: 600, color: '#F5F5FA', marginBottom: 6 }}>Designer AI nak tanya sikit dulu</div>
+            <div style={{ fontSize: 13, color: '#86869A', marginBottom: 16 }}>
+              Cerita anda masih pendek. Jawab yang anda boleh — fakta ini sahaja yang akan muncul di website. Yang kosong tidak akan direka-reka.
+            </div>
+            {listenQuestions.map((q, i) => (
+              <label key={i} style={{ display: 'block', marginBottom: 12 }}>
+                <span style={{ display: 'block', fontSize: 13, color: '#D6D6E2', marginBottom: 6 }}>{q}</span>
+                <textarea
+                  className="cr-input"
+                  rows={2}
+                  value={listenAnswers[i] || ''}
+                  onChange={(e) => setListenAnswers(prev => prev.map((a, j) => (j === i ? e.target.value : a)))}
+                  style={{ width: '100%', resize: 'vertical' }}
+                />
+              </label>
+            ))}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+              <button type="button" className="cr-btn cr-btn-ghost" onClick={() => { setShowListening(false); void handleGenerate({ skipListening: true }); }}>
+                Teruskan tanpa jawab
+              </button>
+              <button
+                type="button"
+                className="cr-btn"
+                style={{ background: 'linear-gradient(180deg, #6B5CFF, #4F3DFF)', color: '#fff' }}
+                onClick={() => {
+                  const answered = listenQuestions
+                    .map((q, i) => ({ q, a: (listenAnswers[i] || '').trim() }))
+                    .filter(x => x.a)
+                  const extra = answered.map(x => `${x.q} ${x.a}`).join('\n')
+                  const merged = extra ? `${description.trim()}\n\n${extra}` : description
+                  setShowListening(false)
+                  if (extra) setDescription(merged)
+                  void handleGenerate({ skipListening: true, descriptionOverride: merged })
+                }}
+              >
+                Teruskan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Limit Reached Modal */}
       {limitModalData && (

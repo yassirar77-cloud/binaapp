@@ -4150,6 +4150,7 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         *,
         n_plans: int = 1,
         history: Optional[List[str]] = None,
+        preferred_plan: Optional[Dict] = None,
     ) -> List[DesignPlan]:
         """Pass 1. Always returns at least one validated plan: the model's
         (validated and repaired) when it answers in time, otherwise the
@@ -4159,8 +4160,25 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
                 history = await design_plan_store.recent_directions(brief.vertical)
             except Exception:
                 history = []
-        candidates = candidates_for(brief, history)
         plans: List[DesignPlan] = []
+        if preferred_plan:
+            # The merchant already picked this plan from a multi-style
+            # preview: validate it (same rules) instead of asking again, and
+            # do not rotate it away — their choice is the point.
+            chosen = str(preferred_plan.get("direction") or "")
+            history = [h for h in history if h != chosen]
+            candidates = candidates_for(brief, history)
+            try:
+                plans = parse_plans(json.dumps(preferred_plan), brief, candidates, history, n_plans=1)
+            except Exception as err:
+                logger.warning(f"🎨 Preferred plan unusable ({err}) — planning afresh")
+                plans = []
+            if plans:
+                plans[0].source = str(preferred_plan.get("source") or "ai")
+                logger.info(f"🎨 Plan step: using the merchant's picked plan '{plans[0].direction_name}'")
+                self._last_design_plan = plans[0].as_dict()
+                return plans
+        candidates = candidates_for(brief, history)
         try:
             prompt = build_plan_prompt(brief, candidates, history, n_plans=n_plans)
             logger.info(
@@ -8801,7 +8819,9 @@ IMPORTANT RULES:
                 # (colour-mode guard included): the brief may have overruled
                 # the toggle.
                 color_mode = "dark" if plan_brief.theme == "dark" else "light"
-                plans = await self._direct_design_plan(plan_brief)
+                plans = await self._direct_design_plan(
+                    plan_brief, preferred_plan=getattr(request, "preferred_plan", None)
+                )
                 plan = plans[0]
                 concept = plan.to_concept(language)
                 self._last_design_concept = concept.as_dict()
@@ -9410,6 +9430,124 @@ IMPORTANT INSTRUCTIONS:
             needs_manual_review=truncation_flags.get("needs_manual_review", False),
             step_timings=step_timings,
         )
+
+    async def generate_plan_variants(
+        self,
+        request: WebsiteGenerationRequest,
+        image_choice: str = "upload",
+        n_plans: int = 3,
+        progress_callback: Optional[Callable[[int, str], Awaitable[None]]] = None,
+    ) -> List[Dict]:
+        """Multi-style preview (§0): Pass 1 returns ``n_plans`` distinct
+        plans and each gets ONE low-fidelity Pass 2 build — uploaded images
+        only, lint repairs, no image generation, no critique, no widgets.
+        The merchant picks one and that plan alone runs the full pipeline
+        (``preferred_plan`` on a fresh generation).
+
+        Returns a list of {style, name, description, html, plan} dicts; a
+        variant whose HTML call failed is dropped."""
+        async def _progress(pct: int, msg: str) -> None:
+            if progress_callback:
+                try:
+                    await progress_callback(pct, msg)
+                except Exception:
+                    pass
+
+        language = request.language.value if hasattr(request, "language") and request.language else "ms"
+        language = "en" if str(language).lower().endswith("en") else "ms"
+        color_mode = getattr(request, "color_mode", "light") or "light"
+        design_brief = normalize_design_brief(getattr(request, "design_brief", None))
+        uploaded = list(getattr(request, "uploaded_images", None) or []) if image_choice != "none" else []
+        image_urls: Dict[str, str] = {}
+        if uploaded:
+            def _url(img):
+                return img.get("url", img.get("URL", "")) if isinstance(img, dict) else (str(img) if img else "")
+
+            def _name(img):
+                return img.get("name", "") if isinstance(img, dict) else ""
+
+            start = 0
+            if "hero" in (_name(uploaded[0]) or "").lower():
+                image_urls["hero"] = _url(uploaded[0])
+                start = 1
+            for i in range(1, 5):
+                idx = start + i - 1
+                if idx < len(uploaded):
+                    image_urls[f"gallery{i}"] = _url(uploaded[idx])
+                    image_urls[f"gallery{i}_name"] = _name(uploaded[idx])
+        ordered = self._ordered_prompt_image_urls(image_urls)
+
+        await _progress(40, "Designer writing three plans")
+        brief = self._plan_brief_for(
+            request, color_mode=color_mode, has_images=bool(ordered), image_count=len(ordered),
+            design_brief=design_brief, language=language, gallery_count=self._gallery_image_count(request),
+        )
+        color_mode = "dark" if brief.theme == "dark" else "light"
+        plans = await self._direct_design_plan(brief, n_plans=n_plans)
+
+        variants: List[Dict] = []
+        wa_digits = self._normalize_wa_digits(request.whatsapp_number)
+        for i, plan in enumerate(plans):
+            await _progress(45 + i * 15, f"Building preview {i + 1} of {len(plans)}: {plan.direction_name}")
+            concept = plan.to_concept(language)
+            prompt = self._build_strict_prompt(
+                request.business_name, request.description, "modern", uploaded, language,
+                whatsapp_number=request.whatsapp_number, location_address=request.location_address,
+                image_choice=("upload" if uploaded else "none"), images=image_urls,
+                include_ecommerce=request.include_ecommerce, color_mode=color_mode,
+                include_whatsapp=request.include_whatsapp, include_maps=request.include_maps,
+                include_contact_form=bool(getattr(request, "include_contact_form", True)),
+                brand_colors=getattr(request, "colors", None), menu_items=getattr(request, "menu_items", None),
+                show_prices=bool(getattr(request, "show_prices", True)),
+                design_style=getattr(request, "design_style", None), design_brief=design_brief,
+                design_freedom=FREEDOM_DESIGNER, concept=concept, plan=plan,
+                hero_video=bool(getattr(request, "hero_video", False)),
+                include_social=bool(getattr(request, "include_social", False)),
+                social_media=getattr(request, "social_media", None),
+                payment_methods=getattr(request, "payment_methods", None),
+                opening_hours=getattr(request, "opening_hours", None),
+                gallery_count=self._gallery_image_count(request),
+            )
+            html_raw = None
+            if USE_GLM_FOR_HTML and self.zai_api_key:
+                try:
+                    html_raw = await asyncio.wait_for(
+                        self._call_glm(prompt, has_images=bool(ordered), designer_mode=True, plan_mode=True),
+                        timeout=AI_GLM_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    html_raw = None
+                if html_raw and (self._last_api_call.get("truncated") or "<" not in html_raw):
+                    html_raw = None
+                if html_raw:
+                    html_raw = self._replace_photo_slots(html_raw, ordered)
+            if not html_raw:
+                try:
+                    html_raw = await asyncio.wait_for(
+                        self._call_deepseek(prompt, model=self.deepseek_model_pro, system_prompt=DESIGNER_SYSTEM_PROMPT),
+                        timeout=AI_PRIMARY_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    html_raw = None
+            if not html_raw:
+                logger.error(f"❌ Preview {i + 1} ({plan.direction_name}) produced no HTML — dropped")
+                continue
+            html = self._extract_html(html_raw) or html_raw
+            html, lint = lint_anti_template(html, allow_aos=False, hours_supplied=bool(getattr(request, "opening_hours", None)))
+            html = self._fix_placeholders(html, request.business_name, request.description, wa_digits=wa_digits)
+            html = self._fix_broken_image_urls(html, request.description)
+            html = self._sanitize_sensitive_claims(html, request)
+            html, _ = apply_quality_floor(html, language=language)
+            variants.append({
+                "style": plan.direction,
+                "name": plan.direction_name,
+                "description": plan.why,
+                "html": html,
+                "plan": plan.as_dict(),
+                "lint": lint.as_dict(),
+            })
+            logger.info(f"✅ Preview {i + 1}: {plan.direction_name} ({len(html)} chars, lint {'clean' if lint.ok else 'issues'})")
+        return variants
 
     async def generate_multi_style(
         self,
