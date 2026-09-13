@@ -124,3 +124,27 @@ services:
         value: "https://binaapp.my"
       - key: ENVIRONMENT
         value: "production"
+
+  # Weekly direction stats for designer-grade generation (docs/design/
+  # DESIGNER_GRADE_GENERATION.md). Reads the design_plans table (migration
+  # 057) and reports the directions with the lowest publish rate. Sunday
+  # 16:00 UTC = Monday 00:00 MYT. Secrets are shared with the web service:
+  # set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the dashboard.
+  - type: cron
+    name: binaapp-design-stats
+    runtime: python
+    plan: starter
+    region: singapore
+    rootDir: backend
+    schedule: "0 16 * * 0"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python cron_runner.py design-stats
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.7"
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: "1"
+      - key: SUPABASE_URL
+        value: "https://wjaztxkbaeqjabybxhct.supabase.co"
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
