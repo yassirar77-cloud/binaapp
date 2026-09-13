@@ -47,6 +47,9 @@ from app.services.design_plan import (
 )
 from app.services import design_plan_store
 from app.services import designer_prompt_blocks as dpb
+from app.services.anti_template_lint import lint_anti_template
+from app.services.quality_floor import apply_quality_floor
+from app.services import design_critique
 from app.services.widget_catalogue import (
     widgets_for_request,
     build_prompt_context_block,
@@ -212,6 +215,16 @@ def generation_outer_timeout_seconds(base: float = 180.0) -> float:
     if USE_GLM_FOR_HTML and PREMIUM_DESIGN_LOOP:
         # Two full GLM calls + the review cap + post-processing headroom.
         budget = max(budget, AI_GLM_TIMEOUT_SECONDS * 2 + DESIGN_REVIEW_TIMEOUT_SECONDS + 90.0)
+    if design_plan_enabled():
+        # Plan step + first HTML call + up to DESIGN_GATE_MAX_RETRIES
+        # regenerations, each followed by a critique (screenshot + vision).
+        html_cap = AI_GLM_TIMEOUT_SECONDS if USE_GLM_FOR_HTML else AI_PRIMARY_TIMEOUT_SECONDS
+        per_attempt = DESIGN_CRITIQUE_TIMEOUT_SECONDS + design_critique.SCREENSHOT_TIMEOUT_SECONDS + 10.0
+        budget = max(
+            budget,
+            AI_DESIGN_PLAN_TIMEOUT_SECONDS + html_cap * (1 + DESIGN_GATE_MAX_RETRIES)
+            + per_attempt * (1 + DESIGN_GATE_MAX_RETRIES) + 90.0,
+        )
     if image_provider() == "zai":
         # Serialized Z.ai images add up to the phase budget, plus one
         # in-flight image admitted just before the budget ran out (its own
@@ -262,6 +275,23 @@ PLAN_SYSTEM_PROMPT = (
 
 def design_plan_enabled() -> bool:
     raw = os.getenv("AI_DESIGN_PLAN_ENABLED", "true").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+# Critique gate for two-pass generation: the anti-template lint always
+# runs; the screenshot + vision critique runs when a vision-capable model
+# is configured. Score < 7/10 (or any criterion < 5, or a lint failure)
+# re-runs Pass 2 with the notes, at most DESIGN_GATE_MAX_RETRIES times,
+# and the best-scoring attempt is served.
+DESIGN_CRITIQUE_ENABLED = os.getenv("DESIGN_CRITIQUE_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+DESIGN_CRITIQUE_MODEL = os.getenv("DESIGN_CRITIQUE_MODEL", "glm-4.5v")
+DESIGN_CRITIQUE_TIMEOUT_SECONDS = float(os.getenv("DESIGN_CRITIQUE_TIMEOUT_SECONDS", "60"))
+DESIGN_CRITIQUE_MAX_TOKENS = int(os.getenv("DESIGN_CRITIQUE_MAX_TOKENS", "1200"))
+DESIGN_GATE_MAX_RETRIES = int(os.getenv("DESIGN_GATE_MAX_RETRIES", str(design_critique.MAX_RETRIES)))
+
+
+def design_critique_enabled() -> bool:
+    raw = os.getenv("DESIGN_CRITIQUE_ENABLED", "true").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 # System prompt for the DeepSeek HTML call in designer mode. The guided-mode
@@ -5592,6 +5622,97 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
             logger.error(f"🎨 Design review ❌ {e}")
         return None
 
+    async def _call_vision_model(self, messages: List[Dict]) -> Optional[str]:
+        """One call to a vision-capable chat model (OpenAI-style messages
+        with image_url parts). Z.ai's GLM-4.5V first (same key as the HTML
+        generator), Qwen-VL on DashScope as the fallback. Returns the reply
+        text or None; never raises."""
+        attempts: List[Tuple[str, str, str]] = []
+        if self.zai_api_key:
+            attempts.append((self.zai_base_url, self.zai_api_key, DESIGN_CRITIQUE_MODEL))
+        if self.qwen_api_key:
+            attempts.append((self.qwen_base_url, self.qwen_api_key, os.getenv("DESIGN_CRITIQUE_QWEN_MODEL", "qwen-vl-max")))
+        for base_url, key, model in attempts:
+            try:
+                body = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.1,
+                    "max_tokens": DESIGN_CRITIQUE_MAX_TOKENS,
+                }
+                headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+                async with httpx.AsyncClient(timeout=DESIGN_CRITIQUE_TIMEOUT_SECONDS) as client:
+                    r = await asyncio.wait_for(
+                        client.post(f"{base_url.rstrip('/')}/chat/completions", headers=headers, json=body),
+                        timeout=DESIGN_CRITIQUE_TIMEOUT_SECONDS,
+                    )
+                if r.status_code != 200:
+                    logger.warning(f"🧑‍⚖️ Critique model {model} ❌ {r.status_code}: {r.text[:200]}")
+                    continue
+                payload = r.json()
+                content = ((payload.get("choices") or [{}])[0].get("message") or {}).get("content", "")
+                if isinstance(content, list):  # some providers return parts
+                    content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+                if content and content.strip():
+                    return content
+            except (asyncio.TimeoutError, httpx.TimeoutException):
+                logger.warning(f"🧑‍⚖️ Critique model {model} timed out (cap {DESIGN_CRITIQUE_TIMEOUT_SECONDS:.0f}s)")
+            except Exception as err:
+                logger.warning(f"🧑‍⚖️ Critique model {model} failed: {err}")
+        return None
+
+    async def _regenerate_pass2(
+        self,
+        prompt: str,
+        feedback: List[str],
+        *,
+        previous_html: str,
+        has_images: bool,
+        designer_mode: bool,
+        provider: str,
+    ) -> Optional[str]:
+        """Re-run Pass 2 with the lint failures and critique notes. Same
+        provider and budget as the original call; None on any failure."""
+        revision_prompt = (
+            prompt
+            + "\n\n=== REVISION NOTES FROM THE LINT AND THE DESIGN REVIEW (FIX EVERY ONE) ===\n"
+            + "\n".join(feedback)
+            + "\n\nRegenerate the FULL HTML from scratch against the same DESIGN PLAN. Keep every business fact, "
+            "price, image slot/URL and section id. Output ONLY HTML."
+        )
+        original_api_call = dict(self._last_api_call)
+        try:
+            if provider == "glm" and self.zai_api_key:
+                revised = await asyncio.wait_for(
+                    self._call_glm(revision_prompt, has_images=has_images, designer_mode=designer_mode, plan_mode=True),
+                    timeout=AI_GLM_TIMEOUT_SECONDS,
+                )
+            else:
+                revised = await asyncio.wait_for(
+                    self._call_deepseek(
+                        revision_prompt, model=self.deepseek_model_pro,
+                        system_prompt=DESIGNER_SYSTEM_PROMPT if designer_mode else None,
+                    ),
+                    timeout=AI_PRIMARY_TIMEOUT_SECONDS,
+                )
+        except asyncio.TimeoutError:
+            logger.error("🎨 Pass 2 regeneration timed out — keeping the previous attempt")
+            self._last_api_call = original_api_call
+            return None
+        except Exception as err:
+            logger.error(f"🎨 Pass 2 regeneration failed: {err}")
+            self._last_api_call = original_api_call
+            return None
+        if not revised or "<" not in revised or self._last_api_call.get("truncated"):
+            logger.error("🎨 Pass 2 regeneration unusable (empty/non-HTML/truncated) — keeping the previous attempt")
+            self._last_api_call = original_api_call
+            return None
+        if has_images and self._PHOTO_SLOT_SRC_RE.search(previous_html) and not self._PHOTO_SLOT_SRC_RE.search(revised):
+            logger.error("🎨 Pass 2 regeneration dropped the PHOTO_SLOT contract — keeping the previous attempt")
+            self._last_api_call = original_api_call
+            return None
+        return revised
+
     async def _run_plan_gate(
         self,
         html: str,
@@ -5602,11 +5723,73 @@ Generate ONLY the complete HTML code. No explanations. No markdown. Just pure HT
         designer_mode: bool,
         language: str,
         provider: str = "glm",
+        hours_supplied: bool = False,
     ) -> str:
-        """Two-pass critique gate (lint + screenshot critique + bounded
-        retries). Implemented in the critique commit; until then the HTML
-        passes through unchanged."""
-        return html
+        """Two-pass critique gate.
+
+        Each attempt: anti-template lint (repairs applied, failures kept) →
+        screenshot + vision critique against the plan (when available) →
+        gate (lint clean AND average ≥ 7 AND no criterion < 5). A failed
+        gate re-runs Pass 2 with the notes, at most DESIGN_GATE_MAX_RETRIES
+        times; the best-scoring attempt is served. Never raises; with no
+        critique model the lint alone gates.
+        """
+        attempts: List[Dict] = []
+        current = html
+        max_retries = max(0, DESIGN_GATE_MAX_RETRIES)
+        for attempt in range(1 + max_retries):
+            linted, lint = lint_anti_template(current, allow_aos=False, hours_supplied=hours_supplied)
+            logger.info(
+                f"🧹 Anti-template lint (attempt {attempt + 1}): {'clean' if lint.ok else str(len(lint.errors)) + ' failure(s)'} "
+                f"counts={lint.counts} repairs={lint.repairs}"
+            )
+            critique = None
+            if design_critique_enabled() and (self.zai_api_key or self.qwen_api_key):
+                try:
+                    critique = await asyncio.wait_for(
+                        design_critique.run_critique(
+                            linted, plan, language=language, call_model=self._call_vision_model,
+                        ),
+                        timeout=DESIGN_CRITIQUE_TIMEOUT_SECONDS + design_critique.SCREENSHOT_TIMEOUT_SECONDS + 15,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("🧑‍⚖️ Critique timed out — gating on lint only for this attempt")
+                except Exception as err:
+                    logger.warning(f"🧑‍⚖️ Critique failed ({err}) — gating on lint only for this attempt")
+            score = critique.average if critique else None
+            # Rank: critique average (10 when none), minus a penalty per lint failure.
+            rank = (score if score is not None else 10.0) - 1.5 * len(lint.errors)
+            attempts.append({"html": linted, "lint": lint, "critique": critique, "rank": rank})
+            passed = lint.ok and (critique is None or critique.passed)
+            if passed:
+                logger.info(f"✅ Plan gate passed on attempt {attempt + 1}" + (f" (critique avg {score})" if score is not None else ""))
+                break
+            if attempt >= max_retries:
+                logger.warning(f"⚠️ Plan gate: retry budget spent after {attempt + 1} attempt(s) — serving the best attempt")
+                break
+            feedback = lint.feedback_lines() + (critique.feedback_lines() if critique else [])
+            logger.info(f"🔁 Plan gate failed on attempt {attempt + 1} — regenerating Pass 2 with {len(feedback)} note(s)")
+            revised = await self._regenerate_pass2(
+                prompt, feedback, previous_html=current, has_images=has_images,
+                designer_mode=designer_mode, provider=provider,
+            )
+            if not revised:
+                break
+            current = revised
+        best = max(attempts, key=lambda a: a["rank"])
+        served_index = attempts.index(best)
+        self._last_plan_gate = {
+            "attempts": len(attempts),
+            "served_attempt": served_index + 1,
+            "lint": best["lint"].as_dict(),
+            "critique": best["critique"].as_dict() if best["critique"] else None,
+            "history": [
+                {"lint_errors": len(a["lint"].errors), "critique_avg": (a["critique"].average if a["critique"] else None)}
+                for a in attempts
+            ],
+        }
+        logger.info(f"🎯 Plan gate result: {json.dumps(self._last_plan_gate, ensure_ascii=False)[:1200]}")
+        return best["html"]
 
     async def _run_premium_design_loop(
         self,
@@ -8772,6 +8955,7 @@ IMPORTANT INSTRUCTIONS:
                         has_images=bool(_glm_image_urls),
                         designer_mode=designer_mode,
                         language=language,
+                        hours_supplied=bool(getattr(request, "opening_hours", None)),
                     )
                 elif html_raw:
                     # Premium design critique loop (PREMIUM_DESIGN_LOOP, ships
@@ -8819,6 +9003,7 @@ IMPORTANT INSTRUCTIONS:
                         designer_mode=designer_mode,
                         language=language,
                         provider="deepseek",
+                        hours_supplied=bool(getattr(request, "opening_hours", None)),
                     )
 
             if html_raw and self._last_api_call.get("truncated"):
@@ -9057,6 +9242,17 @@ IMPORTANT INSTRUCTIONS:
             # into WhatsApp; with no OG tags that renders as a bare URL.
             # Runs BEFORE validation so its metadata warnings reflect reality.
             html = self._inject_seo_metadata(html, request, image_urls)
+            # Quality floor (§8): lang, viewport, reduced-motion, visible
+            # focus, lazy-loading, image dimensions — deterministic and
+            # idempotent, applied to every generated page.
+            try:
+                html, _floor = apply_quality_floor(html, language=language)
+                if _floor.applied:
+                    logger.info(f"🧱 Quality floor applied: {_floor.applied}")
+                for _w in _floor.warnings:
+                    logger.info(f"🧱 Quality floor: {_w}")
+            except Exception as _floor_err:
+                logger.warning(f"⚠️ Quality floor skipped: {_floor_err}")
             # An id-less hero is found by sibling order everywhere else
             # (layout guards, nav anchors, the video patcher). Name it once.
             try:
