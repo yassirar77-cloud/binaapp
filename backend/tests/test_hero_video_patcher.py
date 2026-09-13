@@ -128,13 +128,27 @@ class TestApply:
         # Never depends on the merchant's ids or classes.
         assert "#home" not in style and ".pt-32" not in style
         assert "prefers-reduced-motion" in style
-        # Dark overlay → light text on headings/paragraphs (auto mode).
-        assert "color:#FFFFFF !important" in style
+        # This hero writes its headline in #0F172A, so it is a LIGHT hero and
+        # gets a light scrim — and keeps the copy it was designed with.
+        assert "rgba(255,255,255," in style
+        assert "!important" not in style.replace("min-height:", "", 1).split("{")[-1]
+        assert "color:#FFFFFF !important" not in style
+        assert "color:#0F172A !important" not in style
 
-    def test_light_overlay_flips_text_dark_and_none_keeps(self):
+    def test_an_overlay_that_fights_the_hero_recolours_its_copy(self):
+        # The merchant overruled auto and asked for a dark scrim on a hero
+        # designed light: its navy headline would sit on a darkened clip, so
+        # here — and only here — the copy is flipped.
+        dark = apply_hero_video(TEMPLATE_PAGE, _settings(overlay="dark")).html
+        assert "color:#FFFFFF !important" in dark
+        assert "rgba(0,0,0,0.45)" in dark
+
+    def test_an_overlay_that_suits_the_hero_leaves_the_copy_alone(self):
         light = apply_hero_video(TEMPLATE_PAGE, _settings(overlay="light")).html
-        assert "color:#0F172A !important" in light
         assert "rgba(255,255,255,0.45)" in light
+        assert "color:#0F172A !important" not in light
+
+    def test_overlay_none_keeps_everything(self):
         none = apply_hero_video(TEMPLATE_PAGE, _settings(overlay="none")).html
         assert "!important" not in none[none.index(STYLE_ID):none.index("</style>")]
         assert "background:transparent" in none

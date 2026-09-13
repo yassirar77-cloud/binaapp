@@ -66,6 +66,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+from app.services.color_tone import alpha_over, text_tone, tint
 from app.utils.html_scan import (
     direct_children,
     element_end,
@@ -100,7 +101,9 @@ HERO_MEDIA_HOST = "host"
 #: text-recolour rules leave it alone. A class-name test cannot see a
 #: background set in the page's own <style>: `.btn-whatsapp{background:
 #: #CE3560;color:#fff}` carries no "bg-" and no inline style, and the
-#: forced navy text on that pink pill was 3.66:1 (bji).
+#: forced navy text on that pink pill was 3.66:1 (bji). "Opaque" means at
+#: least half: a `bg-white/10` pill is a tenth of a veil, its label sits on
+#: whatever is behind it, and it needs the scrim's colour like any other.
 KEEP_COLOR_ATTR = "data-binaapp-keep-color"
 
 #: Overlay presets: the scrim painted between the video and the hero copy.
@@ -197,14 +200,23 @@ class HeroVideoSettings:
     show_on_mobile: bool = True
 
     def resolved_overlay(self, page_html: str = "") -> str:
-        """``auto`` → ``dark`` or ``light`` from what the page paints.
+        """``auto`` → ``dark`` or ``light`` from what the HERO paints.
 
-        Read from the page's own background (color_mode_guard), never from
-        the merchant's toggle alone — the page is what the scrim has to sit
-        on. Unknown → dark, the historical default.
+        The hero is what the scrim sits in, and it is not always the page: a
+        Cerah site can carry a dark editorial hero, and resolving that one
+        from the page theme produced a white veil under the hero's own black
+        gradient, with its white headline forced to navy (Run 1 site A). The
+        page's background is the fallback for a hero that states nothing, and
+        dark is the fallback for a page that states nothing.
         """
         if self.overlay != "auto":
             return self.overlay
+        try:
+            tone = detect_hero_tone(page_html) if page_html else ""
+        except Exception:  # pragma: no cover - a guard must never take the patch down
+            tone = ""
+        if tone in ("dark", "light"):
+            return tone
         try:
             from app.services.color_mode_guard import detect_color_mode
             mode = detect_color_mode(page_html) if page_html else ""
@@ -220,15 +232,31 @@ class HeroVideoSettings:
         return opacity_for(self.resolved_overlay(page_html), self.poster_luminance)
 
     def resolved_text_mode(self, page_html: str = "") -> str:
-        """``auto`` reads the scrim: dark scrim → light text, and vice versa."""
+        """Whether the hero's copy is recoloured, and to what.
+
+        The default is to leave it alone. An ``auto`` scrim is chosen to match
+        what the hero already paints, so the copy that was designed for that
+        hero is readable on it by construction — and recolouring it anyway is
+        what turned a white CTA label navy and inverted a whole hero. The
+        recolour is kept for the one case that needs it: a merchant who picked
+        a scrim colour that fights their own hero.
+        """
         if self.text_mode != "auto":
             return self.text_mode
         overlay = self.resolved_overlay(page_html)
-        if overlay == "dark":
-            return "light"
-        if overlay == "light":
-            return "dark"
-        return "keep"
+        if overlay not in ("dark", "light"):
+            return "keep"
+        if self.overlay == "auto":
+            return "keep"
+        tone = ""
+        try:
+            tone = detect_hero_tone(page_html) if page_html else ""
+        except Exception:  # pragma: no cover - a guard must never take the patch down
+            tone = ""
+        if tone == overlay:
+            # The hero already reads this way; its copy suits the scrim.
+            return "keep"
+        return "light" if overlay == "dark" else "dark"
 
     def as_dict(self) -> Dict:
         return {
@@ -635,6 +663,131 @@ def find_hero_media(html: str, hero_start: int) -> List[Tuple[int, int, Optional
     return found
 
 
+#: How strong a veil the hero already paints has to be before it counts as a
+#: scrim of its own. Below this it is decoration (a soft vignette, a tinted
+#: corner) and the video still needs its own.
+MIN_EXISTING_VEIL = 0.2
+
+#: The hero's own copy, in the order its colour is trusted. The generator
+#: writes the headline's colour on the headline.
+_HERO_COPY_RE = re.compile(r"<(?:h1|h2|p)\b[^>]*>", re.IGNORECASE)
+
+
+def _hero_span(page_html: str) -> Optional[Tuple[int, int, int]]:
+    """``(hero_start, inner_start, inner_end)`` for the page's hero, or None."""
+    if not page_html:
+        return None
+    match, _how = find_hero_open_tag(page_html)
+    if match is None:
+        return None
+    start = match.start()
+    end = element_end(page_html, start)
+    tag_close = open_tag_end(page_html, start)
+    if end == -1 or tag_close == -1:
+        return None
+    inner_end = page_html.rfind("</", tag_close, end)
+    if inner_end == -1:
+        return None
+    return start, tag_close, inner_end
+
+
+def _veil_of(html: str, start: int, end: int) -> Optional[Tuple[str, float]]:
+    """The tint of a full-cover, empty element — a scrim the hero paints over
+    its own picture — or None for anything holding content or media."""
+    tag_close = open_tag_end(html, start)
+    if tag_close == -1:
+        return None
+    open_tag = html[start:tag_close]
+    name_match = re.match(r"<([a-zA-Z][\w-]*)", open_tag)
+    if not name_match or name_match.group(1).lower() not in _WRAPPER_TAGS:
+        return None
+    if not _covers_parent(open_tag):
+        return None
+    classes = tag_classes(open_tag)
+    if "binaapp-hero-video" in classes:
+        return None
+    inner = html[tag_close:end]
+    if _CONTENT_INSIDE_RE.search(inner) or _MEDIA_INSIDE_RE.search(inner):
+        return None
+    tone, alpha = tint(classes, read_attr(open_tag, "style") or "")
+    if not tone or alpha < MIN_EXISTING_VEIL:
+        return None
+    return tone, alpha
+
+
+def hero_own_veil(page_html: str) -> Optional[Tuple[str, float]]:
+    """``(tone, alpha)`` of the strongest scrim the hero already paints.
+
+    Run 1 site A: ``<div class="absolute inset-0 bg-gradient-to-b from-black/40
+    via-black/25 to-black/70">`` — a scrim the generator wrote for its own
+    photo, which sits ABOVE the video layer and darkens the clip just as it
+    darkened the photo. Painting a second full-strength scrim under it is what
+    produced a hero veiled twice. Found here so the second one can be sized
+    for what is left instead (see color_tone.alpha_over).
+    """
+    span = _hero_span(page_html)
+    if span is None:
+        return None
+    _start, tag_close, inner_end = span
+    best: Optional[Tuple[str, float]] = None
+    for c_start, c_end in direct_children(page_html, tag_close, inner_end):
+        found = _veil_of(page_html, c_start, c_end)
+        if found and (best is None or found[1] > best[1]):
+            best = found
+        child_close = open_tag_end(page_html, c_start)
+        child_inner_end = page_html.rfind("</", 0, c_end)
+        if child_close == -1 or child_inner_end <= child_close:
+            continue
+        for g_start, g_end in direct_children(page_html, child_close, child_inner_end):
+            found = _veil_of(page_html, g_start, g_end)
+            if found and (best is None or found[1] > best[1]):
+                best = found
+    return best
+
+
+def detect_hero_tone(page_html: str) -> str:
+    """Is the HERO painted dark or light? ``""`` when it says nothing.
+
+    Not the page: the two disagree, and the hero is what the scrim has to sit
+    in. A Cerah page can carry a dark editorial hero (white headline over a
+    black gradient) and reading the page theme there produced a white veil
+    under a black one, with the white copy forced to navy.
+
+    Order of trust:
+
+    1. the colour of the hero's own copy — light copy means a dark hero;
+    2. a text colour set on the hero element itself;
+    3. a full-cover veil the hero paints (black gradient -> dark);
+    4. the hero's own flat background, when it is opaque enough to be one.
+    """
+    span = _hero_span(page_html)
+    if span is None:
+        return ""
+    start, tag_close, inner_end = span
+    open_tag = page_html[start:tag_close]
+    inner = page_html[tag_close:inner_end]
+
+    for match in _HERO_COPY_RE.finditer(inner):
+        tag = match.group(0)
+        tone = text_tone(tag_classes(tag), read_attr(tag, "style") or "")
+        if tone:
+            # Light copy is written for a dark backdrop, and vice versa.
+            return "dark" if tone == "light" else "light"
+
+    tone = text_tone(tag_classes(open_tag), read_attr(open_tag, "style") or "")
+    if tone:
+        return "dark" if tone == "light" else "light"
+
+    veil = hero_own_veil(page_html)
+    if veil:
+        return veil[0]
+
+    tone, alpha = tint(tag_classes(open_tag), read_attr(open_tag, "style") or "")
+    if tone and alpha >= 0.5:
+        return tone
+    return ""
+
+
 def _stamp(html: str, start: int, value: str) -> str:
     tag_close = open_tag_end(html, start)
     insert_at = tag_close - 1
@@ -766,13 +919,22 @@ PLAYBACK_BOOTSTRAP = (
     # background keeps the text colour its designer gave it — a filled CTA
     # is readable already. Descendants too: the icon and label inside the
     # pill are the pill's. Runs before play() so the first paint is right.
-    "try{var K='data-binaapp-keep-color';"
+    "var K='data-binaapp-keep-color';"
     "function op(e){var m=/rgba?\\(\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*\\d+\\s*(?:,\\s*([\\d.]+))?\\s*\\)/.exec(getComputedStyle(e).backgroundColor||'');"
-    "return !!m&&(m[1]===undefined||parseFloat(m[1])>=0.1);}"
-    "var all=h.querySelectorAll('*');for(var i=0;i<all.length;i++){var e=all[i];"
+    "return !!m&&(m[1]===undefined||parseFloat(m[1])>=0.5);}"
+    "function stamp(){try{var n=0,all=h.querySelectorAll('*');"
+    "for(var i=0;i<all.length;i++){var e=all[i];"
     "if(l.contains(e)||e.hasAttribute(K))continue;"
-    "if(op(e)){e.setAttribute(K,'');var d=e.querySelectorAll('*');for(var j=0;j<d.length;j++)d[j].setAttribute(K,'');}}"
-    "}catch(e){}"
+    "if(op(e)){e.setAttribute(K,'');n++;"
+    "var d=e.querySelectorAll('*');for(var j=0;j<d.length;j++)d[j].setAttribute(K,'');}}"
+    "h.setAttribute('data-binaapp-keep-color-count',String(n));}catch(e){}}"
+    # This script is the hero's FIRST child and runs while the document is
+    # still being parsed: at this point the hero's own copy and buttons do
+    # not exist yet, so the pass above walked an empty tree and stamped
+    # nothing (Run 1 site A: keep-color count 0 on a page whose CTA was
+    # recoloured). Wait for the parser to finish the document.
+    "if(document.readyState==='loading')"
+    "document.addEventListener('DOMContentLoaded',stamp);else stamp();"
     # Reduced motion: the CSS hides the frame, this stops the download. A
     # bare return left `autoplay preload=auto` to pull the whole clip on a
     # device that asked for stillness.
@@ -866,6 +1028,17 @@ def _build_style(
     overlay = settings.resolved_overlay(page_html)
     opacity = settings.resolved_opacity(page_html)
 
+    # ONE scrim, not two. When the hero already paints a veil of the same
+    # colour — the generator's own `absolute inset-0 bg-gradient-to-b
+    # from-black/40 … to-black/70`, which sits above the layer and darkens
+    # the clip exactly as it darkened the photo — ours only has to make up
+    # the difference, and usually there is none left to make up.
+    veil = hero_own_veil(page_html) if page_html else None
+    if veil and veil[0] == overlay:
+        opacity = alpha_over(opacity, veil[1])
+    if opacity <= 0.02:
+        overlay = "none"
+
     if overlay == "dark":
         scrim = (
             f"background:linear-gradient(180deg,rgba(0,0,0,{opacity}) 0%,"
@@ -920,6 +1093,10 @@ def _build_style(
         # and re-injected AFTER this block on every serve — so specificity,
         # not order, has to win. Newer guards exempt the marked hero
         # outright; this keeps pages that carry an older guard right too.
+        # An inline ``style="min-height:…"`` on the hero would still beat
+        # this (inline !important is the top of the cascade); no generated
+        # page writes one, and if one ever does the fix is to strip it at
+        # injection, not to pile on a seventh copy.
         rules.append(
             f"{hero * 6}{{min-height:{floor} !important;height:auto !important;}}"
         )
@@ -1124,6 +1301,9 @@ def apply_hero_video(html: str, settings: HeroVideoSettings) -> HeroVideoResult:
         notes.append(f"hero_media_replaced:{media_count}")
     if hosted:
         notes.append("layer_hosted_in_media_column")
+    own_veil = hero_own_veil(base)
+    if own_veil and own_veil[0] == settings.resolved_overlay(base):
+        notes.append(f"scrim_shared_with_hero_veil:{own_veil[0]}:{own_veil[1]}")
     logger.info(
         "[hero-video] injected (hero matched by %s, overlay=%s/%.2f, mobile=%s, media hidden=%d)",
         how,

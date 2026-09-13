@@ -156,15 +156,20 @@ class TestOverlayAuto:
         assert DEFAULT_OVERLAY == "auto" and "auto" in OVERLAY_MODES
         assert build_settings(video_url="https://v.test/a.mp4").overlay == "auto"
 
-    def test_light_page_gets_light_scrim_and_dark_text(self):
+    def test_light_page_gets_a_light_scrim_and_keeps_its_copy(self):
         light = SOON.replace("#111111", "#FAF8F3")
         style = _style(apply_hero_video(light, _settings()).html)
-        assert "rgba(255,255,255," in style and "color:#0F172A !important" in style
+        assert "rgba(255,255,255," in style
         assert "rgba(0,0,0," not in style
+        # Round 4: a scrim chosen to suit the page does not then rewrite the
+        # copy that was written for it.
+        assert "color:#0F172A !important" not in style
+        assert "border-color:currentColor" not in style
 
-    def test_dark_page_gets_dark_scrim_and_light_text(self):
+    def test_dark_page_gets_a_dark_scrim_and_keeps_its_copy(self):
         style = _style(apply_hero_video(SOON, _settings()).html)
-        assert "rgba(0,0,0," in style and "color:#FFFFFF !important" in style
+        assert "rgba(0,0,0," in style
+        assert "color:#FFFFFF !important" not in style
 
     def test_an_explicit_pick_beats_the_page(self):
         light = SOON.replace("#111111", "#FAF8F3")
@@ -185,13 +190,13 @@ class TestFullBleedTextRules:
         # Scoped by the runtime stamp, never by class name: a background set
         # in the page's own <style> (.btn-whatsapp) is invisible to a class
         # test, and navy text landed on a pink pill (bji, 3.66:1).
-        style = _style(apply_hero_video(SOON, _settings()).html)
+        style = _style(apply_hero_video(SOON, _settings(text_mode="light")).html)
         assert "span:not([data-binaapp-keep-color])" in style
         assert "a:not([data-binaapp-keep-color])" in style
         assert '[class*="bg-"]' not in style
 
     def test_ghost_buttons_take_the_text_colour_for_their_border(self):
-        style = _style(apply_hero_video(SOON, _settings()).html)
+        style = _style(apply_hero_video(SOON, _settings(text_mode="light")).html)
         assert "a:not([data-binaapp-keep-color]),[data-binaapp-hero-video] button:not([data-binaapp-keep-color]){border-color:currentColor !important;}" in style
 
     def test_text_mode_keep_still_recolours_nothing(self):
