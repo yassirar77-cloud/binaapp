@@ -128,10 +128,18 @@ def main():
         sys.exit(1)
 
     try:
-        # Import and run the cron job
-        from app.cron.subscription_cron import run_subscription_cron_sync
+        # Which job: `python cron_runner.py` (default) runs the subscription
+        # cron; `python cron_runner.py design-stats` runs the weekly
+        # direction-stats report (docs/design/direction-stats.md).
+        job = (sys.argv[1] if len(sys.argv) > 1 else "subscription").strip().lower()
+        if job in ("design-stats", "design_stats", "direction-stats"):
+            from app.cron.design_stats_cron import run_design_stats_sync
 
-        result = run_subscription_cron_sync()
+            result = run_design_stats_sync()
+        else:
+            from app.cron.subscription_cron import run_subscription_cron_sync
+
+            result = run_subscription_cron_sync()
 
         # Log results summary
         logger.info("=" * 70)

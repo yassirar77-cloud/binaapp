@@ -2151,6 +2151,18 @@ async def run_generation_task(
         # primary key of the persisted draft `websites` row, so the delivery/
         # chat widget validation resolves against a real row.
         generated_website_id = str(uuid.uuid4())
+        # Learning loop (§9): the plan that produced this page, its scores
+        # and the HTML hash, keyed on the job and the draft website id.
+        try:
+            await ai_service.record_last_plan(
+                category=(business_type or getattr(ai_request, "business_type", None) or None),
+                job_id=job_id,
+                website_id=generated_website_id,
+                user_id=user_id,
+                html=html,
+            )
+        except Exception as _plan_err:
+            logger.warning(f"🎨 Plan record skipped: {_plan_err}")
         actual_business_name = resolved_name
         logger.info(f"✅ Generated website_id for background job: {generated_website_id}")
 
@@ -3864,6 +3876,12 @@ async def publish_website(
                     "published_at": _published_now,
                     "updated_at": _published_now,
                 }
+                # Learning loop (§9): the merchant published this plan's page.
+                try:
+                    from app.services.design_plan_store import mark_outcome as _mark_plan_outcome
+                    await _mark_plan_outcome(website_id, "published")
+                except Exception as _plan_err:
+                    logger.warning(f"🎨 Plan outcome skipped: {_plan_err}")
                 _description = body.get("description")
                 if _description:
                     upsert_payload["description"] = _description

@@ -561,6 +561,20 @@ async def generate_website_content(
             "updated_at": datetime.utcnow().isoformat()
         }
 
+        # Learning loop (§9): the previous plan for this site was
+        # regenerated; the new one is recorded against the same website id.
+        try:
+            from app.services.design_plan_store import mark_outcome as _mark_plan_outcome
+            await _mark_plan_outcome(website_id, "regenerated")
+            await ai_service.record_last_plan(
+                category=getattr(request, "business_type", None) or (current or {}).get("business_type"),
+                website_id=website_id,
+                user_id=(current or {}).get("user_id"),
+                html=html_content,
+            )
+        except Exception as _plan_err:
+            logger.warning(f"🎨 Plan record skipped: {_plan_err}")
+
         saved = await supabase_service.update_website(website_id, update_data)
         if not saved:
             # This used to log "Database updated successfully" and then
@@ -2078,6 +2092,13 @@ async def update_website(
     try:
         body = await request.json()
         html_content = body.get("html_content")
+        # Learning loop (§9): an editor save means the merchant kept the
+        # page but changed it — recorded as "edited" (never blocks the save).
+        try:
+            from app.services.design_plan_store import mark_outcome as _mark_plan_outcome
+            await _mark_plan_outcome(website_id, "edited")
+        except Exception:
+            pass
 
         if not html_content:
             raise HTTPException(

@@ -3816,6 +3816,38 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
             logger.warning(f"🖼️ Hero cue unavailable: {err}")
             return None
 
+    async def record_last_plan(
+        self,
+        *,
+        category: Optional[str],
+        job_id: Optional[str] = None,
+        website_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        html: Optional[str] = None,
+    ) -> None:
+        """Learning loop (§9): persist the plan of the generation that just
+        finished, with its critique scores, lint report and HTML hash. The
+        caller supplies the ids it knows (job, website, user). Best-effort;
+        never raises."""
+        plan = self._last_design_plan
+        if not plan:
+            return
+        gate = self._last_plan_gate or {}
+        try:
+            await design_plan_store.record_plan(
+                plan=plan,
+                category=(category or plan.get("vertical") or "general"),
+                job_id=job_id,
+                website_id=website_id,
+                user_id=(str(user_id) if user_id and user_id != "anonymous" else None),
+                critique=gate.get("critique"),
+                lint=gate.get("lint"),
+                html=html,
+                attempts=int(gate.get("attempts") or 1),
+            )
+        except Exception as err:
+            logger.warning(f"🎨 Plan record skipped: {err}")
+
     @staticmethod
     def _gallery_image_count(request) -> int:
         """Uploaded photos that are neither the hero nor a named menu item —
