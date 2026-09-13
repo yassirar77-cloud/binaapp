@@ -120,9 +120,10 @@ def patches():
             svc.zai_video_service, "store",
             new=AsyncMock(return_value={"video_url": CLOUD_VIDEO, "poster_url": CLOUD_POSTER}),
         ) as store,
-        # Overlay auto-selection reads the poster over HTTP; pin it here and
-        # let the luminance tests below override it.
-        patch.object(ep, "auto_overlay_opacity", new=AsyncMock(return_value=0.45)) as auto_opacity,
+        # The first-frame measurement reads the poster over HTTP; pin it here
+        # and let the luminance tests below override it. The MEASUREMENT is
+        # stored (not an opacity): the scrim colour is only known at apply.
+        patch.object(ep, "poster_luminance", new=AsyncMock(return_value=0.45)) as luminance,
         # The durable ledger and the timeout alert talk to Supabase / SMTP.
         patch.object(ep.ledger, "save", new=AsyncMock(return_value="ok")) as ledger_save,
         patch.object(ep.ledger, "create", new=AsyncMock(return_value=True)) as ledger_create,
@@ -137,7 +138,7 @@ def patches():
         ) as admin_email,
     ):
         yield {
-            "auto_opacity": auto_opacity,
+            "luminance": luminance,
             "ledger_save": ledger_save,
             "ledger_create": ledger_create,
             "ledger_mark_refunded": ledger_mark_refunded,
@@ -443,28 +444,34 @@ class TestPoll:
         assert done["status"] == "completed" and done["html_content"]
 
     def test_overlay_opacity_follows_the_posters_luminance_when_not_set(self, client, auth_headers, patches):
-        """Bug 5: the old fixed 0.45 was unreadable over a bright clip."""
-        patches["auto_opacity"].return_value = 0.7
+        """Bug 5: the old fixed 0.45 was unreadable over a bright clip.
+
+        Round 3: the luminance is what gets stored; the opacity is derived
+        at apply time for the scrim colour the page resolves to. A bright
+        clip (0.9) under a dark scrim → 0.70; the same clip under a light
+        scrim would get 0.25, not the veil that hid bji's flowers."""
+        patches["luminance"].return_value = 0.9
         job_id = _start_job(client, auth_headers, {"overlay": "dark"})  # no overlay_opacity
         patches["fetch_result"].return_value = {"status": "success", "video_url": "https://cdn/v.mp4", "cover_image_url": None}
         body = _drive_to_done(client, auth_headers, job_id).json()
-        assert body["settings"]["overlay_opacity"] == 0.7
-        patches["auto_opacity"].assert_awaited_once_with(CLOUD_POSTER)
+        assert body["settings"]["overlay_opacity"] is None
+        assert body["settings"]["poster_luminance"] == 0.9
+        patches["luminance"].assert_awaited_once_with(CLOUD_POSTER)
         assert "rgba(0,0,0,0.7)" in _published_html(patches)
 
     def test_an_explicit_overlay_opacity_is_the_merchants_and_is_kept(self, client, auth_headers, patches):
-        patches["auto_opacity"].return_value = 0.7
+        patches["luminance"].return_value = 0.9
         job_id = _start_job(client, auth_headers, {"overlay": "dark", "overlay_opacity": 0.3})
         patches["fetch_result"].return_value = {"status": "success", "video_url": "https://cdn/v.mp4", "cover_image_url": None}
         body = _drive_to_done(client, auth_headers, job_id).json()
         assert body["settings"]["overlay_opacity"] == 0.3
-        patches["auto_opacity"].assert_not_called()
+        patches["luminance"].assert_not_called()
 
     def test_no_overlay_means_no_luminance_lookup(self, client, auth_headers, patches):
         job_id = _start_job(client, auth_headers, {"overlay": "none"})
         patches["fetch_result"].return_value = {"status": "success", "video_url": "https://cdn/v.mp4", "cover_image_url": None}
         _drive_to_done(client, auth_headers, job_id)
-        patches["auto_opacity"].assert_not_called()
+        patches["luminance"].assert_not_called()
 
     def test_unknown_or_foreign_job_404s(self, client, auth_headers, patches):
         assert client.get("/api/v1/websites/ws-1/hero-video/jobs/nope", headers=auth_headers).status_code == 404

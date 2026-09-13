@@ -95,6 +95,13 @@ HERO_MEDIA_REPLACED = "replaced"
 #: layout the merchant asked for survives (maka: "split, model photo on the
 #: right" must not become "full-bleed video with a dead column").
 HERO_MEDIA_HOST = "host"
+#: Stamped AT RUNTIME by the playback bootstrap on any hero element that
+#: paints an opaque background of its own (and its descendants), so the
+#: text-recolour rules leave it alone. A class-name test cannot see a
+#: background set in the page's own <style>: `.btn-whatsapp{background:
+#: #CE3560;color:#fff}` carries no "bg-" and no inline style, and the
+#: forced navy text on that pink pill was 3.66:1 (bji).
+KEEP_COLOR_ATTR = "data-binaapp-keep-color"
 
 #: Overlay presets: the scrim painted between the video and the hero copy.
 #: Without one, white hero text over a bright frame is unreadable.
@@ -108,6 +115,33 @@ TEXT_MODES = ("auto", "light", "dark", "keep")
 DEFAULT_OVERLAY = "auto"
 DEFAULT_OVERLAY_OPACITY = 0.45
 DEFAULT_TEXT_MODE = "auto"
+
+#: Scrim strength from the clip's own first-frame luminance, per scrim
+#: colour. A DARK scrim must get heavier over bright footage (white text
+#: on a bright frame). A LIGHT scrim is the opposite: dark text on bright
+#: footage is readable already, so a bright clip needs LESS white — the
+#: 0.52 white veil that hid bji's flowers came from applying the dark
+#: map to a light scrim. Endpoints are (luminance, opacity).
+DARK_SCRIM_MAP = ((0.20, 0.35), (0.75, 0.70))
+LIGHT_SCRIM_MAP = ((0.20, 0.50), (0.75, 0.25))
+
+
+def opacity_for(overlay: str, luminance: Optional[float]) -> float:
+    """Scrim opacity for a resolved overlay colour and a measured luminance.
+
+    None luminance → the historical fixed default. Linear between the two
+    anchors, clamped outside them.
+    """
+    if luminance is None:
+        return DEFAULT_OVERLAY_OPACITY
+    lo, hi = LIGHT_SCRIM_MAP if overlay == "light" else DARK_SCRIM_MAP
+    lum = min(max(float(luminance), 0.0), 1.0)
+    if lum <= lo[0]:
+        return lo[1]
+    if lum >= hi[0]:
+        return hi[1]
+    t = (lum - lo[0]) / (hi[0] - lo[0])
+    return round(lo[1] + t * (hi[1] - lo[1]), 2)
 
 _BLOCK_RE = re.compile(
     re.escape(BLOCK_START) + r".*?" + re.escape(BLOCK_END),
@@ -151,7 +185,13 @@ class HeroVideoSettings:
     video_url: str
     poster_url: Optional[str] = None
     overlay: str = DEFAULT_OVERLAY
-    overlay_opacity: float = DEFAULT_OVERLAY_OPACITY
+    #: None = choose from poster_luminance per the resolved scrim colour at
+    #: apply time. A number is the merchant's explicit choice, used as-is.
+    overlay_opacity: Optional[float] = None
+    #: Mean luminance of the clip's first frame, 0..1, measured once when
+    #: the clip is stored. Kept on the layer so a re-apply (theme change,
+    #: overlay change) can re-derive the opacity for the NEW scrim colour.
+    poster_luminance: Optional[float] = None
     text_mode: str = DEFAULT_TEXT_MODE
     #: False → phones get the still poster instead of the video (data saver).
     show_on_mobile: bool = True
@@ -172,6 +212,13 @@ class HeroVideoSettings:
             mode = ""
         return "light" if mode == "light" else "dark"
 
+    def resolved_opacity(self, page_html: str = "") -> float:
+        """The scrim strength to paint: explicit, else from luminance for
+        the scrim colour this page resolves to."""
+        if self.overlay_opacity is not None:
+            return self.overlay_opacity
+        return opacity_for(self.resolved_overlay(page_html), self.poster_luminance)
+
     def resolved_text_mode(self, page_html: str = "") -> str:
         """``auto`` reads the scrim: dark scrim → light text, and vice versa."""
         if self.text_mode != "auto":
@@ -189,6 +236,7 @@ class HeroVideoSettings:
             "poster_url": self.poster_url,
             "overlay": self.overlay,
             "overlay_opacity": self.overlay_opacity,
+            "poster_luminance": self.poster_luminance,
             "text_mode": self.text_mode,
             "show_on_mobile": self.show_on_mobile,
         }
@@ -263,6 +311,16 @@ def hero_video_delivery_url(url: Optional[str]) -> Optional[str]:
     return f"{head}{HERO_VIDEO_DELIVERY_TRANSFORM}/{rest}"
 
 
+def _clamp_unit(value: Optional[float]) -> Optional[float]:
+    """0..1 or None — a luminance that cannot be parsed is simply unknown."""
+    if value is None:
+        return None
+    try:
+        return round(min(max(float(value), 0.0), 1.0), 3)
+    except (TypeError, ValueError):
+        return None
+
+
 def clamp_opacity(value: Optional[float]) -> float:
     """Keep the scrim inside a range that stays readable and stays visible."""
     if value is None:
@@ -282,6 +340,7 @@ def build_settings(
     overlay_opacity: Optional[float] = None,
     text_mode: Optional[str] = None,
     show_on_mobile: Optional[bool] = None,
+    poster_luminance: Optional[float] = None,
 ) -> HeroVideoSettings:
     """Normalise raw request values into settings. Raises ValueError on a
     video URL we refuse to embed; every other field falls back to a default
@@ -310,7 +369,8 @@ def build_settings(
         video_url=clean_video,
         poster_url=clean_poster,
         overlay=mode,
-        overlay_opacity=clamp_opacity(overlay_opacity),
+        overlay_opacity=None if overlay_opacity is None else clamp_opacity(overlay_opacity),
+        poster_luminance=_clamp_unit(poster_luminance),
         text_mode=text,
         show_on_mobile=True if show_on_mobile is None else bool(show_on_mobile),
     )
@@ -443,12 +503,16 @@ def detect_hero_video(html: str) -> Optional[Dict]:
     if not video_url:
         return None
     opacity = _read_attr(tag, "data-binaapp-overlay-opacity")
+    luminance = _read_attr(tag, "data-binaapp-poster-luminance")
     mobile = (_read_attr(tag, "data-binaapp-mobile") or "video").lower()
     return {
         "video_url": video_url,
         "poster_url": _read_attr(tag, "data-binaapp-poster-url") or None,
         "overlay": (_read_attr(tag, "data-binaapp-overlay") or DEFAULT_OVERLAY).lower(),
-        "overlay_opacity": clamp_opacity(opacity) if opacity else DEFAULT_OVERLAY_OPACITY,
+        # None (not a default) when the page carries no explicit value, so a
+        # re-apply keeps deriving it from luminance for the current scrim.
+        "overlay_opacity": clamp_opacity(opacity) if opacity else None,
+        "poster_luminance": _clamp_unit(luminance) if luminance else None,
         "text_mode": (_read_attr(tag, "data-binaapp-text-mode") or DEFAULT_TEXT_MODE).lower(),
         "show_on_mobile": mobile != "poster",
     }
@@ -656,8 +720,17 @@ def _build_layer(settings: HeroVideoSettings) -> str:
             else ""
         )
         + f' data-binaapp-overlay="{settings.overlay}"'
-        f' data-binaapp-overlay-opacity="{settings.overlay_opacity}"'
-        f' data-binaapp-text-mode="{settings.text_mode}"'
+        + (
+            f' data-binaapp-overlay-opacity="{settings.overlay_opacity}"'
+            if settings.overlay_opacity is not None
+            else ""
+        )
+        + (
+            f' data-binaapp-poster-luminance="{settings.poster_luminance}"'
+            if settings.poster_luminance is not None
+            else ""
+        )
+        + f' data-binaapp-text-mode="{settings.text_mode}"'
         f' data-binaapp-mobile="{"video" if settings.show_on_mobile else "poster"}"'
         f"{poster_style}>"
         f'<video class="binaapp-hero-video" autoplay muted loop playsinline'
@@ -689,6 +762,17 @@ PLAYBACK_BOOTSTRAP = (
     "var s=document.currentScript,l=s&&s.parentNode,v=l&&l.querySelector('video.binaapp-hero-video');"
     "if(!v)return;"
     "var h=l.parentNode;"
+    # Keep-colour pass. Anything in the hero that paints an opaque
+    # background keeps the text colour its designer gave it — a filled CTA
+    # is readable already. Descendants too: the icon and label inside the
+    # pill are the pill's. Runs before play() so the first paint is right.
+    "try{var K='data-binaapp-keep-color';"
+    "function op(e){var m=/rgba?\\(\\s*\\d+\\s*,\\s*\\d+\\s*,\\s*\\d+\\s*(?:,\\s*([\\d.]+))?\\s*\\)/.exec(getComputedStyle(e).backgroundColor||'');"
+    "return !!m&&(m[1]===undefined||parseFloat(m[1])>=0.1);}"
+    "var all=h.querySelectorAll('*');for(var i=0;i<all.length;i++){var e=all[i];"
+    "if(l.contains(e)||e.hasAttribute(K))continue;"
+    "if(op(e)){e.setAttribute(K,'');var d=e.querySelectorAll('*');for(var j=0;j<d.length;j++)d[j].setAttribute(K,'');}}"
+    "}catch(e){}"
     # Reduced motion: the CSS hides the frame, this stops the download. A
     # bare return left `autoplay preload=auto` to pull the whole clip on a
     # device that asked for stillness.
@@ -779,8 +863,8 @@ def _build_style(
     hosted: bool = False,
 ) -> str:
     hero = f"[{HERO_MARKER_ATTR}]"
-    opacity = settings.overlay_opacity
     overlay = settings.resolved_overlay(page_html)
+    opacity = settings.resolved_opacity(page_html)
 
     if overlay == "dark":
         scrim = (
@@ -879,22 +963,22 @@ def _build_style(
         # keeps the page's own colours; only a full-bleed layer changes
         # what the copy sits on.
         colour = "#FFFFFF" if text_mode == "light" else "#0F172A"
-        selectors = ",".join(f"{hero} {tag}" for tag in _TEXT_ELEMENTS)
+        keep = f":not([{KEEP_COLOR_ATTR}])"
         # !important because generated pages set the colour with a Tailwind
-        # arbitrary value on the element itself.
+        # arbitrary value on the element itself. Every selector is scoped by
+        # the runtime keep-colour stamp: the bootstrap reads each element's
+        # COMPUTED background and stamps anything opaque (and everything
+        # inside it), which is the only way to see a background the page
+        # set in its own stylesheet. The old :not([class*="bg-"]) test
+        # missed `.btn-whatsapp` and painted navy on a pink pill.
+        selectors = ",".join(f"{hero} {tag}{keep}" for tag in _TEXT_ELEMENTS)
         rules.append(f"{selectors}{{color:{colour} !important;}}")
         # Inline text and ghost buttons too (maka: feature spans in #7A7A6E
-        # and a bordered "Lihat Koleksi" stayed dark on the dark scrim) —
-        # but never an element that paints its own background: a filled
-        # WhatsApp pill is readable already and must stay branded.
-        inline = ",".join(
-            f'{hero} {tag}:not([class*="bg-"]):not([style*="background"])'
-            for tag in _INLINE_TEXT_ELEMENTS
-        )
+        # and a bordered "Lihat Koleksi" stayed dark on the dark scrim).
+        inline = ",".join(f"{hero} {tag}{keep}" for tag in _INLINE_TEXT_ELEMENTS)
         rules.append(f"{inline}{{color:{colour} !important;}}")
         rules.append(
-            f'{hero} a[class*="border-"]:not([class*="bg-"]),'
-            f'{hero} button[class*="border-"]:not([class*="bg-"])'
+            f"{hero} a{keep},{hero} button{keep}"
             "{border-color:currentColor !important;}"
         )
         if text_mode == "light":
@@ -1044,7 +1128,7 @@ def apply_hero_video(html: str, settings: HeroVideoSettings) -> HeroVideoResult:
         "[hero-video] injected (hero matched by %s, overlay=%s/%.2f, mobile=%s, media hidden=%d)",
         how,
         settings.overlay,
-        settings.overlay_opacity,
+        settings.resolved_opacity(base),
         "video" if settings.show_on_mobile else "poster",
         media_count,
     )

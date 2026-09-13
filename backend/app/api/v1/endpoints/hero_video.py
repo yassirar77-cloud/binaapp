@@ -90,7 +90,7 @@ from app.services.plan_features import (
 )
 from app.services.subscription_service import subscription_service
 from app.services.storage_service import storage_service
-from app.services.hero_luminance import auto_overlay_opacity
+from app.services.hero_luminance import poster_luminance
 from app.services import hero_video_jobs as ledger
 from app.services.supabase_client import supabase_service
 from app.services.zai_video_service import (
@@ -207,6 +207,9 @@ class HeroVideoLook(BaseModel):
     overlay_opacity: Optional[float] = Field(default=None, ge=0.0, le=0.9)
     text_mode: Literal["auto", "light", "dark", "keep"] = DEFAULT_TEXT_MODE
     show_on_mobile: bool = True
+    #: Mean first-frame luminance (0..1), measured when the clip is stored.
+    #: Never sent by a client; kept here so job.settings round-trips it.
+    poster_luminance: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
 
 class GenerateHeroVideoRequest(HeroVideoLook):
@@ -660,6 +663,7 @@ def _settings_from_look(look: HeroVideoLook, video_url: str, poster_url: Optiona
         overlay_opacity=look.overlay_opacity,
         text_mode=look.text_mode,
         show_on_mobile=look.show_on_mobile,
+        poster_luminance=look.poster_luminance,
     )
 
 
@@ -1224,9 +1228,13 @@ async def _store_clip(job, provider_video_url: str, *, website_id: str) -> bool:
     look = HeroVideoLook(**job.settings)
     if look.overlay_opacity is None and look.overlay != "none":
         # Bug 5: a fixed 0.45 was fine over dark footage and unreadable
-        # over bright footage. Measure the first frame instead — the
-        # clip's own frame, since the scrim sits over the playing video.
-        look.overlay_opacity = await auto_overlay_opacity(stored["poster_url"])
+        # over bright footage. Measure the first frame — the clip's own
+        # frame, since the scrim sits over the playing video — and keep the
+        # MEASUREMENT, not an opacity: with overlay "auto" the scrim colour
+        # is only known at apply time, and a light scrim needs the opposite
+        # mapping (bright clip → less white), so the patcher derives the
+        # number from the luminance for whichever scrim the page gets.
+        look.poster_luminance = await poster_luminance(stored["poster_url"])
         job.settings = look.model_dump()
     return True
 
@@ -1511,6 +1519,7 @@ async def update_hero_video_look(
         overlay_opacity=merged.get("overlay_opacity"),
         text_mode=merged.get("text_mode"),
         show_on_mobile=merged.get("show_on_mobile"),
+        poster_luminance=merged.get("poster_luminance"),
     )
     patched = apply_hero_video(base_html, settings)
     if not patched.changed or patched.html == base_html:

@@ -181,15 +181,18 @@ class TestOverlayAuto:
 
 
 class TestFullBleedTextRules:
-    def test_inline_text_is_recoloured_unless_it_paints_a_background(self):
+    def test_inline_text_is_recoloured_unless_it_keeps_its_colour(self):
+        # Scoped by the runtime stamp, never by class name: a background set
+        # in the page's own <style> (.btn-whatsapp) is invisible to a class
+        # test, and navy text landed on a pink pill (bji, 3.66:1).
         style = _style(apply_hero_video(SOON, _settings()).html)
-        assert 'span:not([class*="bg-"]):not([style*="background"])' in style
-        assert 'a:not([class*="bg-"]):not([style*="background"])' in style
+        assert "span:not([data-binaapp-keep-color])" in style
+        assert "a:not([data-binaapp-keep-color])" in style
+        assert '[class*="bg-"]' not in style
 
     def test_ghost_buttons_take_the_text_colour_for_their_border(self):
         style = _style(apply_hero_video(SOON, _settings()).html)
-        assert 'a[class*="border-"]:not([class*="bg-"])' in style
-        assert "border-color:currentColor !important" in style
+        assert "a:not([data-binaapp-keep-color]),[data-binaapp-hero-video] button:not([data-binaapp-keep-color]){border-color:currentColor !important;}" in style
 
     def test_text_mode_keep_still_recolours_nothing(self):
         style = _style(apply_hero_video(SOON, _settings(text_mode="keep")).html)
