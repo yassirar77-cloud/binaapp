@@ -3795,6 +3795,27 @@ OUTPUT FORMAT - a JSON array of exactly {n} strings, nothing else:
         "60111111111", "60000000000", "1234567890", "60123456780",
     })
 
+    def _hero_cue_for(self, request: WebsiteGenerationRequest, color_mode: str, language: str) -> Optional[str]:
+        """The dish-specific hero prompt cue from the (library) design plan
+        — used when the hero is AI-generated, so the image is written from
+        the plan rather than a generic category template. Never raises."""
+        try:
+            design_brief = normalize_design_brief(getattr(request, "design_brief", None))
+            brief = self._plan_brief_for(
+                request, color_mode=color_mode, has_images=True, image_count=1,
+                design_brief=design_brief, language=language,
+            )
+            plan = fallback_plan(brief)
+            from app.services.image_intelligence import direction_hero_cue
+            items = [i["name"] for i in self._normalize_supplied_menu_items(getattr(request, "menu_items", None))]
+            return direction_hero_cue(
+                image_cue=plan.image_cue, vertical=brief.vertical, theme=brief.theme,
+                item_names=items, merchant_prompt=getattr(request, "hero_image_prompt", None),
+            )
+        except Exception as err:
+            logger.warning(f"🖼️ Hero cue unavailable: {err}")
+            return None
+
     @staticmethod
     def _gallery_image_count(request) -> int:
         """Uploaded photos that are neither the hero nor a named menu item —
@@ -8076,6 +8097,7 @@ IMPORTANT RULES:
     def _autofill_hero_prompt(
         self, category: str, biz_type: str, business_context: str = "",
         food_subtype: str = "general", merchant_prompt: Optional[str] = None,
+        direction_cue: Optional[str] = None,
     ) -> str:
         """Hero banner prompt per category.
 
@@ -8104,6 +8126,13 @@ IMPORTANT RULES:
                 f"{category!r} template): {merchant_prompt!r}"
             )
             return f"{merchant_prompt}, {self._NO_TEXT_SUFFIX}"
+        # Two-pass generation writes the hero prompt from the design plan:
+        # the direction's dish-specific cue merged with the merchant's
+        # signature items (see image_intelligence.direction_hero_cue).
+        direction_cue = (direction_cue or "").strip()
+        if direction_cue:
+            logger.info(f"🖼️ Hero prompt: FROM DESIGN PLAN: {direction_cue!r}")
+            return f"{direction_cue}, {self._HERO_NO_TEXT_SUFFIX}"
 
         ctx = f", for the business: {business_context}" if business_context else ""
         if category == "food":
@@ -8222,6 +8251,7 @@ IMPORTANT RULES:
         image_urls: Dict,
         max_ai_images: Optional[int] = None,
         zai_phase: Optional[Dict] = None,
+        hero_cue: Optional[str] = None,
     ) -> int:
         """Auto-fill hero/gallery slots that uploads didn't cover (free-by-default).
 
@@ -8346,6 +8376,7 @@ IMPORTANT RULES:
         hero_prompt = self._autofill_hero_prompt(
             category, _biz_type, _biz_context, food_subtype=_food_subtype,
             merchant_prompt=getattr(request, "hero_image_prompt", None),
+            direction_cue=hero_cue,
         )
 
         # Work list: hero first, then one image per (missing slot, real item
@@ -8476,6 +8507,20 @@ IMPORTANT RULES:
         # ZAI_IMAGE_PHASE_BUDGET_SECONDS. No-op when IMAGE_PROVIDER=stability.
         _zai_image_phase = self._new_zai_image_phase()
 
+        # Two-pass generation writes the hero image prompt from the plan
+        # (§0/§6): resolved up front so the auto-fill below can use it.
+        _plan_mode_requested = (
+            design_plan_enabled()
+            and not getattr(request, "template_id", None)
+            and resolve_design_freedom(getattr(request, "design_freedom", None)) == FREEDOM_DESIGNER
+        )
+        _hero_cue = None
+        if _plan_mode_requested and image_choice != "none":
+            _hero_cue = self._hero_cue_for(
+                request, getattr(request, "color_mode", "light") or "light",
+                "en" if str(getattr(request, "language", "ms")).lower().endswith("en") else "ms",
+            )
+
         if image_choice == "none":
             logger.info("🚫 Image choice='none' - SKIPPING ALL image generation")
             # Don't generate or use any images
@@ -8522,7 +8567,8 @@ IMPORTANT RULES:
             # still takes the photo-slots prompt branch.
             with _timed_step("stability_images", step_timings):
                 ai_images_generated = await self._autofill_missing_images(
-                    request, image_urls, max_ai_images, zai_phase=_zai_image_phase
+                    request, image_urls, max_ai_images, zai_phase=_zai_image_phase,
+                    hero_cue=_hero_cue,
                 )
             if ai_images_generated:
                 await update_progress(45, "AI images generated")
@@ -8541,10 +8587,25 @@ IMPORTANT RULES:
 
             with _timed_step("stability_images", step_timings):
                 ai_images_generated = await self._autofill_missing_images(
-                    request, image_urls, max_ai_images, zai_phase=_zai_image_phase
+                    request, image_urls, max_ai_images, zai_phase=_zai_image_phase,
+                    hero_cue=_hero_cue,
                 )
 
             await update_progress(45, "AI images generated")
+
+        # Consistent crop ratios per section (§6): hero 16:9, item tiles
+        # 4:3 — applied as Cloudinary transforms on every resolved URL (and
+        # the request's own list, so the exact-URL validation stays in
+        # step). Non-Cloudinary URLs pass through untouched.
+        if _plan_mode_requested and image_urls:
+            try:
+                from app.services.image_intelligence import apply_section_crops, crop_uploaded_images
+                _item_role = "menu" if normalize_business_type(getattr(request, "business_type", None)) in ("food", "bakery", None, "") else "product"
+                image_urls = apply_section_crops(image_urls, item_role=_item_role)
+                if request.uploaded_images:
+                    request.uploaded_images = crop_uploaded_images(request.uploaded_images, item_role=_item_role)
+            except Exception as _crop_err:
+                logger.warning(f"🖼️ Section crops skipped: {_crop_err}")
 
         # ===================================================================
         # PRE-BUILT TEMPLATE PATH: If user selected a template that has a

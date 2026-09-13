@@ -267,6 +267,13 @@ def service():
 
 
 class TestSanitizerPipelineWiring:
+    """Provider assertions below are about the HTML call; the two-pass plan
+    step (its own DeepSeek call) is pinned off, as in test_glm_html_generation."""
+
+    @pytest.fixture(autouse=True)
+    def _plan_step_off(self, monkeypatch):
+        monkeypatch.setenv("AI_DESIGN_PLAN_ENABLED", "false")
+
 
     @pytest.mark.asyncio
     async def test_glm_path_output_is_sanitized(self, service, monkeypatch):

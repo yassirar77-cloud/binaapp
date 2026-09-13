@@ -253,3 +253,53 @@ async def test_glm_system_prompt_gets_plan_clause(service):
         await service._call_glm("p", has_images=True, designer_mode=True, plan_mode=True)
     system = captured["body"]["messages"][0]["content"]
     assert "DESIGN PLAN" in system and "do not decorate headlines" in system
+
+
+# ---- imagery wiring (§6) --------------------------------------------------------
+
+def test_hero_cue_comes_from_the_plan(service):
+    req = _request(hero_image_prompt=None)
+    cue = service._hero_cue_for(req, "light", "ms")
+    assert cue and "Ayam Goreng Berempah" in cue and "daylight" in cue
+    prompt = service._autofill_hero_prompt("food", "restaurant", "Nasi Kandar Crystal", direction_cue=cue)
+    assert prompt.startswith("featuring Ayam Goreng Berempah")
+    # The merchant's own hero words still beat the plan cue.
+    prompt = service._autofill_hero_prompt("food", "restaurant", "x", merchant_prompt="Kari kepala ikan berasap", direction_cue=cue)
+    assert prompt.startswith("Kari kepala ikan berasap")
+
+
+@pytest.mark.asyncio
+async def test_generate_applies_section_crops_and_uses_the_plan(service, monkeypatch):
+    """End-to-end through generate_website with every provider mocked: the
+    plan step runs, Cloudinary URLs get section crops, and the prompt
+    carries the plan."""
+    monkeypatch.setattr(ai_service_module, "USE_GLM_FOR_HTML", False)
+    monkeypatch.setenv("DESIGN_CRITIQUE_ENABLED", "false")
+    hero = "https://res.cloudinary.com/demo/image/upload/v1/hero.jpg"
+    item = "https://res.cloudinary.com/demo/image/upload/v1/ayam.jpg"
+    req = _request(uploaded_images=[{"url": hero, "name": "Hero Image"}, {"url": item, "name": "Ayam Goreng Berempah", "price": "RM8"}])
+    html = f'<!DOCTYPE html><html lang="ms"><head><title>x</title></head><body><section id="home"><h1>Nasi Kandar Crystal</h1><img src="{hero.replace("/upload/", "/upload/c_fill,ar_16:9,g_auto,w_1600,q_auto,f_auto/")}" alt="Hero"></section><section id="menu"><h2>Menu</h2><img src="{item.replace("/upload/", "/upload/c_fill,ar_4:3,g_auto,w_900,q_auto,f_auto/")}" alt="Ayam Goreng Berempah"><h3>Ayam Goreng Berempah</h3><span>RM8</span></section><footer>&copy; <span id="binaapp-year"></span> Nasi Kandar Crystal</footer></body></html>'
+    service._call_plan_model = AsyncMock(return_value=None)
+    service._call_deepseek = AsyncMock(return_value=html)
+    service._call_qwen = AsyncMock(return_value=None)
+    service._improve_with_qwen = AsyncMock(side_effect=lambda h, d: h)
+    service._generate_ai_food_images = AsyncMock(side_effect=lambda h, **k: (h, 0))
+    service._autofill_missing_images = AsyncMock(return_value=0)
+    with patch("app.services.image_intelligence.hero_quality", new=AsyncMock(side_effect=Exception("offline"))):
+        result = await service.generate_website(req, image_choice="upload")
+    assert service._last_design_plan is not None
+    prompt = service._call_deepseek.call_args.args[0]
+    assert "BINDING SPEC" in prompt and "ar_16:9" in prompt and "ar_4:3" in prompt
+    assert "ar_16:9" in result.html_content
+    assert 'lang="ms"' in result.html_content and "prefers-reduced-motion" in result.html_content
+
+
+def test_outer_budget_covers_plan_and_gate_retries(monkeypatch):
+    monkeypatch.setenv("AI_DESIGN_PLAN_ENABLED", "true")
+    monkeypatch.setattr(ai_service_module, "USE_GLM_FOR_HTML", True)
+    monkeypatch.setattr(ai_service_module, "PREMIUM_DESIGN_LOOP", False)
+    budget = ai_service_module.generation_outer_timeout_seconds()
+    expected_min = ai_service_module.AI_DESIGN_PLAN_TIMEOUT_SECONDS + ai_service_module.AI_GLM_TIMEOUT_SECONDS * (1 + ai_service_module.DESIGN_GATE_MAX_RETRIES)
+    assert budget >= expected_min
+    monkeypatch.setenv("AI_DESIGN_PLAN_ENABLED", "false")
+    assert ai_service_module.generation_outer_timeout_seconds() < budget

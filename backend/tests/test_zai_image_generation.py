@@ -311,6 +311,14 @@ RATE_LIMIT_RESPONSE = FakeResponse(
 
 
 class TestZaiRateLimitAndSerialization:
+    """The two-pass plan step (on by default) widens the outer budget by
+    its own plan/critique/retry allowance; these budget assertions are
+    about the older flags, so the plan step is pinned off here."""
+
+    @pytest.fixture(autouse=True)
+    def _plan_step_off(self, monkeypatch):
+        monkeypatch.setenv("AI_DESIGN_PLAN_ENABLED", "false")
+
     async def test_429_retry_then_success(self, zai_env, cloudinary_upload, monkeypatch):
         monkeypatch.setattr(ai_service_module, "ZAI_IMAGE_RETRY_BACKOFF_SECONDS", (0.0, 0.0))
         fake_client = make_fake_async_client(

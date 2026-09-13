@@ -348,6 +348,14 @@ class TestPassFlagInconsistency:
 
 
 class TestGenerationOuterTimeout:
+    """The two-pass plan step (on by default) widens the outer budget by
+    its own plan/critique/retry allowance; these budget assertions are
+    about the older flags, so the plan step is pinned off here."""
+
+    @pytest.fixture(autouse=True)
+    def _plan_step_off(self, monkeypatch):
+        monkeypatch.setenv("AI_DESIGN_PLAN_ENABLED", "false")
+
     """The outer wait_for guard around generate_website must not kill a
     healthy premium-loop generation mid-revision (worst case ~510s), while
     normal generations keep the tight 180s budget."""
