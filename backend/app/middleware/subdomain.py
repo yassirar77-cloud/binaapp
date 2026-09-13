@@ -139,6 +139,15 @@ def _page_response(html_content: str, request: Optional[Request], website_id: Op
         "ETag": etag,
     }
     if request is not None:
+        # The app's Export/Copy buttons fetch the page AS SERVED from here —
+        # the one copy that carries every serve-time change — and a
+        # cross-origin fetch from the app needs this header to read the
+        # body. Only the app's own origins, only for this public GET; a
+        # merchant site is public already, so nothing new is exposed.
+        origin = request.headers.get("origin") or ""
+        if origin and origin in settings.CORS_ORIGINS:
+            headers["Access-Control-Allow-Origin"] = origin
+            headers["Vary"] = "Origin"
         inm = request.headers.get("if-none-match") or ""
         # Weak comparison (RFC 7232 §3.2): the CDN/proxy in front gzips the
         # body and downgrades our strong ETag to W/"…", and browsers echo

@@ -3,6 +3,7 @@
  */
 'use client'
 import { useState, useEffect, useRef } from 'react'
+import { localityConflict } from '@/lib/localities'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Sparkles, Download, Upload, Eye, Copy, Check, Share2, Layout, FileText, MapPin, Truck, ListChecks, Globe, ChevronDown, X as XIcon } from 'lucide-react'
@@ -368,6 +369,10 @@ export default function CreatePage() {
 
   // Google Map state
   const [fullAddress, setFullAddress] = useState('')
+  // Same comparison the backend validator makes (business_identity.localities_in),
+  // shown before Generate: a story set in Shah Alam and an address in Kota
+  // Damansara went out on one page (bji). Null when either side names nothing.
+  const addressLocalityConflict = localityConflict(description, fullAddress)
 
   // Social media states
   const [instagram, setInstagram] = useState('')
@@ -1120,12 +1125,35 @@ export default function CreatePage() {
     }
   }
 
-  // The page as it is actually served, when there is one. Falls back to the
-  // generation-time copy for an unpublished site or if the fetch fails, so
-  // export never produces nothing.
+  // The page as it is actually served, when there is one. Three sources, in
+  // order of how true they are, and a console line for every fallback — the
+  // first version of this fell back silently and an export taken ten
+  // minutes after the clip landed still had no <video> (bji), with nothing
+  // to say why.
+  //   1. The live subdomain itself: the one copy that carries every
+  //      serve-time change. Needs no auth; the middleware allows the app's
+  //      origin to read it.
+  //   2. The website row via the API: what the hero-video write-back updates.
+  //   3. generatedHtml: the generation-time copy held in this component.
+  const looksLikeTheSite = (html: string) =>
+    /<html[\s>]/i.test(html) && /<body[\s>]/i.test(html) && html.length > 2000
   const fetchLiveHtml = async (): Promise<string> => {
     const id = publishedWebsiteIdRef.current
-    if (!id) return generatedHtml
+    if (!id || !publishedUrl) return generatedHtml
+
+    try {
+      const res = await fetch(publishedUrl, { cache: 'no-store', mode: 'cors' })
+      if (res.ok) {
+        const html = await res.text()
+        if (looksLikeTheSite(html)) return html
+        console.warn('[binaapp export] live page did not look like the site; trying the API row')
+      } else {
+        console.warn(`[binaapp export] live page responded ${res.status}; trying the API row`)
+      }
+    } catch (err) {
+      console.warn('[binaapp export] live page fetch failed; trying the API row', err)
+    }
+
     try {
       let accessToken = getStoredToken()
       if (!accessToken && supabase) {
@@ -1135,14 +1163,17 @@ export default function CreatePage() {
       const res = await fetch(`${API_BASE_URL}/api/v1/websites/${id}`, {
         headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
       })
-      if (!res.ok) return generatedHtml
-      const data = await res.json()
-      return typeof data?.html_content === 'string' && data.html_content.trim()
-        ? data.html_content
-        : generatedHtml
-    } catch {
-      return generatedHtml
+      if (res.ok) {
+        const data = await res.json()
+        if (typeof data?.html_content === 'string' && data.html_content.trim()) return data.html_content
+        console.warn('[binaapp export] API row has no html_content; using the generation-time copy')
+      } else {
+        console.warn(`[binaapp export] API row responded ${res.status}; using the generation-time copy`)
+      }
+    } catch (err) {
+      console.warn('[binaapp export] API row fetch failed; using the generation-time copy', err)
     }
+    return generatedHtml
   }
 
   const handleDownload = async () => {
@@ -2017,6 +2048,17 @@ export default function CreatePage() {
                       type="text"
                       required
                       maxLength={80}
+                      // Chrome classifies a "business name" input as an
+                      // organisation field and, on the first interaction, fills
+                      // the WHOLE saved-address group around it — the address
+                      // input further down included. That is the only mechanism
+                      // that fills a controlled input and fires onChange without
+                      // typing, and it is the best explanation for a blank
+                      // address field publishing a merchant's own home address
+                      // (bji). "off" alone is ignored for address groups; a
+                      // non-standard token is not.
+                      autoComplete="binaapp-no-autofill"
+                      name="binaapp_business_name"
                       placeholder="cth: Nasi Kandar Daging Crystal"
                       className="cr-input"
                       value={businessName}
@@ -2474,6 +2516,8 @@ export default function CreatePage() {
                   <input
                     type="tel"
                     inputMode="tel"
+                    autoComplete="binaapp-no-autofill"
+                    name="binaapp_whatsapp"
                     placeholder="cth: 012-345 6789"
                     className="cr-input"
                     value={whatsappNumber}
@@ -2494,11 +2538,18 @@ export default function CreatePage() {
                   <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Alamat Penuh</label>
                   <input
                     type="text"
+                    autoComplete="binaapp-no-autofill"
+                    name="binaapp_business_address"
                     placeholder="cth: 123, Jalan Sultan, Shah Alam, Selangor"
                     className="cr-input"
                     value={fullAddress}
                     onChange={(e) => setFullAddress(e.target.value)}
                   />
+                  {addressLocalityConflict && (
+                    <div role="alert" style={{ fontSize: 12, color: '#FFB020', marginTop: 8, lineHeight: 1.45 }}>
+                      ⚠️ Alamat ini sebut <b>{addressLocalityConflict.address}</b>, tetapi cerita kedai anda sebut <b>{addressLocalityConflict.story}</b>. Pastikan alamat ini betul — ia akan dipaparkan pada peta, footer dan Google.
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -2550,7 +2601,7 @@ export default function CreatePage() {
                   {fulfillment.pickup && (
                     <div style={{ marginTop: 10, marginLeft: 32 }}>
                       <label style={{ display: 'block', fontSize: 12, color: '#86869A', marginBottom: 6 }}>Alamat Pickup</label>
-                      <input type="text" placeholder="No. 123, Jalan ABC, Shah Alam" className="cr-input" value={fulfillment.pickupAddress} onChange={(e) => setFulfillment({...fulfillment, pickupAddress: e.target.value})} />
+                      <input type="text" autoComplete="binaapp-no-autofill" name="binaapp_pickup_address" placeholder="No. 123, Jalan ABC, Shah Alam" className="cr-input" value={fulfillment.pickupAddress} onChange={(e) => setFulfillment({...fulfillment, pickupAddress: e.target.value})} />
                     </div>
                   )}
                 </div>
