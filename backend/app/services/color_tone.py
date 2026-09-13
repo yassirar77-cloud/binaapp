@@ -125,6 +125,8 @@ def resolve_vars(value: str, variables: Optional[Dict[str, str]], depth: int = 4
         replacement = (variables or {}).get(name, fallback)
         text = text[: match.start()] + replacement + text[match.end():]
     return text
+
+
 _INLINE_BG_RE = re.compile(
     r"(?:^|;)\s*background(?:-color|-image)?\s*:\s*([^;]+)", re.IGNORECASE
 )
