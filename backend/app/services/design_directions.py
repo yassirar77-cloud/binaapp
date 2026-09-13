@@ -386,7 +386,7 @@ DIRECTIONS: Tuple[Direction, ...] = (
         signature_element="a single thin gold rule (1px, accent_2) used once as the divider under the hero headline — the only gold on the page; everything else is white space and deep green",
         layout_notes="white page with a champagne surface for the menu block only, serif display at generous size, menu as an aligned price list with dotted leaders, story as two columns with wide margins",
         motion="the hero photo fades in over 900ms on load; nothing else",
-        keywords=("mewah", "luxury", "premium", "eksklusif", "fine", "butik", "high tea", "tea room", "patisserie"),
+        keywords=("mewah", "luxury", "premium", "eksklusif", "fine", "butik", "high tea", "tea room", "patisserie", "bridal", "pengantin", "makeup"),
         image_cue="an elegant plated dish on white porcelain, soft directional daylight",
     ),
     # ------------------------------------------------------------------ F&B dark

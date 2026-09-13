@@ -3634,6 +3634,21 @@ async def publish_website(
             f"🔧 HTML repair report for {subdomain}: {_repair_info}"
         )
 
+    # Quality floor (§8) at publish: the Tailwind Play CDN is replaced with
+    # compiled CSS when TAILWIND_PRECOMPILE is on and the CLI is reachable;
+    # otherwise the page keeps the CDN and the floor only records it.
+    try:
+        from app.services.quality_floor import apply_quality_floor as _apply_floor
+        from app.services import tailwind_precompile as _twp
+        _compiled_css = None
+        if _twp.enabled() and _twp.available():
+            _compiled_css = await _twp.compile_css(html_content)
+        html_content, _floor = _apply_floor(html_content, language=str(body.get("language") or "ms"), precompiled_css=_compiled_css)
+        if _floor.applied:
+            logger.info(f"🧱 Quality floor at publish ({subdomain}): {_floor.applied}")
+    except Exception as _floor_err:
+        logger.warning(f"⚠️ Quality floor at publish skipped: {_floor_err}")
+
     # HTML structural-integrity gate (Item 5 / Option B).
     # Refuses to publish HTML with unclosed mid-body tags or missing </html>,
     # which is the failure mode that put jiwa/huil/juio in production with
