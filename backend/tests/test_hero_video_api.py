@@ -713,8 +713,10 @@ class TestPhotoIsTheStill:
         assert body["status"] == "completed"
         assert body["poster_url"] == "https://res.cloudinary.com/x/shop.jpg"
         assert body["image_url"] == "https://res.cloudinary.com/x/shop.jpg"
-        # Overlay opacity was unset → measured, and from the CLIP's frame.
-        patches["auto_opacity"].assert_awaited_once_with(CLOUD_POSTER)
+        # Overlay opacity was unset → the luminance is measured, and from
+        # the CLIP's frame (the scrim sits over the playing video, not the
+        # merchant's photo).
+        patches["luminance"].assert_awaited_once_with(CLOUD_POSTER)
         html = _published_html(patches)
         assert 'poster="https://res.cloudinary.com/x/shop.jpg"' in html
         assert CLOUD_POSTER not in html
