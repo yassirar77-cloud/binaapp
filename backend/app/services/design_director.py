@@ -165,6 +165,7 @@ GOOGLE_FONTS: Dict[str, Dict[str, str]] = {
     "Bricolage Grotesque": {"category": "sans", "weights": _W4567},
     "Schibsted Grotesk": {"category": "sans", "weights": _W4567},
     "Hanken Grotesk": {"category": "sans", "weights": _W4567},
+    "Familjen Grotesk": {"category": "sans", "weights": _W4567},
     "Albert Sans": {"category": "sans", "weights": _W4567},
     "Be Vietnam Pro": {"category": "sans", "weights": _W4567},
     "Cabin": {"category": "sans", "weights": _W4567},
